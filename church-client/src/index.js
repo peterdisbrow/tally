@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Church AV Connect — Client Agent
+ * Tally — Client Agent
  * Runs on the church's production computer.
  * Bridges local ATEM/OBS/ProPresenter → Andrew's relay server.
  *
  * Usage:
- *   npx church-av-connect --token YOUR_TOKEN --relay wss://relay.atemschool.com
+ *   npx tally-connect --token YOUR_TOKEN --relay wss://relay.atemschool.com
  */
 
 const WebSocket = require('ws');
@@ -21,10 +21,10 @@ const { CompanionBridge } = require('./companion');
 // ─── CLI CONFIG ───────────────────────────────────────────────────────────────
 
 program
-  .name('church-av-connect')
+  .name('tally-connect')
   .description('Connect your church AV system to ATEM School remote monitoring')
   .option('-t, --token <token>', 'Your church connection token (from ATEM School)')
-  .option('-r, --relay <url>', 'Relay server URL', 'wss://church-av-relay.up.railway.app')
+  .option('-r, --relay <url>', 'Relay server URL', 'wss://tally-relay.up.railway.app')
   .option('-a, --atem <ip>', 'ATEM switcher IP (auto-discovers if omitted)')
   .option('-o, --obs <url>', 'OBS WebSocket URL', 'ws://localhost:4455')
   .option('-p, --obs-password <password>', 'OBS WebSocket password')
@@ -60,7 +60,7 @@ function loadConfig() {
   if (!config.token) {
     console.error('\n❌ No connection token provided.');
     console.error('   Get your token from ATEM School, then run:');
-    console.error('   church-av-connect --token YOUR_TOKEN\n');
+    console.error('   tally-connect --token YOUR_TOKEN\n');
     process.exit(1);
   }
 
@@ -91,7 +91,7 @@ class ChurchAVAgent {
   }
 
   async start() {
-    console.log('\n🎥 Church AV Connect starting...');
+    console.log('\n🎥 Tally starting...');
     if (this.config.name) console.log(`   Name: ${this.config.name}`);
     console.log(`   Relay: ${this.config.relay}`);
 
@@ -103,7 +103,7 @@ class ChurchAVAgent {
     setInterval(() => this.sendStatus(), 30_000);
     setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000);
 
-    console.log('\n✅ Church AV Connect running. Press Ctrl+C to stop.\n');
+    console.log('\n✅ Tally running. Press Ctrl+C to stop.\n');
   }
 
   // ─── RELAY CONNECTION ──────────────────────────────────────────────────────
@@ -114,12 +114,14 @@ class ChurchAVAgent {
       console.log(`\n📡 Connecting to relay...`);
 
       this.relay = new WebSocket(url);
+      let resolved = false;
+      const doResolve = () => { if (!resolved) { resolved = true; resolve(); } };
 
       this.relay.on('open', () => {
         console.log('✅ Connected to relay server');
         this.reconnectDelay = 3000;
         this.sendStatus();
-        resolve();
+        doResolve();
       });
 
       this.relay.on('message', (data) => {
@@ -133,15 +135,17 @@ class ChurchAVAgent {
 
       this.relay.on('close', (code, reason) => {
         console.warn(`⚠️  Relay disconnected (${code}: ${reason}). Reconnecting in ${this.reconnectDelay / 1000}s...`);
+        doResolve(); // Don't block startup if relay is down
         setTimeout(() => this.connectRelay(), this.reconnectDelay);
         this.reconnectDelay = Math.min(this.reconnectDelay * 2, 60_000);
       });
 
       this.relay.on('error', (err) => {
         console.error('Relay error:', err.message);
+        doResolve(); // Don't block startup on error
       });
 
-      setTimeout(resolve, 5000);
+      setTimeout(doResolve, 5000);
     });
   }
 
@@ -267,18 +271,22 @@ class ChurchAVAgent {
 
   async connectOBS() {
     this.obs = new OBSWebSocket();
+    if (!this._obsReconnectDelay) this._obsReconnectDelay = 5000;
 
     this.obs.on('ConnectionOpened', () => {
       console.log('✅ OBS connected');
       this.status.obs.connected = true;
+      this._obsReconnectDelay = 5000;
       this.sendStatus();
     });
 
     this.obs.on('ConnectionClosed', () => {
-      console.warn('⚠️  OBS disconnected. Retrying in 10s...');
+      console.warn(`⚠️  OBS disconnected. Retrying in ${this._obsReconnectDelay / 1000}s...`);
       this.status.obs.connected = false;
       this.sendStatus();
-      setTimeout(() => this.connectOBS(), 10_000);
+      const delay = this._obsReconnectDelay;
+      this._obsReconnectDelay = Math.min(this._obsReconnectDelay * 2, 60_000);
+      setTimeout(() => this.connectOBS(), delay);
     });
 
     this.obs.on('StreamStateChanged', ({ outputActive }) => {

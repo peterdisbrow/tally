@@ -1,7 +1,7 @@
 {
-  "name": "church-av-connect",
+  "name": "tally-connect",
   "version": "1.0.0",
-  "description": "Church AV Connect — Remote monitoring for ATEM School customers",
+  "description": "Tally — Remote monitoring for ATEM School customers",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -11,8 +11,8 @@
     "build:all": "electron-builder --mac --win"
   },
   "build": {
-    "appId": "com.atemschool.churchavconnect",
-    "productName": "Church AV Connect",
+    "appId": "com.atemschool.tally",
+    "productName": "Tally by ATEM School",
     "copyright": "Copyright © 2026 ATEM School",
     "directories": {
       "output": "dist"

@@ -1,5 +1,5 @@
-# Church AV Connect
-
+# Tally
+> Remote production monitoring for churches. Built on Blackmagic. Controlled from your phone.
 Remote monitoring and control of church production systems, built for [ATEM School](https://atemschool.com).
 
 ## Architecture
@@ -50,8 +50,8 @@ Church Client App (Mac/Win)
 #### Docker
 ```bash
 cd relay-server
-docker build -t church-av-relay .
-docker run -p 3000:3000 -e ADMIN_API_KEY=yourkey -e JWT_SECRET=yoursecret -v ./data:/app/data church-av-relay
+docker build -t tally-relay .
+docker run -p 3000:3000 -e ADMIN_API_KEY=yourkey -e JWT_SECRET=yoursecret -v ./data:/app/data tally-relay
 ```
 
 #### Manual
@@ -73,7 +73,7 @@ curl -X POST https://your-relay/api/churches/register \
 
 #### Option A: npx (instant)
 ```bash
-npx church-av-connect --token THEIR_TOKEN --atem 192.168.1.10
+npx tally-connect --token THEIR_TOKEN --atem 192.168.1.10
 ```
 
 #### Option B: Desktop App
@@ -151,7 +151,7 @@ Screenshots are 720×405 JPEG, ~4-6KB each, sent through existing WebSocket rela
 
 ## Companion Integration
 
-[Bitfocus Companion](https://bitfocus.io/companion) supports 600+ device types. Church AV Connect uses Companion as a universal control layer:
+[Bitfocus Companion](https://bitfocus.io/companion) supports 600+ device types. Tally uses Companion as a universal control layer:
 
 - **Any ATEM command** (including models not directly supported)
 - **ProPresenter** slide advance, go to slide, clear
@@ -165,7 +165,7 @@ Screenshots are 720×405 JPEG, ~4-6KB each, sent through existing WebSocket rela
 ### Setup
 1. Configure your devices in Companion as normal
 2. Create buttons for remote-triggerable actions
-3. Church AV Connect calls Companion's HTTP API to press buttons
+3. Tally calls Companion's HTTP API to press buttons
 4. Default: `http://localhost:8888` (change with `--companion` flag)
 
 ### Remote Usage
@@ -231,7 +231,7 @@ node integration.js
 
 ```
 --token, -t          Connection token (required)
---relay, -r          Relay server URL (default: wss://church-av-relay.up.railway.app)
+--relay, -r          Relay server URL (default: wss://tally-relay.up.railway.app)
 --atem, -a           ATEM switcher IP
 --obs, -o            OBS WebSocket URL (default: ws://localhost:4455)
 --obs-password, -p   OBS WebSocket password

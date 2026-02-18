@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Church AV Connect</title>
+  <title>Tally by ATEM School</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -175,7 +175,7 @@
 <!-- ════════════════════════ SETUP WIZARD ════════════════════════ -->
 <div class="wizard" id="wizard">
   <div class="header">
-    <h1>⛪ Church AV Connect</h1>
+    <h1>⛪ Tally by ATEM School</h1>
     <p>Setup Wizard</p>
   </div>
   <div class="content">
@@ -185,10 +185,10 @@
     <div class="wizard-step active" data-step="1">
       <div style="text-align:center; padding: 30px 0 20px;">
         <div style="font-size: 48px; margin-bottom: 16px;">⛪🎥</div>
-        <h2 style="font-size: 20px; color: #f8fafc; font-weight: 700; margin-bottom: 8px;">Welcome to Church AV Connect</h2>
+        <h2 style="font-size: 20px; color: #f8fafc; font-weight: 700; margin-bottom: 8px;">Welcome to Tally</h2>
         <p style="color: #94a3b8; font-size: 13px; line-height: 1.5; max-width: 360px; margin: 0 auto;">
           Remote monitoring and control for your church production system.<br>
-          Built by <a href="https://atemschool.com" style="color: #3b82f6;" onclick="require('electron').shell.openExternal('https://atemschool.com'); return false;">ATEM School</a>.
+          Built by <a href="https://atemschool.com" style="color: #3b82f6;" class="ext-link" data-url="https://atemschool.com">ATEM School</a>.
         </p>
       </div>
     </div>
@@ -198,7 +198,7 @@
       <h2 style="font-size: 15px; color: #f8fafc; margin-bottom: 12px;">Enter Your Connection Token</h2>
       <p style="color: #94a3b8; font-size: 12px; margin-bottom: 16px;">
         Your church admin or ATEM School support will provide this token.
-        <a href="#" style="color: #3b82f6;" onclick="require('electron').shell.openExternal('https://atemschool.com'); return false;">Get one here →</a>
+        <a href="#" style="color: #3b82f6;" class="ext-link" data-url="https://atemschool.com">Get one here →</a>
       </p>
       <div class="form-group">
         <label>Connection Token</label>
@@ -267,7 +267,7 @@
 <!-- ════════════════════════ DASHBOARD ════════════════════════ -->
 <div class="dashboard" id="dashboard">
   <div class="header">
-    <h1>⛪ Church AV Connect <span class="live-badge" id="live-badge">LIVE</span></h1>
+    <h1>⛪ Tally <span class="live-badge" id="live-badge">LIVE</span></h1>
     <p id="church-name">ATEM School Remote Monitoring</p>
   </div>
 
@@ -342,7 +342,7 @@
   </div>
 
   <div class="branding">
-    Powered by <a href="#" onclick="require('electron').shell.openExternal('https://atemschool.com'); return false;">ATEM School</a>
+    Powered by <a href="#" class="ext-link" data-url="https://atemschool.com">ATEM School</a>
   </div>
 
   <div class="actions">
@@ -353,7 +353,7 @@
 </div>
 
 <script>
-const { ipcRenderer } = require('electron');
+const api = window.electronAPI;
 const TOTAL_STEPS = 5;
 let currentStep = 1;
 let isRunning = false;
@@ -362,8 +362,8 @@ let alertCount = 0;
 // ─── INIT ──────────────────────────────────────────────────────────────────
 
 async function init() {
-  const config = await ipcRenderer.invoke('get-config');
-  isRunning = await ipcRenderer.invoke('is-running');
+  const config = await api.getConfig();
+  isRunning = await api.isRunning();
 
   if (config.token && config.setupComplete) {
     showDashboard();
@@ -373,7 +373,7 @@ async function init() {
   }
 
   updateToggleBtn();
-  const status = await ipcRenderer.invoke('get-status');
+  const status = await api.getStatus();
   updateStatusUI(status);
 }
 
@@ -426,15 +426,15 @@ async function wizardNext() {
         companionUrl: document.getElementById('wiz-companion').value.trim() || 'http://localhost:8888',
         name: document.getElementById('wiz-name').value.trim(),
         liveStreamUrl: document.getElementById('wiz-livestream').value.trim(),
-        relay: 'wss://church-av-relay.up.railway.app',
+        relay: 'wss://tally-relay.up.railway.app',
         setupComplete: true,
       };
-      await ipcRenderer.invoke('save-config', config);
+      await api.saveConfig(config);
       // Test connection
       const el = document.getElementById('test-result');
       el.textContent = 'Testing connection...';
       el.style.color = '#94a3b8';
-      const result = await ipcRenderer.invoke('test-connection', config.relay.replace('wss://', 'https://'));
+      const result = await api.testConnection(config.relay.replace('wss://', 'https://'));
       if (result.success) {
         el.innerHTML = '🟢 Connected to relay server!';
         el.style.color = '#22c55e';
@@ -446,9 +446,9 @@ async function wizardNext() {
   } else {
     // Finish
     showDashboard();
-    const config = await ipcRenderer.invoke('get-config');
+    const config = await api.getConfig();
     if (config.name) document.getElementById('church-name').textContent = config.name;
-    await ipcRenderer.invoke('start-agent');
+    await api.startAgent();
     isRunning = true;
     updateToggleBtn();
   }
@@ -460,7 +460,7 @@ function wizardBack() {
 
 function copyToken() {
   const val = document.getElementById('wiz-token').value;
-  if (val) ipcRenderer.invoke('copy-to-clipboard', val);
+  if (val) api.copyToClipboard(val);
 }
 
 function scanForATEM() {
@@ -500,19 +500,19 @@ function updateToggleBtn() {
 
 async function toggleAgent() {
   if (isRunning) {
-    await ipcRenderer.invoke('stop-agent');
+    await api.stopAgent();
     isRunning = false;
   } else {
-    await ipcRenderer.invoke('start-agent');
+    await api.startAgent();
     isRunning = true;
   }
   updateToggleBtn();
 }
 
 async function testConn() {
-  const config = await ipcRenderer.invoke('get-config');
-  const url = (config.relay || 'wss://church-av-relay.up.railway.app').replace('wss://', 'https://');
-  const result = await ipcRenderer.invoke('test-connection', url);
+  const config = await api.getConfig();
+  const url = (config.relay || 'wss://tally-relay.up.railway.app').replace('wss://', 'https://');
+  const result = await api.testConnection(url);
   addAlert(result.success ? '✅ Relay connection OK' : `❌ Relay unreachable: ${result.error}`);
 }
 
@@ -532,11 +532,11 @@ function addAlert(text) {
 
 // ─── IPC listeners ─────────────────────────────────────────────────────────
 
-ipcRenderer.on('status', (_, status) => {
+api.onStatus((status) => {
   updateStatusUI(status);
 });
 
-ipcRenderer.on('log', (_, text) => {
+api.onLog((text) => {
   // Update info cards from log text
   const t = text.trim();
   if (t.includes('ALERT') || t.includes('✅') || t.includes('⚠️') || t.includes('❌') || t.includes('Stream') || t.includes('Recording')) {
@@ -565,7 +565,7 @@ function requestPreview() {
   // Send command to start preview via the agent
   addAlert('📸 Preview requested');
   // The agent receives this via relay command; for local, we just ask the main process
-  ipcRenderer.invoke('get-config').then(config => {
+  api.getConfig().then(_config => {
     // The preview command flows: Electron → relay API → church client → captures → relay WS → controller WS → here
     // For simplicity, we log the request; the actual preview command is sent by the OpenClaw skill or relay API
     addAlert('Waiting for preview frames...');
@@ -603,20 +603,32 @@ function handlePreviewFrame(data) {
 
 // Live stream URL
 async function setupLiveStreamLink() {
-  const config = await ipcRenderer.invoke('get-config');
+  const config = await api.getConfig();
   const el = document.getElementById('live-stream-link');
   if (config.liveStreamUrl) {
-    el.innerHTML = `<a href="#" onclick="require('electron').shell.openExternal('${config.liveStreamUrl}'); return false;" style="color:#3b82f6; font-size:12px;">🔴 Watch Live →</a>`;
+    const link = document.createElement('a');
+    link.href = '#';
+    link.style.cssText = 'color:#3b82f6; font-size:12px;';
+    link.textContent = '🔴 Watch Live →';
+    link.addEventListener('click', (e) => { e.preventDefault(); api.openExternal(config.liveStreamUrl); });
+    el.innerHTML = '';
+    el.appendChild(link);
   }
 }
 setupLiveStreamLink();
 
-ipcRenderer.on('preview-frame', (_, data) => {
+api.onPreviewFrame((data) => {
   handlePreviewFrame(data);
 });
 
-ipcRenderer.on('update-ready', () => {
+api.onUpdateReady(() => {
   addAlert('🔄 Update downloaded — restart to install');
+});
+
+// External link handler
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('.ext-link');
+  if (link) { e.preventDefault(); api.openExternal(link.dataset.url); }
 });
 
 init();

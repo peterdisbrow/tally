@@ -67,11 +67,12 @@ function createWindow() {
     height: 700,
     resizable: false,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
     },
     titleBarStyle: 'hiddenInset',
-    title: 'Church AV Connect',
+    title: 'Tally',
     show: false,
   });
 
@@ -111,7 +112,7 @@ function updateTray() {
     : 'Disconnected';
 
   const menu = Menu.buildFromTemplate([
-    { label: 'Church AV Connect', enabled: false },
+    { label: 'Tally', enabled: false },
     { label: statusLine, enabled: false },
     { type: 'separator' },
     { label: 'Open Dashboard', click: () => mainWindow?.show() },
@@ -123,7 +124,7 @@ function updateTray() {
   ]);
 
   tray.setContextMenu(menu);
-  tray.setToolTip(`Church AV Connect — ${statusLine}`);
+  tray.setToolTip(`Tally — ${statusLine}`);
 }
 
 // ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
@@ -164,7 +165,7 @@ function startAgent() {
   const clientScript = path.join(__dirname, '../../church-client/src/index.js');
   const args = [clientScript,
     '--token', config.token,
-    '--relay', config.relay || 'wss://church-av-relay.up.railway.app',
+    '--relay', config.relay || 'wss://tally-relay.up.railway.app',
   ];
 
   if (config.atemIp)       args.push('--atem', config.atemIp);

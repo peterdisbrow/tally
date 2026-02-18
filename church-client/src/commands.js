@@ -1,5 +1,5 @@
 /**
- * Command Handlers for Church AV Connect Client
+ * Command Handlers for Tally Client
  * Each handler receives (agent, params) and returns a result string or object.
  */
 

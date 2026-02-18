@@ -1,5 +1,5 @@
 /**
- * Church AV Relay Server
+ * Tally Relay Server
  * Bridges OpenClaw/Telegram (controller) ↔ Church Client App (on-site)
  *
  * Deploy to Railway: https://railway.app
@@ -28,6 +28,10 @@ const wss = new WebSocketServer({ server });
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 const JWT_SECRET    = process.env.JWT_SECRET    || 'dev-jwt-secret-change-me';
+
+if (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secret-change-me') {
+  console.warn('\n⚠️  WARNING: Using default dev keys! Set ADMIN_API_KEY and JWT_SECRET env vars for production.\n');
+}
 const DB_PATH       = process.env.DATABASE_PATH || './data/churches.db';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
@@ -152,7 +156,7 @@ function drainQueue(churchId, ws) {
 // Health check
 app.get('/', (req, res) => {
   res.json({
-    service: 'church-av-relay',
+    service: 'tally-relay',
     churches: churches.size,
     controllers: controllers.size,
   });
@@ -162,7 +166,7 @@ app.get('/', (req, res) => {
 app.get('/api/health', (req, res) => {
   const connectedCount = Array.from(churches.values()).filter(c => c.ws?.readyState === WebSocket.OPEN).length;
   res.json({
-    service: 'church-av-relay',
+    service: 'tally-relay',
     uptime: Math.floor(process.uptime()),
     registeredChurches: churches.size,
     connectedChurches: connectedCount,
@@ -489,8 +493,8 @@ function requireAdmin(req, res, next) {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  log(`Church AV Relay running on port ${PORT}`);
-  log(`Admin API key: ${ADMIN_API_KEY.substring(0, 8)}...`);
+  log(`Tally Relay running on port ${PORT}`);
+  log(`Admin API key: configured (${ADMIN_API_KEY.length} chars)`);
 });
 
 // Export for testing

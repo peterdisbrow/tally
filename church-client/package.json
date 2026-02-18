@@ -1,10 +1,10 @@
 {
-  "name": "church-av-connect",
+  "name": "tally",
   "version": "1.0.0",
   "description": "Connect your church AV system to ATEM School remote monitoring",
   "main": "src/index.js",
   "bin": {
-    "church-av-connect": "src/index.js"
+    "tally": "src/index.js"
   },
   "scripts": {
     "start": "node src/index.js",

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Integration Tests for Church AV Connect
+ * Integration Tests for Tally
  * Starts relay server, connects mock clients, tests full flow.
  * No external test framework — just Node.js assert.
  */
@@ -109,7 +109,7 @@ async function startServer() {
 // ─── TESTS ───────────────────────────────────────────────────────────────────
 
 async function runTests() {
-  console.log(`\n🧪 Church AV Connect Integration Tests (port ${TEST_PORT})\n`);
+  console.log(`\n🧪 Tally Integration Tests (port ${TEST_PORT})\n`);
 
   let churchId, churchToken;
 
@@ -117,7 +117,7 @@ async function runTests() {
   await test('GET / returns service info', async () => {
     const { status, body } = await apiRequest('GET', '/');
     assert.strictEqual(status, 200);
-    assert.strictEqual(body.service, 'church-av-relay');
+    assert.strictEqual(body.service, 'tally-relay');
   });
 
   // 2. Health endpoint
