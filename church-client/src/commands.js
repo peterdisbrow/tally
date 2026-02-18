@@ -40,6 +40,44 @@ async function atemFadeToBlack(agent, params) {
   return 'Fade to black toggled';
 }
 
+async function atemSetInputLabel(agent, params) {
+  const shortName = params.shortName || params.longName.substring(0, 4).toUpperCase();
+  await agent.atemCommand(() => agent.atem?.setInputSettings(params.input, {
+    longName: params.longName,
+    shortName: shortName,
+  }));
+  return `Input ${params.input} labeled "${params.longName}"`;
+}
+
+// ─── VIDEOHUB COMMANDS ──────────────────────────────────────────────────────
+
+async function videohubRoute(agent, params) {
+  const hub = agent.videoHubs?.[params.hubIndex || 0];
+  if (!hub) throw new Error('Video Hub not configured');
+  await hub.setRoute(params.output, params.input);
+  return `Routed input ${params.input} → output ${params.output}`;
+}
+
+async function videohubGetRoutes(agent, params) {
+  const hub = agent.videoHubs?.[params.hubIndex || 0];
+  if (!hub) throw new Error('Video Hub not configured');
+  return await hub.getRoutes();
+}
+
+async function videohubSetInputLabel(agent, params) {
+  const hub = agent.videoHubs?.[params.hubIndex || 0];
+  if (!hub) throw new Error('Video Hub not configured');
+  await hub.setInputLabel(params.index, params.label);
+  return `Input ${params.index} labeled "${params.label}"`;
+}
+
+async function videohubSetOutputLabel(agent, params) {
+  const hub = agent.videoHubs?.[params.hubIndex || 0];
+  if (!hub) throw new Error('Video Hub not configured');
+  await hub.setOutputLabel(params.index, params.label);
+  return `Output ${params.index} labeled "${params.label}"`;
+}
+
 // ─── HYPERDECK COMMANDS ─────────────────────────────────────────────────────
 
 async function hyperdeckPlay(agent, params) {
@@ -293,6 +331,7 @@ const commandHandlers = {
   'atem.startRecording': atemStartRecording,
   'atem.stopRecording': atemStopRecording,
   'atem.fadeToBlack': atemFadeToBlack,
+  'atem.setInputLabel': atemSetInputLabel,
 
   'hyperdeck.play': hyperdeckPlay,
   'hyperdeck.stop': hyperdeckStop,
@@ -322,6 +361,11 @@ const commandHandlers = {
   'obs.reduceBitrate': obsReduceBitrate,
   'system.setWatchdogMode': systemSetWatchdogMode,
   'system.getServiceWindow': systemGetServiceWindow,
+
+  'videohub.route': videohubRoute,
+  'videohub.getRoutes': videohubGetRoutes,
+  'videohub.setInputLabel': videohubSetInputLabel,
+  'videohub.setOutputLabel': videohubSetOutputLabel,
 
   'companion.press': companionPress,
   'companion.pressNamed': companionPressNamed,

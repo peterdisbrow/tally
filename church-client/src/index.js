@@ -17,6 +17,7 @@ const path = require('path');
 const os = require('os');
 const { commandHandlers } = require('./commands');
 const { CompanionBridge } = require('./companion');
+const { VideoHub } = require('./videohub');
 
 // ─── CLI CONFIG ───────────────────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ function loadConfig() {
   // These are set via the Equipment UI, not CLI args
   if (!config.hyperdecks) config.hyperdecks = [];
   if (!config.ptz) config.ptz = [];
+  if (!config.videoHubs) config.videoHubs = [];
 
   if (!config.token) {
     console.error('\n❌ No connection token provided.');
@@ -85,6 +87,7 @@ class ChurchAVAgent {
     this.atem = null;
     this.obs = null;
     this.companion = null;
+    this.videoHubs = [];
     this.reconnectDelay = 3000;
     this.atemReconnectDelay = 2000;
     this.atemReconnecting = false;
@@ -94,6 +97,7 @@ class ChurchAVAgent {
       atem: { connected: false, ip: null, programInput: null, previewInput: null, recording: false },
       obs: { connected: false, streaming: false, recording: false, bitrate: null, fps: null },
       companion: { connected: false, connectionCount: 0, connections: [] },
+      videoHubs: [],
       system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null },
     };
   }
@@ -107,6 +111,7 @@ class ChurchAVAgent {
     await this.connectATEM();
     await this.connectOBS();
     await this.connectCompanion();
+    await this.connectVideoHubs();
 
     setInterval(() => this.sendStatus(), 30_000);
     setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000);
@@ -488,6 +493,40 @@ class ChurchAVAgent {
       this.status.previewActive = false;
       console.log('📸 Preview stopped');
     }
+  }
+
+  // ─── VIDEO HUB CONNECTION ─────────────────────────────────────────────────
+
+  async connectVideoHubs() {
+    const hubs = this.config.videoHubs || [];
+    if (hubs.length === 0) {
+      console.log('📺 No Video Hubs configured (set via config)');
+      return;
+    }
+
+    for (const hubConfig of hubs) {
+      const hub = new VideoHub({ ip: hubConfig.ip, name: hubConfig.name });
+      hub.on('connected', () => {
+        this._updateVideoHubStatus();
+        this.sendStatus();
+      });
+      hub.on('disconnected', () => {
+        this._updateVideoHubStatus();
+        this.sendStatus();
+      });
+      hub.on('routeChanged', (info) => {
+        console.log(`📺 Route changed: ${info.inputLabel} → ${info.outputLabel}`);
+        this.sendStatus();
+      });
+      this.videoHubs.push(hub);
+      console.log(`📺 Connecting to Video Hub "${hubConfig.name}" at ${hubConfig.ip}...`);
+      await hub.connect();
+    }
+    this._updateVideoHubStatus();
+  }
+
+  _updateVideoHubStatus() {
+    this.status.videoHubs = this.videoHubs.map(h => h.toStatus());
   }
 
   // ─── HELPERS ──────────────────────────────────────────────────────────────

@@ -249,3 +249,52 @@ node integration.js
 2. **Add-on service** — $X/month per church for remote monitoring
 3. **Sold to integrators** — package as part of installation service
 4. **White-label** — license to other AV integrators
+
+---
+
+## TD Telegram Bot
+
+Church Technical Directors can control their production system by messaging the Tally Telegram bot — natural language commands like "cut to camera 3" or "start stream."
+
+### Setup
+
+1. **Create a Telegram bot** — Message [@BotFather](https://t.me/BotFather) on Telegram, `/newbot`, name it "Tally" (or your branding). Copy the bot token.
+
+2. **Configure environment variables** on your relay server (Railway):
+   ```
+   TALLY_BOT_TOKEN=123456:ABC-DEF...
+   TALLY_BOT_WEBHOOK_URL=https://your-relay.up.railway.app/api/telegram-webhook
+   ANDREW_TELEGRAM_CHAT_ID=your_chat_id
+   ```
+
+3. **Set the webhook** — After deploying, call:
+   ```
+   POST /api/bot/set-webhook
+   x-api-key: YOUR_ADMIN_KEY
+   ```
+   Or it auto-sets on startup if `TALLY_BOT_WEBHOOK_URL` is configured.
+
+4. **Give TDs their registration code** — Each church gets a unique 6-character code:
+   ```
+   GET /api/churches/{churchId}
+   → { "registrationCode": "A1B2C3", ... }
+   ```
+
+5. **TD registers themselves** — They message the bot:
+   ```
+   /register A1B2C3
+   ```
+   That's it. They can now send commands scoped to their church.
+
+### Video Hub Support
+
+Church clients support Blackmagic Video Hub routers. Add to the client config (`~/.church-av/config.json`):
+```json
+{
+  "videoHubs": [
+    { "ip": "192.168.1.50", "name": "Main Router" }
+  ]
+}
+```
+
+TDs can then say "route camera 2 to monitor 3" or "show routing" via the bot.

@@ -30,6 +30,7 @@ const { ScheduleEngine } = require('./src/scheduleEngine');
 const { AlertEngine } = require('./src/alertEngine');
 const { AutoRecovery } = require('./src/autoRecovery');
 const { WeeklyDigest } = require('./src/weeklyDigest');
+const { TallyBot } = require('./src/telegramBot');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 const JWT_SECRET    = process.env.JWT_SECRET    || 'dev-jwt-secret-change-me';
@@ -120,6 +121,28 @@ const alertEngine = new AlertEngine(db, scheduleEngine);
 const autoRecovery = new AutoRecovery(churches, alertEngine);
 const weeklyDigest = new WeeklyDigest(db);
 weeklyDigest.startWeeklyTimer();
+
+// ─── TELEGRAM BOT ────────────────────────────────────────────────────────────
+
+const TALLY_BOT_TOKEN = process.env.TALLY_BOT_TOKEN;
+const TALLY_BOT_WEBHOOK_URL = process.env.TALLY_BOT_WEBHOOK_URL;
+const ANDREW_TELEGRAM_CHAT_ID = process.env.ANDREW_TELEGRAM_CHAT_ID;
+
+let tallyBot = null;
+if (TALLY_BOT_TOKEN) {
+  tallyBot = new TallyBot({
+    botToken: TALLY_BOT_TOKEN,
+    adminChatId: ANDREW_TELEGRAM_CHAT_ID,
+    db,
+    relay: { churches },
+  });
+  log('Telegram bot initialized');
+  if (TALLY_BOT_WEBHOOK_URL) {
+    tallyBot.setWebhook(TALLY_BOT_WEBHOOK_URL).catch(e => console.error('Webhook setup failed:', e.message));
+  }
+} else {
+  log('Telegram bot disabled (TALLY_BOT_TOKEN not set)');
+}
 
 // ─── RATE LIMITER ─────────────────────────────────────────────────────────────
 
@@ -356,6 +379,58 @@ app.get('/api/digest/generate', requireAdmin, async (req, res) => {
   }
 });
 
+// ─── TELEGRAM BOT API ─────────────────────────────────────────────────────────
+
+app.post('/api/telegram-webhook', (req, res) => {
+  res.sendStatus(200); // Respond immediately to Telegram
+  if (tallyBot) tallyBot.handleUpdate(req.body).catch(e => console.error('[TallyBot] webhook error:', e.message));
+});
+
+app.post('/api/churches/:churchId/td-register', requireAdmin, (req, res) => {
+  const { churchId } = req.params;
+  const church = churches.get(churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const { telegram_user_id, telegram_chat_id, name } = req.body;
+  if (!telegram_user_id || !name) return res.status(400).json({ error: 'telegram_user_id and name required' });
+  if (!tallyBot) return res.status(503).json({ error: 'Telegram bot not configured' });
+  tallyBot._stmtRegisterTD.run(churchId, telegram_user_id, telegram_chat_id || telegram_user_id, name, new Date().toISOString());
+  res.json({ registered: true, name });
+});
+
+app.get('/api/churches/:churchId/tds', requireAdmin, (req, res) => {
+  if (!tallyBot) return res.json([]);
+  const tds = tallyBot._stmtListTDs.all(req.params.churchId);
+  res.json(tds);
+});
+
+app.delete('/api/churches/:churchId/tds/:userId', requireAdmin, (req, res) => {
+  if (!tallyBot) return res.status(503).json({ error: 'Telegram bot not configured' });
+  tallyBot._stmtDeactivateTD.run(req.params.churchId, req.params.userId);
+  res.json({ removed: true });
+});
+
+app.post('/api/bot/set-webhook', requireAdmin, (req, res) => {
+  if (!tallyBot) return res.status(503).json({ error: 'Telegram bot not configured' });
+  const { url } = req.body;
+  tallyBot.setWebhook(url || TALLY_BOT_WEBHOOK_URL).then(r => res.json(r)).catch(e => res.status(500).json({ error: e.message }));
+});
+
+// Include registration_code in church detail
+app.get('/api/churches/:churchId', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const row = stmtGet.get(req.params.churchId);
+  res.json({
+    churchId: church.churchId,
+    name: church.name,
+    connected: church.ws?.readyState === 1,
+    status: church.status,
+    lastSeen: church.lastSeen,
+    registrationCode: row?.registration_code || null,
+    token: row?.token,
+  });
+});
+
 // ─── WEBSOCKET ────────────────────────────────────────────────────────────────
 
 wss.on('connection', (ws, req) => {
@@ -509,22 +584,25 @@ function handleChurchMessage(church, msg) {
       }
       break;
 
-    case 'command_result':
-      broadcastToControllers({
+    case 'command_result': {
+      const cmdResultMsg = {
         type: 'command_result',
         churchId: church.churchId,
         name: church.name,
         messageId: msg.id,
         result: msg.result,
         error: msg.error,
-      });
+      };
+      broadcastToControllers(cmdResultMsg);
+      if (tallyBot) tallyBot.onCommandResult(cmdResultMsg);
       break;
+    }
 
-    case 'preview_frame':
+    case 'preview_frame': {
       // Safety: reject frames > 150KB
       if (msg.data && msg.data.length > 150_000) break;
       church.status.previewActive = true;
-      broadcastToControllers({
+      const frameMsg = {
         type: 'preview_frame',
         churchId: church.churchId,
         churchName: church.name,
@@ -533,9 +611,12 @@ function handleChurchMessage(church, msg) {
         height: msg.height,
         format: msg.format,
         data: msg.data,
-      });
+      };
+      broadcastToControllers(frameMsg);
+      if (tallyBot) tallyBot.onPreviewFrame(frameMsg);
       totalMessagesRelayed++;
       break;
+    }
 
     case 'ping':
       church.ws.send(JSON.stringify({ type: 'pong' }));
