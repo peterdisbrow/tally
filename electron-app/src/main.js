@@ -320,6 +320,15 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
         const resp = await tryHttpGet(`http://${ip}:${port || 8080}/x-nmos/node/v1.2/self`, 3000);
         return { success: resp.success, details: resp.success ? 'NMOS registry reachable' : 'Cannot reach NMOS registry' };
       }
+      case 'vmix': {
+        const resp = await tryHttpGet(`http://${ip}:${port || 8088}/api/?Function=GetShortXML`, 3000);
+        if (resp.success && resp.data) {
+          const editionM = resp.data.match ? resp.data.match(/<edition>([^<]+)<\/edition>/i) : null;
+          const edition = editionM ? editionM[1] : 'vMix';
+          return { success: true, details: `${edition} is running` };
+        }
+        return { success: false, details: 'Cannot reach vMix — is HTTP API enabled?' };
+      }
       case 'resolume': {
         const resp = await tryHttpGet(`http://${ip}:${port || 8080}/api/v1/product`, 3000);
         const version = resp.success && resp.data ? (resp.data.name || 'Resolume Arena') : null;
@@ -343,6 +352,11 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
   if (equipConfig.ptz !== undefined) config.ptz = equipConfig.ptz;
   if (equipConfig.proPresenterHost !== undefined) config.proPresenter = { host: equipConfig.proPresenterHost, port: equipConfig.proPresenterPort || 1025 };
   if (equipConfig.danteNmosHost !== undefined) config.dante = { nmosHost: equipConfig.danteNmosHost, nmosPort: equipConfig.danteNmosPort || 8080 };
+  if (equipConfig.vmixHost !== undefined) {
+    config.vmix = equipConfig.vmixHost
+      ? { host: equipConfig.vmixHost, port: equipConfig.vmixPort || 8088 }
+      : null;
+  }
   if (equipConfig.resolumeHost !== undefined) {
     config.resolume = equipConfig.resolumeHost
       ? { host: equipConfig.resolumeHost, port: equipConfig.resolumePort || 8080 }
@@ -365,6 +379,8 @@ ipcMain.handle('get-equipment', () => {
     proPresenterPort: config.proPresenter?.port || 1025,
     danteNmosHost: config.dante?.nmosHost || '',
     danteNmosPort: config.dante?.nmosPort || 8080,
+    vmixHost: config.vmix?.host || '',
+    vmixPort: config.vmix?.port || 8088,
     resolumeHost: config.resolume?.host || '',
     resolumePort: config.resolume?.port || 8080,
   };

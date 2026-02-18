@@ -214,6 +214,111 @@ async function propresenterIsRunning(agent) {
   return running ? 'ProPresenter is running' : 'ProPresenter is not reachable';
 }
 
+// ─── VMIX COMMANDS ────────────────────────────────────────────────────────────
+
+async function vmixStatus(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const status = await agent.vmix.getStatus();
+  if (!status.running) return 'vMix is not reachable';
+  const lines = [
+    `vMix ${status.edition} ${status.version}`,
+    `Program: ${status.activeInput} | Preview: ${status.previewInput}`,
+    `Streaming: ${status.streaming ? '🔴 LIVE' : '⚫ Off'} | Recording: ${status.recording ? '⏺ On' : '⚫ Off'}`,
+    `Inputs: ${status.inputCount}`,
+  ];
+  if (status.audio) {
+    lines.push(`Master: ${status.audio.volume}% ${status.audio.muted ? '(MUTED)' : ''}`);
+  }
+  return lines.join('\n');
+}
+
+async function vmixStartStream(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.startStream();
+  return 'vMix streaming started';
+}
+
+async function vmixStopStream(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.stopStream();
+  return 'vMix streaming stopped';
+}
+
+async function vmixStartRecording(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.startRecording();
+  return 'vMix recording started';
+}
+
+async function vmixStopRecording(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.stopRecording();
+  return 'vMix recording stopped';
+}
+
+async function vmixCut(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.cut();
+  return 'vMix: cut to preview';
+}
+
+async function vmixFade(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const ms = params.duration || 2000;
+  await agent.vmix.fade(ms);
+  return `vMix: fade to preview (${ms}ms)`;
+}
+
+async function vmixSetPreview(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.setPreview(params.input);
+  return `vMix: preview set to input ${params.input}`;
+}
+
+async function vmixSetProgram(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.setProgram(params.input);
+  return `vMix: program cut to input ${params.input}`;
+}
+
+async function vmixListInputs(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const inputs = await agent.vmix.listInputs();
+  if (!inputs.length) return 'No inputs found';
+  return inputs.map(i => `${i.number}. ${i.title} (${i.type})`).join('\n');
+}
+
+async function vmixSetVolume(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const vol = await agent.vmix.setMasterVolume(params.value);
+  return `vMix master volume set to ${vol}%`;
+}
+
+async function vmixMute(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.muteMaster();
+  return 'vMix master muted';
+}
+
+async function vmixUnmute(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.unmuteMaster();
+  return 'vMix master unmuted';
+}
+
+async function vmixPreview(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const b64 = await agent.vmix.getScreenshot('Output');
+  if (!b64) return 'Could not get vMix screenshot';
+  return { type: 'screenshot', data: b64, source: 'vmix' };
+}
+
+async function vmixIsRunning(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const running = await agent.vmix.isRunning();
+  return running ? 'vMix is running' : 'vMix is not reachable';
+}
+
 // ─── RESOLUME COMMANDS ────────────────────────────────────────────────────────
 
 async function resolumeStatus(agent) {
@@ -387,7 +492,17 @@ async function preServiceCheck(agent) {
     }
   }
 
-  // 6. Resolume Arena check
+  // 6. vMix check (alternative to OBS)
+  if (agent.vmix) {
+    const vmixRunning = await agent.vmix.isRunning();
+    checks.push({ name: 'vMix', pass: vmixRunning, detail: vmixRunning ? 'Running' : 'Not reachable' });
+    if (vmixRunning) {
+      const vs = await agent.vmix.getStatus();
+      checks.push({ name: 'vMix Streaming', pass: vs.streaming, detail: vs.streaming ? '🔴 LIVE' : 'Not streaming (will start at service time)' });
+    }
+  }
+
+  // 7. Resolume Arena check
   if (agent.resolume) {
     const resRunning = await agent.resolume.isRunning();
     checks.push({ name: 'Resolume Arena', pass: resRunning, detail: resRunning ? 'Running' : 'Not reachable' });
@@ -525,6 +640,22 @@ const commandHandlers = {
   'propresenter.status': propresenterStatus,
   'propresenter.playlist': propresenterPlaylist,
   'propresenter.isRunning': propresenterIsRunning,
+
+  'vmix.status': vmixStatus,
+  'vmix.startStream': vmixStartStream,
+  'vmix.stopStream': vmixStopStream,
+  'vmix.startRecording': vmixStartRecording,
+  'vmix.stopRecording': vmixStopRecording,
+  'vmix.cut': vmixCut,
+  'vmix.fade': vmixFade,
+  'vmix.setPreview': vmixSetPreview,
+  'vmix.setProgram': vmixSetProgram,
+  'vmix.listInputs': vmixListInputs,
+  'vmix.setVolume': vmixSetVolume,
+  'vmix.mute': vmixMute,
+  'vmix.unmute': vmixUnmute,
+  'vmix.preview': vmixPreview,
+  'vmix.isRunning': vmixIsRunning,
 
   'resolume.status': resolumeStatus,
   'resolume.playClip': resolumePlayClip,

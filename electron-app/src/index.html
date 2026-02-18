@@ -516,6 +516,18 @@
       <div class="equip-detail" id="equip-dante-detail"></div>
     </div>
 
+    <!-- vMix -->
+    <div class="equip-section">
+      <h3>🎬 vMix <div class="equip-status" id="equip-dot-vmix"></div></h3>
+      <div class="equip-detail" style="margin-left:0; margin-bottom:8px; color:#94a3b8;">Windows only. Enable HTTP API in vMix: Settings → Web Controller → Enable (port 8088).</div>
+      <div class="equip-row">
+        <input type="text" id="equip-vmix-host" placeholder="localhost or 192.168.1.x">
+        <input type="text" id="equip-vmix-port" placeholder="8088" style="max-width:80px;">
+        <button class="btn-test" onclick="testEquip('vmix')">Test</button>
+      </div>
+      <div class="equip-detail" id="equip-vmix-detail"></div>
+    </div>
+
     <!-- Resolume Arena -->
     <div class="equip-section">
       <h3>🎞️ Resolume Arena <div class="equip-status" id="equip-dot-resolume"></div></h3>
@@ -855,6 +867,8 @@ async function loadEquipment() {
   document.getElementById('equip-pp-port').value = eq.proPresenterPort || '1025';
   document.getElementById('equip-dante-host').value = eq.danteNmosHost || '';
   document.getElementById('equip-dante-port').value = eq.danteNmosPort || '8080';
+  document.getElementById('equip-vmix-host').value = eq.vmixHost || '';
+  document.getElementById('equip-vmix-port').value = eq.vmixPort || '8088';
   document.getElementById('equip-resolume-host').value = eq.resolumeHost || '';
   document.getElementById('equip-resolume-port').value = eq.resolumePort || '8080';
   hyperdeckEntries = eq.hyperdecks || [];
@@ -932,6 +946,9 @@ async function testEquip(type) {
     params.ip = document.getElementById('equip-dante-host').value.trim();
     params.port = parseInt(document.getElementById('equip-dante-port').value) || 8080;
     if (!params.ip) { document.getElementById('equip-dante-detail').textContent = 'Enter NMOS registry IP to test, or use Companion fallback'; setEquipDot('equip-dot-dante', false); return; }
+  } else if (type === 'vmix') {
+    params.ip = document.getElementById('equip-vmix-host').value.trim() || 'localhost';
+    params.port = parseInt(document.getElementById('equip-vmix-port').value) || 8088;
   } else if (type === 'resolume') {
     params.ip = document.getElementById('equip-resolume-host').value.trim() || 'localhost';
     params.port = parseInt(document.getElementById('equip-resolume-port').value) || 8080;
@@ -979,6 +996,8 @@ async function saveEquipment() {
     proPresenterPort: parseInt(document.getElementById('equip-pp-port').value) || 1025,
     danteNmosHost: document.getElementById('equip-dante-host').value.trim(),
     danteNmosPort: parseInt(document.getElementById('equip-dante-port').value) || 8080,
+    vmixHost: document.getElementById('equip-vmix-host').value.trim(),
+    vmixPort: parseInt(document.getElementById('equip-vmix-port').value) || 8088,
     resolumeHost: document.getElementById('equip-resolume-host').value.trim(),
     resolumePort: parseInt(document.getElementById('equip-resolume-port').value) || 8080,
   };
@@ -1048,6 +1067,11 @@ async function startNetworkScan() {
       document.getElementById('equip-pp-host').value = d.ip;
       document.getElementById('equip-pp-port').value = d.port || '1025';
       testEquip('propresenter');
+    }));
+    (results.vmix || []).forEach(d => addScanResult(resultsEl, `vMix ${d.edition || ''} at ${d.ip}:${d.port}`, () => {
+      document.getElementById('equip-vmix-host').value = d.ip;
+      document.getElementById('equip-vmix-port').value = d.port || '8088';
+      testEquip('vmix');
     }));
     (results.resolume || []).forEach(d => addScanResult(resultsEl, `${d.version || 'Resolume'} at ${d.ip}:${d.port}`, () => {
       document.getElementById('equip-resolume-host').value = d.ip;

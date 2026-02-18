@@ -62,7 +62,7 @@ function tryHttpGet(url, timeoutMs = 2000) {
  * @returns {Promise<Object>} discovered devices
  */
 async function discoverDevices(onProgress = () => {}) {
-  const results = { atem: [], companion: [], obs: [], hyperdeck: [], ptz: [], propresenter: [], nmos: [], resolume: [] };
+  const results = { atem: [], companion: [], obs: [], hyperdeck: [], ptz: [], propresenter: [], nmos: [], resolume: [], vmix: [] };
   const { subnet, localIp } = getLocalSubnet();
 
   onProgress(0, `Scanning ${subnet}.x for AV devices...`);
@@ -77,6 +77,7 @@ async function discoverDevices(onProgress = () => {}) {
     { type: 'companion', ip: '127.0.0.1', port: 8888 },
     { type: 'propresenter', ip: '127.0.0.1', port: 1025 },
     { type: 'resolume', ip: '127.0.0.1', port: 8080 },
+    { type: 'vmix', ip: '127.0.0.1', port: 8088 },
   ];
 
   // Check localhost first
@@ -97,6 +98,14 @@ async function discoverDevices(onProgress = () => {}) {
         if (resp.success) {
           results.propresenter.push({ ip: '127.0.0.1', port: check.port });
           onProgress(4, 'Found ProPresenter on localhost ✅');
+        }
+      } else if (check.type === 'vmix') {
+        const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/api/?Function=GetShortXML`, 2000);
+        if (resp.success && resp.data) {
+          const editionM = resp.data.match && resp.data.match(/<edition>([^<]+)<\/edition>/i);
+          const edition = editionM ? editionM[1] : 'vMix';
+          results.vmix.push({ ip: '127.0.0.1', port: check.port, edition });
+          onProgress(6, `Found vMix ${edition} on localhost ✅`);
         }
       } else if (check.type === 'resolume') {
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/api/v1/product`, 2000);
@@ -119,6 +128,7 @@ async function discoverDevices(onProgress = () => {}) {
     { port: 80, type: 'ptz' },
     { port: 1025, type: 'propresenter' },
     { port: 8080, type: 'resolume' },
+    { port: 8088, type: 'vmix' },
   ];
 
   let scanned = 0;
@@ -162,6 +172,14 @@ async function discoverDevices(onProgress = () => {}) {
                 results.propresenter.push({ ip, port });
                 onProgress(null, `Found ProPresenter at ${ip} ✅`);
               }
+            } else if (type === 'vmix' && !results.vmix.find((d) => d.ip === ip)) {
+              const vResp = await tryHttpGet(`http://${ip}:${port}/api/?Function=GetShortXML`, 2000);
+              if (vResp.success && vResp.data) {
+                const editionM = vResp.data.match && vResp.data.match(/<edition>([^<]+)<\/edition>/i);
+                const edition = editionM ? editionM[1] : 'vMix';
+                results.vmix.push({ ip, port, edition });
+                onProgress(null, `Found vMix ${edition} at ${ip} ✅`);
+              }
             } else if (type === 'resolume' && !results.resolume.find((d) => d.ip === ip)) {
               const rResp = await tryHttpGet(`http://${ip}:${port}/api/v1/product`, 2000);
               if (rResp.success) {
@@ -181,7 +199,7 @@ async function discoverDevices(onProgress = () => {}) {
     onProgress(pct, `Scanned ${scanned}/${totalScans} IPs...`);
   }
 
-  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.ptz.length + results.propresenter.length + results.resolume.length} devices found`);
+  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.ptz.length + results.propresenter.length + results.resolume.length + results.vmix.length} devices found`);
   return results;
 }
 

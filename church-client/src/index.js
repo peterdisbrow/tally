@@ -20,6 +20,7 @@ const { CompanionBridge } = require('./companion');
 const { VideoHub } = require('./videohub');
 const { ProPresenter } = require('./propresenter');
 const { Resolume } = require('./resolume');
+const { VMix } = require('./vmix');
 const { AudioMonitor } = require('./audioMonitor');
 const { StreamHealthMonitor } = require('./streamHealthMonitor');
 
@@ -72,6 +73,7 @@ function loadConfig() {
   if (!config.videoHubs) config.videoHubs = [];
   if (!config.proPresenter) config.proPresenter = { host: 'localhost', port: 1025 };
   if (!config.resolume) config.resolume = null; // null = not configured
+  if (!config.vmix) config.vmix = null; // null = not configured (Windows only)
 
   // Stream platform API keys (optional, for Feature 9)
   // Set in ~/.church-av/config.json: youtubeApiKey, facebookAccessToken
@@ -103,6 +105,7 @@ class ChurchAVAgent {
     this.videoHubs = [];
     this.proPresenter = null;
     this.resolume = null;
+    this.vmix = null;
     this.audioMonitor = new AudioMonitor();
     this.streamHealthMonitor = new StreamHealthMonitor();
     this.reconnectDelay = 3000;
@@ -117,6 +120,7 @@ class ChurchAVAgent {
       videoHubs: [],
       proPresenter: { connected: false, running: false, currentSlide: null, slideIndex: null, slideTotal: null },
       resolume: { connected: false, host: null, port: null },
+      vmix: { connected: false, streaming: false, recording: false },
       audio: { monitoring: false, lastLevel: null, silenceDetected: false },
       system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null },
     };
@@ -136,6 +140,7 @@ class ChurchAVAgent {
     await this.connectVideoHubs();
     await this.connectProPresenter();
     await this.connectResolume();
+    await this.connectVMix();
 
     setInterval(() => this.sendStatus(), 30_000);
     setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000);
@@ -656,6 +661,51 @@ class ChurchAVAgent {
           this.sendAlert(running ? 'Resolume Arena reconnected' : 'Resolume Arena disconnected', running ? 'info' : 'warning');
           this.sendStatus();
         }
+      } catch { /* ignore */ }
+    }, 30_000);
+  }
+
+  // ─── VMIX CONNECTION ──────────────────────────────────────────────────────
+
+  async connectVMix() {
+    const cfg = this.config.vmix;
+    if (!cfg || !cfg.host) {
+      console.log('🎬 vMix not configured (set via Equipment tab — Windows only)');
+      return;
+    }
+
+    console.log(`🎬 Connecting to vMix at ${cfg.host}:${cfg.port || 8088}...`);
+    this.vmix = new VMix({ host: cfg.host, port: cfg.port || 8088 });
+
+    const running = await this.vmix.isRunning();
+    if (running) {
+      const status = await this.vmix.getStatus();
+      console.log(`✅ vMix connected (${status.edition} ${status.version}) — Streaming: ${status.streaming}, Recording: ${status.recording}`);
+      this.status.vmix = { connected: true, streaming: status.streaming, recording: status.recording };
+    } else {
+      console.log('⚠️  vMix not reachable (will retry on watchdog tick — optional device)');
+      this.status.vmix = { connected: false, streaming: false, recording: false };
+    }
+
+    // Poll vMix status every 30s
+    setInterval(async () => {
+      if (!this.vmix) return;
+      try {
+        const status = await this.vmix.getStatus();
+        const wasStreaming = this.status.vmix.streaming;
+        const wasRecording = this.status.vmix.recording;
+        this.status.vmix = { connected: status.running, streaming: status.streaming || false, recording: status.recording || false };
+
+        if (wasStreaming && !status.streaming) {
+          this.sendAlert('🔴 vMix stream stopped unexpectedly', 'critical');
+        }
+        if (wasRecording && !status.recording) {
+          this.sendAlert('⚠️ vMix recording stopped', 'warning');
+        }
+        if (!wasStreaming && status.streaming) {
+          this.sendAlert('✅ vMix streaming started', 'info');
+        }
+        this.sendStatus();
       } catch { /* ignore */ }
     }, 30_000);
   }
