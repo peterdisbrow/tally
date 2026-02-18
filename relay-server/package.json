@@ -1,0 +1,23 @@
+{
+  "name": "church-av-relay",
+  "version": "1.0.0",
+  "description": "Relay server bridging ATEM School OpenClaw skill to church client apps",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.16.0",
+    "jsonwebtoken": "^9.0.2",
+    "uuid": "^9.0.0",
+    "better-sqlite3": "^11.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

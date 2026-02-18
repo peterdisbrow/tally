@@ -1,0 +1,460 @@
+#!/usr/bin/env node
+/**
+ * Church AV Connect — Client Agent
+ * Runs on the church's production computer.
+ * Bridges local ATEM/OBS/ProPresenter → Andrew's relay server.
+ *
+ * Usage:
+ *   npx church-av-connect --token YOUR_TOKEN --relay wss://relay.atemschool.com
+ */
+
+const WebSocket = require('ws');
+const { Atem } = require('atem-connection');
+const OBSWebSocket = require('obs-websocket-js').default;
+const { program } = require('commander');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { commandHandlers } = require('./commands');
+const { CompanionBridge } = require('./companion');
+
+// ─── CLI CONFIG ───────────────────────────────────────────────────────────────
+
+program
+  .name('church-av-connect')
+  .description('Connect your church AV system to ATEM School remote monitoring')
+  .option('-t, --token <token>', 'Your church connection token (from ATEM School)')
+  .option('-r, --relay <url>', 'Relay server URL', 'wss://church-av-relay.up.railway.app')
+  .option('-a, --atem <ip>', 'ATEM switcher IP (auto-discovers if omitted)')
+  .option('-o, --obs <url>', 'OBS WebSocket URL', 'ws://localhost:4455')
+  .option('-p, --obs-password <password>', 'OBS WebSocket password')
+  .option('-n, --name <name>', 'Label for this system (e.g., "Main Sanctuary")')
+  .option('-c, --companion <url>', 'Companion HTTP API URL', 'http://localhost:8888')
+  .option('--preview-source <name>', 'OBS source name for preview screenshots', '')
+  .option('--config <path>', 'Path to config file', path.join(os.homedir(), '.church-av', 'config.json'))
+  .parse();
+
+const opts = program.opts();
+
+function loadConfig() {
+  const configPath = opts.config;
+  const configDir = path.dirname(configPath);
+
+  if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+
+  let config = {};
+  if (fs.existsSync(configPath)) {
+    try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); }
+    catch { config = {}; }
+  }
+
+  if (opts.token) config.token = opts.token;
+  if (opts.relay) config.relay = opts.relay;
+  if (opts.atem) config.atemIp = opts.atem;
+  if (opts.obs) config.obsUrl = opts.obs;
+  if (opts.obsPassword) config.obsPassword = opts.obsPassword;
+  if (opts.name) config.name = opts.name;
+  if (opts.companion) config.companionUrl = opts.companion;
+  if (opts.previewSource) config.previewSource = opts.previewSource;
+
+  if (!config.token) {
+    console.error('\n❌ No connection token provided.');
+    console.error('   Get your token from ATEM School, then run:');
+    console.error('   church-av-connect --token YOUR_TOKEN\n');
+    process.exit(1);
+  }
+
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  return config;
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+
+class ChurchAVAgent {
+  constructor(config) {
+    this.config = config;
+    this.relay = null;
+    this.atem = null;
+    this.obs = null;
+    this.companion = null;
+    this.reconnectDelay = 3000;
+    this.atemReconnectDelay = 2000;
+    this.atemReconnecting = false;
+    this._previewTimer = null;
+    this._previewSource = config.previewSource || '';
+    this.status = {
+      atem: { connected: false, ip: null, programInput: null, previewInput: null, recording: false },
+      obs: { connected: false, streaming: false, recording: false, bitrate: null, fps: null },
+      companion: { connected: false, connectionCount: 0, connections: [] },
+      system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null },
+    };
+  }
+
+  async start() {
+    console.log('\n🎥 Church AV Connect starting...');
+    if (this.config.name) console.log(`   Name: ${this.config.name}`);
+    console.log(`   Relay: ${this.config.relay}`);
+
+    await this.connectRelay();
+    await this.connectATEM();
+    await this.connectOBS();
+    await this.connectCompanion();
+
+    setInterval(() => this.sendStatus(), 30_000);
+    setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000);
+
+    console.log('\n✅ Church AV Connect running. Press Ctrl+C to stop.\n');
+  }
+
+  // ─── RELAY CONNECTION ──────────────────────────────────────────────────────
+
+  connectRelay() {
+    return new Promise((resolve) => {
+      const url = `${this.config.relay}/church?token=${this.config.token}`;
+      console.log(`\n📡 Connecting to relay...`);
+
+      this.relay = new WebSocket(url);
+
+      this.relay.on('open', () => {
+        console.log('✅ Connected to relay server');
+        this.reconnectDelay = 3000;
+        this.sendStatus();
+        resolve();
+      });
+
+      this.relay.on('message', (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          this.handleRelayMessage(msg);
+        } catch (e) {
+          console.error('Relay message parse error:', e.message);
+        }
+      });
+
+      this.relay.on('close', (code, reason) => {
+        console.warn(`⚠️  Relay disconnected (${code}: ${reason}). Reconnecting in ${this.reconnectDelay / 1000}s...`);
+        setTimeout(() => this.connectRelay(), this.reconnectDelay);
+        this.reconnectDelay = Math.min(this.reconnectDelay * 2, 60_000);
+      });
+
+      this.relay.on('error', (err) => {
+        console.error('Relay error:', err.message);
+      });
+
+      setTimeout(resolve, 5000);
+    });
+  }
+
+  handleRelayMessage(msg) {
+    switch (msg.type) {
+      case 'connected':
+        console.log(`🟢 Relay confirmed: ${msg.name}`);
+        break;
+      case 'command':
+        console.log(`📨 Command received: ${msg.command}`, msg.params || '');
+        this.executeCommand(msg);
+        break;
+      case 'pong':
+        break;
+      default:
+        console.log('Relay msg:', msg.type);
+    }
+  }
+
+  async executeCommand(msg) {
+    const { command, params = {}, id } = msg;
+    let result = null;
+    let error = null;
+
+    try {
+      const handler = commandHandlers[command];
+      if (handler) {
+        result = await handler(this, params);
+      } else {
+        error = `Unknown command: ${command}`;
+      }
+    } catch (e) {
+      error = e.message;
+      console.error(`Command error (${command}):`, e.message);
+    }
+
+    this.sendToRelay({ type: 'command_result', id, command, result, error });
+    if (result && !error) console.log(`✅ ${typeof result === 'string' ? result : JSON.stringify(result)}`);
+    if (error) console.error(`❌ ${error}`);
+  }
+
+  // ─── ATEM CONNECTION (with exponential backoff reconnect) ─────────────────
+
+  async connectATEM() {
+    this.atem = new Atem();
+    const atemIp = this.config.atemIp;
+
+    this.atem.on('connected', () => {
+      console.log(`✅ ATEM connected${atemIp ? ` (${atemIp})` : ''}`);
+      this.status.atem.connected = true;
+      this.status.atem.ip = atemIp;
+      this.atemReconnectDelay = 2000;
+      this.atemReconnecting = false;
+      this.sendStatus();
+      this.sendAlert('ATEM connected', 'info');
+    });
+
+    this.atem.on('disconnected', () => {
+      console.warn('⚠️  ATEM disconnected');
+      this.status.atem.connected = false;
+      this.sendStatus();
+      this.sendAlert('ATEM disconnected', 'warning');
+      this.reconnectATEM();
+    });
+
+    this.atem.on('stateChanged', (state, pathToChange) => {
+      if (!state) return;
+
+      const me = state.video?.mixEffects?.[0];
+      if (me) {
+        this.status.atem.programInput = me.programInput;
+        this.status.atem.previewInput = me.previewInput;
+        this.status.atem.inTransition = me.transitionPosition?.inTransition || false;
+      }
+
+      const recording = state.recording;
+      if (recording !== undefined) {
+        const wasRecording = this.status.atem.recording;
+        this.status.atem.recording = recording?.status === 'Recording';
+        if (wasRecording !== this.status.atem.recording) {
+          this.sendAlert(`ATEM recording ${this.status.atem.recording ? 'STARTED' : 'STOPPED'}`, 'info');
+        }
+      }
+
+      this.sendStatus();
+    });
+
+    if (atemIp) {
+      console.log(`📹 Connecting to ATEM at ${atemIp}...`);
+      try {
+        await this.atem.connect(atemIp);
+      } catch (e) {
+        console.warn(`⚠️  ATEM connection failed: ${e.message}`);
+        this.reconnectATEM();
+      }
+    } else {
+      console.log('📹 ATEM IP not configured — skipping (set with --atem <ip>)');
+    }
+  }
+
+  reconnectATEM() {
+    if (this.atemReconnecting || !this.config.atemIp) return;
+    this.atemReconnecting = true;
+    console.log(`   Reconnecting ATEM in ${this.atemReconnectDelay / 1000}s...`);
+    setTimeout(async () => {
+      this.atemReconnecting = false;
+      try {
+        await this.atem.connect(this.config.atemIp);
+      } catch (e) {
+        console.warn(`⚠️  ATEM reconnect failed: ${e.message}`);
+        this.atemReconnectDelay = Math.min(this.atemReconnectDelay * 2, 60_000);
+        this.reconnectATEM();
+      }
+    }, this.atemReconnectDelay);
+  }
+
+  async atemCommand(fn) {
+    if (!this.atem || !this.status.atem.connected) throw new Error('ATEM not connected');
+    return fn();
+  }
+
+  // ─── OBS CONNECTION ───────────────────────────────────────────────────────
+
+  async connectOBS() {
+    this.obs = new OBSWebSocket();
+
+    this.obs.on('ConnectionOpened', () => {
+      console.log('✅ OBS connected');
+      this.status.obs.connected = true;
+      this.sendStatus();
+    });
+
+    this.obs.on('ConnectionClosed', () => {
+      console.warn('⚠️  OBS disconnected. Retrying in 10s...');
+      this.status.obs.connected = false;
+      this.sendStatus();
+      setTimeout(() => this.connectOBS(), 10_000);
+    });
+
+    this.obs.on('StreamStateChanged', ({ outputActive }) => {
+      const wasStreaming = this.status.obs.streaming;
+      this.status.obs.streaming = outputActive;
+      if (wasStreaming !== outputActive) {
+        this.sendAlert(`Stream ${outputActive ? 'STARTED' : 'STOPPED'}`, 'info');
+        this.sendStatus();
+      }
+    });
+
+    this.obs.on('RecordStateChanged', ({ outputActive }) => {
+      this.status.obs.recording = outputActive;
+      this.sendStatus();
+    });
+
+    setInterval(async () => {
+      if (!this.status.obs.connected) return;
+      try {
+        const stats = await this.obs.call('GetStats');
+        this.status.obs.fps = Math.round(stats.activeFps || 0);
+        this.status.obs.cpuUsage = Math.round(stats.cpuUsage || 0);
+
+        const streamStatus = await this.obs.call('GetStreamStatus');
+        this.status.obs.streaming = streamStatus.outputActive;
+        this.status.obs.bitrate = streamStatus.outputBytes
+          ? Math.round((streamStatus.outputBytes / 1024 / 15))
+          : null;
+
+        if (this.status.obs.fps < 24 && this.status.obs.streaming) {
+          this.sendAlert(`⚠️ Low stream FPS: ${this.status.obs.fps}fps`, 'warning');
+        }
+      } catch { /* ignore poll errors */ }
+    }, 15_000);
+
+    try {
+      const obsUrl = this.config.obsUrl || 'ws://localhost:4455';
+      console.log(`🎬 Connecting to OBS at ${obsUrl}...`);
+      await this.obs.connect(obsUrl, this.config.obsPassword);
+    } catch (e) {
+      console.warn('⚠️  OBS not available:', e.message);
+      console.log('   (OBS optional — ATEM monitoring still works)');
+    }
+  }
+
+  // ─── COMPANION CONNECTION ────────────────────────────────────────────────
+
+  async connectCompanion() {
+    const url = this.config.companionUrl || 'http://localhost:8888';
+    console.log(`🎛️  Checking Companion at ${url}...`);
+    this.companion = new CompanionBridge({ companionUrl: url });
+
+    const available = await this.companion.isAvailable();
+    if (available) {
+      console.log('✅ Companion connected');
+      this.status.companion.connected = true;
+      try {
+        const conns = await this.companion.getConnections();
+        this.status.companion.connectionCount = conns.length;
+        this.status.companion.connections = conns.map(c => ({ id: c.id, label: c.label, moduleId: c.moduleId, status: c.status }));
+        console.log(`   ${conns.length} Companion connections found`);
+      } catch { /* ignore */ }
+      this.companion.startPolling();
+    } else {
+      console.log('⚠️  Companion not available (optional)');
+    }
+
+    // Periodically refresh companion status
+    setInterval(async () => {
+      try {
+        const avail = await this.companion.isAvailable();
+        this.status.companion.connected = avail;
+        if (avail) {
+          const conns = await this.companion.getConnections();
+          this.status.companion.connectionCount = conns.length;
+          this.status.companion.connections = conns.map(c => ({ id: c.id, label: c.label, moduleId: c.moduleId, status: c.status }));
+        }
+      } catch { /* ignore */ }
+    }, 30_000);
+  }
+
+  // ─── PREVIEW SCREENSHOTS ────────────────────────────────────────────────
+
+  async capturePreviewFrame() {
+    if (!this.obs || !this.status.obs.connected) return null;
+    try {
+      const params = {
+        imageFormat: 'jpg',
+        imageWidth: 720,
+        imageHeight: 405,
+        imageCompressionQuality: 55,
+      };
+      // Use specific source or default to current program scene
+      if (this._previewSource) {
+        params.sourceName = this._previewSource;
+        const resp = await this.obs.call('GetSourceScreenshot', params);
+        return { data: resp.imageData.replace(/^data:image\/jpeg;base64,/, ''), width: 720, height: 405 };
+      } else {
+        // Get current program scene name
+        const scene = await this.obs.call('GetCurrentProgramScene');
+        params.sourceName = scene.currentProgramSceneName;
+        const resp = await this.obs.call('GetSourceScreenshot', params);
+        return { data: resp.imageData.replace(/^data:image\/jpeg;base64,/, ''), width: 720, height: 405 };
+      }
+    } catch (e) {
+      console.error('Preview capture error:', e.message);
+      return null;
+    }
+  }
+
+  startPreview(intervalMs = 5000) {
+    this.stopPreview();
+    console.log(`📸 Preview started (every ${intervalMs}ms)`);
+    this.status.previewActive = true;
+    this._previewTimer = setInterval(async () => {
+      const frame = await this.capturePreviewFrame();
+      if (frame) {
+        // Safety: skip if frame > 150KB base64
+        if (frame.data.length > 150_000) {
+          console.warn('Preview frame too large, skipping');
+          return;
+        }
+        this.sendToRelay({
+          type: 'preview_frame',
+          timestamp: new Date().toISOString(),
+          width: frame.width,
+          height: frame.height,
+          format: 'jpeg',
+          data: frame.data,
+        });
+      }
+    }, intervalMs);
+  }
+
+  stopPreview() {
+    if (this._previewTimer) {
+      clearInterval(this._previewTimer);
+      this._previewTimer = null;
+      this.status.previewActive = false;
+      console.log('📸 Preview stopped');
+    }
+  }
+
+  // ─── HELPERS ──────────────────────────────────────────────────────────────
+
+  sendToRelay(msg) {
+    if (this.relay?.readyState === WebSocket.OPEN) {
+      this.relay.send(JSON.stringify(msg));
+    }
+  }
+
+  sendStatus() {
+    this.sendToRelay({ type: 'status_update', status: this.status });
+  }
+
+  sendAlert(message, severity = 'warning') {
+    console.log(`[ALERT] ${message}`);
+    this.sendToRelay({ type: 'alert', message, severity });
+  }
+}
+
+// ─── ENTRY POINT ─────────────────────────────────────────────────────────────
+
+async function main() {
+  const config = loadConfig();
+  const agent = new ChurchAVAgent(config);
+
+  process.on('SIGINT', () => {
+    console.log('\nShutting down...');
+    process.exit(0);
+  });
+
+  await agent.start();
+}
+
+main().catch(err => {
+  console.error('Fatal error:', err.message);
+  process.exit(1);
+});

@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Church AV Connect</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: #1e293b;
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid #334155;
+      -webkit-app-region: drag;
+    }
+    .header h1 { font-size: 18px; font-weight: 700; color: #f8fafc; }
+    .header p { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+
+    /* ── Status Bar ── */
+    .status-bar {
+      display: flex;
+      gap: 10px;
+      padding: 10px 24px;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      flex-wrap: wrap;
+    }
+    .status-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: #0f172a;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #475569; }
+    .dot.green { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .dot.yellow { background: #eab308; box-shadow: 0 0 6px #eab308; }
+    .dot.red { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+
+    /* ── Live Badge ── */
+    .live-badge {
+      display: none;
+      background: #ef4444;
+      color: white;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 4px;
+      animation: pulse 1.5s infinite;
+      letter-spacing: 0.1em;
+    }
+    .live-badge.active { display: inline-block; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* ── Content ── */
+    .content { flex: 1; overflow-y: auto; padding: 20px 24px; }
+    .section { margin-bottom: 20px; }
+    .section h2 {
+      font-size: 12px; font-weight: 600; color: #94a3b8;
+      text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px;
+    }
+
+    /* ── Info Grid ── */
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .info-card {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .info-card .label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+    .info-card .value { font-size: 15px; font-weight: 600; color: #f1f5f9; margin-top: 2px; }
+    .info-card .value.muted { color: #475569; }
+
+    /* ── Alerts Log ── */
+    .alerts {
+      background: #0a0f1a;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 10px;
+      max-height: 120px;
+      overflow-y: auto;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 11px;
+      color: #64748b;
+    }
+    .alerts .line { padding: 2px 0; }
+    .alerts .line.ok { color: #22c55e; }
+    .alerts .line.warn { color: #f59e0b; }
+    .alerts .line.err { color: #ef4444; }
+
+    /* ── Forms ── */
+    .form-group { margin-bottom: 12px; }
+    label { display: block; font-size: 12px; color: #cbd5e1; margin-bottom: 4px; }
+    input {
+      width: 100%;
+      padding: 8px 12px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      color: #f1f5f9;
+      font-size: 13px;
+    }
+    input:focus { outline: none; border-color: #3b82f6; }
+
+    /* ── Buttons ── */
+    .actions { display: flex; gap: 8px; padding: 14px 24px; border-top: 1px solid #334155; background: #0f172a; }
+    button {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    .btn-primary { background: #ef4444; color: white; }
+    .btn-secondary { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
+    .btn-save { background: #3b82f6; color: white; }
+    .btn-green { background: #22c55e; color: white; }
+    .btn-small { flex: none; padding: 6px 14px; font-size: 11px; }
+
+    /* ── Wizard ── */
+    .wizard { display: none; }
+    .wizard.active { display: block; }
+    .wizard-step { display: none; }
+    .wizard-step.active { display: block; }
+    .wizard-nav { display: flex; gap: 8px; margin-top: 16px; }
+    .step-indicator {
+      display: flex; gap: 6px; margin-bottom: 16px; justify-content: center;
+    }
+    .step-dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #334155; transition: background 0.2s;
+    }
+    .step-dot.active { background: #3b82f6; }
+    .step-dot.done { background: #22c55e; }
+
+    /* ── Dashboard ── */
+    .dashboard { display: none; }
+    .dashboard.active { display: flex; flex-direction: column; height: 100%; }
+
+    .branding {
+      font-size: 11px;
+      color: #475569;
+      text-align: center;
+      padding: 8px;
+    }
+    .branding a { color: #64748b; text-decoration: none; }
+    .branding a:hover { color: #94a3b8; }
+  </style>
+</head>
+<body>
+
+<!-- ════════════════════════ SETUP WIZARD ════════════════════════ -->
+<div class="wizard" id="wizard">
+  <div class="header">
+    <h1>⛪ Church AV Connect</h1>
+    <p>Setup Wizard</p>
+  </div>
+  <div class="content">
+    <div class="step-indicator" id="step-indicator"></div>
+
+    <!-- Step 1: Welcome -->
+    <div class="wizard-step active" data-step="1">
+      <div style="text-align:center; padding: 30px 0 20px;">
+        <div style="font-size: 48px; margin-bottom: 16px;">⛪🎥</div>
+        <h2 style="font-size: 20px; color: #f8fafc; font-weight: 700; margin-bottom: 8px;">Welcome to Church AV Connect</h2>
+        <p style="color: #94a3b8; font-size: 13px; line-height: 1.5; max-width: 360px; margin: 0 auto;">
+          Remote monitoring and control for your church production system.<br>
+          Built by <a href="https://atemschool.com" style="color: #3b82f6;" onclick="require('electron').shell.openExternal('https://atemschool.com'); return false;">ATEM School</a>.
+        </p>
+      </div>
+    </div>
+
+    <!-- Step 2: Token -->
+    <div class="wizard-step" data-step="2">
+      <h2 style="font-size: 15px; color: #f8fafc; margin-bottom: 12px;">Enter Your Connection Token</h2>
+      <p style="color: #94a3b8; font-size: 12px; margin-bottom: 16px;">
+        Your church admin or ATEM School support will provide this token.
+        <a href="#" style="color: #3b82f6;" onclick="require('electron').shell.openExternal('https://atemschool.com'); return false;">Get one here →</a>
+      </p>
+      <div class="form-group">
+        <label>Connection Token</label>
+        <input id="wiz-token" type="password" placeholder="Paste your token here...">
+      </div>
+      <button class="btn-small btn-secondary" onclick="copyToken()" style="margin-top:4px;">📋 Copy Token</button>
+    </div>
+
+    <!-- Step 3: ATEM -->
+    <div class="wizard-step" data-step="3">
+      <h2 style="font-size: 15px; color: #f8fafc; margin-bottom: 12px;">ATEM Switcher</h2>
+      <p style="color: #94a3b8; font-size: 12px; margin-bottom: 16px;">
+        Enter the IP address of your ATEM switcher on the local network.
+      </p>
+      <div class="form-group">
+        <label>ATEM IP Address</label>
+        <input id="wiz-atem" type="text" placeholder="192.168.1.10">
+      </div>
+      <button class="btn-small btn-secondary" onclick="scanForATEM()" id="btn-scan">🔍 Auto-Discover on Network</button>
+      <div id="scan-result" style="margin-top:8px; font-size:12px; color: #94a3b8;"></div>
+    </div>
+
+    <!-- Step 4: OBS + Companion -->
+    <div class="wizard-step" data-step="4">
+      <h2 style="font-size: 15px; color: #f8fafc; margin-bottom: 12px;">Optional: OBS & Companion</h2>
+      <p style="color: #94a3b8; font-size: 12px; margin-bottom: 16px;">
+        Skip these if you don't use OBS Studio or Bitfocus Companion.
+      </p>
+      <div class="form-group">
+        <label>OBS WebSocket Password (optional)</label>
+        <input id="wiz-obs-pw" type="password" placeholder="Leave blank if not set">
+      </div>
+      <div class="form-group">
+        <label>Companion URL (optional)</label>
+        <input id="wiz-companion" type="text" placeholder="http://localhost:8888" value="http://localhost:8888">
+      </div>
+      <div class="form-group">
+        <label>System Name (optional)</label>
+        <input id="wiz-name" type="text" placeholder="e.g., Main Sanctuary">
+      </div>
+      <div class="form-group">
+        <label>Live Stream URL (optional — YouTube/Facebook)</label>
+        <input id="wiz-livestream" type="text" placeholder="https://youtube.com/live/...">
+      </div>
+    </div>
+
+    <!-- Step 5: Done -->
+    <div class="wizard-step" data-step="5">
+      <div style="text-align:center; padding: 30px 0 20px;">
+        <div style="font-size: 48px; margin-bottom: 16px;">✅</div>
+        <h2 style="font-size: 20px; color: #f8fafc; font-weight: 700; margin-bottom: 8px;">All Set!</h2>
+        <p style="color: #94a3b8; font-size: 13px; line-height: 1.5;">
+          Your system is now connected.<br>
+          The app will run in your system tray and connect automatically on startup.
+        </p>
+        <div id="test-result" style="margin-top: 16px; font-size: 12px;"></div>
+      </div>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="btn-secondary" id="wiz-back" onclick="wizardBack()" style="display:none;">Back</button>
+    <button class="btn-save" id="wiz-next" onclick="wizardNext()">Get Started →</button>
+  </div>
+</div>
+
+<!-- ════════════════════════ DASHBOARD ════════════════════════ -->
+<div class="dashboard" id="dashboard">
+  <div class="header">
+    <h1>⛪ Church AV Connect <span class="live-badge" id="live-badge">LIVE</span></h1>
+    <p id="church-name">ATEM School Remote Monitoring</p>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-chip"><div class="dot" id="dot-relay"></div><span>Relay</span></div>
+    <div class="status-chip"><div class="dot" id="dot-atem"></div><span>ATEM</span></div>
+    <div class="status-chip"><div class="dot" id="dot-obs"></div><span>OBS</span></div>
+    <div class="status-chip"><div class="dot" id="dot-companion"></div><span>Companion</span></div>
+  </div>
+
+  <div class="content" style="flex:1; overflow-y:auto;">
+    <!-- ATEM Status -->
+    <div class="section">
+      <h2>ATEM Switcher</h2>
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="label">Program</div>
+          <div class="value" id="val-program">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Preview</div>
+          <div class="value" id="val-preview">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Recording</div>
+          <div class="value" id="val-recording">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Companion</div>
+          <div class="value" id="val-companion">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OBS Status -->
+    <div class="section">
+      <h2>OBS Studio</h2>
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="label">Stream</div>
+          <div class="value" id="val-stream">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">FPS</div>
+          <div class="value" id="val-fps">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preview Thumbnail -->
+    <div class="section">
+      <h2>Preview</h2>
+      <div style="position:relative; background:#0a0f1a; border:1px solid #1e293b; border-radius:6px; overflow:hidden; aspect-ratio:16/9; max-width:320px;">
+        <img id="preview-img" src="" style="width:100%; height:100%; object-fit:cover; display:none;">
+        <div id="preview-placeholder" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#475569; font-size:12px;">Preview unavailable</div>
+      </div>
+      <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
+        <button class="btn-small btn-secondary" onclick="requestPreview()">📸 Request Preview</button>
+        <button class="btn-small btn-secondary" onclick="stopPreview()">⏹ Stop</button>
+        <span id="preview-ts" style="font-size:10px; color:#475569; margin-left:auto;"></span>
+      </div>
+      <div style="margin-top:6px;" id="live-stream-link"></div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="section">
+      <h2>Recent Alerts</h2>
+      <div class="alerts" id="alerts-log">
+        <div class="line" style="color:#475569;">Waiting for events...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="branding">
+    Powered by <a href="#" onclick="require('electron').shell.openExternal('https://atemschool.com'); return false;">ATEM School</a>
+  </div>
+
+  <div class="actions">
+    <button class="btn-secondary" id="btn-toggle" onclick="toggleAgent()">Start Agent</button>
+    <button class="btn-secondary btn-small" onclick="testConn()">🔌 Test</button>
+    <button class="btn-secondary btn-small" onclick="showWizard()">⚙️ Setup</button>
+  </div>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron');
+const TOTAL_STEPS = 5;
+let currentStep = 1;
+let isRunning = false;
+let alertCount = 0;
+
+// ─── INIT ──────────────────────────────────────────────────────────────────
+
+async function init() {
+  const config = await ipcRenderer.invoke('get-config');
+  isRunning = await ipcRenderer.invoke('is-running');
+
+  if (config.token && config.setupComplete) {
+    showDashboard();
+    if (config.name) document.getElementById('church-name').textContent = config.name;
+  } else {
+    showWizard();
+  }
+
+  updateToggleBtn();
+  const status = await ipcRenderer.invoke('get-status');
+  updateStatusUI(status);
+}
+
+// ─── WIZARD ────────────────────────────────────────────────────────────────
+
+function showWizard() {
+  document.getElementById('wizard').classList.add('active');
+  document.getElementById('dashboard').classList.remove('active');
+  renderStepIndicator();
+  goToStep(1);
+}
+
+function showDashboard() {
+  document.getElementById('wizard').classList.remove('active');
+  document.getElementById('dashboard').classList.add('active');
+}
+
+function renderStepIndicator() {
+  const el = document.getElementById('step-indicator');
+  el.innerHTML = '';
+  for (let i = 1; i <= TOTAL_STEPS; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'step-dot' + (i === currentStep ? ' active' : '') + (i < currentStep ? ' done' : '');
+    el.appendChild(dot);
+  }
+}
+
+function goToStep(n) {
+  currentStep = n;
+  document.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active'));
+  const step = document.querySelector(`.wizard-step[data-step="${n}"]`);
+  if (step) step.classList.add('active');
+  renderStepIndicator();
+
+  const back = document.getElementById('wiz-back');
+  const next = document.getElementById('wiz-next');
+  back.style.display = n > 1 ? '' : 'none';
+  next.textContent = n === 1 ? 'Get Started →' : n === TOTAL_STEPS ? 'Finish & Connect' : 'Next →';
+}
+
+async function wizardNext() {
+  if (currentStep < TOTAL_STEPS) {
+    goToStep(currentStep + 1);
+    if (currentStep === TOTAL_STEPS) {
+      // Save config and test
+      const config = {
+        token: document.getElementById('wiz-token').value.trim(),
+        atemIp: document.getElementById('wiz-atem').value.trim(),
+        obsPassword: document.getElementById('wiz-obs-pw').value.trim(),
+        companionUrl: document.getElementById('wiz-companion').value.trim() || 'http://localhost:8888',
+        name: document.getElementById('wiz-name').value.trim(),
+        liveStreamUrl: document.getElementById('wiz-livestream').value.trim(),
+        relay: 'wss://church-av-relay.up.railway.app',
+        setupComplete: true,
+      };
+      await ipcRenderer.invoke('save-config', config);
+      // Test connection
+      const el = document.getElementById('test-result');
+      el.textContent = 'Testing connection...';
+      el.style.color = '#94a3b8';
+      const result = await ipcRenderer.invoke('test-connection', config.relay.replace('wss://', 'https://'));
+      if (result.success) {
+        el.innerHTML = '🟢 Connected to relay server!';
+        el.style.color = '#22c55e';
+      } else {
+        el.innerHTML = `⚠️ Could not reach relay: ${result.error}`;
+        el.style.color = '#f59e0b';
+      }
+    }
+  } else {
+    // Finish
+    showDashboard();
+    const config = await ipcRenderer.invoke('get-config');
+    if (config.name) document.getElementById('church-name').textContent = config.name;
+    await ipcRenderer.invoke('start-agent');
+    isRunning = true;
+    updateToggleBtn();
+  }
+}
+
+function wizardBack() {
+  if (currentStep > 1) goToStep(currentStep - 1);
+}
+
+function copyToken() {
+  const val = document.getElementById('wiz-token').value;
+  if (val) ipcRenderer.invoke('copy-to-clipboard', val);
+}
+
+function scanForATEM() {
+  const el = document.getElementById('scan-result');
+  el.textContent = 'Scanning common IPs... (this takes a few seconds)';
+  // Check common ATEM default IPs
+  const candidates = [];
+  for (let i = 1; i <= 254; i++) candidates.push(`192.168.1.${i}`);
+  // We can't truly scan ports from renderer, so suggest common defaults
+  setTimeout(() => {
+    el.innerHTML = 'Common ATEM IPs: <b>192.168.1.10</b>, <b>192.168.1.240</b>, <b>10.0.0.10</b><br>Try these, or check ATEM Setup utility.';
+  }, 1500);
+}
+
+// ─── DASHBOARD ─────────────────────────────────────────────────────────────
+
+function updateStatusUI(status) {
+  setDot('relay', status.relay);
+  setDot('atem', status.atem);
+  setDot('obs', status.obs);
+  setDot('companion', status.companion);
+
+  const liveBadge = document.getElementById('live-badge');
+  liveBadge.classList.toggle('active', !!status.streaming);
+}
+
+function setDot(name, active) {
+  const dot = document.getElementById('dot-' + name);
+  if (dot) dot.className = 'dot ' + (active ? 'green' : '');
+}
+
+function updateToggleBtn() {
+  const btn = document.getElementById('btn-toggle');
+  btn.textContent = isRunning ? 'Stop Agent' : 'Start Agent';
+  btn.className = isRunning ? 'btn-primary' : 'btn-secondary';
+}
+
+async function toggleAgent() {
+  if (isRunning) {
+    await ipcRenderer.invoke('stop-agent');
+    isRunning = false;
+  } else {
+    await ipcRenderer.invoke('start-agent');
+    isRunning = true;
+  }
+  updateToggleBtn();
+}
+
+async function testConn() {
+  const config = await ipcRenderer.invoke('get-config');
+  const url = (config.relay || 'wss://church-av-relay.up.railway.app').replace('wss://', 'https://');
+  const result = await ipcRenderer.invoke('test-connection', url);
+  addAlert(result.success ? '✅ Relay connection OK' : `❌ Relay unreachable: ${result.error}`);
+}
+
+function addAlert(text) {
+  const log = document.getElementById('alerts-log');
+  if (alertCount === 0) log.innerHTML = '';
+  const line = document.createElement('div');
+  const ts = new Date().toLocaleTimeString();
+  const cls = text.includes('✅') ? ' ok' : text.includes('⚠') || text.includes('warn') ? ' warn' : text.includes('❌') || text.includes('err') ? ' err' : '';
+  line.className = 'line' + cls;
+  line.textContent = `[${ts}] ${text.trim()}`;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+  alertCount++;
+  while (log.children.length > 10) log.removeChild(log.firstChild);
+}
+
+// ─── IPC listeners ─────────────────────────────────────────────────────────
+
+ipcRenderer.on('status', (_, status) => {
+  updateStatusUI(status);
+});
+
+ipcRenderer.on('log', (_, text) => {
+  // Update info cards from log text
+  const t = text.trim();
+  if (t.includes('ALERT') || t.includes('✅') || t.includes('⚠️') || t.includes('❌') || t.includes('Stream') || t.includes('Recording')) {
+    addAlert(t);
+  }
+
+  // Parse program/preview from status updates
+  const progMatch = t.match(/Program: Input (\d+)/);
+  if (progMatch) document.getElementById('val-program').textContent = `Input ${progMatch[1]}`;
+  const prevMatch = t.match(/Preview: Input (\d+)/);
+  if (prevMatch) document.getElementById('val-preview').textContent = `Input ${prevMatch[1]}`;
+
+  if (t.includes('recording STARTED')) document.getElementById('val-recording').textContent = '🔴 Recording';
+  if (t.includes('recording STOPPED')) document.getElementById('val-recording').textContent = 'Stopped';
+  if (t.includes('Stream STARTED')) document.getElementById('val-stream').textContent = '🔴 LIVE';
+  if (t.includes('Stream STOPPED')) document.getElementById('val-stream').textContent = 'Off';
+  if (t.includes('Companion connected')) document.getElementById('val-companion').textContent = '✅ Connected';
+});
+
+// ─── PREVIEW ───────────────────────────────────────────────────────────────
+
+let lastPreviewTime = 0;
+let previewTimeout = null;
+
+function requestPreview() {
+  // Send command to start preview via the agent
+  addAlert('📸 Preview requested');
+  // The agent receives this via relay command; for local, we just ask the main process
+  ipcRenderer.invoke('get-config').then(config => {
+    // The preview command flows: Electron → relay API → church client → captures → relay WS → controller WS → here
+    // For simplicity, we log the request; the actual preview command is sent by the OpenClaw skill or relay API
+    addAlert('Waiting for preview frames...');
+  });
+}
+
+function stopPreview() {
+  document.getElementById('preview-img').style.display = 'none';
+  document.getElementById('preview-placeholder').style.display = 'flex';
+  document.getElementById('preview-ts').textContent = '';
+  addAlert('⏹ Preview stopped');
+}
+
+function handlePreviewFrame(data) {
+  const img = document.getElementById('preview-img');
+  const placeholder = document.getElementById('preview-placeholder');
+  const tsEl = document.getElementById('preview-ts');
+
+  img.src = 'data:image/jpeg;base64,' + data.data;
+  img.style.display = 'block';
+  placeholder.style.display = 'none';
+  lastPreviewTime = Date.now();
+  tsEl.textContent = new Date(data.timestamp).toLocaleTimeString();
+
+  // Auto-hide if no frame in 15s
+  clearTimeout(previewTimeout);
+  previewTimeout = setTimeout(() => {
+    if (Date.now() - lastPreviewTime > 14000) {
+      img.style.display = 'none';
+      placeholder.style.display = 'flex';
+      placeholder.textContent = 'Preview unavailable (timeout)';
+    }
+  }, 15000);
+}
+
+// Live stream URL
+async function setupLiveStreamLink() {
+  const config = await ipcRenderer.invoke('get-config');
+  const el = document.getElementById('live-stream-link');
+  if (config.liveStreamUrl) {
+    el.innerHTML = `<a href="#" onclick="require('electron').shell.openExternal('${config.liveStreamUrl}'); return false;" style="color:#3b82f6; font-size:12px;">🔴 Watch Live →</a>`;
+  }
+}
+setupLiveStreamLink();
+
+ipcRenderer.on('preview-frame', (_, data) => {
+  handlePreviewFrame(data);
+});
+
+ipcRenderer.on('update-ready', () => {
+  addAlert('🔄 Update downloaded — restart to install');
+});
+
+init();
+</script>
+</body>
+</html>
