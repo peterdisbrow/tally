@@ -80,6 +80,8 @@ class AlertEngine {
     this.andrewChatId = options.andrewChatId || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this.defaultBotToken = options.defaultBotToken || process.env.ALERT_BOT_TOKEN;
     this.activeAlerts = new Map(); // alertId → { church, alertType, context, severity, sentAt, escalationTimer }
+    // Optional: OnCallRotation instance injected after construction
+    this.onCallRotation = options.onCallRotation || null;
     this._ensureColumns();
     this._ensureAlertsTable();
   }
@@ -167,9 +169,24 @@ class AlertEngine {
       `Reply /ack_${alertId.slice(0, 8)} to acknowledge.`,
     ].join('\n');
 
+    // Determine on-call TD chat ID
+    // Priority: on-call rotation > church td_telegram_chat_id
+    let tdChatId = church.td_telegram_chat_id;
+    if (this.onCallRotation) {
+      try {
+        const onCallTd = this.onCallRotation.getOnCallTD(church.churchId);
+        if (onCallTd?.telegramChatId) {
+          tdChatId = onCallTd.telegramChatId;
+          console.log(`  ↳ Paging on-call TD: ${onCallTd.name}`);
+        }
+      } catch (e) {
+        console.warn('  ↳ On-call lookup failed, falling back to default TD:', e.message);
+      }
+    }
+
     // Send to TD
-    if (church.td_telegram_chat_id) {
-      await this.sendTelegramMessage(church.td_telegram_chat_id, botToken, msg);
+    if (tdChatId) {
+      await this.sendTelegramMessage(tdChatId, botToken, msg);
     }
 
     // EMERGENCY → also notify Andrew immediately

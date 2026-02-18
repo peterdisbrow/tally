@@ -72,6 +72,11 @@ function loadConfig() {
   if (!config.videoHubs) config.videoHubs = [];
   if (!config.proPresenter) config.proPresenter = { host: 'localhost', port: 1025 };
   if (!config.resolume) config.resolume = null; // null = not configured
+
+  // Stream platform API keys (optional, for Feature 9)
+  // Set in ~/.church-av/config.json: youtubeApiKey, facebookAccessToken
+  if (!config.youtubeApiKey) config.youtubeApiKey = process.env.YOUTUBE_API_KEY || '';
+  if (!config.facebookAccessToken) config.facebookAccessToken = process.env.FACEBOOK_ACCESS_TOKEN || '';
   if (!config.youtubeApiKey) config.youtubeApiKey = '';
   if (!config.facebookAccessToken) config.facebookAccessToken = '';
 
@@ -177,6 +182,26 @@ class ChurchAVAgent {
     // Multiple systems down
     if (issues.length >= 3) {
       this._sendWatchdogAlert('multiple_systems_down', `${issues.length} issues: ${issues.join(', ')}`);
+    }
+
+    // Update audio monitor status in status object
+    if (this.audioMonitor) {
+      const audioStatus = this.audioMonitor.getStatus();
+      this.status.audio = {
+        monitoring: audioStatus.monitoring,
+        silenceDetected: audioStatus.silenceDetected,
+        silenceDurationSec: audioStatus.silenceDurationSec,
+      };
+    }
+
+    // Update stream health monitor status
+    if (this.streamHealthMonitor) {
+      const shStatus = this.streamHealthMonitor.getStatus();
+      this.status.streamHealth = {
+        monitoring: shStatus.monitoring,
+        baselineBitrate: shStatus.baselineBitrate,
+        recentBitrate: shStatus.recentBitrate,
+      };
     }
   }
 

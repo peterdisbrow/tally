@@ -123,16 +123,22 @@ Need help? Contact your ATEM School administrator.`;
 class TallyBot {
   /**
    * @param {object} opts
-   * @param {string} opts.botToken - Telegram bot token
-   * @param {string} opts.adminChatId - Andrew's Telegram chat ID
-   * @param {object} opts.db - better-sqlite3 instance
-   * @param {object} opts.relay - { churches, sendCommand, waitForResult }
+   * @param {string} opts.botToken     - Telegram bot token
+   * @param {string} opts.adminChatId  - Andrew's Telegram chat ID
+   * @param {object} opts.db           - better-sqlite3 instance
+   * @param {object} opts.relay        - { churches }
+   * @param {object} [opts.onCallRotation] - OnCallRotation instance (optional)
+   * @param {object} [opts.guestTdMode]    - GuestTdMode instance (optional)
+   * @param {object} [opts.preServiceCheck] - PreServiceCheck instance (optional)
    */
-  constructor({ botToken, adminChatId, db, relay }) {
+  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck }) {
     this.token = botToken;
     this.adminChatId = adminChatId;
     this.db = db;
     this.relay = relay;
+    this.onCallRotation = onCallRotation || null;
+    this.guestTdMode    = guestTdMode    || null;
+    this.preServiceCheck = preServiceCheck || null;
     this._apiBase = `https://api.telegram.org/bot${botToken}`;
 
     // Ensure church_tds table
@@ -194,7 +200,7 @@ class TallyBot {
       );
     }
 
-    // 2. /register CHURCH_CODE
+    // 2. /register CHURCH_CODE or /register GUEST-XXXXXX
     if (text.startsWith('/register')) {
       return this._handleRegister(userId, chatId, text, from);
     }
@@ -204,12 +210,17 @@ class TallyBot {
       return this.sendMessage(chatId, HELP_TEXT, { parse_mode: 'Markdown' });
     }
 
-    // 4. Check if admin
+    // 4. /confirmswap — TD confirming an on-call swap
+    if (text === '/confirmswap' && this.onCallRotation) {
+      return this._handleConfirmSwap(userId, chatId);
+    }
+
+    // 5. Check if admin
     if (chatId === this.adminChatId) {
       return this.handleAdminCommand(chatId, text);
     }
 
-    // 5. Check if registered TD
+    // 6. Check if registered TD
     const td = this._stmtFindTD.get(userId);
     if (td) {
       const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(td.church_id);
@@ -218,7 +229,18 @@ class TallyBot {
       }
     }
 
-    // 6. Unknown user
+    // 7. Check if guest TD
+    if (this.guestTdMode) {
+      const guest = this.guestTdMode.findActiveGuestByChatId(chatId);
+      if (guest) {
+        const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(guest.churchId);
+        if (church) {
+          return this.handleTDCommand(church, chatId, text);
+        }
+      }
+    }
+
+    // 8. Unknown user
     return this.sendMessage(chatId,
       "You're not registered with Tally. Contact your church administrator for a registration code, then use `/register YOUR_CODE`.",
       { parse_mode: 'Markdown' }
@@ -230,10 +252,33 @@ class TallyBot {
   async _handleRegister(userId, chatId, text, from) {
     const parts = text.split(/\s+/);
     if (parts.length < 2) {
-      return this.sendMessage(chatId, 'Usage: `/register YOUR_CODE`\nYour church admin will give you the 6-character code.', { parse_mode: 'Markdown' });
+      return this.sendMessage(chatId, 'Usage: `/register YOUR_CODE`\nYour church admin will give you the 6-character code or a GUEST token.', { parse_mode: 'Markdown' });
     }
 
-    const code = parts[1].toUpperCase();
+    const code = parts[1].trim().toUpperCase();
+
+    // Check if this is a guest token (starts with "GUEST-")
+    if (code.startsWith('GUEST-') && this.guestTdMode) {
+      const name = [from.first_name, from.last_name].filter(Boolean).join(' ') || 'Guest';
+      const result = this.guestTdMode.registerGuest(code, chatId, name);
+
+      if (!result.success) {
+        return this.sendMessage(chatId, `❌ ${result.message}`);
+      }
+
+      const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(result.churchId);
+      if (!church) {
+        return this.sendMessage(chatId, '❌ Church not found for this token.');
+      }
+
+      console.log(`[TallyBot] Guest registered: ${name} → ${church.name} (token: ${code})`);
+      return this.sendMessage(chatId,
+        `✅ Welcome, *${name}*!\n\nYou have *guest access* for *${church.name}*.\n\n${result.message}\n\nType \`help\` to see available commands.`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    // Regular church registration code (6-char hex)
     const church = this._stmtFindChurchByCode.get(code);
     if (!church) {
       return this.sendMessage(chatId, "❌ Invalid registration code. Check with your church administrator.");
@@ -242,6 +287,17 @@ class TallyBot {
     const name = [from.first_name, from.last_name].filter(Boolean).join(' ') || 'Unknown';
     this._stmtRegisterTD.run(church.churchId, userId, chatId, name, new Date().toISOString());
 
+    // Also add to td_contacts for on-call rotation if available
+    if (this.onCallRotation) {
+      this.onCallRotation.addOrUpdateTD({
+        churchId: church.churchId,
+        name,
+        telegramChatId: chatId,
+        telegramUserId: userId,
+        isPrimary: 0,
+      });
+    }
+
     console.log(`[TallyBot] TD registered: ${name} → ${church.name}`);
     return this.sendMessage(chatId,
       `✅ Welcome to Tally, *${name}*!\n\nYou're now registered as TD for *${church.name}*.\nType \`help\` to see what you can do.`,
@@ -249,9 +305,75 @@ class TallyBot {
     );
   }
 
+  // ─── CONFIRM SWAP ─────────────────────────────────────────────────────────
+
+  async _handleConfirmSwap(userId, chatId) {
+    if (!this.onCallRotation) {
+      return this.sendMessage(chatId, '❌ On-call rotation is not configured.');
+    }
+
+    const swap = this.onCallRotation.findPendingSwapForTarget(chatId);
+    if (!swap) {
+      return this.sendMessage(chatId, '❌ No pending swap request found for you.');
+    }
+
+    const result = this.onCallRotation.confirmSwap(swap.swapKey);
+    if (!result.success) {
+      return this.sendMessage(chatId, `❌ ${result.message}`);
+    }
+
+    await this.sendMessage(chatId,
+      `✅ Swap confirmed! You are now on-call for *${swap.churchId}* starting ${result.sundayStr}.`,
+      { parse_mode: 'Markdown' }
+    );
+
+    // Notify the requester too
+    if (swap.requester.telegramChatId) {
+      await this.sendMessage(swap.requester.telegramChatId,
+        `✅ *${result.target.name}* confirmed the swap — they are now on-call starting ${result.sundayStr}. You're off the hook!`,
+        { parse_mode: 'Markdown' }
+      ).catch(() => {});
+    }
+  }
+
   // ─── TD COMMAND HANDLER ───────────────────────────────────────────────
 
   async handleTDCommand(church, chatId, text) {
+    const ltext = text.trim().toLowerCase();
+
+    // /oncall — show who is on-call for this church
+    if (ltext === '/oncall' || ltext === 'oncall') {
+      if (!this.onCallRotation) {
+        return this.sendMessage(chatId, '❌ On-call rotation is not configured.');
+      }
+      const status = this.onCallRotation.formatOnCallStatus(church.churchId, this.db);
+      const onCallTd = this.onCallRotation.getOnCallTD(church.churchId);
+      return this.sendMessage(chatId,
+        `📋 *On-Call TDs — ${church.name}*\n\n${status}`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    // /swap [TD name] — request an on-call swap
+    if ((ltext.startsWith('/swap') || ltext.startsWith('swap ')) && this.onCallRotation) {
+      const targetName = text.replace(/^\/swap\s*/i, '').replace(/^swap\s+/i, '').trim();
+      if (!targetName) {
+        return this.sendMessage(chatId, 'Usage: `/swap [TD name]`\nExample: `/swap John`', { parse_mode: 'Markdown' });
+      }
+      const result = this.onCallRotation.initiateSwap(church.churchId, chatId, targetName);
+      if (!result.success) {
+        return this.sendMessage(chatId, `❌ ${result.message}`);
+      }
+      // Notify target
+      if (result.target?.telegramChatId) {
+        await this.sendMessage(result.target.telegramChatId,
+          `🔄 *On-Call Swap Request*\n\n${result.requester.name} wants to swap on-call duty with you for *${church.name}*.\n\nType \`/confirmswap\` to accept.`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+      }
+      return this.sendMessage(chatId, `✅ ${result.message}`, { parse_mode: 'Markdown' });
+    }
+
     const parsed = parseCommand(text);
     if (!parsed) {
       return this.sendMessage(chatId, "🤔 I didn't understand that. Try `help` for a list of commands.", { parse_mode: 'Markdown' });
@@ -281,6 +403,55 @@ class TallyBot {
   // ─── ADMIN COMMAND HANDLER ────────────────────────────────────────────
 
   async handleAdminCommand(chatId, text) {
+    const ltext = text.trim().toLowerCase();
+
+    // ── Guest token commands ─────────────────────────────────────────────────
+    if (this.guestTdMode) {
+      // guest [church name] → generate guest token
+      const guestMatch = text.match(/^guest\s+(.+)$/i);
+      if (guestMatch) {
+        return this._handleAdminGuestCreate(chatId, guestMatch[1].trim());
+      }
+
+      // revoke guest [token]
+      const revokeMatch = text.match(/^revoke\s+guest\s+(GUEST-[A-F0-9]+)$/i);
+      if (revokeMatch) {
+        const result = this.guestTdMode.revokeToken(revokeMatch[1].toUpperCase());
+        return this.sendMessage(chatId, result.revoked
+          ? `✅ Guest token \`${result.token}\` revoked.`
+          : `❌ Token not found.`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+
+      // list guests
+      if (ltext === 'list guests') {
+        const tokens = this.guestTdMode.listActiveTokens();
+        if (!tokens.length) return this.sendMessage(chatId, 'No active guest tokens.');
+        const lines = tokens.map(t => {
+          const expires = new Date(t.expiresAt).toLocaleString();
+          const used = t.usedByChat ? `✅ Used by chat ${t.usedByChat}` : '⏳ Unused';
+          return `\`${t.token}\` → ${t.churchId}\n${used} | Expires: ${expires}`;
+        });
+        return this.sendMessage(chatId, `🎟️ *Active Guest Tokens*\n\n${lines.join('\n\n')}`, { parse_mode: 'Markdown' });
+      }
+    }
+
+    // ── On-call rotation commands ────────────────────────────────────────────
+    if (this.onCallRotation) {
+      // set oncall [church] [TD name]
+      const setOnCallMatch = text.match(/^set\s+oncall\s+(.+?)\s+(.+)$/i);
+      if (setOnCallMatch) {
+        return this._handleAdminSetOnCall(chatId, setOnCallMatch[1].trim(), setOnCallMatch[2].trim());
+      }
+
+      // list tds [church]
+      const listTdsMatch = text.match(/^list\s+tds?\s+(.+)$/i);
+      if (listTdsMatch) {
+        return this._handleAdminListTDs(chatId, listTdsMatch[1].trim());
+      }
+    }
+
     // Admin can prefix with "at ChurchName:" to target a church
     const atMatch = text.match(/^(?:at|@)\s+(.+?):\s*(.+)$/i);
     let targetChurch = null;
@@ -334,6 +505,52 @@ class TallyBot {
 
     // Route through same handlers as TD
     return this.handleTDCommand(targetChurch, chatId, commandText);
+  }
+
+  // ─── ADMIN HELPER METHODS ────────────────────────────────────────────
+
+  async _handleAdminGuestCreate(chatId, churchName) {
+    // Find the church by name (partial match)
+    const churches = this.db.prepare('SELECT * FROM churches').all();
+    const church = churches.find(c => c.name.toLowerCase().includes(churchName.toLowerCase()));
+    if (!church) {
+      const names = churches.map(c => `• ${c.name}`).join('\n');
+      return this.sendMessage(chatId, `❌ Church "${churchName}" not found.\n\nRegistered churches:\n${names}`);
+    }
+
+    const { token, expiresAt, expiresFormatted } = this.guestTdMode.generateToken(church.churchId, church.name);
+    return this.sendMessage(chatId,
+      `🎟️ *Guest token for ${church.name}* (24h)\n\nShare this with the guest TD:\n\`/register ${token}\`\n\nExpires: ${expiresFormatted}`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  async _handleAdminSetOnCall(chatId, churchName, tdName) {
+    const churches = this.db.prepare('SELECT * FROM churches').all();
+    const church = churches.find(c => c.name.toLowerCase().includes(churchName.toLowerCase()));
+    if (!church) {
+      return this.sendMessage(chatId, `❌ Church "${churchName}" not found.`);
+    }
+
+    const result = this.onCallRotation.setOnCall(church.churchId, tdName);
+    return this.sendMessage(chatId,
+      result.success ? `✅ ${result.message}` : `❌ ${result.message}`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  async _handleAdminListTDs(chatId, churchName) {
+    const churches = this.db.prepare('SELECT * FROM churches').all();
+    const church = churches.find(c => c.name.toLowerCase().includes(churchName.toLowerCase()));
+    if (!church) {
+      return this.sendMessage(chatId, `❌ Church "${churchName}" not found.`);
+    }
+
+    const status = this.onCallRotation.formatOnCallStatus(church.churchId, this.db);
+    return this.sendMessage(chatId,
+      `📋 *TDs for ${church.name}*\n\n${status || 'No TDs registered.'}`,
+      { parse_mode: 'Markdown' }
+    );
   }
 
   // ─── COMMAND EXECUTION ────────────────────────────────────────────────

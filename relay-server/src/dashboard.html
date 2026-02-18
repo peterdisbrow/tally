@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tally — Mission Control</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface2: #1c2128;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --gray: #484f58;
+      --blue: #58a6ff;
+      --accent: #388bfd;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ────────────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    header .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    header .brand h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--text);
+    }
+
+    header .brand .subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    #live-clock {
+      font-size: 15px;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-muted);
+      letter-spacing: 0.04em;
+    }
+
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--gray);
+      display: inline-block;
+      transition: background 0.3s;
+    }
+
+    .dot.connected { background: var(--green); animation: pulse 2s infinite; }
+    .dot.error      { background: var(--red); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.5; }
+    }
+
+    /* ── Main ──────────────────────────────────────────────────────────────── */
+    main {
+      padding: 24px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .summary-bar {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .summary-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 20px;
+      min-width: 120px;
+    }
+
+    .summary-card .label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 4px;
+    }
+
+    .summary-card .value {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .summary-card.green .value { color: var(--green); }
+    .summary-card.yellow .value { color: var(--yellow); }
+    .summary-card.red .value { color: var(--red); }
+
+    /* ── Church Grid ───────────────────────────────────────────────────────── */
+    #church-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    .church-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      cursor: pointer;
+    }
+
+    .church-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .church-card.alert-active {
+      border-color: var(--red);
+    }
+
+    .church-card.status-warning {
+      border-color: var(--yellow);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 4px 10px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+
+    .status-online   { background: rgba(63,185,80,.15);  color: var(--green); }
+    .status-warning  { background: rgba(210,153,34,.15); color: var(--yellow); }
+    .status-alert    { background: rgba(248,81,73,.15);  color: var(--red); }
+    .status-offline  { background: rgba(72,79,88,.15);   color: var(--gray); }
+
+    .alert-badge {
+      background: var(--red);
+      color: #fff;
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .card-body {
+      padding: 14px 16px;
+    }
+
+    .card-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(48,54,61,0.5);
+    }
+
+    .card-row:last-child { border-bottom: none; }
+
+    .card-row .item-label {
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+
+    .card-row .item-value {
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .item-value.ok      { color: var(--green); }
+    .item-value.warn    { color: var(--yellow); }
+    .item-value.err     { color: var(--red); }
+    .item-value.neutral { color: var(--text-muted); }
+
+    .last-seen {
+      font-size: 11px;
+      color: var(--text-muted);
+      padding: 8px 16px 0;
+    }
+
+    /* ── Expanded JSON view ─────────────────────────────────────────────────── */
+    .card-expand {
+      display: none;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--bg);
+    }
+
+    .card-expand.open { display: block; }
+
+    .card-expand pre {
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    /* ── Empty state ───────────────────────────────────────────────────────── */
+    .empty-state {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-muted);
+    }
+
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-state h2 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
+
+    /* ── Footer ────────────────────────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 16px;
+      color: var(--text-muted);
+      font-size: 11px;
+      border-top: 1px solid var(--border);
+      margin-top: 40px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div>
+      <h1>🎛️ Tally <span style="font-weight:300;color:var(--text-muted)">— Mission Control</span></h1>
+      <div class="subtitle">ATEM School Remote Church Monitoring</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:20px">
+    <div class="connection-status">
+      <span class="dot" id="sse-dot"></span>
+      <span id="sse-label" style="font-size:12px;color:var(--text-muted)">Connecting…</span>
+    </div>
+    <div id="live-clock">--:-- --</div>
+  </div>
+</header>
+
+<main>
+  <div class="summary-bar">
+    <div class="summary-card">
+      <div class="label">Total Churches</div>
+      <div class="value" id="sum-total">–</div>
+    </div>
+    <div class="summary-card green">
+      <div class="label">Online</div>
+      <div class="value" id="sum-online">–</div>
+    </div>
+    <div class="summary-card yellow">
+      <div class="label">Warning</div>
+      <div class="value" id="sum-warning">–</div>
+    </div>
+    <div class="summary-card red">
+      <div class="label">Alerts</div>
+      <div class="value" id="sum-alerts">–</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Offline</div>
+      <div class="value" id="sum-offline">–</div>
+    </div>
+  </div>
+
+  <div id="church-grid">
+    <div class="empty-state">
+      <div class="icon">📡</div>
+      <h2>Connecting to relay…</h2>
+      <p>Waiting for church data.</p>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Tally by ATEM School &nbsp;•&nbsp; Real-time church production monitoring
+</footer>
+
+<script>
+// ─── State ──────────────────────────────────────────────────────────────────
+const churches = new Map(); // churchId → state object
+
+// ─── Clock ──────────────────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('live-clock').textContent = now.toLocaleTimeString('en-US', {
+    hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+  });
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ─── SSE ────────────────────────────────────────────────────────────────────
+const urlParams = new URLSearchParams(location.search);
+const apiKey = urlParams.get('key') || '';
+const sseUrl = `/api/dashboard/stream?key=${encodeURIComponent(apiKey)}`;
+
+let es = null;
+let reconnectTimeout = null;
+
+function connectSSE() {
+  if (es) { es.close(); es = null; }
+  es = new EventSource(sseUrl);
+
+  es.onopen = () => {
+    document.getElementById('sse-dot').className = 'dot connected';
+    document.getElementById('sse-label').textContent = 'Live';
+  };
+
+  es.onerror = () => {
+    document.getElementById('sse-dot').className = 'dot error';
+    document.getElementById('sse-label').textContent = 'Reconnecting…';
+    es.close();
+    clearTimeout(reconnectTimeout);
+    reconnectTimeout = setTimeout(connectSSE, 3000);
+  };
+
+  es.onmessage = (evt) => {
+    try {
+      const data = JSON.parse(evt.data);
+      handleEvent(data);
+    } catch (e) {
+      console.error('SSE parse error:', e);
+    }
+  };
+}
+
+function handleEvent(data) {
+  if (data.type === 'initial') {
+    for (const church of (data.churches || [])) {
+      churches.set(church.churchId, church);
+    }
+  } else if (data.type === 'status_update' || data.type === 'church_connected') {
+    const existing = churches.get(data.churchId) || {};
+    churches.set(data.churchId, { ...existing, ...data });
+  } else if (data.type === 'church_disconnected') {
+    const existing = churches.get(data.churchId);
+    if (existing) {
+      existing.connected = false;
+      churches.set(data.churchId, existing);
+    }
+  } else if (data.type === 'alert') {
+    const existing = churches.get(data.churchId);
+    if (existing) {
+      existing._activeAlerts = (existing._activeAlerts || 0) + 1;
+      churches.set(data.churchId, existing);
+    }
+  }
+  renderGrid();
+}
+
+// ─── Render ──────────────────────────────────────────────────────────────────
+function getStatus(church) {
+  if (!church.connected) return 'offline';
+  const s = church.status || {};
+  if (church._activeAlerts > 0) return 'alert';
+  const hasIssue = (s.atem && !s.atem.connected) || (s.obs && !s.obs.connected);
+  return hasIssue ? 'warning' : 'online';
+}
+
+function statusBadge(status) {
+  const map = {
+    online:  { emoji: '🟢', label: 'Online',  cls: 'status-online'  },
+    warning: { emoji: '🟡', label: 'Warning', cls: 'status-warning' },
+    alert:   { emoji: '🔴', label: 'Alert',   cls: 'status-alert'   },
+    offline: { emoji: '⚫', label: 'Offline', cls: 'status-offline'  },
+  };
+  const s = map[status] || map.offline;
+  return `<span class="status-badge ${s.cls}">${s.emoji} ${s.label}</span>`;
+}
+
+function rowItem(label, value, cls = '') {
+  return `<div class="card-row">
+    <span class="item-label">${label}</span>
+    <span class="item-value ${cls}">${value}</span>
+  </div>`;
+}
+
+function atemRow(atem) {
+  if (!atem) return rowItem('ATEM', '–', 'neutral');
+  const status = atem.connected ? `✅ Cam ${atem.programInput || '?'} live` : '❌ Disconnected';
+  const cls = atem.connected ? 'ok' : 'err';
+  return rowItem('ATEM', status, cls);
+}
+
+function obsRow(obs) {
+  if (!obs) return rowItem('OBS', '–', 'neutral');
+  let val, cls;
+  if (!obs.connected) { val = '❌ Offline'; cls = 'err'; }
+  else if (obs.streaming) { val = `🔴 Streaming${obs.fps ? ` @ ${obs.fps}fps` : ''}`; cls = 'ok'; }
+  else { val = '⏹ Idle'; cls = 'neutral'; }
+  return rowItem('OBS', val, cls);
+}
+
+function relativeTime(isoStr) {
+  if (!isoStr) return 'Never';
+  const delta = Math.floor((Date.now() - new Date(isoStr)) / 1000);
+  if (delta < 5)   return 'Just now';
+  if (delta < 60)  return `${delta}s ago`;
+  if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
+  return `${Math.floor(delta / 3600)}h ago`;
+}
+
+function renderCard(church) {
+  const status = getStatus(church);
+  const alerts = church._activeAlerts || 0;
+  const alertBadge = alerts > 0 ? `<span class="alert-badge">${alerts}</span>` : '';
+  const cardClass = status === 'alert' ? 'alert-active' : status === 'warning' ? 'status-warning' : '';
+  const s = church.status || {};
+  const expandId = `expand-${church.churchId}`;
+
+  return `
+    <div class="church-card ${cardClass}" onclick="toggleExpand('${church.churchId}')">
+      <div class="card-header">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="card-title">${escHtml(church.name)}</span>
+          ${alertBadge}
+        </div>
+        ${statusBadge(status)}
+      </div>
+      <div class="card-body">
+        ${atemRow(s.atem)}
+        ${obsRow(s.obs)}
+        ${rowItem('Companion', s.companion?.connected ? '✅ Online' : '⚫ –', s.companion?.connected ? 'ok' : 'neutral')}
+        ${rowItem('ProPresenter', s.proPresenter?.connected ? '✅ Online' : '⚫ –', s.proPresenter?.connected ? 'ok' : 'neutral')}
+      </div>
+      <div class="last-seen">Last seen: ${relativeTime(church.lastSeen || church.timestamp)}</div>
+      <div class="card-expand" id="${expandId}">
+        <pre>${escHtml(JSON.stringify(church.status || {}, null, 2))}</pre>
+      </div>
+    </div>
+  `;
+}
+
+function toggleExpand(churchId) {
+  const el = document.getElementById(`expand-${churchId}`);
+  if (el) el.classList.toggle('open');
+}
+
+function renderGrid() {
+  const grid = document.getElementById('church-grid');
+  if (churches.size === 0) {
+    grid.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">📡</div>
+        <h2>No churches connected</h2>
+        <p>Church clients appear here when they connect to the relay.</p>
+      </div>`;
+    updateSummary(0, 0, 0, 0, 0);
+    return;
+  }
+
+  let online = 0, warning = 0, alerts = 0, offline = 0;
+  const cards = [];
+
+  for (const church of churches.values()) {
+    const st = getStatus(church);
+    if (st === 'online') online++;
+    else if (st === 'warning') warning++;
+    else if (st === 'alert') { alerts++; }
+    else offline++;
+    cards.push(renderCard(church));
+  }
+
+  grid.innerHTML = cards.join('');
+  updateSummary(churches.size, online, warning, alerts, offline);
+
+  // Refresh relative timestamps every 30s
+  clearTimeout(window._relativeTimer);
+  window._relativeTimer = setTimeout(renderGrid, 30_000);
+}
+
+function updateSummary(total, online, warning, alerts, offline) {
+  document.getElementById('sum-total').textContent   = total;
+  document.getElementById('sum-online').textContent  = online;
+  document.getElementById('sum-warning').textContent = warning;
+  document.getElementById('sum-alerts').textContent  = alerts;
+  document.getElementById('sum-offline').textContent = offline;
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ─── Boot ────────────────────────────────────────────────────────────────────
+connectSSE();
+</script>
+</body>
+</html>

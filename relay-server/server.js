@@ -31,6 +31,10 @@ const { AlertEngine } = require('./src/alertEngine');
 const { AutoRecovery } = require('./src/autoRecovery');
 const { WeeklyDigest } = require('./src/weeklyDigest');
 const { TallyBot } = require('./src/telegramBot');
+const { PreServiceCheck } = require('./src/preServiceCheck');
+const { MonthlyReport } = require('./src/monthlyReport');
+const { OnCallRotation } = require('./src/onCallRotation');
+const { GuestTdMode } = require('./src/guestTdMode');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 const JWT_SECRET    = process.env.JWT_SECRET    || 'dev-jwt-secret-change-me';
@@ -82,9 +86,11 @@ const stmtFindByName = db.prepare('SELECT * FROM churches WHERE name = ?');
 
 // ─── IN-MEMORY RUNTIME STATE ─────────────────────────────────────────────────
 
-// churchId → { churchId, name, email, token, ws, status, lastSeen, registeredAt, disconnectedAt }
+// churchId → { churchId, name, email, token, ws, status, lastSeen, lastHeartbeat, registeredAt, disconnectedAt }
 const churches = new Map();
 const controllers = new Set();
+// SSE clients for the dashboard
+const sseClients = new Set();
 
 // Stats
 let totalMessagesRelayed = 0;
@@ -108,19 +114,44 @@ for (const row of stmtAll.all()) {
     ws: null,
     status: { connected: false, atem: null, obs: null },
     lastSeen: null,
+    lastHeartbeat: null, // updated on status_update messages
     registeredAt: row.registeredAt,
     disconnectedAt: null,
+    _offlineAlertSent: false, // track whether we've alerted for this offline stretch
   });
 }
 log(`Loaded ${churches.size} churches from database`);
 
+// ─── EXTRA SQLITE TABLES (new features) ──────────────────────────────────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS maintenance_windows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    churchId TEXT NOT NULL,
+    startTime TEXT NOT NULL,
+    endTime TEXT NOT NULL,
+    reason TEXT DEFAULT ''
+  )
+`);
+
 // ─── AUTOMATION ENGINES ──────────────────────────────────────────────────────
 
 const scheduleEngine = new ScheduleEngine(db);
-const alertEngine = new AlertEngine(db, scheduleEngine);
+const onCallRotation = new OnCallRotation(db);
+const alertEngine = new AlertEngine(db, scheduleEngine, { onCallRotation });
 const autoRecovery = new AutoRecovery(churches, alertEngine);
 const weeklyDigest = new WeeklyDigest(db);
 weeklyDigest.startWeeklyTimer();
+
+const guestTdMode = new GuestTdMode(db);
+guestTdMode.startCleanupTimer();
+
+const monthlyReport = new MonthlyReport({
+  db,
+  defaultBotToken: process.env.ALERT_BOT_TOKEN,
+  andrewChatId: process.env.ANDREW_TELEGRAM_CHAT_ID,
+});
+monthlyReport.start();
 
 // ─── TELEGRAM BOT ────────────────────────────────────────────────────────────
 
@@ -129,12 +160,16 @@ const TALLY_BOT_WEBHOOK_URL = process.env.TALLY_BOT_WEBHOOK_URL;
 const ANDREW_TELEGRAM_CHAT_ID = process.env.ANDREW_TELEGRAM_CHAT_ID;
 
 let tallyBot = null;
+let preServiceCheck = null;
+
 if (TALLY_BOT_TOKEN) {
   tallyBot = new TallyBot({
     botToken: TALLY_BOT_TOKEN,
     adminChatId: ANDREW_TELEGRAM_CHAT_ID,
     db,
     relay: { churches },
+    onCallRotation,
+    guestTdMode,
   });
   log('Telegram bot initialized');
   if (TALLY_BOT_WEBHOOK_URL) {
@@ -143,6 +178,16 @@ if (TALLY_BOT_TOKEN) {
 } else {
   log('Telegram bot disabled (TALLY_BOT_TOKEN not set)');
 }
+
+// Pre-service check — needs tallyBot but can still send Telegram directly
+preServiceCheck = new PreServiceCheck({
+  db,
+  scheduleEngine,
+  churches,
+  defaultBotToken: process.env.ALERT_BOT_TOKEN,
+  andrewChatId: ANDREW_TELEGRAM_CHAT_ID,
+});
+preServiceCheck.start();
 
 // ─── RATE LIMITER ─────────────────────────────────────────────────────────────
 
@@ -379,6 +424,131 @@ app.get('/api/digest/generate', requireAdmin, async (req, res) => {
   }
 });
 
+// ─── MONTHLY REPORT API ───────────────────────────────────────────────────────
+
+app.get('/api/churches/:churchId/report', requireAdmin, async (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const monthStr = req.query.month; // "YYYY-MM" or omit for previous month
+  try {
+    const dbChurch = stmtGet.get(req.params.churchId);
+    const report = await monthlyReport.generateReport(req.params.churchId, monthStr);
+    const text = monthlyReport.formatReport(report);
+    res.json({ ...report, formatted: text });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+
+app.get('/dashboard', (req, res) => {
+  const key = req.query.key || req.headers['x-api-key'];
+  if (key !== ADMIN_API_KEY) {
+    return res.status(401).send('<html><body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Add <code>?key=YOUR_ADMIN_KEY</code> to the URL.</p></body></html>');
+  }
+  res.sendFile(path.join(__dirname, 'src', 'dashboard.html'));
+});
+
+// ─── SSE Dashboard Stream ─────────────────────────────────────────────────────
+
+app.get('/api/dashboard/stream', (req, res) => {
+  const key = req.query.key || req.headers['x-api-key'];
+  if (key !== ADMIN_API_KEY) return res.status(401).json({ error: 'unauthorized' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering if behind proxy
+  res.flushHeaders();
+
+  // Send initial state
+  const initialState = Array.from(churches.values()).map(c => ({
+    churchId: c.churchId,
+    name: c.name,
+    connected: c.ws?.readyState === WebSocket.OPEN,
+    status: c.status,
+    lastSeen: c.lastSeen,
+    lastHeartbeat: c.lastHeartbeat,
+  }));
+  res.write(`data: ${JSON.stringify({ type: 'initial', churches: initialState })}\n\n`);
+
+  // Keep-alive ping every 30s
+  const keepAlive = setInterval(() => {
+    res.write(': ping\n\n');
+  }, 30_000);
+
+  sseClients.add(res);
+  log(`Dashboard SSE client connected (total: ${sseClients.size})`);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    sseClients.delete(res);
+    log(`Dashboard SSE client disconnected (total: ${sseClients.size})`);
+  });
+});
+
+// ─── MAINTENANCE WINDOWS API ──────────────────────────────────────────────────
+
+app.get('/api/churches/:churchId/maintenance', requireAdmin, (req, res) => {
+  const windows = db.prepare('SELECT * FROM maintenance_windows WHERE churchId = ? ORDER BY startTime ASC').all(req.params.churchId);
+  res.json(windows);
+});
+
+app.post('/api/churches/:churchId/maintenance', requireAdmin, (req, res) => {
+  const { startTime, endTime, reason } = req.body;
+  if (!startTime || !endTime) return res.status(400).json({ error: 'startTime and endTime required' });
+  const result = db.prepare(
+    'INSERT INTO maintenance_windows (churchId, startTime, endTime, reason) VALUES (?, ?, ?, ?)'
+  ).run(req.params.churchId, startTime, endTime, reason || '');
+  res.json({ id: result.lastInsertRowid, churchId: req.params.churchId, startTime, endTime, reason });
+});
+
+app.delete('/api/maintenance/:id', requireAdmin, (req, res) => {
+  db.prepare('DELETE FROM maintenance_windows WHERE id = ?').run(req.params.id);
+  res.json({ deleted: true });
+});
+
+// ─── ON-CALL ROTATION API ─────────────────────────────────────────────────────
+
+app.get('/api/churches/:churchId/oncall', requireAdmin, (req, res) => {
+  const onCall = onCallRotation.getOnCallTD(req.params.churchId);
+  const all = onCallRotation.getAllTDs(req.params.churchId);
+  res.json({ onCall, all });
+});
+
+app.post('/api/churches/:churchId/oncall', requireAdmin, (req, res) => {
+  const { tdName } = req.body;
+  if (!tdName) return res.status(400).json({ error: 'tdName required' });
+  const result = onCallRotation.setOnCall(req.params.churchId, tdName);
+  res.json(result);
+});
+
+app.post('/api/churches/:churchId/tds/add', requireAdmin, (req, res) => {
+  const { name, telegramChatId, telegramUserId, phone, isPrimary } = req.body;
+  if (!name || !telegramChatId) return res.status(400).json({ error: 'name and telegramChatId required' });
+  const id = onCallRotation.addOrUpdateTD({ churchId: req.params.churchId, name, telegramChatId, telegramUserId, phone, isPrimary });
+  res.json({ id, name });
+});
+
+// ─── GUEST TOKEN API ──────────────────────────────────────────────────────────
+
+app.post('/api/churches/:churchId/guest-token', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const result = guestTdMode.generateToken(req.params.churchId, church.name);
+  res.json(result);
+});
+
+app.delete('/api/guest-token/:token', requireAdmin, (req, res) => {
+  const result = guestTdMode.revokeToken(req.params.token);
+  res.json(result);
+});
+
+app.get('/api/guest-tokens', requireAdmin, (req, res) => {
+  res.json(guestTdMode.listActiveTokens());
+});
+
 // ─── TELEGRAM BOT API ─────────────────────────────────────────────────────────
 
 app.post('/api/telegram-webhook', (req, res) => {
@@ -474,13 +644,17 @@ function handleChurchConnection(ws, url, clientIp) {
   // Drain any queued messages
   drainQueue(church.churchId, ws);
 
-  // Notify controllers
-  broadcastToControllers({
+  // Notify controllers and SSE dashboard
+  const connectedEvent = {
     type: 'church_connected',
     churchId: church.churchId,
     name: church.name,
     timestamp: church.lastSeen,
-  });
+    connected: true,
+    status: church.status,
+  };
+  broadcastToControllers(connectedEvent);
+  broadcastToSSE(connectedEvent);
 
   ws.on('message', (data) => {
     try {
@@ -496,11 +670,14 @@ function handleChurchConnection(ws, url, clientIp) {
     church.lastSeen = new Date().toISOString();
     church.disconnectedAt = Date.now();
     log(`Church "${church.name}" disconnected`);
-    broadcastToControllers({
+    const disconnectEvent = {
       type: 'church_disconnected',
       churchId: church.churchId,
       name: church.name,
-    });
+      connected: false,
+    };
+    broadcastToControllers(disconnectEvent);
+    broadcastToSSE(disconnectEvent);
   });
 
   ws.send(JSON.stringify({ type: 'connected', churchId: church.churchId, name: church.name }));
@@ -542,25 +719,36 @@ function handleChurchMessage(church, msg) {
   switch (msg.type) {
     case 'status_update':
       church.status = { ...church.status, ...msg.status };
-      broadcastToControllers({
-        type: 'status_update',
-        churchId: church.churchId,
-        name: church.name,
-        status: church.status,
-        timestamp: church.lastSeen,
-      });
+      church.lastHeartbeat = Date.now(); // track specifically for offline detection
+      church._offlineAlertSent = false; // reset offline alert flag on reconnect
+      {
+        const statusEvent = {
+          type: 'status_update',
+          churchId: church.churchId,
+          name: church.name,
+          status: church.status,
+          timestamp: church.lastSeen,
+          lastHeartbeat: church.lastHeartbeat,
+        };
+        broadcastToControllers(statusEvent);
+        broadcastToSSE(statusEvent);
+      }
       break;
 
     case 'alert':
       log(`ALERT from ${church.name}: ${msg.message}`);
-      broadcastToControllers({
-        type: 'alert',
-        churchId: church.churchId,
-        name: church.name,
-        severity: msg.severity || 'warning',
-        message: msg.message,
-        timestamp: church.lastSeen,
-      });
+      {
+        const alertEvent = {
+          type: 'alert',
+          churchId: church.churchId,
+          name: church.name,
+          severity: msg.severity || 'warning',
+          message: msg.message,
+          timestamp: church.lastSeen,
+        };
+        broadcastToControllers(alertEvent);
+        broadcastToSSE(alertEvent);
+      }
       // Automation: process alert through engines
       if (msg.alertType) {
         (async () => {
@@ -595,6 +783,7 @@ function handleChurchMessage(church, msg) {
       };
       broadcastToControllers(cmdResultMsg);
       if (tallyBot) tallyBot.onCommandResult(cmdResultMsg);
+      if (preServiceCheck) preServiceCheck.onCommandResult(cmdResultMsg);
       break;
     }
 
@@ -650,6 +839,14 @@ function broadcastToControllers(msg) {
   }
 }
 
+function broadcastToSSE(data) {
+  if (sseClients.size === 0) return;
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  for (const res of sseClients) {
+    try { res.write(payload); } catch { sseClients.delete(res); }
+  }
+}
+
 // ─── AUTH MIDDLEWARE ──────────────────────────────────────────────────────────
 
 function requireAdmin(req, res, next) {
@@ -657,6 +854,67 @@ function requireAdmin(req, res, next) {
   if (key !== ADMIN_API_KEY) return res.status(401).json({ error: 'unauthorized' });
   next();
 }
+
+// ─── OFFLINE BETWEEN-SERVICE DETECTION (Feature 12) ──────────────────────────
+
+function isInMaintenanceWindow(churchId) {
+  const now = new Date().toISOString();
+  const row = db.prepare(
+    `SELECT id FROM maintenance_windows WHERE churchId = ? AND startTime <= ? AND endTime >= ? LIMIT 1`
+  ).get(churchId, now, now);
+  return !!row;
+}
+
+function checkOfflineChurches() {
+  const now = Date.now();
+  const hour = new Date().getHours();
+  const isNightTime = hour >= 23 || hour < 6; // 11pm–6am: don't alert
+
+  const allChurches = db.prepare('SELECT * FROM churches').all();
+  const botToken = process.env.ALERT_BOT_TOKEN;
+  const andrewChatId = process.env.ANDREW_TELEGRAM_CHAT_ID;
+
+  for (const row of allChurches) {
+    const church = churches.get(row.churchId);
+    if (!church) continue;
+    if (!church.lastHeartbeat) continue; // never connected — skip
+    if (isInMaintenanceWindow(row.churchId)) continue;
+    if (scheduleEngine.isServiceWindow(row.churchId)) continue; // in service — normal
+
+    const offlineMs = now - church.lastHeartbeat;
+    const offlineHours = offlineMs / (1000 * 60 * 60);
+
+    // Already connected — reset flag
+    if (church.ws?.readyState === WebSocket.OPEN) {
+      church._offlineAlertSent = false;
+      church._criticalOfflineAlertSent = false;
+      continue;
+    }
+
+    if (offlineHours >= 24) {
+      // Critical: offline for 24+ hours
+      if (!church._criticalOfflineAlertSent && botToken && andrewChatId) {
+        church._criticalOfflineAlertSent = true;
+        const lastSeen = new Date(church.lastHeartbeat).toLocaleString();
+        const msg = `🔴 *CRITICAL: ${row.name}* has been offline for 24+ hours\nLast seen: ${lastSeen}\n\nThis church's booth computer may need attention.`;
+        alertEngine.sendTelegramMessage(andrewChatId, botToken, msg).catch(() => {});
+        log(`[OfflineDetection] 🔴 CRITICAL: ${row.name} offline 24h+`);
+      }
+    } else if (offlineHours >= 2 && !isNightTime) {
+      // Warning: offline 2+ hours outside of nighttime
+      if (!church._offlineAlertSent && botToken && andrewChatId) {
+        church._offlineAlertSent = true;
+        const lastSeen = new Date(church.lastHeartbeat).toLocaleString();
+        const msg = `⚠️ *${row.name}* booth computer offline for 2h+\nLast seen: ${lastSeen}\nNot during service hours — may need attention.`;
+        alertEngine.sendTelegramMessage(andrewChatId, botToken, msg).catch(() => {});
+        log(`[OfflineDetection] ⚠️ ${row.name} offline 2h+ (not in service window)`);
+      }
+    }
+  }
+}
+
+// Check every 10 minutes
+setInterval(checkOfflineChurches, 10 * 60 * 1000);
 
 // ─── START ────────────────────────────────────────────────────────────────────
 
