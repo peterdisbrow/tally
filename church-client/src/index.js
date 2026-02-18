@@ -23,6 +23,8 @@ const { Resolume } = require('./resolume');
 const { VMix } = require('./vmix');
 const { AudioMonitor } = require('./audioMonitor');
 const { StreamHealthMonitor } = require('./streamHealthMonitor');
+const { encryptConfig, decryptConfig, findUnencryptedFields } = require('./secureStorage');
+const { MixerBridge } = require('./mixerBridge');
 
 // ─── CLI CONFIG ───────────────────────────────────────────────────────────────
 
@@ -52,7 +54,10 @@ function loadConfig() {
 
   let config = {};
   if (fs.existsSync(configPath)) {
-    try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); }
+    try {
+      const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      config = decryptConfig(raw); // decrypt sensitive fields on load
+    }
     catch { config = {}; }
   }
 
@@ -74,6 +79,7 @@ function loadConfig() {
   if (!config.proPresenter) config.proPresenter = { host: 'localhost', port: 1025 };
   if (!config.resolume) config.resolume = null; // null = not configured
   if (!config.vmix) config.vmix = null; // null = not configured (Windows only)
+  if (!config.mixer) config.mixer = null; // null = not configured
 
   // Stream platform API keys (optional, for Feature 9)
   // Set in ~/.church-av/config.json: youtubeApiKey, facebookAccessToken
@@ -89,7 +95,7 @@ function loadConfig() {
     process.exit(1);
   }
 
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  fs.writeFileSync(configPath, JSON.stringify(encryptConfig(config), null, 2));
   return config;
 }
 
@@ -106,6 +112,7 @@ class ChurchAVAgent {
     this.proPresenter = null;
     this.resolume = null;
     this.vmix = null;
+    this.mixer = null;
     this.audioMonitor = new AudioMonitor();
     this.streamHealthMonitor = new StreamHealthMonitor();
     this.reconnectDelay = 3000;
@@ -121,6 +128,7 @@ class ChurchAVAgent {
       proPresenter: { connected: false, running: false, currentSlide: null, slideIndex: null, slideTotal: null },
       resolume: { connected: false, host: null, port: null },
       vmix: { connected: false, streaming: false, recording: false },
+      mixer: { connected: false, type: null, mainMuted: false },
       audio: { monitoring: false, lastLevel: null, silenceDetected: false },
       system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null },
     };
@@ -141,6 +149,7 @@ class ChurchAVAgent {
     await this.connectProPresenter();
     await this.connectResolume();
     await this.connectVMix();
+    await this.connectMixer();
 
     setInterval(() => this.sendStatus(), 30_000);
     setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000);
@@ -707,6 +716,44 @@ class ChurchAVAgent {
         }
         this.sendStatus();
       } catch { /* ignore */ }
+    }, 30_000);
+  }
+
+  // ─── MIXER CONNECTION ─────────────────────────────────────────────────────
+
+  async connectMixer() {
+    const cfg = this.config.mixer;
+    if (!cfg || !cfg.host) {
+      console.log('🎛️  Audio console not configured (set via Equipment tab)');
+      return;
+    }
+
+    console.log(`🎛️  Connecting to ${cfg.type} console at ${cfg.host}:${cfg.port || 'default'}...`);
+    this.mixer = new MixerBridge(cfg);
+    await this.mixer.connect();
+
+    const online = await this.mixer.isOnline();
+    if (online) {
+      const status = await this.mixer.getStatus();
+      this.status.mixer = { connected: true, type: cfg.type, mainMuted: status.mainMuted };
+      console.log(`✅ ${cfg.type} console connected`);
+      if (status.mainMuted) this.sendAlert('⚠️ WARNING: Audio console master is MUTED', 'warning');
+    } else {
+      console.log(`⚠️  ${cfg.type} console not reachable (will retry on poll)`);
+      this.status.mixer = { connected: false, type: cfg.type, mainMuted: false };
+    }
+
+    // Poll every 30s — alert if master gets muted during service
+    setInterval(async () => {
+      if (!this.mixer) return;
+      try {
+        const status = await this.mixer.getStatus();
+        const wasMuted = this.status.mixer.mainMuted;
+        this.status.mixer = { connected: status.online, type: cfg.type, mainMuted: status.mainMuted };
+        if (!wasMuted && status.mainMuted) this.sendAlert('🔇 AUDIO: Master output was MUTED on console', 'critical');
+        if (wasMuted && !status.mainMuted) this.sendAlert('✅ Audio master unmuted', 'info');
+        this.sendStatus();
+      } catch { /* ignore poll errors */ }
     }, 30_000);
   }
 

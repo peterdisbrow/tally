@@ -402,6 +402,83 @@ async function resolumeIsRunning(agent) {
   return running ? 'Resolume Arena is running' : 'Resolume Arena is not reachable';
 }
 
+// ─── MIXER COMMANDS ──────────────────────────────────────────────────────────
+
+async function mixerStatus(agent) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const status = await agent.mixer.getStatus();
+  if (!status.online) return `${status.type || 'Mixer'} console: not reachable`;
+  const faderPct = Math.round((status.mainFader ?? 0) * 100);
+  const lines = [
+    `🎛️ ${status.type} console (${status.model || ''})`,
+    `Status: ${status.online ? '✅ Online' : '❌ Offline'}`,
+    `Main fader: ${faderPct}%`,
+    `Main output: ${status.mainMuted ? '🔇 MUTED' : '🔊 Active'}`,
+    status.scene != null ? `Current scene: ${status.scene}` : null,
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+async function mixerMute(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const ch = params.channel;
+  if (ch === 'master' || ch === undefined) {
+    await agent.mixer.muteMaster();
+    return 'Master output muted';
+  }
+  await agent.mixer.muteChannel(ch);
+  return `Channel ${ch} muted`;
+}
+
+async function mixerUnmute(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const ch = params.channel;
+  if (ch === 'master' || ch === undefined) {
+    await agent.mixer.unmuteMaster();
+    return 'Master output unmuted';
+  }
+  await agent.mixer.unmuteChannel(ch);
+  return `Channel ${ch} unmuted`;
+}
+
+async function mixerChannelStatus(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const ch = params.channel;
+  if (!ch) throw new Error('channel parameter required');
+  const status = await agent.mixer.getChannelStatus(ch);
+  const faderPct = Math.round((status.fader ?? 0) * 100);
+  return `Channel ${ch}: fader ${faderPct}% | ${status.muted ? '🔇 Muted' : '🔊 Active'}`;
+}
+
+async function mixerRecallScene(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const scene = params.scene;
+  if (scene == null) throw new Error('scene parameter required');
+  await agent.mixer.recallScene(scene);
+  return `Scene ${scene} recalled`;
+}
+
+async function mixerClearSolos(agent) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  await agent.mixer.clearSolos();
+  return 'All solos cleared';
+}
+
+async function mixerIsOnline(agent) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const online = await agent.mixer.isOnline();
+  return online ? '✅ Audio console is reachable' : '❌ Audio console not reachable';
+}
+
+async function mixerSetFader(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const { channel, level } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (level == null) throw new Error('level parameter required (0.0–1.0)');
+  await agent.mixer.setFader(channel, level);
+  return `Channel ${channel} fader set to ${Math.round(parseFloat(level) * 100)}%`;
+}
+
 // ─── DANTE COMMANDS (via Companion) ─────────────────────────────────────────
 
 async function danteScene(agent, params) {
@@ -502,7 +579,29 @@ async function preServiceCheck(agent) {
     }
   }
 
-  // 7. Resolume Arena check
+  // 7. Audio console check
+  if (agent.mixer) {
+    const mixerOnline = await agent.mixer.isOnline().catch(() => false);
+    checks.push({
+      name: 'Audio Console',
+      pass: mixerOnline,
+      detail: mixerOnline ? `${agent.config.mixer?.type} reachable` : 'Console not reachable',
+    });
+    if (mixerOnline) {
+      const mixerStatus = await agent.mixer.getStatus().catch(() => null);
+      if (mixerStatus) {
+        checks.push({
+          name: 'Main Output',
+          pass: !mixerStatus.mainMuted,
+          detail: mixerStatus.mainMuted
+            ? '⚠️ MASTER IS MUTED'
+            : `Fader at ${Math.round(mixerStatus.mainFader * 100)}%`,
+        });
+      }
+    }
+  }
+
+  // 8. Resolume Arena check
   if (agent.resolume) {
     const resRunning = await agent.resolume.isRunning();
     checks.push({ name: 'Resolume Arena', pass: resRunning, detail: resRunning ? 'Running' : 'Not reachable' });
@@ -668,6 +767,15 @@ const commandHandlers = {
   'resolume.getLayers': resolumeGetLayers,
   'resolume.getColumns': resolumeGetColumns,
   'resolume.isRunning': resolumeIsRunning,
+
+  'mixer.status': mixerStatus,
+  'mixer.mute': mixerMute,
+  'mixer.unmute': mixerUnmute,
+  'mixer.channelStatus': mixerChannelStatus,
+  'mixer.recallScene': mixerRecallScene,
+  'mixer.clearSolos': mixerClearSolos,
+  'mixer.isOnline': mixerIsOnline,
+  'mixer.setFader': mixerSetFader,
 
   'dante.scene': danteScene,
 

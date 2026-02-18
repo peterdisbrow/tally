@@ -3,6 +3,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
+const { encryptConfig, decryptConfig } = require('./secureStorage');
 
 // Auto-update (gracefully optional)
 let autoUpdater;
@@ -255,13 +256,35 @@ async function testConnection(relayUrl) {
 function loadConfig() {
   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
   if (!fs.existsSync(CONFIG_PATH)) return {};
-  try { return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); }
+  try {
+    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    return decryptConfig(raw); // decrypt secure fields on load
+  }
   catch { return {}; }
 }
 
 function saveConfig(config) {
   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  // Only encrypt if new plaintext values were provided; skip undefined
+  const toSave = Object.fromEntries(Object.entries(config).filter(([, v]) => v !== undefined));
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(encryptConfig(toSave), null, 2));
+}
+
+// Return config with flags instead of actual key values for the UI
+// (never send streaming keys to the renderer process)
+function loadConfigForUI() {
+  const config = loadConfig();
+  const ui = { ...config };
+  const SENSITIVE = ['youtubeApiKey', 'facebookAccessToken', 'rtmpStreamKey', 'twitchStreamKey', 'obsPassword', 'churchToken'];
+  for (const field of SENSITIVE) {
+    ui[`${field.replace(/([A-Z])/g, m => m[0].toLowerCase())}Set`] = !!(config[field]);
+    delete ui[field]; // never expose to renderer
+  }
+  // Convenience flags for the UI
+  ui.youtubeKeySet = !!(config.youtubeApiKey);
+  ui.facebookTokenSet = !!(config.facebookAccessToken);
+  ui.rtmpKeySet = !!(config.rtmpStreamKey);
+  return ui;
 }
 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
@@ -278,6 +301,19 @@ ipcMain.handle('copy-to-clipboard', (_, text) => { clipboard.writeText(text); re
 // ─── EQUIPMENT CONFIG IPC ─────────────────────────────────────────────────────
 
 const { discoverDevices, tryTcpConnect, tryHttpGet } = require('./networkScanner');
+
+// ─── TCP CONNECT HELPER ───────────────────────────────────────────────────────
+
+function tryTcpConnectLocal(host, port, timeoutMs) {
+  return new Promise((resolve) => {
+    const net = require('net');
+    const socket = new net.Socket();
+    socket.setTimeout(timeoutMs);
+    socket.connect(port, host, () => { socket.destroy(); resolve({ success: true }); });
+    socket.on('error', () => { socket.destroy(); resolve({ success: false }); });
+    socket.on('timeout', () => { socket.destroy(); resolve({ success: false }); });
+  });
+}
 
 ipcMain.handle('scan-network', async (event) => {
   const results = await discoverDevices((percent, message) => {
@@ -334,6 +370,21 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
         const version = resp.success && resp.data ? (resp.data.name || 'Resolume Arena') : null;
         return { success: resp.success, details: resp.success ? `${version} is running` : 'Cannot reach Resolume Arena' };
       }
+      case 'mixer': {
+        const mixerType = params.mixerType || 'behringer';
+        const defaultPort = mixerType === 'allenheath' ? 51326
+          : mixerType === 'yamaha' ? 8765
+          : 10023; // behringer / midas
+        const targetPort = port || defaultPort;
+        // Yamaha TF uses TCP on 49280 — try TCP connect; for OSC consoles, TCP probe is a good enough check
+        const resp = await tryTcpConnectLocal(ip, targetPort, 3000);
+        return {
+          success: resp.success,
+          details: resp.success
+            ? `${mixerType} console reachable at ${ip}:${targetPort}`
+            : `Cannot reach ${mixerType} console at ${ip}:${targetPort}`,
+        };
+      }
       default:
         return { success: false, details: 'Unknown device type' };
     }
@@ -362,6 +413,15 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
       ? { host: equipConfig.resolumeHost, port: equipConfig.resolumePort || 8080 }
       : null;
   }
+  if (equipConfig.mixerHost !== undefined) {
+    config.mixer = equipConfig.mixerHost && equipConfig.mixerType
+      ? {
+          type: equipConfig.mixerType,
+          host: equipConfig.mixerHost,
+          port: equipConfig.mixerPort || null,
+        }
+      : null;
+  }
   saveConfig(config);
   return true;
 });
@@ -383,6 +443,9 @@ ipcMain.handle('get-equipment', () => {
     vmixPort: config.vmix?.port || 8088,
     resolumeHost: config.resolume?.host || '',
     resolumePort: config.resolume?.port || 8080,
+    mixerType: config.mixer?.type || '',
+    mixerHost: config.mixer?.host || '',
+    mixerPort: config.mixer?.port || '',
   };
 });
 

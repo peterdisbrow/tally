@@ -516,6 +516,32 @@
       <div class="equip-detail" id="equip-dante-detail"></div>
     </div>
 
+    <!-- Streaming Keys (Secure Storage) -->
+    <div class="equip-section">
+      <h3>🔑 Streaming Keys <span style="font-size:0.75rem;color:#22c55e;font-weight:500;">🔒 Encrypted</span></h3>
+      <div class="equip-detail" style="margin-left:0; margin-bottom:12px; color:#94a3b8;">All keys are encrypted using your OS keychain (macOS Keychain / Windows DPAPI). Never stored in plaintext.</div>
+
+      <label style="display:block;margin-bottom:4px;color:#94a3b8;font-size:0.8rem;">YouTube API Key (for stream health monitoring)</label>
+      <div class="equip-row">
+        <input type="password" id="equip-youtube-key" placeholder="AIzaSy..." autocomplete="new-password">
+        <button class="btn-test" onclick="showHideKey('equip-youtube-key')">👁</button>
+      </div>
+
+      <label style="display:block;margin:10px 0 4px;color:#94a3b8;font-size:0.8rem;">Facebook Access Token (for stream health monitoring)</label>
+      <div class="equip-row">
+        <input type="password" id="equip-facebook-token" placeholder="EAAxxxxxx..." autocomplete="new-password">
+        <button class="btn-test" onclick="showHideKey('equip-facebook-token')">👁</button>
+      </div>
+
+      <label style="display:block;margin:10px 0 4px;color:#94a3b8;font-size:0.8rem;">RTMP Stream Key (generic / Twitch)</label>
+      <div class="equip-row">
+        <input type="password" id="equip-rtmp-key" placeholder="live_xxxxxxxx" autocomplete="new-password">
+        <button class="btn-test" onclick="showHideKey('equip-rtmp-key')">👁</button>
+      </div>
+
+      <div class="equip-detail" id="equip-keys-detail" style="margin-top:8px;"></div>
+    </div>
+
     <!-- vMix -->
     <div class="equip-section">
       <h3>🎬 vMix <div class="equip-status" id="equip-dot-vmix"></div></h3>
@@ -538,6 +564,27 @@
         <button class="btn-test" onclick="testEquip('resolume')">Test</button>
       </div>
       <div class="equip-detail" id="equip-resolume-detail">In Resolume: Preferences → Web Server → enable, default port 8080</div>
+    </div>
+
+    <!-- Audio Console (Mixer) -->
+    <div class="equip-section">
+      <h3>🎛️ Audio Console <div class="equip-status" id="equip-dot-mixer"></div></h3>
+      <div class="equip-detail" style="margin-left:0; margin-bottom:8px; color:#94a3b8;">OSC-compatible consoles. Leave blank if not used.</div>
+      <div class="equip-row">
+        <select id="equip-mixer-type" style="flex:1; padding:8px 12px; background:#1e293b; border:1px solid #334155; border-radius:6px; color:#f1f5f9; font-size:13px;">
+          <option value="">— Not configured —</option>
+          <option value="behringer">Behringer X32 / X-Air</option>
+          <option value="midas">Midas M32 / M32R</option>
+          <option value="allenheath">Allen &amp; Heath SQ / dLive</option>
+          <option value="yamaha">Yamaha CL / QL / TF</option>
+        </select>
+      </div>
+      <div class="equip-row">
+        <input type="text" id="equip-mixer-host" placeholder="Console IP address">
+        <input type="text" id="equip-mixer-port" placeholder="Auto" style="max-width:80px;">
+        <button class="btn-test" onclick="testEquip('mixer')">Test</button>
+      </div>
+      <div class="equip-detail" id="equip-mixer-detail">Default ports: X32/M32=10023, A&amp;H SQ=51326, Yamaha CL/QL=8765, TF=49280</div>
     </div>
 
     <!-- Auto-Discovery -->
@@ -867,10 +914,17 @@ async function loadEquipment() {
   document.getElementById('equip-pp-port').value = eq.proPresenterPort || '1025';
   document.getElementById('equip-dante-host').value = eq.danteNmosHost || '';
   document.getElementById('equip-dante-port').value = eq.danteNmosPort || '8080';
+  // Streaming keys — show placeholder if set (never send to UI in plaintext)
+  document.getElementById('equip-youtube-key').placeholder = eq.youtubeKeySet ? '(saved — enter new to change)' : 'AIzaSy...';
+  document.getElementById('equip-facebook-token').placeholder = eq.facebookTokenSet ? '(saved — enter new to change)' : 'EAAxxxxxx...';
+  document.getElementById('equip-rtmp-key').placeholder = eq.rtmpKeySet ? '(saved — enter new to change)' : 'live_xxxxxxxx';
   document.getElementById('equip-vmix-host').value = eq.vmixHost || '';
   document.getElementById('equip-vmix-port').value = eq.vmixPort || '8088';
   document.getElementById('equip-resolume-host').value = eq.resolumeHost || '';
   document.getElementById('equip-resolume-port').value = eq.resolumePort || '8080';
+  document.getElementById('equip-mixer-type').value = eq.mixerType || '';
+  document.getElementById('equip-mixer-host').value = eq.mixerHost || '';
+  document.getElementById('equip-mixer-port').value = eq.mixerPort || '';
   hyperdeckEntries = eq.hyperdecks || [];
   ptzEntries = eq.ptz || [];
   renderHyperdecks();
@@ -921,6 +975,11 @@ function setEquipDot(id, status) {
   if (dot) dot.className = 'equip-status ' + (status === true ? 'green' : status === false ? 'red' : '');
 }
 
+function showHideKey(id) {
+  const el = document.getElementById(id);
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
 async function testEquip(type) {
   const detailEl = document.getElementById(`equip-${type}-detail`);
   const dotId = `equip-dot-${type}`;
@@ -952,6 +1011,12 @@ async function testEquip(type) {
   } else if (type === 'resolume') {
     params.ip = document.getElementById('equip-resolume-host').value.trim() || 'localhost';
     params.port = parseInt(document.getElementById('equip-resolume-port').value) || 8080;
+  } else if (type === 'mixer') {
+    params.mixerType = document.getElementById('equip-mixer-type').value;
+    params.ip = document.getElementById('equip-mixer-host').value.trim();
+    params.port = parseInt(document.getElementById('equip-mixer-port').value) || 0;
+    if (!params.ip) { detailEl.textContent = 'Enter console IP address'; setEquipDot(dotId, false); return; }
+    if (!params.mixerType) { detailEl.textContent = 'Select console type first'; setEquipDot(dotId, false); return; }
   }
 
   detailEl.textContent = 'Testing...';
@@ -996,10 +1061,17 @@ async function saveEquipment() {
     proPresenterPort: parseInt(document.getElementById('equip-pp-port').value) || 1025,
     danteNmosHost: document.getElementById('equip-dante-host').value.trim(),
     danteNmosPort: parseInt(document.getElementById('equip-dante-port').value) || 8080,
+    // Only send keys if user entered new values (don't overwrite with empty)
+    youtubeApiKey: document.getElementById('equip-youtube-key').value.trim() || undefined,
+    facebookAccessToken: document.getElementById('equip-facebook-token').value.trim() || undefined,
+    rtmpStreamKey: document.getElementById('equip-rtmp-key').value.trim() || undefined,
     vmixHost: document.getElementById('equip-vmix-host').value.trim(),
     vmixPort: parseInt(document.getElementById('equip-vmix-port').value) || 8088,
     resolumeHost: document.getElementById('equip-resolume-host').value.trim(),
     resolumePort: parseInt(document.getElementById('equip-resolume-port').value) || 8080,
+    mixerType: document.getElementById('equip-mixer-type').value,
+    mixerHost: document.getElementById('equip-mixer-host').value.trim(),
+    mixerPort: parseInt(document.getElementById('equip-mixer-port').value) || 0,
   };
 
   await api.saveEquipment(config);
@@ -1077,6 +1149,10 @@ async function startNetworkScan() {
       document.getElementById('equip-resolume-host').value = d.ip;
       document.getElementById('equip-resolume-port').value = d.port || '8080';
       testEquip('resolume');
+    }));
+    (results.mixers || []).forEach(d => addScanResult(resultsEl, `Possible audio console at ${d.ip}:${d.port} (${d.type})`, () => {
+      document.getElementById('equip-mixer-host').value = d.ip;
+      if (d.port) document.getElementById('equip-mixer-port').value = d.port;
     }));
   } catch (e) {
     status.textContent = 'Scan failed: ' + e.message;

@@ -62,7 +62,7 @@ function tryHttpGet(url, timeoutMs = 2000) {
  * @returns {Promise<Object>} discovered devices
  */
 async function discoverDevices(onProgress = () => {}) {
-  const results = { atem: [], companion: [], obs: [], hyperdeck: [], ptz: [], propresenter: [], nmos: [], resolume: [], vmix: [] };
+  const results = { atem: [], companion: [], obs: [], hyperdeck: [], ptz: [], propresenter: [], nmos: [], resolume: [], vmix: [], mixers: [] };
   const { subnet, localIp } = getLocalSubnet();
 
   onProgress(0, `Scanning ${subnet}.x for AV devices...`);
@@ -121,14 +121,18 @@ async function discoverDevices(onProgress = () => {}) {
   // Scan subnet in batches of 50 to avoid overwhelming the network
   const BATCH_SIZE = 50;
   const ports = [
-    { port: 9910, type: 'atem' },
-    { port: 8888, type: 'companion' },
-    { port: 4455, type: 'obs' },
-    { port: 9993, type: 'hyperdeck' },
-    { port: 80, type: 'ptz' },
-    { port: 1025, type: 'propresenter' },
-    { port: 8080, type: 'resolume' },
-    { port: 8088, type: 'vmix' },
+    { port: 9910,  type: 'atem' },
+    { port: 8888,  type: 'companion' },
+    { port: 4455,  type: 'obs' },
+    { port: 9993,  type: 'hyperdeck' },
+    { port: 80,    type: 'ptz' },
+    { port: 1025,  type: 'propresenter' },
+    { port: 8080,  type: 'resolume' },
+    { port: 8088,  type: 'vmix' },
+    // Audio consoles — TCP probe on OSC/control ports
+    { port: 10023, type: 'mixer-behringer' },  // Behringer X32 / Midas M32
+    { port: 51326, type: 'mixer-allenheath' }, // Allen & Heath SQ
+    { port: 8765,  type: 'mixer-yamaha' },     // Yamaha CL/QL
   ];
 
   let scanned = 0;
@@ -187,6 +191,15 @@ async function discoverDevices(onProgress = () => {}) {
                 results.resolume.push({ ip, port, version });
                 onProgress(null, `Found ${version} at ${ip} ✅`);
               }
+            } else if (type === 'mixer-behringer' && !results.mixers.find((d) => d.ip === ip && d.port === port)) {
+              results.mixers.push({ ip, port, type: 'behringer/midas (X32/M32)' });
+              onProgress(null, `Found possible Behringer/Midas console at ${ip}:${port} ✅`);
+            } else if (type === 'mixer-allenheath' && !results.mixers.find((d) => d.ip === ip && d.port === port)) {
+              results.mixers.push({ ip, port, type: 'allenheath (SQ/dLive)' });
+              onProgress(null, `Found possible Allen & Heath console at ${ip}:${port} ✅`);
+            } else if (type === 'mixer-yamaha' && !results.mixers.find((d) => d.ip === ip && d.port === port)) {
+              results.mixers.push({ ip, port, type: 'yamaha (CL/QL)' });
+              onProgress(null, `Found possible Yamaha console at ${ip}:${port} ✅`);
             }
           })
         );
