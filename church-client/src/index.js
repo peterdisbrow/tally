@@ -20,6 +20,8 @@ const { CompanionBridge } = require('./companion');
 const { VideoHub } = require('./videohub');
 const { ProPresenter } = require('./propresenter');
 const { Resolume } = require('./resolume');
+const { AudioMonitor } = require('./audioMonitor');
+const { StreamHealthMonitor } = require('./streamHealthMonitor');
 
 // ─── CLI CONFIG ───────────────────────────────────────────────────────────────
 
@@ -70,6 +72,8 @@ function loadConfig() {
   if (!config.videoHubs) config.videoHubs = [];
   if (!config.proPresenter) config.proPresenter = { host: 'localhost', port: 1025 };
   if (!config.resolume) config.resolume = null; // null = not configured
+  if (!config.youtubeApiKey) config.youtubeApiKey = '';
+  if (!config.facebookAccessToken) config.facebookAccessToken = '';
 
   if (!config.token) {
     console.error('\n❌ No connection token provided.');
@@ -94,6 +98,8 @@ class ChurchAVAgent {
     this.videoHubs = [];
     this.proPresenter = null;
     this.resolume = null;
+    this.audioMonitor = new AudioMonitor();
+    this.streamHealthMonitor = new StreamHealthMonitor();
     this.reconnectDelay = 3000;
     this.atemReconnectDelay = 2000;
     this.atemReconnecting = false;
@@ -106,6 +112,7 @@ class ChurchAVAgent {
       videoHubs: [],
       proPresenter: { connected: false, running: false, currentSlide: null, slideIndex: null, slideTotal: null },
       resolume: { connected: false, host: null, port: null },
+      audio: { monitoring: false, lastLevel: null, silenceDetected: false },
       system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null },
     };
   }
@@ -118,6 +125,8 @@ class ChurchAVAgent {
     await this.connectRelay();
     await this.connectATEM();
     await this.connectOBS();
+    this.audioMonitor.start(this);
+    this.streamHealthMonitor.start(this);
     await this.connectCompanion();
     await this.connectVideoHubs();
     await this.connectProPresenter();
