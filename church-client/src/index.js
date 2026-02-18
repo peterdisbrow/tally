@@ -60,6 +60,11 @@ function loadConfig() {
   if (opts.previewSource) config.previewSource = opts.previewSource;
   if (opts.watchdog !== undefined) config.watchdog = opts.watchdog;
 
+  // Preserve array fields from config file (hyperdecks, ptz)
+  // These are set via the Equipment UI, not CLI args
+  if (!config.hyperdecks) config.hyperdecks = [];
+  if (!config.ptz) config.ptz = [];
+
   if (!config.token) {
     console.error('\n❌ No connection token provided.');
     console.error('   Get your token from ATEM School, then run:');

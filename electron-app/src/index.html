@@ -168,6 +168,103 @@
     }
     .branding a { color: #64748b; text-decoration: none; }
     .branding a:hover { color: #94a3b8; }
+
+    /* ── Tabs ── */
+    .tab-bar {
+      display: flex;
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      border-radius: 0;
+    }
+    .tab-btn:hover { color: #94a3b8; }
+    .tab-btn.active { color: #f1f5f9; border-bottom-color: #3b82f6; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ── Equipment ── */
+    .equip-section { margin-bottom: 18px; }
+    .equip-section h3 {
+      font-size: 13px; font-weight: 600; color: #e2e8f0; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .equip-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+    .equip-row input { flex: 1; }
+    .equip-row .btn-test {
+      flex: none; padding: 6px 10px; font-size: 11px;
+      background: #334155; color: #cbd5e1; border: 1px solid #475569;
+      border-radius: 4px; cursor: pointer;
+    }
+    .equip-row .btn-test:hover { background: #475569; }
+    .equip-status {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #475569; flex-shrink: 0;
+    }
+    .equip-status.green { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+    .equip-status.red { background: #ef4444; }
+    .equip-detail { font-size: 11px; color: #64748b; margin-left: 18px; margin-bottom: 6px; }
+    .btn-add {
+      padding: 4px 10px; font-size: 11px;
+      background: #1e293b; color: #94a3b8; border: 1px dashed #475569;
+      border-radius: 4px; cursor: pointer; margin-top: 4px;
+    }
+    .btn-add:hover { border-color: #94a3b8; color: #e2e8f0; }
+    .btn-remove {
+      flex: none; padding: 4px 8px; font-size: 11px;
+      background: transparent; color: #ef4444; border: 1px solid #ef4444;
+      border-radius: 4px; cursor: pointer;
+    }
+    .btn-remove:hover { background: #ef4444; color: white; }
+
+    /* ── Scan ── */
+    .scan-section {
+      background: #1e293b; border: 1px solid #334155;
+      border-radius: 8px; padding: 14px; margin-top: 16px;
+    }
+    .scan-btn {
+      width: 100%; padding: 12px; border: none; border-radius: 6px;
+      background: #E84C3D; color: white; font-size: 14px; font-weight: 700;
+      cursor: pointer; margin-bottom: 10px;
+    }
+    .scan-btn:hover { opacity: 0.9; }
+    .scan-btn:disabled { opacity: 0.5; cursor: default; }
+    .scan-progress { display: none; margin-bottom: 10px; }
+    .scan-progress-bar {
+      height: 6px; background: #334155; border-radius: 3px; overflow: hidden;
+    }
+    .scan-progress-fill {
+      height: 100%; width: 0%; background: #3b82f6; transition: width 0.3s;
+      border-radius: 3px;
+    }
+    .scan-status { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+    .scan-results { margin-top: 8px; }
+    .scan-result-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 8px; background: #0f172a; border-radius: 4px;
+      margin-bottom: 4px; font-size: 12px;
+    }
+    .scan-result-item .btn-use {
+      margin-left: auto; flex: none; padding: 3px 8px; font-size: 10px;
+      background: #22c55e; color: white; border: none; border-radius: 3px;
+      cursor: pointer;
+    }
+    .scan-result-item .btn-use:hover { opacity: 0.85; }
+
+    .save-bar {
+      padding: 12px 0; display: flex; gap: 8px; align-items: center;
+    }
+    .save-confirm { font-size: 12px; color: #22c55e; display: none; }
   </style>
 </head>
 <body>
@@ -278,7 +375,12 @@
     <div class="status-chip"><div class="dot" id="dot-companion"></div><span>Companion</span></div>
   </div>
 
-  <div class="content" style="flex:1; overflow-y:auto;">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('status')">Status</button>
+    <button class="tab-btn" onclick="switchTab('equipment')">Equipment</button>
+  </div>
+
+  <div class="content tab-content active" id="tab-status" style="flex:1; overflow-y:auto;">
     <!-- ATEM Status -->
     <div class="section">
       <h2>ATEM Switcher</h2>
@@ -339,6 +441,74 @@
         <div class="line" style="color:#475569;">Waiting for events...</div>
       </div>
     </div>
+  </div>
+
+  <!-- ═══════════ EQUIPMENT TAB ═══════════ -->
+  <div class="content tab-content" id="tab-equipment" style="flex:1; overflow-y:auto;">
+
+    <!-- ATEM Switcher -->
+    <div class="equip-section">
+      <h3>📹 ATEM Switcher <div class="equip-status" id="equip-dot-atem"></div></h3>
+      <div class="equip-row">
+        <input type="text" id="equip-atem-ip" placeholder="192.168.1.10">
+        <button class="btn-test" onclick="testEquip('atem')">Test</button>
+      </div>
+      <div class="equip-detail" id="equip-atem-detail"></div>
+    </div>
+
+    <!-- Companion -->
+    <div class="equip-section">
+      <h3>🎛️ Bitfocus Companion <div class="equip-status" id="equip-dot-companion"></div></h3>
+      <div class="equip-row">
+        <input type="text" id="equip-companion-url" placeholder="http://localhost:8888">
+        <button class="btn-test" onclick="testEquip('companion')">Test</button>
+      </div>
+      <div class="equip-detail" id="equip-companion-detail"></div>
+    </div>
+
+    <!-- OBS -->
+    <div class="equip-section">
+      <h3>🎬 OBS Studio <div class="equip-status" id="equip-dot-obs"></div></h3>
+      <div class="equip-row">
+        <input type="text" id="equip-obs-url" placeholder="ws://localhost:4455">
+        <button class="btn-test" onclick="testEquip('obs')">Test</button>
+      </div>
+      <div class="equip-row" style="margin-top:4px;">
+        <input type="password" id="equip-obs-password" placeholder="Password (optional)" style="flex:1;">
+      </div>
+      <div class="equip-detail" id="equip-obs-detail"></div>
+    </div>
+
+    <!-- HyperDecks -->
+    <div class="equip-section">
+      <h3>⏺️ HyperDecks</h3>
+      <div id="equip-hyperdecks-list"></div>
+      <button class="btn-add" onclick="addHyperdeck()">+ Add HyperDeck</button>
+    </div>
+
+    <!-- PTZ Cameras -->
+    <div class="equip-section">
+      <h3>🎥 PTZ Cameras</h3>
+      <div id="equip-ptz-list"></div>
+      <button class="btn-add" onclick="addPtz()">+ Add Camera</button>
+    </div>
+
+    <!-- Auto-Discovery -->
+    <div class="scan-section">
+      <button class="scan-btn" id="scan-btn" onclick="startNetworkScan()">🔍 Scan Network</button>
+      <div class="scan-progress" id="scan-progress">
+        <div class="scan-progress-bar"><div class="scan-progress-fill" id="scan-fill"></div></div>
+        <div class="scan-status" id="scan-status">Preparing...</div>
+      </div>
+      <div class="scan-results" id="scan-results"></div>
+    </div>
+
+    <!-- Save -->
+    <div class="save-bar">
+      <button class="btn-save" style="flex:none; padding:10px 24px;" onclick="saveEquipment()">Save Equipment Config</button>
+      <span class="save-confirm" id="save-confirm">Saved ✅</span>
+    </div>
+
   </div>
 
   <div class="branding">
@@ -624,6 +794,217 @@ api.onPreviewFrame((data) => {
 api.onUpdateReady(() => {
   addAlert('🔄 Update downloaded — restart to install');
 });
+
+// ─── TABS ──────────────────────────────────────────────────────────────────
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`)?.classList.add('active');
+  document.getElementById('tab-' + name)?.classList.add('active');
+  if (name === 'equipment') loadEquipment();
+}
+
+// ─── EQUIPMENT ─────────────────────────────────────────────────────────────
+
+let hyperdeckEntries = [];
+let ptzEntries = [];
+
+async function loadEquipment() {
+  const eq = await api.getEquipment();
+  document.getElementById('equip-atem-ip').value = eq.atemIp || '';
+  document.getElementById('equip-companion-url').value = eq.companionUrl || 'http://localhost:8888';
+  document.getElementById('equip-obs-url').value = eq.obsUrl || 'ws://localhost:4455';
+  document.getElementById('equip-obs-password').value = eq.obsPassword || '';
+  hyperdeckEntries = eq.hyperdecks || [];
+  ptzEntries = eq.ptz || [];
+  renderHyperdecks();
+  renderPtz();
+}
+
+function renderHyperdecks() {
+  const list = document.getElementById('equip-hyperdecks-list');
+  list.innerHTML = '';
+  hyperdeckEntries.forEach((ip, i) => {
+    const row = document.createElement('div');
+    row.className = 'equip-row';
+    row.innerHTML = `<input type="text" value="${ip}" placeholder="192.168.1.20" onchange="hyperdeckEntries[${i}]=this.value">
+      <button class="btn-test" onclick="testEquipIdx('hyperdeck',${i})">Test</button>
+      <button class="btn-remove" onclick="hyperdeckEntries.splice(${i},1);renderHyperdecks()">✕</button>`;
+    list.appendChild(row);
+  });
+}
+
+function addHyperdeck() {
+  if (hyperdeckEntries.length >= 8) return;
+  hyperdeckEntries.push('');
+  renderHyperdecks();
+}
+
+function renderPtz() {
+  const list = document.getElementById('equip-ptz-list');
+  list.innerHTML = '';
+  ptzEntries.forEach((cam, i) => {
+    const row = document.createElement('div');
+    row.className = 'equip-row';
+    row.innerHTML = `<input type="text" value="${cam.ip || ''}" placeholder="192.168.1.30" style="flex:1;" onchange="ptzEntries[${i}].ip=this.value">
+      <input type="text" value="${cam.name || ''}" placeholder="Camera name" style="flex:1;" onchange="ptzEntries[${i}].name=this.value">
+      <button class="btn-test" onclick="testEquipIdx('ptz',${i})">Test</button>
+      <button class="btn-remove" onclick="ptzEntries.splice(${i},1);renderPtz()">✕</button>`;
+    list.appendChild(row);
+  });
+}
+
+function addPtz() {
+  if (ptzEntries.length >= 8) return;
+  ptzEntries.push({ ip: '', name: '' });
+  renderPtz();
+}
+
+function setEquipDot(id, status) {
+  const dot = document.getElementById(id);
+  if (dot) dot.className = 'equip-status ' + (status === true ? 'green' : status === false ? 'red' : '');
+}
+
+async function testEquip(type) {
+  const detailEl = document.getElementById(`equip-${type}-detail`);
+  const dotId = `equip-dot-${type}`;
+  let params = { type };
+
+  if (type === 'atem') {
+    params.ip = document.getElementById('equip-atem-ip').value.trim();
+    if (!params.ip) { detailEl.textContent = 'Enter an IP address'; setEquipDot(dotId, false); return; }
+  } else if (type === 'companion') {
+    params.url = document.getElementById('equip-companion-url').value.trim();
+    if (!params.url) { detailEl.textContent = 'Enter a URL'; setEquipDot(dotId, false); return; }
+  } else if (type === 'obs') {
+    const urlVal = document.getElementById('equip-obs-url').value.trim() || 'ws://localhost:4455';
+    const parsed = urlVal.replace(/^wss?:\/\//, '');
+    const [host, port] = parsed.split(':');
+    params.ip = host || '127.0.0.1';
+    params.port = parseInt(port) || 4455;
+  }
+
+  detailEl.textContent = 'Testing...';
+  const result = await api.testEquipmentConnection(params);
+  detailEl.textContent = result.details;
+  setEquipDot(dotId, result.success);
+}
+
+async function testEquipIdx(type, idx) {
+  let params = { type };
+  if (type === 'hyperdeck') {
+    params.ip = hyperdeckEntries[idx];
+  } else if (type === 'ptz') {
+    params.ip = ptzEntries[idx]?.ip;
+  }
+  if (!params.ip) return;
+  const result = await api.testEquipmentConnection(params);
+  // Brief visual feedback via alert
+  addAlert(`${type} ${params.ip}: ${result.success ? '✅' : '❌'} ${result.details}`);
+}
+
+async function saveEquipment() {
+  // Sync hyperdeck values from DOM
+  document.querySelectorAll('#equip-hyperdecks-list input').forEach((inp, i) => {
+    hyperdeckEntries[i] = inp.value.trim();
+  });
+  // Sync ptz values
+  const ptzInputs = document.querySelectorAll('#equip-ptz-list .equip-row');
+  ptzInputs.forEach((row, i) => {
+    const inputs = row.querySelectorAll('input');
+    ptzEntries[i] = { ip: inputs[0].value.trim(), name: inputs[1].value.trim() };
+  });
+
+  const config = {
+    atemIp: document.getElementById('equip-atem-ip').value.trim(),
+    companionUrl: document.getElementById('equip-companion-url').value.trim(),
+    obsUrl: document.getElementById('equip-obs-url').value.trim(),
+    obsPassword: document.getElementById('equip-obs-password').value,
+    hyperdecks: hyperdeckEntries.filter(ip => ip),
+    ptz: ptzEntries.filter(c => c.ip),
+  };
+
+  await api.saveEquipment(config);
+  const confirm = document.getElementById('save-confirm');
+  confirm.style.display = 'inline';
+  setTimeout(() => { confirm.style.display = 'none'; }, 2000);
+}
+
+// ─── NETWORK SCAN ──────────────────────────────────────────────────────────
+
+async function startNetworkScan() {
+  const btn = document.getElementById('scan-btn');
+  const progress = document.getElementById('scan-progress');
+  const fill = document.getElementById('scan-fill');
+  const status = document.getElementById('scan-status');
+  const resultsEl = document.getElementById('scan-results');
+
+  btn.disabled = true;
+  btn.textContent = '🔍 Scanning...';
+  progress.style.display = 'block';
+  resultsEl.innerHTML = '';
+  fill.style.width = '0%';
+
+  api.onScanProgress(({ percent, message }) => {
+    if (percent !== null && percent !== undefined) fill.style.width = percent + '%';
+    if (message) {
+      status.textContent = message;
+      if (message.includes('Found')) {
+        const item = document.createElement('div');
+        item.className = 'scan-result-item';
+        item.textContent = message;
+        resultsEl.appendChild(item);
+      }
+    }
+  });
+
+  try {
+    const results = await api.scanNetwork();
+    fill.style.width = '100%';
+
+    // Render results with "Use This" buttons
+    resultsEl.innerHTML = '';
+    const total = results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.ptz.length;
+    status.textContent = `Scan complete: ${total} device${total !== 1 ? 's' : ''} found`;
+
+    results.atem.forEach(d => addScanResult(resultsEl, `ATEM at ${d.ip}`, () => {
+      document.getElementById('equip-atem-ip').value = d.ip;
+      testEquip('atem');
+    }));
+    results.companion.forEach(d => addScanResult(resultsEl, `Companion at ${d.ip} (${d.connections} connections)`, () => {
+      document.getElementById('equip-companion-url').value = `http://${d.ip}:${d.port}`;
+      testEquip('companion');
+    }));
+    results.obs.forEach(d => addScanResult(resultsEl, `OBS at ${d.ip}:${d.port}`, () => {
+      document.getElementById('equip-obs-url').value = `ws://${d.ip}:${d.port}`;
+      testEquip('obs');
+    }));
+    results.hyperdeck.forEach(d => addScanResult(resultsEl, `HyperDeck at ${d.ip}`, () => {
+      if (!hyperdeckEntries.includes(d.ip)) { hyperdeckEntries.push(d.ip); renderHyperdecks(); }
+    }));
+    results.ptz.forEach(d => addScanResult(resultsEl, `PTZ Camera at ${d.ip}`, () => {
+      if (!ptzEntries.find(p => p.ip === d.ip)) { ptzEntries.push({ ip: d.ip, name: '' }); renderPtz(); }
+    }));
+  } catch (e) {
+    status.textContent = 'Scan failed: ' + e.message;
+  }
+
+  btn.disabled = false;
+  btn.textContent = '🔍 Scan Network';
+}
+
+function addScanResult(container, label, useFn) {
+  const item = document.createElement('div');
+  item.className = 'scan-result-item';
+  item.innerHTML = `<span>✅ ${label}</span>`;
+  const btn = document.createElement('button');
+  btn.className = 'btn-use';
+  btn.textContent = 'Use This';
+  btn.addEventListener('click', useFn);
+  item.appendChild(btn);
+  container.appendChild(item);
+}
 
 // External link handler
 document.addEventListener('click', (e) => {

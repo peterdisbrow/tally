@@ -275,6 +275,75 @@ ipcMain.handle('is-running', () => !!agentProcess);
 ipcMain.handle('test-connection', (_, url) => testConnection(url));
 ipcMain.handle('copy-to-clipboard', (_, text) => { clipboard.writeText(text); return true; });
 
+// ─── EQUIPMENT CONFIG IPC ─────────────────────────────────────────────────────
+
+const { discoverDevices, tryTcpConnect, tryHttpGet } = require('./networkScanner');
+
+ipcMain.handle('scan-network', async (event) => {
+  const results = await discoverDevices((percent, message) => {
+    mainWindow?.webContents.send('scan-progress', { percent, message });
+  });
+  return results;
+});
+
+ipcMain.handle('test-equipment-connection', async (_, params) => {
+  const { type, ip, port, password, url } = params;
+  try {
+    switch (type) {
+      case 'atem': {
+        const ok = await tryTcpConnect(ip, port || 9910, 2000);
+        return { success: ok, details: ok ? 'ATEM reachable' : 'Cannot reach ATEM' };
+      }
+      case 'companion': {
+        const target = url || `http://${ip}:${port || 8888}`;
+        const resp = await tryHttpGet(`${target}/api/connections`, 2000);
+        const connCount = resp.success && Array.isArray(resp.data) ? resp.data.length : 0;
+        return { success: resp.success, details: resp.success ? `${connCount} connections active` : 'Cannot reach Companion' };
+      }
+      case 'obs': {
+        const ok = await tryTcpConnect(ip || '127.0.0.1', port || 4455, 2000);
+        return { success: ok, details: ok ? 'OBS reachable' : 'Cannot reach OBS' };
+      }
+      case 'hyperdeck': {
+        const ok = await tryTcpConnect(ip, port || 9993, 2000);
+        return { success: ok, details: ok ? 'HyperDeck reachable' : 'Cannot reach HyperDeck' };
+      }
+      case 'ptz': {
+        const ok = await tryTcpConnect(ip, port || 80, 2000);
+        return { success: ok, details: ok ? 'Camera reachable' : 'Cannot reach camera' };
+      }
+      default:
+        return { success: false, details: 'Unknown device type' };
+    }
+  } catch (e) {
+    return { success: false, details: e.message };
+  }
+});
+
+ipcMain.handle('save-equipment', (_, equipConfig) => {
+  const config = loadConfig();
+  if (equipConfig.atemIp !== undefined) config.atemIp = equipConfig.atemIp;
+  if (equipConfig.companionUrl !== undefined) config.companionUrl = equipConfig.companionUrl;
+  if (equipConfig.obsUrl !== undefined) config.obsUrl = equipConfig.obsUrl;
+  if (equipConfig.obsPassword !== undefined) config.obsPassword = equipConfig.obsPassword;
+  if (equipConfig.hyperdecks !== undefined) config.hyperdecks = equipConfig.hyperdecks;
+  if (equipConfig.ptz !== undefined) config.ptz = equipConfig.ptz;
+  saveConfig(config);
+  return true;
+});
+
+ipcMain.handle('get-equipment', () => {
+  const config = loadConfig();
+  return {
+    atemIp: config.atemIp || '',
+    companionUrl: config.companionUrl || 'http://localhost:8888',
+    obsUrl: config.obsUrl || 'ws://localhost:4455',
+    obsPassword: config.obsPassword || '',
+    hyperdecks: config.hyperdecks || [],
+    ptz: config.ptz || [],
+  };
+});
+
 // ─── AUTO-UPDATE ──────────────────────────────────────────────────────────────
 
 function setupAutoUpdate() {
