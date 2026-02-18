@@ -214,6 +214,89 @@ async function propresenterIsRunning(agent) {
   return running ? 'ProPresenter is running' : 'ProPresenter is not reachable';
 }
 
+// ─── RESOLUME COMMANDS ────────────────────────────────────────────────────────
+
+async function resolumeStatus(agent) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const status = await agent.resolume.getStatus();
+  if (!status.running) return 'Resolume Arena is not reachable';
+  const playing = status.playing.length
+    ? status.playing.map(p => `${p.layer}: ${p.clip}`).join('\n')
+    : 'Nothing playing';
+  const bpm = status.bpm ? ` | BPM: ${status.bpm}` : '';
+  return `Resolume running | ${status.layerCount} layers | ${status.columnCount} columns${bpm}\n${playing}`;
+}
+
+async function resolumePlayClip(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  if (params.name) {
+    const result = await agent.resolume.playClipByName(params.name);
+    return `Playing clip "${result.clip}" on layer "${result.layer}"`;
+  }
+  await agent.resolume.playClip(params.layer, params.clip);
+  return `Playing clip (layer ${params.layer}, clip ${params.clip})`;
+}
+
+async function resolumeStopClip(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  await agent.resolume.stopClip(params.layer, params.clip);
+  return `Stopped clip (layer ${params.layer}, clip ${params.clip})`;
+}
+
+async function resolumeTriggerColumn(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  if (params.name) {
+    const colName = await agent.resolume.triggerColumnByName(params.name);
+    return `Triggered column "${colName}"`;
+  }
+  await agent.resolume.triggerColumn(params.column);
+  return `Triggered column ${params.column}`;
+}
+
+async function resolumeClearAll(agent) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  await agent.resolume.clearAll();
+  return 'Resolume cleared — visual blackout';
+}
+
+async function resolumeSetLayerOpacity(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const val = await agent.resolume.setLayerOpacity(params.layer, params.value);
+  return `Layer ${params.layer} opacity set to ${Math.round(val * 100)}%`;
+}
+
+async function resolumeSetMasterOpacity(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const val = await agent.resolume.setMasterOpacity(params.value);
+  return `Master opacity set to ${Math.round(val * 100)}%`;
+}
+
+async function resolumeSetBpm(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const bpm = await agent.resolume.setBpm(params.bpm);
+  return `BPM set to ${bpm}`;
+}
+
+async function resolumeGetLayers(agent) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const layers = await agent.resolume.getLayers();
+  if (!layers.length) return 'No layers found';
+  return layers.map((l, i) => `${l.id || i + 1}. ${l.name?.value || 'Unnamed'}`).join('\n');
+}
+
+async function resolumeGetColumns(agent) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const columns = await agent.resolume.getColumns();
+  if (!columns.length) return 'No columns found';
+  return columns.map((c, i) => `${c.id || i + 1}. ${c.name?.value || 'Unnamed'}`).join('\n');
+}
+
+async function resolumeIsRunning(agent) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const running = await agent.resolume.isRunning();
+  return running ? 'Resolume Arena is running' : 'Resolume Arena is not reachable';
+}
+
 // ─── DANTE COMMANDS (via Companion) ─────────────────────────────────────────
 
 async function danteScene(agent, params) {
@@ -301,6 +384,17 @@ async function preServiceCheck(agent) {
     if (ppRunning) {
       const slide = await agent.proPresenter.getCurrentSlide();
       checks.push({ name: 'ProPresenter Presentation', pass: !!slide, detail: slide ? `Loaded: ${slide.presentationName}` : 'No presentation loaded' });
+    }
+  }
+
+  // 6. Resolume Arena check
+  if (agent.resolume) {
+    const resRunning = await agent.resolume.isRunning();
+    checks.push({ name: 'Resolume Arena', pass: resRunning, detail: resRunning ? 'Running' : 'Not reachable' });
+    if (resRunning) {
+      const status = await agent.resolume.getStatus();
+      const layerCount = status.layerCount || 0;
+      checks.push({ name: 'Resolume Composition', pass: layerCount > 0, detail: layerCount > 0 ? `${layerCount} layers, ${status.columnCount || 0} columns loaded` : 'No composition loaded' });
     }
   }
 
@@ -431,6 +525,18 @@ const commandHandlers = {
   'propresenter.status': propresenterStatus,
   'propresenter.playlist': propresenterPlaylist,
   'propresenter.isRunning': propresenterIsRunning,
+
+  'resolume.status': resolumeStatus,
+  'resolume.playClip': resolumePlayClip,
+  'resolume.stopClip': resolumeStopClip,
+  'resolume.triggerColumn': resolumeTriggerColumn,
+  'resolume.clearAll': resolumeClearAll,
+  'resolume.setLayerOpacity': resolumeSetLayerOpacity,
+  'resolume.setMasterOpacity': resolumeSetMasterOpacity,
+  'resolume.setBpm': resolumeSetBpm,
+  'resolume.getLayers': resolumeGetLayers,
+  'resolume.getColumns': resolumeGetColumns,
+  'resolume.isRunning': resolumeIsRunning,
 
   'dante.scene': danteScene,
 

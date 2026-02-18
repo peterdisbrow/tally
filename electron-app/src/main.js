@@ -320,6 +320,11 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
         const resp = await tryHttpGet(`http://${ip}:${port || 8080}/x-nmos/node/v1.2/self`, 3000);
         return { success: resp.success, details: resp.success ? 'NMOS registry reachable' : 'Cannot reach NMOS registry' };
       }
+      case 'resolume': {
+        const resp = await tryHttpGet(`http://${ip}:${port || 8080}/api/v1/product`, 3000);
+        const version = resp.success && resp.data ? (resp.data.name || 'Resolume Arena') : null;
+        return { success: resp.success, details: resp.success ? `${version} is running` : 'Cannot reach Resolume Arena' };
+      }
       default:
         return { success: false, details: 'Unknown device type' };
     }
@@ -338,6 +343,11 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
   if (equipConfig.ptz !== undefined) config.ptz = equipConfig.ptz;
   if (equipConfig.proPresenterHost !== undefined) config.proPresenter = { host: equipConfig.proPresenterHost, port: equipConfig.proPresenterPort || 1025 };
   if (equipConfig.danteNmosHost !== undefined) config.dante = { nmosHost: equipConfig.danteNmosHost, nmosPort: equipConfig.danteNmosPort || 8080 };
+  if (equipConfig.resolumeHost !== undefined) {
+    config.resolume = equipConfig.resolumeHost
+      ? { host: equipConfig.resolumeHost, port: equipConfig.resolumePort || 8080 }
+      : null;
+  }
   saveConfig(config);
   return true;
 });
@@ -355,6 +365,8 @@ ipcMain.handle('get-equipment', () => {
     proPresenterPort: config.proPresenter?.port || 1025,
     danteNmosHost: config.dante?.nmosHost || '',
     danteNmosPort: config.dante?.nmosPort || 8080,
+    resolumeHost: config.resolume?.host || '',
+    resolumePort: config.resolume?.port || 8080,
   };
 });
 

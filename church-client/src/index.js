@@ -19,6 +19,7 @@ const { commandHandlers } = require('./commands');
 const { CompanionBridge } = require('./companion');
 const { VideoHub } = require('./videohub');
 const { ProPresenter } = require('./propresenter');
+const { Resolume } = require('./resolume');
 
 // ─── CLI CONFIG ───────────────────────────────────────────────────────────────
 
@@ -68,6 +69,7 @@ function loadConfig() {
   if (!config.ptz) config.ptz = [];
   if (!config.videoHubs) config.videoHubs = [];
   if (!config.proPresenter) config.proPresenter = { host: 'localhost', port: 1025 };
+  if (!config.resolume) config.resolume = null; // null = not configured
 
   if (!config.token) {
     console.error('\n❌ No connection token provided.');
@@ -91,6 +93,7 @@ class ChurchAVAgent {
     this.companion = null;
     this.videoHubs = [];
     this.proPresenter = null;
+    this.resolume = null;
     this.reconnectDelay = 3000;
     this.atemReconnectDelay = 2000;
     this.atemReconnecting = false;
@@ -102,6 +105,7 @@ class ChurchAVAgent {
       companion: { connected: false, connectionCount: 0, connections: [] },
       videoHubs: [],
       proPresenter: { connected: false, running: false, currentSlide: null, slideIndex: null, slideTotal: null },
+      resolume: { connected: false, host: null, port: null },
       system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null },
     };
   }
@@ -117,6 +121,7 @@ class ChurchAVAgent {
     await this.connectCompanion();
     await this.connectVideoHubs();
     await this.connectProPresenter();
+    await this.connectResolume();
 
     setInterval(() => this.sendStatus(), 30_000);
     setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000);
@@ -582,6 +587,43 @@ class ChurchAVAgent {
       }
       this.status.proPresenter.connected = this.proPresenter.connected;
     } catch { /* ignore */ }
+  }
+
+  // ─── RESOLUME CONNECTION ──────────────────────────────────────────────────
+
+  async connectResolume() {
+    const cfg = this.config.resolume;
+    if (!cfg || !cfg.host) {
+      console.log('🎞️  Resolume not configured (set via Equipment tab)');
+      return;
+    }
+
+    console.log(`🎞️  Connecting to Resolume Arena at ${cfg.host}:${cfg.port || 8080}...`);
+    this.resolume = new Resolume({ host: cfg.host, port: cfg.port || 8080 });
+
+    const running = await this.resolume.isRunning();
+    if (running) {
+      const version = await this.resolume.getVersion();
+      console.log(`✅ Resolume Arena connected (${version})`);
+      this.status.resolume = { connected: true, host: cfg.host, port: cfg.port || 8080 };
+    } else {
+      console.log('⚠️  Resolume Arena not reachable (will skip — optional device)');
+      this.status.resolume = { connected: false, host: cfg.host, port: cfg.port || 8080 };
+    }
+
+    // Periodically refresh Resolume status
+    setInterval(async () => {
+      if (!this.resolume) return;
+      try {
+        const running = await this.resolume.isRunning();
+        const wasConnected = this.status.resolume.connected;
+        this.status.resolume.connected = running;
+        if (wasConnected !== running) {
+          this.sendAlert(running ? 'Resolume Arena reconnected' : 'Resolume Arena disconnected', running ? 'info' : 'warning');
+          this.sendStatus();
+        }
+      } catch { /* ignore */ }
+    }, 30_000);
   }
 
   // ─── HELPERS ──────────────────────────────────────────────────────────────
