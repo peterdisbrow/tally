@@ -19,6 +19,8 @@ Church Client App (Mac/Win)
       ├── Bitfocus Companion (HTTP API) — 600+ device types
       ├── HyperDeck control (via ATEM)
       ├── PTZ camera control (via ATEM)
+      ├── ProPresenter 7 (direct REST/WebSocket API)
+      ├── Dante routing (via Companion buttons)
       └── Reports status + accepts commands + sends preview frames
 ```
 
@@ -141,6 +143,21 @@ Screenshots are 720×405 JPEG, ~4-6KB each, sent through existing WebSocket rela
 | `companion.getGrid` | Get button grid for a page |
 | `companion.connections` | List all Companion connections |
 
+### ProPresenter 7
+| Command | Description |
+|---------|------------|
+| `propresenter.next` | Advance to next slide |
+| `propresenter.previous` | Go to previous slide |
+| `propresenter.goToSlide` | Jump to slide N (params: `index`) |
+| `propresenter.status` | Get current slide info |
+| `propresenter.playlist` | List playlist items |
+| `propresenter.isRunning` | Check if ProPresenter is reachable |
+
+### Dante (via Companion)
+| Command | Description |
+|---------|------------|
+| `dante.scene` | Trigger Dante scene (params: `name`) — presses Companion button "Dante: {name}" |
+
 ### System
 | Command | Description |
 |---------|------------|
@@ -175,6 +192,43 @@ Screenshots are 720×405 JPEG, ~4-6KB each, sent through existing WebSocket rela
 "press button 1 2 3"                 → presses page 1, row 2, col 3
 "list Companion connections"         → shows configured devices
 ```
+
+---
+
+## ProPresenter 7 Integration
+
+Tally connects directly to ProPresenter 7's REST API — no Companion needed for slide control.
+
+### Requirements
+- ProPresenter 7 or later
+- Network API enabled in ProPresenter preferences
+
+### Setup
+1. Open ProPresenter → **Preferences** → **Network**
+2. Enable the network API on port **1025** (default)
+3. In Tally's Equipment tab, enter the ProPresenter host and port
+4. The client auto-connects via WebSocket (port 1026) for real-time slide change events
+
+### Config
+```json
+{
+  "proPresenter": { "host": "localhost", "port": 1025 }
+}
+```
+
+---
+
+## Dante Integration
+
+Dante audio routing is handled via **Bitfocus Companion** buttons.
+
+### Setup
+1. Create buttons in Companion named `Dante: Scene Name` (e.g., `Dante: Worship Mix`, `Dante: Speaking`)
+2. Tally will press the matching Companion button when you say "load dante scene worship mix"
+
+### Usage (via Telegram)
+- "load dante scene worship mix"
+- "dante preset speaking"
 
 ---
 

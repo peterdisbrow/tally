@@ -47,6 +47,16 @@ const patterns = [
   { match: /rename\s+(?:hub\s+)?input\s*(\d+)\s+(?:to\s+)?["""]?(.+?)["""]?\s*$/i, command: 'videohub.setInputLabel', extract: m => ({ index: parseInt(m[1]), label: m[2].trim() }), desc: 'rename input N to "Name"' },
   { match: /rename\s+(?:hub\s+)?output\s*(\d+)\s+(?:to\s+)?["""]?(.+?)["""]?\s*$/i, command: 'videohub.setOutputLabel', extract: m => ({ index: parseInt(m[1]), label: m[2].trim() }), desc: null },
 
+  // ProPresenter
+  { match: /^(?:next\s+slide|advance)$/i, command: 'propresenter.next', extract: () => ({}), desc: 'next slide / advance' },
+  { match: /^(?:previous\s+slide|go\s+back|back\s+slide|prev\s+slide)$/i, command: 'propresenter.previous', extract: () => ({}), desc: 'previous slide / go back' },
+  { match: /(?:what'?s?\s+on\s+screen|current\s+slide|what\s+slide)/i, command: 'propresenter.status', extract: () => ({}), desc: 'current slide / what\'s on screen?' },
+  { match: /(?:go|jump)\s+to\s+slide\s+(\d+)/i, command: 'propresenter.goToSlide', extract: m => ({ index: parseInt(m[1]) }), desc: 'go to slide N' },
+  { match: /^(?:playlist|what'?s?\s+loaded)\s*\??$/i, command: 'propresenter.playlist', extract: () => ({}), desc: 'playlist / what\'s loaded?' },
+
+  // Dante (via Companion)
+  { match: /(?:load\s+dante\s+scene|dante\s+preset)\s+["""]?(.+?)["""]?\s*$/i, command: 'dante.scene', extract: m => ({ name: m[1].trim() }), desc: 'load dante scene [name]' },
+
   // Preview
   { match: /(?:show\s+me|preview|what\s+does\s+.+\s+look\s+like|screenshot|snap(?:shot)?|what'?s?\s+(?:on\s+(?:screen|camera)|live))/i, command: 'preview.snap', extract: () => ({}), desc: 'show me what\'s on screen' },
 
@@ -90,6 +100,16 @@ const HELP_TEXT = `🎛️ *Tally Commands*
 • show routing
 • what's on monitor 1?
 • rename input 3 to "Stage Cam"
+
+*ProPresenter*
+• next slide / advance
+• previous slide / go back
+• current slide / what's on screen?
+• go to slide 3
+• playlist / what's loaded?
+
+*Dante*
+• load dante scene \\[name\\] — trigger Companion button 'Dante: \\[name\\]'
 
 *Status*
 • status — system overview
@@ -374,6 +394,18 @@ class TallyBot {
         return `✅ Input ${params.index} renamed to *${params.label}*`;
       case 'videohub.setOutputLabel':
         return `✅ Output ${params.index} renamed to *${params.label}*`;
+      case 'propresenter.next':
+        return `✅ Advanced to next slide`;
+      case 'propresenter.previous':
+        return `✅ Went to previous slide`;
+      case 'propresenter.goToSlide':
+        return `✅ Jumped to slide ${params.index}`;
+      case 'propresenter.status':
+        return `✅ ${result}`;
+      case 'propresenter.playlist':
+        return `📋 *Playlist*\n${result}`;
+      case 'dante.scene':
+        return `✅ Dante scene "${params.name}" triggered`;
       case 'system.preServiceCheck':
         if (result && result.checks) {
           const lines = result.checks.map(c => `${c.pass ? '✅' : '❌'} ${c.name}: ${c.detail}`);
@@ -451,6 +483,14 @@ class TallyBot {
 
     if (s.companion) {
       text += `\n🎛️ *Companion*: ${s.companion.connected ? '✅' : '❌'}`;
+    }
+
+    if (s.proPresenter) {
+      text += `\n⛪ *ProPresenter*: ${s.proPresenter.connected ? '✅' : '❌'}`;
+      if (s.proPresenter.connected && s.proPresenter.currentSlide) {
+        text += ` | ${s.proPresenter.currentSlide}`;
+        if (s.proPresenter.slideIndex != null) text += ` (${s.proPresenter.slideIndex + 1}/${s.proPresenter.slideTotal})`;
+      }
     }
 
     if (s.videoHubs && s.videoHubs.length > 0) {

@@ -493,6 +493,29 @@
       <button class="btn-add" onclick="addPtz()">+ Add Camera</button>
     </div>
 
+    <!-- ProPresenter -->
+    <div class="equip-section">
+      <h3>⛪ ProPresenter <div class="equip-status" id="equip-dot-propresenter"></div></h3>
+      <div class="equip-row">
+        <input type="text" id="equip-pp-host" placeholder="localhost">
+        <input type="text" id="equip-pp-port" placeholder="1025" style="max-width:80px;">
+        <button class="btn-test" onclick="testEquip('propresenter')">Test</button>
+      </div>
+      <div class="equip-detail" id="equip-propresenter-detail"></div>
+    </div>
+
+    <!-- Dante (via Companion) -->
+    <div class="equip-section">
+      <h3>🎵 Dante (via Companion) <div class="equip-status" id="equip-dot-dante"></div></h3>
+      <div class="equip-detail" style="margin-left:0; margin-bottom:8px; color:#94a3b8;">Dante routing is handled via Companion buttons named "Dante: Scene Name"</div>
+      <div class="equip-row">
+        <input type="text" id="equip-dante-host" placeholder="NMOS registry IP (optional)">
+        <input type="text" id="equip-dante-port" placeholder="8080" style="max-width:80px;">
+        <button class="btn-test" onclick="testEquip('dante')">Test</button>
+      </div>
+      <div class="equip-detail" id="equip-dante-detail"></div>
+    </div>
+
     <!-- Auto-Discovery -->
     <div class="scan-section">
       <button class="scan-btn" id="scan-btn" onclick="startNetworkScan()">🔍 Scan Network</button>
@@ -816,6 +839,10 @@ async function loadEquipment() {
   document.getElementById('equip-companion-url').value = eq.companionUrl || 'http://localhost:8888';
   document.getElementById('equip-obs-url').value = eq.obsUrl || 'ws://localhost:4455';
   document.getElementById('equip-obs-password').value = eq.obsPassword || '';
+  document.getElementById('equip-pp-host').value = eq.proPresenterHost || 'localhost';
+  document.getElementById('equip-pp-port').value = eq.proPresenterPort || '1025';
+  document.getElementById('equip-dante-host').value = eq.danteNmosHost || '';
+  document.getElementById('equip-dante-port').value = eq.danteNmosPort || '8080';
   hyperdeckEntries = eq.hyperdecks || [];
   ptzEntries = eq.ptz || [];
   renderHyperdecks();
@@ -883,6 +910,14 @@ async function testEquip(type) {
     const [host, port] = parsed.split(':');
     params.ip = host || '127.0.0.1';
     params.port = parseInt(port) || 4455;
+  } else if (type === 'propresenter') {
+    params.ip = document.getElementById('equip-pp-host').value.trim() || 'localhost';
+    params.port = parseInt(document.getElementById('equip-pp-port').value) || 1025;
+    if (!params.ip) { document.getElementById('equip-propresenter-detail').textContent = 'Enter a host'; setEquipDot('equip-dot-propresenter', false); return; }
+  } else if (type === 'dante') {
+    params.ip = document.getElementById('equip-dante-host').value.trim();
+    params.port = parseInt(document.getElementById('equip-dante-port').value) || 8080;
+    if (!params.ip) { document.getElementById('equip-dante-detail').textContent = 'Enter NMOS registry IP to test, or use Companion fallback'; setEquipDot('equip-dot-dante', false); return; }
   }
 
   detailEl.textContent = 'Testing...';
@@ -923,6 +958,10 @@ async function saveEquipment() {
     obsPassword: document.getElementById('equip-obs-password').value,
     hyperdecks: hyperdeckEntries.filter(ip => ip),
     ptz: ptzEntries.filter(c => c.ip),
+    proPresenterHost: document.getElementById('equip-pp-host').value.trim() || 'localhost',
+    proPresenterPort: parseInt(document.getElementById('equip-pp-port').value) || 1025,
+    danteNmosHost: document.getElementById('equip-dante-host').value.trim(),
+    danteNmosPort: parseInt(document.getElementById('equip-dante-port').value) || 8080,
   };
 
   await api.saveEquipment(config);
@@ -965,7 +1004,7 @@ async function startNetworkScan() {
 
     // Render results with "Use This" buttons
     resultsEl.innerHTML = '';
-    const total = results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.ptz.length;
+    const total = results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.ptz.length + (results.propresenter || []).length;
     status.textContent = `Scan complete: ${total} device${total !== 1 ? 's' : ''} found`;
 
     results.atem.forEach(d => addScanResult(resultsEl, `ATEM at ${d.ip}`, () => {
@@ -985,6 +1024,11 @@ async function startNetworkScan() {
     }));
     results.ptz.forEach(d => addScanResult(resultsEl, `PTZ Camera at ${d.ip}`, () => {
       if (!ptzEntries.find(p => p.ip === d.ip)) { ptzEntries.push({ ip: d.ip, name: '' }); renderPtz(); }
+    }));
+    (results.propresenter || []).forEach(d => addScanResult(resultsEl, `ProPresenter at ${d.ip}:${d.port}`, () => {
+      document.getElementById('equip-pp-host').value = d.ip;
+      document.getElementById('equip-pp-port').value = d.port || '1025';
+      testEquip('propresenter');
     }));
   } catch (e) {
     status.textContent = 'Scan failed: ' + e.message;

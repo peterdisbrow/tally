@@ -18,6 +18,7 @@ const os = require('os');
 const { commandHandlers } = require('./commands');
 const { CompanionBridge } = require('./companion');
 const { VideoHub } = require('./videohub');
+const { ProPresenter } = require('./propresenter');
 
 // ─── CLI CONFIG ───────────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ function loadConfig() {
   if (!config.hyperdecks) config.hyperdecks = [];
   if (!config.ptz) config.ptz = [];
   if (!config.videoHubs) config.videoHubs = [];
+  if (!config.proPresenter) config.proPresenter = { host: 'localhost', port: 1025 };
 
   if (!config.token) {
     console.error('\n❌ No connection token provided.');
@@ -88,6 +90,7 @@ class ChurchAVAgent {
     this.obs = null;
     this.companion = null;
     this.videoHubs = [];
+    this.proPresenter = null;
     this.reconnectDelay = 3000;
     this.atemReconnectDelay = 2000;
     this.atemReconnecting = false;
@@ -98,6 +101,7 @@ class ChurchAVAgent {
       obs: { connected: false, streaming: false, recording: false, bitrate: null, fps: null },
       companion: { connected: false, connectionCount: 0, connections: [] },
       videoHubs: [],
+      proPresenter: { connected: false, running: false, currentSlide: null, slideIndex: null, slideTotal: null },
       system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null },
     };
   }
@@ -112,6 +116,7 @@ class ChurchAVAgent {
     await this.connectOBS();
     await this.connectCompanion();
     await this.connectVideoHubs();
+    await this.connectProPresenter();
 
     setInterval(() => this.sendStatus(), 30_000);
     setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000);
@@ -527,6 +532,56 @@ class ChurchAVAgent {
 
   _updateVideoHubStatus() {
     this.status.videoHubs = this.videoHubs.map(h => h.toStatus());
+  }
+
+  // ─── PROPRESENTER CONNECTION ────────────────────────────────────────────
+
+  async connectProPresenter() {
+    const ppConfig = this.config.proPresenter || {};
+    if (!ppConfig.host && ppConfig.host !== 'localhost') {
+      console.log('⛪ ProPresenter not configured (set via Equipment tab)');
+      return;
+    }
+
+    console.log(`⛪ Connecting to ProPresenter at ${ppConfig.host}:${ppConfig.port || 1025}...`);
+    this.proPresenter = new ProPresenter({ host: ppConfig.host, port: ppConfig.port || 1025 });
+
+    this.proPresenter.on('connected', () => {
+      this.status.proPresenter.connected = true;
+      this.sendStatus();
+    });
+
+    this.proPresenter.on('disconnected', () => {
+      this.status.proPresenter.connected = false;
+      this.sendStatus();
+    });
+
+    this.proPresenter.on('slideChanged', () => {
+      this._updateProPresenterStatus();
+    });
+
+    await this.proPresenter.connect();
+    await this._updateProPresenterStatus();
+
+    // Periodically refresh ProPresenter status
+    setInterval(() => this._updateProPresenterStatus(), 30_000);
+  }
+
+  async _updateProPresenterStatus() {
+    if (!this.proPresenter) return;
+    try {
+      const running = await this.proPresenter.isRunning();
+      this.status.proPresenter.running = running;
+      if (running) {
+        const slide = await this.proPresenter.getCurrentSlide();
+        if (slide) {
+          this.status.proPresenter.currentSlide = slide.presentationName;
+          this.status.proPresenter.slideIndex = slide.slideIndex;
+          this.status.proPresenter.slideTotal = slide.slideTotal;
+        }
+      }
+      this.status.proPresenter.connected = this.proPresenter.connected;
+    } catch { /* ignore */ }
   }
 
   // ─── HELPERS ──────────────────────────────────────────────────────────────

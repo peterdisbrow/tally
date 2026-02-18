@@ -312,6 +312,14 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
         const ok = await tryTcpConnect(ip, port || 80, 2000);
         return { success: ok, details: ok ? 'Camera reachable' : 'Cannot reach camera' };
       }
+      case 'propresenter': {
+        const resp = await tryHttpGet(`http://${ip}:${port || 1025}/v1/version`, 3000);
+        return { success: resp.success, details: resp.success ? 'ProPresenter running' : 'Cannot reach ProPresenter' };
+      }
+      case 'dante': {
+        const resp = await tryHttpGet(`http://${ip}:${port || 8080}/x-nmos/node/v1.2/self`, 3000);
+        return { success: resp.success, details: resp.success ? 'NMOS registry reachable' : 'Cannot reach NMOS registry' };
+      }
       default:
         return { success: false, details: 'Unknown device type' };
     }
@@ -328,6 +336,8 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
   if (equipConfig.obsPassword !== undefined) config.obsPassword = equipConfig.obsPassword;
   if (equipConfig.hyperdecks !== undefined) config.hyperdecks = equipConfig.hyperdecks;
   if (equipConfig.ptz !== undefined) config.ptz = equipConfig.ptz;
+  if (equipConfig.proPresenterHost !== undefined) config.proPresenter = { host: equipConfig.proPresenterHost, port: equipConfig.proPresenterPort || 1025 };
+  if (equipConfig.danteNmosHost !== undefined) config.dante = { nmosHost: equipConfig.danteNmosHost, nmosPort: equipConfig.danteNmosPort || 8080 };
   saveConfig(config);
   return true;
 });
@@ -341,6 +351,10 @@ ipcMain.handle('get-equipment', () => {
     obsPassword: config.obsPassword || '',
     hyperdecks: config.hyperdecks || [],
     ptz: config.ptz || [],
+    proPresenterHost: config.proPresenter?.host || 'localhost',
+    proPresenterPort: config.proPresenter?.port || 1025,
+    danteNmosHost: config.dante?.nmosHost || '',
+    danteNmosPort: config.dante?.nmosPort || 8080,
   };
 });
 

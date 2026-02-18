@@ -62,7 +62,7 @@ function tryHttpGet(url, timeoutMs = 2000) {
  * @returns {Promise<Object>} discovered devices
  */
 async function discoverDevices(onProgress = () => {}) {
-  const results = { atem: [], companion: [], obs: [], hyperdeck: [], ptz: [] };
+  const results = { atem: [], companion: [], obs: [], hyperdeck: [], ptz: [], propresenter: [], nmos: [] };
   const { subnet, localIp } = getLocalSubnet();
 
   onProgress(0, `Scanning ${subnet}.x for AV devices...`);
@@ -71,14 +71,15 @@ async function discoverDevices(onProgress = () => {}) {
   const ips = [];
   for (let i = 1; i <= 254; i++) ips.push(`${subnet}.${i}`);
 
-  // Also check localhost for OBS and Companion
+  // Also check localhost for OBS, Companion, and ProPresenter
   const localhostChecks = [
     { type: 'obs', ip: '127.0.0.1', port: 4455 },
     { type: 'companion', ip: '127.0.0.1', port: 8888 },
+    { type: 'propresenter', ip: '127.0.0.1', port: 1025 },
   ];
 
   // Check localhost first
-  onProgress(2, 'Checking localhost for OBS and Companion...');
+  onProgress(2, 'Checking localhost for OBS, Companion, and ProPresenter...');
   for (const check of localhostChecks) {
     const open = await tryTcpConnect(check.ip, check.port, 500);
     if (open) {
@@ -90,6 +91,12 @@ async function discoverDevices(onProgress = () => {}) {
         const connCount = resp.success && Array.isArray(resp.data) ? resp.data.length : 0;
         results.companion.push({ ip: '127.0.0.1', port: check.port, connections: connCount });
         onProgress(4, 'Found Companion on localhost ✅');
+      } else if (check.type === 'propresenter') {
+        const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/v1/version`, 2000);
+        if (resp.success) {
+          results.propresenter.push({ ip: '127.0.0.1', port: check.port });
+          onProgress(4, 'Found ProPresenter on localhost ✅');
+        }
       }
     }
   }
@@ -102,6 +109,7 @@ async function discoverDevices(onProgress = () => {}) {
     { port: 4455, type: 'obs' },
     { port: 9993, type: 'hyperdeck' },
     { port: 80, type: 'ptz' },
+    { port: 1025, type: 'propresenter' },
   ];
 
   let scanned = 0;
@@ -139,6 +147,12 @@ async function discoverDevices(onProgress = () => {}) {
             } else if (type === 'ptz' && !results.ptz.find((d) => d.ip === ip)) {
               results.ptz.push({ ip, protocol: 'HTTP' });
               onProgress(null, `Found possible PTZ camera at ${ip}`);
+            } else if (type === 'propresenter' && !results.propresenter.find((d) => d.ip === ip)) {
+              const vResp = await tryHttpGet(`http://${ip}:${port}/v1/version`, 2000);
+              if (vResp.success && vResp.data && vResp.data.version) {
+                results.propresenter.push({ ip, port });
+                onProgress(null, `Found ProPresenter at ${ip} ✅`);
+              }
             }
           })
         );
@@ -151,7 +165,7 @@ async function discoverDevices(onProgress = () => {}) {
     onProgress(pct, `Scanned ${scanned}/${totalScans} IPs...`);
   }
 
-  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.ptz.length} devices found`);
+  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.ptz.length + results.propresenter.length} devices found`);
   return results;
 }
 

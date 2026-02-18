@@ -174,6 +174,54 @@ async function obsSetScene(agent, params) {
   return `Scene set to: ${params.scene}`;
 }
 
+// ─── PROPRESENTER COMMANDS ───────────────────────────────────────────────────
+
+async function propresenterNext(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  await agent.proPresenter.nextSlide();
+  return 'Next slide';
+}
+
+async function propresenterPrevious(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  await agent.proPresenter.previousSlide();
+  return 'Previous slide';
+}
+
+async function propresenterGoToSlide(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  await agent.proPresenter.goToSlide(params.index);
+  return `Jumped to slide ${params.index}`;
+}
+
+async function propresenterStatus(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const slide = await agent.proPresenter.getCurrentSlide();
+  if (!slide) return 'ProPresenter not reachable';
+  return `${slide.presentationName} — slide ${slide.slideIndex + 1}/${slide.slideTotal}`;
+}
+
+async function propresenterPlaylist(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const items = await agent.proPresenter.getPlaylist();
+  if (!items.length) return 'No playlist items found';
+  return items.map(i => i.name).join('\n');
+}
+
+async function propresenterIsRunning(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const running = await agent.proPresenter.isRunning();
+  return running ? 'ProPresenter is running' : 'ProPresenter is not reachable';
+}
+
+// ─── DANTE COMMANDS (via Companion) ─────────────────────────────────────────
+
+async function danteScene(agent, params) {
+  if (!agent.companion) throw new Error('Companion not configured — Dante scenes require Companion buttons prefixed with "Dante:"');
+  await agent.companion.pressNamed(`Dante: ${params.name}`);
+  return `Dante scene "${params.name}" triggered via Companion`;
+}
+
 // ─── SYSTEM COMMANDS ────────────────────────────────────────────────────────
 
 function getStatus(agent) {
@@ -243,6 +291,16 @@ async function preServiceCheck(agent) {
       } catch (e) {
         checks.push({ name: 'Companion Connections', pass: false, detail: `Error: ${e.message}` });
       }
+    }
+  }
+
+  // 5. ProPresenter check
+  if (agent.proPresenter) {
+    const ppRunning = await agent.proPresenter.isRunning();
+    checks.push({ name: 'ProPresenter', pass: ppRunning, detail: ppRunning ? 'Running' : 'Not reachable' });
+    if (ppRunning) {
+      const slide = await agent.proPresenter.getCurrentSlide();
+      checks.push({ name: 'ProPresenter Presentation', pass: !!slide, detail: slide ? `Loaded: ${slide.presentationName}` : 'No presentation loaded' });
     }
   }
 
@@ -366,6 +424,15 @@ const commandHandlers = {
   'videohub.getRoutes': videohubGetRoutes,
   'videohub.setInputLabel': videohubSetInputLabel,
   'videohub.setOutputLabel': videohubSetOutputLabel,
+
+  'propresenter.next': propresenterNext,
+  'propresenter.previous': propresenterPrevious,
+  'propresenter.goToSlide': propresenterGoToSlide,
+  'propresenter.status': propresenterStatus,
+  'propresenter.playlist': propresenterPlaylist,
+  'propresenter.isRunning': propresenterIsRunning,
+
+  'dante.scene': danteScene,
 
   'companion.press': companionPress,
   'companion.pressNamed': companionPressNamed,
