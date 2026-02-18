@@ -516,6 +516,18 @@
       <div class="equip-detail" id="equip-dante-detail"></div>
     </div>
 
+    <!-- Resolume Arena -->
+    <div class="equip-section">
+      <h3>🎞️ Resolume Arena <div class="equip-status" id="equip-dot-resolume"></div></h3>
+      <div class="equip-detail" style="margin-left:0; margin-bottom:8px; color:#94a3b8;">Video wall / LED display control. Leave blank if not used.</div>
+      <div class="equip-row">
+        <input type="text" id="equip-resolume-host" placeholder="localhost or 192.168.1.x">
+        <input type="text" id="equip-resolume-port" placeholder="8080" style="max-width:80px;">
+        <button class="btn-test" onclick="testEquip('resolume')">Test</button>
+      </div>
+      <div class="equip-detail" id="equip-resolume-detail">In Resolume: Preferences → Web Server → enable, default port 8080</div>
+    </div>
+
     <!-- Auto-Discovery -->
     <div class="scan-section">
       <button class="scan-btn" id="scan-btn" onclick="startNetworkScan()">🔍 Scan Network</button>
@@ -843,6 +855,8 @@ async function loadEquipment() {
   document.getElementById('equip-pp-port').value = eq.proPresenterPort || '1025';
   document.getElementById('equip-dante-host').value = eq.danteNmosHost || '';
   document.getElementById('equip-dante-port').value = eq.danteNmosPort || '8080';
+  document.getElementById('equip-resolume-host').value = eq.resolumeHost || '';
+  document.getElementById('equip-resolume-port').value = eq.resolumePort || '8080';
   hyperdeckEntries = eq.hyperdecks || [];
   ptzEntries = eq.ptz || [];
   renderHyperdecks();
@@ -918,6 +932,9 @@ async function testEquip(type) {
     params.ip = document.getElementById('equip-dante-host').value.trim();
     params.port = parseInt(document.getElementById('equip-dante-port').value) || 8080;
     if (!params.ip) { document.getElementById('equip-dante-detail').textContent = 'Enter NMOS registry IP to test, or use Companion fallback'; setEquipDot('equip-dot-dante', false); return; }
+  } else if (type === 'resolume') {
+    params.ip = document.getElementById('equip-resolume-host').value.trim() || 'localhost';
+    params.port = parseInt(document.getElementById('equip-resolume-port').value) || 8080;
   }
 
   detailEl.textContent = 'Testing...';
@@ -962,6 +979,8 @@ async function saveEquipment() {
     proPresenterPort: parseInt(document.getElementById('equip-pp-port').value) || 1025,
     danteNmosHost: document.getElementById('equip-dante-host').value.trim(),
     danteNmosPort: parseInt(document.getElementById('equip-dante-port').value) || 8080,
+    resolumeHost: document.getElementById('equip-resolume-host').value.trim(),
+    resolumePort: parseInt(document.getElementById('equip-resolume-port').value) || 8080,
   };
 
   await api.saveEquipment(config);
@@ -1029,6 +1048,11 @@ async function startNetworkScan() {
       document.getElementById('equip-pp-host').value = d.ip;
       document.getElementById('equip-pp-port').value = d.port || '1025';
       testEquip('propresenter');
+    }));
+    (results.resolume || []).forEach(d => addScanResult(resultsEl, `${d.version || 'Resolume'} at ${d.ip}:${d.port}`, () => {
+      document.getElementById('equip-resolume-host').value = d.ip;
+      document.getElementById('equip-resolume-port').value = d.port || '8080';
+      testEquip('resolume');
     }));
   } catch (e) {
     status.textContent = 'Scan failed: ' + e.message;
