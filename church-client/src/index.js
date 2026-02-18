@@ -32,6 +32,8 @@ program
   .option('-c, --companion <url>', 'Companion HTTP API URL', 'http://localhost:8888')
   .option('--preview-source <name>', 'OBS source name for preview screenshots', '')
   .option('--config <path>', 'Path to config file', path.join(os.homedir(), '.church-av', 'config.json'))
+  .option('--watchdog', 'Enable watchdog monitoring (default: true)', true)
+  .option('--no-watchdog', 'Disable watchdog monitoring')
   .parse();
 
 const opts = program.opts();
@@ -56,6 +58,7 @@ function loadConfig() {
   if (opts.name) config.name = opts.name;
   if (opts.companion) config.companionUrl = opts.companion;
   if (opts.previewSource) config.previewSource = opts.previewSource;
+  if (opts.watchdog !== undefined) config.watchdog = opts.watchdog;
 
   if (!config.token) {
     console.error('\n❌ No connection token provided.');
@@ -103,7 +106,59 @@ class ChurchAVAgent {
     setInterval(() => this.sendStatus(), 30_000);
     setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000);
 
+    // Watchdog
+    this.watchdogActive = this.config.watchdog !== false;
+    this._lastAlerts = new Map(); // alertType → timestamp (dedup)
+    if (this.watchdogActive) {
+      console.log('🐕 Watchdog enabled (30s interval)');
+      setInterval(() => this.watchdogTick(), 30_000);
+    }
+
     console.log('\n✅ Tally running. Press Ctrl+C to stop.\n');
+  }
+
+  async watchdogTick() {
+    if (!this.watchdogActive) return;
+    const issues = [];
+
+    // FPS check
+    if (this.status.obs.streaming && this.status.obs.fps && this.status.obs.fps < 24) {
+      issues.push('fps_low');
+      this._sendWatchdogAlert('fps_low', `Low FPS: ${this.status.obs.fps}`);
+    }
+
+    // Bitrate check
+    if (this.status.obs.streaming && this.status.obs.bitrate && this.status.obs.bitrate < 1000) {
+      issues.push('bitrate_low');
+      this._sendWatchdogAlert('bitrate_low', `Low bitrate: ${this.status.obs.bitrate}kbps`);
+    }
+
+    // ATEM disconnected
+    if (this.config.atemIp && !this.status.atem.connected) {
+      issues.push('atem_disconnected');
+      this._sendWatchdogAlert('atem_disconnected', 'ATEM switcher disconnected');
+    }
+
+    // OBS disconnected
+    if (!this.status.obs.connected) {
+      issues.push('obs_disconnected');
+      this._sendWatchdogAlert('obs_disconnected', 'OBS disconnected');
+    }
+
+    // Multiple systems down
+    if (issues.length >= 3) {
+      this._sendWatchdogAlert('multiple_systems_down', `${issues.length} issues: ${issues.join(', ')}`);
+    }
+  }
+
+  _sendWatchdogAlert(alertType, message) {
+    const now = Date.now();
+    const lastSent = this._lastAlerts.get(alertType) || 0;
+    // Dedup: don't re-alert same type within 5 minutes
+    if (now - lastSent < 5 * 60 * 1000) return;
+    this._lastAlerts.set(alertType, now);
+    console.log(`[Watchdog] ⚠️ ${message}`);
+    this.sendToRelay({ type: 'alert', alertType, message, severity: 'warning' });
   }
 
   // ─── RELAY CONNECTION ──────────────────────────────────────────────────────

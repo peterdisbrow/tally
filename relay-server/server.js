@@ -26,6 +26,11 @@ app.use(express.json());
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
+const { ScheduleEngine } = require('./src/scheduleEngine');
+const { AlertEngine } = require('./src/alertEngine');
+const { AutoRecovery } = require('./src/autoRecovery');
+const { WeeklyDigest } = require('./src/weeklyDigest');
+
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 const JWT_SECRET    = process.env.JWT_SECRET    || 'dev-jwt-secret-change-me';
 
@@ -38,7 +43,7 @@ const DB_PATH       = process.env.DATABASE_PATH || './data/churches.db';
 
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -107,6 +112,14 @@ for (const row of stmtAll.all()) {
   });
 }
 log(`Loaded ${churches.size} churches from database`);
+
+// ─── AUTOMATION ENGINES ──────────────────────────────────────────────────────
+
+const scheduleEngine = new ScheduleEngine(db);
+const alertEngine = new AlertEngine(db, scheduleEngine);
+const autoRecovery = new AutoRecovery(churches, alertEngine);
+const weeklyDigest = new WeeklyDigest(db);
+weeklyDigest.startWeeklyTimer();
 
 // ─── RATE LIMITER ─────────────────────────────────────────────────────────────
 
@@ -289,6 +302,60 @@ app.get('/api/churches/:churchId/status', requireAdmin, (req, res) => {
   });
 });
 
+// ─── SCHEDULE & ALERT API ─────────────────────────────────────────────────────
+
+app.put('/api/churches/:churchId/schedule', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const { serviceTimes } = req.body;
+  if (!Array.isArray(serviceTimes)) return res.status(400).json({ error: 'serviceTimes array required' });
+  scheduleEngine.setSchedule(req.params.churchId, serviceTimes);
+  res.json({ saved: true, serviceTimes });
+});
+
+app.get('/api/churches/:churchId/schedule', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const schedule = scheduleEngine.getSchedule(req.params.churchId);
+  const inWindow = scheduleEngine.isServiceWindow(req.params.churchId);
+  const next = scheduleEngine.getNextService(req.params.churchId);
+  res.json({ schedule, inServiceWindow: inWindow, nextService: next });
+});
+
+app.put('/api/churches/:churchId/td-contact', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const { tdChatId, tdName, alertBotToken } = req.body;
+  if (tdChatId) db.prepare('UPDATE churches SET td_telegram_chat_id = ? WHERE churchId = ?').run(tdChatId, req.params.churchId);
+  if (tdName) db.prepare('UPDATE churches SET td_name = ? WHERE churchId = ?').run(tdName, req.params.churchId);
+  if (alertBotToken) db.prepare('UPDATE churches SET alert_bot_token = ? WHERE churchId = ?').run(alertBotToken, req.params.churchId);
+  // Update in-memory
+  const row = stmtGet.get(req.params.churchId);
+  if (row) { church.td_telegram_chat_id = row.td_telegram_chat_id; church.td_name = row.td_name; church.alert_bot_token = row.alert_bot_token; }
+  res.json({ saved: true });
+});
+
+app.post('/api/alerts/:alertId/acknowledge', requireAdmin, (req, res) => {
+  const { responder } = req.body;
+  const result = alertEngine.acknowledgeAlert(req.params.alertId, responder || 'admin');
+  res.json(result);
+});
+
+app.get('/api/digest/latest', requireAdmin, (req, res) => {
+  const latest = weeklyDigest.getLatestDigest();
+  if (!latest) return res.status(404).json({ error: 'No digest yet' });
+  res.json(latest);
+});
+
+app.get('/api/digest/generate', requireAdmin, async (req, res) => {
+  try {
+    const result = await weeklyDigest.saveDigest();
+    res.json({ generated: true, filePath: result.filePath });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── WEBSOCKET ────────────────────────────────────────────────────────────────
 
 wss.on('connection', (ws, req) => {
@@ -419,6 +486,27 @@ function handleChurchMessage(church, msg) {
         message: msg.message,
         timestamp: church.lastSeen,
       });
+      // Automation: process alert through engines
+      if (msg.alertType) {
+        (async () => {
+          try {
+            // Log event
+            const eventId = weeklyDigest.addEvent(church.churchId, msg.alertType, msg.message);
+            // Try auto-recovery first
+            const recovery = await autoRecovery.attempt(church, msg.alertType, church.status);
+            if (recovery.attempted && recovery.success) {
+              weeklyDigest.resolveEvent(eventId, true);
+              log(`[AutoRecovery] ✅ ${recovery.event} for ${church.name}`);
+            } else {
+              // Send alert through escalation ladder
+              const dbChurch = stmtGet.get(church.churchId);
+              await alertEngine.sendAlert({ ...church, ...dbChurch }, msg.alertType, { message: msg.message, status: church.status });
+            }
+          } catch (e) {
+            console.error(`Alert processing error for ${church.name}:`, e.message);
+          }
+        })();
+      }
       break;
 
     case 'command_result':

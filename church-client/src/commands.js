@@ -255,6 +255,34 @@ async function companionConnections(agent) {
   return await agent.companion.getConnections();
 }
 
+// ─── AUTOMATION COMMANDS ────────────────────────────────────────────────────
+
+async function obsReduceBitrate(agent, params) {
+  if (!agent.obs || !agent.status.obs.connected) throw new Error('OBS not connected');
+  const reductionPercent = params.reductionPercent || 20;
+  const settings = await agent.obs.call('GetStreamServiceSettings');
+  const currentBitrate = parseInt(settings.streamServiceSettings?.bitsPerSecond || settings.streamServiceSettings?.bitrate || '4500', 10);
+  const newBitrate = Math.round(currentBitrate * (1 - reductionPercent / 100));
+  const newSettings = { ...settings.streamServiceSettings };
+  // OBS stores bitrate in different keys depending on service type
+  if (newSettings.bitsPerSecond !== undefined) newSettings.bitsPerSecond = newBitrate;
+  else newSettings.bitrate = String(newBitrate);
+  await agent.obs.call('SetStreamServiceSettings', {
+    streamServiceType: settings.streamServiceType,
+    streamServiceSettings: newSettings,
+  });
+  return `Bitrate reduced by ${reductionPercent}%: ${currentBitrate} → ${newBitrate}`;
+}
+
+function systemSetWatchdogMode(agent, params) {
+  agent.watchdogActive = params.active !== false;
+  return `Watchdog ${agent.watchdogActive ? 'enabled' : 'disabled'}`;
+}
+
+function systemGetServiceWindow(agent) {
+  return { inWindow: agent.watchdogActive || false, watchdogActive: agent.watchdogActive || false };
+}
+
 // ─── COMMAND REGISTRY ───────────────────────────────────────────────────────
 
 const commandHandlers = {
@@ -290,6 +318,10 @@ const commandHandlers = {
   'preview.start': previewStart,
   'preview.stop': previewStop,
   'preview.snap': previewSnap,
+
+  'obs.reduceBitrate': obsReduceBitrate,
+  'system.setWatchdogMode': systemSetWatchdogMode,
+  'system.getServiceWindow': systemGetServiceWindow,
 
   'companion.press': companionPress,
   'companion.pressNamed': companionPressNamed,
