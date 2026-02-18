@@ -31,6 +31,7 @@ const { MixerBridge } = require('./mixerBridge');
 program
   .name('tally-connect')
   .description('Connect your church AV system to ATEM School remote monitoring')
+  .command('setup', { isDefault: false })  // handled below
   .option('-t, --token <token>', 'Your church connection token (from ATEM School)')
   .option('-r, --relay <url>', 'Relay server URL', 'wss://tally-relay.up.railway.app')
   .option('-a, --atem <ip>', 'ATEM switcher IP (auto-discovers if omitted)')
@@ -43,6 +44,13 @@ program
   .option('--watchdog', 'Enable watchdog monitoring (default: true)', true)
   .option('--no-watchdog', 'Disable watchdog monitoring')
   .parse();
+
+// Handle 'setup' subcommand before anything else
+if (process.argv[2] === 'setup') {
+  const { runSetup } = require('./setup');
+  runSetup();
+  return; // stop processing
+}
 
 const opts = program.opts();
 
