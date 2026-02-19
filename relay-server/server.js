@@ -385,6 +385,78 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
 });
 
 // List all registered churches + their current status
+// ─── EVENT MODE ROUTES ────────────────────────────────────────────────────────
+
+app.post('/api/events/create', requireAdmin, async (req, res) => {
+  try {
+    const { name, eventLabel, durationHours, tdName, tdTelegramChatId, contactEmail } = req.body;
+    if (!name) return res.status(400).json({ error: 'name required' });
+    const result = eventMode.createEvent({ name, eventLabel, durationHours: durationHours || 72, tdName, tdTelegramChatId, contactEmail });
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/events', requireAdmin, (req, res) => {
+  const events = db.prepare("SELECT * FROM churches WHERE church_type = 'event' ORDER BY created_at DESC").all();
+  res.json(events.map(e => ({ ...e, timeRemaining: eventMode.getTimeRemaining(e), expired: eventMode.isEventExpired(e) })));
+});
+
+// ─── RESELLER ROUTES ──────────────────────────────────────────────────────────
+
+function requireReseller(req, res, next) {
+  const key = req.headers['x-reseller-key'];
+  if (!key) return res.status(401).json({ error: 'Reseller API key required' });
+  const reseller = resellerSystem.getReseller(key);
+  if (!reseller) return res.status(403).json({ error: 'Invalid reseller key' });
+  req.reseller = reseller;
+  next();
+}
+
+app.post('/api/resellers', requireAdmin, (req, res) => {
+  try {
+    const result = resellerSystem.createReseller(req.body);
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/resellers', requireAdmin, (req, res) => {
+  res.json(resellerSystem.listResellers());
+});
+
+app.get('/api/resellers/:resellerId', requireAdmin, (req, res) => {
+  const r = resellerSystem.getResellerById(req.params.resellerId);
+  if (!r) return res.status(404).json({ error: 'Not found' });
+  res.json({ ...r, churches: resellerSystem.getResellerChurches(r.id) });
+});
+
+// Reseller-authenticated endpoints
+app.post('/api/reseller/churches/register', requireReseller, async (req, res) => {
+  try {
+    if (!resellerSystem.canAddChurch(req.reseller.id)) {
+      return res.status(403).json({ error: `Church limit reached (${req.reseller.church_limit}). Contact support to increase.` });
+    }
+    const { name, contactEmail, serviceSchedule } = req.body;
+    const churchId = uuidv4();
+    const token = jwt.sign({ churchId, name }, JWT_SECRET, { expiresIn: '10y' });
+    db.prepare('INSERT INTO churches (churchId, name, contactEmail, token, reseller_id, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(
+      churchId, name, contactEmail || '', token, req.reseller.id, new Date().toISOString()
+    );
+    res.json({ churchId, token, name, reseller: req.reseller.brand_name || req.reseller.name });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/reseller/churches', requireReseller, (req, res) => {
+  res.json(resellerSystem.getResellerChurches(req.reseller.id));
+});
+
+app.get('/api/reseller/branding', requireReseller, (req, res) => {
+  res.json({
+    brandName: req.reseller.brand_name || 'Tally',
+    supportEmail: req.reseller.support_email || 'support@atemschool.com',
+    logoUrl: req.reseller.logo_url || null,
+  });
+});
+
 // ─── BILLING ROUTES ───────────────────────────────────────────────────────────
 
 // Create Stripe Checkout session
