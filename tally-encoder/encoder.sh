@@ -42,6 +42,7 @@ AUDIO_DEVICE="${AUDIO_DEVICE:-hw:0,0}"
 TALLY_API_PORT="${TALLY_API_PORT:-7070}"
 
 STREAM_URL="${RELAY_URL}/${CHURCH_TOKEN}"
+SYNC_STATUS_FILE="${SYNC_STATUS_FILE:-/tmp/tally-sync-status.json}"
 
 log "======================================================"
 log "Tally Encoder starting"
@@ -146,6 +147,39 @@ build_ffmpeg_output() {
   )
 }
 
+# ── A/V sync stderr parser ────────────────────────────────────
+# Called as a process substitution receiving ffmpeg stderr lines.
+# Extracts the A-V: float, converts to ms, writes JSON status file
+# at most once every 2 seconds.
+parse_av_sync() {
+  local last_write=0
+  while IFS= read -r line; do
+    # Mirror every line to the log file
+    echo "$line" >> "$LOG_FILE"
+
+    # Match:  "... A-V: -0.043 ..."  or  "... A-V:-0.043 ..."
+    if [[ "$line" =~ A-V:[[:space:]]*(-?[0-9]+\.[0-9]+) ]]; then
+      local av_float="${BASH_REMATCH[1]}"
+      local now
+      now=$(date +%s)
+      # Rate-limit: write at most once every 2 seconds
+      if (( now - last_write >= 2 )); then
+        last_write=$now
+        # Convert seconds → integer ms using awk
+        local av_ms abs_ms status
+        av_ms=$(awk "BEGIN{printf \"%d\", (${av_float}) * 1000}")
+        abs_ms=$(awk "BEGIN{x=${av_float}; if(x<0)x=-x; printf \"%d\", x*1000}")
+        if   (( abs_ms > 100 )); then status="critical"
+        elif (( abs_ms > 33  )); then status="warn"
+        else                          status="ok"
+        fi
+        printf '{"avOffsetMs":%d,"timestamp":%d,"status":"%s"}\n' \
+          "$av_ms" "$now" "$status" > "$SYNC_STATUS_FILE"
+      fi
+    fi
+  done
+}
+
 # ── Main encoder loop ─────────────────────────────────────────
 RESTART_DELAY=5
 ATTEMPT=0
@@ -187,8 +221,12 @@ while true; do
 
   log "ffmpeg command: ${FFMPEG_CMD[*]}"
 
-  # Run ffmpeg, append output to log
-  if "${FFMPEG_CMD[@]}" >> "$LOG_FILE" 2>&1; then
+  # Run ffmpeg:
+  #   stdout  → log file directly
+  #   stderr  → tr converts \r progress lines to \n, then parse_av_sync
+  #             mirrors each line to log AND extracts A-V: sync values
+  if "${FFMPEG_CMD[@]}" 1>> "$LOG_FILE" \
+       2> >(tr '\r' '\n' | parse_av_sync); then
     log "ffmpeg exited cleanly"
   else
     EXIT_CODE=$?

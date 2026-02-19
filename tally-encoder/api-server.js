@@ -195,6 +195,31 @@ app.post('/config', requireAuth, (req, res) => {
   });
 });
 
+// ── GET /sync ─────────────────────────────────────────────────────────────────
+const SYNC_STATUS_FILE = process.env.SYNC_STATUS_FILE || '/tmp/tally-sync-status.json';
+const SYNC_STALE_MS = 10_000; // treat as unavailable if older than 10 seconds
+
+app.get('/sync', requireAuth, (_req, res) => {
+  try {
+    if (!fs.existsSync(SYNC_STATUS_FILE)) {
+      return res.json({ avOffsetMs: null, status: 'unavailable' });
+    }
+    const raw = fs.readFileSync(SYNC_STATUS_FILE, 'utf8').trim();
+    const data = JSON.parse(raw);
+    const age = Date.now() / 1000 - (data.timestamp || 0);
+    if (age > SYNC_STALE_MS / 1000) {
+      return res.json({ avOffsetMs: null, status: 'unavailable' });
+    }
+    return res.json({
+      avOffsetMs: data.avOffsetMs ?? null,
+      status:     data.status    || 'unavailable',
+      timestamp:  data.timestamp || null,
+    });
+  } catch {
+    return res.json({ avOffsetMs: null, status: 'unavailable' });
+  }
+});
+
 // ── POST /restart ─────────────────────────────────────────────────────────────
 app.post('/restart', requireAuth, (_req, res) => {
   const restarted = restartEncoder();
@@ -208,7 +233,7 @@ app.post('/restart', requireAuth, (_req, res) => {
 
 // ── 404 catch-all ─────────────────────────────────────────────────────────────
 app.use((_req, res) => {
-  res.status(404).json({ error: 'Not found', endpoints: ['/health', '/status', '/config', '/restart'] });
+  res.status(404).json({ error: 'Not found', endpoints: ['/health', '/status', '/sync', '/config', '/restart'] });
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────

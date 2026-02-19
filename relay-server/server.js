@@ -52,6 +52,7 @@ const { PresetLibrary } = require('./src/presetLibrary');
 const { EventMode } = require('./src/eventMode');
 const { ResellerSystem } = require('./src/reseller');
 const { BillingSystem } = require('./src/billing');
+const { setupSyncMonitor } = require('./src/syncMonitor');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 const JWT_SECRET    = process.env.JWT_SECRET    || 'dev-jwt-secret-change-me';
@@ -273,6 +274,12 @@ if (TALLY_BOT_TOKEN) {
 } else {
   log('Telegram bot disabled (TALLY_BOT_TOKEN not set)');
 }
+
+// ─── A/V SYNC MONITOR ────────────────────────────────────────────────────────
+
+setupSyncMonitor(db, { churches }, tallyBot, (churchId) => {
+  broadcastToSSE({ type: 'sync_update', churchId });
+});
 
 // ─── EVENT MODE & RESELLER SYSTEM ────────────────────────────────────────────
 

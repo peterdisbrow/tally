@@ -148,7 +148,7 @@ class ChurchAVAgent {
     this._previewTimer = null;
     this._previewSource = config.previewSource || '';
     this.status = {
-      atem: { connected: false, ip: null, programInput: null, previewInput: null, recording: false },
+      atem: { connected: false, ip: null, programInput: null, previewInput: null, recording: false, audioDelays: {} },
       obs: { connected: false, streaming: false, recording: false, bitrate: null, fps: null },
       companion: { connected: false, connectionCount: 0, connections: [] },
       videoHubs: [],
@@ -384,6 +384,32 @@ class ChurchAVAgent {
           this.sendAlert(`ATEM recording ${this.status.atem.recording ? 'STARTED' : 'STOPPED'}`, 'info');
         }
       }
+
+      // ── Audio delay readout ──────────────────────────────────────────────
+      // Read per-input audio delays (Classic audio model: state.audio.classic.channels,
+      // Fairlight model: state.audio.fairlight.inputs — both use optional chaining).
+      // Delay values are in frames on Classic, microseconds on Fairlight; we expose
+      // the raw value and label the source so the UI can display it appropriately.
+      try {
+        const audioDelays = {};
+        // Classic audio (ATEM Mini/Pro/2 M/E etc.)
+        const classic = state.audio?.classic?.channels || state.audio?.channels;
+        if (classic && typeof classic === 'object') {
+          for (const [inputId, channel] of Object.entries(classic)) {
+            const delay = channel?.delay ?? channel?.sourceDelay ?? 0;
+            if (delay !== 0) audioDelays[inputId] = delay;
+          }
+        }
+        // Fairlight audio (ATEM Constellation etc.)
+        const fairlight = state.audio?.fairlight?.inputs;
+        if (fairlight && typeof fairlight === 'object') {
+          for (const [inputId, input] of Object.entries(fairlight)) {
+            const delay = input?.delay ?? 0;
+            if (delay !== 0) audioDelays[inputId] = delay;
+          }
+        }
+        this.status.atem.audioDelays = audioDelays;
+      } catch { /* ignore — audio delay is non-critical */ }
 
       this.sendStatus();
     });

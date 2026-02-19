@@ -681,6 +681,8 @@
           <div class="value muted" id="val-companion">—</div>
         </div>
       </div>
+      <!-- Audio delay warning — only visible when program input has non-zero delay -->
+      <div id="val-audio-delay" style="display:none; margin-top:8px; padding:6px 10px; background:rgba(234,179,8,0.12); border:1px solid rgba(234,179,8,0.3); border-radius:6px; font-size:11px; color:#eab308; font-family:var(--mono);"></div>
     </div>
 
     <!-- OBS Status -->
@@ -1025,6 +1027,34 @@ function updateStatusUI(status) {
 
   const liveBadge = document.getElementById('live-badge');
   liveBadge.classList.toggle('active', !!status.streaming);
+
+  // ── ATEM program/preview input display ──────────────────────────────────
+  const atem = status.atem || {};
+  if (atem.programInput !== null && atem.programInput !== undefined) {
+    document.getElementById('val-program').textContent = `Input ${atem.programInput}`;
+  }
+  if (atem.previewInput !== null && atem.previewInput !== undefined) {
+    document.getElementById('val-preview').textContent = `Input ${atem.previewInput}`;
+  }
+  if (atem.recording !== undefined) {
+    document.getElementById('val-recording').textContent = atem.recording ? '● Recording' : 'Stopped';
+  }
+
+  // ── ATEM audio delay warning ─────────────────────────────────────────────
+  const delayEl = document.getElementById('val-audio-delay');
+  const audioDelays = atem.audioDelays || {};
+  const progInput = atem.programInput;
+  if (delayEl) {
+    const progDelay = progInput !== null && progInput !== undefined
+      ? (audioDelays[progInput] ?? audioDelays[String(progInput)] ?? 0)
+      : 0;
+    if (progDelay && progDelay !== 0) {
+      delayEl.style.display = 'block';
+      delayEl.textContent = `⚠ Cam ${progInput}: ${progDelay}ms audio delay`;
+    } else {
+      delayEl.style.display = 'none';
+    }
+  }
 }
 
 function setDot(name, active) {
