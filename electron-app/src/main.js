@@ -289,7 +289,7 @@ function loadConfigForUI() {
 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
 
-ipcMain.handle('get-config', () => loadConfig());
+ipcMain.handle('get-config', () => loadConfigForUI());
 ipcMain.handle('save-config', (_, config) => { saveConfig(config); return true; });
 ipcMain.handle('get-status', () => agentStatus);
 ipcMain.handle('start-agent', () => startAgent());

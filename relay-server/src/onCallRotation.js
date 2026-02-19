@@ -27,22 +27,15 @@
 const crypto = require('crypto');
 
 class OnCallRotation {
-  constructor() {
-    this.db = null;
+  /**
+   * @param {import('better-sqlite3').Database} db
+   */
+  constructor(db) {
+    this.db = db;
     this.tallyBot = null;
     // In-memory: swapKey → { churchId, requesterChatId, targetChatId, requesterName, targetName, weekKey }
     this._pendingSwaps = new Map();
-  }
-
-  /**
-   * @param {import('better-sqlite3').Database} db
-   * @param {object} tallyBot - TallyBot instance (may be null)
-   */
-  start(db, tallyBot) {
-    this.db = db;
-    this.tallyBot = tallyBot;
-    this._ensureTable();
-    console.log('[OnCallRotation] Started');
+    if (this.db) this._ensureTable();
   }
 
   // ─── DB SETUP ────────────────────────────────────────────────────────────

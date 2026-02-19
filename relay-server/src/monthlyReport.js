@@ -7,20 +7,25 @@
  */
 
 class MonthlyReport {
-  constructor() {
-    this.db = null;
+  /**
+   * @param {object} opts
+   * @param {import('better-sqlite3').Database} opts.db
+   * @param {string} [opts.defaultBotToken] - Telegram bot token
+   * @param {string} [opts.andrewChatId] - Andrew's Telegram chat ID
+   */
+  constructor({ db, defaultBotToken, andrewChatId } = {}) {
+    this.db = db || null;
+    this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN;
+    this.andrewChatId = andrewChatId || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this.tallyBot = null;
     this._timer = null;
     this._lastReportMonth = null; // 'YYYY-MM' of last run, to avoid double-sending
   }
 
   /**
-   * @param {import('better-sqlite3').Database} db
-   * @param {object} tallyBot - TallyBot instance (may be null)
+   * Start the monthly report timer.
    */
-  start(db, tallyBot) {
-    this.db = db;
-    this.tallyBot = tallyBot;
+  start() {
     // Check every 15 minutes — fires when it's the 1st at 9 AM
     this._timer = setInterval(() => this._tick(), 15 * 60 * 1000);
     console.log('[MonthlyReport] Started — fires on 1st of each month at 9 AM');
@@ -168,9 +173,10 @@ class MonthlyReport {
 
   async _sendReport(churchId, month) {
     const msg = this.generate(churchId, month);
-    if (!msg || !this.tallyBot) return;
+    if (!msg) return;
 
-    const adminChatId = process.env.ANDREW_TELEGRAM_CHAT_ID;
+    const botToken = this.defaultBotToken;
+    if (!botToken) return;
 
     let tds = [];
     try {
@@ -180,13 +186,35 @@ class MonthlyReport {
     } catch { /* table may not exist */ }
 
     const targets = new Set(tds.map(td => String(td.telegram_chat_id)).filter(Boolean));
-    if (adminChatId) targets.add(String(adminChatId));
+    if (this.andrewChatId) targets.add(String(this.andrewChatId));
 
     for (const chatId of targets) {
-      await this.tallyBot.sendMessage(chatId, msg).catch(e =>
-        console.error('[MonthlyReport] Telegram send error:', e.message)
-      );
+      try {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: msg }),
+        });
+      } catch (e) {
+        console.error('[MonthlyReport] Telegram send error:', e.message);
+      }
     }
+  }
+
+  /** Alias for server.js API route compatibility */
+  generateReport(churchId, month) {
+    if (!month) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 1);
+      month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+    const text = this.generate(churchId, month);
+    return { churchId, month, text };
+  }
+
+  /** Format a report object to a text string */
+  formatReport(report) {
+    return report?.text || 'No report data available.';
   }
 }
 

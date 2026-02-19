@@ -6,29 +6,38 @@
  */
 
 class PreServiceCheck {
-  constructor() {
+  /**
+   * @param {object} opts
+   * @param {import('better-sqlite3').Database} opts.db
+   * @param {object} opts.scheduleEngine - ScheduleEngine instance
+   * @param {Map} opts.churches - in-memory church runtime map from server.js
+   * @param {string} [opts.defaultBotToken] - Telegram bot token for sending alerts
+   * @param {string} [opts.andrewChatId] - Andrew's Telegram chat ID
+   */
+  constructor({ db, scheduleEngine, churches, defaultBotToken, andrewChatId } = {}) {
     this.lastPreServiceCheckAt = new Map(); // churchId → timestamp (ms)
     this._timer = null;
-    this.db = null;
-    this.churches = null;
+    this.db = db || null;
+    this.scheduleEngine = scheduleEngine || null;
+    this.churches = churches || null;
     this.tallyBot = null;
     this.sendCommand = null;
+    this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN;
+    this.andrewChatId = andrewChatId || process.env.ANDREW_TELEGRAM_CHAT_ID;
+    this._resultListeners = [];
   }
 
   /**
-   * @param {import('better-sqlite3').Database} db
-   * @param {Map} churches - in-memory church runtime map from server.js
-   * @param {object} tallyBot - TallyBot instance (may be null)
-   * @param {function} sendCommand - (churchId, command, params) → Promise<result|null>
+   * Start the pre-service check timer.
    */
-  start(db, churches, tallyBot, sendCommand) {
-    this.db = db;
-    this.churches = churches;
-    this.tallyBot = tallyBot;
-    this.sendCommand = sendCommand;
-
+  start() {
     this._timer = setInterval(() => this._tick(), 5 * 60 * 1000);
     console.log('[PreServiceCheck] Started — polling every 5 min');
+  }
+
+  /** Call from server.js when a command_result is broadcast */
+  onCommandResult(msg) {
+    for (const handler of this._resultListeners) handler(msg);
   }
 
   stop() {
@@ -92,15 +101,38 @@ class PreServiceCheck {
 
     console.log(`[PreServiceCheck] ${church.name} — service at ${timeDisplay}, sending check`);
 
-    // Send command to church client and await result
+    // Send command to church client via WS and await result
     let result = null;
     try {
-      result = await this.sendCommand(church.churchId, 'system.preServiceCheck', {});
+      const churchRuntime = this.churches?.get(church.churchId);
+      if (churchRuntime?.ws?.readyState === 1) {
+        const crypto = require('crypto');
+        const msgId = crypto.randomUUID();
+        const resultPromise = new Promise((resolve) => {
+          const timer = setTimeout(() => { cleanup(); resolve(null); }, 10000);
+          const handler = (msg) => {
+            if (msg.type === 'command_result' && msg.churchId === church.churchId && msg.messageId === msgId) {
+              cleanup();
+              resolve(msg.error ? null : msg.result);
+            }
+          };
+          const cleanup = () => {
+            clearTimeout(timer);
+            const idx = this._resultListeners.indexOf(handler);
+            if (idx !== -1) this._resultListeners.splice(idx, 1);
+          };
+          this._resultListeners.push(handler);
+        });
+        churchRuntime.ws.send(JSON.stringify({ type: 'command', command: 'system.preServiceCheck', params: {}, id: msgId }));
+        result = await resultPromise;
+      }
     } catch (e) {
       console.error(`[PreServiceCheck] sendCommand error for ${church.name}:`, e.message);
     }
 
-    if (!this.tallyBot) return;
+    // Send via Telegram — use tallyBot if available, or raw API
+    const botToken = this.defaultBotToken;
+    if (!botToken) return;
 
     // Find TD chat IDs for this church
     let tds = [];
@@ -127,9 +159,15 @@ class PreServiceCheck {
     }
 
     for (const chatId of chatIds) {
-      await this.tallyBot.sendMessage(String(chatId), msg).catch(e =>
-        console.error('[PreServiceCheck] Telegram send error:', e.message)
-      );
+      try {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: String(chatId), text: msg }),
+        });
+      } catch (e) {
+        console.error('[PreServiceCheck] Telegram send error:', e.message);
+      }
     }
   }
 }

@@ -21,7 +21,7 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
@@ -513,7 +513,7 @@ app.delete('/api/maintenance/:id', requireAdmin, (req, res) => {
 
 app.get('/api/churches/:churchId/oncall', requireAdmin, (req, res) => {
   const onCall = onCallRotation.getOnCallTD(req.params.churchId);
-  const all = onCallRotation.getAllTDs(req.params.churchId);
+  const all = db.prepare('SELECT * FROM td_oncall WHERE churchId = ? ORDER BY isPrimary DESC, id ASC').all(req.params.churchId);
   res.json({ onCall, all });
 });
 

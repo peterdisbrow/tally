@@ -157,7 +157,7 @@ class AlertEngine {
     // Build message
     const icon = severity === 'EMERGENCY' ? '🚨' : severity === 'CRITICAL' ? '🔴' : '⚠️';
     const msg = [
-      `${icon} **${severity}: ${alertType.replace(/_/g, ' ').toUpperCase()}**`,
+      `${icon} *${severity}: ${alertType.replace(/_/g, ' ').toUpperCase()}*`,
       `Church: ${church.name}`,
       `Time: ${ts}`,
       '',
@@ -246,8 +246,11 @@ class AlertEngine {
 
   // Find alert by short ID prefix (for /ack_XXXXXXXX commands)
   findAlertByPrefix(prefix) {
+    // Sanitize: only allow hex characters in alert ID prefix
+    const sanitized = String(prefix).replace(/[^a-f0-9-]/gi, '');
+    if (!sanitized) return null;
     const row = this.db.prepare("SELECT id FROM alerts WHERE id LIKE ? AND acknowledged_at IS NULL ORDER BY created_at DESC LIMIT 1")
-      .get(prefix + '%');
+      .get(sanitized + '%');
     return row ? row.id : null;
   }
 }
