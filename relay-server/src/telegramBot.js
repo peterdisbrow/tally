@@ -5,6 +5,7 @@
  */
 
 const crypto = require('crypto');
+const { aiParseCommand } = require('./ai-parser');
 
 // ─── COMMAND PATTERNS (ported from parse-command.js + videohub + extras) ─────
 
@@ -432,30 +433,45 @@ class TallyBot {
       return this._handlePCShowSchedule(church, chatId);
     }
 
+    // ── Fast path: regex parser ──────────────────────────────────────────────
     const parsed = parseCommand(text);
-    if (!parsed) {
-      return this.sendMessage(chatId, "🤔 I didn't understand that. Try `help` for a list of commands.", { parse_mode: 'Markdown' });
+
+    if (parsed) {
+      return this._dispatchCommand(church, chatId, parsed.command, parsed.params);
     }
 
-    const { command, params } = parsed;
+    // ── AI fallback: Claude Haiku ────────────────────────────────────────────
+    const churchRuntime = this.relay.churches.get(church.churchId);
+    const ctx = {
+      churchName: church.name,
+      status: churchRuntime?.status || {},
+    };
 
-    // Status — return formatted status from relay
-    if (command === 'status') {
-      return this._sendStatus(church, chatId);
+    const aiResult = await aiParseCommand(text, ctx);
+
+    // Single command
+    if (aiResult.type === 'command') {
+      return this._dispatchCommand(church, chatId, aiResult.command, aiResult.params);
     }
 
-    // Preview snap — special handling for photo
-    if (command === 'preview.snap') {
-      return this._sendPreviewSnap(church, chatId);
+    // Multi-step commands — execute sequentially
+    if (aiResult.type === 'commands' && Array.isArray(aiResult.steps) && aiResult.steps.length > 0) {
+      const replies = [];
+      for (const step of aiResult.steps) {
+        const reply = await this._dispatchCommandSilent(church, chatId, step.command, step.params);
+        if (reply) replies.push(reply);
+      }
+      const summary = replies.join('\n');
+      return this.sendMessage(chatId, summary || '✅ Done', { parse_mode: 'Markdown' });
     }
 
-    // Route queries — return formatted, don't send as command
-    if (command === 'videohub.getRoutes') {
-      return this._sendRouteQuery(church, chatId, params);
+    // Conversational reply from AI
+    if (aiResult.type === 'chat') {
+      return this.sendMessage(chatId, aiResult.text);
     }
 
-    // Everything else — send to church client via relay
-    return this._executeAndReply(church, chatId, command, params);
+    // AI unavailable or parse failed — fall back to help nudge
+    return this.sendMessage(chatId, "🤔 I didn't understand that. Try `help` for a list of commands.", { parse_mode: 'Markdown' });
   }
 
   // ─── ADMIN COMMAND HANDLER ────────────────────────────────────────────
@@ -554,9 +570,26 @@ class TallyBot {
       }
     }
 
-    const parsed = parseCommand(commandText);
+    let parsed = parseCommand(commandText);
     if (!parsed) {
-      return this.sendMessage(chatId, "🤔 I didn't understand that. Try `help` for commands.", { parse_mode: 'Markdown' });
+      // Try AI for admin too
+      const aiResult = await aiParseCommand(commandText, { churchName: targetChurch?.name });
+      if (aiResult.type === 'command') {
+        parsed = { command: aiResult.command, params: aiResult.params };
+      } else if (aiResult.type === 'commands' && aiResult.steps?.length) {
+        if (targetChurch) {
+          const replies = [];
+          for (const step of aiResult.steps) {
+            const r = await this._dispatchCommandSilent(targetChurch, chatId, step.command, step.params);
+            if (r) replies.push(r);
+          }
+          return this.sendMessage(chatId, replies.join('\n') || '✅ Done', { parse_mode: 'Markdown' });
+        }
+      } else if (aiResult.type === 'chat') {
+        return this.sendMessage(chatId, aiResult.text);
+      } else {
+        return this.sendMessage(chatId, "🤔 I didn't understand that. Try `help` for commands.", { parse_mode: 'Markdown' });
+      }
     }
 
     if (parsed.command === 'status' && !targetChurch) {
@@ -829,6 +862,34 @@ class TallyBot {
     } catch (e) {
       return this.sendMessage(chatId, `❌ Failed to reach Slack: ${e.message}`);
     }
+  }
+
+  // ─── DISPATCH HELPERS ────────────────────────────────────────────────
+
+  /** Route a parsed command to the right handler and reply to chatId. */
+  async _dispatchCommand(church, chatId, command, params) {
+    if (command === 'status') return this._sendStatus(church, chatId);
+    if (command === 'preview.snap') return this._sendPreviewSnap(church, chatId);
+    if (command === 'videohub.getRoutes') return this._sendRouteQuery(church, chatId, params);
+    return this._executeAndReply(church, chatId, command, params);
+  }
+
+  /** Execute a command and return the reply string (for multi-step batching). */
+  async _dispatchCommandSilent(church, chatId, command, params) {
+    if (command === 'status') { await this._sendStatus(church, chatId); return null; }
+    if (command === 'preview.snap') { await this._sendPreviewSnap(church, chatId); return null; }
+    if (command === 'videohub.getRoutes') { await this._sendRouteQuery(church, chatId, params); return null; }
+
+    const churchRuntime = this.relay.churches.get(church.churchId);
+    if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
+      return `❌ *${church.name}* is offline.`;
+    }
+    const msgId = crypto.randomUUID();
+    const resultPromise = this._waitForResult(church.churchId, msgId, 10000);
+    churchRuntime.ws.send(JSON.stringify({ type: 'command', command, params, id: msgId }));
+    const result = await resultPromise;
+    if (result.error) return `❌ ${result.error}`;
+    return this._formatResult(command, params, result.result);
   }
 
   // ─── COMMAND EXECUTION ────────────────────────────────────────────────
