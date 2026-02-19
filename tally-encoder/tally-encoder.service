@@ -1,0 +1,37 @@
+[Unit]
+Description=Tally Encoder — HDMI/SDI to RTMP monitoring stream
+Documentation=https://github.com/your-org/church-av/tree/main/tally-encoder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tally
+Group=tally
+
+# Main encoder process
+ExecStart=/opt/tally-encoder/encoder.sh
+
+# Environment
+EnvironmentFile=/etc/tally-encoder/config.env
+Environment=LOG_FILE=/var/log/tally-encoder.log
+Environment=CONFIG_FILE=/etc/tally-encoder/config.env
+
+# Restart policy
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=10
+
+# Logging
+StandardOutput=append:/var/log/tally-encoder.log
+StandardError=append:/var/log/tally-encoder.log
+
+# Working directory
+WorkingDirectory=/opt/tally-encoder
+
+# Give the encoder access to video and audio devices
+SupplementaryGroups=video audio plugdev
+
+[Install]
+WantedBy=multi-user.target

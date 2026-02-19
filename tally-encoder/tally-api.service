@@ -1,0 +1,25 @@
+[Unit]
+Description=Tally Encoder API Server — remote management endpoint
+After=network-online.target tally-encoder.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tally
+Group=tally
+
+ExecStart=/usr/bin/node /opt/tally-encoder/api-server.js
+
+EnvironmentFile=/etc/tally-encoder/config.env
+Environment=NODE_ENV=production
+
+Restart=always
+RestartSec=5
+
+StandardOutput=append:/var/log/tally-api.log
+StandardError=append:/var/log/tally-api.log
+
+WorkingDirectory=/opt/tally-encoder
+
+[Install]
+WantedBy=multi-user.target

@@ -12,7 +12,8 @@
     "ws": "^8.16.0",
     "jsonwebtoken": "^9.0.2",
     "uuid": "^9.0.0",
-    "better-sqlite3": "^11.0.0"
+    "better-sqlite3": "^11.0.0",
+    "node-media-server": "^2.6.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.0"

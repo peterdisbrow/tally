@@ -129,6 +129,8 @@ function buildDashboardHtml() {
   .tag-on  { background: rgba(34,197,94,0.15);  color: var(--green); }
   .tag-off { background: rgba(239,68,68,0.15);  color: var(--red); }
   .tag-na  { background: rgba(107,114,128,0.15); color: var(--muted); }
+  .tag-encoder-on  { background: rgba(59,130,246,0.15); color: #60a5fa; }
+  .tag-encoder-off { background: rgba(107,114,128,0.15); color: var(--muted); }
   .last-seen { font-size: 0.75rem; color: var(--muted); margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
   .empty { text-align: center; color: var(--muted); padding: 48px; grid-column: 1/-1; }
 
@@ -365,9 +367,14 @@ function renderCard(church) {
   const dotCls = statusDotClass(church);
   const alerts = church.activeAlerts || 0;
   const s = church.status || {};
-  const atemConnected = s.atem?.connected;
-  const obsStreaming  = s.obs?.streaming;
-  const obsConnected  = s.obs?.connected;
+  const atemConnected  = s.atem?.connected;
+  const obsStreaming   = s.obs?.streaming;
+  const obsConnected   = s.obs?.connected;
+  const encoderActive  = church.encoderActive || false;
+
+  const encoderBadge = encoderActive
+    ? '<span class="tag tag-encoder-on">📡 Encoder</span>'
+    : '<span class="tag tag-encoder-off">📡 Encoder</span>';
 
   return \`<div class="card" id="card-\${church.churchId}">
     <div class="card-header">
@@ -391,6 +398,10 @@ function renderCard(church) {
       <div class="row">
         <span class="row-label">Stream</span>
         <span class="row-value">\${tag(obsStreaming, '🔴 Live', 'Off-air', 'Unknown')}</span>
+      </div>
+      <div class="row">
+        <span class="row-label">Encoder</span>
+        <span class="row-value">\${encoderBadge}</span>
       </div>
     </div>
     <div class="last-seen">Last seen: \${fmtLastSeen(church.lastSeen)}</div>

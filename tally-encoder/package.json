@@ -1,0 +1,16 @@
+{
+  "name": "tally-encoder",
+  "version": "1.0.0",
+  "description": "Tally Encoder — HDMI/SDI capture to RTMP relay with remote management API",
+  "main": "api-server.js",
+  "scripts": {
+    "start": "node api-server.js",
+    "encode": "bash encoder.sh"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -597,6 +597,62 @@ async function presetDelete(agent, params) {
   return `Preset "${params.name}" deleted`;
 }
 
+/**
+ * obs.configureMonitorStream
+ *
+ * Remotely configures OBS to stream a secondary monitoring feed to the
+ * Tally relay server.  This lets the admin push RTMP stream settings to
+ * any church's OBS without visiting on-site.
+ *
+ * params:
+ *   relayUrl   {string} RTMP base URL, e.g. rtmp://relay.example.com/live
+ *   streamKey  {string} The church's stream key / token
+ *   bitrate    {number} Target bitrate in kbps (default 3000)
+ *   startStream {boolean} If true, also start streaming after config (default false)
+ */
+async function obsConfigureMonitorStream(agent, params) {
+  if (!agent.obs) throw new Error('OBS not connected');
+
+  const { relayUrl, streamKey, bitrate = 3000, startStream = false } = params || {};
+  if (!relayUrl)  throw new Error('relayUrl is required');
+  if (!streamKey) throw new Error('streamKey is required');
+
+  // Build the full RTMP URL: rtmp://host/app/streamKey
+  const serverUrl = relayUrl.endsWith('/') ? relayUrl.slice(0, -1) : relayUrl;
+
+  // Configure the stream service to Custom RTMP
+  await agent.obs.call('SetStreamServiceSettings', {
+    streamServiceType: 'rtmp_custom',
+    streamServiceSettings: {
+      server:   serverUrl,
+      key:      streamKey,
+      use_auth: false,
+      // OBS uses bitsPerSecond for some service types; set both for compatibility
+      bitsPerSecond: bitrate * 1000,
+    },
+  });
+
+  let result = `OBS monitor stream configured → ${serverUrl} (key: ${streamKey}, ${bitrate}kbps)`;
+
+  if (startStream) {
+    // Check if already streaming to avoid duplicate start
+    let alreadyStreaming = false;
+    try {
+      const streamStatus = await agent.obs.call('GetStreamStatus');
+      alreadyStreaming = streamStatus?.outputActive || false;
+    } catch { /* GetStreamStatus may not be available on all OBS versions */ }
+
+    if (!alreadyStreaming) {
+      await agent.obs.call('StartStream');
+      result += ' — stream started';
+    } else {
+      result += ' — already streaming (stream not restarted; use obs.stopStream then obs.startStream to apply)';
+    }
+  }
+
+  return result;
+}
+
 // ─── SYSTEM COMMANDS ────────────────────────────────────────────────────────
 
 function getStatus(agent) {
@@ -826,6 +882,7 @@ const commandHandlers = {
   'obs.startRecording': obsStartRecording,
   'obs.stopRecording': obsStopRecording,
   'obs.setScene': obsSetScene,
+  'obs.configureMonitorStream': obsConfigureMonitorStream,
 
   'status': getStatus,
   'system.preServiceCheck': preServiceCheck,
