@@ -52,6 +52,7 @@ const { PresetLibrary } = require('./src/presetLibrary');
 const { EventMode } = require('./src/eventMode');
 const { ResellerSystem } = require('./src/reseller');
 const { BillingSystem } = require('./src/billing');
+const { buildDashboardHtml, buildResellerPortalHtml } = require('./src/dashboard');
 const { setupSyncMonitor } = require('./src/syncMonitor');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
@@ -266,6 +267,7 @@ if (TALLY_BOT_TOKEN) {
     guestTdMode,
     presetLibrary,
     planningCenter,
+    resellerSystem,
   });
   log('Telegram bot initialized');
   if (TALLY_BOT_WEBHOOK_URL) {
@@ -287,6 +289,9 @@ const eventMode = new EventMode(db);
 eventMode.start(tallyBot, churches);
 
 const resellerSystem = new ResellerSystem(db);
+
+// Wire resellerSystem into alertEngine for white-label brand names
+alertEngine.resellerSystem = resellerSystem;
 
 // Pre-service check — needs tallyBot but can still send Telegram directly
 preServiceCheck = new PreServiceCheck({
@@ -913,21 +918,127 @@ app.get('/api/reseller/branding', requireReseller, (req, res) => {
   res.json(branding);
 });
 
+// ─── NEW RESELLER-AUTHENTICATED ROUTES ───────────────────────────────────────
+
+// GET /portal — white-labeled portal HTML (validate via ?key= query param)
+app.get('/portal', (req, res) => {
+  const key = req.query.key || req.headers['x-reseller-key'];
+  if (!key) {
+    return res.status(401).send('<html><body style="background:#0f1117;color:#e2e4ef;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Add <code>?key=YOUR_RESELLER_KEY</code> to the URL.</p></body></html>');
+  }
+  const reseller = resellerSystem.getReseller(key);
+  if (!reseller) {
+    return res.status(403).send('<html><body style="background:#0f1117;color:#e2e4ef;font-family:monospace;padding:40px"><h1>403 Forbidden</h1><p>Invalid reseller key.</p></body></html>');
+  }
+  if (reseller.active === 0) {
+    return res.status(403).send('<html><body style="background:#0f1117;color:#e2e4ef;font-family:monospace;padding:40px"><h1>403 Forbidden</h1><p>Reseller account is inactive.</p></body></html>');
+  }
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(buildResellerPortalHtml(reseller));
+});
+
+// GET /api/reseller/me — reseller info + stats
+app.get('/api/reseller/me', requireReseller, (req, res) => {
+  try {
+    const stats = resellerSystem.getResellerStats(req.reseller.id, churches);
+    const { api_key, ...safe } = req.reseller;
+    res.json({ ...safe, ...stats });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/reseller/me — update branding
+app.put('/api/reseller/me', requireReseller, (req, res) => {
+  try {
+    const { name, brand_name, support_email, logo_url, primary_color, custom_domain } = req.body;
+    const patch = {};
+    if (name          !== undefined) patch.name          = name;
+    if (brand_name    !== undefined) patch.brand_name    = brand_name;
+    if (support_email !== undefined) patch.support_email = support_email;
+    if (logo_url      !== undefined) patch.logo_url      = logo_url;
+    if (primary_color !== undefined) patch.primary_color = primary_color;
+    if (custom_domain !== undefined) patch.custom_domain = custom_domain;
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'No valid fields provided' });
+    const updated = resellerSystem.updateReseller(req.reseller.id, patch);
+    const { api_key, ...safe } = updated;
+    res.json(safe);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/reseller/churches/token — generate church + registration code
+app.post('/api/reseller/churches/token', requireReseller, (req, res) => {
+  try {
+    const { churchName, contactEmail } = req.body;
+    if (!churchName) return res.status(400).json({ error: 'churchName required' });
+
+    const result = resellerSystem.generateChurchToken(req.reseller.id, churchName);
+
+    // Add to in-memory map so the church is immediately visible
+    churches.set(result.churchId, {
+      churchId:         result.churchId,
+      name:             result.churchName,
+      email:            contactEmail || '',
+      token:            result.token,
+      ws:               null,
+      status:           { connected: false, atem: null, obs: null },
+      lastSeen:         null,
+      lastHeartbeat:    null,
+      registeredAt:     new Date().toISOString(),
+      disconnectedAt:   null,
+      _offlineAlertSent: false,
+      church_type:      'recurring',
+      event_expires_at: null,
+      event_label:      null,
+      reseller_id:      req.reseller.id,
+    });
+
+    log(`Reseller "${req.reseller.name}" created church token: ${result.churchName} (${result.churchId})`);
+    res.json({
+      churchId:         result.churchId,
+      churchName:       result.churchName,
+      registrationCode: result.registrationCode,
+      reseller:         req.reseller.brand_name || req.reseller.name,
+    });
+  } catch (e) {
+    const status = e.message.includes('limit') ? 403 : e.message.includes('already exists') ? 409 : 500;
+    res.status(status).json({ error: e.message });
+  }
+});
+
+// GET /api/reseller/stats — church count, online count, alert count
+app.get('/api/reseller/stats', requireReseller, (req, res) => {
+  try {
+    const stats = resellerSystem.getResellerStats(req.reseller.id, churches);
+    res.json(stats);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 
 app.get('/dashboard', (req, res) => {
-  const key = req.query.key || req.headers['x-api-key'];
+  const key = req.query.key || req.query.apikey || req.headers['x-api-key'];
   if (key !== ADMIN_API_KEY) {
     return res.status(401).send('<html><body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Add <code>?key=YOUR_ADMIN_KEY</code> to the URL.</p></body></html>');
   }
-  res.sendFile(path.join(__dirname, 'src', 'dashboard.html'));
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(buildDashboardHtml());
 });
 
 // ─── SSE Dashboard Stream ─────────────────────────────────────────────────────
 
 app.get('/api/dashboard/stream', (req, res) => {
-  const key = req.query.key || req.headers['x-api-key'];
-  if (key !== ADMIN_API_KEY) return res.status(401).json({ error: 'unauthorized' });
+  const key         = req.query.key || req.headers['x-api-key'];
+  const resellerKey = req.query.resellerKey || req.headers['x-reseller-key'];
+
+  let filterResellerId = null;
+
+  if (resellerKey) {
+    // Reseller portal access — validate reseller key and filter to their churches
+    const reseller = resellerSystem.getReseller(resellerKey);
+    if (!reseller) return res.status(403).json({ error: 'Invalid reseller key' });
+    filterResellerId = reseller.id;
+  } else if (key !== ADMIN_API_KEY) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -935,8 +1046,16 @@ app.get('/api/dashboard/stream', (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering if behind proxy
   res.flushHeaders();
 
-  // Send initial state
-  const initialState = Array.from(churches.values()).map(c => ({
+  // Attach reseller filter to the response for broadcast filtering
+  if (filterResellerId) res._resellerFilter = filterResellerId;
+
+  // Send initial state (filtered if reseller)
+  const allChurches = Array.from(churches.values());
+  const filtered = filterResellerId
+    ? allChurches.filter(c => c.reseller_id === filterResellerId)
+    : allChurches;
+
+  const initialState = filtered.map(c => ({
     churchId:         c.churchId,
     name:             c.name,
     connected:        c.ws?.readyState === WebSocket.OPEN,
@@ -1361,7 +1480,19 @@ function broadcastToSSE(data) {
   if (sseClients.size === 0) return;
   const payload = `data: ${JSON.stringify(data)}\n\n`;
   for (const res of sseClients) {
-    try { res.write(payload); } catch { sseClients.delete(res); }
+    try {
+      // If this SSE client has a reseller filter, only send events for their churches
+      if (res._resellerFilter) {
+        const churchId = data.churchId;
+        if (churchId) {
+          const church = churches.get(churchId);
+          if (!church || church.reseller_id !== res._resellerFilter) continue;
+        } else {
+          continue; // skip non-church events for reseller streams
+        }
+      }
+      res.write(payload);
+    } catch { sseClients.delete(res); }
   }
 }
 

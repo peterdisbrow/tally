@@ -82,8 +82,22 @@ class AlertEngine {
     this.activeAlerts = new Map(); // alertId → { church, alertType, context, severity, sentAt, escalationTimer }
     // Optional: OnCallRotation instance injected after construction
     this.onCallRotation = options.onCallRotation || null;
+    // Optional: ResellerSystem for white-labeling brand names
+    this.resellerSystem = options.resellerSystem || null;
     this._ensureColumns();
     this._ensureAlertsTable();
+  }
+
+  /**
+   * Get the brand name for a church (for white-labeling alert messages).
+   * Falls back to "Tally" if no reseller.
+   */
+  _getBrandName(church) {
+    if (!this.resellerSystem || !church.reseller_id) return 'Tally';
+    try {
+      const branding = this.resellerSystem.getBranding(church.reseller_id);
+      return branding?.brandName || 'Tally';
+    } catch { return 'Tally'; }
   }
 
   _ensureColumns() {
@@ -154,20 +168,19 @@ class AlertEngine {
       return { alertId, severity, action: 'no_bot_token' };
     }
 
-    // Build message
+    // Build message (white-labeled with brand name if reseller church)
     const icon = severity === 'EMERGENCY' ? '🚨' : severity === 'CRITICAL' ? '🔴' : '⚠️';
-    const msg = [
-      `${icon} *${severity}: ${alertType.replace(/_/g, ' ').toUpperCase()}*`,
-      `Church: ${church.name}`,
-      `Time: ${ts}`,
-      '',
-      `💡 Likely cause: ${diagnosis.likely_cause}`,
-      ...diagnosis.steps.map((s, i) => `${i + 1}. ${s}`),
-      '',
-      diagnosis.canAutoFix ? '🤖 Auto-recovery will be attempted.' : '👋 Manual intervention needed.',
-      '',
-      `Reply /ack_${alertId.slice(0, 8)} to acknowledge.`,
-    ].join('\n');
+    const brandName = this._getBrandName(church);
+    const alertTitle = brandName !== 'Tally'
+      ? `${icon} *${brandName} — ${alertType.replace(/_/g, ' ')} at ${church.name}*`
+      : `${icon} *${severity}: ${alertType.replace(/_/g, ' ').toUpperCase()}*`;
+    const msgLines = [alertTitle];
+    if (brandName === 'Tally') msgLines.push(`Church: ${church.name}`);
+    msgLines.push(`Time: ${ts}`, '', `💡 Likely cause: ${diagnosis.likely_cause}`);
+    diagnosis.steps.forEach((s, i) => msgLines.push(`${i + 1}. ${s}`));
+    msgLines.push('', diagnosis.canAutoFix ? '🤖 Auto-recovery will be attempted.' : '👋 Manual intervention needed.',
+      '', `Reply /ack_${alertId.slice(0, 8)} to acknowledge.`);
+    const msg = msgLines.join('\n');
 
     // Determine on-call TD chat ID
     // Priority: on-call rotation > church td_telegram_chat_id

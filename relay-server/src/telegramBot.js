@@ -78,7 +78,8 @@ function parseCommand(text) {
 
 // ─── HELP MESSAGE ───────────────────────────────────────────────────────────
 
-const HELP_TEXT = `🎛️ *Tally Commands*
+function getHelpText(brandName = 'Tally') {
+  return `🎛️ *${brandName} Commands*
 
 *ATEM*
 • cut to camera 2
@@ -117,7 +118,11 @@ const HELP_TEXT = `🎛️ *Tally Commands*
 • show me what's on screen — live preview
 • pre-service check
 
-Need help? Contact your ATEM School administrator.`;
+Powered by ${brandName}`;
+}
+
+// Backward-compat constant
+const HELP_TEXT = getHelpText('Tally');
 
 // ─── TELEGRAM BOT CLASS ─────────────────────────────────────────────────────
 
@@ -128,11 +133,12 @@ class TallyBot {
    * @param {string} opts.adminChatId  - Andrew's Telegram chat ID
    * @param {object} opts.db           - better-sqlite3 instance
    * @param {object} opts.relay        - { churches }
-   * @param {object} [opts.onCallRotation] - OnCallRotation instance (optional)
-   * @param {object} [opts.guestTdMode]    - GuestTdMode instance (optional)
+   * @param {object} [opts.onCallRotation]  - OnCallRotation instance (optional)
+   * @param {object} [opts.guestTdMode]     - GuestTdMode instance (optional)
    * @param {object} [opts.preServiceCheck] - PreServiceCheck instance (optional)
+   * @param {object} [opts.resellerSystem]  - ResellerSystem instance for white-labeling (optional)
    */
-  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter }) {
+  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem }) {
     this.token = botToken;
     this.adminChatId = adminChatId;
     this.db = db;
@@ -142,6 +148,7 @@ class TallyBot {
     this.preServiceCheck = preServiceCheck || null;
     this.presetLibrary   = presetLibrary   || null;
     this.planningCenter  = planningCenter  || null;
+    this.resellerSystem  = resellerSystem  || null;
     this._apiBase = `https://api.telegram.org/bot${botToken}`;
 
     // Ensure church_tds table
@@ -194,11 +201,42 @@ class TallyBot {
     });
   }
 
+  // ─── WHITE-LABEL BRAND HELPERS ────────────────────────────────────────────
+
+  /**
+   * Get the brand name for a church (falls back to "Tally" if no reseller).
+   * @param {string|null} churchId
+   * @returns {string}
+   */
+  _getBrandName(churchId) {
+    if (!this.resellerSystem || !churchId) return 'Tally';
+    try {
+      const church = this.db.prepare('SELECT reseller_id FROM churches WHERE churchId = ?').get(churchId);
+      if (!church?.reseller_id) return 'Tally';
+      const branding = this.resellerSystem.getBranding(church.reseller_id);
+      return branding?.brandName || 'Tally';
+    } catch { return 'Tally'; }
+  }
+
+  /**
+   * Get brand name for a user (TD) by looking up their registered church.
+   * @param {string} userId - Telegram user ID
+   * @returns {string}
+   */
+  _getBrandNameForUser(userId) {
+    try {
+      const td = this.db.prepare('SELECT church_id FROM church_tds WHERE telegram_user_id = ? AND active = 1').get(userId);
+      return this._getBrandName(td?.church_id || null);
+    } catch { return 'Tally'; }
+  }
+
   async _processMessage(userId, chatId, text, from) {
     // 1. /start command
     if (text === '/start') {
+      const brandName = this._getBrandNameForUser(userId);
+      const poweredBy = brandName !== 'Tally' ? `\n\n_Powered by Tally_` : '';
       return this.sendMessage(chatId,
-        `👋 Welcome to *Tally*!\n\nIf you're a church Technical Director, register with:\n\`/register YOUR_CODE\`\n\nYour church admin will give you the code.`,
+        `👋 Welcome to *${brandName}*!${poweredBy}\n\nIf you're a church Technical Director, register with:\n\`/register YOUR_CODE\`\n\nYour church admin will give you the code.`,
         { parse_mode: 'Markdown' }
       );
     }
@@ -210,7 +248,8 @@ class TallyBot {
 
     // 3. /help
     if (text === '/help' || text.toLowerCase() === 'help') {
-      return this.sendMessage(chatId, HELP_TEXT, { parse_mode: 'Markdown' });
+      const brandName = this._getBrandNameForUser(userId);
+      return this.sendMessage(chatId, getHelpText(brandName), { parse_mode: 'Markdown' });
     }
 
     // 4. /confirmswap — TD confirming an on-call swap
@@ -302,8 +341,10 @@ class TallyBot {
     }
 
     console.log(`[TallyBot] TD registered: ${name} → ${church.name}`);
+    const brandName = this._getBrandName(church.churchId);
+    const poweredBy = brandName !== 'Tally' ? ` — _Powered by Tally_` : '';
     return this.sendMessage(chatId,
-      `✅ Welcome to Tally, *${name}*!\n\nYou're now registered as TD for *${church.name}*.\nType \`help\` to see what you can do.`,
+      `✅ Welcome to *${brandName}*${poweredBy}, *${name}*!\n\nYou're now registered as TD for *${church.name}*.\nType \`help\` to see what you can do.`,
       { parse_mode: 'Markdown' }
     );
   }
