@@ -114,6 +114,25 @@ class ChurchAVAgent {
     this.config = config;
     this.relay = null;
     this.atem = null;
+
+    // Derive churchId and HTTP base URL from JWT token + relay URL
+    try {
+      const b64 = config.token.split('.')[1];
+      const payload = JSON.parse(Buffer.from(b64, 'base64url').toString());
+      this.churchId = payload.churchId || null;
+    } catch {
+      try {
+        const b64 = config.token.split('.')[1];
+        const payload = JSON.parse(Buffer.from(b64, 'base64').toString());
+        this.churchId = payload.churchId || null;
+      } catch {
+        this.churchId = null;
+      }
+    }
+    // Convert ws(s):// relay URL to http(s):// for REST calls
+    this.relayHttpBase = config.relay
+      ? config.relay.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://')
+      : null;
     this.obs = null;
     this.companion = null;
     this.videoHubs = [];

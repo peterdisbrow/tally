@@ -487,6 +487,116 @@ async function danteScene(agent, params) {
   return `Dante scene "${params.name}" triggered via Companion`;
 }
 
+// ─── PRESET COMMANDS ─────────────────────────────────────────────────────────
+
+/**
+ * Capture current equipment state and return it for the relay to save as a preset.
+ * The relay receives this as a command_result and stores it in presetLibrary.
+ */
+async function presetSave(agent, params) {
+  const steps = [];
+
+  // Capture current mixer scene
+  if (agent.mixer && agent.status.mixer?.connected) {
+    try {
+      const status = await agent.mixer.getStatus();
+      if (status.scene != null) {
+        steps.push({ type: 'mixer_scene', scene: status.scene });
+      }
+    } catch { /* mixer may not expose scene */ }
+  }
+
+  // Capture current OBS scene
+  if (agent.obs && agent.status.obs?.connected) {
+    try {
+      const scene = await agent.obs.call('GetCurrentProgramScene');
+      if (scene?.currentProgramSceneName) {
+        steps.push({ type: 'obs_scene', sceneName: scene.currentProgramSceneName });
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Capture vMix active input
+  if (agent.vmix && agent.status.vmix?.connected) {
+    try {
+      const status = await agent.vmix.getStatus();
+      if (status?.activeInput) {
+        steps.push({ type: 'vmix_preset', inputName: String(status.activeInput) });
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Capture Resolume playing column
+  if (agent.resolume && agent.status.resolume?.connected) {
+    try {
+      const status = await agent.resolume.getStatus();
+      if (status?.playing?.length > 0) {
+        const col = status.currentColumn ?? status.playing[0]?.column;
+        if (col != null) {
+          steps.push({ type: 'resolume_column', columnIndex: col });
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
+  if (steps.length === 0) {
+    throw new Error('No connected devices found to save state from');
+  }
+
+  const presetType = steps.length === 1 ? steps[0].type : 'named_bundle';
+  return { presetType, steps, name: params.name };
+}
+
+/**
+ * List saved presets via relay REST API.
+ */
+async function presetList(agent) {
+  const { churchId, relayHttpBase, config } = agent;
+  if (!churchId || !relayHttpBase) {
+    throw new Error('Relay HTTP URL not available');
+  }
+  const resp = await fetch(`${relayHttpBase}/api/churches/${churchId}/presets`, {
+    headers: { 'Authorization': `Bearer ${config.token}` },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!resp.ok) throw new Error(`Failed to list presets: ${resp.status}`);
+  const presets = await resp.json();
+  if (!presets.length) return 'No saved presets';
+  return presets.map(p => `• ${p.name} (${p.type.replace(/_/g, ' ')})`).join('\n');
+}
+
+/**
+ * Recall a named preset via relay REST API.
+ */
+async function presetRecall(agent, params) {
+  const { churchId, relayHttpBase, config } = agent;
+  if (!churchId || !relayHttpBase) throw new Error('Relay HTTP URL not available');
+  const name = encodeURIComponent(params.name);
+  const resp = await fetch(`${relayHttpBase}/api/churches/${churchId}/presets/${name}/recall`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${config.token}`, 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!resp.ok) throw new Error(`Failed to recall preset: ${resp.status}`);
+  return `Preset "${params.name}" recalled`;
+}
+
+/**
+ * Delete a named preset via relay REST API.
+ */
+async function presetDelete(agent, params) {
+  const { churchId, relayHttpBase, config } = agent;
+  if (!churchId || !relayHttpBase) throw new Error('Relay HTTP URL not available');
+  const name = encodeURIComponent(params.name);
+  const resp = await fetch(`${relayHttpBase}/api/churches/${churchId}/presets/${name}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${config.token}` },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!resp.ok) throw new Error(`Failed to delete preset: ${resp.status}`);
+  return `Preset "${params.name}" deleted`;
+}
+
 // ─── SYSTEM COMMANDS ────────────────────────────────────────────────────────
 
 function getStatus(agent) {
@@ -783,6 +893,11 @@ const commandHandlers = {
   'companion.pressNamed': companionPressNamed,
   'companion.getGrid': companionGetGrid,
   'companion.connections': companionConnections,
+
+  'preset.save': presetSave,
+  'preset.list': presetList,
+  'preset.recall': presetRecall,
+  'preset.delete': presetDelete,
 };
 
 module.exports = { commandHandlers };
