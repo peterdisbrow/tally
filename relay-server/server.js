@@ -304,9 +304,11 @@ setupAdminPanel(app, db, churches, resellerSystem);
 
 // Church Portal — self-service login for individual churches
 setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin);
+console.log('[Server] ✓ Church Portal routes registered');
 
 // Reseller Portal — self-service login for integrators/resellers
 setupResellerPortal(app, db, churches, resellerSystem, JWT_SECRET, requireAdmin);
+console.log('[Server] ✓ Reseller Portal routes registered');
 
 // Pre-service check — needs tallyBot but can still send Telegram directly
 preServiceCheck = new PreServiceCheck({

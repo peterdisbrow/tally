@@ -1010,6 +1010,8 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
     console.log(`[ResellerPortal] Set portal credentials for reseller ${req.params.resellerId}: ${email}`);
     res.json({ ok: true, email: email.trim().toLowerCase(), loginUrl: '/reseller-login' });
   });
+
+  console.log('[ResellerPortal] ✓ Setup complete — routes registered');
 }
 
 module.exports = { setupResellerPortal };

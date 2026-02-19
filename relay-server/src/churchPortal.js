@@ -1305,6 +1305,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
     console.log(`[ChurchPortal] Set portal credentials for church ${req.params.churchId}: ${email}`);
     res.json({ ok: true, email: email.trim().toLowerCase(), loginUrl: '/church-login' });
   });
+
+  console.log('[ChurchPortal] ✓ Setup complete — routes registered');
 }
 
 module.exports = { setupChurchPortal };
