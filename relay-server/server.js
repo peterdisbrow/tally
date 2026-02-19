@@ -20,6 +20,8 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
+const cookieParser = require('cookie-parser');
+
 const app = express();
 // Capture raw body for Stripe webhook signature verification
 app.use((req, res, next) => {
@@ -33,6 +35,7 @@ app.use((req, res, next) => {
   }
 });
 app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
@@ -292,6 +295,10 @@ const resellerSystem = new ResellerSystem(db);
 
 // Wire resellerSystem into alertEngine for white-label brand names
 alertEngine.resellerSystem = resellerSystem;
+
+// ─── ADMIN + RESELLER PORTALS ─────────────────────────────────────────────────
+const { setupAdminPanel } = require('./src/adminPanel');
+setupAdminPanel(app, db, churches, resellerSystem);
 
 // Pre-service check — needs tallyBot but can still send Telegram directly
 preServiceCheck = new PreServiceCheck({

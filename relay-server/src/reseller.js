@@ -41,6 +41,7 @@ class ResellerSystem {
       "ALTER TABLE resellers ADD COLUMN primary_color TEXT DEFAULT '#22c55e'",
       "ALTER TABLE resellers ADD COLUMN custom_domain TEXT",
       "ALTER TABLE resellers ADD COLUMN active INTEGER DEFAULT 1",
+      "ALTER TABLE resellers ADD COLUMN portal_password TEXT",
     ];
     for (const col of newColumns) {
       try { this.db.exec(col); } catch { /* column already exists */ }
