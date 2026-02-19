@@ -253,6 +253,10 @@ const planningCenter = new PlanningCenter(db);
 planningCenter.setScheduleEngine(scheduleEngine);
 planningCenter.start();
 
+// ─── RESELLER SYSTEM (needed early for TallyBot) ────────────────────────────
+
+const resellerSystem = new ResellerSystem(db);
+
 // ─── TELEGRAM BOT ────────────────────────────────────────────────────────────
 
 const TALLY_BOT_TOKEN = process.env.TALLY_BOT_TOKEN;
@@ -295,8 +299,6 @@ setupSyncMonitor(db, { churches }, tallyBot, (churchId) => {
 
 const eventMode = new EventMode(db);
 eventMode.start(tallyBot, churches);
-
-const resellerSystem = new ResellerSystem(db);
 
 // Wire resellerSystem into alertEngine for white-label brand names
 alertEngine.resellerSystem = resellerSystem;
