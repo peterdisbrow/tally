@@ -244,6 +244,11 @@ class ChurchAVAgent {
       const url = `${this.config.relay}/church?token=${this.config.token}`;
       console.log(`\n📡 Connecting to relay...`);
 
+      // Terminate any stale socket (CONNECTING=0 or OPEN=1) before creating a new one
+      if (this.relay && (this.relay.readyState === 0 || this.relay.readyState === 1)) {
+        try { this.relay.terminate(); } catch { /* ignore */ }
+      }
+
       this.relay = new WebSocket(url);
       let resolved = false;
       const doResolve = () => { if (!resolved) { resolved = true; resolve(); } };
@@ -401,57 +406,66 @@ class ChurchAVAgent {
   // ─── OBS CONNECTION ───────────────────────────────────────────────────────
 
   async connectOBS() {
-    this.obs = new OBSWebSocket();
     if (!this._obsReconnectDelay) this._obsReconnectDelay = 5000;
 
-    this.obs.on('ConnectionOpened', () => {
-      console.log('✅ OBS connected');
-      this.status.obs.connected = true;
-      this._obsReconnectDelay = 5000;
-      this.sendStatus();
-    });
+    // Create OBS instance and attach event listeners ONCE.
+    // On reconnect we reuse the same instance — just call connect() again.
+    if (!this.obs) {
+      this.obs = new OBSWebSocket();
 
-    this.obs.on('ConnectionClosed', () => {
-      console.warn(`⚠️  OBS disconnected. Retrying in ${this._obsReconnectDelay / 1000}s...`);
-      this.status.obs.connected = false;
-      this.sendStatus();
-      const delay = this._obsReconnectDelay;
-      this._obsReconnectDelay = Math.min(this._obsReconnectDelay * 2, 60_000);
-      setTimeout(() => this.connectOBS(), delay);
-    });
-
-    this.obs.on('StreamStateChanged', ({ outputActive }) => {
-      const wasStreaming = this.status.obs.streaming;
-      this.status.obs.streaming = outputActive;
-      if (wasStreaming !== outputActive) {
-        this.sendAlert(`Stream ${outputActive ? 'STARTED' : 'STOPPED'}`, 'info');
+      this.obs.on('ConnectionOpened', () => {
+        console.log('✅ OBS connected');
+        this.status.obs.connected = true;
+        this._obsReconnectDelay = 5000; // reset backoff on success
         this.sendStatus();
-      }
-    });
+      });
 
-    this.obs.on('RecordStateChanged', ({ outputActive }) => {
-      this.status.obs.recording = outputActive;
-      this.sendStatus();
-    });
+      this.obs.on('ConnectionClosed', () => {
+        console.warn(`⚠️  OBS disconnected. Retrying in ${this._obsReconnectDelay / 1000}s...`);
+        this.status.obs.connected = false;
+        this.sendStatus();
+        const delay = this._obsReconnectDelay;
+        this._obsReconnectDelay = Math.min(this._obsReconnectDelay * 2, 60_000);
+        setTimeout(() => this.connectOBS(), delay);
+      });
 
-    setInterval(async () => {
-      if (!this.status.obs.connected) return;
-      try {
-        const stats = await this.obs.call('GetStats');
-        this.status.obs.fps = Math.round(stats.activeFps || 0);
-        this.status.obs.cpuUsage = Math.round(stats.cpuUsage || 0);
-
-        const streamStatus = await this.obs.call('GetStreamStatus');
-        this.status.obs.streaming = streamStatus.outputActive;
-        this.status.obs.bitrate = streamStatus.outputBytes
-          ? Math.round((streamStatus.outputBytes / 1024 / 15))
-          : null;
-
-        if (this.status.obs.fps < 24 && this.status.obs.streaming) {
-          this.sendAlert(`⚠️ Low stream FPS: ${this.status.obs.fps}fps`, 'warning');
+      this.obs.on('StreamStateChanged', ({ outputActive }) => {
+        const wasStreaming = this.status.obs.streaming;
+        this.status.obs.streaming = outputActive;
+        if (wasStreaming !== outputActive) {
+          this.sendAlert(`Stream ${outputActive ? 'STARTED' : 'STOPPED'}`, 'info');
+          this.sendStatus();
         }
-      } catch { /* ignore poll errors */ }
-    }, 15_000);
+      });
+
+      this.obs.on('RecordStateChanged', ({ outputActive }) => {
+        this.status.obs.recording = outputActive;
+        this.sendStatus();
+      });
+
+      // Stats poll — registered ONCE, checks connected flag before each call
+      if (!this._obsStatsPollStarted) {
+        this._obsStatsPollStarted = true;
+        setInterval(async () => {
+          if (!this.status.obs.connected) return;
+          try {
+            const stats = await this.obs.call('GetStats');
+            this.status.obs.fps = Math.round(stats.activeFps || 0);
+            this.status.obs.cpuUsage = Math.round(stats.cpuUsage || 0);
+
+            const streamStatus = await this.obs.call('GetStreamStatus');
+            this.status.obs.streaming = streamStatus.outputActive;
+            this.status.obs.bitrate = streamStatus.outputBytes
+              ? Math.round((streamStatus.outputBytes / 1024 / 15))
+              : null;
+
+            if (this.status.obs.fps < 24 && this.status.obs.streaming) {
+              this.sendAlert(`⚠️ Low stream FPS: ${this.status.obs.fps}fps`, 'warning');
+            }
+          } catch { /* ignore poll errors */ }
+        }, 15_000);
+      }
+    }
 
     try {
       const obsUrl = this.config.obsUrl || 'ws://localhost:4455';

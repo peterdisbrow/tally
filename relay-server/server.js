@@ -46,8 +46,24 @@ const DB_PATH       = process.env.DATABASE_PATH || './data/churches.db';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin || '';
+  const isAdminRoute = req.path.startsWith('/api/') || req.path.startsWith('/dashboard');
+
+  if (isAdminRoute) {
+    // Admin routes: only allow explicitly configured origins, or same-origin (no Origin header)
+    if (!origin || ALLOWED_ORIGINS.includes(origin) || origin.startsWith('http://localhost')) {
+      res.header('Access-Control-Allow-Origin', origin || '*');
+    }
+    // No wildcard on admin routes from unknown origins
+  } else {
+    // Public routes (church client WebSocket upgrade, health check): allow all
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
