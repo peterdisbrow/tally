@@ -21,6 +21,17 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 
 const app = express();
+// Capture raw body for Stripe webhook signature verification
+app.use((req, res, next) => {
+  if (req.path === '/api/billing/webhook') {
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => { req.rawBody = data; next(); });
+  } else {
+    next();
+  }
+});
 app.use(express.json({ limit: '1mb' }));
 
 const server = http.createServer(app);
@@ -35,6 +46,7 @@ const { PreServiceCheck } = require('./src/preServiceCheck');
 const { MonthlyReport } = require('./src/monthlyReport');
 const { OnCallRotation } = require('./src/onCallRotation');
 const { GuestTdMode } = require('./src/guestTdMode');
+const { BillingSystem } = require('./src/billing');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 const JWT_SECRET    = process.env.JWT_SECRET    || 'dev-jwt-secret-change-me';
@@ -153,6 +165,7 @@ db.exec(`
 // ─── AUTOMATION ENGINES ──────────────────────────────────────────────────────
 
 const scheduleEngine = new ScheduleEngine(db);
+const billing = new BillingSystem(db);
 const onCallRotation = new OnCallRotation(db);
 const alertEngine = new AlertEngine(db, scheduleEngine, { onCallRotation });
 const autoRecovery = new AutoRecovery(churches, alertEngine);
@@ -299,6 +312,64 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
 });
 
 // List all registered churches + their current status
+// ─── BILLING ROUTES ───────────────────────────────────────────────────────────
+
+// Create Stripe Checkout session
+app.post('/api/billing/checkout', async (req, res) => {
+  try {
+    const { tier, churchId, email, successUrl, cancelUrl } = req.body;
+    if (!tier || !['connect', 'pro', 'managed', 'event'].includes(tier)) {
+      return res.status(400).json({ error: 'Invalid tier. Must be connect, pro, managed, or event.' });
+    }
+    const result = await billing.createCheckout({
+      tier, churchId, email, successUrl, cancelUrl,
+      isEvent: tier === 'event',
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Create Stripe Billing Portal session (self-service subscription management)
+app.post('/api/billing/portal', async (req, res) => {
+  try {
+    const { churchId, returnUrl } = req.body;
+    if (!churchId) return res.status(400).json({ error: 'churchId required' });
+    const result = await billing.createPortalSession({ churchId, returnUrl });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Stripe webhook (must receive raw body — mounted before express.json())
+app.post('/api/billing/webhook', async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  if (!sig) return res.status(400).json({ error: 'Missing stripe-signature header' });
+  try {
+    // req.rawBody must be set — see express setup below
+    const result = await billing.handleWebhook(req.rawBody || req.body, sig);
+    res.json(result);
+  } catch (e) {
+    console.error('[Billing] Webhook error:', e.message);
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Get billing status for a church
+app.get('/api/billing/status/:churchId', requireAdmin, (req, res) => {
+  const status = billing.getStatus(req.params.churchId);
+  res.json(status);
+});
+
+// List all billing records (admin)
+app.get('/api/billing', requireAdmin, (req, res) => {
+  res.json(billing.listAll());
+});
+
+// ─── CHURCHES ────────────────────────────────────────────────────────────────
+
 app.get('/api/churches', requireAdmin, (req, res) => {
   const list = Array.from(churches.values()).map(c => ({
     churchId: c.churchId,
