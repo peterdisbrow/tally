@@ -55,7 +55,8 @@ RESPONSE FORMAT — always return valid JSON, one of these three shapes:
 RULES:
 - Be liberal with inference. "wide angle" likely means camera 1. "pastor" likely means camera 2. "center" or "main" likely means camera 1 or the current program input.
 - If the message references lowering/muting audio: map to companion.pressNamed with a descriptive name like "Mute Audience Mics" or "Lower Music".
-- If you cannot map to a command with reasonable confidence, return type:chat with a brief helpful message.
+- If the message is production-related but you cannot map it to a command with confidence, return type:chat with a brief clarifying question.
+- If the message is NOT related to church AV production (weather, sports, general chat, jokes, etc.), return type:chat with exactly: "I'm only here for production. Try 'help' for what I can do."
 - Never return anything outside of the three JSON shapes above.
 - No markdown, no explanation, just the JSON.`;
 
