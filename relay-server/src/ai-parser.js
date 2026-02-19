@@ -1,12 +1,9 @@
 /**
  * ai-parser.js
- * Claude-powered natural language command parser for Tally.
- * Used as a fallback when the regex fast-path doesn't match.
- * Returns the same { command, params } shape — or a multi-step array.
+ * OpenAI-only natural language command parser for Tally church AV system.
+ * Uses gpt-4o-mini for fast, cheap parsing.
+ * Returns { command, params } shape or multi-step array.
  */
-
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-const MODEL = 'claude-haiku-4-5';
 
 // ─── System prompt ─────────────────────────────────────────────────────────
 
@@ -60,6 +57,62 @@ RULES:
 - Never return anything outside of the three JSON shapes above.
 - No markdown, no explanation, just the JSON.`;
 
+// ─── OpenAI API call ───────────────────────────────────────────────────────
+
+async function callOpenAI(userContent, timeout = 8000) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY not set');
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userContent },
+        ],
+        temperature: 0.2,  // Deterministic
+        max_tokens: 256,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error(`OpenAI API ${resp.status}: ${body.slice(0, 100)}`);
+    }
+
+    const data = await resp.json();
+    const raw = data?.choices?.[0]?.message?.content?.trim();
+
+    if (!raw) throw new Error('OpenAI returned empty response');
+    return raw;
+
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// ─── JSON parser (handles markdown wrapping) ────────────────────────────────
+
+function parseJSON(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Strip markdown code block if present
+    const stripped = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+    return JSON.parse(stripped);
+  }
+}
+
 // ─── Main parse function ────────────────────────────────────────────────────
 
 /**
@@ -76,17 +129,12 @@ RULES:
  *   { type: 'error', message }   — if API call fails
  */
 async function aiParseCommand(text, ctx = {}) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return { type: 'error', message: 'ANTHROPIC_API_KEY not set — AI parser unavailable.' };
-  }
-
   // Build context hint if we have live status
   let contextHint = '';
   if (ctx.churchName) contextHint += `Church: ${ctx.churchName}. `;
   if (ctx.status?.atem?.connected) {
     const s = ctx.status.atem;
-    contextHint += `ATEM: program=cam${s.programInput||'?'}, preview=cam${s.previewInput||'?'}. `;
+    contextHint += `ATEM: program=cam${s.programInput || '?'}, preview=cam${s.previewInput || '?'}. `;
     if (s.inputLabels && Object.keys(s.inputLabels).length) {
       const labels = Object.entries(s.inputLabels).map(([k, v]) => `cam${k}=${v}`).join(', ');
       contextHint += `Camera labels: ${labels}. `;
@@ -101,60 +149,23 @@ async function aiParseCommand(text, ctx = {}) {
     : text;
 
   try {
-    const resp = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 256,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userContent }],
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
+    console.log('[ai-parser] Parsing with gpt-4o-mini...');
+    const raw = await callOpenAI(userContent);
+    const parsed = parseJSON(raw);
 
-    if (!resp.ok) {
-      const body = await resp.text();
-      console.error('[ai-parser] API error:', resp.status, body);
-      return { type: 'error', message: `AI parser API error: ${resp.status}` };
-    }
-
-    const data = await resp.json();
-    const raw = data?.content?.[0]?.text?.trim();
-
-    if (!raw) {
-      return { type: 'error', message: 'AI parser returned empty response.' };
-    }
-
-    // Parse JSON
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      // Sometimes Claude wraps in ```json ... ``` — strip and retry
-      const stripped = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
-      try {
-        parsed = JSON.parse(stripped);
-      } catch {
-        console.error('[ai-parser] JSON parse failed:', raw);
-        return { type: 'error', message: 'AI parser returned invalid JSON.' };
-      }
-    }
-
-    // Validate shape
     if (!parsed.type || !['command', 'commands', 'chat'].includes(parsed.type)) {
-      return { type: 'error', message: 'AI parser returned unexpected shape.' };
+      throw new Error(`Invalid response type: ${parsed.type}`);
     }
 
+    console.log(`[ai-parser] ✓ Success — type: ${parsed.type}`);
     return parsed;
 
-  } catch (e) {
-    console.error('[ai-parser] fetch error:', e.message);
-    return { type: 'error', message: `AI parser unavailable: ${e.message}` };
+  } catch (err) {
+    console.error(`[ai-parser] Error: ${err.message}`);
+    return {
+      type: 'error',
+      message: `AI parser failed: ${err.message}`,
+    };
   }
 }
 

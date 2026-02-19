@@ -1603,18 +1603,46 @@ function setupDashboard(app, db, getChurchStates) {
     if (!checkKey(req, res)) return;
     const { message, churchStates } = req.body || {};
     if (!message || typeof message !== 'string') return res.status(400).json({ error: 'message (string) required' });
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return res.json({ reply: 'AI assistant not configured — set ANTHROPIC_API_KEY.' });
+
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (!openaiKey) return res.status(503).json({ error: 'OPENAI_API_KEY not configured.' });
+
     const systemPrompt = 'You are Tally AI, admin assistant for a multi-church AV monitoring system. Church states: ' + JSON.stringify(churchStates || {});
+
     try {
-      const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      console.log('[Dashboard Chat] Processing with gpt-4o-mini...');
+      const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 512, system: systemPrompt, messages: [{ role: 'user', content: message }] }),
+        headers: {
+          'Authorization': `Bearer ${openaiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: message },
+          ],
+          temperature: 0.7,
+          max_tokens: 512,
+        }),
+        signal: AbortSignal.timeout(8000),
       });
+
+      if (!aiRes.ok) {
+        const errBody = await aiRes.text();
+        throw new Error(`OpenAI ${aiRes.status}: ${errBody.slice(0, 100)}`);
+      }
+
       const data = await aiRes.json();
-      res.json({ reply: data.content?.[0]?.text || 'No response.' });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+      const reply = data?.choices?.[0]?.message?.content || 'No response.';
+      console.log('[Dashboard Chat] ✓ Success');
+      res.json({ reply });
+
+    } catch (err) {
+      console.error(`[Dashboard Chat] Error: ${err.message}`);
+      res.status(503).json({ error: `AI unavailable: ${err.message}` });
+    }
   });
 
   function notifyUpdate(changedChurchId = null) {

@@ -57,6 +57,8 @@ const { ResellerSystem } = require('./src/reseller');
 const { BillingSystem } = require('./src/billing');
 const { buildDashboardHtml, buildResellerPortalHtml } = require('./src/dashboard');
 const { setupSyncMonitor } = require('./src/syncMonitor');
+const { setupChurchPortal } = require('./src/churchPortal');
+const { setupResellerPortal } = require('./src/resellerPortal');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 const JWT_SECRET    = process.env.JWT_SECRET    || 'dev-jwt-secret-change-me';
@@ -299,6 +301,12 @@ alertEngine.resellerSystem = resellerSystem;
 // ─── ADMIN + RESELLER PORTALS ─────────────────────────────────────────────────
 const { setupAdminPanel } = require('./src/adminPanel');
 setupAdminPanel(app, db, churches, resellerSystem);
+
+// Church Portal — self-service login for individual churches
+setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin);
+
+// Reseller Portal — self-service login for integrators/resellers
+setupResellerPortal(app, db, churches, resellerSystem, JWT_SECRET, requireAdmin);
 
 // Pre-service check — needs tallyBot but can still send Telegram directly
 preServiceCheck = new PreServiceCheck({
