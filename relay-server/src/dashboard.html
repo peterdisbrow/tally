@@ -254,6 +254,26 @@
       overflow-y: auto;
     }
 
+    /* ── Event mode badge ───────────────────────────────────────────────────── */
+    .event-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(88, 166, 255, 0.15);
+      color: var(--blue);
+      border: 1px solid rgba(88, 166, 255, 0.35);
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 6px;
+      white-space: nowrap;
+    }
+    .event-badge.expired {
+      background: rgba(132, 141, 152, 0.15);
+      color: var(--text-muted);
+      border-color: var(--border);
+    }
+
     /* ── Empty state ───────────────────────────────────────────────────────── */
     .empty-state {
       grid-column: 1 / -1;
@@ -456,10 +476,23 @@ function relativeTime(isoStr) {
   return `${Math.floor(delta / 3600)}h ago`;
 }
 
+function eventCountdown(expiresAt) {
+  if (!expiresAt) return '';
+  const msLeft = new Date(expiresAt) - Date.now();
+  if (msLeft <= 0) return '<span class="event-badge expired">🎬 Expired</span>';
+  const totalMinutes = Math.floor(msLeft / 60000);
+  const hours   = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const remaining = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  return `<span class="event-badge">🎬 ${remaining} left</span>`;
+}
+
 function renderCard(church) {
   const status = getStatus(church);
   const alerts = church._activeAlerts || 0;
   const alertBadge = alerts > 0 ? `<span class="alert-badge">${alerts}</span>` : '';
+  const isEvent = church.church_type === 'event';
+  const eventBadge = isEvent ? eventCountdown(church.event_expires_at) : '';
   const cardClass = status === 'alert' ? 'alert-active' : status === 'warning' ? 'status-warning' : '';
   const s = church.status || {};
   const expandId = `expand-${church.churchId}`;
@@ -467,9 +500,10 @@ function renderCard(church) {
   return `
     <div class="church-card ${cardClass}" onclick="toggleExpand('${church.churchId}')">
       <div class="card-header">
-        <div style="display:flex;align-items:center;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span class="card-title">${escHtml(church.name)}</span>
           ${alertBadge}
+          ${eventBadge}
         </div>
         ${statusBadge(status)}
       </div>

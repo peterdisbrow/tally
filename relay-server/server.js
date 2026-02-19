@@ -46,6 +46,11 @@ const { PreServiceCheck } = require('./src/preServiceCheck');
 const { MonthlyReport } = require('./src/monthlyReport');
 const { OnCallRotation } = require('./src/onCallRotation');
 const { GuestTdMode } = require('./src/guestTdMode');
+const { SessionRecap } = require('./src/sessionRecap');
+const { PlanningCenter } = require('./src/planningCenter');
+const { PresetLibrary } = require('./src/presetLibrary');
+const { EventMode } = require('./src/eventMode');
+const { ResellerSystem } = require('./src/reseller');
 const { BillingSystem } = require('./src/billing');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
@@ -77,7 +82,7 @@ app.use((req, res, next) => {
   }
 
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key, x-reseller-key');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
@@ -105,6 +110,19 @@ db.exec(`
     registeredAt TEXT NOT NULL
   )
 `);
+
+// ─── SCHEMA MIGRATIONS ───────────────────────────────────────────────────────
+// Run safe ALTER TABLE migrations for new columns — ignore "column already exists" errors
+
+const _schemaMigrations = [
+  "ALTER TABLE churches ADD COLUMN church_type TEXT DEFAULT 'recurring'",
+  "ALTER TABLE churches ADD COLUMN event_expires_at TEXT",
+  "ALTER TABLE churches ADD COLUMN event_label TEXT",
+  "ALTER TABLE churches ADD COLUMN reseller_id TEXT",
+];
+for (const m of _schemaMigrations) {
+  try { db.exec(m); } catch { /* column already exists */ }
+}
 
 const stmtInsert = db.prepare('INSERT INTO churches (churchId, name, email, token, registeredAt) VALUES (?, ?, ?, ?, ?)');
 const stmtAll = db.prepare('SELECT * FROM churches');
@@ -146,6 +164,12 @@ for (const row of stmtAll.all()) {
     registeredAt: row.registeredAt,
     disconnectedAt: null,
     _offlineAlertSent: false, // track whether we've alerted for this offline stretch
+    // Event mode fields
+    church_type:      row.church_type      || 'recurring',
+    event_expires_at: row.event_expires_at || null,
+    event_label:      row.event_label      || null,
+    // Reseller field
+    reseller_id:      row.reseller_id      || null,
   });
 }
 log(`Loaded ${churches.size} churches from database`);
@@ -161,6 +185,14 @@ db.exec(`
     reason TEXT DEFAULT ''
   )
 `);
+
+// Slack integration columns (safe to run multiple times)
+for (const col of ['slack_webhook_url', 'slack_channel']) {
+  try { db.exec(`ALTER TABLE churches ADD COLUMN ${col} TEXT`); } catch { /* already exists */ }
+}
+
+// Preset library table
+const presetLibrary = new PresetLibrary(db);
 
 // ─── AUTOMATION ENGINES ──────────────────────────────────────────────────────
 
@@ -182,6 +214,38 @@ const monthlyReport = new MonthlyReport({
 });
 monthlyReport.start();
 
+// ─── SESSION RECAP ────────────────────────────────────────────────────────────
+
+const sessionRecap = new SessionRecap(db);
+sessionRecap.setNotificationConfig(
+  process.env.ALERT_BOT_TOKEN,
+  process.env.ANDREW_TELEGRAM_CHAT_ID
+);
+
+// Hook schedule engine window transitions → session lifecycle
+scheduleEngine.addWindowOpenCallback((churchId) => {
+  try {
+    const onCallTd = onCallRotation.getOnCallTD(churchId);
+    sessionRecap.startSession(churchId, onCallTd?.name || null);
+  } catch (e) {
+    console.error(`[SessionRecap] onWindowOpen error for ${churchId}:`, e.message);
+  }
+});
+
+scheduleEngine.addWindowCloseCallback((churchId) => {
+  sessionRecap.endSession(churchId).catch(e =>
+    console.error(`[SessionRecap] onWindowClose error for ${churchId}:`, e.message)
+  );
+});
+
+scheduleEngine.startPolling();
+
+// ─── PLANNING CENTER ──────────────────────────────────────────────────────────
+
+const planningCenter = new PlanningCenter(db);
+planningCenter.setScheduleEngine(scheduleEngine);
+planningCenter.start();
+
 // ─── TELEGRAM BOT ────────────────────────────────────────────────────────────
 
 const TALLY_BOT_TOKEN = process.env.TALLY_BOT_TOKEN;
@@ -199,6 +263,8 @@ if (TALLY_BOT_TOKEN) {
     relay: { churches },
     onCallRotation,
     guestTdMode,
+    presetLibrary,
+    planningCenter,
   });
   log('Telegram bot initialized');
   if (TALLY_BOT_WEBHOOK_URL) {
@@ -207,6 +273,13 @@ if (TALLY_BOT_TOKEN) {
 } else {
   log('Telegram bot disabled (TALLY_BOT_TOKEN not set)');
 }
+
+// ─── EVENT MODE & RESELLER SYSTEM ────────────────────────────────────────────
+
+const eventMode = new EventMode(db);
+eventMode.start(tallyBot, churches);
+
+const resellerSystem = new ResellerSystem(db);
 
 // Pre-service check — needs tallyBot but can still send Telegram directly
 preServiceCheck = new PreServiceCheck({
@@ -372,11 +445,15 @@ app.get('/api/billing', requireAdmin, (req, res) => {
 
 app.get('/api/churches', requireAdmin, (req, res) => {
   const list = Array.from(churches.values()).map(c => ({
-    churchId: c.churchId,
-    name: c.name,
-    connected: c.ws?.readyState === WebSocket.OPEN,
-    status: c.status,
-    lastSeen: c.lastSeen,
+    churchId:         c.churchId,
+    name:             c.name,
+    connected:        c.ws?.readyState === WebSocket.OPEN,
+    status:           c.status,
+    lastSeen:         c.lastSeen,
+    church_type:      c.church_type      || 'recurring',
+    event_expires_at: c.event_expires_at || null,
+    event_label:      c.event_label      || null,
+    reseller_id:      c.reseller_id      || null,
   }));
   res.json(list);
 });
@@ -527,6 +604,236 @@ app.get('/api/churches/:churchId/report', requireAdmin, async (req, res) => {
   }
 });
 
+// ─── SESSION RECAP API ────────────────────────────────────────────────────────
+
+app.get('/api/churches/:churchId/sessions', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const sessions = db.prepare(
+    'SELECT * FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 10'
+  ).all(req.params.churchId);
+  res.json(sessions);
+});
+
+app.get('/api/churches/:churchId/sessions/current', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const active = sessionRecap.getActiveSession(req.params.churchId);
+  if (!active) return res.json({ active: false });
+  res.json({ active: true, ...active });
+});
+
+// ─── PLANNING CENTER API ──────────────────────────────────────────────────────
+
+// GET current PC status (no credentials in response)
+app.get('/api/churches/:churchId/planning-center', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const status = planningCenter.getStatus(req.params.churchId);
+  res.json(status);
+});
+
+// PUT set credentials
+app.put('/api/churches/:churchId/planning-center', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const { appId, secret, serviceTypeId, syncEnabled } = req.body;
+  planningCenter.setCredentials(req.params.churchId, { appId, secret, serviceTypeId, syncEnabled });
+  res.json({ saved: true });
+});
+
+// POST manual sync now
+app.post('/api/churches/:churchId/planning-center/sync', requireAdmin, async (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  try {
+    const result = await planningCenter.syncChurch(req.params.churchId);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET preview upcoming services without saving
+app.get('/api/churches/:churchId/planning-center/preview', requireAdmin, async (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  try {
+    const services = await planningCenter.getUpcomingServicesForChurch(req.params.churchId);
+    res.json({ services });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── EVENT MODE API ───────────────────────────────────────────────────────────
+
+// Create a time-limited event church (admin only)
+app.post('/api/events/create', requireAdmin, (req, res) => {
+  const { name, eventLabel, durationHours = 72, tdName, tdTelegramChatId, contactEmail } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+
+  const existing = stmtFindByName.get(name);
+  if (existing) return res.status(409).json({ error: `A church named "${name}" already exists` });
+
+  try {
+    const result = eventMode.createEvent({ name, eventLabel, durationHours, tdName, tdTelegramChatId, contactEmail });
+
+    // Add to in-memory map so it's immediately visible
+    churches.set(result.churchId, {
+      churchId:         result.churchId,
+      name,
+      email:            contactEmail || '',
+      token:            result.token,
+      ws:               null,
+      status:           { connected: false, atem: null, obs: null },
+      lastSeen:         null,
+      lastHeartbeat:    null,
+      registeredAt:     new Date().toISOString(),
+      disconnectedAt:   null,
+      _offlineAlertSent: false,
+      church_type:      'event',
+      event_expires_at: result.expiresAt,
+      event_label:      eventLabel || name,
+      reseller_id:      null,
+    });
+
+    log(`Event church created: "${name}" (${result.churchId}), expires ${result.expiresAt}`);
+    res.json({ churchId: result.churchId, token: result.token, expiresAt: result.expiresAt, name });
+  } catch (e) {
+    console.error('[/api/events/create]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── RESELLER API (admin) ─────────────────────────────────────────────────────
+
+// Create a new reseller
+app.post('/api/resellers', requireAdmin, (req, res) => {
+  const { name, brandName, supportEmail, logoUrl, webhookUrl, churchLimit } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  try {
+    const result = resellerSystem.createReseller({ name, brandName, supportEmail, logoUrl, webhookUrl, churchLimit });
+    res.json(result);
+  } catch (e) {
+    console.error('[/api/resellers POST]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// List all resellers with church counts
+app.get('/api/resellers', requireAdmin, (req, res) => {
+  try {
+    res.json(resellerSystem.listResellers());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Reseller details + their churches
+app.get('/api/resellers/:resellerId', requireAdmin, (req, res) => {
+  const detail = resellerSystem.getResellerDetail(req.params.resellerId);
+  if (!detail) return res.status(404).json({ error: 'Reseller not found' });
+  res.json(detail);
+});
+
+// ─── RESELLER-AUTHENTICATED API ───────────────────────────────────────────────
+
+// Register a church under this reseller's account
+app.post('/api/reseller/churches/register', requireReseller, (req, res) => {
+  const reseller = req.reseller;
+  const { name, email } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+
+  // Check church limit
+  if (!resellerSystem.canAddChurch(reseller.id)) {
+    return res.status(403).json({ error: `Church limit reached (max ${reseller.church_limit})` });
+  }
+
+  // Check uniqueness
+  const existing = stmtFindByName.get(name);
+  if (existing) return res.status(409).json({ error: `A church named "${name}" already exists` });
+
+  try {
+    const churchId     = require('uuid').v4();
+    const token        = jwt.sign({ churchId, name }, JWT_SECRET, { expiresIn: '365d' });
+    const registeredAt = new Date().toISOString();
+
+    stmtInsert.run(churchId, name, email || '', token, registeredAt);
+    resellerSystem.registerChurch(reseller.id, churchId, name);
+
+    // Add to in-memory map
+    churches.set(churchId, {
+      churchId,
+      name,
+      email:            email || '',
+      token,
+      ws:               null,
+      status:           { connected: false, atem: null, obs: null },
+      lastSeen:         null,
+      lastHeartbeat:    null,
+      registeredAt,
+      disconnectedAt:   null,
+      _offlineAlertSent: false,
+      church_type:      'recurring',
+      event_expires_at: null,
+      event_label:      null,
+      reseller_id:      reseller.id,
+    });
+
+    log(`Reseller "${reseller.name}" registered church: ${name} (${churchId})`);
+    res.json({
+      churchId, name, token, resellerId: reseller.id,
+      message: 'Church registered. Share this token with the church client app.',
+    });
+  } catch (e) {
+    console.error('[/api/reseller/churches/register]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// List this reseller's churches
+app.get('/api/reseller/churches', requireReseller, (req, res) => {
+  try {
+    const dbChurches = resellerSystem.getResellerChurches(req.reseller.id);
+    const list = dbChurches.map(c => {
+      const runtime = churches.get(c.churchId);
+      return {
+        churchId:  c.churchId,
+        name:      c.name,
+        connected: runtime?.ws?.readyState === WebSocket.OPEN,
+        status:    runtime?.status || null,
+        lastSeen:  runtime?.lastSeen || null,
+      };
+    });
+    res.json(list);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Single church detail for reseller (must belong to them)
+app.get('/api/reseller/churches/:churchId', requireReseller, (req, res) => {
+  const row = db.prepare('SELECT * FROM churches WHERE churchId = ? AND reseller_id = ?')
+    .get(req.params.churchId, req.reseller.id);
+  if (!row) return res.status(404).json({ error: 'Church not found or does not belong to your account' });
+  const runtime = churches.get(row.churchId);
+  res.json({
+    churchId:  row.churchId,
+    name:      row.name,
+    connected: runtime?.ws?.readyState === WebSocket.OPEN,
+    status:    runtime?.status || null,
+    lastSeen:  runtime?.lastSeen || null,
+  });
+});
+
+// Branding info for white-labeling the client UI
+app.get('/api/reseller/branding', requireReseller, (req, res) => {
+  const branding = resellerSystem.getBranding(req.reseller.id);
+  if (!branding) return res.status(404).json({ error: 'Reseller not found' });
+  res.json(branding);
+});
+
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 
 app.get('/dashboard', (req, res) => {
@@ -551,12 +858,16 @@ app.get('/api/dashboard/stream', (req, res) => {
 
   // Send initial state
   const initialState = Array.from(churches.values()).map(c => ({
-    churchId: c.churchId,
-    name: c.name,
-    connected: c.ws?.readyState === WebSocket.OPEN,
-    status: c.status,
-    lastSeen: c.lastSeen,
-    lastHeartbeat: c.lastHeartbeat,
+    churchId:         c.churchId,
+    name:             c.name,
+    connected:        c.ws?.readyState === WebSocket.OPEN,
+    status:           c.status,
+    lastSeen:         c.lastSeen,
+    lastHeartbeat:    c.lastHeartbeat,
+    church_type:      c.church_type      || 'recurring',
+    event_expires_at: c.event_expires_at || null,
+    event_label:      c.event_label      || null,
+    reseller_id:      c.reseller_id      || null,
   }));
   res.write(`data: ${JSON.stringify({ type: 'initial', churches: initialState })}\n\n`);
 
@@ -731,14 +1042,32 @@ function handleChurchConnection(ws, url, clientIp) {
   // Drain any queued messages
   drainQueue(church.churchId, ws);
 
+  // Send branding message if this church belongs to a reseller
+  try {
+    const dbChurchRow = stmtGet.get(church.churchId);
+    if (dbChurchRow && dbChurchRow.reseller_id) {
+      const branding = resellerSystem.getBranding(dbChurchRow.reseller_id);
+      if (branding && branding.brandName) {
+        ws.send(JSON.stringify({ type: 'branding', ...branding }));
+        log(`Branding sent to "${church.name}" via reseller "${branding.brandName}"`);
+      }
+    }
+  } catch (e) {
+    console.error('[branding] lookup error:', e.message);
+  }
+
   // Notify controllers and SSE dashboard
   const connectedEvent = {
-    type: 'church_connected',
-    churchId: church.churchId,
-    name: church.name,
-    timestamp: church.lastSeen,
-    connected: true,
-    status: church.status,
+    type:             'church_connected',
+    churchId:         church.churchId,
+    name:             church.name,
+    timestamp:        church.lastSeen,
+    connected:        true,
+    status:           church.status,
+    church_type:      church.church_type      || 'recurring',
+    event_expires_at: church.event_expires_at || null,
+    event_label:      church.event_label      || null,
+    reseller_id:      church.reseller_id      || null,
   };
   broadcastToControllers(connectedEvent);
   broadcastToSSE(connectedEvent);
@@ -820,6 +1149,19 @@ function handleChurchMessage(church, msg) {
         broadcastToControllers(statusEvent);
         broadcastToSSE(statusEvent);
       }
+      // Feed session recap with live stream/recording state
+      if (msg.status) {
+        if (msg.status.obs?.streaming !== undefined) {
+          sessionRecap.recordStreamStatus(church.churchId, !!msg.status.obs.streaming);
+        }
+        if (msg.status.obs?.viewers !== undefined) {
+          sessionRecap.recordPeakViewers(church.churchId, msg.status.obs.viewers);
+        }
+        const isRecording = !!(msg.status.atem?.recording || msg.status.obs?.recording || msg.status.hyperDeck?.recording);
+        if (isRecording) {
+          sessionRecap.recordRecordingConfirmed(church.churchId);
+        }
+      }
       break;
 
     case 'alert':
@@ -838,6 +1180,11 @@ function handleChurchMessage(church, msg) {
       }
       // Automation: process alert through engines
       if (msg.alertType) {
+        // Audio silence — record separately for session recap
+        if (msg.alertType === 'audio_silence') {
+          sessionRecap.recordAudioSilence(church.churchId);
+        }
+
         (async () => {
           try {
             // Log event
@@ -846,11 +1193,16 @@ function handleChurchMessage(church, msg) {
             const recovery = await autoRecovery.attempt(church, msg.alertType, church.status);
             if (recovery.attempted && recovery.success) {
               weeklyDigest.resolveEvent(eventId, true);
+              // Record as auto-recovered in session
+              sessionRecap.recordAlert(church.churchId, msg.alertType, true, false);
               log(`[AutoRecovery] ✅ ${recovery.event} for ${church.name}`);
             } else {
               // Send alert through escalation ladder
               const dbChurch = stmtGet.get(church.churchId);
-              await alertEngine.sendAlert({ ...church, ...dbChurch }, msg.alertType, { message: msg.message, status: church.status });
+              const alertResult = await alertEngine.sendAlert({ ...church, ...dbChurch }, msg.alertType, { message: msg.message, status: church.status });
+              // Record in session — escalated if EMERGENCY severity
+              const escalated = alertResult && alertResult.severity === 'EMERGENCY';
+              sessionRecap.recordAlert(church.churchId, msg.alertType, false, escalated);
             }
           } catch (e) {
             console.error(`Alert processing error for ${church.name}:`, e.message);
@@ -942,6 +1294,169 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+function requireReseller(req, res, next) {
+  const key = req.headers['x-reseller-key'];
+  if (!key) return res.status(401).json({ error: 'Reseller API key required' });
+  const reseller = db.prepare('SELECT * FROM resellers WHERE api_key = ?').get(key);
+  if (!reseller) return res.status(403).json({ error: 'Invalid reseller key' });
+  req.reseller = reseller;
+  next();
+}
+
+function requireChurchOrAdmin(req, res, next) {
+  const key = req.headers['x-api-key'] || req.query.apikey;
+  if (key === ADMIN_API_KEY) return next();
+
+  const auth = req.headers['authorization'] || '';
+  if (auth.startsWith('Bearer ')) {
+    try {
+      const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+      // Church JWT can only access its own data
+      if (req.params.churchId && payload.churchId !== req.params.churchId) {
+        return res.status(403).json({ error: 'forbidden' });
+      }
+      req.churchPayload = payload;
+      return next();
+    } catch {
+      return res.status(401).json({ error: 'invalid token' });
+    }
+  }
+
+  return res.status(401).json({ error: 'unauthorized' });
+}
+
+// ─── PRESET LIBRARY API ───────────────────────────────────────────────────────
+
+// Helper: create a sendCommand function for a church WebSocket
+function makeCommandSender(church) {
+  return (command, params) => new Promise((resolve, reject) => {
+    const { WebSocket: WS } = require('ws');
+    if (!church.ws || church.ws.readyState !== WS.OPEN) {
+      return reject(new Error('Church client not connected'));
+    }
+    const { v4: uuid } = require('uuid');
+    const id = uuid();
+    const timeout = setTimeout(() => {
+      church.ws.removeListener('message', handler);
+      reject(new Error('Command timeout (15s)'));
+    }, 15000);
+
+    const handler = (data) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'command_result' && msg.id === id) {
+          clearTimeout(timeout);
+          church.ws.removeListener('message', handler);
+          if (msg.error) reject(new Error(msg.error));
+          else resolve(msg.result);
+        }
+      } catch { /* ignore */ }
+    };
+    church.ws.on('message', handler);
+    church.ws.send(JSON.stringify({ type: 'command', command, params, id }));
+  });
+}
+
+// List presets for a church
+app.get('/api/churches/:churchId/presets', requireChurchOrAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  res.json(presetLibrary.list(req.params.churchId));
+});
+
+// Save a preset
+app.post('/api/churches/:churchId/presets', requireChurchOrAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const { name, type, data } = req.body;
+  if (!name || !type || !data) return res.status(400).json({ error: 'name, type, and data required' });
+  try {
+    const id = presetLibrary.save(req.params.churchId, name, type, data);
+    res.json({ id, name, type, saved: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get a specific preset
+app.get('/api/churches/:churchId/presets/:name', requireChurchOrAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const preset = presetLibrary.get(req.params.churchId, req.params.name);
+  if (!preset) return res.status(404).json({ error: 'Preset not found' });
+  res.json(preset);
+});
+
+// Delete a preset
+app.delete('/api/churches/:churchId/presets/:name', requireChurchOrAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const deleted = presetLibrary.delete(req.params.churchId, req.params.name);
+  if (!deleted) return res.status(404).json({ error: 'Preset not found' });
+  res.json({ deleted: true });
+});
+
+// Recall a preset (send appropriate device command to church client)
+app.post('/api/churches/:churchId/presets/:name/recall', requireChurchOrAdmin, async (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  if (!church.ws || church.ws.readyState !== WebSocket.OPEN) {
+    return res.status(503).json({ error: 'Church client not connected' });
+  }
+  try {
+    const sendCommand = makeCommandSender(church);
+    const preset = await presetLibrary.recall(req.params.churchId, req.params.name, sendCommand);
+    log(`PRESET recall → ${church.name}: "${preset.name}" (${preset.type})`);
+    res.json({ recalled: true, preset: { name: preset.name, type: preset.type } });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── SLACK INTEGRATION API ────────────────────────────────────────────────────
+
+// Set Slack config for a church
+app.put('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const { webhookUrl, channel } = req.body;
+  if (!webhookUrl) return res.status(400).json({ error: 'webhookUrl required' });
+  db.prepare('UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?')
+    .run(webhookUrl, channel || null, req.params.churchId);
+  log(`Slack configured for church ${church.name}`);
+  res.json({ saved: true, channel: channel || null });
+});
+
+// Remove Slack config
+app.delete('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  db.prepare('UPDATE churches SET slack_webhook_url = NULL, slack_channel = NULL WHERE churchId = ?')
+    .run(req.params.churchId);
+  res.json({ removed: true });
+});
+
+// Test Slack integration
+app.post('/api/churches/:churchId/slack/test', requireAdmin, async (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const row = stmtGet.get(req.params.churchId);
+  if (!row?.slack_webhook_url) return res.status(400).json({ error: 'Slack not configured for this church' });
+
+  try {
+    await alertEngine.sendSlackAlert(
+      { ...church, ...row },
+      'test_alert',
+      'INFO',
+      { church: church.name },
+      { likely_cause: 'This is a test message from Tally.', steps: ['Slack integration is working correctly!'] }
+    );
+    res.json({ sent: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ─── OFFLINE BETWEEN-SERVICE DETECTION (Feature 12) ──────────────────────────
 
 function isInMaintenanceWindow(churchId) {
@@ -1000,8 +1515,13 @@ function checkOfflineChurches() {
   }
 }
 
-// Check every 10 minutes
-setInterval(checkOfflineChurches, 10 * 60 * 1000);
+// Check every 10 minutes (offline detection + event expiry)
+setInterval(() => {
+  checkOfflineChurches();
+  // Event expiry also runs on its own 10-min loop (started in eventMode.start()),
+  // but calling it here too ensures sync with the same cadence.
+  eventMode.checkExpiry(tallyBot, churches).catch(e => console.error('[EventMode] expiry error:', e.message));
+}, 10 * 60 * 1000);
 
 // ─── START ────────────────────────────────────────────────────────────────────
 

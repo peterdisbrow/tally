@@ -131,14 +131,16 @@ class TallyBot {
    * @param {object} [opts.guestTdMode]    - GuestTdMode instance (optional)
    * @param {object} [opts.preServiceCheck] - PreServiceCheck instance (optional)
    */
-  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck }) {
+  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter }) {
     this.token = botToken;
     this.adminChatId = adminChatId;
     this.db = db;
     this.relay = relay;
-    this.onCallRotation = onCallRotation || null;
-    this.guestTdMode    = guestTdMode    || null;
+    this.onCallRotation  = onCallRotation  || null;
+    this.guestTdMode     = guestTdMode     || null;
     this.preServiceCheck = preServiceCheck || null;
+    this.presetLibrary   = presetLibrary   || null;
+    this.planningCenter  = planningCenter  || null;
     this._apiBase = `https://api.telegram.org/bot${botToken}`;
 
     // Ensure church_tds table
@@ -341,6 +343,54 @@ class TallyBot {
   async handleTDCommand(church, chatId, text) {
     const ltext = text.trim().toLowerCase();
 
+    // event status — show time remaining for event churches
+    if (ltext === 'event status' || ltext === '/eventstatus') {
+      const dbChurch = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(church.churchId);
+      if (!dbChurch || dbChurch.church_type !== 'event') {
+        return this.sendMessage(chatId, '❌ This church is not registered as an event.');
+      }
+      if (!dbChurch.event_expires_at) {
+        return this.sendMessage(chatId, '🎬 Event monitoring window has ended.');
+      }
+      const msLeft = new Date(dbChurch.event_expires_at) - Date.now();
+      if (msLeft <= 0) {
+        return this.sendMessage(chatId, '🎬 Event monitoring window has ended.');
+      }
+      const totalMinutes = Math.floor(msLeft / 60000);
+      const hours   = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      const remaining = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+      const expiresLocal = new Date(dbChurch.event_expires_at).toLocaleString();
+      const label = dbChurch.event_label && dbChurch.event_label !== dbChurch.name
+        ? ` (${dbChurch.event_label})`
+        : '';
+      return this.sendMessage(chatId,
+        `🎬 *Event Status — ${dbChurch.name}*${label}\n\n⏱ Time remaining: *${remaining}*\n🕐 Expires: ${expiresLocal}`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    // ── Preset commands ─────────────────────────────────────────────────────
+    if (this.presetLibrary) {
+      if (/^list\s+presets?$/i.test(ltext)) {
+        return this._handleListPresets(church, chatId);
+      }
+      const saveMatch = text.match(/^save\s+preset\s+(.+)$/i);
+      if (saveMatch) return this._handleSavePreset(church, chatId, saveMatch[1].trim());
+
+      const recallMatch = text.match(/^(?:load|recall)\s+preset\s+(.+)$/i);
+      if (recallMatch) return this._handleRecallPreset(church, chatId, recallMatch[1].trim());
+
+      const delPresetMatch = text.match(/^delete\s+preset\s+(.+)$/i);
+      if (delPresetMatch) return this._handleDeletePreset(church, chatId, delPresetMatch[1].trim());
+    }
+
+    // ── Slack commands ───────────────────────────────────────────────────────
+    const setSlackMatch = text.match(/^set\s+slack\s+(https?:\/\/.+)$/i);
+    if (setSlackMatch) return this._handleSetSlack(church, chatId, setSlackMatch[1].trim());
+    if (/^remove\s+slack$/i.test(ltext)) return this._handleRemoveSlack(church, chatId);
+    if (/^test\s+slack$/i.test(ltext)) return this._handleTestSlack(church, chatId);
+
     // /oncall — show who is on-call for this church
     if (ltext === '/oncall' || ltext === 'oncall') {
       if (!this.onCallRotation) {
@@ -372,6 +422,14 @@ class TallyBot {
         ).catch(() => {});
       }
       return this.sendMessage(chatId, `✅ ${result.message}`, { parse_mode: 'Markdown' });
+    }
+
+    // ── Planning Center commands ───────────────────────────────────────────────
+    if (/^(sync\s+planning\s+center|sync\s+schedule)$/i.test(ltext)) {
+      return this._handlePCSyncChurch(church, chatId);
+    }
+    if (/^(show\s+schedule|upcoming\s+services?)$/i.test(ltext)) {
+      return this._handlePCShowSchedule(church, chatId);
     }
 
     const parsed = parseCommand(text);
@@ -449,6 +507,22 @@ class TallyBot {
       const listTdsMatch = text.match(/^list\s+tds?\s+(.+)$/i);
       if (listTdsMatch) {
         return this._handleAdminListTDs(chatId, listTdsMatch[1].trim());
+      }
+    }
+
+    // ── Planning Center admin commands ───────────────────────────────────────
+    // sync planning center [church name]
+    const pcSyncMatch = text.match(/^sync\s+(?:planning\s+center|schedule)\s+(.+)$/i);
+    if (pcSyncMatch && this.planningCenter) {
+      const churchName = pcSyncMatch[1].trim();
+      const allChurches = this.db.prepare('SELECT * FROM churches').all();
+      const pc = allChurches.find(c => c.name.toLowerCase().includes(churchName.toLowerCase()));
+      if (!pc) return this.sendMessage(chatId, `❌ Church "${churchName}" not found.`);
+      try {
+        const result = await this.planningCenter.syncChurch(pc.churchId);
+        return this.sendMessage(chatId, `✅ Synced *${result.synced}* service time(s) from Planning Center for *${pc.name}*.`, { parse_mode: 'Markdown' });
+      } catch (e) {
+        return this.sendMessage(chatId, `❌ Sync failed for ${pc.name}: ${e.message}`);
       }
     }
 
@@ -551,6 +625,210 @@ class TallyBot {
       `📋 *TDs for ${church.name}*\n\n${status || 'No TDs registered.'}`,
       { parse_mode: 'Markdown' }
     );
+  }
+
+  // ─── PLANNING CENTER HANDLERS ─────────────────────────────────────────────
+
+  async _handlePCSyncChurch(church, chatId) {
+    if (!this.planningCenter) {
+      return this.sendMessage(chatId, '❌ Planning Center integration is not configured on this server.');
+    }
+    try {
+      const result = await this.planningCenter.syncChurch(church.churchId);
+      return this.sendMessage(chatId,
+        `✅ Synced *${result.synced}* service time(s) from Planning Center for *${church.name}*.`,
+        { parse_mode: 'Markdown' }
+      );
+    } catch (e) {
+      return this.sendMessage(chatId, `❌ Sync failed: ${e.message}`);
+    }
+  }
+
+  async _handlePCShowSchedule(church, chatId) {
+    if (!this.planningCenter) {
+      return this.sendMessage(chatId, '❌ Planning Center integration is not configured on this server.');
+    }
+    try {
+      const services = await this.planningCenter.getUpcomingServicesForChurch(church.churchId);
+      if (!services.length) {
+        return this.sendMessage(chatId, `📅 No upcoming services found in Planning Center for *${church.name}*.`, { parse_mode: 'Markdown' });
+      }
+      const lines = services.slice(0, 3).map(s => `• ${s.dayName} ${s.startTime} — ${s.title}`);
+      return this.sendMessage(chatId,
+        `📅 *Upcoming services — ${church.name}*\n\n${lines.join('\n')}`,
+        { parse_mode: 'Markdown' }
+      );
+    } catch (e) {
+      return this.sendMessage(chatId, `❌ Could not fetch from Planning Center: ${e.message}`);
+    }
+  }
+
+  // ─── PRESET HANDLERS ─────────────────────────────────────────────────────
+
+  async _handleListPresets(church, chatId) {
+    const presets = this.presetLibrary.list(church.churchId);
+    if (!presets.length) {
+      return this.sendMessage(chatId, `📋 No saved presets for *${church.name}*.\n\nUse \`save preset [name]\` to create one.`, { parse_mode: 'Markdown' });
+    }
+    const lines = presets.map(p => {
+      const typeLabel = p.type.replace(/_/g, ' ');
+      const updated = new Date(p.updated_at).toLocaleDateString();
+      return `• *${p.name}* (${typeLabel}) — ${updated}`;
+    });
+    return this.sendMessage(chatId,
+      `📋 *Presets for ${church.name}*\n\n${lines.join('\n')}\n\nUse \`recall preset [name]\` to restore one.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  async _handleSavePreset(church, chatId, presetName) {
+    const churchRuntime = this.relay.churches.get(church.churchId);
+    if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
+      return this.sendMessage(chatId, `❌ *${church.name}* is offline — cannot capture current state.`, { parse_mode: 'Markdown' });
+    }
+
+    await this.sendMessage(chatId, `⏳ Capturing current equipment state…`);
+
+    const msgId = crypto.randomUUID();
+    const resultPromise = this._waitForResult(church.churchId, msgId, 15000);
+    churchRuntime.ws.send(JSON.stringify({ type: 'command', command: 'preset.save', params: { name: presetName }, id: msgId }));
+
+    const result = await resultPromise;
+    if (result.error) {
+      return this.sendMessage(chatId, `❌ Failed to capture state: ${result.error}`);
+    }
+
+    const { steps = [], presetType } = result.result || {};
+    if (!steps.length) {
+      return this.sendMessage(chatId, `⚠️ No connected devices found to save state from.`);
+    }
+
+    const type = presetType || (steps.length === 1 ? steps[0].type : 'named_bundle');
+    const data = type === 'named_bundle' ? { steps } : steps[0];
+    this.presetLibrary.save(church.churchId, presetName, type, data);
+
+    const deviceList = steps.map(s => s.type.replace(/_/g, ' ')).join(', ');
+    return this.sendMessage(chatId,
+      `✅ Preset *${presetName}* saved!\n\nDevices captured: ${deviceList}`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  async _handleRecallPreset(church, chatId, presetName) {
+    const churchRuntime = this.relay.churches.get(church.churchId);
+    if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
+      return this.sendMessage(chatId, `❌ *${church.name}* is offline.`, { parse_mode: 'Markdown' });
+    }
+
+    const preset = this.presetLibrary.get(church.churchId, presetName);
+    if (!preset) {
+      const presets = this.presetLibrary.list(church.churchId);
+      const names = presets.map(p => `• ${p.name}`).join('\n') || '  (none)';
+      return this.sendMessage(chatId,
+        `❌ Preset *${presetName}* not found.\n\nAvailable presets:\n${names}`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    try {
+      const sendCommand = (command, params) => {
+        return new Promise((resolve, reject) => {
+          const msgId = crypto.randomUUID();
+          const timer = setTimeout(() => {
+            const idx = (this._resultListeners || []).findIndex(h => h._presetMsgId === msgId);
+            if (idx !== -1) this._resultListeners.splice(idx, 1);
+            reject(new Error('Command timed out (10s)'));
+          }, 10000);
+          const handler = (msg) => {
+            if (msg.type === 'command_result' && msg.churchId === church.churchId && msg.messageId === msgId) {
+              clearTimeout(timer);
+              const idx = (this._resultListeners || []).indexOf(handler);
+              if (idx !== -1) this._resultListeners.splice(idx, 1);
+              if (msg.error) reject(new Error(msg.error));
+              else resolve(msg.result);
+            }
+          };
+          handler._presetMsgId = msgId;
+          if (!this._resultListeners) this._resultListeners = [];
+          this._resultListeners.push(handler);
+          churchRuntime.ws.send(JSON.stringify({ type: 'command', command, params, id: msgId }));
+        });
+      };
+
+      await this.presetLibrary.recall(church.churchId, presetName, sendCommand);
+      return this.sendMessage(chatId, `✅ Preset *${presetName}* recalled!`, { parse_mode: 'Markdown' });
+    } catch (e) {
+      return this.sendMessage(chatId, `❌ Recall failed: ${e.message}`);
+    }
+  }
+
+  async _handleDeletePreset(church, chatId, presetName) {
+    const deleted = this.presetLibrary.delete(church.churchId, presetName);
+    if (!deleted) {
+      return this.sendMessage(chatId, `❌ Preset *${presetName}* not found.`, { parse_mode: 'Markdown' });
+    }
+    return this.sendMessage(chatId, `🗑️ Preset *${presetName}* deleted.`, { parse_mode: 'Markdown' });
+  }
+
+  // ─── SLACK HANDLERS ───────────────────────────────────────────────────────
+
+  async _handleSetSlack(church, chatId, webhookUrl) {
+    try {
+      this.db.prepare('UPDATE churches SET slack_webhook_url = ? WHERE churchId = ?')
+        .run(webhookUrl, church.churchId);
+      return this.sendMessage(chatId,
+        `✅ Slack webhook saved for *${church.name}*.\n\nSend \`test slack\` to verify it's working.`,
+        { parse_mode: 'Markdown' }
+      );
+    } catch (e) {
+      return this.sendMessage(chatId, `❌ Failed to save Slack config: ${e.message}`);
+    }
+  }
+
+  async _handleRemoveSlack(church, chatId) {
+    this.db.prepare('UPDATE churches SET slack_webhook_url = NULL, slack_channel = NULL WHERE churchId = ?')
+      .run(church.churchId);
+    return this.sendMessage(chatId, `✅ Slack integration removed for *${church.name}*.`, { parse_mode: 'Markdown' });
+  }
+
+  async _handleTestSlack(church, chatId) {
+    const row = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(church.churchId);
+    if (!row?.slack_webhook_url) {
+      return this.sendMessage(chatId,
+        `❌ No Slack webhook configured.\n\nUse \`set slack [webhook-url]\` to add one.`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const payload = {
+      username: 'Tally by ATEM School',
+      icon_emoji: ':satellite:',
+      channel: row.slack_channel || undefined,
+      attachments: [{
+        color: '#22c55e',
+        title: `✅ Slack Test — ${church.name}`,
+        text: `Tally Slack integration is working! Sent at ${time}.`,
+        footer: `Tally | ${time}`,
+      }],
+    };
+
+    try {
+      const resp = await fetch(row.slack_webhook_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        return this.sendMessage(chatId, `✅ Test message sent to Slack!`);
+      } else {
+        const body = await resp.text();
+        return this.sendMessage(chatId, `❌ Slack rejected the message: ${resp.status} ${body}`);
+      }
+    } catch (e) {
+      return this.sendMessage(chatId, `❌ Failed to reach Slack: ${e.message}`);
+    }
   }
 
   // ─── COMMAND EXECUTION ────────────────────────────────────────────────

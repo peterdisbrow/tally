@@ -66,6 +66,17 @@ class AutoRecovery {
       const result = await this.dispatchCommand(church, playbook.command, { ...playbook.params, ...(currentStatus || {}) });
       console.log(`[AutoRecovery] ✅ ${playbook.onSuccess} — ${church.name}`);
       this.attemptCounts.delete(key);
+
+      // Send Slack resolution message after successful auto-fix
+      try {
+        const dbChurch = this.alertEngine.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(church.churchId);
+        if (dbChurch?.slack_webhook_url) {
+          await this.alertEngine.sendSlackResolution({ ...church, ...dbChurch }, failureType);
+        }
+      } catch (e) {
+        console.warn('[AutoRecovery] Slack resolution notify failed:', e.message);
+      }
+
       return { attempted: true, success: true, command: playbook.command, result, event: playbook.onSuccess };
     } catch (e) {
       console.error(`[AutoRecovery] ❌ ${playbook.command} failed for ${church.name}: ${e.message}`);

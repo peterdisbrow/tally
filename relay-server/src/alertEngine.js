@@ -194,6 +194,9 @@ class AlertEngine {
       await this.sendTelegramMessage(this.andrewChatId, botToken, `[ESCALATED] ${msg}`);
     }
 
+    // Send Slack alert if configured
+    await this.sendSlackAlert(church, alertType, severity, context, diagnosis);
+
     // CRITICAL → start escalation timer
     if (severity === 'CRITICAL') {
       const timer = setTimeout(async () => {
@@ -212,6 +215,71 @@ class AlertEngine {
     }
 
     return { alertId, severity, action: 'notified' };
+  }
+
+  // ─── SLACK INTEGRATION ───────────────────────────────────────────────────
+
+  async sendSlackAlert(church, alertType, severity, context, diagnosis) {
+    if (!church.slack_webhook_url) return;
+
+    const color = (severity === 'CRITICAL' || severity === 'EMERGENCY') ? '#dc2626'
+                : severity === 'WARNING' ? '#f59e0b'
+                : '#22c55e';
+    const icon = severity === 'EMERGENCY' ? '🚨' : severity === 'CRITICAL' ? '🔴' : '⚠️';
+
+    const payload = {
+      username: 'Tally by ATEM School',
+      icon_emoji: ':satellite:',
+      channel: church.slack_channel || undefined,
+      attachments: [{
+        color,
+        title: `${icon} ${alertType.replace(/_/g, ' ').toUpperCase()} — ${church.name}`,
+        text: `*Likely cause:* ${diagnosis.likely_cause}\n${(diagnosis.steps || []).map((s, i) => `${i + 1}. ${s}`).join('\n')}`,
+        footer: `Tally | ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`,
+        fields: Object.entries(context || {}).slice(0, 4).map(([k, v]) => ({
+          title: k,
+          value: String(v),
+          short: true,
+        })),
+      }],
+    };
+
+    try {
+      await fetch(church.slack_webhook_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (e) {
+      console.error('Slack alert failed:', e.message);
+    }
+  }
+
+  async sendSlackResolution(church, alertType) {
+    if (!church.slack_webhook_url) return;
+    const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const payload = {
+      username: 'Tally by ATEM School',
+      icon_emoji: ':satellite:',
+      channel: church.slack_channel || undefined,
+      attachments: [{
+        color: '#22c55e',
+        title: `✅ RESOLVED: ${alertType.replace(/_/g, ' ')} — ${church.name}`,
+        text: `Auto-recovered successfully at ${time}`,
+        footer: `Tally | ${time}`,
+      }],
+    };
+    try {
+      await fetch(church.slack_webhook_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (e) {
+      console.error('Slack resolution failed:', e.message);
+    }
   }
 
   async sendTelegramMessage(chatId, botToken, message) {
@@ -237,6 +305,16 @@ class AlertEngine {
       alert.acknowledged = true;
       if (alert.escalationTimer) clearTimeout(alert.escalationTimer);
       this.activeAlerts.delete(alertId);
+
+      // Send Slack resolution on ack
+      try {
+        const dbChurch = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(alert.church.churchId);
+        if (dbChurch?.slack_webhook_url) {
+          await this.sendSlackResolution({ ...alert.church, ...dbChurch }, alert.alertType);
+        }
+      } catch (e) {
+        console.warn('Slack ack resolution failed:', e.message);
+      }
     }
     this.db.prepare('UPDATE alerts SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ?')
       .run(new Date().toISOString(), responder, alertId);
