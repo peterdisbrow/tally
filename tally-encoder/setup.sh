@@ -135,6 +135,95 @@ else
   warn "Config already exists at $CONFIG_DIR/config.env — not overwriting"
 fi
 
+# ── Tailscale VPN ────────────────────────────────────────────
+echo ""
+info "Setting up Tailscale VPN (remote access)..."
+if command -v tailscale &>/dev/null; then
+  success "Tailscale already installed: $(tailscale version | head -1)"
+else
+  info "Installing Tailscale..."
+  curl -fsSL https://tailscale.com/install.sh | sh
+  success "Tailscale installed"
+fi
+
+echo ""
+echo "  ┌─────────────────────────────────────────────────────┐"
+echo "  │  TAILSCALE AUTH KEY                                  │"
+echo "  │  Generate a reusable key at:                         │"
+echo "  │  https://login.tailscale.com/admin/settings/keys     │"
+echo "  │  (tick 'Reusable' and 'Pre-approved')                │"
+echo "  └─────────────────────────────────────────────────────┘"
+echo ""
+read -rp "  Paste your Tailscale auth key (or press Enter to skip): " TS_AUTH_KEY
+
+if [[ -n "$TS_AUTH_KEY" ]]; then
+  tailscale up --authkey="$TS_AUTH_KEY" --hostname="tally-$(hostname | tr '[:upper:]' '[:lower:]')" --accept-routes
+  success "Tailscale connected: $(tailscale ip -4 2>/dev/null || echo 'check with: tailscale ip')"
+else
+  warn "Tailscale skipped — run manually: sudo tailscale up --authkey=YOUR_KEY"
+fi
+
+# ── SSH hardening ─────────────────────────────────────────────
+echo ""
+info "Hardening SSH..."
+
+SSHD_CONFIG="/etc/ssh/sshd_config"
+
+# Backup original
+cp "$SSHD_CONFIG" "${SSHD_CONFIG}.bak.$(date +%Y%m%d)" 2>/dev/null || true
+
+# Apply hardening settings
+declare -A SSH_SETTINGS=(
+  ["PasswordAuthentication"]="no"
+  ["PubkeyAuthentication"]="yes"
+  ["PermitRootLogin"]="no"
+  ["X11Forwarding"]="no"
+  ["MaxAuthTries"]="3"
+  ["ClientAliveInterval"]="300"
+  ["ClientAliveCountMax"]="2"
+)
+
+for KEY in "${!SSH_SETTINGS[@]}"; do
+  VALUE="${SSH_SETTINGS[$KEY]}"
+  if grep -q "^#\?${KEY}" "$SSHD_CONFIG"; then
+    sed -i "s|^#\?${KEY}.*|${KEY} ${VALUE}|" "$SSHD_CONFIG"
+  else
+    echo "${KEY} ${VALUE}" >> "$SSHD_CONFIG"
+  fi
+done
+
+success "SSH hardened: password auth disabled, root login disabled"
+
+# Prompt to add admin SSH public key
+echo ""
+echo "  ┌─────────────────────────────────────────────────────┐"
+echo "  │  ADD ADMIN SSH PUBLIC KEY                            │"
+echo "  │  Paste Andrew's public key so you can SSH in.        │"
+echo "  │  (Get it with: cat ~/.ssh/id_ed25519.pub)            │"
+echo "  └─────────────────────────────────────────────────────┘"
+echo ""
+read -rp "  Paste SSH public key (or press Enter to skip): " ADMIN_PUBKEY
+
+if [[ -n "$ADMIN_PUBKEY" ]]; then
+  ADMIN_HOME="/home/tally-admin"
+  if ! id "tally-admin" &>/dev/null; then
+    useradd --create-home --shell /bin/bash tally-admin
+    usermod -aG sudo tally-admin
+  fi
+  mkdir -p "$ADMIN_HOME/.ssh"
+  echo "$ADMIN_PUBKEY" >> "$ADMIN_HOME/.ssh/authorized_keys"
+  chmod 700 "$ADMIN_HOME/.ssh"
+  chmod 600 "$ADMIN_HOME/.ssh/authorized_keys"
+  chown -R tally-admin:tally-admin "$ADMIN_HOME/.ssh"
+  success "SSH key added for user 'tally-admin'"
+else
+  warn "No SSH key added — add manually to ~/.ssh/authorized_keys before locking password auth"
+fi
+
+# Restart SSH (use reload to avoid killing current session)
+systemctl reload sshd 2>/dev/null || systemctl reload ssh 2>/dev/null || warn "Reload SSH manually: sudo systemctl reload sshd"
+success "SSH configuration applied"
+
 # ── Install systemd units ─────────────────────────────────────
 info "Installing systemd service units..."
 cp "$SCRIPT_DIR/tally-encoder.service" /etc/systemd/system/tally-encoder.service
@@ -154,28 +243,27 @@ success "Services enabled"
 
 # ── Print completion message ─────────────────────────────────
 echo ""
+TAILSCALE_IP="$(tailscale ip -4 2>/dev/null || echo 'not connected')"
+LOCAL_IP="$(hostname -I | awk '{print $1}')"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║  ✅  Tally Encoder installed successfully!                    ║"
 echo "╠══════════════════════════════════════════════════════════════╣"
 echo "║                                                              ║"
 echo "║  NEXT STEPS:                                                 ║"
 echo "║                                                              ║"
-echo "║  1. Edit your config:                                        ║"
+echo "║  1. Edit config:                                             ║"
 echo "║     sudo nano /etc/tally-encoder/config.env                  ║"
+echo "║     Set: RELAY_URL, CHURCH_TOKEN, TALLY_API_TOKEN            ║"
 echo "║                                                              ║"
-echo "║     Required settings:                                       ║"
-echo "║       RELAY_URL=rtmp://your-relay.railway.app/live           ║"
-echo "║       CHURCH_TOKEN=YOUR_TOKEN_HERE                           ║"
-echo "║       TALLY_API_TOKEN=a-random-secret                        ║"
-echo "║                                                              ║"
-echo "║  2. Start the encoder:                                       ║"
+echo "║  2. Start encoder:                                           ║"
 echo "║     sudo systemctl restart tally-encoder                     ║"
 echo "║                                                              ║"
-echo "║  3. Check status:                                            ║"
-echo "║     sudo systemctl status tally-encoder                      ║"
-echo "║     sudo journalctl -fu tally-encoder                        ║"
+echo "║  REMOTE ACCESS:                                              ║"
+echo "║  Tailscale IP : $TAILSCALE_IP                    ║"
+echo "║  Local IP     : $LOCAL_IP                        ║"
+echo "║  SSH           : ssh tally-admin@$TAILSCALE_IP   ║"
+echo "║  API           : http://$TAILSCALE_IP:7070/status ║"
 echo "║                                                              ║"
-echo "║  API server: http://$(hostname -I | awk '{print $1}'):7070/status   ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 echo "Tally Encoder installed. Edit /etc/tally-encoder/config.env then: sudo systemctl restart tally-encoder"
