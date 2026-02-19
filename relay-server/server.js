@@ -275,8 +275,11 @@ if (TALLY_BOT_TOKEN) {
     resellerSystem,
   });
   log('Telegram bot initialized');
+  // Non-blocking webhook setup (fires after app is ready)
   if (TALLY_BOT_WEBHOOK_URL) {
-    tallyBot.setWebhook(TALLY_BOT_WEBHOOK_URL).catch(e => console.error('Webhook setup failed:', e.message));
+    setImmediate(() => {
+      tallyBot.setWebhook(TALLY_BOT_WEBHOOK_URL).catch(e => console.error('[TallyBot] Webhook setup failed:', e.message));
+    });
   }
 } else {
   log('Telegram bot disabled (TALLY_BOT_TOKEN not set)');
