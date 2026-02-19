@@ -1057,6 +1057,7 @@ function buildChurchPortalHtml(church) {
 
 function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
   const express = require('express');
+  console.log('[ChurchPortal] Setup started');
 
   // ── Schema ──────────────────────────────────────────────────────────────────
   const migrations = [

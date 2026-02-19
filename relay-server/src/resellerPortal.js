@@ -819,6 +819,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
   const express = require('express');
   const { v4: uuidv4 } = require('uuid');
   const crypto = require('crypto');
+  console.log('[ResellerPortal] Setup started');
 
   // ── Schema migration ────────────────────────────────────────────────────────
   const migrations = [
