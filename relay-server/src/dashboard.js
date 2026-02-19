@@ -131,6 +131,164 @@ function buildDashboardHtml() {
   .tag-na  { background: rgba(107,114,128,0.15); color: var(--muted); }
   .last-seen { font-size: 0.75rem; color: var(--muted); margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
   .empty { text-align: center; color: var(--muted); padding: 48px; grid-column: 1/-1; }
+
+  /* ── AI Chat Panel ─────────────────────────────────────────── */
+  .ai-toggle {
+    background: rgba(59,130,246,0.14);
+    border: 1px solid rgba(59,130,246,0.35);
+    color: #60a5fa;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 6px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+  .ai-toggle:hover { background: rgba(59,130,246,0.24); border-color: rgba(59,130,246,0.6); }
+  .ai-toggle.active { background: rgba(59,130,246,0.28); border-color: #3b82f6; color: #93c5fd; }
+
+  .ai-panel {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: 360px;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 200;
+    box-shadow: -6px 0 32px rgba(0,0,0,0.5);
+  }
+  .ai-panel.open { transform: translateX(0); }
+
+  .ai-panel-header {
+    padding: 18px 20px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .ai-panel-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ai-panel-icon { color: #3b82f6; font-size: 1rem; }
+  .ai-panel-subtitle { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+  .ai-close-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 1.3rem;
+    padding: 4px 6px;
+    line-height: 1;
+    border-radius: 6px;
+    transition: all 0.15s;
+  }
+  .ai-close-btn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+
+  .ai-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    scroll-behavior: smooth;
+  }
+  .ai-greeting {
+    background: rgba(59,130,246,0.09);
+    border: 1px solid rgba(59,130,246,0.22);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 0.82rem;
+    color: #93c5fd;
+    line-height: 1.55;
+    margin-bottom: 4px;
+  }
+  .ai-msg { display: flex; flex-direction: column; gap: 3px; }
+  .ai-msg.user { align-items: flex-end; }
+  .ai-msg.assistant { align-items: flex-start; }
+
+  .ai-bubble {
+    padding: 10px 13px;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    max-width: 90%;
+    word-break: break-word;
+    border-radius: 10px;
+    white-space: pre-wrap;
+  }
+  .ai-msg.user    .ai-bubble { background: rgba(34,197,94,0.13); border: 1px solid rgba(34,197,94,0.25); color: var(--text); border-radius: 10px 10px 3px 10px; }
+  .ai-msg.assistant .ai-bubble { background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.22); color: var(--text); border-radius: 10px 10px 10px 3px; }
+
+  .ai-label { font-size: 0.7rem; color: var(--muted); padding: 0 3px; }
+
+  .ai-thinking {
+    padding: 0 16px 8px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-style: italic;
+    display: none;
+    flex-shrink: 0;
+  }
+  .ai-thinking.visible { display: block; }
+
+  .ai-input-row {
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+  .ai-input {
+    flex: 1;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.82rem;
+    padding: 9px 12px;
+    resize: none;
+    font-family: inherit;
+    line-height: 1.4;
+    transition: border-color 0.15s;
+    min-height: 38px;
+    max-height: 100px;
+    overflow-y: auto;
+  }
+  .ai-input:focus { outline: none; border-color: #3b82f6; }
+  .ai-input::placeholder { color: var(--muted); }
+  .ai-send {
+    background: #3b82f6;
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 700;
+    padding: 9px 16px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    font-size: 0.82rem;
+    flex-shrink: 0;
+    height: 38px;
+    white-space: nowrap;
+  }
+  .ai-send:hover { opacity: 0.85; }
+  .ai-send:disabled { opacity: 0.4; cursor: default; }
+
+  @media (max-width: 600px) {
+    .ai-panel { width: 100%; }
+  }
 </style>
 </head>
 <body>
@@ -141,8 +299,28 @@ function buildDashboardHtml() {
     <span id="sseStatus">Connecting…</span>
     <span>|</span>
     <span id="lastUpdate">–</span>
+    <button class="ai-toggle" id="aiToggle" onclick="toggleAiPanel()">✦ AI</button>
   </div>
 </header>
+
+<!-- ── AI Chat Panel ── -->
+<div class="ai-panel" id="aiPanel">
+  <div class="ai-panel-header">
+    <div>
+      <div class="ai-panel-title"><span class="ai-panel-icon">✦</span> Tally AI</div>
+      <div class="ai-panel-subtitle">Multi-church assistant</div>
+    </div>
+    <button class="ai-close-btn" onclick="toggleAiPanel()" title="Close">×</button>
+  </div>
+  <div class="ai-messages" id="aiMessages">
+    <div class="ai-greeting">Ask me anything about your churches.</div>
+  </div>
+  <div class="ai-thinking" id="aiThinking">✦ Tally AI is thinking…</div>
+  <div class="ai-input-row">
+    <textarea class="ai-input" id="aiInput" placeholder="Ask about church status, alerts, fixes…" rows="1"></textarea>
+    <button class="ai-send" id="aiSend" onclick="sendAiMessage()">Send</button>
+  </div>
+</div>
 <div class="grid" id="grid">
   <div class="empty">Loading churches…</div>
 </div>
@@ -264,8 +442,11 @@ function connect() {
         'Updated ' + new Date().toLocaleTimeString();
 
       if (data.type === 'snapshot') {
+        window._churchStates = data.churches;
         renderGrid(data.churches);
       } else if (data.type === 'update' && data.church) {
+        if (!window._churchStates) window._churchStates = {};
+        window._churchStates[data.church.churchId] = data.church;
         updateCard(data.church);
       }
     } catch {}
@@ -287,6 +468,77 @@ setInterval(() => {
     el.textContent = 'Last seen: ' + fmtLastSeen(el.dataset.lastseen);
   });
 }, 30000);
+
+// ── AI Chat Panel ──────────────────────────────────────────────────────────
+function toggleAiPanel() {
+  const panel = document.getElementById('aiPanel');
+  const toggle = document.getElementById('aiToggle');
+  const isOpen = panel.classList.toggle('open');
+  toggle.classList.toggle('active', isOpen);
+  if (isOpen) {
+    setTimeout(() => document.getElementById('aiInput').focus(), 300);
+  }
+}
+
+async function sendAiMessage() {
+  const input = document.getElementById('aiInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+  appendAiMessage('user', msg);
+
+  const sendBtn = document.getElementById('aiSend');
+  const thinking = document.getElementById('aiThinking');
+  sendBtn.disabled = true;
+  thinking.classList.add('visible');
+
+  const states = window._churchStates || {};
+
+  try {
+    const res = await fetch('/api/chat?key=' + encodeURIComponent(KEY), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg, churchStates: states }),
+    });
+    const data = await res.json();
+    appendAiMessage('assistant', data.reply || data.error || 'No response.');
+  } catch (e) {
+    appendAiMessage('assistant', 'Connection error: ' + e.message);
+  } finally {
+    sendBtn.disabled = false;
+    thinking.classList.remove('visible');
+  }
+}
+
+function appendAiMessage(role, text) {
+  const msgs = document.getElementById('aiMessages');
+  const wrapper = document.createElement('div');
+  wrapper.className = 'ai-msg ' + role;
+  const bubble = document.createElement('div');
+  bubble.className = 'ai-bubble';
+  bubble.textContent = text;
+  const label = document.createElement('div');
+  label.className = 'ai-label';
+  label.textContent = role === 'user' ? 'You' : 'Tally AI';
+  wrapper.appendChild(bubble);
+  wrapper.appendChild(label);
+  msgs.appendChild(wrapper);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// Auto-resize textarea and Enter to send
+document.getElementById('aiInput').addEventListener('input', function() {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+});
+document.getElementById('aiInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendAiMessage();
+  }
+});
 </script>
 </body>
 </html>`;
@@ -346,6 +598,61 @@ function setupDashboard(app, db, getChurchStates) {
       sseClients.delete(res);
       clearInterval(keepalive);
     });
+  });
+
+  // ── AI Chat endpoint ──────────────────────────────────────────────────────
+  app.post('/api/chat', async (req, res) => {
+    if (!checkKey(req, res)) return;
+
+    const { message, churchStates } = req.body || {};
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'message (string) is required' });
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.json({
+        reply: 'AI assistant is not configured — set ANTHROPIC_API_KEY on the server to enable AI chat.',
+      });
+    }
+
+    const systemPrompt =
+      'You are Tally AI, the admin assistant for a multi-church AV monitoring system. ' +
+      'You have real-time visibility into all connected churches. ' +
+      'Answer questions about church status, explain alerts, suggest fixes, and help the admin manage their fleet. ' +
+      'Be concise. ' +
+      'Current church states: ' + JSON.stringify(churchStates || {}) + '. ' +
+      'Available commands: status queries, alert summaries, config suggestions.';
+
+    try {
+      const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5',
+          max_tokens: 512,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: message }],
+        }),
+      });
+
+      if (!aiRes.ok) {
+        const errText = await aiRes.text();
+        console.error('[Dashboard/AI] API error:', aiRes.status, errText);
+        return res.status(502).json({ error: 'AI API error', details: errText });
+      }
+
+      const data = await aiRes.json();
+      const reply = data.content?.[0]?.text || 'No response from AI.';
+      res.json({ reply });
+    } catch (e) {
+      console.error('[Dashboard/AI] fetch error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // ── Notify function — call this from server.js on status updates ──────────

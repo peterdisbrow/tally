@@ -169,22 +169,65 @@
     .info-card .value.muted { color: var(--dim); }
     .info-card .value.active { color: var(--green); }
 
-    /* ── Alerts Log ─────────────────────────────────────────────── */
-    .alerts {
+    /* ── Activity Feed ─────────────────────────────────────────── */
+    .activity-log {
       background: var(--terminal);
       border: 1px solid var(--border);
       border-radius: var(--r-card);
-      padding: 10px 12px;
-      max-height: 120px;
+      padding: 6px;
+      max-height: 160px;
       overflow-y: auto;
+    }
+    .activity-entry {
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+      padding: 5px 8px;
+      border-left: 3px solid transparent;
+      border-radius: 0 4px 4px 0;
+      margin-bottom: 2px;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .activity-entry:last-child { margin-bottom: 0; }
+    .activity-entry.ai    { border-left-color: #3b82f6; background: rgba(59,130,246,0.07); }
+    .activity-entry.sys   { border-left-color: var(--warn); background: rgba(234,179,8,0.07); }
+    .activity-entry.alert { border-left-color: var(--danger); background: rgba(239,68,68,0.07); }
+    .activity-entry.ok    { border-left-color: var(--green); background: rgba(34,197,94,0.07); }
+    .activity-badge {
+      flex-shrink: 0;
+      font-size: 8px;
+      font-weight: 800;
+      padding: 2px 5px;
+      border-radius: 3px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      margin-top: 1px;
+      line-height: 1.3;
+    }
+    .activity-entry.ai    .activity-badge { background: rgba(59,130,246,0.25);  color: #60a5fa; }
+    .activity-entry.sys   .activity-badge { background: rgba(234,179,8,0.25);   color: var(--warn); }
+    .activity-entry.alert .activity-badge { background: rgba(239,68,68,0.25);   color: var(--danger); }
+    .activity-entry.ok    .activity-badge { background: rgba(34,197,94,0.25);   color: var(--green); }
+    .activity-text { flex: 1; color: var(--muted); word-break: break-word; }
+    .activity-entry.ok    .activity-text { color: var(--white); }
+    .activity-entry.alert .activity-text { color: #fca5a5; }
+    .activity-entry.ai    .activity-text { color: #93c5fd; }
+    .activity-entry.sys   .activity-text { color: #fde68a; }
+    .activity-ts {
+      flex-shrink: 0;
+      font-size: 9px;
+      color: var(--dim);
+      margin-top: 2px;
+      white-space: nowrap;
+    }
+    .activity-placeholder {
+      padding: 8px 10px;
       font-family: var(--mono);
       font-size: 11px;
       color: var(--dim);
     }
-    .alerts .line { padding: 2px 0; }
-    .alerts .line.ok   { color: var(--green); }
-    .alerts .line.warn { color: var(--warn); }
-    .alerts .line.err  { color: var(--danger); }
 
     /* ── Preview Thumbnail ──────────────────────────────────────── */
     .preview-container {
@@ -670,11 +713,11 @@
       <div style="margin-top:6px;" id="live-stream-link"></div>
     </div>
 
-    <!-- Alerts Log -->
+    <!-- Activity Feed -->
     <div class="section">
-      <h2>Recent Alerts</h2>
-      <div class="alerts" id="alerts-log">
-        <div class="line">Waiting for events…</div>
+      <h2>Activity</h2>
+      <div class="activity-log" id="alerts-log">
+        <div class="activity-placeholder">Waiting for events…</div>
       </div>
     </div>
   </div>
@@ -1013,18 +1056,45 @@ async function testConn() {
   addAlert(result.success ? '✅ Relay connection OK' : `❌ Relay unreachable: ${result.error}`);
 }
 
-function addAlert(text) {
+function detectActivityType(text) {
+  const t = text.toLowerCase();
+  // AI commands / Telegram executed
+  if (t.includes('🤖') || t.includes('[ai]') || t.includes('telegram') || t.includes('command executed') || t.includes('ai parsed') || t.includes('via telegram')) return 'ai';
+  // Hard alerts / errors
+  if (t.includes('❌') || t.includes('⚠️') || t.includes('alert') || t.includes('silence') || t.includes('drop') || t.includes('disconnect') || t.includes('unreachable') || t.includes('failed') || t.includes('error') || t.includes('offline') || t.includes('no audio')) return 'alert';
+  // Confirmations / OK
+  if (t.includes('✅') || t.includes('ok') || t.includes('connected') || t.includes('recording started') || t.includes('stream started') || t.includes('started') || t.includes('confirmed') || t.includes('saved ✓') || t.includes('complete') || t.includes('preview requested')) return 'ok';
+  // System events (default)
+  return 'sys';
+}
+
+function addActivity(type, text) {
   const log = document.getElementById('alerts-log');
   if (alertCount === 0) log.innerHTML = '';
-  const line = document.createElement('div');
-  const ts = new Date().toLocaleTimeString();
-  const cls = text.includes('✅') ? ' ok' : text.includes('⚠') || text.includes('warn') ? ' warn' : text.includes('❌') || text.includes('err') ? ' err' : '';
-  line.className = 'line' + cls;
-  line.textContent = `[${ts}] ${text.trim()}`;
-  log.appendChild(line);
+  const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const labels = { ai: 'AI', sys: 'SYS', alert: 'ALERT', ok: 'OK' };
+  const entry = document.createElement('div');
+  entry.className = 'activity-entry ' + (type || 'sys');
+  const badge = document.createElement('span');
+  badge.className = 'activity-badge';
+  badge.textContent = labels[type] || 'SYS';
+  const textEl = document.createElement('span');
+  textEl.className = 'activity-text';
+  textEl.textContent = text.trim();
+  const tsEl = document.createElement('span');
+  tsEl.className = 'activity-ts';
+  tsEl.textContent = ts;
+  entry.appendChild(badge);
+  entry.appendChild(textEl);
+  entry.appendChild(tsEl);
+  log.appendChild(entry);
   log.scrollTop = log.scrollHeight;
   alertCount++;
-  while (log.children.length > 10) log.removeChild(log.firstChild);
+  while (log.children.length > 20) log.removeChild(log.firstChild);
+}
+
+function addAlert(text) {
+  addActivity(detectActivityType(text), text);
 }
 
 // ─── IPC listeners ─────────────────────────────────────────────────────────
