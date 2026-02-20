@@ -56,7 +56,6 @@ const { PresetLibrary } = require('./src/presetLibrary');
 const { EventMode } = require('./src/eventMode');
 const { ResellerSystem } = require('./src/reseller');
 
-let resellerSystem = null;
 const { BillingSystem } = require('./src/billing');
 const { buildDashboardHtml, buildResellerPortalHtml } = require('./src/dashboard');
 const { setupSyncMonitor } = require('./src/syncMonitor');
@@ -125,6 +124,8 @@ db.exec(`
     registeredAt TEXT NOT NULL
   )
 `);
+
+const resellerSystem = new ResellerSystem(db);
 
 // ─── SCHEMA MIGRATIONS ───────────────────────────────────────────────────────
 // Run safe ALTER TABLE migrations for new columns — ignore "column already exists" errors
@@ -273,7 +274,7 @@ planningCenter.start();
 
 // ─── RESELLER SYSTEM (needed early for TallyBot) ────────────────────────────
 
-resellerSystem = new ResellerSystem(db);
+// Initialized earlier after DB setup so it is always available before any dependent services start.
 
 // ─── TELEGRAM BOT ────────────────────────────────────────────────────────────
 
