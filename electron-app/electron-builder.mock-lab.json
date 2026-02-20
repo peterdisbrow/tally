@@ -1,0 +1,54 @@
+{
+  "appId": "com.atemschool.tally.mocklab",
+  "productName": "Tally Mock Lab",
+  "copyright": "Copyright © 2026 ATEM School",
+  "directories": {
+    "output": "dist-mock-lab"
+  },
+  "mac": {
+    "category": "public.app-category.utilities",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": [
+          "arm64"
+        ]
+      }
+    ],
+    "icon": "assets/icon.icns"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "assets/icon.ico"
+  },
+  "nsis": {
+    "oneClick": true,
+    "perMachine": false,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  },
+  "extraResources": [
+    {
+      "from": "../church-client/src",
+      "to": "church-client/src",
+      "filter": [
+        "fakeAtem.js",
+        "fakeObs.js",
+        "fakeMixer.js",
+        "fakeProPresenter.js",
+        "fakeAtemApi.js"
+      ]
+    }
+  ],
+  "extraMetadata": {
+    "name": "tally-mock-lab",
+    "main": "src/main-mock-lab.js"
+  }
+}

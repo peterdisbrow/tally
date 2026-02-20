@@ -32,6 +32,7 @@ class MixerBridge {
     const t = (type || '').toLowerCase();
     switch (t) {
       case 'behringer':
+      case 'x32':
         return new BehringerMixer({ host, port: port || 10023, model: model || 'X32' });
       case 'midas':
         // Midas M32 uses identical OSC protocol to Behringer X32
@@ -41,7 +42,7 @@ class MixerBridge {
       case 'yamaha':
         return new YamahaMixer({ host, port, model: model || 'CL' });
       default:
-        throw new Error(`Unknown mixer type: "${type}". Use behringer, midas, allenheath, or yamaha.`);
+        throw new Error(`Unknown mixer type: "${type}". Use x32, behringer, midas, allenheath, or yamaha.`);
     }
   }
 

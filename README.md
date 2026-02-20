@@ -78,11 +78,83 @@ curl -X POST https://your-relay/api/churches/register \
 npx tally-connect --token THEIR_TOKEN --atem 192.168.1.10
 ```
 
+#### Fake ATEM (hardware-free testing)
+Use built-in simulator mode:
+```bash
+npx tally-connect --token THEIR_TOKEN --atem mock
+```
+In the Electron app, set ATEM IP to `mock` and click Test.
+
+When running in mock mode, Tally also starts a local control API + web UI:
+
+- Web UI: `http://127.0.0.1:9911/`
+- State endpoint: `GET http://127.0.0.1:9911/api/state`
+- Change program input:
+  ```bash
+  curl -X POST http://127.0.0.1:9911/api/program \
+    -H "Content-Type: application/json" \
+    -d '{"input":5}'
+  ```
+
+Useful endpoints:
+- `POST /api/preview` `{ "input": 2 }`
+- `POST /api/cut` `{}`
+- `POST /api/auto` `{}`
+- `POST /api/recording` `{ "recording": true }`
+- `POST /api/fade-to-black` `{ "enabled": true }`
+- `POST /api/audio/master` `{ "left": 12000, "right": 11000, "holdMs": 15000 }`
+- `POST /api/audio/delay` `{ "input": 1, "delay": 3 }`
+- `POST /api/reset` `{}`
+
+Change API port (optional):
+```bash
+npx tally-connect --token THEIR_TOKEN --atem mock --fake-atem-api-port 9920
+```
+
+#### Full Mock Production Stack (ATEM + OBS + X32 + Encoder + HyperDeck + ProPresenter)
+Run the full stack in one command:
+```bash
+npx tally-connect --token THEIR_TOKEN --mock-production
+```
+
+This starts the same local mock control UI/API (default `http://127.0.0.1:9911`) with extra endpoints for OBS, mixer, and ProPresenter:
+- `POST /api/obs/stream` `{ "active": true }`
+- `POST /api/obs/record` `{ "active": true }`
+- `POST /api/obs/scene` `{ "scene": "IMAG" }`
+- `POST /api/obs/encoder` `{ "fps": 30, "cpuUsage": 18, "congestion": 0.02, "bitrateKbps": 4500 }`
+- `POST /api/mixer/master` `{ "muted": true }`
+- `POST /api/mixer/fader` `{ "level": 0.75 }`
+- `POST /api/propresenter/next` `{}`
+- `POST /api/hyperdeck/action` `{ "index": 0, "action": "play" }`
+
+Electron Mock Lab can also expose per-device listeners for equipment testing:
+- ATEM `:9910`
+- OBS `:4455`
+- X32 `:10023`
+- Encoder `:1935`
+- HyperDeck `:9993`
+- ProPresenter `:1025`
+
+If macOS blocks extra loopback aliases, it auto-falls back to `127.0.0.1` endpoints and keeps unique ports.
+
 #### Option B: Desktop App
 ```bash
 cd electron-app && npm install && npm run build:mac
 ```
 Church downloads → runs setup wizard → enters token and ATEM IP → done.
+
+#### Option C: Standalone Mock Lab App
+Run Mock Lab as a standalone desktop app (no relay login/token required):
+```bash
+cd electron-app
+npm run start:mock-lab
+```
+
+Build a standalone Mock Lab DMG:
+```bash
+cd electron-app
+npm run build:mock-lab:mac
+```
 
 ---
 
@@ -318,6 +390,8 @@ Church Technical Directors can control their production system by messaging the 
    ```
    TALLY_BOT_TOKEN=123456:ABC-DEF...
    TALLY_BOT_WEBHOOK_URL=https://your-relay.up.railway.app/api/telegram-webhook
+   # Optional: stronger webhook security
+   TALLY_BOT_WEBHOOK_SECRET=<random-long-string>
    ANDREW_TELEGRAM_CHAT_ID=your_chat_id
    ```
 
@@ -325,6 +399,12 @@ Church Technical Directors can control their production system by messaging the 
    ```
    POST /api/bot/set-webhook
    x-api-key: YOUR_ADMIN_KEY
+   Content-Type: application/json
+
+   {
+     "url": "https://your-relay.up.railway.app/api/telegram-webhook",
+     "secret_token": "${TALLY_BOT_WEBHOOK_SECRET}"
+   }
    ```
    Or it auto-sets on startup if `TALLY_BOT_WEBHOOK_URL` is configured.
 

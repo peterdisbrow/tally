@@ -20,6 +20,7 @@ const SECURE_FIELDS = [
   'twitchStreamKey',
   'rtmpStreamKey',
   'obsPassword',
+  'token',
   'churchToken',
   'adminApiKey',
 ];

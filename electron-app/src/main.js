@@ -1,8 +1,9 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, Notification, clipboard } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, Notification, clipboard, dialog } = require('electron');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
+const WebSocket = require('ws');
 const { encryptConfig, decryptConfig } = require('./secureStorage');
 
 // Auto-update (gracefully optional)
@@ -13,12 +14,129 @@ try {
 
 const CONFIG_PATH = path.join(os.homedir(), '.church-av', 'config.json');
 const CONFIG_DIR  = path.dirname(CONFIG_PATH);
+const DEFAULT_RELAY_URL = 'wss://tally-production-cde2.up.railway.app';
+const STANDALONE_MOCK_LAB = process.argv.includes('--mock-lab') || process.env.TALLY_STANDALONE_MOCK_LAB === '1';
+const LOG_DIR = path.join(CONFIG_DIR, 'logs');
+const APP_LOG_PATH = path.join(LOG_DIR, 'tally-app.log');
+const MAX_RECENT_LOG_LINES = 2000;
 
 let tray = null;
 let mainWindow = null;
 let agentProcess = null;
+let mockLabManager = null;
+let MockLabManagerClass = null;
 let agentStatus = { relay: false, atem: false, obs: false, companion: false };
+let previewControllerSocket = null;
 let lastNotifiedState = {};
+const recentLogLines = [];
+let agentCrashCount = 0;
+const MAX_AGENT_CRASHES = 5;
+
+function appendAppLog(source, message) {
+  const ts = new Date().toISOString();
+  const lines = String(message ?? '')
+    .replace(/\r/g, '')
+    .split('\n')
+    .filter((line) => line.trim().length > 0);
+
+  if (lines.length === 0) {
+    lines.push('(empty)');
+  }
+
+  try {
+    if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+    for (const line of lines) {
+      const entry = `[${ts}] [${source}] ${line}`;
+      recentLogLines.push(entry);
+      if (recentLogLines.length > MAX_RECENT_LOG_LINES) {
+        recentLogLines.splice(0, recentLogLines.length - MAX_RECENT_LOG_LINES);
+      }
+      fs.appendFileSync(APP_LOG_PATH, entry + '\n', 'utf8');
+    }
+  } catch {
+    // Logging should never crash the app
+  }
+}
+
+function ensureMockLabManager() {
+  if (!MockLabManagerClass) {
+    try {
+      ({ MockLabManager: MockLabManagerClass } = require('./mockLabManager'));
+    } catch (err) {
+      throw new Error(`Mock Lab is unavailable in this build: ${err.message}`);
+    }
+  }
+
+  if (!mockLabManager) {
+    mockLabManager = new MockLabManagerClass((msg) => appendAppLog('MOCK', msg));
+  }
+  return mockLabManager;
+}
+
+function isFakeAtemMode(value) {
+  const v = String(value || '').trim().toLowerCase();
+  return v === 'mock' || v === 'fake' || v === 'sim' || v === 'simulate' || v.startsWith('mock://');
+}
+
+function getSanitizedConfigForExport() {
+  const config = loadConfig();
+  const sanitized = { ...config };
+  const redactFields = [
+    'token',
+    'churchToken',
+    'obsPassword',
+    'youtubeApiKey',
+    'facebookAccessToken',
+    'rtmpStreamKey',
+    'twitchStreamKey',
+    'adminApiKey',
+  ];
+
+  for (const field of redactFields) {
+    if (sanitized[field] !== undefined && sanitized[field] !== null && sanitized[field] !== '') {
+      sanitized[field] = '[redacted]';
+    }
+  }
+
+  return sanitized;
+}
+
+function buildExportText() {
+  const header = [
+    'Tally Test Log Export',
+    `Generated: ${new Date().toISOString()}`,
+    `App Version: ${app.getVersion()}`,
+    `Platform: ${process.platform} ${process.arch}`,
+    `Node: ${process.version}`,
+    '',
+    '=== Runtime Status ===',
+    JSON.stringify(agentStatus, null, 2),
+    '',
+    '=== Sanitized Config ===',
+    JSON.stringify(getSanitizedConfigForExport(), null, 2),
+    '',
+    '=== Recent Logs ===',
+  ];
+
+  const logs = recentLogLines.slice(-1000);
+  return [...header, ...(logs.length ? logs : ['(no logs captured yet)'])].join('\n');
+}
+
+async function exportTestLogs() {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const defaultPath = path.join(app.getPath('desktop'), `tally-test-logs-${stamp}.txt`);
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow || undefined, {
+    title: 'Export Tally Test Logs',
+    defaultPath,
+    filters: [{ name: 'Text Files', extensions: ['txt'] }],
+  });
+
+  if (canceled || !filePath) return { canceled: true };
+
+  fs.writeFileSync(filePath, buildExportText(), 'utf8');
+  appendAppLog('SYSTEM', `Exported test logs to ${filePath}`);
+  return { canceled: false, filePath };
+}
 
 // ─── TRAY ICON STATES ─────────────────────────────────────────────────────────
 
@@ -64,9 +182,11 @@ function computeTrayState() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 520,
-    height: 700,
-    resizable: false,
+    width: 560,
+    height: 740,
+    minWidth: 500,
+    minHeight: 660,
+    resizable: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -85,21 +205,40 @@ function createWindow() {
   });
 
   mainWindow.once('ready-to-show', () => {
-    const config = loadConfig();
-    if (!config.token || !config.setupComplete) {
-      mainWindow.show();
-    }
+    mainWindow.show();
   });
+}
+
+function createMockLabWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1120,
+    height: 840,
+    minWidth: 980,
+    minHeight: 700,
+    resizable: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+    titleBarStyle: 'hiddenInset',
+    title: 'Tally Mock Lab',
+    show: true,
+  });
+
+  mainWindow.loadFile(path.join(__dirname, 'mock-lab.html'));
 }
 
 // ─── TRAY ─────────────────────────────────────────────────────────────────────
 
 function createTray() {
+  if (STANDALONE_MOCK_LAB) return;
   tray = new Tray(getTrayIcon('grey'));
   updateTray();
 }
 
 function updateTray() {
+  if (STANDALONE_MOCK_LAB || !tray) return;
   const state = computeTrayState();
   tray.setImage(getTrayIcon(state));
 
@@ -197,22 +336,59 @@ function resolveNodeBinary() {
 
 // ─── AGENT PROCESS ────────────────────────────────────────────────────────────
 
+function resolveChurchClientPaths() {
+  // In packaged builds, church-client lives in extraResources
+  const packagedDir = path.join(process.resourcesPath || '', 'church-client');
+  const packagedScript = path.join(packagedDir, 'src', 'index.js');
+  if (fs.existsSync(packagedScript)) {
+    return { script: packagedScript, cwd: packagedDir };
+  }
+  // In development, church-client is a sibling directory
+  const devDir = path.join(__dirname, '..', '..', 'church-client');
+  const devScript = path.join(devDir, 'src', 'index.js');
+  if (fs.existsSync(devScript)) {
+    return { script: devScript, cwd: devDir };
+  }
+  return null;
+}
+
 function startAgent() {
   if (agentProcess) return;
 
   const config = loadConfig();
   if (!config.token) {
+    appendAppLog('SYSTEM', 'Start agent requested but token is missing');
     mainWindow?.show();
     return;
   }
 
-  const clientScript = path.join(__dirname, '../../church-client/src/index.js');
-  const args = [clientScript,
+  const clientPaths = resolveChurchClientPaths();
+  if (!clientPaths) {
+    const msg = 'Church client agent not found. The app may need to be reinstalled.';
+    console.log(msg);
+    appendAppLog('SYSTEM', msg);
+    mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
+    mainWindow?.show();
+    sendNotification('Tally Agent Error', msg);
+    return;
+  }
+
+  // Detect if mock lab is running — if so, force mock production mode
+  const mockLabRunning = mockLabManager?.isRunning?.() || false;
+  const useMockProduction = config.mockProduction || mockLabRunning || isFakeAtemMode(config.atemIp);
+
+  const args = [clientPaths.script,
     '--token', config.token,
-    '--relay', config.relay || 'wss://tally-relay.up.railway.app',
+    '--relay', config.relay || DEFAULT_RELAY_URL,
   ];
 
-  if (config.atemIp)       args.push('--atem', config.atemIp);
+  if (useMockProduction) {
+    args.push('--mock-production');
+    if (config.fakeAtemApiPort) args.push('--fake-atem-api-port', String(config.fakeAtemApiPort));
+  } else {
+    if (config.atemIp) args.push('--atem', config.atemIp);
+    if (config.fakeAtemApiPort) args.push('--fake-atem-api-port', String(config.fakeAtemApiPort));
+  }
   if (config.obsUrl)       args.push('--obs', config.obsUrl);
   if (config.obsPassword)  args.push('--obs-password', config.obsPassword);
   if (config.name)         args.push('--name', config.name);
@@ -222,20 +398,24 @@ function startAgent() {
   if (!nodeBinary) {
     const msg = 'Node.js runtime not found on this Mac. Install Node.js (brew install node) or run in dev mode.';
     console.log(msg);
+    appendAppLog('SYSTEM', msg);
     mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
     mainWindow?.show();
     sendNotification('Tally Agent Error', msg);
     return;
   }
 
+  appendAppLog('SYSTEM', `Starting agent (relay=${config.relay || DEFAULT_RELAY_URL}, name=${config.name || 'n/a'}, script=${clientPaths.script})`);
+
   agentProcess = spawn(nodeBinary, args, {
-    cwd: path.join(__dirname, '../../church-client'),
+    cwd: clientPaths.cwd,
     env: process.env,
   });
 
   agentProcess.on('error', (err) => {
     const msg = `Failed to start agent process (${nodeBinary}): ${err.message}`;
     console.error(msg);
+    appendAppLog('SYSTEM', msg);
     mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
     sendNotification('Tally Agent Error', msg);
     agentProcess = null;
@@ -244,6 +424,7 @@ function startAgent() {
   agentProcess.stdout.on('data', (data) => {
     const text = data.toString();
     console.log('[Agent]', text.trim());
+    appendAppLog('AGENT', text);
 
     if (text.includes('Connected to relay server'))  agentStatus.relay = true;
     if (text.includes('ATEM connected'))             agentStatus.atem = true;
@@ -269,7 +450,9 @@ function startAgent() {
   });
 
   agentProcess.stderr.on('data', (data) => {
-    mainWindow?.webContents.send('log', '[err] ' + data.toString());
+    const text = data.toString();
+    appendAppLog('AGENT_ERR', text);
+    mainWindow?.webContents.send('log', '[err] ' + text);
   });
 
   agentProcess.on('close', (code) => {
@@ -278,26 +461,140 @@ function startAgent() {
     mainWindow?.webContents.send('status', agentStatus);
     updateTray();
     console.log(`Agent exited with code ${code}`);
-    if (code !== 0) setTimeout(() => startAgent(), 5000);
+    appendAppLog('SYSTEM', `Agent exited with code ${code}`);
+    if (code === 0) {
+      agentCrashCount = 0; // Clean exit — reset counter
+    } else {
+      agentCrashCount++;
+      if (agentCrashCount >= MAX_AGENT_CRASHES) {
+        const msg = `Agent crashed ${agentCrashCount} times. Auto-restart disabled — use the Start Agent button to retry.`;
+        appendAppLog('SYSTEM', msg);
+        mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
+        sendNotification('Tally Agent Error', msg);
+        agentCrashCount = 0; // Reset so manual start can try again
+      } else {
+        const delay = Math.min(5000 * agentCrashCount, 30000);
+        appendAppLog('SYSTEM', `Restarting agent in ${delay / 1000}s (crash ${agentCrashCount}/${MAX_AGENT_CRASHES})`);
+        setTimeout(() => startAgent(), delay);
+      }
+    }
   });
 }
 
 function stopAgent() {
   if (agentProcess) {
+    appendAppLog('SYSTEM', 'Stopping agent');
     agentProcess.kill();
     agentProcess = null;
+  } else {
+    appendAppLog('SYSTEM', 'Stop agent requested but no process was running');
   }
 }
 
 // ─── TEST CONNECTION ──────────────────────────────────────────────────────────
 
-async function testConnection(relayUrl) {
+function normalizeRelayUrl(url) {
+  const raw = (url || DEFAULT_RELAY_URL).trim();
+  const withProto = /^wss?:\/\//i.test(raw) ? raw : `wss://${raw}`;
+  return withProto.replace(/\/+$/, '');
+}
+
+function relayHttpUrl(url) {
+  return normalizeRelayUrl(url).replace(/^wss?:\/\//i, (m) => (m.toLowerCase() === 'wss://' ? 'https://' : 'http://'));
+}
+
+function decodeChurchIdFromToken(token) {
+  try {
+    const parts = token?.split('.') || [];
+    if (!parts[1]) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+    return payload.churchId || payload.church_id || null;
+  } catch {
+    return null;
+  }
+}
+
+function checkTokenWithRelay(token, relayUrl, ms = 5000) {
   return new Promise((resolve) => {
-    const url = relayUrl.replace(/^wss?:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
-    const lib = url.startsWith('https') ? require('https') : require('http');
-    const req = lib.get(url, { timeout: 5000 }, (res) => {
+    const wsUrl = relayHttpUrl(relayUrl).replace(/^https?:\/\//i, 'wss://').replace(/\/$/, '') + '/church';
+    const target = `${wsUrl}?token=${encodeURIComponent(token)}`;
+    const socket = new WebSocket(target);
+
+    const finish = (result) => {
+      try { socket.removeAllListeners(); } catch {}
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        try { socket.close(); } catch {}
+      }
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => finish({ success: false, error: 'Token validation timed out' }), ms);
+    socket.once('open', () => {
+      clearTimeout(timer);
+      finish({ success: true, message: 'Token handshake succeeded' });
+    });
+    socket.once('error', (err) => {
+      clearTimeout(timer);
+      finish({ success: false, error: err.message || 'Token validation failed' });
+    });
+    socket.once('close', (code) => {
+      clearTimeout(timer);
+      if (code === 1008) {
+        finish({ success: false, error: 'Invalid token for this relay' });
+      }
+    });
+  });
+}
+
+async function postJson(url, payload, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload || {}),
+      signal: controller.signal,
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return {
+        success: false,
+        error: data.error || `Request failed (${response.status})`,
+        status: response.status,
+        data,
+      };
+    }
+
+    return { success: true, status: response.status, data };
+  } catch (e) {
+    return { success: false, error: e.message || 'Network error' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function loginChurchWithCredentials({ relay, email, password }) {
+  const relayUrl = normalizeRelayUrl(relay);
+  const endpoint = `${relayHttpUrl(relayUrl).replace(/\/+$/, '')}/api/church/app/login`;
+  return postJson(endpoint, { email, password });
+}
+
+async function testConnection({ url, token } = {}) {
+  const relayUrl = normalizeRelayUrl(url);
+
+  if (token) {
+    const tokenCheck = await checkTokenWithRelay(token, relayUrl);
+    if (!tokenCheck.success) return tokenCheck;
+  }
+
+  return new Promise((resolve) => {
+    const endpoint = relayHttpUrl(relayUrl);
+    const lib = endpoint.startsWith('https') ? require('https') : require('http');
+    const req = lib.get(endpoint, { timeout: 5000 }, (res) => {
       let data = '';
-      res.on('data', chunk => data += chunk);
+      res.on('data', (chunk) => (data += chunk));
       res.on('end', () => {
         try {
           const json = JSON.parse(data);
@@ -307,10 +604,228 @@ async function testConnection(relayUrl) {
         }
       });
     });
+
     req.on('error', (e) => resolve({ success: false, error: e.message }));
-    req.on('timeout', () => { req.destroy(); resolve({ success: false, error: 'Timeout' }); });
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ success: false, error: 'Timeout' });
+    });
   });
 }
+
+async function getMockLabStatus() {
+  const config = loadConfig();
+  const manager = ensureMockLabManager();
+  const addresses = manager.getAddresses();
+  const configuredAddresses = manager.getConfiguredAddresses();
+  const controlUrl = `http://${addresses.controlApi.ip}:${addresses.controlApi.port}`;
+
+  let mockState = null;
+  try {
+    if (manager.isRunning()) {
+      const resp = await fetch(`${controlUrl}/api/state`, { signal: AbortSignal.timeout(1000) });
+      if (resp.ok) {
+        const data = await resp.json();
+        mockState = data?.state || null;
+      }
+    }
+  } catch {
+    mockState = null;
+  }
+
+  return {
+    running: manager.isRunning(),
+    fallbackMode: manager.isFallbackMode(),
+    mockProduction: !!config.mockProduction,
+    addresses,
+    configuredAddresses,
+    controlUrl,
+    state: mockState,
+  };
+}
+
+async function startMockLab(opts = {}) {
+  const withAgent = opts.withAgent !== undefined ? opts.withAgent === true : !STANDALONE_MOCK_LAB;
+  const manager = ensureMockLabManager();
+  const addresses = await manager.start({
+    addresses: opts.addresses,
+    allowFallback: opts.allowFallback,
+    requireUniqueIps: opts.requireUniqueIps,
+  });
+  const controlUrl = `http://${addresses.controlApi.ip}:${addresses.controlApi.port}`;
+
+  if (withAgent) {
+    const config = loadConfig();
+    // Save pre-mock values so stopMockLab can restore them
+    config._preMock = {
+      atemIp: config.atemIp || '',
+      obsUrl: config.obsUrl || '',
+      obsPassword: config.obsPassword || '',
+      hyperdecks: config.hyperdecks || [],
+      proPresenter: config.proPresenter || null,
+      mixer: config.mixer || null,
+      fakeAtemApiPort: config.fakeAtemApiPort || null,
+    };
+    config.mockProduction = true;
+    config.fakeAtemApiPort = addresses.controlApi.port;
+    config.atemIp = addresses.atem.ip;
+    config.obsUrl = `ws://${addresses.obs.ip}:${addresses.obs.port}`;
+    config.obsPassword = '';
+    config.hyperdecks = [addresses.hyperdeck.ip];
+    config.proPresenter = { host: addresses.propresenter.ip, port: addresses.propresenter.port };
+    config.mixer = { type: 'x32', host: addresses.x32.ip, port: addresses.x32.port };
+    if (!config.companionUrl) config.companionUrl = 'http://localhost:8888';
+    saveConfig(config);
+
+    if (agentProcess) stopAgent();
+    startAgent();
+  }
+
+  appendAppLog('MOCK', `Mock lab started. Control API: ${controlUrl}${withAgent ? ' (agent mode)' : ' (standalone mode)'}`);
+  return { success: true, addresses, controlUrl };
+}
+
+async function stopMockLab(opts = {}) {
+  const withAgent = opts.withAgent !== undefined ? opts.withAgent === true : !STANDALONE_MOCK_LAB;
+  if (withAgent && agentProcess) stopAgent();
+  const manager = ensureMockLabManager();
+  await manager.stop();
+
+  if (withAgent) {
+    const config = loadConfig();
+    config.mockProduction = false;
+    // Restore pre-mock values so the agent doesn't try to connect to mock IPs
+    if (config._preMock) {
+      config.atemIp = config._preMock.atemIp;
+      config.obsUrl = config._preMock.obsUrl;
+      config.obsPassword = config._preMock.obsPassword;
+      config.hyperdecks = config._preMock.hyperdecks;
+      config.proPresenter = config._preMock.proPresenter;
+      config.mixer = config._preMock.mixer;
+      config.fakeAtemApiPort = config._preMock.fakeAtemApiPort;
+      delete config._preMock;
+    }
+    saveConfig(config);
+  }
+
+  appendAppLog('MOCK', `Mock lab stopped${withAgent ? ' (agent mode)' : ''}`);
+  return { success: true };
+}
+
+function sendPreviewCommand(command, params = {}) {
+  const config = loadConfig();
+  if (!config.relay) throw new Error('No relay configured');
+  if (!config.token) throw new Error('No church token configured');
+
+  const relay = normalizeRelayUrl(config.relay || DEFAULT_RELAY_URL);
+  const churchId = decodeChurchIdFromToken(config.token);
+  const adminKey = config.adminApiKey;
+
+  if (!adminKey) {
+    throw new Error('No adminApiKey stored for preview control');
+  }
+
+  if (!churchId) {
+    throw new Error('Unable to parse churchId from token');
+  }
+
+  return new Promise((resolve, reject) => {
+    // Keep one controller socket while preview stream is active so frames can flow.
+    if (command === 'preview.start' && previewControllerSocket) {
+      try { previewControllerSocket.send(JSON.stringify({ type: 'command', churchId, command: 'preview.stop', params: {} })); } catch {}
+      try { previewControllerSocket.terminate(); } catch {}
+      previewControllerSocket = null;
+    }
+
+    const socket = new WebSocket(`${relay.replace(/\/$/, '')}/controller?apikey=${encodeURIComponent(adminKey)}`);
+    const isStart = command === 'preview.start';
+    const timeout = setTimeout(() => {
+      try { socket.terminate(); } catch {}
+      if (isStart && previewControllerSocket === socket) previewControllerSocket = null;
+      reject(new Error('Preview command timed out'));
+    }, 8000);
+
+    const done = (result) => {
+      clearTimeout(timeout);
+      resolve(result);
+      if (!isStart) {
+        try { if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close(); } catch {}
+      }
+      if (socket === previewControllerSocket) {
+        previewControllerSocket = null;
+      }
+    };
+
+    const onMessage = (raw) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+
+        if (msg.type === 'preview_frame' && msg.churchId === churchId) {
+          mainWindow?.webContents.send('preview-frame', {
+            timestamp: msg.timestamp,
+            width: msg.width,
+            height: msg.height,
+            format: msg.format,
+            data: msg.data,
+          });
+          return;
+        }
+
+        if (msg.type === 'command_result' && msg.command === command && msg.churchId === churchId) {
+          if (msg.error) {
+            done({ success: false, error: msg.error });
+          } else {
+            done({ success: true, result: msg.result });
+          }
+        }
+      } catch (e) {
+        done({ success: true });
+      }
+    };
+
+    socket.once('open', () => {
+      socket.send(JSON.stringify({
+        type: 'command',
+        churchId,
+        command,
+        params,
+      }));
+
+      if (command === 'preview.stop') {
+        done({ success: true });
+      } else if (command === 'preview.start') {
+        previewControllerSocket = socket;
+        socket.on('message', onMessage);
+        mainWindow?.webContents.send('log', '[Preview] Started preview stream from relay controller');
+      } else {
+        socket.on('message', onMessage);
+      }
+    });
+
+    socket.on('message', (raw) => {
+      if (isStart) return; // handled above once open
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'command_result' && msg.command === command && msg.churchId === churchId) {
+          if (msg.error) {
+            done({ success: false, error: msg.error });
+          } else {
+            done({ success: true, result: msg.result });
+          }
+        }
+      } catch (e) {
+        done({ success: true });
+      }
+    });
+
+    socket.once('error', (err) => done({ success: false, error: err.message || 'Relay socket error' }));
+    socket.once('close', () => {
+      if (socket === previewControllerSocket) previewControllerSocket = null;
+      done({ success: true });
+    });
+  });
+}
+
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 
@@ -353,14 +868,32 @@ function loadConfigForUI() {
 ipcMain.handle('get-config', () => loadConfigForUI());
 ipcMain.handle('save-config', (_, config) => { saveConfig(config); return true; });
 ipcMain.handle('get-status', () => agentStatus);
-ipcMain.handle('start-agent', () => startAgent());
+ipcMain.handle('start-agent', () => { agentCrashCount = 0; startAgent(); });
 ipcMain.handle('stop-agent', () => stopAgent());
 ipcMain.handle('is-running', () => !!agentProcess);
-ipcMain.handle('test-connection', (_, url) => testConnection(url));
+ipcMain.handle('test-connection', (_, opts) => testConnection(opts));
+ipcMain.handle('church-auth-login', async (_, payload) => loginChurchWithCredentials(payload || {}));
 ipcMain.handle('copy-to-clipboard', (_, text) => { clipboard.writeText(text); return true; });
 ipcMain.handle('get-network-interfaces', () => listAvailableInterfaces());
+ipcMain.handle('mock-lab-status', async () => getMockLabStatus());
+ipcMain.handle('mock-lab-start', async (_, opts = {}) => startMockLab(opts));
+ipcMain.handle('mock-lab-stop', async (_, opts = {}) => stopMockLab(opts));
+ipcMain.handle('export-test-logs', async () => {
+  try {
+    return await exportTestLogs();
+  } catch (e) {
+    appendAppLog('SYSTEM', `Failed to export logs: ${e.message}`);
+    return { canceled: false, error: e.message || 'Failed to export logs' };
+  }
+});
 
 // ─── EQUIPMENT CONFIG IPC ─────────────────────────────────────────────────────
+
+ipcMain.handle('request-preview', async (_, action) => {
+  const command = action === 'stop' ? 'preview.stop' : 'preview.start';
+  return sendPreviewCommand(command);
+});
+ipcMain.handle('request-preview-frame', async () => sendPreviewCommand('preview.snap'));
 
 const { discoverDevices, tryTcpConnect, tryHttpGet, listAvailableInterfaces } = require('./networkScanner');
 
@@ -389,6 +922,9 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
   try {
     switch (type) {
       case 'atem': {
+        if (isFakeAtemMode(ip)) {
+          return { success: true, details: 'Fake ATEM simulator mode is enabled (use IP "mock")' };
+        }
         const ok = await tryTcpConnect(ip, port || 9910, 2000);
         return { success: ok, details: ok ? 'ATEM reachable' : 'Cannot reach ATEM' };
       }
@@ -463,7 +999,11 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
   if (equipConfig.obsPassword !== undefined) config.obsPassword = equipConfig.obsPassword;
   if (equipConfig.hyperdecks !== undefined) config.hyperdecks = equipConfig.hyperdecks;
   if (equipConfig.ptz !== undefined) config.ptz = equipConfig.ptz;
-  if (equipConfig.proPresenterHost !== undefined) config.proPresenter = { host: equipConfig.proPresenterHost, port: equipConfig.proPresenterPort || 1025 };
+  if (equipConfig.proPresenterHost !== undefined) {
+    config.proPresenter = equipConfig.proPresenterHost
+      ? { host: equipConfig.proPresenterHost, port: equipConfig.proPresenterPort || 1025 }
+      : null;
+  }
   if (equipConfig.danteNmosHost !== undefined) config.dante = { nmosHost: equipConfig.danteNmosHost, nmosPort: equipConfig.danteNmosPort || 8080 };
   if (equipConfig.vmixHost !== undefined) {
     config.vmix = equipConfig.vmixHost
@@ -491,18 +1031,22 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
 ipcMain.handle('get-equipment', () => {
   const config = loadConfig();
   return {
+    mockProduction: !!config.mockProduction,
     atemIp: config.atemIp || '',
     companionUrl: config.companionUrl || 'http://localhost:8888',
     obsUrl: config.obsUrl || 'ws://localhost:4455',
     obsPassword: config.obsPassword || '',
     hyperdecks: config.hyperdecks || [],
     ptz: config.ptz || [],
-    proPresenterHost: config.proPresenter?.host || 'localhost',
+    proPresenterConfigured: !!config.proPresenter?.host,
+    proPresenterHost: config.proPresenter?.host || '',
     proPresenterPort: config.proPresenter?.port || 1025,
     danteNmosHost: config.dante?.nmosHost || '',
     danteNmosPort: config.dante?.nmosPort || 8080,
+    vmixConfigured: !!config.vmix?.host,
     vmixHost: config.vmix?.host || '',
     vmixPort: config.vmix?.port || 8088,
+    resolumeConfigured: !!config.resolume?.host,
     resolumeHost: config.resolume?.host || '',
     resolumePort: config.resolume?.port || 8080,
     mixerType: config.mixer?.type || '',
@@ -533,21 +1077,44 @@ function setupAutoUpdate() {
 
 // ─── APP LIFECYCLE ────────────────────────────────────────────────────────────
 
+process.on('uncaughtException', (err) => {
+  appendAppLog('FATAL', `uncaughtException: ${err?.stack || err?.message || String(err)}`);
+});
+
+process.on('unhandledRejection', (reason) => {
+  appendAppLog('FATAL', `unhandledRejection: ${reason?.stack || reason?.message || String(reason)}`);
+});
+
 app.whenReady().then(() => {
-  createWindow();
+  appendAppLog('SYSTEM', `App ready (version=${app.getVersion()}, platform=${process.platform}/${process.arch})`);
+  if (STANDALONE_MOCK_LAB) {
+    createMockLabWindow();
+  } else {
+    createWindow();
+  }
   createTray();
   setupAutoUpdate();
 
-  const config = loadConfig();
-  if (config.token && config.setupComplete) {
-    setTimeout(() => startAgent(), 1000);
+  if (STANDALONE_MOCK_LAB) {
+    setTimeout(() => startMockLab({ withAgent: false }).catch((e) => appendAppLog('MOCK', `Autostart failed: ${e.message}`)), 250);
+  } else {
+    const config = loadConfig();
+    if (config.token && config.setupComplete) {
+      setTimeout(() => startAgent(), 1000);
+    }
   }
 });
 
 app.on('window-all-closed', (e) => {
+  if (STANDALONE_MOCK_LAB) {
+    app.quit();
+    return;
+  }
   e.preventDefault();
 });
 
 app.on('before-quit', () => {
+  appendAppLog('SYSTEM', 'App before-quit');
   stopAgent();
+  try { mockLabManager?.stop?.(); } catch {}
 });

@@ -18,8 +18,12 @@
 let stripe;
 try {
   stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-} catch {
-  console.warn('⚠️  stripe package not installed — billing disabled. Run: npm install stripe');
+} catch (err) {
+  if (/Neither apiKey/i.test(err.message)) {
+    console.warn('⚠️  Billing disabled — set STRIPE_SECRET_KEY in .env to enable Stripe features.');
+  } else {
+    console.warn('⚠️  stripe package or config issue: billing disabled. Run: npm install stripe');
+  }
 }
 
 // ─── PRICE IDS ───────────────────────────────────────────────────────────────

@@ -199,6 +199,28 @@ const SHARED_STYLES = `
   }
   .api-key-val:hover { color: var(--text); border-color: var(--accent); }
 
+  /* Pulse animation for real-time status changes */
+  @keyframes pulse-green {
+    0%   { background: rgba(34,197,94,0.35); }
+    100% { background: rgba(34,197,94,0.15); }
+  }
+  @keyframes pulse-red {
+    0%   { background: rgba(239,68,68,0.35); }
+    100% { background: rgba(239,68,68,0.15); }
+  }
+  @keyframes pulse-card {
+    0%   { border-color: var(--accent); box-shadow: 0 0 12px rgba(34,197,94,0.15); }
+    100% { border-color: var(--border); box-shadow: none; }
+  }
+  @keyframes pulse-dot {
+    0%   { transform: scale(1.5); }
+    100% { transform: scale(1); }
+  }
+  .tag.pulse-on  { animation: pulse-green 0.6s ease-out; }
+  .tag.pulse-off { animation: pulse-red   0.6s ease-out; }
+  .card.pulse     { animation: pulse-card  0.8s ease-out; }
+  .status-dot.pulse { animation: pulse-dot 0.6s ease-out; }
+
   /* Footer */
   .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 0.72rem; color: var(--muted); text-align: center; }
 `;
@@ -252,6 +274,96 @@ function copyText(text) {
     const el = event.target.closest ? event.target.closest('.code-copy') : event.target;
     if (el) { const orig = el.textContent; el.textContent = '✅ Copied!'; setTimeout(() => el.textContent = orig, 1500); }
   });
+}
+
+/* ── Incremental card patching ─────────────────────────────────────────────── */
+
+function triggerPulse(el, cls) {
+  el.classList.remove(cls);
+  void el.offsetWidth;            // force reflow to restart animation
+  el.classList.add(cls);
+  el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
+}
+
+/**
+ * Patch an existing card in-place — only touches the DOM elements that actually
+ * changed, and fires a pulse animation on anything that flipped.
+ *
+ * Returns false if the card doesn't exist yet (caller should fall back to full render).
+ */
+function patchCard(church) {
+  const card = document.getElementById('card-' + church.churchId);
+  if (!card) return false;
+
+  const s = church.status || {};
+  const atemConnected = s.atem && s.atem.connected;
+  const obsConnected  = s.obs  && s.obs.connected;
+  const obsStreaming   = s.obs  && s.obs.streaming;
+  const encoderActive  = church.encoderActive || false;
+  const alerts = church.activeAlerts || 0;
+
+  // 1) Status dot
+  const dot = card.querySelector('.status-dot');
+  if (dot) {
+    const newDot = statusDotClass(church);
+    const old = ['dot-green','dot-yellow','dot-red','dot-gray'].find(c => dot.classList.contains(c));
+    if (old !== newDot) {
+      if (old) dot.classList.remove(old);
+      dot.classList.add(newDot);
+      triggerPulse(dot, 'pulse');
+    }
+  }
+
+  // 2) Row values — Connection, ATEM, OBS, Stream, (Encoder if present)
+  const rows = card.querySelectorAll('.card-rows .row');
+  const rowDefs = [
+    { val: church.connected, on: 'Online',    off: 'Offline' },
+    { val: atemConnected,    on: 'Connected',  off: 'Disconnected' },
+    { val: obsConnected,     on: 'Connected',  off: 'Disconnected' },
+    { val: obsStreaming,     on: '🔴 Live',    off: 'Off-air', na: 'Unknown' },
+  ];
+  rowDefs.forEach((def, i) => {
+    if (i >= rows.length) return;
+    const rv = rows[i].querySelector('.row-value');
+    if (!rv) return;
+    const newHtml = tag(def.val, def.on, def.off, def.na || undefined);
+    if (rv.innerHTML !== newHtml) {
+      rv.innerHTML = newHtml;
+      const t = rv.querySelector('.tag');
+      if (t) triggerPulse(t, def.val ? 'pulse-on' : 'pulse-off');
+    }
+  });
+
+  // 3) Encoder row (5th row) — update encoder badge + sync badge
+  if (rows.length >= 5) {
+    const rv = rows[4].querySelector('.row-value');
+    if (rv) {
+      const encoderBadge = encoderActive
+        ? '<span class="tag tag-encoder-on">📡 Encoder</span>'
+        : '<span class="tag tag-encoder-off">📡 Encoder</span>';
+      const newHtml = encoderBadge + ' ' + syncBadge(church.syncStatus);
+      if (rv.innerHTML !== newHtml) rv.innerHTML = newHtml;
+    }
+  }
+
+  // 4) Alert badge
+  const badge = card.querySelector('.alert-badge');
+  if (badge) {
+    const wasVisible = badge.classList.contains('visible');
+    const nowVisible = alerts > 0;
+    badge.textContent = alerts + ' alert' + (alerts !== 1 ? 's' : '');
+    if (nowVisible && !wasVisible)  badge.classList.add('visible');
+    if (!nowVisible && wasVisible) badge.classList.remove('visible');
+  }
+
+  // 5) Last seen
+  const ls = card.querySelector('.last-seen');
+  if (ls) ls.textContent = 'Last seen: ' + fmtLastSeen(church.lastSeen);
+
+  // 6) Pulse the card border briefly
+  triggerPulse(card, 'pulse');
+
+  return true;
 }
 `;
 
@@ -562,7 +674,9 @@ ${SHARED_STYLES}
 
 <script>
 ${SHARED_JS}
-const KEY = new URLSearchParams(location.search).get('key') || new URLSearchParams(location.search).get('apikey') || '';
+let KEY = new URLSearchParams(location.search).get('key') || new URLSearchParams(location.search).get('apikey') || '';
+// KEY is kept for backward-compatible one-time logins only. Normal operation uses
+// cookie/session auth; header fallback keeps existing behavior for direct URL login URLs.
 let es = null;
 let _churchStates = {};
 let _resellersMap = {};
@@ -571,7 +685,9 @@ let _drawerChurchId = null;
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function adminFetch(url, opts = {}) {
-  return fetch(url, { ...opts, headers: { 'x-api-key': KEY, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (KEY) headers['x-api-key'] = KEY; // optional fallback only for URL-based one-time sessions
+  return fetch(url, { ...opts, headers });
 }
 function openModal(id)  { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
@@ -600,7 +716,7 @@ function switchTab(tab) {
 
 async function loadResellers() {
   try {
-    const resp = await adminFetch('/api/resellers?apikey=' + encodeURIComponent(KEY));
+    const resp = await adminFetch('/api/resellers');
     if (!resp.ok) return;
     const data = await resp.json();
     if (Array.isArray(data)) {
@@ -711,16 +827,13 @@ function renderGrid(churchMap) {
 
 function upsertCard(church) {
   _churchStates[church.churchId] = { ...(_churchStates[church.churchId] || {}), ...church };
-  const existing = document.getElementById('card-' + church.churchId);
-  const html = renderCard(_churchStates[church.churchId]);
-  if (existing) {
-    const tmp = document.createElement('div'); tmp.innerHTML = html;
-    existing.replaceWith(tmp.firstElementChild);
-  } else {
-    const grid = document.getElementById('grid');
-    if (grid.querySelector('.empty')) grid.innerHTML = '';
-    grid.insertAdjacentHTML('beforeend', html);
-  }
+  const merged = _churchStates[church.churchId];
+  // Try incremental patch first — falls back to full render for new cards
+  if (patchCard(merged)) return;
+  // New card — full render & insert
+  const grid = document.getElementById('grid');
+  if (grid.querySelector('.empty')) grid.innerHTML = '';
+  grid.insertAdjacentHTML('beforeend', renderCard(merged));
 }
 
 // ── Action menu ───────────────────────────────────────────────────────────────
@@ -807,7 +920,7 @@ async function confirmDeleteChurch(churchId, churchName) {
 // ── SSE ───────────────────────────────────────────────────────────────────────
 
 function connect() {
-  const url = '/api/dashboard/stream?key=' + encodeURIComponent(KEY);
+  const url = '/api/dashboard/stream';
   es = new EventSource(url);
   es.onopen = () => { document.getElementById('sseDot').classList.add('connected'); document.getElementById('sseStatus').textContent = 'Live'; };
   es.onmessage = (e) => {
@@ -824,13 +937,16 @@ function connect() {
       } else if (data.type === 'church_connected') {
         upsertCard({ ...data, connected: true });
       } else if (data.type === 'church_disconnected') {
-        upsertCard({ ...data, connected: false });
+        upsertCard({ ...data, connected: false, status: { connected: false, atem: null, obs: null } });
       } else if (data.type === 'status_update') {
         const ex = _churchStates[data.churchId] || {};
         upsertCard({ ...ex, churchId: data.churchId, name: data.name || ex.name, status: data.status || ex.status, lastSeen: data.timestamp || ex.lastSeen });
       } else if (data.type === 'alert') {
         const ex = _churchStates[data.churchId] || {};
         upsertCard({ ...ex, churchId: data.churchId, activeAlerts: (ex.activeAlerts || 0) + 1 });
+      } else if (data.type === 'sync_update') {
+        const ex = _churchStates[data.churchId] || {};
+        if (data.syncStatus) upsertCard({ ...ex, churchId: data.churchId, syncStatus: data.syncStatus });
       }
     } catch {}
   };
@@ -842,6 +958,17 @@ function connect() {
 }
 connect();
 loadResellers();
+
+// Refresh "last seen" timestamps every 10s so they stay current
+setInterval(() => {
+  document.querySelectorAll('.card').forEach(card => {
+    const id = card.id.replace('card-', '');
+    const ch = _churchStates[id];
+    if (!ch) return;
+    const ls = card.querySelector('.last-seen');
+    if (ls) ls.textContent = 'Last seen: ' + fmtLastSeen(ch.lastSeen);
+  });
+}, 10000);
 
 // ── AI Chat Panel ─────────────────────────────────────────────────────────────
 
@@ -862,8 +989,8 @@ async function sendAiMessage() {
   const thinking = document.getElementById('aiThinking');
   sendBtn.disabled = true; thinking.classList.add('visible');
   try {
-    const res = await fetch('/api/chat?key=' + encodeURIComponent(KEY), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const res = await adminFetch('/api/chat', {
+      method: 'POST',
       body: JSON.stringify({ message: msg, churchStates: _churchStates }),
     });
     const data = await res.json();
@@ -1445,17 +1572,14 @@ function renderGrid(churches) {
 
 function upsertCard(church) {
   _churchStates[church.churchId] = { ...(_churchStates[church.churchId] || {}), ...church };
-  const existing = document.getElementById('card-' + church.churchId);
-  const html = renderCard(_churchStates[church.churchId]);
-  if (existing) {
-    const tmp = document.createElement('div'); tmp.innerHTML = html;
-    existing.replaceWith(tmp.firstElementChild);
-  } else {
-    const grid = document.getElementById('grid');
-    const empty = grid.querySelector('.empty');
-    if (empty) grid.innerHTML = '';
-    grid.insertAdjacentHTML('beforeend', html);
-  }
+  const merged = _churchStates[church.churchId];
+  // Try incremental patch first — falls back to full render for new cards
+  if (patchCard(merged)) return;
+  // New card — full render & insert
+  const grid = document.getElementById('grid');
+  const empty = grid.querySelector('.empty');
+  if (empty) grid.innerHTML = '';
+  grid.insertAdjacentHTML('beforeend', renderCard(merged));
 }
 
 // ── SSE ───────────────────────────────────────────────────────────────────────
@@ -1485,11 +1609,14 @@ function connect() {
         upsertCard({ ...data, connected: true });
         loadStats();
       } else if (data.type === 'church_disconnected') {
-        upsertCard({ ...data, connected: false });
+        upsertCard({ ...data, connected: false, status: { connected: false, atem: null, obs: null } });
         loadStats();
       } else if (data.type === 'status_update') {
         const existing = _churchStates[data.churchId] || {};
         upsertCard({ ...existing, churchId: data.churchId, name: data.name || existing.name, status: data.status || existing.status, lastSeen: data.timestamp || existing.lastSeen });
+      } else if (data.type === 'sync_update') {
+        const existing = _churchStates[data.churchId] || {};
+        if (data.syncStatus) upsertCard({ ...existing, churchId: data.churchId, syncStatus: data.syncStatus });
       }
     } catch {}
   };

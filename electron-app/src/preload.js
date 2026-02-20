@@ -7,10 +7,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startAgent: () => ipcRenderer.invoke('start-agent'),
   stopAgent: () => ipcRenderer.invoke('stop-agent'),
   isRunning: () => ipcRenderer.invoke('is-running'),
-  testConnection: (url) => ipcRenderer.invoke('test-connection', url),
+  testConnection: (payload) => ipcRenderer.invoke('test-connection', payload),
+  churchAuthLogin: (payload) => ipcRenderer.invoke('church-auth-login', payload),
+  exportTestLogs: () => ipcRenderer.invoke('export-test-logs'),
   testEquipmentConnection: (params) => ipcRenderer.invoke('test-equipment-connection', params),
+  requestPreview: (action) => ipcRenderer.invoke('request-preview', action),
   scanNetwork: (options = {}) => ipcRenderer.invoke('scan-network', options),
   getNetworkInterfaces: () => ipcRenderer.invoke('get-network-interfaces'),
+  getMockLabStatus: () => ipcRenderer.invoke('mock-lab-status'),
+  startMockLab: (opts = {}) => ipcRenderer.invoke('mock-lab-start', opts),
+  stopMockLab: (opts = {}) => ipcRenderer.invoke('mock-lab-stop', opts),
   saveEquipment: (config) => ipcRenderer.invoke('save-equipment', config),
   getEquipment: () => ipcRenderer.invoke('get-equipment'),
   copyToClipboard: (text) => ipcRenderer.invoke('copy-to-clipboard', text),
@@ -19,5 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onLog: (cb) => ipcRenderer.on('log', (_, data) => cb(data)),
   onPreviewFrame: (cb) => ipcRenderer.on('preview-frame', (_, data) => cb(data)),
   onUpdateReady: (cb) => ipcRenderer.on('update-ready', () => cb()),
-  onScanProgress: (cb) => ipcRenderer.on('scan-progress', (_, data) => cb(data)),
+  onScanProgress: (cb) => {
+    const listener = (_, data) => cb(data);
+    ipcRenderer.on('scan-progress', listener);
+    return () => ipcRenderer.removeListener('scan-progress', listener);
+  },
 });

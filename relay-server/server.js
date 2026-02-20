@@ -64,6 +64,10 @@ const { setupResellerPortal } = require('./src/resellerPortal');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 const JWT_SECRET    = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
+const ADMIN_SESSION_COOKIE = 'tally_admin_key';
+const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
+const CHURCH_APP_TOKEN_TTL = process.env.TALLY_CHURCH_APP_TOKEN_TTL || '30d';
+const REQUIRE_ACTIVE_BILLING = (process.env.TALLY_REQUIRE_ACTIVE_BILLING || (process.env.NODE_ENV === 'production' ? 'true' : 'false')) === 'true';
 
 if (process.env.NODE_ENV === 'production') {
   if (process.env.ADMIN_API_KEY === undefined || process.env.JWT_SECRET === undefined) {
@@ -85,11 +89,19 @@ app.use((req, res, next) => {
   const isAdminRoute = req.path.startsWith('/api/') || req.path.startsWith('/dashboard');
 
   if (isAdminRoute) {
-    // Admin routes: only allow explicitly configured origins, or same-origin (no Origin header)
-    if (!origin || ALLOWED_ORIGINS.includes(origin) || origin.startsWith('http://localhost')) {
-      res.header('Access-Control-Allow-Origin', origin || '*');
+    // Admin routes: allow explicitly configured origins, localhost for local development, or same-origin flows (no Origin header).
+    const allowAdminOrigin =
+      !origin ||
+      origin.startsWith('http://localhost') ||
+      origin.startsWith('https://localhost') ||
+      ALLOWED_ORIGINS.includes(origin);
+
+    if (allowAdminOrigin) {
+      if (origin) {
+        res.header('Access-Control-Allow-Origin', origin);
+        res.header('Vary', 'Origin');
+      }
     }
-    // No wildcard on admin routes from unknown origins
   } else {
     // Public routes (church client WebSocket upgrade, health check): allow all
     res.header('Access-Control-Allow-Origin', '*');
@@ -136,10 +148,13 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN event_label TEXT",
   "ALTER TABLE churches ADD COLUMN reseller_id TEXT",
   "ALTER TABLE churches ADD COLUMN registration_code TEXT",
+  "ALTER TABLE churches ADD COLUMN portal_email TEXT",
+  "ALTER TABLE churches ADD COLUMN portal_password_hash TEXT",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
 }
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_churches_portal_email ON churches(portal_email)');
 
 const stmtInsert = db.prepare('INSERT INTO churches (churchId, name, email, token, registeredAt) VALUES (?, ?, ?, ?, ?)');
 const stmtUpdateRegistrationCode = db.prepare('UPDATE churches SET registration_code = ? WHERE churchId = ?');
@@ -425,14 +440,99 @@ function generateRegistrationCode() {
   return code;
 }
 
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  try {
+    const [salt, hash] = String(stored || '').split(':');
+    if (!salt || !hash) return false;
+    const check = crypto.scryptSync(password, salt, 64).toString('hex');
+    return crypto.timingSafeEqual(Buffer.from(check, 'hex'), Buffer.from(hash, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+function issueChurchAppToken(churchId, name) {
+  return jwt.sign({ type: 'church_app', churchId, name }, JWT_SECRET, { expiresIn: CHURCH_APP_TOKEN_TTL });
+}
+
+const BILLING_TIERS = new Set(['connect', 'pro', 'managed', 'event']);
+const BILLING_STATUSES = new Set(['active', 'trialing', 'inactive', 'pending', 'past_due', 'canceled']);
+
+function getChurchBillingSnapshot(churchId) {
+  const church = stmtGet.get(churchId);
+  if (!church) {
+    return { exists: false, tier: null, status: 'not_found' };
+  }
+
+  const billingRow = db.prepare(`
+    SELECT tier, status
+    FROM billing_customers
+    WHERE church_id = ?
+    ORDER BY datetime(updated_at) DESC
+    LIMIT 1
+  `).get(churchId);
+
+  return {
+    exists: true,
+    tier: church.billing_tier || billingRow?.tier || null,
+    status: String(church.billing_status || billingRow?.status || 'inactive').toLowerCase(),
+  };
+}
+
+function checkChurchPaidAccess(churchId) {
+  const snapshot = getChurchBillingSnapshot(churchId);
+  if (!snapshot.exists) {
+    return { allowed: false, status: 'not_found', message: 'Church account not found.' };
+  }
+
+  if (!REQUIRE_ACTIVE_BILLING || !billing.isEnabled()) {
+    return { allowed: true, ...snapshot, bypassed: true };
+  }
+
+  if (snapshot.status === 'active' || snapshot.status === 'trialing') {
+    return { allowed: true, ...snapshot };
+  }
+
+  return {
+    allowed: false,
+    ...snapshot,
+    message: `Subscription is "${snapshot.status}". Complete billing to connect this system.`,
+  };
+}
+
 // Register a new church and get a connection token
 app.post('/api/churches/register', requireAdmin, (req, res) => {
-  const { name, email } = req.body;
+  const { name, email, portalEmail, password, tier, billingStatus } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
+  if (password && !portalEmail) return res.status(400).json({ error: 'portalEmail is required when password is provided' });
+  if (portalEmail && !password) return res.status(400).json({ error: 'password is required when portalEmail is provided' });
+  if (password && String(password).length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
 
   // Check uniqueness
   const existing = stmtFindByName.get(name);
   if (existing) return res.status(409).json({ error: `A church named "${name}" already exists` });
+
+  const cleanPortalEmail = String(portalEmail || '').trim().toLowerCase();
+  if (cleanPortalEmail) {
+    const existingEmail = db.prepare('SELECT churchId FROM churches WHERE portal_email = ?').get(cleanPortalEmail);
+    if (existingEmail) return res.status(409).json({ error: 'portalEmail already exists' });
+  }
+
+  const normalizedTier = tier ? String(tier).toLowerCase() : null;
+  if (normalizedTier && !BILLING_TIERS.has(normalizedTier)) {
+    return res.status(400).json({ error: 'invalid tier' });
+  }
+
+  const normalizedStatus = billingStatus ? String(billingStatus).toLowerCase() : null;
+  if (normalizedStatus && !BILLING_STATUSES.has(normalizedStatus)) {
+    return res.status(400).json({ error: 'invalid billingStatus' });
+  }
 
   const churchId = uuidv4();
   const token = jwt.sign({ churchId, name }, JWT_SECRET, { expiresIn: '365d' });
@@ -441,6 +541,17 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
 
   stmtInsert.run(churchId, name, email || '', token, registeredAt);
   stmtUpdateRegistrationCode.run(registrationCode, churchId);
+  db.prepare(`
+    UPDATE churches
+    SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?
+    WHERE churchId = ?
+  `).run(
+    cleanPortalEmail || null,
+    password ? hashPassword(password) : null,
+    normalizedTier || 'connect',
+    normalizedStatus || 'active',
+    churchId
+  );
 
   churches.set(churchId, {
     churchId, name, email: email || '',
@@ -455,8 +566,153 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
     churchId,
     name,
     token,
+    portalEmail: cleanPortalEmail || null,
+    billing: {
+      tier: normalizedTier || 'connect',
+      status: normalizedStatus || 'active',
+    },
     registrationCode,
     message: 'Share this token with the church to connect their client app. Also share the 6-char code with a TD for Telegram registration.',
+  });
+});
+
+// Self-serve onboarding from website signup flow
+app.post('/api/church/app/onboard', async (req, res) => {
+  const { name, email, password, tier, successUrl, cancelUrl } = req.body || {};
+  const cleanName = String(name || '').trim();
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const planTier = String(tier || 'connect').toLowerCase();
+
+  if (!cleanName) return res.status(400).json({ error: 'name required' });
+  if (!cleanEmail) return res.status(400).json({ error: 'email required' });
+  if (!password || String(password).length < 8) {
+    return res.status(400).json({ error: 'password must be at least 8 characters' });
+  }
+  if (!['connect', 'pro', 'managed', 'event'].includes(planTier)) {
+    return res.status(400).json({ error: 'invalid tier' });
+  }
+
+  const existingByName = stmtFindByName.get(cleanName);
+  if (existingByName) return res.status(409).json({ error: `A church named "${cleanName}" already exists` });
+
+  const existingByEmail = db.prepare('SELECT churchId FROM churches WHERE portal_email = ?').get(cleanEmail);
+  if (existingByEmail) return res.status(409).json({ error: 'An account with this email already exists' });
+
+  const churchId = uuidv4();
+  const connectionToken = jwt.sign({ churchId, name: cleanName }, JWT_SECRET, { expiresIn: '365d' });
+  const registeredAt = new Date().toISOString();
+  const registrationCode = generateRegistrationCode();
+
+  stmtInsert.run(churchId, cleanName, cleanEmail, connectionToken, registeredAt);
+  stmtUpdateRegistrationCode.run(registrationCode, churchId);
+  db.prepare(`
+    UPDATE churches
+    SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?
+    WHERE churchId = ?
+  `).run(cleanEmail, hashPassword(password), planTier, billing.isEnabled() ? 'pending' : 'active', churchId);
+
+  churches.set(churchId, {
+    churchId,
+    name: cleanName,
+    email: cleanEmail,
+    token: connectionToken,
+    ws: null,
+    status: { connected: false, atem: null, obs: null },
+    lastSeen: null,
+    lastHeartbeat: null,
+    registeredAt,
+    disconnectedAt: null,
+    _offlineAlertSent: false,
+    church_type: 'recurring',
+    event_expires_at: null,
+    event_label: null,
+    reseller_id: null,
+    registrationCode,
+  });
+
+  let checkoutUrl = null;
+  let checkoutSessionId = null;
+  let checkoutError = null;
+
+  if (billing.isEnabled()) {
+    try {
+      const checkout = await billing.createCheckout({
+        tier: planTier,
+        churchId,
+        email: cleanEmail,
+        successUrl,
+        cancelUrl,
+        isEvent: planTier === 'event',
+      });
+      checkoutUrl = checkout.url || null;
+      checkoutSessionId = checkout.sessionId || null;
+    } catch (e) {
+      checkoutError = e.message;
+      log(`[Onboarding] Checkout setup failed for ${churchId}: ${e.message}`);
+    }
+  }
+
+  const appToken = issueChurchAppToken(churchId, cleanName);
+  const access = checkChurchPaidAccess(churchId);
+
+  res.status(201).json({
+    created: true,
+    churchId,
+    name: cleanName,
+    email: cleanEmail,
+    registrationCode,
+    token: appToken,
+    tokenExpiresIn: CHURCH_APP_TOKEN_TTL,
+    billing: {
+      required: REQUIRE_ACTIVE_BILLING && billing.isEnabled(),
+      status: access.status,
+      tier: planTier,
+    },
+    checkoutUrl,
+    checkoutSessionId,
+    checkoutError,
+  });
+});
+
+// Credential-based app login (used by Electron setup flow)
+app.post('/api/church/app/login', (req, res) => {
+  const { email, password } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!cleanEmail || !password) {
+    return res.status(400).json({ error: 'email and password required' });
+  }
+
+  const church = db.prepare('SELECT * FROM churches WHERE portal_email = ?').get(cleanEmail);
+  if (!church || !church.portal_password_hash || !verifyPassword(password, church.portal_password_hash)) {
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+
+  const access = checkChurchPaidAccess(church.churchId);
+  if (!access.allowed) {
+    return res.status(402).json({
+      error: access.message,
+      billing: {
+        status: access.status,
+        tier: access.tier,
+      },
+    });
+  }
+
+  const token = issueChurchAppToken(church.churchId, church.name);
+  res.json({
+    token,
+    tokenType: 'Bearer',
+    tokenExpiresIn: CHURCH_APP_TOKEN_TTL,
+    church: {
+      churchId: church.churchId,
+      name: church.name,
+      email: church.portal_email || church.email || '',
+    },
+    billing: {
+      status: access.status,
+      tier: access.tier,
+      bypassed: !!access.bypassed,
+    },
   });
 });
 
@@ -604,11 +860,56 @@ app.get('/api/churches', requireAdmin, (req, res) => {
       event_expires_at: c.event_expires_at || null,
       event_label:      c.event_label      || null,
       reseller_id:      c.reseller_id      || null,
+      portal_email:      row.portal_email || null,
+      billing_tier:      row.billing_tier || null,
+      billing_status:    row.billing_status || 'inactive',
       registrationCode:  row.registration_code || c.registrationCode || null,
       token:            row.token || c.token || null,
     };
   });
   res.json(list);
+});
+
+// Manually set billing plan/status (for pre-Stripe or manual ops flows)
+app.put('/api/churches/:churchId/billing', requireAdmin, (req, res) => {
+  const { churchId } = req.params;
+  const church = churches.get(churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+
+  const row = stmtGet.get(churchId);
+  if (!row) return res.status(404).json({ error: 'Church not found' });
+
+  const inTier = req.body?.tier;
+  const inStatus = req.body?.status;
+  if (!inTier && !inStatus) return res.status(400).json({ error: 'tier or status required' });
+
+  const nextTier = inTier ? String(inTier).toLowerCase() : String(row.billing_tier || 'connect').toLowerCase();
+  const nextStatus = inStatus ? String(inStatus).toLowerCase() : String(row.billing_status || 'inactive').toLowerCase();
+
+  if (!BILLING_TIERS.has(nextTier)) return res.status(400).json({ error: 'invalid tier' });
+  if (!BILLING_STATUSES.has(nextStatus)) return res.status(400).json({ error: 'invalid status' });
+
+  db.prepare('UPDATE churches SET billing_tier = ?, billing_status = ? WHERE churchId = ?')
+    .run(nextTier, nextStatus, churchId);
+
+  const now = new Date().toISOString();
+  const billingRecord = db.prepare('SELECT id FROM billing_customers WHERE church_id = ?').get(churchId);
+  if (billingRecord?.id) {
+    db.prepare('UPDATE billing_customers SET tier = ?, status = ?, updated_at = ? WHERE id = ?')
+      .run(nextTier, nextStatus, now, billingRecord.id);
+  } else {
+    db.prepare(`
+      INSERT INTO billing_customers
+        (id, church_id, tier, status, email, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(`manual_${churchId}`, churchId, nextTier, nextStatus, row.portal_email || row.email || '', now, now);
+  }
+
+  res.json({
+    ok: true,
+    churchId,
+    billing: { tier: nextTier, status: nextStatus },
+  });
 });
 
 // Delete a church
@@ -738,6 +1039,52 @@ app.get('/api/digest/generate', requireAdmin, async (req, res) => {
     res.json({ generated: true, filePath: result.filePath });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── AI CHAT (Dashboard panel) ───────────────────────────────────────────────
+
+app.post('/api/chat', requireAdmin, async (req, res) => {
+  const { message, churchStates } = req.body || {};
+  if (!message || typeof message !== 'string') return res.status(400).json({ error: 'message (string) required' });
+
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (!openaiKey) return res.status(503).json({ error: 'OPENAI_API_KEY not configured.' });
+
+  const systemPrompt = 'You are Tally AI, admin assistant for a multi-church AV monitoring system. '
+    + 'Answer concisely about church status, equipment, alerts, and production troubleshooting. '
+    + 'Church states: ' + JSON.stringify(churchStates || {});
+
+  try {
+    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: message },
+        ],
+        temperature: 0.7,
+        max_tokens: 512,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!aiRes.ok) {
+      const errBody = await aiRes.text();
+      throw new Error(`OpenAI ${aiRes.status}: ${errBody.slice(0, 100)}`);
+    }
+
+    const data = await aiRes.json();
+    const reply = data?.choices?.[0]?.message?.content || 'No response.';
+    res.json({ reply });
+  } catch (err) {
+    console.error(`[Dashboard Chat] Error: ${err.message}`);
+    res.status(503).json({ error: `AI unavailable: ${err.message}` });
   }
 });
 
@@ -1083,10 +1430,34 @@ app.get('/api/reseller/stats', requireReseller, (req, res) => {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 
+function resolveAdminKey(req) {
+  return req.headers['x-api-key'] || req.cookies[ADMIN_SESSION_COOKIE];
+}
+
+function setAdminSession(res, key) {
+  res.cookie(ADMIN_SESSION_COOKIE, key, {
+    httpOnly: true,
+    sameSite: 'Lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: ADMIN_SESSION_TTL_MS,
+  });
+}
+
 app.get('/dashboard', (req, res) => {
-  const key = req.query.key || req.query.apikey || req.headers['x-api-key'];
+  const queryKey = req.query.key || req.query.apikey;
+
+  if (queryKey) {
+    if (queryKey !== ADMIN_API_KEY) {
+      return res.status(401).send('<html><body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Invalid admin key.</p></body></html>');
+    }
+    setAdminSession(res, queryKey);
+    // Redirect to clean URL so the key is not left in browser history/bookmarks.
+    return res.redirect(302, '/dashboard');
+  }
+
+  const key = resolveAdminKey(req);
   if (key !== ADMIN_API_KEY) {
-    return res.status(401).send('<html><body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Add <code>?key=YOUR_ADMIN_KEY</code> to the URL.</p></body></html>');
+    return res.status(401).send('<html><body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Missing admin authentication. Set your admin key via header or add <code>?key=YOUR_ADMIN_KEY</code> one-time to establish a session.</p></body></html>');
   }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(buildDashboardHtml());
@@ -1095,7 +1466,7 @@ app.get('/dashboard', (req, res) => {
 // ─── SSE Dashboard Stream ─────────────────────────────────────────────────────
 
 app.get('/api/dashboard/stream', (req, res) => {
-  const key         = req.query.key || req.headers['x-api-key'];
+  const key         = resolveAdminKey(req);
   const resellerKey = req.query.resellerKey || req.headers['x-reseller-key'];
 
   let filterResellerId = null;
@@ -1138,10 +1509,10 @@ app.get('/api/dashboard/stream', (req, res) => {
   }));
   res.write(`data: ${JSON.stringify({ type: 'initial', churches: initialState })}\n\n`);
 
-  // Keep-alive ping every 30s
+  // Keep-alive ping every 15s to prevent proxy/LB timeouts
   const keepAlive = setInterval(() => {
     res.write(': ping\n\n');
-  }, 30_000);
+  }, 15_000);
 
   sseClients.add(res);
   log(`Dashboard SSE client connected (total: ${sseClients.size})`);
@@ -1152,6 +1523,24 @@ app.get('/api/dashboard/stream', (req, res) => {
     log(`Dashboard SSE client disconnected (total: ${sseClients.size})`);
   });
 });
+
+// Periodic snapshot broadcast every 60s — keeps all dashboards in sync
+setInterval(() => {
+  if (sseClients.size === 0) return;
+  const states = [...churches.values()].map(c => ({
+    churchId:         c.churchId,
+    name:             c.name,
+    connected:        c.connected,
+    status:           c.status,
+    lastSeen:         c.lastSeen,
+    activeAlerts:     c.activeAlerts || 0,
+    encoderActive:    c.encoderActive || false,
+    syncStatus:       c.syncStatus || null,
+    church_type:      c.church_type || 'recurring',
+    reseller_id:      c.reseller_id || null,
+  }));
+  broadcastToSSE({ type: 'snapshot', churches: states });
+}, 60_000);
 
 // ─── MAINTENANCE WINDOWS API ──────────────────────────────────────────────────
 
@@ -1307,6 +1696,12 @@ function handleChurchConnection(ws, url, clientIp) {
   const church = churches.get(payload.churchId);
   if (!church) return ws.close(1008, 'church not registered');
 
+  const access = checkChurchPaidAccess(church.churchId);
+  if (!access.allowed) {
+    log(`Blocked church connection for "${church.name}" (${church.churchId}): ${access.message}`);
+    return ws.close(1008, `billing_${access.status}`);
+  }
+
   // Close any existing connection from this church
   if (church.ws?.readyState === WebSocket.OPEN) {
     church.ws.close(1000, 'replaced by new connection');
@@ -1363,12 +1758,15 @@ function handleChurchConnection(ws, url, clientIp) {
   ws.on('close', () => {
     church.lastSeen = new Date().toISOString();
     church.disconnectedAt = Date.now();
+    // Reset device status so dashboard doesn't show stale connected states
+    church.status = { connected: false, atem: null, obs: null };
     log(`Church "${church.name}" disconnected`);
     const disconnectEvent = {
       type: 'church_disconnected',
       churchId: church.churchId,
       name: church.name,
       connected: false,
+      status: church.status,
     };
     broadcastToControllers(disconnectEvent);
     broadcastToSSE(disconnectEvent);
@@ -1579,7 +1977,7 @@ function broadcastToSSE(data) {
 // ─── AUTH MIDDLEWARE ──────────────────────────────────────────────────────────
 
 function requireAdmin(req, res, next) {
-  const key = req.headers['x-api-key'] || req.query.apikey;
+  const key = resolveAdminKey(req);
   if (key !== ADMIN_API_KEY) return res.status(401).json({ error: 'unauthorized' });
   next();
 }
@@ -1594,7 +1992,7 @@ function requireReseller(req, res, next) {
 }
 
 function requireChurchOrAdmin(req, res, next) {
-  const key = req.headers['x-api-key'] || req.query.apikey;
+  const key = resolveAdminKey(req);
   if (key === ADMIN_API_KEY) return next();
 
   const auth = req.headers['authorization'] || '';

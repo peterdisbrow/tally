@@ -6,9 +6,13 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "start:mock-lab": "electron src/main-mock-lab.js",
+    "dev:mock-lab": "electron src/main-mock-lab.js --dev",
     "build:mac": "electron-builder --mac",
+    "build:mock-lab:mac": "electron-builder --mac --config electron-builder.mock-lab.json",
     "build:mac:dist": "mkdir -p \"$HOME/Desktop/Tally\" && rm -f \"dist/Tally by ATEM School-1.0.0-arm64.dmg\" \"dist/Tally by ATEM School-1.0.0-arm64.dmg.blockmap\" && electron-builder --mac && cp -f \"dist/Tally by ATEM School-1.0.0-arm64.dmg\" \"$HOME/Desktop/Tally/Tally-by-ATEM-School.dmg\"",
     "build:win": "electron-builder --win",
+    "build:mock-lab:win": "electron-builder --win --config electron-builder.mock-lab.json",
     "build:all": "electron-builder --mac --win"
   },
   "build": {
@@ -46,7 +50,14 @@
       "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    }
+    },
+    "extraResources": [
+      {
+        "from": "../church-client",
+        "to": "church-client",
+        "filter": ["**/*", "!.git", "!.git/**"]
+      }
+    ]
   },
   "dependencies": {
     "atem-connection": "^3.9.0",

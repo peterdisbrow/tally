@@ -21,8 +21,21 @@ AVAILABLE COMMANDS (JSON schema):
 {"command":"atem.setInputLabel","params":{"input":N,"longName":"X"}}
 {"command":"obs.startStream","params":{}}
 {"command":"obs.stopStream","params":{}}
-{"command":"obs.setScene","params":{"scene":"X"}}
+{"command":"obs.setScene","params":{"scene":"X"}}                           — switch to scene "X"
 {"command":"companion.pressNamed","params":{"name":"X"}}           — press a named Companion button
+{"command":"vmix.startStream","params":{}}
+{"command":"vmix.stopStream","params":{}}
+{"command":"vmix.startRecording","params":{}}
+{"command":"vmix.stopRecording","params":{}}
+{"command":"vmix.cut","params":{}}
+{"command":"vmix.fade","params":{"ms":300}}
+{"command":"vmix.setPreview","params":{"input":1}}
+{"command":"vmix.setProgram","params":{"input":1}}
+{"command":"vmix.setVolume","params":{"value":80}}
+{"command":"vmix.mute","params":{}}
+{"command":"vmix.unmute","params":{}}
+{"command":"vmix.preview","params":{}}
+{"command":"vmix.isRunning","params":{}}
 {"command":"videohub.route","params":{"input":N,"output":N}}
 {"command":"videohub.getRoutes","params":{}}
 {"command":"propresenter.next","params":{}}

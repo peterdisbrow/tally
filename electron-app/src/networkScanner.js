@@ -138,21 +138,29 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
   const ips = [];
   for (let i = 1; i <= 254; i++) ips.push(`${subnet}.${i}`);
 
-  // Also check localhost for OBS, Companion, and ProPresenter
+  // Also check localhost for common services (important for local mock/testing setups)
   const localhostChecks = [
+    { type: 'atem', ip: '127.0.0.1', port: 9910 },
     { type: 'obs', ip: '127.0.0.1', port: 4455 },
     { type: 'companion', ip: '127.0.0.1', port: 8888 },
+    { type: 'hyperdeck', ip: '127.0.0.1', port: 9993 },
     { type: 'propresenter', ip: '127.0.0.1', port: 1025 },
     { type: 'resolume', ip: '127.0.0.1', port: 8080 },
     { type: 'vmix', ip: '127.0.0.1', port: 8088 },
+    { type: 'mixer-behringer', ip: '127.0.0.1', port: 10023 },
+    { type: 'mixer-allenheath', ip: '127.0.0.1', port: 51326 },
+    { type: 'mixer-yamaha', ip: '127.0.0.1', port: 8765 },
   ];
 
   // Check localhost first
-  onProgress(2, 'Checking localhost for OBS, Companion, and ProPresenter...');
+  onProgress(2, 'Checking localhost for common AV services...');
   for (const check of localhostChecks) {
     const open = await tryTcpConnect(check.ip, check.port, 500);
     if (open) {
-      if (check.type === 'obs') {
+      if (check.type === 'atem') {
+        results.atem.push({ ip: '127.0.0.1', name: 'ATEM Switcher', model: 'Unknown' });
+        onProgress(3, 'Found ATEM on localhost ✅');
+      } else if (check.type === 'obs') {
         results.obs.push({ ip: '127.0.0.1', port: 4455 });
         onProgress(3, 'Found OBS on localhost ✅');
       } else if (check.type === 'companion') {
@@ -182,6 +190,18 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
           results.resolume.push({ ip: '127.0.0.1', port: check.port, version });
           onProgress(5, `Found ${version} on localhost ✅`);
         }
+      } else if (check.type === 'hyperdeck') {
+        results.hyperdeck.push({ ip: '127.0.0.1' });
+        onProgress(5, 'Found HyperDeck on localhost ✅');
+      } else if (check.type === 'mixer-behringer') {
+        results.mixers.push({ ip: '127.0.0.1', port: check.port, type: 'behringer/midas (X32/M32)' });
+        onProgress(5, 'Found possible Behringer/Midas console on localhost ✅');
+      } else if (check.type === 'mixer-allenheath') {
+        results.mixers.push({ ip: '127.0.0.1', port: check.port, type: 'allenheath (SQ/dLive)' });
+        onProgress(5, 'Found possible Allen & Heath console on localhost ✅');
+      } else if (check.type === 'mixer-yamaha') {
+        results.mixers.push({ ip: '127.0.0.1', port: check.port, type: 'yamaha (CL/QL)' });
+        onProgress(5, 'Found possible Yamaha console on localhost ✅');
       }
     }
   }

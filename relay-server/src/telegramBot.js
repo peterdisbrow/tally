@@ -32,7 +32,26 @@ const patterns = [
   { match: /(?:start|begin|go)\s+(?:the\s+)?stream(?:ing)?|go\s+live/i, command: 'obs.startStream', extract: () => ({}), desc: 'start stream / go live' },
   { match: /(?:stop|end)\s+(?:the\s+)?stream(?:ing)?/i, command: 'obs.stopStream', extract: () => ({}), desc: 'stop stream' },
 
-  // OBS — scene
+    // vMix - legacy/volunteer production flows
+  { match: /(?:^|\s)(?:start|begin|go)\s+(?:the\s+)?(?:vmix|v\.?mix)\s*(?:stream|streaming)?/i, command: 'vmix.startStream', extract: () => ({}), desc: 'start vMix stream' },
+  { match: /(?:\S+)\s+(?:vmix|v\.?mix)\s*(?:stream|streaming)?|(?:^|\s)(?:start|begin|go)\s+stream\s+(?:on\s+)?(?:vmix|v\.?mix)/i, command: 'vmix.startStream', extract: () => ({}), desc: 'start vMix stream' },
+  { match: /(?:^|\s)(?:stop|end)\s+(?:the\s+)?(?:vmix|v\.?mix)\s*(?:stream|streaming)?/i, command: 'vmix.stopStream', extract: () => ({}), desc: 'stop vMix stream' },
+  { match: /(?:\S+)\s+(?:vmix|v\.?mix)\s+stream|(?:^|\s)(?:stop|end)\s+stream\s+(?:on\s+)?(?:vmix|v\.?mix)/i, command: 'vmix.stopStream', extract: () => ({}), desc: 'stop vMix stream' },
+  { match: /(?:start|begin|go)\s+(?:\S+\s+)?(?:vmix|v\.?mix)\s+recording/i, command: 'vmix.startRecording', extract: () => ({}), desc: 'start vMix recording' },
+  { match: /(?:stop|end)\s+(?:\S+\s+)?(?:vmix|v\.?mix)\s+recording/i, command: 'vmix.stopRecording', extract: () => ({}), desc: 'stop vMix recording' },
+  { match: /(?:vmix|v\.?mix)\s+(?:mute|muting)/i, command: 'vmix.mute', extract: () => ({}), desc: 'mute vMix master' },
+  { match: /(?:vmix|v\.?mix)\s+(?:unmute|unmuting)/i, command: 'vmix.unmute', extract: () => ({}), desc: 'unmute vMix master' },
+  { match: /(?:vmix|v\.?mix)\s+volume\s*(\d{1,3})%?/i, command: 'vmix.setVolume', extract: m => ({ value: Number(m[1]) }), desc: 'set vMix master volume' },
+  { match: /(?:vmix|v\.?mix)\s+to\s+(?:program|air|live|pgm|out|output)\s+(?:cam(?:era)?|camera|input)?\s*(\d+)|(?:vmix|v\.?mix)\s+(?:cam(?:era)?|camera|input)\s*(\d+)\s*(?:to\s+)?(?:program|air|live|pgm|out|output)/i, command: 'vmix.setProgram', extract: m => ({ input: parseInt(m[1] || m[2] || 1) }), desc: 'vmix cut to input N' },
+  { match: /(?:vmix|v\.?mix)\s+cut/i, command: 'vmix.cut', extract: () => ({}), desc: 'vmix cut transition' },
+  { match: /(?:vmix|v\.?mix)\s+set\s+(?:preview|program)\s+(?:to\s+)?(?:input|camera|cam)?\s*(\d+)/i, command: 'vmix.setProgram', extract: m => ({ input: parseInt(m[1]) }), desc: 'vmix set input' },
+  { match: /(?:vmix|v\.?mix)\s+(?:set\s+)?preview\s*(?:to|on)?\s*(?:input|camera)?\s*(\d+)/i, command: 'vmix.setPreview', extract: m => ({ input: parseInt(m[1]) }), desc: 'vmix preview input N' },
+  { match: /(?:list|show)\s+(?:vmix|v\.?mix)\s+inputs/i, command: 'vmix.listInputs', extract: () => ({}), desc: 'list vMix inputs' },
+  { match: /(?:vmix|v\.?mix)\s+fade\s*(\d+)?/i, command: 'vmix.fade', extract: m => ({ ms: Number(m[1] || 500) }), desc: 'vmix fade to preview' },
+  { match: /(?:vmix|v\.?mix)\s+snapshot/i, command: 'vmix.preview', extract: () => ({}), desc: 'take vmix preview snapshot' },
+  { match: /(?:is\s+)?(?:vmix|v\.?mix)\s+running|(?:vmix|v\.?mix)\s+status|(?:vmix|v\.?mix)\s+health/i, command: 'vmix.isRunning', extract: () => ({}), desc: 'check vmix running' },
+
+// OBS — scene
   { match: /(?:switch|go|change)\s+(?:to\s+)?scene\s+["""]?(.+?)["""]?\s*$/i, command: 'obs.setScene', extract: m => ({ scene: m[1].trim() }), desc: 'switch to scene "Name"' },
 
   // Companion
@@ -1229,12 +1248,16 @@ class TallyBot {
     }
   }
 
-  async setWebhook(webhookUrl) {
+  async setWebhook(payloadOrUrl) {
+    const payload = typeof payloadOrUrl === 'string'
+      ? { url: payloadOrUrl }
+      : (payloadOrUrl || {});
+
     try {
       const resp = await fetch(`${this._apiBase}/setWebhook`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: webhookUrl }),
+        body: JSON.stringify(payload),
       });
       const data = await resp.json();
       console.log(`[TallyBot] Webhook set: ${data.ok ? '✅' : '❌'} ${data.description || ''}`);

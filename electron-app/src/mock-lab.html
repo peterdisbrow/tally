@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tally Mock Lab</title>
+  <style>
+    :root {
+      --bg: #07110d;
+      --bg-2: #0d1e17;
+      --card: rgba(15, 27, 22, 0.78);
+      --line: rgba(100, 170, 135, 0.28);
+      --text: #ebf5ef;
+      --muted: #9bb7aa;
+      --green: #4ade80;
+      --cyan: #60a5fa;
+      --warn: #facc15;
+      --danger: #fb7185;
+      --mono: "SF Mono", "Menlo", monospace;
+      --font: "Avenir Next", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: var(--font);
+      background:
+        radial-gradient(circle at 0% 0%, rgba(74, 222, 128, 0.2), transparent 42%),
+        radial-gradient(circle at 100% 0%, rgba(96, 165, 250, 0.16), transparent 40%),
+        linear-gradient(145deg, var(--bg), var(--bg-2));
+      min-height: 100vh;
+      padding: 18px;
+    }
+
+    .wrap { max-width: 1320px; margin: 0 auto; }
+
+    .hero {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: linear-gradient(120deg, rgba(12, 28, 22, 0.86), rgba(13, 22, 30, 0.74));
+      padding: 14px 16px;
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.34);
+      margin-bottom: 14px;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: 30px;
+      letter-spacing: -0.03em;
+    }
+
+    .hero p {
+      margin: 6px 0 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .status-line {
+      margin-top: 10px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      white-space: pre-wrap;
+      line-height: 1.4;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--card);
+      padding: 10px;
+      backdrop-filter: blur(4px);
+    }
+
+    .wide { grid-column: 1 / -1; }
+
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--green);
+      font-family: var(--mono);
+    }
+
+    .row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+    .row:last-child { margin-bottom: 0; }
+
+    .row label {
+      min-width: 112px;
+      font-size: 11px;
+      font-family: var(--mono);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .endpoint {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+      word-break: break-word;
+      line-height: 1.4;
+      margin-bottom: 4px;
+    }
+
+    input, select, button {
+      border-radius: 7px;
+      border: 1px solid var(--line);
+      background: rgba(4, 10, 9, 0.9);
+      color: var(--text);
+      font-size: 12px;
+      padding: 7px 8px;
+      font-family: var(--font);
+    }
+
+    input, select {
+      min-width: 0;
+      flex: 1;
+      font-family: var(--mono);
+    }
+
+    input.port {
+      max-width: 92px;
+      flex: 0 0 92px;
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: 700;
+      background: linear-gradient(145deg, rgba(74, 222, 128, 0.26), rgba(74, 222, 128, 0.1));
+    }
+
+    button.alt {
+      background: linear-gradient(145deg, rgba(96, 165, 250, 0.24), rgba(96, 165, 250, 0.08));
+    }
+
+    button.warn {
+      background: linear-gradient(145deg, rgba(250, 204, 21, 0.25), rgba(250, 204, 21, 0.08));
+      color: #fef08a;
+    }
+
+    button.danger {
+      background: linear-gradient(145deg, rgba(251, 113, 133, 0.27), rgba(251, 113, 133, 0.1));
+      color: #fecdd3;
+    }
+
+    .checks {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 8px;
+    }
+
+    .check {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 11px;
+      font-family: var(--mono);
+    }
+
+    .check input {
+      width: auto;
+      flex: none;
+      accent-color: var(--green);
+    }
+
+    pre {
+      margin: 0;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(6, 11, 9, 0.9);
+      padding: 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: #d9ede2;
+      max-height: 280px;
+      overflow: auto;
+    }
+
+    .pre-tall { max-height: 340px; }
+
+    .footer {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    .badge {
+      display: inline-block;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      padding: 3px 8px;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-left: 8px;
+    }
+
+    .changes-panel {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(6, 11, 9, 0.9);
+      max-height: 300px;
+      overflow: auto;
+      padding: 8px;
+    }
+
+    .change-row {
+      border: 1px solid rgba(100, 170, 135, 0.2);
+      border-radius: 8px;
+      padding: 8px;
+      margin-bottom: 7px;
+      background: rgba(11, 19, 16, 0.7);
+    }
+
+    .change-row:last-child { margin-bottom: 0; }
+
+    .change-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 5px;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .change-path {
+      color: var(--cyan);
+      word-break: break-all;
+      line-height: 1.4;
+    }
+
+    .change-time {
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .change-values {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 4px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text);
+      line-height: 1.35;
+    }
+
+    .change-values .before { color: #fca5a5; }
+    .change-values .after { color: #86efac; }
+
+    .change-summary {
+      margin-bottom: 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .change-empty {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      padding: 6px 4px;
+    }
+
+    .device-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+
+    .device-tab-btn {
+      padding: 6px 10px;
+      font-size: 11px;
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: rgba(6, 11, 9, 0.65);
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .device-tab-btn.active {
+      color: var(--text);
+      border-color: rgba(74, 222, 128, 0.55);
+      background: linear-gradient(145deg, rgba(74, 222, 128, 0.32), rgba(74, 222, 128, 0.14));
+    }
+
+    .device-panel {
+      display: none;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: rgba(6, 11, 9, 0.75);
+      position: relative;
+    }
+
+    .device-panel.active {
+      display: block;
+    }
+
+    #tab-panel-atem {
+      min-height: 520px;
+      padding-top: 190px;
+    }
+
+    .atem-live-pad {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      width: min(620px, calc(100% - 20px));
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(3, 9, 8, 0.92);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.33);
+      z-index: 2;
+    }
+
+    .atem-live-handle {
+      border-bottom: 1px solid var(--line);
+      padding: 6px 10px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      cursor: grab;
+      user-select: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .atem-live-handle:active { cursor: grabbing; }
+
+    .atem-live-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      padding: 8px;
+    }
+
+    .atem-live-cell {
+      border: 1px solid rgba(100, 170, 135, 0.22);
+      border-radius: 8px;
+      background: rgba(9, 20, 16, 0.84);
+      padding: 8px;
+      min-height: 58px;
+    }
+
+    .atem-live-k {
+      font-family: var(--mono);
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .atem-live-v {
+      margin-top: 5px;
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .atem-live-v.program { color: #86efac; }
+    .atem-live-v.preview { color: #93c5fd; }
+    .atem-live-v.warn { color: #fde68a; font-size: 12px; font-family: var(--mono); }
+
+    .atem-live-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 0 8px 8px;
+    }
+
+    .mini-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: rgba(8, 15, 12, 0.8);
+    }
+
+    .mini-check input {
+      width: auto;
+      min-width: 0;
+      flex: none;
+      accent-color: var(--green);
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>Tally Mock Lab <span class="badge">Standalone</span></h1>
+      <p>Independent multi-device simulator for API command testing. Configure device IPs, launch, then drive state through the control API.</p>
+      <div class="actions">
+        <button onclick="startLab()">Launch Lab</button>
+        <button class="alt" onclick="stopLab()">Stop Lab</button>
+        <button class="alt" onclick="openControlApi()">Open Control API</button>
+        <button class="warn" onclick="refreshStatus()">Refresh</button>
+      </div>
+      <div id="status" class="status-line">Loading...</div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Network Layout</h2>
+        <div class="row">
+          <label>NIC</label>
+          <select id="cfg-nic"></select>
+          <button class="alt" onclick="applyNicPreset()">Apply NIC Subnet</button>
+        </div>
+        <div class="row"><label>ATEM</label><input id="cfg-atem-ip" type="text"><input id="cfg-atem-port" class="port" type="number" min="1" max="65535"></div>
+        <div class="row"><label>OBS</label><input id="cfg-obs-ip" type="text"><input id="cfg-obs-port" class="port" type="number" min="1" max="65535"></div>
+        <div class="row"><label>X32</label><input id="cfg-x32-ip" type="text"><input id="cfg-x32-port" class="port" type="number" min="1" max="65535"></div>
+        <div class="row"><label>Encoder</label><input id="cfg-encoder-ip" type="text"><input id="cfg-encoder-port" class="port" type="number" min="1" max="65535"></div>
+        <div class="row"><label>HyperDeck</label><input id="cfg-hyperdeck-ip" type="text"><input id="cfg-hyperdeck-port" class="port" type="number" min="1" max="65535"></div>
+        <div class="row"><label>ProPresenter</label><input id="cfg-propresenter-ip" type="text"><input id="cfg-propresenter-port" class="port" type="number" min="1" max="65535"></div>
+        <div class="row"><label>Control API</label><input id="cfg-controlApi-ip" type="text"><input id="cfg-controlApi-port" class="port" type="number" min="1" max="65535"></div>
+
+        <div class="checks">
+          <label class="check"><input id="cfg-unique-ips" type="checkbox" checked>Require unique IP for each device</label>
+          <label class="check"><input id="cfg-allow-fallback" type="checkbox">Allow fallback if IP cannot bind</label>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <button onclick="saveConfig()">Save Config</button>
+          <button class="alt" onclick="loadConfig()">Reload Config</button>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Active Endpoints</h2>
+        <div class="endpoint" id="ep-atem">ATEM: -</div>
+        <div class="endpoint" id="ep-obs">OBS: -</div>
+        <div class="endpoint" id="ep-x32">X32: -</div>
+        <div class="endpoint" id="ep-encoder">Encoder: -</div>
+        <div class="endpoint" id="ep-hyperdeck">HyperDeck: -</div>
+        <div class="endpoint" id="ep-propresenter">ProPresenter: -</div>
+        <div class="endpoint" id="ep-control" style="margin-top:7px;color:var(--cyan);">Control API: -</div>
+      </article>
+
+      <article class="card wide">
+        <div class="row" style="justify-content: space-between; margin-bottom:8px;">
+          <h2 style="margin:0;">Combined State</h2>
+          <button class="danger" onclick="resetAll()">Reset All</button>
+        </div>
+        <pre id="state-json" class="pre-tall">{}</pre>
+      </article>
+
+      <article class="card wide">
+        <div class="row" style="justify-content: space-between; margin-bottom:8px;">
+          <h2 style="margin:0;">Live Changes</h2>
+          <div class="actions">
+            <button class="alt" id="btn-change-pause" onclick="toggleChangeFeed()">Pause Feed</button>
+            <button class="warn" onclick="clearChangeFeed()">Clear</button>
+          </div>
+        </div>
+        <div id="change-summary" class="change-summary">Waiting for state updates...</div>
+        <div id="change-list" class="changes-panel">
+          <div class="change-empty">No changes detected yet.</div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="row" style="justify-content: space-between; margin-bottom:8px;">
+          <h2 style="margin:0;">Command Catalog</h2>
+          <button class="alt" onclick="loadCommands()">Load Commands</button>
+        </div>
+        <pre id="commands-json">[]</pre>
+      </article>
+
+      <article class="card">
+        <h2>Mock Lab Logs</h2>
+        <pre id="logs-json">(waiting for logs)</pre>
+      </article>
+
+      <article class="card wide">
+        <div class="row" style="justify-content: space-between; margin-bottom:8px;">
+          <h2 style="margin:0;">Device Console</h2>
+          <div class="change-summary" style="margin:0;">Switch tabs to control each mock device.</div>
+        </div>
+
+        <div class="device-tabs">
+          <button class="device-tab-btn active" id="tab-btn-atem" onclick="switchDeviceTab('atem')">ATEM</button>
+          <button class="device-tab-btn" id="tab-btn-hyperdeck" onclick="switchDeviceTab('hyperdeck')">HyperDeck</button>
+          <button class="device-tab-btn" id="tab-btn-obs" onclick="switchDeviceTab('obs')">OBS + Encoder</button>
+          <button class="device-tab-btn" id="tab-btn-x32" onclick="switchDeviceTab('x32')">X32 Mixer</button>
+          <button class="device-tab-btn" id="tab-btn-propresenter" onclick="switchDeviceTab('propresenter')">ProPresenter</button>
+        </div>
+
+        <div class="device-panel active" id="tab-panel-atem">
+          <div class="atem-live-pad" id="atem-live-pad">
+            <div class="atem-live-handle" id="atem-live-handle">
+              <span>ATEM Live Pad (drag)</span>
+              <span id="atem-live-last-action">Ready</span>
+            </div>
+            <div class="atem-live-grid">
+              <div class="atem-live-cell"><div class="atem-live-k">Program</div><div id="atem-live-program" class="atem-live-v program">-</div></div>
+              <div class="atem-live-cell"><div class="atem-live-k">Preview</div><div id="atem-live-preview" class="atem-live-v preview">-</div></div>
+              <div class="atem-live-cell"><div class="atem-live-k">Transition</div><div id="atem-live-transition" class="atem-live-v">mix @ 25</div></div>
+              <div class="atem-live-cell"><div class="atem-live-k">Status</div><div id="atem-live-status" class="atem-live-v warn">idle</div></div>
+            </div>
+            <div class="atem-live-actions">
+              <button onclick="atemCut()">Cut</button>
+              <button class="alt" onclick="atemAuto()">Auto</button>
+              <button class="alt" onclick="atemRec(true)">Rec On</button>
+              <button class="alt" onclick="atemRec(false)">Rec Off</button>
+            </div>
+          </div>
+
+          <div class="row"><input id="atem-program" type="number" min="1" value="1"><button onclick="atemProgram()">Set Program</button></div>
+          <div class="row"><input id="atem-preview" type="number" min="1" value="2"><button onclick="atemPreview()">Set Preview</button></div>
+          <div class="row"><button onclick="atemCut()">Cut</button><button class="alt" onclick="atemAuto()">Auto</button><button onclick="atemRec(true)">Record On</button><button class="alt" onclick="atemRec(false)">Record Off</button></div>
+          <div class="row"><select id="atem-trans-style"><option value="mix">Mix</option><option value="dip">Dip</option><option value="wipe">Wipe</option><option value="dve">DVE</option><option value="sting">Sting</option></select><input id="atem-trans-rate" type="number" min="1" max="250" value="25"><button onclick="atemTransition()">Set Transition</button></div>
+          <div class="row"><input id="atem-aux-bus" type="number" min="1" value="1"><input id="atem-aux-input" type="number" min="1" value="1"><button onclick="atemAux()">Set Aux</button></div>
+          <div class="row"><input id="atem-usk-keyer" type="number" min="0" value="0"><select id="atem-usk-type"><option value="luma">Luma</option><option value="chroma">Chroma</option><option value="pattern">Pattern</option><option value="dve">DVE</option></select><button onclick="atemUskType()">USK Type</button><button class="alt" onclick="atemUskOnAir(true)">USK On</button><button class="alt" onclick="atemUskOnAir(false)">USK Off</button><button class="warn" onclick="atemUskTie()">USK Tie</button></div>
+          <div class="row"><input id="atem-usk-fill" type="number" min="1" value="3"><input id="atem-usk-key" type="number" min="1" value="4"><button onclick="atemUskSources()">USK Sources</button></div>
+          <div class="row"><input id="atem-dsk-keyer" type="number" min="0" value="0"><input id="atem-dsk-rate" type="number" min="1" max="250" value="25"><button onclick="atemDskRate()">DSK Rate</button><button class="alt" onclick="atemDskOnAir(true)">DSK On</button><button class="alt" onclick="atemDskOnAir(false)">DSK Off</button><button class="warn" onclick="atemDskTie()">DSK Tie</button></div>
+          <div class="row"><input id="atem-dsk-fill" type="number" min="1" value="3"><input id="atem-dsk-key" type="number" min="1" value="4"><button onclick="atemDskSource()">DSK Sources</button></div>
+          <div class="row"><input id="atem-ss-box" type="number" min="0" max="3" value="0"><input id="atem-ss-input" type="number" min="1" value="1"><input id="atem-ss-x" type="number" min="-1" max="1" step="0.05" value="0"><input id="atem-ss-y" type="number" min="-1" max="1" step="0.05" value="0"><input id="atem-ss-size" type="number" min="0.05" max="1" step="0.05" value="0.5"><label class="mini-check"><input id="atem-ss-cropped" type="checkbox">Cropped</label><button onclick="atemSuperSourceBox(true)">SS Box On</button><button class="alt" onclick="atemSuperSourceBox(false)">SS Box Off</button></div>
+          <div class="row"><input id="atem-ss-fill" type="number" min="1" value="1"><input id="atem-ss-cut" type="number" min="1" value="2"><input id="atem-ss-clip" type="number" min="0" max="1000" value="0"><input id="atem-ss-gain" type="number" min="0" max="1000" value="0"><label class="mini-check"><input id="atem-ss-premultiplied" type="checkbox">Premult</label><label class="mini-check"><input id="atem-ss-invert" type="checkbox">Invert</label><button onclick="atemSuperSourceArt(true)">SS Art On</button><button class="alt" onclick="atemSuperSourceArt(false)">SS Art Off</button></div>
+          <div class="row"><input id="atem-color-index" type="number" min="1" max="2" value="1"><input id="atem-color-hue" type="number" min="0" max="359" value="0"><input id="atem-color-saturation" type="number" min="0" max="1000" value="0"><input id="atem-color-luma" type="number" min="0" max="1000" value="0"><button onclick="atemColor()">Set Color Gen</button></div>
+          <div class="row"><input id="atem-macro-index" type="number" min="0" value="1"><button onclick="atemMacroRun()">Run Macro</button><button class="danger" onclick="atemMacroStop()">Stop Macro</button></div>
+          <div class="row"><input id="atem-media-player" type="number" min="1" value="1"><select id="atem-media-type"><option value="still">Still</option><option value="clip">Clip</option></select><input id="atem-media-index" type="number" min="1" value="1"><button onclick="atemMediaSource()">Set Media Source</button><button class="alt" onclick="atemMediaPlay(true)">Play</button><button class="alt" onclick="atemMediaPlay(false)">Stop</button></div>
+          <div class="row"><input id="atem-label-input" type="number" min="1" value="1"><input id="atem-label-name" value="Center Cam"><input id="atem-label-short" value="CTR"><button onclick="atemLabel()">Set Label</button></div>
+          <div class="row"><input id="atem-ptz-camera" type="number" min="1" value="1"><input id="atem-ptz-preset" type="number" min="1" value="2"><button onclick="atemPtzPreset()">Recall Preset</button><input id="atem-ptz-pan" type="number" min="-1" max="1" step="0.1" value="0"><input id="atem-ptz-tilt" type="number" min="-1" max="1" step="0.1" value="0"><button class="alt" onclick="atemPtzPanTilt()">Pan/Tilt</button><input id="atem-ptz-zoom" type="number" min="-1" max="1" step="0.1" value="0"><button class="alt" onclick="atemPtzZoom()">Zoom</button></div>
+        </div>
+
+        <div class="device-panel" id="tab-panel-hyperdeck">
+          <div class="row"><input id="hd-index" type="number" min="0" value="0"><select id="hd-action"><option value="play">Play</option><option value="stop">Stop</option><option value="record">Record</option><option value="next">Next</option><option value="prev">Prev</option></select><button onclick="hyperdeckAction()">Run Action</button></div>
+        </div>
+
+        <div class="device-panel" id="tab-panel-obs">
+          <div class="row"><button onclick="obsStream(true)">Stream On</button><button class="alt" onclick="obsStream(false)">Stream Off</button><button onclick="obsRecord(true)">Record On</button><button class="alt" onclick="obsRecord(false)">Record Off</button></div>
+          <div class="row"><input id="obs-scene" value="Program"><button onclick="obsScene()">Set Scene</button></div>
+          <div class="row"><input id="enc-fps" type="number" min="1" max="120" value="30"><input id="enc-cpu" type="number" min="0" max="100" value="18"><input id="enc-cong" type="number" min="0" max="1" step="0.01" value="0.02"><input id="enc-kbps" type="number" min="64" value="4500"><button onclick="encoderApply()">Apply Encoder</button></div>
+        </div>
+
+        <div class="device-panel" id="tab-panel-x32">
+          <div class="row"><button onclick="x32Mute(true)">Mute Master</button><button class="alt" onclick="x32Mute(false)">Unmute Master</button></div>
+          <div class="row"><input id="x32-fader" type="number" min="0" max="1" step="0.01" value="0.78"><button onclick="x32Fader()">Set Master Fader</button></div>
+        </div>
+
+        <div class="device-panel" id="tab-panel-propresenter">
+          <div class="row"><button onclick="ppNext()">Next Slide</button><button class="alt" onclick="ppPrev()">Previous Slide</button></div>
+          <div class="row"><input id="pp-slide" type="number" min="1" value="1"><button onclick="ppGo()">Go To Slide</button></div>
+        </div>
+      </article>
+    </section>
+
+    <div class="footer">Run this app on a dedicated machine for stable binding and endpoint testing against your command APIs.</div>
+  </div>
+
+  <script>
+    const api = window.electronAPI;
+    const ENDPOINT_KEYS = ['atem', 'obs', 'x32', 'encoder', 'hyperdeck', 'propresenter', 'controlApi'];
+    const MAX_CHANGE_EVENTS = 160;
+    let mockLab = null;
+    let nicList = [];
+    let lastFlatState = null;
+    let changeFeedPaused = false;
+    const changeEvents = [];
+    let refreshTicker = null;
+    let hiddenChangeCount = 0;
+
+    function byId(id) {
+      return document.getElementById(id);
+    }
+
+    function setStatus(text) {
+      byId('status').textContent = text;
+    }
+
+    function endpointText(name, value) {
+      const el = byId(name);
+      if (el) el.textContent = value;
+    }
+
+    function parseNicValue(value) {
+      const raw = String(value || '');
+      const idx = raw.indexOf('@@');
+      if (idx === -1) return { name: raw.trim(), ip: '' };
+      return {
+        name: raw.slice(0, idx),
+        ip: raw.slice(idx + 2),
+      };
+    }
+
+    function currentNic() {
+      const select = byId('cfg-nic');
+      if (!select || !select.value) return null;
+      const parsed = parseNicValue(select.value);
+      if (!parsed.name || !parsed.ip) return null;
+      return parsed;
+    }
+
+    async function hydrateNetworkInterfaces(preferredNicName = '') {
+      const select = byId('cfg-nic');
+      if (!select) return;
+
+      nicList = await api.getNetworkInterfaces();
+      select.innerHTML = '';
+
+      if (!Array.isArray(nicList) || nicList.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No interfaces found';
+        select.appendChild(opt);
+        return;
+      }
+
+      nicList.forEach((iface) => {
+        const opt = document.createElement('option');
+        opt.value = `${iface.name}@@${iface.ip}`;
+        opt.textContent = `${iface.name} (${iface.ip})`;
+        select.appendChild(opt);
+      });
+
+      const preferred = nicList.find((i) => i.name === preferredNicName) || nicList[0];
+      if (preferred) {
+        select.value = `${preferred.name}@@${preferred.ip}`;
+      }
+    }
+
+    function applyNicPreset() {
+      const nic = currentNic();
+      if (!nic) {
+        setStatus('Select a NIC first.');
+        return;
+      }
+
+      const octets = nic.ip.split('.');
+      if (octets.length !== 4) {
+        setStatus(`Selected NIC IP is not IPv4: ${nic.ip}`);
+        return;
+      }
+
+      const subnet = `${octets[0]}.${octets[1]}.${octets[2]}`;
+      const hostMap = {
+        atem: 11,
+        obs: 12,
+        x32: 13,
+        encoder: 14,
+        hyperdeck: 15,
+        propresenter: 16,
+      };
+
+      Object.entries(hostMap).forEach(([key, host]) => {
+        byId(`cfg-${key}-ip`).value = `${subnet}.${host}`;
+      });
+      byId('cfg-controlApi-ip').value = nic.ip;
+
+      setStatus(`Applied NIC ${nic.name} (${nic.ip}). Device IPs set to ${subnet}.11-.16 and Control API set to ${nic.ip}.`);
+    }
+
+    function collectConfigFromForm() {
+      const addresses = {};
+      for (const key of ENDPOINT_KEYS) {
+        const ip = byId(`cfg-${key}-ip`).value.trim();
+        const port = Number(byId(`cfg-${key}-port`).value);
+        addresses[key] = { ip, port };
+      }
+
+      return {
+        addresses,
+        allowFallback: byId('cfg-allow-fallback').checked,
+        requireUniqueIps: byId('cfg-unique-ips').checked,
+        nicName: currentNic()?.name || '',
+      };
+    }
+
+    function fillConfigForm(config) {
+      const addresses = config?.addresses || {};
+      for (const key of ENDPOINT_KEYS) {
+        byId(`cfg-${key}-ip`).value = addresses[key]?.ip || '';
+        byId(`cfg-${key}-port`).value = addresses[key]?.port || '';
+      }
+      byId('cfg-allow-fallback').checked = !!config?.allowFallback;
+      byId('cfg-unique-ips').checked = config?.requireUniqueIps !== false;
+    }
+
+    function renderLogs(lines) {
+      const list = Array.isArray(lines) ? lines : [];
+      byId('logs-json').textContent = list.length ? list.join('\n') : '(no logs yet)';
+    }
+
+    function safeJson(value) {
+      if (value === undefined) return 'undefined';
+      if (typeof value === 'string') return value;
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    }
+
+    function flattenState(input, prefix = '', out = {}) {
+      if (Array.isArray(input)) {
+        if (!input.length) {
+          if (prefix) out[prefix] = '[]';
+          return out;
+        }
+        input.forEach((item, idx) => {
+          const key = prefix ? `${prefix}.${idx}` : String(idx);
+          flattenState(item, key, out);
+        });
+        return out;
+      }
+
+      if (input && typeof input === 'object') {
+        const keys = Object.keys(input);
+        if (!keys.length) {
+          if (prefix) out[prefix] = '{}';
+          return out;
+        }
+        keys.forEach((key) => {
+          const path = prefix ? `${prefix}.${key}` : key;
+          flattenState(input[key], path, out);
+        });
+        return out;
+      }
+
+      out[prefix || 'root'] = safeJson(input);
+      return out;
+    }
+
+    function compactValue(value, max = 86) {
+      const text = String(value ?? '');
+      return text.length > max ? `${text.slice(0, max)}...` : text;
+    }
+
+    function pushChangeEvent(event) {
+      changeEvents.unshift(event);
+      while (changeEvents.length > MAX_CHANGE_EVENTS) changeEvents.pop();
+    }
+
+    function renderChangeFeed() {
+      const summary = byId('change-summary');
+      const list = byId('change-list');
+
+      const pausedNote = changeFeedPaused ? ` | feed paused${hiddenChangeCount ? ` (${hiddenChangeCount} hidden)` : ''}` : '';
+      summary.textContent = `Tracked fields: ${Object.keys(lastFlatState || {}).length} | Events shown: ${changeEvents.length}${pausedNote}`;
+
+      list.innerHTML = '';
+      if (!changeEvents.length) {
+        const empty = document.createElement('div');
+        empty.className = 'change-empty';
+        empty.textContent = 'No changes detected yet.';
+        list.appendChild(empty);
+        return;
+      }
+
+      const frag = document.createDocumentFragment();
+      changeEvents.forEach((evt) => {
+        const row = document.createElement('div');
+        row.className = 'change-row';
+
+        const head = document.createElement('div');
+        head.className = 'change-head';
+
+        const path = document.createElement('div');
+        path.className = 'change-path';
+        path.textContent = evt.path;
+
+        const ts = document.createElement('div');
+        ts.className = 'change-time';
+        ts.textContent = new Date(evt.ts).toLocaleTimeString();
+
+        head.appendChild(path);
+        head.appendChild(ts);
+
+        const vals = document.createElement('div');
+        vals.className = 'change-values';
+
+        const before = document.createElement('div');
+        before.className = 'before';
+        before.textContent = `Before: ${compactValue(evt.from)}`;
+
+        const after = document.createElement('div');
+        after.className = 'after';
+        after.textContent = `After: ${compactValue(evt.to)}`;
+
+        vals.appendChild(before);
+        vals.appendChild(after);
+
+        row.appendChild(head);
+        row.appendChild(vals);
+        frag.appendChild(row);
+      });
+
+      list.appendChild(frag);
+    }
+
+    function trackStateChanges(nextState) {
+      const nextFlat = flattenState(nextState || {});
+      if (!lastFlatState) {
+        lastFlatState = nextFlat;
+        renderChangeFeed();
+        return;
+      }
+
+      const changes = [];
+      const keys = new Set([...Object.keys(lastFlatState), ...Object.keys(nextFlat)]);
+      keys.forEach((key) => {
+        const before = lastFlatState[key];
+        const after = nextFlat[key];
+        if (before !== after) {
+          changes.push({ path: key, from: before, to: after, ts: Date.now() });
+        }
+      });
+
+      lastFlatState = nextFlat;
+      if (!changes.length) {
+        renderChangeFeed();
+        return;
+      }
+
+      if (changeFeedPaused) {
+        hiddenChangeCount += changes.length;
+      } else {
+        changes.forEach(pushChangeEvent);
+      }
+      renderChangeFeed();
+    }
+
+    function toggleChangeFeed() {
+      changeFeedPaused = !changeFeedPaused;
+      const btn = byId('btn-change-pause');
+      btn.textContent = changeFeedPaused ? 'Resume Feed' : 'Pause Feed';
+      if (!changeFeedPaused) hiddenChangeCount = 0;
+      renderChangeFeed();
+    }
+
+    function switchDeviceTab(tab) {
+      const tabs = ['atem', 'hyperdeck', 'obs', 'x32', 'propresenter'];
+      tabs.forEach((name) => {
+        byId(`tab-btn-${name}`)?.classList.toggle('active', name === tab);
+        byId(`tab-panel-${name}`)?.classList.toggle('active', name === tab);
+      });
+    }
+
+    function clearChangeFeed() {
+      changeEvents.splice(0, changeEvents.length);
+      hiddenChangeCount = 0;
+      renderChangeFeed();
+    }
+
+    function setInputValue(id, value) {
+      const el = byId(id);
+      if (!el || value === undefined || value === null) return;
+      if (document.activeElement === el) return;
+      el.value = String(value);
+    }
+
+    function setAtemAction(label) {
+      const el = byId('atem-live-last-action');
+      if (!el) return;
+      const ts = new Date().toLocaleTimeString();
+      el.textContent = `${label} ${ts}`;
+    }
+
+    function renderAtemLive(atem) {
+      const program = Number(atem?.programInput) || 1;
+      const preview = Number(atem?.previewInput) || 2;
+      const style = atem?.transition?.style || 'mix';
+      const rate = Number(atem?.transition?.rate) || 25;
+      const inTransition = !!atem?.inTransition;
+      const recording = !!atem?.recording;
+
+      if (byId('atem-live-program')) byId('atem-live-program').textContent = String(program);
+      if (byId('atem-live-preview')) byId('atem-live-preview').textContent = String(preview);
+      if (byId('atem-live-transition')) byId('atem-live-transition').textContent = `${style} @ ${rate}`;
+
+      const statusParts = [];
+      statusParts.push(inTransition ? 'in-transition' : 'idle');
+      if (recording) statusParts.push('recording');
+      if (byId('atem-live-status')) byId('atem-live-status').textContent = statusParts.join(' / ');
+    }
+
+    function syncAtemControlInputs(atem) {
+      setInputValue('atem-program', Number(atem?.programInput) || 1);
+      setInputValue('atem-preview', Number(atem?.previewInput) || 2);
+      if (atem?.transition?.style) setInputValue('atem-trans-style', atem.transition.style);
+      if (atem?.transition?.rate !== undefined) setInputValue('atem-trans-rate', Number(atem.transition.rate) || 25);
+    }
+
+    function initAtemLivePadDrag() {
+      const panel = byId('tab-panel-atem');
+      const pad = byId('atem-live-pad');
+      const handle = byId('atem-live-handle');
+      if (!panel || !pad || !handle) return;
+
+      let drag = null;
+
+      handle.addEventListener('pointerdown', (ev) => {
+        const panelRect = panel.getBoundingClientRect();
+        const padRect = pad.getBoundingClientRect();
+        drag = {
+          pointerId: ev.pointerId,
+          offsetX: ev.clientX - padRect.left,
+          offsetY: ev.clientY - padRect.top,
+          panelRect,
+        };
+        handle.setPointerCapture(ev.pointerId);
+      });
+
+      handle.addEventListener('pointermove', (ev) => {
+        if (!drag || ev.pointerId !== drag.pointerId) return;
+        const panelRect = panel.getBoundingClientRect();
+        const padRect = pad.getBoundingClientRect();
+
+        let left = ev.clientX - panelRect.left - drag.offsetX;
+        let top = ev.clientY - panelRect.top - drag.offsetY;
+
+        const maxLeft = Math.max(0, panelRect.width - padRect.width - 10);
+        const maxTop = Math.max(0, panelRect.height - padRect.height - 10);
+        left = Math.max(0, Math.min(maxLeft, left));
+        top = Math.max(0, Math.min(maxTop, top));
+
+        pad.style.left = `${Math.round(left)}px`;
+        pad.style.top = `${Math.round(top)}px`;
+      });
+
+      const release = (ev) => {
+        if (!drag || ev.pointerId !== drag.pointerId) return;
+        handle.releasePointerCapture(ev.pointerId);
+        drag = null;
+      };
+
+      handle.addEventListener('pointerup', release);
+      handle.addEventListener('pointercancel', release);
+    }
+
+    function renderStatus(s) {
+      mockLab = s;
+      endpointText('ep-atem', `ATEM: ${s?.addresses?.atem?.ip || '-'}:${s?.addresses?.atem?.port || '-'}`);
+      endpointText('ep-obs', `OBS: ${s?.addresses?.obs?.ip || '-'}:${s?.addresses?.obs?.port || '-'}`);
+      endpointText('ep-x32', `X32: ${s?.addresses?.x32?.ip || '-'}:${s?.addresses?.x32?.port || '-'}`);
+      endpointText('ep-encoder', `Encoder: ${s?.addresses?.encoder?.ip || '-'}:${s?.addresses?.encoder?.port || '-'}`);
+      endpointText('ep-hyperdeck', `HyperDeck: ${s?.addresses?.hyperdeck?.ip || '-'}:${s?.addresses?.hyperdeck?.port || '-'}`);
+      endpointText('ep-propresenter', `ProPresenter: ${s?.addresses?.propresenter?.ip || '-'}:${s?.addresses?.propresenter?.port || '-'}`);
+      endpointText('ep-control', `Control API: ${s?.controlUrl || '-'}`);
+
+      const running = s?.running ? 'RUNNING' : 'STOPPED';
+      const fallback = s?.fallbackMode ? ' (fallback active)' : '';
+      setStatus(`Lab: ${running}${fallback}`);
+
+      const atem = s?.state?.atem || {};
+      renderAtemLive(atem);
+      syncAtemControlInputs(atem);
+
+      byId('state-json').textContent = JSON.stringify(s?.state || {}, null, 2);
+      trackStateChanges(s?.state || {});
+      renderLogs(s?.logs || []);
+    }
+
+    async function loadConfig() {
+      const config = await api.getMockLabConfig();
+      await hydrateNetworkInterfaces(config?.nicName || '');
+      fillConfigForm(config);
+      setStatus('Config loaded. Review IP and port layout before launch.');
+      return config;
+    }
+
+    async function saveConfig(showMessage = true) {
+      const payload = collectConfigFromForm();
+      const result = await api.saveMockLabConfig(payload);
+      if (showMessage) {
+        setStatus('Config saved.');
+      }
+      return result?.config || payload;
+    }
+
+    async function refreshStatus() {
+      const s = await api.getMockLabStatus();
+      renderStatus(s);
+    }
+
+    async function startLab() {
+      const config = await saveConfig(false);
+      const s = await api.startMockLab(config);
+      renderStatus(s);
+    }
+
+    async function stopLab() {
+      const s = await api.stopMockLab();
+      renderStatus(s);
+    }
+
+    async function openControlApi() {
+      if (!mockLab?.controlUrl) await refreshStatus();
+      if (mockLab?.controlUrl) await api.openExternal(mockLab.controlUrl);
+    }
+
+    async function post(path, body = {}) {
+      if (!mockLab?.controlUrl) await refreshStatus();
+      if (!mockLab?.controlUrl) throw new Error('Control API unavailable. Launch lab first.');
+      const res = await fetch(`${mockLab.controlUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      await refreshStatus();
+    }
+
+    async function loadCommands() {
+      if (!mockLab?.controlUrl) await refreshStatus();
+      if (!mockLab?.controlUrl) {
+        byId('commands-json').textContent = '[]';
+        return;
+      }
+      const res = await fetch(`${mockLab.controlUrl}/api/commands`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      byId('commands-json').textContent = JSON.stringify(data?.commands || [], null, 2);
+    }
+
+    async function atemProgram() { await post('/api/program', { input: Number(byId('atem-program').value) }); }
+    async function atemPreview() { await post('/api/preview', { input: Number(byId('atem-preview').value) }); }
+    async function atemCut() {
+      setAtemAction('CUT');
+      await post('/api/cut');
+    }
+    async function atemAuto() {
+      setAtemAction('AUTO');
+      await post('/api/auto');
+      setTimeout(() => refreshStatus().catch(() => {}), 650);
+    }
+    async function atemRec(v) { await post('/api/recording', { recording: !!v }); }
+    async function atemTransition() {
+      await post('/api/atem/transition/style', {
+        style: byId('atem-trans-style').value,
+      });
+      await post('/api/atem/transition/rate', {
+        rate: Number(byId('atem-trans-rate').value),
+      });
+    }
+    async function atemAux() {
+      await post('/api/atem/aux', {
+        aux: Number(byId('atem-aux-bus').value),
+        input: Number(byId('atem-aux-input').value),
+      });
+    }
+    async function atemUskType() {
+      await post('/api/atem/usk/type', {
+        keyer: Number(byId('atem-usk-keyer').value),
+        type: byId('atem-usk-type').value,
+      });
+    }
+    async function atemUskSources() {
+      await post('/api/atem/usk/sources', {
+        keyer: Number(byId('atem-usk-keyer').value),
+        fillSource: Number(byId('atem-usk-fill').value),
+        keySource: Number(byId('atem-usk-key').value),
+      });
+    }
+    async function atemUskOnAir(v) {
+      await post('/api/atem/usk/onair', {
+        keyer: Number(byId('atem-usk-keyer').value),
+        onAir: !!v,
+      });
+    }
+    async function atemUskTie() {
+      const keyer = Number(byId('atem-usk-keyer').value);
+      const current = !!mockLab?.state?.atem?.upstreamKeyers?.[keyer]?.tie;
+      await post('/api/atem/usk/tie', {
+        keyer,
+        tie: !current,
+      });
+    }
+    async function atemDskRate() {
+      await post('/api/atem/dsk/rate', {
+        keyer: Number(byId('atem-dsk-keyer').value),
+        rate: Number(byId('atem-dsk-rate').value),
+      });
+    }
+    async function atemDskSource() {
+      await post('/api/atem/dsk/source', {
+        keyer: Number(byId('atem-dsk-keyer').value),
+        fillSource: Number(byId('atem-dsk-fill').value),
+        keySource: Number(byId('atem-dsk-key').value),
+      });
+    }
+    async function atemDskOnAir(v) {
+      await post('/api/atem/dsk/onair', {
+        keyer: Number(byId('atem-dsk-keyer').value),
+        onAir: !!v,
+      });
+    }
+    async function atemDskTie() {
+      const keyer = Number(byId('atem-dsk-keyer').value);
+      const current = !!mockLab?.state?.atem?.downstreamKeyers?.[keyer]?.tie;
+      await post('/api/atem/dsk/tie', {
+        keyer,
+        tie: !current,
+      });
+    }
+    async function atemSuperSourceBox(enabled) {
+      await post('/api/atem/supersource/box', {
+        box: Number(byId('atem-ss-box').value),
+        enabled: !!enabled,
+        input: Number(byId('atem-ss-input').value),
+        x: Number(byId('atem-ss-x').value),
+        y: Number(byId('atem-ss-y').value),
+        size: Number(byId('atem-ss-size').value),
+        cropped: !!byId('atem-ss-cropped')?.checked,
+      });
+    }
+    async function atemSuperSourceArt(enabled) {
+      await post('/api/atem/supersource/art', {
+        enabled: !!enabled,
+        fillSource: Number(byId('atem-ss-fill').value),
+        cutSource: Number(byId('atem-ss-cut').value),
+        clip: Number(byId('atem-ss-clip').value),
+        gain: Number(byId('atem-ss-gain').value),
+        premultiplied: !!byId('atem-ss-premultiplied')?.checked,
+        invert: !!byId('atem-ss-invert')?.checked,
+      });
+    }
+    async function atemColor() {
+      await post('/api/atem/color', {
+        index: Number(byId('atem-color-index').value),
+        hue: Number(byId('atem-color-hue').value),
+        saturation: Number(byId('atem-color-saturation').value),
+        luma: Number(byId('atem-color-luma').value),
+      });
+    }
+    async function atemMacroRun() {
+      await post('/api/atem/macro/run', {
+        index: Number(byId('atem-macro-index').value),
+      });
+    }
+    async function atemMacroStop() {
+      await post('/api/atem/macro/stop', {});
+    }
+    async function atemMediaSource() {
+      await post('/api/atem/media/source', {
+        player: Number(byId('atem-media-player').value),
+        sourceType: byId('atem-media-type').value,
+        sourceIndex: Number(byId('atem-media-index').value),
+      });
+    }
+    async function atemMediaPlay(v) {
+      await post('/api/atem/media/play', {
+        player: Number(byId('atem-media-player').value),
+        playing: !!v,
+      });
+    }
+    async function atemLabel() {
+      await post('/api/atem/label', {
+        input: Number(byId('atem-label-input').value),
+        longName: byId('atem-label-name').value,
+        shortName: byId('atem-label-short').value,
+      });
+    }
+    async function atemPtzPreset() {
+      await post('/api/atem/ptz/preset', {
+        camera: Number(byId('atem-ptz-camera').value),
+        preset: Number(byId('atem-ptz-preset').value),
+      });
+    }
+    async function atemPtzPanTilt() {
+      await post('/api/atem/ptz/pantilt', {
+        camera: Number(byId('atem-ptz-camera').value),
+        pan: Number(byId('atem-ptz-pan').value),
+        tilt: Number(byId('atem-ptz-tilt').value),
+      });
+    }
+    async function atemPtzZoom() {
+      await post('/api/atem/ptz/zoom', {
+        camera: Number(byId('atem-ptz-camera').value),
+        zoom: Number(byId('atem-ptz-zoom').value),
+      });
+    }
+    async function hyperdeckAction() {
+      await post('/api/hyperdeck/action', {
+        index: Number(byId('hd-index').value),
+        action: byId('hd-action').value,
+      });
+    }
+
+    async function obsStream(v) { await post('/api/obs/stream', { active: !!v }); }
+    async function obsRecord(v) { await post('/api/obs/record', { active: !!v }); }
+    async function obsScene() { await post('/api/obs/scene', { scene: byId('obs-scene').value }); }
+    async function encoderApply() {
+      await post('/api/obs/encoder', {
+        fps: Number(byId('enc-fps').value),
+        cpuUsage: Number(byId('enc-cpu').value),
+        congestion: Number(byId('enc-cong').value),
+        bitrateKbps: Number(byId('enc-kbps').value),
+      });
+    }
+
+    async function x32Mute(v) { await post('/api/mixer/master', { muted: !!v }); }
+    async function x32Fader() { await post('/api/mixer/fader', { level: Number(byId('x32-fader').value) }); }
+
+    async function ppNext() { await post('/api/propresenter/next'); }
+    async function ppPrev() { await post('/api/propresenter/prev'); }
+    async function ppGo() { await post('/api/propresenter/slide', { index: Number(byId('pp-slide').value) - 1 }); }
+
+    async function resetAll() { await post('/api/reset', {}); }
+
+    function wireLogStream() {
+      api.onMockLabLog((line) => {
+        const pre = byId('logs-json');
+        const current = pre.textContent === '(waiting for logs)' ? [] : pre.textContent.split('\n');
+        current.push(line);
+        while (current.length > 180) current.shift();
+        pre.textContent = current.join('\n');
+      });
+    }
+
+    async function init() {
+      wireLogStream();
+      switchDeviceTab('atem');
+      initAtemLivePadDrag();
+      await loadConfig();
+      await refreshStatus();
+      refreshTicker = setInterval(() => refreshStatus().catch(() => {}), 2500);
+    }
+
+    init().catch((e) => {
+      setStatus(`Failed to initialize: ${e.message}`);
+    });
+  </script>
+</body>
+</html>
