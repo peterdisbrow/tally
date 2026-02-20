@@ -358,10 +358,11 @@ ipcMain.handle('stop-agent', () => stopAgent());
 ipcMain.handle('is-running', () => !!agentProcess);
 ipcMain.handle('test-connection', (_, url) => testConnection(url));
 ipcMain.handle('copy-to-clipboard', (_, text) => { clipboard.writeText(text); return true; });
+ipcMain.handle('get-network-interfaces', () => listAvailableInterfaces());
 
 // ─── EQUIPMENT CONFIG IPC ─────────────────────────────────────────────────────
 
-const { discoverDevices, tryTcpConnect, tryHttpGet } = require('./networkScanner');
+const { discoverDevices, tryTcpConnect, tryHttpGet, listAvailableInterfaces } = require('./networkScanner');
 
 // ─── TCP CONNECT HELPER ───────────────────────────────────────────────────────
 
@@ -376,10 +377,10 @@ function tryTcpConnectLocal(host, port, timeoutMs) {
   });
 }
 
-ipcMain.handle('scan-network', async (event) => {
+ipcMain.handle('scan-network', async (event, options = {}) => {
   const results = await discoverDevices((percent, message) => {
     mainWindow?.webContents.send('scan-progress', { percent, message });
-  });
+  }, options);
   return results;
 });
 

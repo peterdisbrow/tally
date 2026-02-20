@@ -7,17 +7,43 @@ const net = require('net');
 const os = require('os');
 const http = require('http');
 
-function getLocalSubnet() {
-  const interfaces = os.networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal && iface.address !== '127.0.0.1') {
-        const parts = iface.address.split('.');
-        return { subnet: `${parts[0]}.${parts[1]}.${parts[2]}`, localIp: iface.address };
+function listAvailableInterfaces() {
+  const ifaces = os.networkInterfaces();
+  const out = [];
+
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name] || []) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        out.push({
+          name,
+          ip: iface.address,
+          netmask: iface.netmask,
+        });
       }
     }
   }
-  return { subnet: '192.168.1', localIp: '127.0.0.1' };
+
+  out.sort((a, b) => (a.name.localeCompare(b.name) || a.ip.localeCompare(b.ip)));
+  return out;
+}
+
+function getLocalSubnet(interfaceName) {
+  const interfaces = listAvailableInterfaces();
+
+  const candidate = interfaceName
+    ? interfaces.find((i) => i.name === interfaceName)
+    : interfaces.find(() => true);
+
+  if (candidate) {
+    const parts = candidate.ip.split('.');
+    return {
+      subnet: `${parts[0]}.${parts[1]}.${parts[2]}`,
+      localIp: candidate.ip,
+      interfaceName: candidate.name,
+    };
+  }
+
+  return { subnet: '192.168.1', localIp: '127.0.0.1', interfaceName: null };
 }
 
 function tryTcpConnect(ip, port, timeoutMs = 300) {
@@ -83,11 +109,12 @@ function isLikelyVmixXml(xml) {
  * @param {function} onProgress - callback(percent, message)
  * @returns {Promise<Object>} discovered devices
  */
-async function discoverDevices(onProgress = () => {}) {
+async function discoverDevices(onProgress = () => {}, options = {}) {
   const results = { atem: [], companion: [], obs: [], hyperdeck: [], propresenter: [], nmos: [], resolume: [], vmix: [], mixers: [] };
-  const { subnet, localIp } = getLocalSubnet();
+  const { subnet, localIp, interfaceName } = getLocalSubnet(options.interfaceName);
 
-  onProgress(0, `Scanning ${subnet}.x for AV devices...`);
+  const ifaceLabel = interfaceName ? ` on ${interfaceName}` : '';
+  onProgress(0, `Scanning ${subnet}.x for AV devices${ifaceLabel}...`);
 
   // Build IP list (1-254)
   const ips = [];
@@ -236,4 +263,4 @@ async function discoverDevices(onProgress = () => {}) {
   return results;
 }
 
-module.exports = { discoverDevices, tryTcpConnect, tryHttpGet, getLocalSubnet };
+module.exports = { discoverDevices, tryTcpConnect, tryHttpGet, getLocalSubnet, listAvailableInterfaces };

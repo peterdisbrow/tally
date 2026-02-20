@@ -52,6 +52,14 @@
       background: radial-gradient(ellipse, rgba(34,197,94,0.13) 0%, transparent 70%);
       pointer-events: none;
     }
+
+    body.is-mac .header {
+      padding-top: 28px;
+    }
+
+    body.is-mac .header .header-title {
+      margin-top: 8px;
+    }
     .header-title {
       display: flex;
       align-items: center;
@@ -509,6 +517,32 @@
     }
     .scan-status { font-size: 11px; color: var(--muted); margin-top: 4px; font-family: var(--mono); }
     .scan-results { margin-top: 8px; }
+
+    .scan-form-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .scan-form-row label {
+      font-size: 11px;
+      color: var(--dim);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      flex: 0 0 auto;
+    }
+
+    .scan-form-row select {
+      flex: 1;
+      background: #020617;
+      color: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 11px;
+      font-family: var(--font);
+    }
     .scan-result-item {
       display: flex;
       align-items: center;
@@ -870,6 +904,10 @@
 
     <!-- Network Scan -->
     <div class="scan-section">
+      <div class="scan-form-row">
+        <label for="scan-nic">Network Interface</label>
+        <select id="scan-nic"></select>
+      </div>
       <button class="scan-btn" id="scan-btn" onclick="startNetworkScan()">🔍 Scan Network</button>
       <div class="scan-progress" id="scan-progress">
         <div class="scan-progress-bar"><div class="scan-progress-fill" id="scan-fill"></div></div>
@@ -908,6 +946,8 @@ let alertCount = 0;
 // ─── INIT ──────────────────────────────────────────────────────────────────
 
 async function init() {
+  if (/^mac/i.test(navigator.platform)) document.body.classList.add('is-mac');
+  await hydrateNetworkInterfaceSelect();
   const config = await api.getConfig();
   isRunning = await api.isRunning();
 
@@ -1405,6 +1445,31 @@ async function saveEquipment() {
 
 // ─── NETWORK SCAN ──────────────────────────────────────────────────────────
 
+
+async function hydrateNetworkInterfaceSelect() {
+  const select = document.getElementById('scan-nic');
+  if (!select) return;
+
+  const interfaces = await api.getNetworkInterfaces();
+  select.innerHTML = '';
+
+  if (!Array.isArray(interfaces) || interfaces.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'Default interface';
+    select.appendChild(opt);
+    return;
+  }
+
+  interfaces.forEach((iface) => {
+    const label = `${iface.name} (${iface.ip})`;
+    const option = document.createElement('option');
+    option.value = iface.name;
+    option.textContent = label;
+    select.appendChild(option);
+  });
+}
+
 async function startNetworkScan() {
   const btn = document.getElementById('scan-btn');
   const progress = document.getElementById('scan-progress');
@@ -1432,11 +1497,13 @@ async function startNetworkScan() {
   });
 
   try {
-    const results = await api.scanNetwork();
+    const scanNic = document.getElementById('scan-nic');
+    const options = scanNic?.value ? { interfaceName: scanNic.value } : {};
+    const results = await api.scanNetwork(options);
     fill.style.width = '100%';
 
     resultsEl.innerHTML = '';
-    const total = results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.ptz.length + (results.propresenter || []).length;
+    const total = results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + (results.propresenter || []).length;
     status.textContent = `Scan complete: ${total} device${total !== 1 ? 's' : ''} found`;
 
     results.atem.forEach(d => addScanResult(resultsEl, `ATEM at ${d.ip}`, () => {
@@ -1454,9 +1521,7 @@ async function startNetworkScan() {
     results.hyperdeck.forEach(d => addScanResult(resultsEl, `HyperDeck at ${d.ip}`, () => {
       if (!hyperdeckEntries.includes(d.ip)) { hyperdeckEntries.push(d.ip); renderHyperdecks(); }
     }));
-    results.ptz.forEach(d => addScanResult(resultsEl, `PTZ Camera at ${d.ip}`, () => {
-      if (!ptzEntries.find(p => p.ip === d.ip)) { ptzEntries.push({ ip: d.ip, name: '' }); renderPtz(); }
-    }));
+
     (results.propresenter || []).forEach(d => addScanResult(resultsEl, `ProPresenter at ${d.ip}:${d.port}`, () => {
       document.getElementById('equip-pp-host').value = d.ip;
       document.getElementById('equip-pp-port').value = d.port || '1025';
