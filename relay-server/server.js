@@ -602,6 +602,7 @@ app.get('/api/churches', requireAdmin, (req, res) => {
       event_label:      c.event_label      || null,
       reseller_id:      c.reseller_id      || null,
       registrationCode:  row.registration_code || c.registrationCode || null,
+      token:            row.token || c.token || null,
     };
   });
   res.json(list);
