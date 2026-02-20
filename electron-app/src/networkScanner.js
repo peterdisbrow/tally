@@ -84,7 +84,7 @@ function isLikelyVmixXml(xml) {
  * @returns {Promise<Object>} discovered devices
  */
 async function discoverDevices(onProgress = () => {}) {
-  const results = { atem: [], companion: [], obs: [], hyperdeck: [], ptz: [], propresenter: [], nmos: [], resolume: [], vmix: [], mixers: [] };
+  const results = { atem: [], companion: [], obs: [], hyperdeck: [], propresenter: [], nmos: [], resolume: [], vmix: [], mixers: [] };
   const { subnet, localIp } = getLocalSubnet();
 
   onProgress(0, `Scanning ${subnet}.x for AV devices...`);
@@ -232,7 +232,7 @@ async function discoverDevices(onProgress = () => {}) {
     onProgress(pct, `Scanned ${scanned}/${totalScans} IPs...`);
   }
 
-  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.ptz.length + results.propresenter.length + results.resolume.length + results.vmix.length} devices found`);
+  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.propresenter.length + results.resolume.length + results.vmix.length} devices found`);
   return results;
 }
 
