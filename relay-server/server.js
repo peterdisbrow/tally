@@ -156,6 +156,38 @@ for (const m of _schemaMigrations) {
 }
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_churches_portal_email ON churches(portal_email)');
 
+// ─── ADMIN USERS TABLE ──────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS admin_users (
+    id            TEXT PRIMARY KEY,
+    email         TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    name          TEXT NOT NULL DEFAULT '',
+    role          TEXT NOT NULL DEFAULT 'admin',
+    active        INTEGER NOT NULL DEFAULT 1,
+    created_at    TEXT NOT NULL,
+    created_by    TEXT,
+    last_login_at TEXT,
+    updated_at    TEXT
+  )
+`);
+
+// Seed initial super_admin from env vars (only when table is empty)
+{
+  const adminCount = db.prepare('SELECT COUNT(*) as cnt FROM admin_users').get().cnt;
+  if (adminCount === 0 && process.env.ADMIN_SEED_EMAIL && process.env.ADMIN_SEED_PASSWORD) {
+    const { v4: _uuid } = require('uuid');
+    const _seedSalt = crypto.randomBytes(16).toString('hex');
+    const _seedHash = crypto.scryptSync(process.env.ADMIN_SEED_PASSWORD, _seedSalt, 64).toString('hex');
+    db.prepare(
+      'INSERT INTO admin_users (id, email, password_hash, name, role, active, created_at) VALUES (?,?,?,?,?,?,?)'
+    ).run(_uuid(), process.env.ADMIN_SEED_EMAIL.trim().toLowerCase(), `${_seedSalt}:${_seedHash}`, 'Admin', 'super_admin', 1, new Date().toISOString());
+    console.log(`[AdminUsers] Seeded initial super_admin: ${process.env.ADMIN_SEED_EMAIL}`);
+  } else if (adminCount === 0) {
+    console.log('[AdminUsers] No admin users exist. Set ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD to create the first super_admin.');
+  }
+}
+
 const stmtInsert = db.prepare('INSERT INTO churches (churchId, name, email, token, registeredAt) VALUES (?, ?, ?, ?, ?)');
 const stmtUpdateRegistrationCode = db.prepare('UPDATE churches SET registration_code = ? WHERE churchId = ?');
 const stmtAll = db.prepare('SELECT * FROM churches');
@@ -813,6 +845,179 @@ app.post('/api/church/app/reset-password', requireAdmin, (req, res) => {
     .run(hashPassword(password), church.churchId);
 
   log(`[ResetPassword] Password updated for ${cleanEmail} (church ${church.churchId})`);
+  res.json({ ok: true });
+});
+
+// ─── ADMIN USER AUTH & MANAGEMENT ────────────────────────────────────────────
+
+// POST /api/admin/login — multi-user admin login
+app.post('/api/admin/login', (req, res) => {
+  const { email, password } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!cleanEmail || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  const user = db.prepare('SELECT * FROM admin_users WHERE email = ?').get(cleanEmail);
+  if (!user || !user.active || !verifyPassword(password, user.password_hash)) {
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+
+  // Update last login
+  db.prepare('UPDATE admin_users SET last_login_at = ? WHERE id = ?')
+    .run(new Date().toISOString(), user.id);
+
+  const token = jwt.sign(
+    { type: 'admin', userId: user.id, role: user.role, email: user.email, name: user.name },
+    JWT_SECRET,
+    { expiresIn: '8h' }
+  );
+
+  log(`[AdminLogin] ${user.email} (${user.role}) logged in`);
+  res.json({
+    token,
+    user: { id: user.id, email: user.email, name: user.name, role: user.role },
+  });
+});
+
+// GET /api/admin/me — current admin user profile
+app.get('/api/admin/me', requireAdminJwt(), (req, res) => {
+  const u = req.adminUser;
+  res.json({ id: u.id, email: u.email, name: u.name, role: u.role });
+});
+
+// PUT /api/admin/me/password — change own password
+app.put('/api/admin/me/password', requireAdminJwt(), (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'currentPassword and newPassword required' });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  const user = db.prepare('SELECT password_hash FROM admin_users WHERE id = ?').get(req.adminUser.id);
+  if (!user || !verifyPassword(currentPassword, user.password_hash)) {
+    return res.status(400).json({ error: 'Current password is incorrect' });
+  }
+
+  db.prepare('UPDATE admin_users SET password_hash = ?, updated_at = ? WHERE id = ?')
+    .run(hashPassword(newPassword), new Date().toISOString(), req.adminUser.id);
+
+  log(`[AdminUsers] ${req.adminUser.email} changed their password`);
+  res.json({ ok: true });
+});
+
+// GET /api/admin/users — list all admin users (super_admin only)
+app.get('/api/admin/users', requireAdminJwt('super_admin'), (req, res) => {
+  const users = db.prepare(
+    'SELECT id, email, name, role, active, created_at, created_by, last_login_at, updated_at FROM admin_users ORDER BY created_at ASC'
+  ).all();
+  res.json(users);
+});
+
+// POST /api/admin/users — create an admin user (super_admin only)
+app.post('/api/admin/users', requireAdminJwt('super_admin'), (req, res) => {
+  const { email, password, name, role } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+
+  if (!cleanEmail || !password || !name) {
+    return res.status(400).json({ error: 'email, password, and name are required' });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  if (!ADMIN_ROLES.includes(role)) {
+    return res.status(400).json({ error: `Invalid role. Must be one of: ${ADMIN_ROLES.join(', ')}` });
+  }
+
+  // Check duplicate email
+  const existing = db.prepare('SELECT id FROM admin_users WHERE email = ?').get(cleanEmail);
+  if (existing) {
+    return res.status(409).json({ error: 'An admin with this email already exists' });
+  }
+
+  const id = uuidv4();
+  db.prepare(
+    'INSERT INTO admin_users (id, email, password_hash, name, role, active, created_at, created_by) VALUES (?,?,?,?,?,?,?,?)'
+  ).run(id, cleanEmail, hashPassword(password), name.trim(), role, 1, new Date().toISOString(), req.adminUser.id);
+
+  log(`[AdminUsers] ${req.adminUser.email} created ${role} user: ${cleanEmail}`);
+  res.status(201).json({ id, email: cleanEmail, name: name.trim(), role, active: 1 });
+});
+
+// PUT /api/admin/users/:userId — update an admin user (super_admin only)
+app.put('/api/admin/users/:userId', requireAdminJwt('super_admin'), (req, res) => {
+  const { name, role, active } = req.body || {};
+  const target = db.prepare('SELECT * FROM admin_users WHERE id = ?').get(req.params.userId);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+
+  // Guard: cannot demote/deactivate the last super_admin
+  if (target.role === 'super_admin' && (role !== 'super_admin' || active === 0 || active === false)) {
+    const superCount = db.prepare("SELECT COUNT(*) as cnt FROM admin_users WHERE role = 'super_admin' AND active = 1").get().cnt;
+    if (superCount <= 1) {
+      return res.status(400).json({ error: 'Cannot demote or deactivate the last super_admin' });
+    }
+  }
+
+  if (role !== undefined && !ADMIN_ROLES.includes(role)) {
+    return res.status(400).json({ error: `Invalid role. Must be one of: ${ADMIN_ROLES.join(', ')}` });
+  }
+
+  const patch = {};
+  if (name   !== undefined) patch.name   = name.trim();
+  if (role   !== undefined) patch.role   = role;
+  if (active !== undefined) patch.active = active ? 1 : 0;
+
+  if (Object.keys(patch).length) {
+    patch.updated_at = new Date().toISOString();
+    const sets = Object.keys(patch).map(k => `${k} = ?`).join(', ');
+    db.prepare(`UPDATE admin_users SET ${sets} WHERE id = ?`).run(...Object.values(patch), req.params.userId);
+  }
+
+  log(`[AdminUsers] ${req.adminUser.email} updated user ${target.email}: ${JSON.stringify(patch)}`);
+  res.json({ ok: true });
+});
+
+// PUT /api/admin/users/:userId/password — reset another user's password (super_admin only)
+app.put('/api/admin/users/:userId/password', requireAdminJwt('super_admin'), (req, res) => {
+  const { password } = req.body || {};
+  if (!password || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  const target = db.prepare('SELECT email FROM admin_users WHERE id = ?').get(req.params.userId);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+
+  db.prepare('UPDATE admin_users SET password_hash = ?, updated_at = ? WHERE id = ?')
+    .run(hashPassword(password), new Date().toISOString(), req.params.userId);
+
+  log(`[AdminUsers] ${req.adminUser.email} reset password for ${target.email}`);
+  res.json({ ok: true });
+});
+
+// DELETE /api/admin/users/:userId — soft-delete (deactivate) an admin user (super_admin only)
+app.delete('/api/admin/users/:userId', requireAdminJwt('super_admin'), (req, res) => {
+  const target = db.prepare('SELECT * FROM admin_users WHERE id = ?').get(req.params.userId);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+
+  // Cannot delete self
+  if (target.id === req.adminUser.id) {
+    return res.status(400).json({ error: 'Cannot delete your own account' });
+  }
+
+  // Cannot delete last super_admin
+  if (target.role === 'super_admin') {
+    const superCount = db.prepare("SELECT COUNT(*) as cnt FROM admin_users WHERE role = 'super_admin' AND active = 1").get().cnt;
+    if (superCount <= 1) {
+      return res.status(400).json({ error: 'Cannot delete the last super_admin' });
+    }
+  }
+
+  db.prepare('UPDATE admin_users SET active = 0, updated_at = ? WHERE id = ?')
+    .run(new Date().toISOString(), req.params.userId);
+
+  log(`[AdminUsers] ${req.adminUser.email} deactivated user ${target.email}`);
   res.json({ ok: true });
 });
 
@@ -2116,10 +2321,88 @@ function broadcastToSSE(data) {
 
 // ─── AUTH MIDDLEWARE ──────────────────────────────────────────────────────────
 
+const ADMIN_ROLES = ['super_admin', 'admin', 'engineer', 'sales'];
+
+const ROLE_PERMISSIONS = {
+  super_admin: ['*'],
+  admin:       ['churches:read', 'churches:write', 'churches:delete',
+                'billing:read', 'billing:write',
+                'resellers:read', 'resellers:write', 'resellers:delete',
+                'commands:send', 'settings:read', 'settings:write'],
+  engineer:    ['churches:read', 'commands:send',
+                'sessions:read', 'alerts:read', 'alerts:ack',
+                'settings:read'],
+  sales:       ['churches:read',
+                'billing:read',
+                'resellers:read', 'resellers:write'],
+};
+
+function hasPermission(role, permission) {
+  const perms = ROLE_PERMISSIONS[role];
+  if (!perms) return false;
+  if (perms.includes('*')) return true;
+  return perms.includes(permission);
+}
+
+/**
+ * JWT-based admin auth middleware.
+ * Accepts: Authorization: Bearer <jwt>, x-admin-jwt header, or legacy x-api-key.
+ * @param {...string} allowedRoles - If provided, only these roles are allowed. Empty = any admin role.
+ */
+function requireAdminJwt(...allowedRoles) {
+  return (req, res, next) => {
+    // 1. Try JWT from Authorization: Bearer header
+    let token = null;
+    const authHeader = req.headers['authorization'] || '';
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    }
+    // 2. Try x-admin-jwt header (from landing site proxy)
+    if (!token) token = req.headers['x-admin-jwt'];
+
+    if (token) {
+      try {
+        const payload = jwt.verify(token, JWT_SECRET);
+        if (payload.type !== 'admin') throw new Error('wrong token type');
+
+        // Verify user still exists and is active (catches revocations)
+        const user = db.prepare('SELECT id, email, name, role, active FROM admin_users WHERE id = ?').get(payload.userId);
+        if (!user || !user.active) {
+          return res.status(401).json({ error: 'Account deactivated or not found' });
+        }
+
+        // Check role permission
+        if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
+          return res.status(403).json({ error: 'Insufficient permissions' });
+        }
+
+        req.adminUser = { id: user.id, email: user.email, name: user.name, role: user.role };
+        return next();
+      } catch (e) {
+        if (e.name === 'TokenExpiredError') {
+          return res.status(401).json({ error: 'Token expired' });
+        }
+        return res.status(401).json({ error: 'Invalid admin token' });
+      }
+    }
+
+    // 3. Legacy fallback: x-api-key or admin cookie → treat as super_admin
+    const key = resolveAdminKey(req);
+    if (key === ADMIN_API_KEY) {
+      req.adminUser = { id: '_legacy_api_key', email: '', name: 'API Key', role: 'super_admin' };
+      if (allowedRoles.length > 0 && !allowedRoles.includes('super_admin')) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+      return next();
+    }
+
+    return res.status(401).json({ error: 'unauthorized' });
+  };
+}
+
 function requireAdmin(req, res, next) {
-  const key = resolveAdminKey(req);
-  if (key !== ADMIN_API_KEY) return res.status(401).json({ error: 'unauthorized' });
-  next();
+  // Backward-compatible: accepts JWT or legacy API key
+  return requireAdminJwt()(req, res, next);
 }
 
 function requireReseller(req, res, next) {
