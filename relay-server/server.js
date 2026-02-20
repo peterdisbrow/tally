@@ -1745,6 +1745,11 @@ function handleChurchConnection(ws, url, clientIp) {
   broadcastToControllers(connectedEvent);
   broadcastToSSE(connectedEvent);
 
+  // WebSocket-level ping every 25s to keep the connection alive through reverse proxies
+  const wsPingInterval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) ws.ping();
+  }, 25_000);
+
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data.toString());
@@ -1756,6 +1761,7 @@ function handleChurchConnection(ws, url, clientIp) {
   });
 
   ws.on('close', () => {
+    clearInterval(wsPingInterval);
     church.lastSeen = new Date().toISOString();
     church.disconnectedAt = Date.now();
     // Reset device status so dashboard doesn't show stale connected states
@@ -1790,6 +1796,11 @@ function handleControllerConnection(ws, url) {
   }));
   ws.send(JSON.stringify({ type: 'church_list', churches: churchList }));
 
+  // WebSocket-level ping every 25s to keep the connection alive through reverse proxies
+  const wsPingInterval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) ws.ping();
+  }, 25_000);
+
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data.toString());
@@ -1800,6 +1811,7 @@ function handleControllerConnection(ws, url) {
   });
 
   ws.on('close', () => {
+    clearInterval(wsPingInterval);
     controllers.delete(ws);
     log(`Controller disconnected (total: ${controllers.size})`);
   });
