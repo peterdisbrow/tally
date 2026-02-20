@@ -534,8 +534,9 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
     return res.status(400).json({ error: 'invalid billingStatus' });
   }
 
-  const churchId = uuidv4();
-  const token = jwt.sign({ churchId, name }, JWT_SECRET, { expiresIn: '365d' });
+  // Allow admin to specify churchId + token for DB recovery / migration
+  const churchId = (req.body.churchId && typeof req.body.churchId === 'string') ? req.body.churchId : uuidv4();
+  const token = (req.body.token && typeof req.body.token === 'string') ? req.body.token : jwt.sign({ churchId, name }, JWT_SECRET, { expiresIn: '365d' });
   const registeredAt = new Date().toISOString();
   const registrationCode = generateRegistrationCode();
 
