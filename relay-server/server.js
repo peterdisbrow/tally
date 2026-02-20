@@ -55,6 +55,8 @@ const { PlanningCenter } = require('./src/planningCenter');
 const { PresetLibrary } = require('./src/presetLibrary');
 const { EventMode } = require('./src/eventMode');
 const { ResellerSystem } = require('./src/reseller');
+
+let resellerSystem = null;
 const { BillingSystem } = require('./src/billing');
 const { buildDashboardHtml, buildResellerPortalHtml } = require('./src/dashboard');
 const { setupSyncMonitor } = require('./src/syncMonitor');
@@ -271,7 +273,7 @@ planningCenter.start();
 
 // ─── RESELLER SYSTEM (needed early for TallyBot) ────────────────────────────
 
-const resellerSystem = new ResellerSystem(db);
+resellerSystem = new ResellerSystem(db);
 
 // ─── TELEGRAM BOT ────────────────────────────────────────────────────────────
 
