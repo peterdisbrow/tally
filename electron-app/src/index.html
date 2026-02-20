@@ -614,8 +614,12 @@
     <div class="wizard-step" data-step="3">
       <h2 style="font-size: 14px; color: var(--white); font-weight: 700; letter-spacing: -0.01em; text-transform: none; font-family: var(--font); margin-bottom: 10px;">ATEM Switcher</h2>
       <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
-        Enter the IP address of your ATEM switcher on the local network.
+        Pick your network interface first, then scan for ATEM on that subnet.
       </p>
+      <div class="form-group">
+        <label>Network Interface</label>
+        <select id="wiz-scan-nic"></select>
+      </div>
       <div class="form-group">
         <label>ATEM IP Address</label>
         <input id="wiz-atem" type="text" placeholder="192.168.1.10">
@@ -942,12 +946,33 @@ const TOTAL_STEPS = 5;
 let currentStep = 1;
 let isRunning = false;
 let alertCount = 0;
+let pendingDiscoveryNic = '';
 
 // ─── INIT ──────────────────────────────────────────────────────────────────
 
 async function init() {
   if (/^mac/i.test(navigator.platform)) document.body.classList.add('is-mac');
   await hydrateNetworkInterfaceSelect();
+  const wizNic = document.getElementById('wiz-scan-nic');
+  if (wizNic) {
+    pendingDiscoveryNic = wizNic.value || '';
+    wizNic.addEventListener('change', () => {
+      const selected = wizNic.value || '';
+      pendingDiscoveryNic = selected;
+      const scanNic = document.getElementById('scan-nic');
+      if (scanNic) scanNic.value = selected;
+    });
+  }
+
+  const scanNic = document.getElementById('scan-nic');
+  if (scanNic) {
+    scanNic.addEventListener('change', () => {
+      const selected = scanNic.value || '';
+      pendingDiscoveryNic = selected;
+      if (wizNic) wizNic.value = selected;
+    });
+  }
+
   const config = await api.getConfig();
   isRunning = await api.isRunning();
 
@@ -1049,12 +1074,31 @@ function copyToken() {
   if (val) api.copyToClipboard(val);
 }
 
-function scanForATEM() {
+async function scanForATEM() {
   const el = document.getElementById('scan-result');
-  el.textContent = 'Scanning common IPs… (this takes a few seconds)';
-  setTimeout(() => {
-    el.innerHTML = 'Common ATEM IPs: <b style="color:var(--white)">192.168.1.10</b>, <b style="color:var(--white)">192.168.1.240</b>, <b style="color:var(--white)">10.0.0.10</b><br>Try these, or check ATEM Setup utility.';
-  }, 1500);
+  const scanBtn = document.getElementById('btn-scan');
+  const wizSelect = document.getElementById('wiz-scan-nic');
+  const selectedInterface = wizSelect?.value || pendingDiscoveryNic || '';
+
+  scanBtn.disabled = true;
+  scanBtn.textContent = '🔍 Scanning…';
+  el.textContent = `Scanning ${selectedInterface || 'network'} for ATEM…`;
+  try {
+    const results = await api.scanNetwork(selectedInterface ? { interfaceName: selectedInterface } : {});
+    if (!results.atem || results.atem.length === 0) {
+      el.innerHTML = 'No ATEM found on this interface.<br>Try these manual IPs: 192.168.1.10, 192.168.1.240, 10.0.0.10';
+      return;
+    }
+    const primary = results.atem[0];
+    document.getElementById('wiz-atem').value = primary.ip;
+    const suffix = results.atem.length > 1 ? ` (+${results.atem.length - 1} more)` : '';
+    el.innerHTML = `Found ${results.atem.length} ATEM${suffix ? 's' : ''} on this interface. Using ${primary.ip}.`;
+  } catch (err) {
+    el.textContent = `Scan failed: ${err.message}`;
+  } finally {
+    scanBtn.disabled = false;
+    scanBtn.textContent = '🔍 Auto-Discover on Network';
+  }
 }
 
 // ─── DASHBOARD ─────────────────────────────────────────────────────────────
@@ -1447,27 +1491,46 @@ async function saveEquipment() {
 
 
 async function hydrateNetworkInterfaceSelect() {
-  const select = document.getElementById('scan-nic');
-  if (!select) return;
+  const selects = [document.getElementById('scan-nic'), document.getElementById('wiz-scan-nic')];
 
   const interfaces = await api.getNetworkInterfaces();
-  select.innerHTML = '';
+  const hasInterfaces = Array.isArray(interfaces) && interfaces.length > 0;
 
-  if (!Array.isArray(interfaces) || interfaces.length === 0) {
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = 'Default interface';
-    select.appendChild(opt);
-    return;
-  }
+  const defaultLabel = hasInterfaces ? 'Select interface' : 'No interfaces found';
 
-  interfaces.forEach((iface) => {
-    const label = `${iface.name} (${iface.ip})`;
-    const option = document.createElement('option');
-    option.value = iface.name;
-    option.textContent = label;
-    select.appendChild(option);
+  selects.forEach((select) => {
+    if (!select) return;
+    select.innerHTML = '';
+
+    if (!hasInterfaces) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = defaultLabel;
+      select.appendChild(opt);
+      return;
+    }
+
+    const emptyOpt = document.createElement('option');
+    emptyOpt.value = '';
+    emptyOpt.textContent = defaultLabel;
+    select.appendChild(emptyOpt);
+
+    interfaces.forEach((iface) => {
+      const label = `${iface.name} (${iface.ip})`;
+      const option = document.createElement('option');
+      option.value = iface.name;
+      option.textContent = label;
+      select.appendChild(option);
+    });
   });
+
+  const target = pendingDiscoveryNic || (hasInterfaces ? interfaces[0].name : '');
+  if (!target) return;
+  const scanSelect = document.getElementById('scan-nic');
+  const wizSelect = document.getElementById('wiz-scan-nic');
+  if (scanSelect) scanSelect.value = target;
+  if (wizSelect) wizSelect.value = target;
+  pendingDiscoveryNic = target;
 }
 
 async function startNetworkScan() {
