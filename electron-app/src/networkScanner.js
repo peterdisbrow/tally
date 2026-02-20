@@ -91,9 +91,27 @@ function tryHttpGet(url, timeoutMs = 2000) {
 
 function companionConnectionCount(resp) {
   if (!resp || !resp.success || !resp.data) return null;
-  if (Array.isArray(resp.data)) return resp.data.length;
-  if (Array.isArray(resp.data.connections)) return resp.data.connections.length;
-  return null;
+
+  const data = resp.data;
+
+  if (Array.isArray(data)) return data.length;
+  if (Array.isArray(data.connections)) return data.connections.length;
+  if (typeof data.connections === 'number') return data.connections;
+
+  const dataKeys = Object.keys(data);
+  if (dataKeys.length > 0) {
+    // Companion often returns {connections: [...]} or sometimes nested objects.
+    // If it returns a map/object of connection entries, use object cardinality.
+    if (typeof data === 'object') {
+      if (typeof data.ok === 'boolean' && data.ok === false) return 0;
+      if (typeof data.connections === 'object' && !Array.isArray(data.connections)) {
+        return Object.keys(data.connections).length;
+      }
+      return dataKeys.length >= 2 ? dataKeys.length : 1;
+    }
+  }
+
+  return 1;
 }
 
 function isLikelyResolume(data) {
