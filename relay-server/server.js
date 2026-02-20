@@ -423,6 +423,7 @@ app.get('/api/health', (req, res) => {
   const connectedCount = Array.from(churches.values()).filter(c => c.ws?.readyState === WebSocket.OPEN).length;
   res.json({
     service: 'tally-relay',
+    version: '2026.02.20.2',
     uptime: Math.floor(process.uptime()),
     registeredChurches: churches.size,
     connectedChurches: connectedCount,
