@@ -1555,7 +1555,7 @@ function addScanResult(container, label, useFn) {
   item.innerHTML = `<span>✅ ${label}</span>`;
   const btn = document.createElement('button');
   btn.className = 'btn-use';
-  btn.textContent = 'Use This';
+  btn.textContent = 'Add';
   btn.addEventListener('click', useFn);
   item.appendChild(btn);
   container.appendChild(item);
