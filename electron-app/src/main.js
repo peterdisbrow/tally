@@ -1,6 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, Notification, clipboard } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const { encryptConfig, decryptConfig } = require('./secureStorage');
@@ -152,6 +152,49 @@ function checkAndNotify() {
   lastNotifiedState = { ...agentStatus };
 }
 
+function resolveNodeBinary() {
+  const candidates = new Set();
+
+  const addCandidate = (value) => {
+    if (!value) return;
+    candidates.add(value);
+  };
+
+  addCandidate(process.env.NODE);
+  addCandidate(process.env.NODE_PATH);
+
+  if (process.platform === 'darwin') {
+    addCandidate('/opt/homebrew/bin/node');
+    addCandidate('/usr/local/bin/node');
+    addCandidate('/usr/bin/node');
+    addCandidate('/bin/node');
+  } else if (process.platform === 'win32') {
+    addCandidate('C:/Program Files/nodejs/node.exe');
+    addCandidate('C:/Program Files (x86)/nodejs/node.exe');
+  }
+
+  // Common relative install locations in Electron-packaged apps
+  if (process.resourcesPath) {
+    addCandidate(path.join(process.resourcesPath, 'node'));                    // e.g., /resources/node
+    addCandidate(path.join(process.resourcesPath, 'node', 'bin', 'node'));       // /resources/node/bin/node
+    addCandidate(path.join(process.resourcesPath, 'bin', 'node'));               // /resources/bin/node
+  }
+
+  for (const p of candidates) {
+    if (p && fs.existsSync(p)) return p;
+  }
+
+  // Fallback: check PATH with `which`/`where`
+  const cmd = process.platform === 'win32' ? 'where' : 'which';
+  const result = spawnSync(cmd, ['node'], { encoding: 'utf8' });
+  if (result.status === 0) {
+    const located = result.stdout.split('\n')[0]?.trim();
+    if (located && fs.existsSync(located)) return located;
+  }
+
+  return null;
+}
+
 // ─── AGENT PROCESS ────────────────────────────────────────────────────────────
 
 function startAgent() {
@@ -175,9 +218,27 @@ function startAgent() {
   if (config.name)         args.push('--name', config.name);
   if (config.companionUrl) args.push('--companion', config.companionUrl);
 
-  agentProcess = spawn('node', args, {
+  const nodeBinary = resolveNodeBinary();
+  if (!nodeBinary) {
+    const msg = 'Node.js runtime not found on this Mac. Install Node.js (brew install node) or run in dev mode.';
+    console.log(msg);
+    mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
+    mainWindow?.show();
+    sendNotification('Tally Agent Error', msg);
+    return;
+  }
+
+  agentProcess = spawn(nodeBinary, args, {
     cwd: path.join(__dirname, '../../church-client'),
     env: process.env,
+  });
+
+  agentProcess.on('error', (err) => {
+    const msg = `Failed to start agent process (${nodeBinary}): ${err.message}`;
+    console.error(msg);
+    mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
+    sendNotification('Tally Agent Error', msg);
+    agentProcess = null;
   });
 
   agentProcess.stdout.on('data', (data) => {
