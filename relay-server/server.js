@@ -108,7 +108,7 @@ app.use((req, res, next) => {
   }
 
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key, x-reseller-key');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, x-reseller-key');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
@@ -715,6 +715,104 @@ app.post('/api/church/app/login', (req, res) => {
       bypassed: !!access.bypassed,
     },
   });
+});
+
+// ─── CHURCH APP API (Bearer token auth) ──────────────────────────────────────
+// These routes mirror /api/church/me but use JWT Bearer tokens instead of cookies.
+// Used by the tally.atemschool.com landing-site portal.
+
+function requireChurchAppAuth(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authorization: Bearer <token> required' });
+  }
+  try {
+    const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+    if (payload.type !== 'church_app') throw new Error('wrong token type');
+    const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
+    if (!church) return res.status(404).json({ error: 'Church not found' });
+    req.church = church;
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+// GET /api/church/app/me — church profile + live status
+app.get('/api/church/app/me', requireChurchAppAuth, (req, res) => {
+  const c = req.church;
+  const runtime = churches.get(c.churchId);
+  const tds = db.prepare('SELECT * FROM church_tds WHERE churchId = ? ORDER BY createdAt ASC').all(c.churchId);
+  const { portal_password_hash, token, ...safe } = c;
+
+  let notifications = {};
+  try { notifications = JSON.parse(c.notifications || '{}'); } catch {}
+
+  res.json({
+    ...safe,
+    notifications,
+    tds,
+    connected: runtime?.ws?.readyState === 1,
+    status: runtime?.status || {},
+    lastSeen: runtime?.lastSeen || null,
+  });
+});
+
+// PUT /api/church/app/me — update profile, email, password
+app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
+  const { email, phone, location, notes, notifications, telegramChatId, newPassword, currentPassword, password } = req.body;
+  const churchId = req.church.churchId;
+
+  // Password change: require current password verification
+  const newPw = newPassword || password;
+  if (newPw) {
+    if (currentPassword) {
+      if (!req.church.portal_password_hash || !verifyPassword(currentPassword, req.church.portal_password_hash)) {
+        return res.status(400).json({ error: 'Current password is incorrect' });
+      }
+    }
+    if (newPw.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    db.prepare('UPDATE churches SET portal_password_hash = ? WHERE churchId = ?')
+      .run(hashPassword(newPw), churchId);
+  }
+
+  const patch = {};
+  if (email          !== undefined) patch.portal_email     = email.trim().toLowerCase();
+  if (phone          !== undefined) patch.phone            = phone;
+  if (location       !== undefined) patch.location         = location;
+  if (notes          !== undefined) patch.notes            = notes;
+  if (telegramChatId !== undefined) patch.telegram_chat_id = telegramChatId;
+  if (notifications  !== undefined) patch.notifications    = JSON.stringify(notifications);
+
+  if (Object.keys(patch).length) {
+    const sets = Object.keys(patch).map(k => `${k} = ?`).join(', ');
+    db.prepare(`UPDATE churches SET ${sets} WHERE churchId = ?`).run(...Object.values(patch), churchId);
+  }
+  res.json({ ok: true });
+});
+
+// POST /api/church/app/reset-password — admin-only, set new password by email
+app.post('/api/church/app/reset-password', requireAdmin, (req, res) => {
+  const { email, password } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+
+  if (!cleanEmail || !password) {
+    return res.status(400).json({ error: 'email and password required' });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  const church = db.prepare('SELECT churchId FROM churches WHERE portal_email = ?').get(cleanEmail);
+  if (!church) {
+    return res.status(404).json({ error: 'No account found with that email' });
+  }
+
+  db.prepare('UPDATE churches SET portal_password_hash = ? WHERE churchId = ?')
+    .run(hashPassword(password), church.churchId);
+
+  log(`[ResetPassword] Password updated for ${cleanEmail} (church ${church.churchId})`);
+  res.json({ ok: true });
 });
 
 // List all registered churches + their current status
@@ -1384,16 +1482,38 @@ app.put('/api/reseller/me', requireReseller, (req, res) => {
 // POST /api/reseller/churches/token — generate church + registration code
 app.post('/api/reseller/churches/token', requireReseller, (req, res) => {
   try {
-    const { churchName, contactEmail } = req.body;
+    const { churchName, contactEmail, portalEmail, password } = req.body || {};
     if (!churchName) return res.status(400).json({ error: 'churchName required' });
+    if (password && !portalEmail) return res.status(400).json({ error: 'portalEmail is required when password is provided' });
+    if (portalEmail && !password) return res.status(400).json({ error: 'password is required when portalEmail is provided' });
+    if (password && String(password).length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
 
-    const result = resellerSystem.generateChurchToken(req.reseller.id, churchName);
+    const cleanContactEmail = String(contactEmail || '').trim();
+    const cleanPortalEmail = String(portalEmail || '').trim().toLowerCase();
+
+    if (cleanPortalEmail) {
+      const existingEmail = db.prepare('SELECT churchId FROM churches WHERE portal_email = ?').get(cleanPortalEmail);
+      if (existingEmail) return res.status(409).json({ error: 'portalEmail already exists' });
+    }
+
+    const createChurch = db.transaction(() => {
+      const result = resellerSystem.generateChurchToken(req.reseller.id, churchName);
+      if (cleanContactEmail) {
+        db.prepare('UPDATE churches SET email = ? WHERE churchId = ?').run(cleanContactEmail, result.churchId);
+      }
+      if (cleanPortalEmail) {
+        db.prepare('UPDATE churches SET portal_email = ?, portal_password_hash = ? WHERE churchId = ?')
+          .run(cleanPortalEmail, hashPassword(password), result.churchId);
+      }
+      return result;
+    });
+    const result = createChurch();
 
     // Add to in-memory map so the church is immediately visible
     churches.set(result.churchId, {
       churchId:         result.churchId,
       name:             result.churchName,
-      email:            contactEmail || '',
+      email:            cleanContactEmail,
       token:            result.token,
       ws:               null,
       status:           { connected: false, atem: null, obs: null },
@@ -1413,10 +1533,16 @@ app.post('/api/reseller/churches/token', requireReseller, (req, res) => {
       churchId:         result.churchId,
       churchName:       result.churchName,
       registrationCode: result.registrationCode,
+      portalEmail:      cleanPortalEmail || null,
+      appLoginCreated:  !!cleanPortalEmail,
       reseller:         req.reseller.brand_name || req.reseller.name,
     });
   } catch (e) {
-    const status = e.message.includes('limit') ? 403 : e.message.includes('already exists') ? 409 : 500;
+    const msg = String(e.message || '');
+    const status =
+      msg.includes('limit') ? 403 :
+      (msg.includes('already exists') || msg.includes('UNIQUE constraint failed')) ? 409 :
+      (msg.includes('required') || msg.includes('at least 8')) ? 400 : 500;
     res.status(status).json({ error: e.message });
   }
 });
