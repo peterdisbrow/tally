@@ -15,6 +15,7 @@ const express = require('express');
 const { WebSocketServer, WebSocket } = require('ws');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('node:crypto');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
@@ -61,8 +62,13 @@ const { setupChurchPortal } = require('./src/churchPortal');
 const { setupResellerPortal } = require('./src/resellerPortal');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
-const JWT_SECRET    = process.env.JWT_SECRET    || 'dev-jwt-secret-change-me';
+const JWT_SECRET    = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
 
+if (process.env.NODE_ENV === 'production') {
+  if (process.env.ADMIN_API_KEY === undefined || process.env.JWT_SECRET === undefined) {
+    throw new Error('ADMIN_API_KEY and JWT_SECRET are required in production. Set both in environment variables.');
+  }
+}
 if (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secret-change-me') {
   console.warn('\n⚠️  WARNING: Using default dev keys! Set ADMIN_API_KEY and JWT_SECRET env vars for production.\n');
 }
@@ -126,16 +132,19 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN event_expires_at TEXT",
   "ALTER TABLE churches ADD COLUMN event_label TEXT",
   "ALTER TABLE churches ADD COLUMN reseller_id TEXT",
+  "ALTER TABLE churches ADD COLUMN registration_code TEXT",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
 }
 
 const stmtInsert = db.prepare('INSERT INTO churches (churchId, name, email, token, registeredAt) VALUES (?, ?, ?, ?, ?)');
+const stmtUpdateRegistrationCode = db.prepare('UPDATE churches SET registration_code = ? WHERE churchId = ?');
 const stmtAll = db.prepare('SELECT * FROM churches');
 const stmtGet = db.prepare('SELECT * FROM churches WHERE churchId = ?');
-const stmtDelete = db.prepare('DELETE FROM churches WHERE churchId = ?');
 const stmtFindByName = db.prepare('SELECT * FROM churches WHERE name = ?');
+const stmtFindByRegistrationCode = db.prepare('SELECT 1 FROM churches WHERE registration_code = ?');
+const stmtDelete = db.prepare('DELETE FROM churches WHERE churchId = ?');
 
 // ─── IN-MEMORY RUNTIME STATE ─────────────────────────────────────────────────
 
@@ -159,6 +168,12 @@ const RATE_LIMIT = 10; // commands per second
 
 // Load churches from DB
 for (const row of stmtAll.all()) {
+  let registrationCode = row.registration_code || null;
+  if (!registrationCode) {
+    registrationCode = generateRegistrationCode();
+    stmtUpdateRegistrationCode.run(registrationCode, row.churchId);
+  }
+
   churches.set(row.churchId, {
     churchId: row.churchId,
     name: row.name,
@@ -177,6 +192,7 @@ for (const row of stmtAll.all()) {
     event_label:      row.event_label      || null,
     // Reseller field
     reseller_id:      row.reseller_id      || null,
+    registrationCode,
   });
 }
 log(`Loaded ${churches.size} churches from database`);
@@ -261,6 +277,7 @@ const resellerSystem = new ResellerSystem(db);
 
 const TALLY_BOT_TOKEN = process.env.TALLY_BOT_TOKEN;
 const TALLY_BOT_WEBHOOK_URL = process.env.TALLY_BOT_WEBHOOK_URL;
+const TALLY_BOT_WEBHOOK_SECRET = process.env.TALLY_BOT_WEBHOOK_SECRET || '';
 const ANDREW_TELEGRAM_CHAT_ID = process.env.ANDREW_TELEGRAM_CHAT_ID;
 
 let tallyBot = null;
@@ -281,8 +298,12 @@ if (TALLY_BOT_TOKEN) {
   log('Telegram bot initialized');
   // Non-blocking webhook setup (fires after app is ready)
   if (TALLY_BOT_WEBHOOK_URL) {
+    const webhookPayload = { url: TALLY_BOT_WEBHOOK_URL };
+    if (TALLY_BOT_WEBHOOK_SECRET) {
+      webhookPayload.secret_token = TALLY_BOT_WEBHOOK_SECRET;
+    }
     setImmediate(() => {
-      tallyBot.setWebhook(TALLY_BOT_WEBHOOK_URL).catch(e => console.error('[TallyBot] Webhook setup failed:', e.message));
+      tallyBot.setWebhook(webhookPayload).catch(e => console.error('[TallyBot] Webhook setup failed:', e.message));
     });
   }
 } else {
@@ -392,6 +413,15 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+function generateRegistrationCode() {
+  // 6-char hex, uppercase. Keep retrying if it collides (very unlikely).
+  let code;
+  do {
+    code = crypto.randomBytes(3).toString('hex').toUpperCase();
+  } while (stmtFindByRegistrationCode.get(code));
+  return code;
+}
+
 // Register a new church and get a connection token
 app.post('/api/churches/register', requireAdmin, (req, res) => {
   const { name, email } = req.body;
@@ -404,18 +434,27 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
   const churchId = uuidv4();
   const token = jwt.sign({ churchId, name }, JWT_SECRET, { expiresIn: '365d' });
   const registeredAt = new Date().toISOString();
+  const registrationCode = generateRegistrationCode();
 
   stmtInsert.run(churchId, name, email || '', token, registeredAt);
+  stmtUpdateRegistrationCode.run(registrationCode, churchId);
 
   churches.set(churchId, {
     churchId, name, email: email || '',
     token, ws: null,
     status: { connected: false, atem: null, obs: null },
     lastSeen: null, registeredAt, disconnectedAt: null,
+    registrationCode,
   });
 
   log(`Registered church: ${name} (${churchId})`);
-  res.json({ churchId, name, token, message: 'Share this token with the church to connect their client app.' });
+  res.json({
+    churchId,
+    name,
+    token,
+    registrationCode,
+    message: 'Share this token with the church to connect their client app. Also share the 6-char code with a TD for Telegram registration.',
+  });
 });
 
 // List all registered churches + their current status
@@ -550,17 +589,21 @@ app.get('/api/billing', requireAdmin, (req, res) => {
 // ─── CHURCHES ────────────────────────────────────────────────────────────────
 
 app.get('/api/churches', requireAdmin, (req, res) => {
-  const list = Array.from(churches.values()).map(c => ({
-    churchId:         c.churchId,
-    name:             c.name,
-    connected:        c.ws?.readyState === WebSocket.OPEN,
-    status:           c.status,
-    lastSeen:         c.lastSeen,
-    church_type:      c.church_type      || 'recurring',
-    event_expires_at: c.event_expires_at || null,
-    event_label:      c.event_label      || null,
-    reseller_id:      c.reseller_id      || null,
-  }));
+  const list = Array.from(churches.values()).map(c => {
+    const row = stmtGet.get(c.churchId) || {};
+    return {
+      churchId:         c.churchId,
+      name:             c.name,
+      connected:        c.ws?.readyState === WebSocket.OPEN,
+      status:           c.status,
+      lastSeen:         c.lastSeen,
+      church_type:      c.church_type      || 'recurring',
+      event_expires_at: c.event_expires_at || null,
+      event_label:      c.event_label      || null,
+      reseller_id:      c.reseller_id      || null,
+      registrationCode:  row.registration_code || c.registrationCode || null,
+    };
+  });
   res.json(list);
 });
 
@@ -1170,8 +1213,13 @@ app.get('/api/guest-tokens', requireAdmin, (req, res) => {
 // ─── TELEGRAM BOT API ─────────────────────────────────────────────────────────
 
 app.post('/api/telegram-webhook', (req, res) => {
+  const providedSecret = req.headers['x-telegram-bot-api-secret-token'] || '';
+  if (TALLY_BOT_WEBHOOK_SECRET && providedSecret !== TALLY_BOT_WEBHOOK_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized webhook secret' });
+  }
   res.sendStatus(200); // Respond immediately to Telegram
   if (tallyBot) tallyBot.handleUpdate(req.body).catch(e => console.error('[TallyBot] webhook error:', e.message));
+  else console.warn('[TallyBot] Webhook called but bot is not initialized.');
 });
 
 app.post('/api/churches/:churchId/td-register', requireAdmin, (req, res) => {
@@ -1199,8 +1247,14 @@ app.delete('/api/churches/:churchId/tds/:userId', requireAdmin, (req, res) => {
 
 app.post('/api/bot/set-webhook', requireAdmin, (req, res) => {
   if (!tallyBot) return res.status(503).json({ error: 'Telegram bot not configured' });
-  const { url } = req.body;
-  tallyBot.setWebhook(url || TALLY_BOT_WEBHOOK_URL).then(r => res.json(r)).catch(e => res.status(500).json({ error: e.message }));
+  const { url, secret_token } = req.body || {};
+  const payload = {
+    url: url || TALLY_BOT_WEBHOOK_URL
+  };
+  const webhookSecret = secret_token || TALLY_BOT_WEBHOOK_SECRET;
+  if (webhookSecret) payload.secret_token = webhookSecret;
+  if (!payload.url) return res.status(400).json({ error: 'url required (or TALLY_BOT_WEBHOOK_URL env var)'});
+  tallyBot.setWebhook(payload).then(r => res.json(r)).catch(e => res.status(500).json({ error: e.message }));
 });
 
 // Include registration_code in church detail
