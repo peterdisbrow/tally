@@ -41,19 +41,41 @@ function tryTcpConnect(ip, port, timeoutMs = 300) {
 function tryHttpGet(url, timeoutMs = 2000) {
   return new Promise((resolve) => {
     const req = http.get(url, { timeout: timeoutMs }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => (data += chunk));
+      let body = '';
+      res.on('data', (chunk) => (body += chunk));
       res.on('end', () => {
+        const trimmed = body.trim();
+        const result = { success: true, statusCode: res.statusCode, body: trimmed, data: null };
+
+        if (!trimmed) return resolve(result);
+
         try {
-          resolve({ success: true, data: JSON.parse(data) });
+          result.data = JSON.parse(trimmed);
         } catch {
-          resolve({ success: true, data: null });
+          result.data = null;
         }
+
+        resolve(result);
       });
     });
-    req.on('error', () => resolve({ success: false }));
-    req.on('timeout', () => { req.destroy(); resolve({ success: false }); });
+    req.on('error', () => resolve({ success: false, body: '', data: null, statusCode: null }));
+    req.on('timeout', () => { req.destroy(); resolve({ success: false, body: '', data: null, statusCode: null }); });
   });
+}
+
+function companionConnectionCount(resp) {
+  if (!resp || !resp.success || !resp.data) return null;
+  if (Array.isArray(resp.data)) return resp.data.length;
+  if (Array.isArray(resp.data.connections)) return resp.data.connections.length;
+  return null;
+}
+
+function isLikelyResolume(data) {
+  return data && typeof data === 'object' && typeof (data.name || data.title || data.productName || data.version) === 'string';
+}
+
+function isLikelyVmixXml(xml) {
+  return typeof xml === 'string' && /<edition>/.test(xml);
 }
 
 /**
@@ -90,9 +112,11 @@ async function discoverDevices(onProgress = () => {}) {
         onProgress(3, 'Found OBS on localhost ✅');
       } else if (check.type === 'companion') {
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/api/connections`, 2000);
-        const connCount = resp.success && Array.isArray(resp.data) ? resp.data.length : 0;
-        results.companion.push({ ip: '127.0.0.1', port: check.port, connections: connCount });
-        onProgress(4, 'Found Companion on localhost ✅');
+        const connCount = companionConnectionCount(resp);
+        if (connCount !== null) {
+          results.companion.push({ ip: '127.0.0.1', port: check.port, connections: connCount });
+          onProgress(4, 'Found Companion on localhost ✅');
+        }
       } else if (check.type === 'propresenter') {
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/v1/version`, 2000);
         if (resp.success) {
@@ -101,15 +125,14 @@ async function discoverDevices(onProgress = () => {}) {
         }
       } else if (check.type === 'vmix') {
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/api/?Function=GetShortXML`, 2000);
-        if (resp.success && resp.data) {
-          const editionM = resp.data.match && resp.data.match(/<edition>([^<]+)<\/edition>/i);
-          const edition = editionM ? editionM[1] : 'vMix';
+        const edition = isLikelyVmixXml(resp.body) ? (resp.body.match(/<edition>([^<]+)<\/edition>/i)?.[1] || 'vMix') : null;
+        if (edition) {
           results.vmix.push({ ip: '127.0.0.1', port: check.port, edition });
           onProgress(6, `Found vMix ${edition} on localhost ✅`);
         }
       } else if (check.type === 'resolume') {
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/api/v1/product`, 2000);
-        if (resp.success) {
+        if (isLikelyResolume(resp.data)) {
           const version = resp.data?.name || 'Resolume Arena';
           results.resolume.push({ ip: '127.0.0.1', port: check.port, version });
           onProgress(5, `Found ${version} on localhost ✅`);
@@ -125,7 +148,6 @@ async function discoverDevices(onProgress = () => {}) {
     { port: 8888,  type: 'companion' },
     { port: 4455,  type: 'obs' },
     { port: 9993,  type: 'hyperdeck' },
-    { port: 80,    type: 'ptz' },
     { port: 1025,  type: 'propresenter' },
     { port: 8080,  type: 'resolume' },
     { port: 8088,  type: 'vmix' },
@@ -158,18 +180,17 @@ async function discoverDevices(onProgress = () => {}) {
               onProgress(null, `Found ATEM at ${ip} ✅`);
             } else if (type === 'companion' && !results.companion.find((d) => d.ip === ip)) {
               const resp = await tryHttpGet(`http://${ip}:${port}/api/connections`, 2000);
-              const connCount = resp.success && Array.isArray(resp.data) ? resp.data.length : 0;
-              results.companion.push({ ip, port, connections: connCount });
-              onProgress(null, `Found Companion at ${ip} ✅`);
+              const connCount = companionConnectionCount(resp);
+              if (connCount !== null) {
+                results.companion.push({ ip, port, connections: connCount });
+                onProgress(null, `Found Companion at ${ip} ✅`);
+              }
             } else if (type === 'obs' && !results.obs.find((d) => d.ip === ip)) {
               results.obs.push({ ip, port: 4455 });
               onProgress(null, `Found OBS at ${ip} ✅`);
             } else if (type === 'hyperdeck' && !results.hyperdeck.find((d) => d.ip === ip)) {
               results.hyperdeck.push({ ip });
               onProgress(null, `Found HyperDeck at ${ip} ✅`);
-            } else if (type === 'ptz' && !results.ptz.find((d) => d.ip === ip)) {
-              results.ptz.push({ ip, protocol: 'HTTP' });
-              onProgress(null, `Found possible PTZ camera at ${ip}`);
             } else if (type === 'propresenter' && !results.propresenter.find((d) => d.ip === ip)) {
               const vResp = await tryHttpGet(`http://${ip}:${port}/v1/version`, 2000);
               if (vResp.success && vResp.data && vResp.data.version) {
@@ -178,15 +199,14 @@ async function discoverDevices(onProgress = () => {}) {
               }
             } else if (type === 'vmix' && !results.vmix.find((d) => d.ip === ip)) {
               const vResp = await tryHttpGet(`http://${ip}:${port}/api/?Function=GetShortXML`, 2000);
-              if (vResp.success && vResp.data) {
-                const editionM = vResp.data.match && vResp.data.match(/<edition>([^<]+)<\/edition>/i);
-                const edition = editionM ? editionM[1] : 'vMix';
+              const edition = isLikelyVmixXml(vResp.body) ? (vResp.body.match(/<edition>([^<]+)<\/edition>/i)?.[1] || 'vMix') : null;
+              if (edition) {
                 results.vmix.push({ ip, port, edition });
                 onProgress(null, `Found vMix ${edition} at ${ip} ✅`);
               }
             } else if (type === 'resolume' && !results.resolume.find((d) => d.ip === ip)) {
               const rResp = await tryHttpGet(`http://${ip}:${port}/api/v1/product`, 2000);
-              if (rResp.success) {
+              if (isLikelyResolume(rResp.data)) {
                 const version = rResp.data?.name || 'Resolume Arena';
                 results.resolume.push({ ip, port, version });
                 onProgress(null, `Found ${version} at ${ip} ✅`);
