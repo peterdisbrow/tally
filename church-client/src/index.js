@@ -358,6 +358,17 @@ class ChurchAVAgent {
         console.log(`📨 Command received: ${msg.command}`, msg.params || '');
         this.executeCommand(msg);
         break;
+      case 'chat':
+        // Forward to Electron app via stdout structured line
+        console.log(`[CHAT] ${JSON.stringify({
+          id: msg.id,
+          sender_name: msg.sender_name || msg.senderName,
+          sender_role: msg.sender_role || msg.senderRole,
+          source: msg.source,
+          message: msg.message,
+          timestamp: msg.timestamp,
+        })}`);
+        break;
       case 'pong':
         break;
       default:

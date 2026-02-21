@@ -56,6 +56,7 @@ const { PresetLibrary } = require('./src/presetLibrary');
 const { EventMode } = require('./src/eventMode');
 const { ResellerSystem } = require('./src/reseller');
 const { AutoPilot } = require('./src/autoPilot');
+const { ChatEngine } = require('./src/chatEngine');
 
 const { BillingSystem, TRIAL_PERIOD_DAYS } = require('./src/billing');
 const { buildDashboardHtml, buildResellerPortalHtml } = require('./src/dashboard');
@@ -324,7 +325,7 @@ scheduleEngine.startPolling();
 
 // ─── AUTOPILOT ───────────────────────────────────────────────────────────────
 
-const autoPilot = new AutoPilot(db, { scheduleEngine, sessionRecap });
+const autoPilot = new AutoPilot(db, { scheduleEngine, sessionRecap, billing });
 
 // Set command executor — sends commands to church clients via WebSocket
 autoPilot.setCommandExecutor(async (churchId, command, params, source) => {
@@ -352,6 +353,10 @@ setInterval(() => {
     );
   }
 }, 60000);
+
+// ─── CHAT ENGINE ─────────────────────────────────────────────────────────────
+
+const chatEngine = new ChatEngine(db, { sessionRecap });
 
 // ─── PLANNING CENTER ──────────────────────────────────────────────────────────
 
@@ -428,6 +433,7 @@ if (TALLY_BOT_TOKEN) {
     planningCenter,
     resellerSystem,
     autoPilot,
+    chatEngine,
   });
   log('Telegram bot initialized');
   // Non-blocking webhook setup (fires after app is ready)
@@ -443,6 +449,35 @@ if (TALLY_BOT_TOKEN) {
 } else {
   log('Telegram bot disabled (TALLY_BOT_TOKEN not set)');
 }
+
+// Wire chat engine broadcast functions (uses hoisted broadcastToControllers)
+chatEngine.setBroadcasters({
+  broadcastToChurch: (churchId, msg) => {
+    const church = churches.get(churchId);
+    if (church?.ws?.readyState === WebSocket.OPEN) {
+      church.ws.send(JSON.stringify(msg));
+    }
+  },
+  broadcastToControllers: (msg) => broadcastToControllers(msg),
+  notifyTelegram: (churchId, savedMsg) => {
+    if (!tallyBot) return;
+    const sourceIcon = { app: '💻', dashboard: '🌐', telegram: '📱' }[savedMsg.source] || '💬';
+    const text = `${sourceIcon} *${savedMsg.sender_name}*:\n${savedMsg.message}`;
+    // Notify TD(s) for this church
+    const tds = db.prepare('SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1').all(churchId);
+    for (const td of tds) {
+      if (td.telegram_chat_id && savedMsg.source !== 'telegram') {
+        tallyBot.sendMessage(td.telegram_chat_id, text).catch(() => {});
+      }
+    }
+    // Notify admin if message is from a TD
+    if (savedMsg.sender_role === 'td' && tallyBot.adminChatId) {
+      const churchRow = db.prepare('SELECT name FROM churches WHERE churchId = ?').get(churchId);
+      const adminText = `${sourceIcon} *${savedMsg.sender_name}* (${churchRow?.name || churchId}):\n${savedMsg.message}`;
+      tallyBot.sendMessage(tallyBot.adminChatId, adminText).catch(() => {});
+    }
+  },
+});
 
 // ─── A/V SYNC MONITOR ────────────────────────────────────────────────────────
 
@@ -539,7 +574,7 @@ app.get('/api/health', (req, res) => {
   const connectedCount = Array.from(churches.values()).filter(c => c.ws?.readyState === WebSocket.OPEN).length;
   res.json({
     service: 'tally-relay',
-    version: '2026.02.21.2',
+    version: '2026.02.21.3',
     uptime: Math.floor(process.uptime()),
     registeredChurches: churches.size,
     connectedChurches: connectedCount,
@@ -1643,6 +1678,11 @@ app.get('/api/churches/:churchId/sessions/:sessionId/timeline', requireAdmin, (r
     'SELECT *, \'alert\' as _type FROM alerts WHERE session_id = ? ORDER BY created_at ASC'
   ).all(sessionId);
 
+  // Get chat messages linked to this session
+  const chatMsgs = db.prepare(
+    'SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC'
+  ).all(sessionId);
+
   // Merge into a single chronological timeline
   const timeline = [
     // Session start marker
@@ -1670,6 +1710,16 @@ app.get('/api/churches/:churchId/sessions/:sessionId/timeline', requireAdmin, (r
       acknowledged_by: a.acknowledged_by,
       escalated: !!a.escalated,
       resolved: !!a.resolved,
+    })),
+    // Chat messages
+    ...chatMsgs.map(c => ({
+      _type: 'chat',
+      id: c.id,
+      timestamp: c.timestamp,
+      sender_name: c.sender_name,
+      sender_role: c.sender_role,
+      source: c.source,
+      message: c.message,
     })),
     // Session end marker (if ended)
     ...(session.ended_at ? [{
@@ -1699,6 +1749,7 @@ app.get('/api/churches/:churchId/sessions/:sessionId/debrief', requireAdmin, (re
 
   const events = db.prepare('SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC').all(sessionId);
   const alerts = db.prepare('SELECT * FROM alerts WHERE session_id = ? ORDER BY created_at ASC').all(sessionId);
+  const chatMsgs = db.prepare('SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC').all(sessionId);
 
   // Build debrief text
   const startTime = new Date(session.started_at);
@@ -1723,14 +1774,16 @@ app.get('/api/churches/:churchId/sessions/:sessionId/debrief', requireAdmin, (re
     `Stream ran: ${session.stream_ran ? 'Yes' : 'No'}${session.stream_runtime_minutes ? ' (' + session.stream_runtime_minutes + ' min)' : ''}`,
     `Recording: ${session.recording_confirmed ? 'Confirmed' : 'Not confirmed'}`,
     `Peak viewers: ${session.peak_viewers || 'N/A'}`,
+    `Chat messages: ${chatMsgs.length}`,
   ];
 
-  if (events.length > 0 || alerts.length > 0) {
-    lines.push('', `INCIDENT LOG`, `${'─'.repeat(20)}`);
+  if (events.length > 0 || alerts.length > 0 || chatMsgs.length > 0) {
+    lines.push('', `ACTIVITY LOG`, `${'─'.repeat(20)}`);
 
     const merged = [
       ...events.map(e => ({ time: e.timestamp, text: `[EVENT] ${e.event_type}${e.auto_resolved ? ' (auto-resolved)' : e.resolved ? ' (resolved)' : ''}${e.details ? ': ' + e.details.substring(0, 80) : ''}` })),
       ...alerts.map(a => ({ time: a.created_at, text: `[${a.severity}] ${a.alert_type}${a.acknowledged_at ? ' (ack by ' + (a.acknowledged_by || '?') + ')' : ''}${a.escalated ? ' ESCALATED' : ''}` })),
+      ...chatMsgs.map(c => ({ time: c.timestamp, text: `[CHAT] ${c.sender_name} (${c.source}): ${c.message.substring(0, 80)}` })),
     ].sort((a, b) => new Date(a.time) - new Date(b.time));
 
     for (const item of merged) {
@@ -1738,7 +1791,7 @@ app.get('/api/churches/:churchId/sessions/:sessionId/debrief', requireAdmin, (re
       lines.push(`  ${t}  ${item.text}`);
     }
   } else {
-    lines.push('', 'No incidents recorded during this session.');
+    lines.push('', 'No activity recorded during this session.');
   }
 
   lines.push('', `— Generated by Tally • ${new Date().toLocaleDateString()}`);
@@ -2577,6 +2630,19 @@ function handleChurchMessage(church, msg) {
       break;
     }
 
+    case 'chat': {
+      if (!msg.message || !msg.message.trim()) break;
+      const saved = chatEngine.saveMessage({
+        churchId: church.churchId,
+        senderName: msg.senderName || church.tdName || 'TD',
+        senderRole: msg.senderRole || 'td',
+        source: 'app',
+        message: msg.message.trim(),
+      });
+      chatEngine.broadcastChat(saved);
+      break;
+    }
+
     case 'preview_frame': {
       // Safety: reject frames > 150KB
       if (msg.data && msg.data.length > 150_000) break;
@@ -2619,6 +2685,18 @@ function handleControllerMessage(ws, msg) {
     } else {
       ws.send(JSON.stringify({ type: 'error', error: 'Church not connected', churchId: msg.churchId }));
     }
+  }
+
+  // Chat from controller (admin dashboard WebSocket)
+  if (msg.type === 'chat' && msg.churchId && msg.message) {
+    const saved = chatEngine.saveMessage({
+      churchId: msg.churchId,
+      senderName: msg.senderName || 'Admin',
+      senderRole: 'admin',
+      source: 'dashboard',
+      message: msg.message.trim(),
+    });
+    chatEngine.broadcastChat(saved);
   }
 }
 
@@ -2871,6 +2949,14 @@ app.get('/api/churches/:churchId/automation', requireAdmin, (req, res) => {
 app.post('/api/churches/:churchId/automation', requireAdmin, (req, res) => {
   const church = churches.get(req.params.churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
+
+  // Tier gate: autopilot requires Pro or Managed
+  const dbChurch = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(req.params.churchId);
+  if (dbChurch && billing) {
+    const access = billing.checkAccess(dbChurch, 'autopilot');
+    if (!access.allowed) return res.status(403).json({ error: access.reason });
+  }
+
   try {
     const rule = autoPilot.createRule(req.params.churchId, {
       name: req.body.name,
@@ -2919,6 +3005,59 @@ app.get('/api/churches/:churchId/command-log', requireAdmin, (req, res) => {
   const offset = parseInt(req.query.offset) || 0;
   const log = autoPilot.getCommandLog(req.params.churchId, limit, offset);
   res.json(log);
+});
+
+// ─── CHAT API ────────────────────────────────────────────────────────────────
+
+// Church-facing: TD sends a chat message from Electron app
+app.post('/api/church/chat', requireChurchAppAuth, (req, res) => {
+  const { message, senderName } = req.body;
+  if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
+  const saved = chatEngine.saveMessage({
+    churchId: req.church.churchId,
+    senderName: senderName || req.church.td_name || 'TD',
+    senderRole: 'td',
+    source: 'app',
+    message: message.trim(),
+  });
+  chatEngine.broadcastChat(saved);
+  res.json(saved);
+});
+
+// Church-facing: TD polls for messages
+app.get('/api/church/chat', requireChurchAppAuth, (req, res) => {
+  const messages = chatEngine.getMessages(req.church.churchId, {
+    since: req.query.since || null,
+    limit: parseInt(req.query.limit) || 50,
+  });
+  res.json({ messages });
+});
+
+// Admin-facing: Admin sends a chat message
+app.post('/api/churches/:churchId/chat', requireAdmin, (req, res) => {
+  const churchRow = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(req.params.churchId);
+  if (!churchRow) return res.status(404).json({ error: 'Church not found' });
+  const { message, senderName } = req.body;
+  if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
+  const saved = chatEngine.saveMessage({
+    churchId: req.params.churchId,
+    senderName: senderName || req.adminUser?.name || 'Admin',
+    senderRole: 'admin',
+    source: 'dashboard',
+    message: message.trim(),
+  });
+  chatEngine.broadcastChat(saved);
+  res.json(saved);
+});
+
+// Admin-facing: Admin polls for messages
+app.get('/api/churches/:churchId/chat', requireAdmin, (req, res) => {
+  const messages = chatEngine.getMessages(req.params.churchId, {
+    since: req.query.since || null,
+    limit: parseInt(req.query.limit) || 50,
+    sessionId: req.query.sessionId || null,
+  });
+  res.json({ messages });
 });
 
 // ─── SLACK INTEGRATION API ────────────────────────────────────────────────────

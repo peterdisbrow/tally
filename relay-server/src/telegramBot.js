@@ -149,6 +149,9 @@ function getHelpText(brandName = 'Tally') {
 *Dante*
 • load dante scene \\[name\\] — trigger Companion button 'Dante: \\[name\\]'
 
+*Chat*
+• msg \\[text\\] — send message to your team
+
 *Status*
 • status — system overview
 • show me what's on screen — live preview
@@ -174,7 +177,7 @@ class TallyBot {
    * @param {object} [opts.preServiceCheck] - PreServiceCheck instance (optional)
    * @param {object} [opts.resellerSystem]  - ResellerSystem instance for white-labeling (optional)
    */
-  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem, autoPilot }) {
+  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem, autoPilot, chatEngine }) {
     this.token = botToken;
     this.adminChatId = adminChatId;
     this.db = db;
@@ -186,6 +189,7 @@ class TallyBot {
     this.planningCenter  = planningCenter  || null;
     this.resellerSystem  = resellerSystem  || null;
     this.autoPilot       = autoPilot       || null;
+    this.chatEngine      = chatEngine      || null;
     this._apiBase = `https://api.telegram.org/bot${botToken}`;
 
     // Ensure church_tds table
@@ -422,6 +426,23 @@ class TallyBot {
   async handleTDCommand(church, chatId, text) {
     const ltext = text.trim().toLowerCase();
 
+    // ── Chat message ─────────────────────────────────────────────────────
+    const chatMsgMatch = text.match(/^(?:\/chat|msg)\s+(.+)$/is);
+    if (chatMsgMatch && this.chatEngine) {
+      const td = this.db.prepare(
+        'SELECT name FROM church_tds WHERE church_id = ? AND telegram_chat_id = ? AND active = 1'
+      ).get(church.churchId, String(chatId));
+      const saved = this.chatEngine.saveMessage({
+        churchId: church.churchId,
+        senderName: td?.name || 'TD',
+        senderRole: 'td',
+        source: 'telegram',
+        message: chatMsgMatch[1].trim(),
+      });
+      this.chatEngine.broadcastChat(saved);
+      return this.sendMessage(chatId, `💬 Sent to ${church.name} chat.`);
+    }
+
     // event status — show time remaining for event churches
     if (ltext === 'event status' || ltext === '/eventstatus') {
       const dbChurch = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(church.churchId);
@@ -575,6 +596,29 @@ class TallyBot {
 
   async handleAdminCommand(chatId, text) {
     const ltext = text.trim().toLowerCase();
+
+    // ── Chat message from admin ──────────────────────────────────────────────
+    const adminChatMatch = text.match(/^msg\s+(.+?)\s{2,}(.+)$/is) || text.match(/^msg\s+(\S+)\s+(.+)$/is);
+    if (adminChatMatch && this.chatEngine) {
+      const churchName = adminChatMatch[1].trim();
+      const message = adminChatMatch[2].trim();
+      const allChurches = this.db.prepare('SELECT * FROM churches').all();
+      const targetChurch = allChurches.find(c =>
+        c.name.toLowerCase().includes(churchName.toLowerCase())
+      );
+      if (!targetChurch) {
+        return this.sendMessage(chatId, `❌ Church not found: "${churchName}"`);
+      }
+      const saved = this.chatEngine.saveMessage({
+        churchId: targetChurch.churchId,
+        senderName: 'Andrew',
+        senderRole: 'admin',
+        source: 'telegram',
+        message,
+      });
+      this.chatEngine.broadcastChat(saved);
+      return this.sendMessage(chatId, `💬 Sent to ${targetChurch.name} chat.`);
+    }
 
     // ── Guest token commands ─────────────────────────────────────────────────
     if (this.guestTdMode) {

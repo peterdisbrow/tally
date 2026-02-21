@@ -34,6 +34,7 @@ class AutoPilot {
     this.db = db;
     this.scheduleEngine = opts.scheduleEngine || null;
     this.sessionRecap = opts.sessionRecap || null;
+    this.billing = opts.billing || null;
     this._ensureSchema();
 
     // Per-church pause state (churchId → boolean)
@@ -210,6 +211,7 @@ class AutoPilot {
   async onSlideChange(churchId, slideData) {
     if (this.isPaused(churchId)) return;
     if (!this._isInServiceWindow(churchId)) return;
+    if (!this._checkBilling(churchId)) return;
 
     const rules = this._getActiveRules(churchId, 'propresenter_slide_change');
     for (const rule of rules) {
@@ -249,6 +251,7 @@ class AutoPilot {
   async onScheduleTick(churchId, minutesIntoWindow) {
     if (this.isPaused(churchId)) return;
     if (!this._isInServiceWindow(churchId)) return;
+    if (!this._checkBilling(churchId)) return;
 
     const rules = this._getActiveRules(churchId, 'schedule_timer');
     for (const rule of rules) {
@@ -271,6 +274,7 @@ class AutoPilot {
   async onEquipmentStateChange(churchId, state) {
     if (this.isPaused(churchId)) return;
     if (!this._isInServiceWindow(churchId)) return;
+    if (!this._checkBilling(churchId)) return;
 
     const rules = this._getActiveRules(churchId, 'equipment_state_match');
     for (const rule of rules) {
@@ -302,6 +306,14 @@ class AutoPilot {
   }
 
   // ─── INTERNAL ─────────────────────────────────────────────────────────────
+
+  /** Check if church's billing tier allows autopilot. */
+  _checkBilling(churchId) {
+    if (!this.billing) return true; // no billing system = allow all
+    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    if (!church) return false;
+    return this.billing.checkAccess(church, 'autopilot').allowed;
+  }
 
   _isInServiceWindow(churchId) {
     if (!this.scheduleEngine) return true; // No schedule engine = allow

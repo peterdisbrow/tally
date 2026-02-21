@@ -443,6 +443,15 @@ function startAgent() {
     const fpsMatch = text.match(/Low stream FPS: (\d+)/);
     if (fpsMatch) agentStatus.fps = parseInt(fpsMatch[1]);
 
+    // Detect chat messages from agent WebSocket
+    const chatLineMatch = text.match(/\[CHAT\]\s*(\{.+\})/);
+    if (chatLineMatch) {
+      try {
+        const chatMsg = JSON.parse(chatLineMatch[1]);
+        mainWindow?.webContents.send('chat-message', chatMsg);
+      } catch { /* ignore parse errors */ }
+    }
+
     checkAndNotify();
     mainWindow?.webContents.send('status', agentStatus);
     mainWindow?.webContents.send('log', text);
@@ -963,6 +972,38 @@ ipcMain.handle('sign-out', async () => {
   }
 });
 ipcMain.handle('copy-to-clipboard', (_, text) => { clipboard.writeText(text); return true; });
+
+// ─── CHAT IPC ──────────────────────────────────────────────────────────────────
+ipcMain.handle('send-chat', async (_, { message, senderName }) => {
+  const config = loadConfig();
+  if (!config.token || !config.relay) return { error: 'Not configured' };
+  const relayHttp = config.relay.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://');
+  try {
+    const resp = await fetch(`${relayHttp}/api/church/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+      body: JSON.stringify({ message, senderName: senderName || config.churchName || 'TD' }),
+    });
+    return await resp.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('get-chat', async (_, opts = {}) => {
+  const config = loadConfig();
+  if (!config.token || !config.relay) return { messages: [] };
+  const relayHttp = config.relay.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://');
+  const qs = opts.since ? `?since=${encodeURIComponent(opts.since)}` : '';
+  try {
+    const resp = await fetch(`${relayHttp}/api/church/chat${qs}`, {
+      headers: { 'Authorization': `Bearer ${config.token}` },
+    });
+    return await resp.json();
+  } catch {
+    return { messages: [] };
+  }
+});
 ipcMain.handle('get-network-interfaces', () => listAvailableInterfaces());
 ipcMain.handle('mock-lab-status', async () => getMockLabStatus());
 ipcMain.handle('mock-lab-start', async (_, opts = {}) => startMockLab(opts));

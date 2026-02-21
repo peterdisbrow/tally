@@ -341,6 +341,10 @@ class BillingSystem {
       return { allowed: false, reason: 'Monthly reports require Pro or Managed plan.' };
     }
 
+    if (feature === 'autopilot' && tier === 'connect') {
+      return { allowed: false, reason: 'AI Autopilot requires Pro or Managed plan.' };
+    }
+
     if (feature === 'reseller_api' && tier !== 'managed') {
       return { allowed: false, reason: 'Reseller API requires Managed plan.' };
     }

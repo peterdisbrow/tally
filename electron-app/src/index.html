@@ -920,6 +920,7 @@
   <div class="tab-bar">
     <button class="tab-btn active" onclick="switchTab('status')">Status</button>
     <button class="tab-btn" onclick="switchTab('equipment')">Equipment</button>
+    <button class="tab-btn" onclick="switchTab('chat')">Chat</button>
   </div>
 
   <!-- ══════════ STATUS TAB ══════════ -->
@@ -1208,6 +1209,27 @@
     </div>
 
   </div><!-- /tab-equipment -->
+
+  <!-- ══════════ CHAT TAB ══════════ -->
+  <div class="content tab-content" id="tab-chat" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+    <div id="chat-messages" style="flex:1; overflow-y:auto; padding:8px 0;">
+      <div style="text-align:center; color:var(--dim); font-size:11px; padding:40px 20px;">
+        No messages yet. Start a conversation.
+      </div>
+    </div>
+    <div style="padding:8px 12px; border-top:1px solid var(--border); display:flex; gap:8px;">
+      <input type="text" id="chat-input"
+        placeholder="Type a message..."
+        style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:6px;
+               padding:8px 12px; color:var(--white); font-size:13px; font-family:var(--font); outline:none;"
+        onkeydown="if(event.key==='Enter') sendChatMessage()" />
+      <button onclick="sendChatMessage()"
+        style="background:var(--green); color:#000; border:none; border-radius:6px;
+               padding:8px 16px; font-size:12px; font-weight:700; cursor:pointer;">
+        Send
+      </button>
+    </div>
+  </div><!-- /tab-chat -->
 
   <div class="branding">
     Powered by <a href="#" class="ext-link" data-url="https://atemschool.com">ATEM School</a>
@@ -1884,6 +1906,93 @@ function switchTab(name) {
   document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`)?.classList.add('active');
   document.getElementById('tab-' + name)?.classList.add('active');
   if (name === 'equipment') loadEquipment();
+  if (name === 'chat') startChatPolling();
+  else stopChatPolling();
+}
+
+// ─── CHAT ───────────────────────────────────────────────────────────────────
+
+let chatMessages = [];
+let chatLastTimestamp = null;
+let chatPollInterval = null;
+
+function startChatPolling() {
+  loadChatHistory();
+  if (chatPollInterval) clearInterval(chatPollInterval);
+  chatPollInterval = setInterval(pollChat, 4000);
+}
+
+function stopChatPolling() {
+  if (chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
+}
+
+async function loadChatHistory() {
+  const resp = await api.getChat({});
+  if (resp?.messages) {
+    chatMessages = resp.messages;
+    if (chatMessages.length > 0) chatLastTimestamp = chatMessages[chatMessages.length - 1].timestamp;
+    renderChat();
+  }
+}
+
+async function pollChat() {
+  if (!chatLastTimestamp) return loadChatHistory();
+  const resp = await api.getChat({ since: chatLastTimestamp });
+  if (resp?.messages?.length > 0) {
+    chatMessages.push(...resp.messages);
+    chatLastTimestamp = resp.messages[resp.messages.length - 1].timestamp;
+    renderChat();
+  }
+}
+
+// Real-time inbound via WebSocket → stdout → IPC
+api.onChatMessage((msg) => {
+  // Dedup: don't add if we already have this message
+  if (msg.id && chatMessages.some(m => m.id === msg.id)) return;
+  chatMessages.push(msg);
+  chatLastTimestamp = msg.timestamp || chatLastTimestamp;
+  renderChat();
+});
+
+function escapeHtml(text) {
+  const d = document.createElement('div');
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+function renderChat() {
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+  const sourceIcon = { telegram: '📱', app: '💻', dashboard: '🌐' };
+  container.innerHTML = chatMessages.map(m => {
+    const time = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const icon = sourceIcon[m.source] || '💬';
+    const roleColor = m.sender_role === 'admin' ? 'var(--green)' : 'var(--white)';
+    const name = m.sender_name || m.senderName || 'Unknown';
+    return `<div style="padding:6px 12px; margin-bottom:2px;">
+      <div style="font-size:10px; color:var(--dim); font-family:var(--mono);">
+        ${icon} <span style="color:${roleColor}; font-weight:600;">${escapeHtml(name)}</span>
+        <span style="margin-left:6px;">${time}</span>
+      </div>
+      <div style="font-size:13px; color:var(--white); margin-top:2px; line-height:1.4;">
+        ${escapeHtml(m.message)}
+      </div>
+    </div>`;
+  }).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const message = input.value.trim();
+  if (!message) return;
+  input.value = '';
+  const resp = await api.sendChat({ message });
+  if (resp?.id) {
+    chatMessages.push(resp);
+    chatLastTimestamp = resp.timestamp;
+    renderChat();
+  }
 }
 
 // ─── EQUIPMENT ─────────────────────────────────────────────────────────────

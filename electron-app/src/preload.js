@@ -33,4 +33,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('scan-progress', listener);
     return () => ipcRenderer.removeListener('scan-progress', listener);
   },
+  // Chat
+  sendChat: (payload) => ipcRenderer.invoke('send-chat', payload),
+  getChat: (opts) => ipcRenderer.invoke('get-chat', opts),
+  onChatMessage: (cb) => ipcRenderer.on('chat-message', (_, data) => cb(data)),
 });
