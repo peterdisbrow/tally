@@ -494,6 +494,36 @@ function issueChurchAppToken(churchId, name) {
   return jwt.sign({ type: 'church_app', churchId, name }, JWT_SECRET, { expiresIn: CHURCH_APP_TOKEN_TTL });
 }
 
+// ─── Rate limiter (in-memory, per-IP) ────────────────────────────────────────
+const rateLimitStore = new Map();
+const RATE_LIMIT_CLEANUP_INTERVAL = 10 * 60 * 1000; // 10 min
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitStore) {
+    if (now - entry.windowStart > 15 * 60 * 1000) rateLimitStore.delete(key);
+  }
+}, RATE_LIMIT_CLEANUP_INTERVAL);
+
+function rateLimit(maxAttempts = 10, windowMs = 15 * 60 * 1000) {
+  return (req, res, next) => {
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const key = `${req.path}:${ip}`;
+    const now = Date.now();
+    let entry = rateLimitStore.get(key);
+    if (!entry || now - entry.windowStart > windowMs) {
+      entry = { windowStart: now, count: 0 };
+      rateLimitStore.set(key, entry);
+    }
+    entry.count++;
+    if (entry.count > maxAttempts) {
+      const retryAfter = Math.ceil((entry.windowStart + windowMs - now) / 1000);
+      res.set('Retry-After', String(retryAfter));
+      return res.status(429).json({ error: 'Too many attempts. Please try again later.', retryAfter });
+    }
+    next();
+  };
+}
+
 const BILLING_TIERS = new Set(['connect', 'pro', 'managed', 'event']);
 const BILLING_STATUSES = new Set(['active', 'trialing', 'inactive', 'pending', 'past_due', 'canceled']);
 
@@ -709,7 +739,7 @@ app.post('/api/church/app/onboard', async (req, res) => {
 });
 
 // Credential-based app login (used by Electron setup flow)
-app.post('/api/church/app/login', (req, res) => {
+app.post('/api/church/app/login', rateLimit(10, 15 * 60 * 1000), (req, res) => {
   const { email, password } = req.body || {};
   const cleanEmail = String(email || '').trim().toLowerCase();
   if (!cleanEmail || !password) {
@@ -809,6 +839,8 @@ app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
       .run(hashPassword(newPw), churchId);
   }
 
+  // Whitelist of allowed columns to prevent SQL injection via dynamic column names
+  const ALLOWED_PROFILE_COLUMNS = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications'];
   const patch = {};
   if (email          !== undefined) patch.portal_email     = email.trim().toLowerCase();
   if (phone          !== undefined) patch.phone            = phone;
@@ -817,9 +849,15 @@ app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
   if (telegramChatId !== undefined) patch.telegram_chat_id = telegramChatId;
   if (notifications  !== undefined) patch.notifications    = JSON.stringify(notifications);
 
-  if (Object.keys(patch).length) {
-    const sets = Object.keys(patch).map(k => `${k} = ?`).join(', ');
-    db.prepare(`UPDATE churches SET ${sets} WHERE churchId = ?`).run(...Object.values(patch), churchId);
+  // Filter to only whitelisted column names (defense-in-depth)
+  const safePatch = {};
+  for (const [col, val] of Object.entries(patch)) {
+    if (ALLOWED_PROFILE_COLUMNS.includes(col)) safePatch[col] = val;
+  }
+
+  if (Object.keys(safePatch).length) {
+    const sets = Object.keys(safePatch).map(k => `${k} = ?`).join(', ');
+    db.prepare(`UPDATE churches SET ${sets} WHERE churchId = ?`).run(...Object.values(safePatch), churchId);
   }
   res.json({ ok: true });
 });
@@ -851,7 +889,7 @@ app.post('/api/church/app/reset-password', requireAdmin, (req, res) => {
 // ─── ADMIN USER AUTH & MANAGEMENT ────────────────────────────────────────────
 
 // POST /api/admin/login — multi-user admin login
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', rateLimit(5, 15 * 60 * 1000), (req, res) => {
   const { email, password } = req.body || {};
   const cleanEmail = String(email || '').trim().toLowerCase();
   if (!cleanEmail || !password) {
@@ -1097,7 +1135,7 @@ app.get('/api/reseller/branding', requireReseller, (req, res) => {
 // ─── BILLING ROUTES ───────────────────────────────────────────────────────────
 
 // Create Stripe Checkout session
-app.post('/api/billing/checkout', async (req, res) => {
+app.post('/api/billing/checkout', requireAdmin, async (req, res) => {
   try {
     const { tier, churchId, email, successUrl, cancelUrl } = req.body;
     if (!tier || !['connect', 'pro', 'managed', 'event'].includes(tier)) {
@@ -1114,7 +1152,7 @@ app.post('/api/billing/checkout', async (req, res) => {
 });
 
 // Create Stripe Billing Portal session (self-service subscription management)
-app.post('/api/billing/portal', async (req, res) => {
+app.post('/api/billing/portal', requireAdmin, async (req, res) => {
   try {
     const { churchId, returnUrl } = req.body;
     if (!churchId) return res.status(400).json({ error: 'churchId required' });

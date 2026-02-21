@@ -47,9 +47,32 @@ function clearCookieHeader(res) {
   res.setHeader('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`);
 }
 
-function hashPortalPassword(password) {
+// Legacy SHA-256 hash (for verifying old stored hashes)
+function hashPortalPasswordLegacy(password) {
   const secret = process.env.SESSION_SECRET || 'fallback-secret';
   return crypto.createHash('sha256').update(secret + password).digest('hex');
+}
+
+// New scrypt-based hash (salt:hash format)
+function hashPortalPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+// Verify password against either scrypt (salt:hash) or legacy SHA-256 (plain hex)
+function verifyPortalPassword(password, stored) {
+  if (!stored) return false;
+  if (stored.includes(':')) {
+    // scrypt format: salt:hash
+    try {
+      const [salt, hash] = stored.split(':');
+      const check = crypto.scryptSync(password, salt, 64).toString('hex');
+      return crypto.timingSafeEqual(Buffer.from(check, 'hex'), Buffer.from(hash, 'hex'));
+    } catch { return false; }
+  }
+  // Legacy SHA-256 format
+  return stored === hashPortalPasswordLegacy(password);
 }
 
 function getSession(req) {
@@ -804,12 +827,12 @@ let apiKeyRevealed = false;
 function toggleApiKey() {
   const el = document.getElementById('api-key-display');
   apiKeyRevealed = !apiKeyRevealed;
-  el.type = apiKeyRevealed ? 'text' : 'password';
-  el.value = apiKeyRevealed ? '${process.env.ADMIN_API_KEY || '(set ADMIN_API_KEY)'}' : 'tally-admin-••••••••';
+  el.type = 'password';
+  el.value = 'tally-admin-••••••••';
+  alert('For security, API keys are no longer displayed in the browser. Use the RBAC admin dashboard at /admin or check your Railway environment variables.');
 }
 function copyApiKey() {
-  const key = '${process.env.ADMIN_API_KEY || ''}';
-  navigator.clipboard.writeText(key).then(() => alert('API key copied!'));
+  alert('For security, API keys are no longer exposed in the browser. Check your Railway environment variables directly.');
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -991,6 +1014,9 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <div id="add-msg"></div>
     <div class="form-field"><label>Church Name</label><input id="ac-name" type="text" placeholder="Grace Community Church"></div>
     <div class="form-field"><label>Contact Email</label><input id="ac-email" type="email" placeholder="td@church.com"></div>
+    <div class="form-field"><label>Portal Login Email (optional)</label><input id="ac-portal-email" type="email" placeholder="admin@church.com"></div>
+    <div class="form-field"><label>Portal Password (optional)</label><input id="ac-portal-password" type="password" placeholder="At least 8 characters"></div>
+    <div style="font-size:12px;color:var(--muted);margin-top:-6px;margin-bottom:10px;">Set both portal fields to create app login credentials now.</div>
     <button class="btn-primary" onclick="addChurch()">Create Registration Code</button>
   </div>
   <div class="success-card" id="add-success" style="display:none">
@@ -1000,6 +1026,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <button class="btn-primary" style="width:100%;margin-top:8px" onclick="copyRegCode()">Copy Code</button>
     <div style="margin-top:12px;font-size:12px;color:var(--muted)">
       <div>Created: <span id="add-created"></span></div>
+      <div id="add-portal-created" style="display:none;color:var(--green);margin-top:4px;"></div>
     </div>
   </div>
 </div>
@@ -1117,11 +1144,17 @@ function closeFleetDetail() { document.getElementById('fleet-detail').classList.
 async function addChurch() {
   const name = document.getElementById('ac-name').value.trim();
   const email = document.getElementById('ac-email').value.trim();
+  const portalEmail = document.getElementById('ac-portal-email').value.trim().toLowerCase();
+  const portalPassword = document.getElementById('ac-portal-password').value;
+  const portalCreatedEl = document.getElementById('add-portal-created');
   if (!name) { showMsg('add-msg', 'Church name required', 'error'); return; }
+  if (portalPassword && !portalEmail) { showMsg('add-msg', 'Portal login email is required when password is provided', 'error'); return; }
+  if (portalEmail && !portalPassword) { showMsg('add-msg', 'Portal password is required when portal login email is provided', 'error'); return; }
+  if (portalPassword && portalPassword.length < 8) { showMsg('add-msg', 'Portal password must be at least 8 characters', 'error'); return; }
   try {
     const r = await fetch('/api/reseller/churches/token', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({churchName: name, contactEmail: email})
+      body: JSON.stringify({churchName: name, contactEmail: email, portalEmail, password: portalPassword})
     });
     const d = await r.json();
     if (!r.ok) { showMsg('add-msg', d.error||'Error', 'error'); return; }
@@ -1129,9 +1162,18 @@ async function addChurch() {
     document.getElementById('add-church-name').textContent = d.churchName || name;
     document.getElementById('add-reg-code').textContent = lastRegCode;
     document.getElementById('add-created').textContent = new Date().toLocaleString();
+    if (d.appLoginCreated && d.portalEmail) {
+      portalCreatedEl.textContent = 'Portal login created for ' + d.portalEmail;
+      portalCreatedEl.style.display = '';
+    } else {
+      portalCreatedEl.textContent = '';
+      portalCreatedEl.style.display = 'none';
+    }
     document.getElementById('add-success').style.display = '';
     document.getElementById('ac-name').value = '';
     document.getElementById('ac-email').value = '';
+    document.getElementById('ac-portal-email').value = '';
+    document.getElementById('ac-portal-password').value = '';
     document.getElementById('add-msg').innerHTML = '';
     loadStats();
     loadFleet();
@@ -1459,8 +1501,12 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
     if (!reseller.portal_password) {
       return res.redirect('/portal/login?error=nopw');
     }
-    const hashed = hashPortalPassword(password);
-    if (hashed !== reseller.portal_password) return res.redirect('/portal/login?error=1');
+    if (!verifyPortalPassword(password, reseller.portal_password)) return res.redirect('/portal/login?error=1');
+    // Transparently upgrade legacy SHA-256 hash to scrypt on successful login
+    if (!reseller.portal_password.includes(':')) {
+      const upgraded = hashPortalPassword(password);
+      db.prepare('UPDATE resellers SET portal_password=? WHERE id=?').run(upgraded, reseller.id);
+    }
     const payload = { role: 'reseller', resellerId: reseller.id, exp: Date.now() + 8 * 60 * 60 * 1000 };
     setCookieHeader(res, payload);
     res.redirect('/portal');
@@ -1481,8 +1527,7 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
     if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both fields required' });
     if (newPassword.length < 6) return res.status(400).json({ error: 'New password too short (min 6 chars)' });
     const reseller = req.reseller;
-    const currentHashed = hashPortalPassword(currentPassword);
-    if (currentHashed !== reseller.portal_password) return res.status(403).json({ error: 'Current password incorrect' });
+    if (!verifyPortalPassword(currentPassword, reseller.portal_password)) return res.status(403).json({ error: 'Current password incorrect' });
     const newHashed = hashPortalPassword(newPassword);
     db.prepare('UPDATE resellers SET portal_password=? WHERE id=?').run(newHashed, reseller.id);
     res.json({ updated: true });
