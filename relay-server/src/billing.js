@@ -37,7 +37,7 @@ const PRICES = {
 };
 
 const TIER_NAMES = { connect: 'Connect', pro: 'Pro', managed: 'Managed', event: 'Event' };
-const TRIAL_PERIOD_DAYS = 60; // must match landing page pricing promise
+const TRIAL_PERIOD_DAYS = 30; // 30-day free trial
 const GRACE_PERIOD_DAYS = 7;  // days after payment failure before deactivation
 const TIER_LIMITS = {
   connect: { churches: 1, devices: ['atem', 'obs', 'vmix'] },
