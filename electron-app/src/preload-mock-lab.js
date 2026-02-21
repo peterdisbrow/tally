@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveMockLabConfig: (config) => ipcRenderer.invoke('mock-lab-save-config', config),
   startMockLab: (opts = {}) => ipcRenderer.invoke('mock-lab-start', opts),
   stopMockLab: () => ipcRenderer.invoke('mock-lab-stop'),
+  manageIpAliases: (payload = {}) => ipcRenderer.invoke('mock-lab-manage-ip-aliases', payload),
   openExternal: (url) => ipcRenderer.invoke('mock-lab-open-external', url),
   onMockLabLog: (cb) => {
     const listener = (_, line) => cb(line);

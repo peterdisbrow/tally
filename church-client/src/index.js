@@ -39,7 +39,7 @@ program
 
 program
   .option('-t, --token <token>', 'Your church connection token (from ATEM School)')
-  .option('-r, --relay <url>', 'Relay server URL', 'wss://tally-production-cde2.up.railway.app')
+  .option('-r, --relay <url>', 'Relay server URL', 'wss://tally-by-atemschool.up.railway.app')
   .option('-a, --atem <ip>', 'ATEM switcher IP (use "mock" for built-in simulator)')
   .option('--mock-production', 'Run full mock production stack (ATEM + OBS + X32 + HyperDeck + ProPresenter)')
   .option('--fake-atem-api-port <port>', 'Fake ATEM control API port (default: 9911)')
@@ -776,8 +776,10 @@ class ChurchAVAgent {
       this.sendStatus();
     });
 
-    this.proPresenter.on('slideChanged', () => {
+    this.proPresenter.on('slideChanged', (data) => {
       this._updateProPresenterStatus();
+      // Forward to relay for AutoPilot trigger evaluation
+      this._sendSlideChangeEvent(data);
     });
 
     await this.proPresenter.connect();
@@ -801,6 +803,18 @@ class ChurchAVAgent {
         }
       }
       this.status.proPresenter.connected = this.proPresenter.connected;
+    } catch { /* ignore */ }
+  }
+
+  _sendSlideChangeEvent(data) {
+    if (!this.ws || this.ws.readyState !== 1) return;
+    try {
+      this.ws.send(JSON.stringify({
+        type: 'propresenter_slide_change',
+        presentationName: data?.presentationName || this.status.proPresenter?.currentSlide || '',
+        slideIndex: data?.slideIndex ?? this.status.proPresenter?.slideIndex ?? 0,
+        slideCount: data?.slideCount ?? this.status.proPresenter?.slideTotal ?? 0,
+      }));
     } catch { /* ignore */ }
   }
 

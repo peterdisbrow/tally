@@ -2,25 +2,31 @@ const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFile } = require('child_process');
 const { MockLabManager, DEFAULT_ADDRESSES } = require('./mockLabManager');
 
 const DEFAULT_CONFIG = {
   addresses: JSON.parse(JSON.stringify(DEFAULT_ADDRESSES)),
   allowFallback: false,
-  requireUniqueIps: true,
+  requireUniqueIps: false,
   nicName: '',
 };
+const DEFAULT_NIC_NETMASK = '255.255.255.0';
 
 let mainWindow = null;
 const logBuffer = [];
 const MAX_LOG_LINES = 400;
-const mockLabManager = new MockLabManager((message) => {
+function pushLog(message) {
   const line = `[${new Date().toISOString()}] ${String(message || '')}`;
   logBuffer.push(line);
   if (logBuffer.length > MAX_LOG_LINES) {
     logBuffer.splice(0, logBuffer.length - MAX_LOG_LINES);
   }
   mainWindow?.webContents?.send('mock-lab-log', line);
+}
+
+const mockLabManager = new MockLabManager((message) => {
+  pushLog(message);
 });
 
 function configPath() {
@@ -34,7 +40,7 @@ function mergeConfig(input = {}) {
       ...(input.addresses || {}),
     },
     allowFallback: input.allowFallback === true,
-    requireUniqueIps: input.requireUniqueIps !== false,
+    requireUniqueIps: input.requireUniqueIps === true,
     nicName: String(input.nicName || '').trim(),
   };
 }
@@ -77,6 +83,100 @@ function listAvailableInterfaces() {
 
   out.sort((a, b) => (a.name.localeCompare(b.name) || a.ip.localeCompare(b.ip)));
   return out;
+}
+
+function isValidIpv4(ip) {
+  const value = String(ip || '').trim();
+  const parts = value.split('.');
+  if (parts.length !== 4) return false;
+  return parts.every((part) => {
+    if (!/^\d{1,3}$/.test(part)) return false;
+    const n = Number(part);
+    return Number.isInteger(n) && n >= 0 && n <= 255;
+  });
+}
+
+function subnetFromIpv4(ip) {
+  const parts = String(ip || '').trim().split('.');
+  if (parts.length !== 4) return '';
+  return `${parts[0]}.${parts[1]}.${parts[2]}`;
+}
+
+function defaultUniqueIpsForNicIp(nicIp) {
+  const subnet = subnetFromIpv4(nicIp);
+  if (!subnet) return [];
+  return [11, 12, 13, 14, 15, 16].map((host) => `${subnet}.${host}`);
+}
+
+function validateNicName(name) {
+  const nicName = String(name || '').trim();
+  if (!nicName) throw new Error('Missing NIC name.');
+  if (!/^[a-zA-Z0-9_.:-]+$/.test(nicName)) {
+    throw new Error(`Invalid NIC name: ${nicName}`);
+  }
+  return nicName;
+}
+
+function normalizeAliasPlan(payload = {}) {
+  const nicName = validateNicName(payload.nicName);
+  const nicIp = String(payload.nicIp || '').trim();
+  if (!isValidIpv4(nicIp)) throw new Error('Selected NIC IPv4 is invalid.');
+
+  const nicNetmask = String(payload.nicNetmask || DEFAULT_NIC_NETMASK).trim();
+  if (!isValidIpv4(nicNetmask)) throw new Error('Selected NIC netmask is invalid.');
+
+  const fromPayload = Array.isArray(payload.ips)
+    ? payload.ips.map((ip) => String(ip || '').trim()).filter(Boolean)
+    : [];
+  const requestedIps = fromPayload.length ? fromPayload : defaultUniqueIpsForNicIp(nicIp);
+
+  const uniqueIps = [];
+  const seen = new Set();
+  for (const ip of requestedIps) {
+    if (!isValidIpv4(ip)) throw new Error(`Invalid alias IPv4: ${ip}`);
+    if (seen.has(ip)) continue;
+    seen.add(ip);
+    uniqueIps.push(ip);
+  }
+
+  if (!uniqueIps.length) {
+    throw new Error('No valid alias IP addresses were provided.');
+  }
+
+  return {
+    nicName,
+    nicIp,
+    nicNetmask,
+    ips: uniqueIps,
+  };
+}
+
+function buildIfconfigCommand(action, plan, ip) {
+  if (action === 'remove') {
+    return `/sbin/ifconfig ${plan.nicName} -alias ${ip}`;
+  }
+  return `/sbin/ifconfig ${plan.nicName} alias ${ip} netmask ${plan.nicNetmask} up`;
+}
+
+function toAppleScriptString(value) {
+  return `"${String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')}"`;
+}
+
+function runWithMacAdminPrompt(commands) {
+  return new Promise((resolve, reject) => {
+    const joined = commands.join(' ; ');
+    const script = `set shellCmd to ${toAppleScriptString(joined)}\ndo shell script shellCmd with administrator privileges`;
+    execFile('/usr/bin/osascript', ['-e', script], { timeout: 120000 }, (error, stdout, stderr) => {
+      if (error) {
+        const msg = (stderr || stdout || error.message || '').trim() || 'Admin command failed.';
+        reject(new Error(msg));
+        return;
+      }
+      resolve(true);
+    });
+  });
 }
 
 async function getMockLabStatus() {
@@ -133,9 +233,9 @@ ipcMain.handle('mock-lab-get-network-interfaces', async () => listAvailableInter
 ipcMain.handle('mock-lab-get-config', async () => {
   const saved = loadConfig();
   try {
-    mockLabManager.setAddresses(saved.addresses, { requireUniqueIps: saved.requireUniqueIps !== false });
+    mockLabManager.setAddresses(saved.addresses, { requireUniqueIps: saved.requireUniqueIps === true });
   } catch {
-    mockLabManager.setAddresses(DEFAULT_ADDRESSES, { requireUniqueIps: true });
+    mockLabManager.setAddresses(DEFAULT_ADDRESSES, { requireUniqueIps: false });
   }
   return {
     ...saved,
@@ -145,14 +245,14 @@ ipcMain.handle('mock-lab-get-config', async () => {
 
 ipcMain.handle('mock-lab-save-config', async (_, payload = {}) => {
   const merged = mergeConfig(payload);
-  mockLabManager.setAddresses(merged.addresses, { requireUniqueIps: merged.requireUniqueIps !== false });
+  mockLabManager.setAddresses(merged.addresses, { requireUniqueIps: merged.requireUniqueIps === true });
   const saved = saveConfig(merged);
   return { ok: true, config: saved };
 });
 
 ipcMain.handle('mock-lab-start', async (_, opts = {}) => {
   const merged = mergeConfig(opts.addresses ? { ...loadConfig(), ...opts, addresses: opts.addresses } : { ...loadConfig(), ...opts });
-  mockLabManager.setAddresses(merged.addresses, { requireUniqueIps: merged.requireUniqueIps !== false });
+  mockLabManager.setAddresses(merged.addresses, { requireUniqueIps: merged.requireUniqueIps === true });
   saveConfig(merged);
   await mockLabManager.start({
     addresses: merged.addresses,
@@ -172,13 +272,54 @@ ipcMain.handle('mock-lab-open-external', async (_, url) => {
   return true;
 });
 
+ipcMain.handle('mock-lab-manage-ip-aliases', async (_, payload = {}) => {
+  const action = payload?.action === 'remove' ? 'remove' : 'add';
+  const plan = normalizeAliasPlan(payload);
+  const commands = plan.ips.map((ip) => buildIfconfigCommand(action, plan, ip));
+
+  if (process.platform !== 'darwin') {
+    return {
+      ok: false,
+      error: 'IP alias helper currently supports macOS only.',
+      action,
+      commands,
+      plan,
+    };
+  }
+
+  try {
+    await runWithMacAdminPrompt(commands);
+    const summary = action === 'remove'
+      ? `Removed ${commands.length} alias IP(s) from ${plan.nicName}.`
+      : `Configured ${commands.length} alias IP(s) on ${plan.nicName}.`;
+    pushLog(`[Alias] ${summary}`);
+    return {
+      ok: true,
+      action,
+      commands,
+      plan,
+      summary,
+    };
+  } catch (err) {
+    const msg = err?.message || 'Failed to manage NIC aliases.';
+    pushLog(`[Alias] Failed (${action}): ${msg}`);
+    return {
+      ok: false,
+      error: msg,
+      action,
+      commands,
+      plan,
+    };
+  }
+});
+
 app.whenReady().then(() => {
   const cfg = loadConfig();
   try {
-    mockLabManager.setAddresses(cfg.addresses, { requireUniqueIps: cfg.requireUniqueIps !== false });
+    mockLabManager.setAddresses(cfg.addresses, { requireUniqueIps: cfg.requireUniqueIps === true });
   } catch (err) {
     logBuffer.push(`[${new Date().toISOString()}] Invalid saved config ignored: ${err.message}`);
-    mockLabManager.setAddresses(DEFAULT_ADDRESSES, { requireUniqueIps: true });
+    mockLabManager.setAddresses(DEFAULT_ADDRESSES, { requireUniqueIps: false });
   }
 
   createWindow();

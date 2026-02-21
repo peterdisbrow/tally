@@ -214,6 +214,66 @@ async function propresenterIsRunning(agent) {
   return running ? 'ProPresenter is running' : 'ProPresenter is not reachable';
 }
 
+async function propresenterClearAll(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  await agent.proPresenter.clearAll();
+  return 'All layers cleared';
+}
+
+async function propresenterClearSlide(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  await agent.proPresenter.clearSlide();
+  return 'Slide layer cleared';
+}
+
+async function propresenterStageMessage(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  if (!params.name) throw new Error('Message name required');
+  await agent.proPresenter.triggerMessage(params.name, params.tokens || []);
+  return `Stage message "${params.name}" triggered`;
+}
+
+async function propresenterClearMessage(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  await agent.proPresenter.clearMessages();
+  return 'Stage messages cleared';
+}
+
+async function propresenterGetLooks(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const looks = await agent.proPresenter.getLooks();
+  if (!looks.length) return 'No looks found';
+  return looks.map(l => l.name).join('\n');
+}
+
+async function propresenterSetLook(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  if (!params.name) throw new Error('Look name required');
+  const name = await agent.proPresenter.setLook(params.name);
+  return `Look set to "${name}"`;
+}
+
+async function propresenterGetTimers(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const timers = await agent.proPresenter.getTimers();
+  if (!timers.length) return 'No timers found';
+  return timers.map(t => `${t.name}${t.allows_overrun ? ' (overrun)' : ''}`).join('\n');
+}
+
+async function propresenterStartTimer(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  if (!params.name) throw new Error('Timer name required');
+  const name = await agent.proPresenter.startTimer(params.name);
+  return `Timer "${name}" started`;
+}
+
+async function propresenterStopTimer(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  if (!params.name) throw new Error('Timer name required');
+  const name = await agent.proPresenter.stopTimer(params.name);
+  return `Timer "${name}" stopped`;
+}
+
 // ─── VMIX COMMANDS ────────────────────────────────────────────────────────────
 
 async function vmixStatus(agent) {
@@ -906,6 +966,15 @@ const commandHandlers = {
   'propresenter.status': propresenterStatus,
   'propresenter.playlist': propresenterPlaylist,
   'propresenter.isRunning': propresenterIsRunning,
+  'propresenter.clearAll': propresenterClearAll,
+  'propresenter.clearSlide': propresenterClearSlide,
+  'propresenter.stageMessage': propresenterStageMessage,
+  'propresenter.clearMessage': propresenterClearMessage,
+  'propresenter.getLooks': propresenterGetLooks,
+  'propresenter.setLook': propresenterSetLook,
+  'propresenter.getTimers': propresenterGetTimers,
+  'propresenter.startTimer': propresenterStartTimer,
+  'propresenter.stopTimer': propresenterStopTimer,
 
   'vmix.status': vmixStatus,
   'vmix.startStream': vmixStartStream,

@@ -100,6 +100,110 @@ class ProPresenter extends EventEmitter {
     return items;
   }
 
+  // ─── EXTENDED PP7 API ────────────────────────────────────────────────
+
+  async clearAll() {
+    await this._fetch('/v1/clear/layer/slide', { method: 'GET' });
+    await this._fetch('/v1/clear/layer/media', { method: 'GET' });
+    await this._fetch('/v1/clear/layer/props', { method: 'GET' });
+    await this._fetch('/v1/clear/layer/messages', { method: 'GET' });
+    return true;
+  }
+
+  async clearSlide() {
+    await this._fetch('/v1/clear/layer/slide', { method: 'GET' });
+    return true;
+  }
+
+  async getMessages() {
+    const data = await this._fetch('/v1/messages');
+    if (!data) return [];
+    return (data.messages || data || []).map(m => ({
+      id: m.id?.uuid || m.id || m.uuid,
+      name: m.id?.name || m.name || 'Untitled',
+    }));
+  }
+
+  async triggerMessage(idOrName, tokens = []) {
+    // Try by name first — list messages, find matching
+    const messages = await this.getMessages();
+    let msgId = idOrName;
+    if (messages.length > 0) {
+      const found = messages.find(m =>
+        m.name.toLowerCase() === String(idOrName).toLowerCase() ||
+        m.id === idOrName
+      );
+      if (found) msgId = found.id;
+    }
+    const body = tokens.length > 0 ? JSON.stringify(tokens) : undefined;
+    await this._fetch(`/v1/message/${encodeURIComponent(msgId)}/trigger`, {
+      method: 'GET',
+      ...(body ? { body, headers: { 'Content-Type': 'application/json' } } : {}),
+    });
+    return true;
+  }
+
+  async clearMessages() {
+    await this._fetch('/v1/clear/layer/messages', { method: 'GET' });
+    return true;
+  }
+
+  async getLooks() {
+    const data = await this._fetch('/v1/looks');
+    if (!data) return [];
+    return (data.looks || data || []).map(l => ({
+      id: l.id?.uuid || l.id || l.uuid,
+      name: l.id?.name || l.name || 'Untitled',
+    }));
+  }
+
+  async setLook(nameOrId) {
+    const looks = await this.getLooks();
+    const found = looks.find(l =>
+      l.name.toLowerCase() === String(nameOrId).toLowerCase() ||
+      l.id === nameOrId
+    );
+    if (!found) throw new Error(`Look "${nameOrId}" not found. Available: ${looks.map(l => l.name).join(', ')}`);
+    await this._fetch('/v1/looks/current', {
+      method: 'PUT',
+      body: JSON.stringify({ id: { uuid: found.id, name: found.name } }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return found.name;
+  }
+
+  async getTimers() {
+    const data = await this._fetch('/v1/timers');
+    if (!data) return [];
+    return (data.timers || data || []).map(t => ({
+      id: t.id?.uuid || t.id || t.uuid,
+      name: t.id?.name || t.name || 'Untitled',
+      allows_overrun: !!t.allows_overrun,
+    }));
+  }
+
+  async startTimer(nameOrId) {
+    const timers = await this.getTimers();
+    const found = timers.find(t =>
+      t.name.toLowerCase() === String(nameOrId).toLowerCase() ||
+      t.id === nameOrId
+    );
+    if (!found) throw new Error(`Timer "${nameOrId}" not found. Available: ${timers.map(t => t.name).join(', ')}`);
+    await this._fetch(`/v1/timer/${encodeURIComponent(found.id)}/start`, { method: 'GET' });
+    return found.name;
+  }
+
+  async stopTimer(nameOrId) {
+    const timers = await this.getTimers();
+    const found = timers.find(t =>
+      t.name.toLowerCase() === String(nameOrId).toLowerCase() ||
+      t.id === nameOrId
+    );
+    if (!found) throw new Error(`Timer "${nameOrId}" not found. Available: ${timers.map(t => t.name).join(', ')}`);
+    await this._fetch(`/v1/timer/${encodeURIComponent(found.id)}/stop`, { method: 'GET' });
+    return found.name;
+  }
+
   // ─── WEBSOCKET CONNECTION ─────────────────────────────────────────────
 
   async connect() {

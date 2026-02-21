@@ -14,7 +14,7 @@ try {
 
 const CONFIG_PATH = path.join(os.homedir(), '.church-av', 'config.json');
 const CONFIG_DIR  = path.dirname(CONFIG_PATH);
-const DEFAULT_RELAY_URL = 'wss://tally-production-cde2.up.railway.app';
+const DEFAULT_RELAY_URL = 'wss://tally-by-atemschool.up.railway.app';
 const STANDALONE_MOCK_LAB = process.argv.includes('--mock-lab') || process.env.TALLY_STANDALONE_MOCK_LAB === '1';
 const LOG_DIR = path.join(CONFIG_DIR, 'logs');
 const APP_LOG_PATH = path.join(LOG_DIR, 'tally-app.log');
@@ -453,6 +453,14 @@ function startAgent() {
     const text = data.toString();
     appendAppLog('AGENT_ERR', text);
     mainWindow?.webContents.send('log', '[err] ' + text);
+
+    // Detect auth rejection (WebSocket close code 1008) and notify renderer
+    if (text.includes('1008') || text.includes('Invalid token') || text.includes('Authentication failed') || text.includes('auth') && text.includes('reject')) {
+      agentStatus.relay = false;
+      mainWindow?.webContents.send('status', agentStatus);
+      updateTray();
+      mainWindow?.webContents.send('auth-invalid');
+    }
   });
 
   agentProcess.on('close', (code) => {
@@ -494,13 +502,45 @@ function stopAgent() {
 // ─── TEST CONNECTION ──────────────────────────────────────────────────────────
 
 function normalizeRelayUrl(url) {
-  const raw = (url || DEFAULT_RELAY_URL).trim();
-  const withProto = /^wss?:\/\//i.test(raw) ? raw : `wss://${raw}`;
-  return withProto.replace(/\/+$/, '');
+  const raw = String(url || DEFAULT_RELAY_URL).trim();
+  if (!raw) return DEFAULT_RELAY_URL;
+
+  if (/^wss?:\/\//i.test(raw)) {
+    return raw.replace(/\/+$/, '');
+  }
+
+  if (/^https?:\/\//i.test(raw)) {
+    return raw
+      .replace(/^https:\/\//i, 'wss://')
+      .replace(/^http:\/\//i, 'ws://')
+      .replace(/\/+$/, '');
+  }
+
+  return `wss://${raw.replace(/\/+$/, '')}`;
+}
+
+function isLocalRelayUrl(url) {
+  try {
+    const normalized = normalizeRelayUrl(url);
+    const httpUrl = normalized
+      .replace(/^wss:\/\//i, 'https://')
+      .replace(/^ws:\/\//i, 'http://');
+    const parsed = new URL(httpUrl);
+    const host = (parsed.hostname || '').toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  } catch {
+    return false;
+  }
+}
+
+function enforceRelayPolicy(url) {
+  const normalized = normalizeRelayUrl(url || DEFAULT_RELAY_URL);
+  if (isLocalRelayUrl(normalized)) return normalized;
+  return normalizeRelayUrl(DEFAULT_RELAY_URL);
 }
 
 function relayHttpUrl(url) {
-  return normalizeRelayUrl(url).replace(/^wss?:\/\//i, (m) => (m.toLowerCase() === 'wss://' ? 'https://' : 'http://'));
+  return enforceRelayPolicy(url).replace(/^wss?:\/\//i, (m) => (m.toLowerCase() === 'wss://' ? 'https://' : 'http://'));
 }
 
 function decodeChurchIdFromToken(token) {
@@ -516,7 +556,7 @@ function decodeChurchIdFromToken(token) {
 
 function checkTokenWithRelay(token, relayUrl, ms = 5000) {
   return new Promise((resolve) => {
-    const wsUrl = relayHttpUrl(relayUrl).replace(/^https?:\/\//i, 'wss://').replace(/\/$/, '') + '/church';
+    const wsUrl = normalizeRelayUrl(relayUrl).replace(/\/$/, '') + '/church';
     const target = `${wsUrl}?token=${encodeURIComponent(token)}`;
     const socket = new WebSocket(target);
 
@@ -576,13 +616,13 @@ async function postJson(url, payload, timeoutMs = 10000) {
 }
 
 async function loginChurchWithCredentials({ relay, email, password }) {
-  const relayUrl = normalizeRelayUrl(relay);
+  const relayUrl = enforceRelayPolicy(relay);
   const endpoint = `${relayHttpUrl(relayUrl).replace(/\/+$/, '')}/api/church/app/login`;
   return postJson(endpoint, { email, password });
 }
 
 async function testConnection({ url, token } = {}) {
-  const relayUrl = normalizeRelayUrl(url);
+  const relayUrl = enforceRelayPolicy(url);
 
   if (token) {
     const tokenCheck = await checkTokenWithRelay(token, relayUrl);
@@ -714,10 +754,9 @@ async function stopMockLab(opts = {}) {
 
 function sendPreviewCommand(command, params = {}) {
   const config = loadConfig();
-  if (!config.relay) throw new Error('No relay configured');
   if (!config.token) throw new Error('No church token configured');
 
-  const relay = normalizeRelayUrl(config.relay || DEFAULT_RELAY_URL);
+  const relay = enforceRelayPolicy(config.relay || DEFAULT_RELAY_URL);
   const churchId = decodeChurchIdFromToken(config.token);
   const adminKey = config.adminApiKey;
 
@@ -834,15 +873,20 @@ function loadConfig() {
   if (!fs.existsSync(CONFIG_PATH)) return {};
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    return decryptConfig(raw); // decrypt secure fields on load
+    const config = decryptConfig(raw); // decrypt secure fields on load
+    config.relay = enforceRelayPolicy(config.relay);
+    return config;
   }
   catch { return {}; }
 }
 
 function saveConfig(config) {
   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  // Only encrypt if new plaintext values were provided; skip undefined
-  const toSave = Object.fromEntries(Object.entries(config).filter(([, v]) => v !== undefined));
+  // Merge partial UI updates into existing config so token/relay are not lost.
+  const merged = { ...loadConfig(), ...(config || {}) };
+  // Only persist defined values; undefined means "leave existing as-is" before merge.
+  const toSave = Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined));
+  toSave.relay = enforceRelayPolicy(toSave.relay);
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(encryptConfig(toSave), null, 2));
 }
 
@@ -873,6 +917,51 @@ ipcMain.handle('stop-agent', () => stopAgent());
 ipcMain.handle('is-running', () => !!agentProcess);
 ipcMain.handle('test-connection', (_, opts) => testConnection(opts));
 ipcMain.handle('church-auth-login', async (_, payload) => loginChurchWithCredentials(payload || {}));
+
+ipcMain.handle('validate-token', async () => {
+  try {
+    const config = loadConfig();
+    if (!config.token) return { valid: false, reason: 'no-token' };
+
+    // Decode JWT and check expiration locally first
+    try {
+      const parts = config.token.split('.');
+      if (parts[1]) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+        if (payload.exp && Date.now() >= payload.exp * 1000) {
+          return { valid: false, reason: 'expired', churchName: payload.name || config.name || '' };
+        }
+      }
+    } catch {
+      // If we can't decode the JWT, still try server validation
+    }
+
+    // Server-side validation
+    const relay = config.relay || DEFAULT_RELAY_URL;
+    const result = await checkTokenWithRelay(config.token, relay, 8000);
+    if (result.success) {
+      return { valid: true, churchName: config.name || '' };
+    }
+    return { valid: false, reason: result.error || 'invalid', churchName: config.name || '' };
+  } catch (e) {
+    return { valid: false, reason: e.message || 'validation-error' };
+  }
+});
+
+ipcMain.handle('sign-out', async () => {
+  try {
+    stopAgent();
+    const config = loadConfig();
+    delete config.token;
+    delete config.setupComplete;
+    saveConfig(config);
+    agentStatus = { relay: false, atem: false, obs: false, companion: false };
+    mainWindow?.webContents.send('status', agentStatus);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
 ipcMain.handle('copy-to-clipboard', (_, text) => { clipboard.writeText(text); return true; });
 ipcMain.handle('get-network-interfaces', () => listAvailableInterfaces());
 ipcMain.handle('mock-lab-status', async () => getMockLabStatus());
@@ -1098,10 +1187,7 @@ app.whenReady().then(() => {
   if (STANDALONE_MOCK_LAB) {
     setTimeout(() => startMockLab({ withAgent: false }).catch((e) => appendAppLog('MOCK', `Autostart failed: ${e.message}`)), 250);
   } else {
-    const config = loadConfig();
-    if (config.token && config.setupComplete) {
-      setTimeout(() => startAgent(), 1000);
-    }
+    // Agent start is now controlled by the renderer after auth validation
   }
 });
 

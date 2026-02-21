@@ -351,10 +351,20 @@ const COMMAND_CATALOG = [
   { method: 'POST', path: '/api/obs/record', body: { active: true } },
   { method: 'POST', path: '/api/obs/scene', body: { scene: 'Program' } },
   { method: 'POST', path: '/api/obs/encoder', body: { fps: 30, cpuUsage: 18, congestion: 0.02, bitrateKbps: 4500 } },
+  { method: 'POST', path: '/api/obs/mock-graphic', body: { title: 'Tally Mock OBS', subtitle: 'Static Graphic Feed', fps: 2 } },
+  { method: 'GET', path: '/api/obs/mock-graphic.svg', description: 'Static SVG graphic for browser-source style testing.' },
+  { method: 'GET', path: '/api/obs/mock-stream.mjpg', description: 'Multipart mock stream output (static frame feed).' },
   { method: 'POST', path: '/api/mixer/online', body: { online: true } },
   { method: 'POST', path: '/api/mixer/master', body: { muted: false } },
   { method: 'POST', path: '/api/mixer/fader', body: { level: 0.78 } },
   { method: 'POST', path: '/api/mixer/scene', body: { scene: 1 } },
+  { method: 'POST', path: '/api/mixer/channel/select', body: { channel: 1 } },
+  { method: 'POST', path: '/api/mixer/channel/fader', body: { channel: 1, level: 0.72 } },
+  { method: 'POST', path: '/api/mixer/channel/mute', body: { channel: 1, muted: true } },
+  { method: 'POST', path: '/api/mixer/channel/solo', body: { channel: 1, solo: true } },
+  { method: 'POST', path: '/api/mixer/channel/gain', body: { channel: 1, gainDb: 3 } },
+  { method: 'POST', path: '/api/mixer/channel/pan', body: { channel: 1, pan: -0.2 } },
+  { method: 'POST', path: '/api/mixer/channel/label', body: { channel: 1, name: 'Vocal Lead' } },
   { method: 'POST', path: '/api/propresenter/running', body: { running: true } },
   { method: 'POST', path: '/api/propresenter/presentation', body: { name: 'Sunday Service', slideTotal: 12 } },
   { method: 'POST', path: '/api/propresenter/next', body: {} },
@@ -433,6 +443,17 @@ class FakeAtemApiServer {
 
     if (req.method === 'GET' && url.pathname === '/api/commands') {
       return this._json(res, 200, { ok: true, commands: COMMAND_CATALOG });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/obs/mock-graphic.svg') {
+      this._need(this.fakeObs, 'Fake OBS unavailable');
+      const svg = this.fakeObs.getMockGraphicSvg();
+      return this._svg(res, svg);
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/obs/mock-stream.mjpg') {
+      this._need(this.fakeObs, 'Fake OBS unavailable');
+      return this._mjpegStream(req, res);
     }
 
     if (req.method !== 'POST') {
@@ -668,6 +689,16 @@ class FakeAtemApiServer {
       return this._state(res);
     }
 
+    if (url.pathname === '/api/obs/mock-graphic') {
+      this._need(this.fakeObs, 'Fake OBS unavailable');
+      this.fakeObs.setMockGraphic({
+        title: body.title,
+        subtitle: body.subtitle,
+        fps: body.fps,
+      });
+      return this._state(res);
+    }
+
     if (url.pathname === '/api/mixer/online') {
       this._need(this.fakeMixer, 'Fake mixer unavailable');
       this.fakeMixer.setOnline(!!body.online);
@@ -689,6 +720,48 @@ class FakeAtemApiServer {
     if (url.pathname === '/api/mixer/scene') {
       this._need(this.fakeMixer, 'Fake mixer unavailable');
       this.fakeMixer.setScene(body.scene);
+      return this._state(res);
+    }
+
+    if (url.pathname === '/api/mixer/channel/select') {
+      this._need(this.fakeMixer, 'Fake mixer unavailable');
+      await this.fakeMixer.setSelectedChannel(body.channel);
+      return this._state(res);
+    }
+
+    if (url.pathname === '/api/mixer/channel/fader') {
+      this._need(this.fakeMixer, 'Fake mixer unavailable');
+      await this.fakeMixer.setChannelFader(body.channel, body.level);
+      return this._state(res);
+    }
+
+    if (url.pathname === '/api/mixer/channel/mute') {
+      this._need(this.fakeMixer, 'Fake mixer unavailable');
+      await this.fakeMixer.setChannelMute(body.channel, !!body.muted);
+      return this._state(res);
+    }
+
+    if (url.pathname === '/api/mixer/channel/solo') {
+      this._need(this.fakeMixer, 'Fake mixer unavailable');
+      await this.fakeMixer.setChannelSolo(body.channel, !!body.solo);
+      return this._state(res);
+    }
+
+    if (url.pathname === '/api/mixer/channel/gain') {
+      this._need(this.fakeMixer, 'Fake mixer unavailable');
+      await this.fakeMixer.setChannelGain(body.channel, body.gainDb);
+      return this._state(res);
+    }
+
+    if (url.pathname === '/api/mixer/channel/pan') {
+      this._need(this.fakeMixer, 'Fake mixer unavailable');
+      await this.fakeMixer.setChannelPan(body.channel, body.pan);
+      return this._state(res);
+    }
+
+    if (url.pathname === '/api/mixer/channel/label') {
+      this._need(this.fakeMixer, 'Fake mixer unavailable');
+      await this.fakeMixer.setChannelLabel(body.channel, body.name);
       return this._state(res);
     }
 
@@ -731,10 +804,8 @@ class FakeAtemApiServer {
         this.fakeObs.setEncoderHealth({ fps: 30, cpuUsage: 18, congestion: 0.02, bitrateKbps: 4500 });
       }
       if (this.fakeMixer) {
+        if (typeof this.fakeMixer.resetState === 'function') this.fakeMixer.resetState();
         this.fakeMixer.setOnline(true);
-        this.fakeMixer.setMainMuted(false);
-        this.fakeMixer.setMainFader(0.78);
-        this.fakeMixer.setScene(1);
       }
       if (this.fakeProPresenter) {
         this.fakeProPresenter.setRunning(true);
@@ -788,6 +859,73 @@ class FakeAtemApiServer {
     res.setHeader('content-type', 'application/json; charset=utf-8');
     res.setHeader('access-control-allow-origin', '*');
     res.end(JSON.stringify(data));
+  }
+
+  _svg(res, svg) {
+    res.statusCode = 200;
+    res.setHeader('content-type', 'image/svg+xml; charset=utf-8');
+    res.setHeader('cache-control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('access-control-allow-origin', '*');
+    res.end(svg);
+  }
+
+  _mjpegStream(req, res) {
+    const obs = this.fakeObs;
+    const boundary = 'mockframe';
+    const fps = Math.max(1, Math.min(10, Number(obs?.getMockStreamFps?.()) || 2));
+    const frameMs = Math.max(100, Math.round(1000 / fps));
+
+    res.statusCode = 200;
+    res.setHeader('content-type', `multipart/x-mixed-replace; boundary=${boundary}`);
+    res.setHeader('cache-control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('pragma', 'no-cache');
+    res.setHeader('connection', 'keep-alive');
+    res.setHeader('access-control-allow-origin', '*');
+
+    const writeFrame = () => {
+      if (!obs || res.destroyed || !res.writable) return;
+
+      const isStreaming = !!obs.getSnapshot?.().streaming;
+      if (!isStreaming) {
+        const svg = obs.getMockGraphicSvg();
+        const payload = Buffer.from(svg, 'utf8');
+        const header = Buffer.from(
+          `--${boundary}\r\nContent-Type: image/svg+xml\r\nContent-Length: ${payload.length}\r\n\r\n`,
+          'utf8'
+        );
+        const footer = Buffer.from('\r\n', 'utf8');
+        res.write(header);
+        res.write(payload);
+        res.write(footer);
+        obs.addMockStreamBytes(header.length + payload.length + footer.length);
+        return;
+      }
+
+      const frame = obs.getMockJpegBuffer();
+      const header = Buffer.from(
+        `--${boundary}\r\nContent-Type: image/jpeg\r\nContent-Length: ${frame.length}\r\n\r\n`,
+        'utf8'
+      );
+      const footer = Buffer.from('\r\n', 'utf8');
+      res.write(header);
+      res.write(frame);
+      res.write(footer);
+      obs.addMockStreamBytes(header.length + frame.length + footer.length);
+    };
+
+    obs?.addMockStreamClient?.();
+    writeFrame();
+    const timer = setInterval(writeFrame, frameMs);
+
+    const cleanup = () => {
+      clearInterval(timer);
+      obs?.removeMockStreamClient?.();
+      try { res.end(); } catch {}
+    };
+
+    req.on('close', cleanup);
+    res.on('close', cleanup);
+    res.on('error', cleanup);
   }
 
   _html(res, html) {

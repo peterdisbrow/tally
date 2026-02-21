@@ -55,6 +55,7 @@ const { PlanningCenter } = require('./src/planningCenter');
 const { PresetLibrary } = require('./src/presetLibrary');
 const { EventMode } = require('./src/eventMode');
 const { ResellerSystem } = require('./src/reseller');
+const { AutoPilot } = require('./src/autoPilot');
 
 const { BillingSystem, TRIAL_PERIOD_DAYS } = require('./src/billing');
 const { buildDashboardHtml, buildResellerPortalHtml } = require('./src/dashboard');
@@ -305,13 +306,52 @@ scheduleEngine.addWindowOpenCallback((churchId) => {
   }
 });
 
-scheduleEngine.addWindowCloseCallback((churchId) => {
-  sessionRecap.endSession(churchId).catch(e =>
-    console.error(`[SessionRecap] onWindowClose error for ${churchId}:`, e.message)
-  );
+scheduleEngine.addWindowCloseCallback(async (churchId) => {
+  try {
+    const sessionData = await sessionRecap.endSession(churchId);
+    // Write production notes back to Planning Center
+    if (sessionData) {
+      planningCenter.writeServiceNotes(churchId, sessionData).catch(e =>
+        console.warn(`[PlanningCenter] Write-back error for ${churchId}:`, e.message)
+      );
+    }
+  } catch (e) {
+    console.error(`[SessionRecap] onWindowClose error for ${churchId}:`, e.message);
+  }
 });
 
 scheduleEngine.startPolling();
+
+// ─── AUTOPILOT ───────────────────────────────────────────────────────────────
+
+const autoPilot = new AutoPilot(db, { scheduleEngine, sessionRecap });
+
+// Set command executor — sends commands to church clients via WebSocket
+autoPilot.setCommandExecutor(async (churchId, command, params, source) => {
+  const church = churches.get(churchId);
+  if (!church) throw new Error('Church not found');
+  const sender = makeCommandSender(church);
+  return await sender(command, params);
+});
+
+// Reset autopilot session dedup on window open
+scheduleEngine.addWindowOpenCallback((churchId) => {
+  try { autoPilot.resetSession(churchId); } catch {}
+});
+
+// Schedule timer — check every minute for schedule_timer triggers
+setInterval(() => {
+  for (const [churchId] of churches) {
+    if (!scheduleEngine.isServiceWindow(churchId)) continue;
+    // Use session start time to calculate minutes into service
+    const session = sessionRecap.activeSessions.get(churchId);
+    if (!session?.startedAt) continue;
+    const minutesIn = Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 60000);
+    autoPilot.onScheduleTick(churchId, minutesIn).catch(e =>
+      console.error(`[AutoPilot] Schedule tick error for ${churchId}:`, e.message)
+    );
+  }
+}, 60000);
 
 // ─── PLANNING CENTER ──────────────────────────────────────────────────────────
 
@@ -387,6 +427,7 @@ if (TALLY_BOT_TOKEN) {
     presetLibrary,
     planningCenter,
     resellerSystem,
+    autoPilot,
   });
   log('Telegram bot initialized');
   // Non-blocking webhook setup (fires after app is ready)
@@ -498,7 +539,7 @@ app.get('/api/health', (req, res) => {
   const connectedCount = Array.from(churches.values()).filter(c => c.ws?.readyState === WebSocket.OPEN).length;
   res.json({
     service: 'tally-relay',
-    version: '2026.02.21.1',
+    version: '2026.02.21.2',
     uptime: Math.floor(process.uptime()),
     registeredChurches: churches.size,
     connectedChurches: connectedCount,
@@ -1318,6 +1359,7 @@ app.get('/api/churches', requireAdmin, (req, res) => {
       billing_tier:        row.billing_tier || null,
       billing_status:      row.billing_status || 'inactive',
       billing_trial_ends:  row.billing_trial_ends || null,
+      has_slack:            !!row.slack_webhook_url,
       registrationCode:    row.registration_code || c.registrationCode || null,
       token:               row.token || c.token || null,
     };
@@ -1565,10 +1607,13 @@ app.get('/api/churches/:churchId/report', requireAdmin, requireFeature('monthly_
 app.get('/api/churches/:churchId/sessions', requireAdmin, (req, res) => {
   const church = churches.get(req.params.churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
+  const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+  const offset = parseInt(req.query.offset) || 0;
   const sessions = db.prepare(
-    'SELECT * FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 10'
-  ).all(req.params.churchId);
-  res.json(sessions);
+    'SELECT * FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?'
+  ).all(req.params.churchId, limit, offset);
+  const total = db.prepare('SELECT COUNT(*) as count FROM service_sessions WHERE church_id = ?').get(req.params.churchId);
+  res.json({ sessions, total: total?.count || 0, limit, offset });
 });
 
 app.get('/api/churches/:churchId/sessions/current', requireAdmin, (req, res) => {
@@ -1577,6 +1622,128 @@ app.get('/api/churches/:churchId/sessions/current', requireAdmin, (req, res) => 
   const active = sessionRecap.getActiveSession(req.params.churchId);
   if (!active) return res.json({ active: false });
   res.json({ active: true, ...active });
+});
+
+// ─── SESSION TIMELINE — Merged chronological events + alerts for a session ──
+app.get('/api/churches/:churchId/sessions/:sessionId/timeline', requireAdmin, (req, res) => {
+  const { churchId, sessionId } = req.params;
+  const church = churches.get(churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+
+  const session = db.prepare('SELECT * FROM service_sessions WHERE id = ? AND church_id = ?').get(sessionId, churchId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+
+  // Get events linked to this session
+  const events = db.prepare(
+    'SELECT *, \'event\' as _type FROM service_events WHERE session_id = ? ORDER BY timestamp ASC'
+  ).all(sessionId);
+
+  // Get alerts linked to this session
+  const alerts = db.prepare(
+    'SELECT *, \'alert\' as _type FROM alerts WHERE session_id = ? ORDER BY created_at ASC'
+  ).all(sessionId);
+
+  // Merge into a single chronological timeline
+  const timeline = [
+    // Session start marker
+    { _type: 'marker', timestamp: session.started_at, label: 'Session Started', severity: 'INFO', td_name: session.td_name },
+    // Events
+    ...events.map(e => ({
+      _type: 'event',
+      id: e.id,
+      timestamp: e.timestamp,
+      event_type: e.event_type,
+      details: e.details,
+      resolved: !!e.resolved,
+      auto_resolved: !!e.auto_resolved,
+      resolved_at: e.resolved_at,
+    })),
+    // Alerts
+    ...alerts.map(a => ({
+      _type: 'alert',
+      id: a.id,
+      timestamp: a.created_at,
+      alert_type: a.alert_type,
+      severity: a.severity,
+      context: (() => { try { return JSON.parse(a.context); } catch { return {}; } })(),
+      acknowledged_at: a.acknowledged_at,
+      acknowledged_by: a.acknowledged_by,
+      escalated: !!a.escalated,
+      resolved: !!a.resolved,
+    })),
+    // Session end marker (if ended)
+    ...(session.ended_at ? [{
+      _type: 'marker',
+      timestamp: session.ended_at,
+      label: 'Session Ended',
+      severity: 'INFO',
+      grade: session.grade,
+      duration_minutes: session.duration_minutes,
+    }] : []),
+  ];
+
+  // Sort by timestamp
+  timeline.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+  res.json({ session, timeline });
+});
+
+// ─── SESSION DEBRIEF — Auto-generated text summary ─────────────────────────
+app.get('/api/churches/:churchId/sessions/:sessionId/debrief', requireAdmin, (req, res) => {
+  const { churchId, sessionId } = req.params;
+  const church = churches.get(churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+
+  const session = db.prepare('SELECT * FROM service_sessions WHERE id = ? AND church_id = ?').get(sessionId, churchId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+
+  const events = db.prepare('SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC').all(sessionId);
+  const alerts = db.prepare('SELECT * FROM alerts WHERE session_id = ? ORDER BY created_at ASC').all(sessionId);
+
+  // Build debrief text
+  const startTime = new Date(session.started_at);
+  const endTime = session.ended_at ? new Date(session.ended_at) : null;
+  const gradeIcon = session.grade === 'Clean' ? '\u{1F7E2}' : session.grade === 'Minor issues' ? '\u{1F7E1}' : '\u{1F534}';
+
+  const lines = [
+    `SERVICE DEBRIEF — ${church.name}`,
+    `${'─'.repeat(40)}`,
+    `Date: ${startTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}`,
+    `Time: ${startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}${endTime ? ' – ' + endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ' (in progress)'}`,
+    `Duration: ${session.duration_minutes ? session.duration_minutes + ' min' : 'In progress'}`,
+    `TD: ${session.td_name || 'Unknown'}`,
+    `Grade: ${gradeIcon} ${session.grade || 'N/A'}`,
+    '',
+    `STATS`,
+    `${'─'.repeat(20)}`,
+    `Alerts: ${session.alert_count || 0}`,
+    `Auto-recovered: ${session.auto_recovered_count || 0}`,
+    `Escalated: ${session.escalated_count || 0}`,
+    `Audio silences: ${session.audio_silence_count || 0}`,
+    `Stream ran: ${session.stream_ran ? 'Yes' : 'No'}${session.stream_runtime_minutes ? ' (' + session.stream_runtime_minutes + ' min)' : ''}`,
+    `Recording: ${session.recording_confirmed ? 'Confirmed' : 'Not confirmed'}`,
+    `Peak viewers: ${session.peak_viewers || 'N/A'}`,
+  ];
+
+  if (events.length > 0 || alerts.length > 0) {
+    lines.push('', `INCIDENT LOG`, `${'─'.repeat(20)}`);
+
+    const merged = [
+      ...events.map(e => ({ time: e.timestamp, text: `[EVENT] ${e.event_type}${e.auto_resolved ? ' (auto-resolved)' : e.resolved ? ' (resolved)' : ''}${e.details ? ': ' + e.details.substring(0, 80) : ''}` })),
+      ...alerts.map(a => ({ time: a.created_at, text: `[${a.severity}] ${a.alert_type}${a.acknowledged_at ? ' (ack by ' + (a.acknowledged_by || '?') + ')' : ''}${a.escalated ? ' ESCALATED' : ''}` })),
+    ].sort((a, b) => new Date(a.time) - new Date(b.time));
+
+    for (const item of merged) {
+      const t = new Date(item.time).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+      lines.push(`  ${t}  ${item.text}`);
+    }
+  } else {
+    lines.push('', 'No incidents recorded during this session.');
+  }
+
+  lines.push('', `— Generated by Tally • ${new Date().toLocaleDateString()}`);
+
+  res.json({ debrief: lines.join('\n'), session });
 });
 
 // ─── PLANNING CENTER API ──────────────────────────────────────────────────────
@@ -2359,8 +2526,10 @@ function handleChurchMessage(church, msg) {
 
         (async () => {
           try {
-            // Log event
-            const eventId = weeklyDigest.addEvent(church.churchId, msg.alertType, msg.message);
+            // Get active session ID for timeline linking
+            const activeSessionId = sessionRecap.getActiveSessionId(church.churchId);
+            // Log event (with session ID)
+            const eventId = weeklyDigest.addEvent(church.churchId, msg.alertType, msg.message, activeSessionId);
             // Try auto-recovery first
             const recovery = await autoRecovery.attempt(church, msg.alertType, church.status);
             if (recovery.attempted && recovery.success) {
@@ -2369,9 +2538,9 @@ function handleChurchMessage(church, msg) {
               sessionRecap.recordAlert(church.churchId, msg.alertType, true, false);
               log(`[AutoRecovery] ✅ ${recovery.event} for ${church.name}`);
             } else {
-              // Send alert through escalation ladder
+              // Send alert through escalation ladder (with session ID)
               const dbChurch = stmtGet.get(church.churchId);
-              const alertResult = await alertEngine.sendAlert({ ...church, ...dbChurch }, msg.alertType, { message: msg.message, status: church.status });
+              const alertResult = await alertEngine.sendAlert({ ...church, ...dbChurch }, msg.alertType, { message: msg.message, status: church.status }, activeSessionId);
               // Record in session — escalated if EMERGENCY severity
               const escalated = alertResult && alertResult.severity === 'EMERGENCY';
               sessionRecap.recordAlert(church.churchId, msg.alertType, false, escalated);
@@ -2395,6 +2564,16 @@ function handleChurchMessage(church, msg) {
       broadcastToControllers(cmdResultMsg);
       if (tallyBot) tallyBot.onCommandResult(cmdResultMsg);
       if (preServiceCheck) preServiceCheck.onCommandResult(cmdResultMsg);
+      break;
+    }
+
+    case 'propresenter_slide_change': {
+      // Forward slide change to autopilot for trigger evaluation
+      autoPilot.onSlideChange(church.churchId, {
+        presentationName: msg.presentationName || '',
+        slideIndex: msg.slideIndex ?? 0,
+        slideCount: msg.slideCount ?? 0,
+      }).catch(e => console.error(`[AutoPilot] Slide change error:`, e.message));
       break;
     }
 
@@ -2675,7 +2854,87 @@ app.post('/api/churches/:churchId/presets/:name/recall', requireChurchOrAdmin, a
   }
 });
 
+// ─── AUTOPILOT API ────────────────────────────────────────────────────────────
+
+// List rules + paused state
+app.get('/api/churches/:churchId/automation', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  const rules = autoPilot.getRules(req.params.churchId);
+  res.json({
+    paused: autoPilot.isPaused(req.params.churchId),
+    rules,
+  });
+});
+
+// Create rule
+app.post('/api/churches/:churchId/automation', requireAdmin, (req, res) => {
+  const church = churches.get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+  try {
+    const rule = autoPilot.createRule(req.params.churchId, {
+      name: req.body.name,
+      triggerType: req.body.triggerType,
+      triggerConfig: req.body.triggerConfig || {},
+      actions: req.body.actions || [],
+    });
+    res.json(rule);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Update rule
+app.put('/api/churches/:churchId/automation/:ruleId', requireAdmin, (req, res) => {
+  try {
+    const rule = autoPilot.updateRule(req.params.ruleId, req.body);
+    res.json(rule);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Delete rule
+app.delete('/api/churches/:churchId/automation/:ruleId', requireAdmin, (req, res) => {
+  const deleted = autoPilot.deleteRule(req.params.ruleId);
+  if (!deleted) return res.status(404).json({ error: 'Rule not found' });
+  res.json({ deleted: true });
+});
+
+// Pause autopilot for a church
+app.post('/api/churches/:churchId/automation/pause', requireAdmin, (req, res) => {
+  autoPilot.pause(req.params.churchId);
+  res.json({ paused: true });
+});
+
+// Resume autopilot for a church
+app.post('/api/churches/:churchId/automation/resume', requireAdmin, (req, res) => {
+  autoPilot.resume(req.params.churchId);
+  res.json({ paused: false });
+});
+
+// Command log
+app.get('/api/churches/:churchId/command-log', requireAdmin, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const offset = parseInt(req.query.offset) || 0;
+  const log = autoPilot.getCommandLog(req.params.churchId, limit, offset);
+  res.json(log);
+});
+
 // ─── SLACK INTEGRATION API ────────────────────────────────────────────────────
+
+// Get Slack config for a church (masked webhook for security)
+app.get('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
+  const row = stmtGet.get(req.params.churchId);
+  if (!row) return res.status(404).json({ error: 'Church not found' });
+  const url = row.slack_webhook_url || '';
+  res.json({
+    configured: !!url,
+    webhookUrl: url ? url.slice(0, 40) + '••••••' : '',
+    webhookUrlFull: url, // admin-only endpoint, safe to return full URL
+    channel: row.slack_channel || '',
+  });
+});
 
 // Set Slack config for a church
 app.put('/api/churches/:churchId/slack', requireAdmin, (req, res) => {

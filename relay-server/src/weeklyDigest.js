@@ -26,13 +26,17 @@ class WeeklyDigest {
         auto_resolved INTEGER DEFAULT 0
       )
     `);
+
+    // Migration: add session_id column for timeline linking
+    try { this.db.prepare('SELECT session_id FROM service_events LIMIT 1').get(); }
+    catch { this.db.exec('ALTER TABLE service_events ADD COLUMN session_id TEXT'); }
   }
 
-  addEvent(churchId, eventType, details = '') {
+  addEvent(churchId, eventType, details = '', sessionId = null) {
     const now = new Date().toISOString();
     const result = this.db.prepare(
-      'INSERT INTO service_events (church_id, timestamp, event_type, details) VALUES (?, ?, ?, ?)'
-    ).run(churchId, now, eventType, typeof details === 'string' ? details : JSON.stringify(details));
+      'INSERT INTO service_events (church_id, timestamp, event_type, details, session_id) VALUES (?, ?, ?, ?, ?)'
+    ).run(churchId, now, eventType, typeof details === 'string' ? details : JSON.stringify(details), sessionId);
     return result.lastInsertRowid;
   }
 

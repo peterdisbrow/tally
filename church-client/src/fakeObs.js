@@ -31,6 +31,17 @@ class FakeOBS extends EventEmitter {
       bitsPerSecond: 4_500_000,
       bitrate: '4500',
     };
+
+    this._mockGraphic = {
+      title: 'Tally Mock OBS',
+      subtitle: 'Static Graphic Feed',
+      accent: '#4ade80',
+      bgA: '#07110d',
+      bgB: '#0d1e17',
+    };
+    this._mockStreamFps = 2;
+    this._mockStreamClients = 0;
+    this._mockStreamBytesOut = 0;
   }
 
   async connect(url = 'mock://obs') {
@@ -96,13 +107,18 @@ class FakeOBS extends EventEmitter {
       case 'SetCurrentProgramScene': {
         const sceneName = String(payload.sceneName || '').trim();
         if (!sceneName) throw new Error('sceneName is required');
-        this._scene = sceneName;
-        if (!this._scenes.includes(sceneName)) this._scenes.push(sceneName);
+        this.setScene(sceneName);
         return {};
       }
 
       case 'GetCurrentProgramScene':
         return { currentProgramSceneName: this._scene };
+
+      case 'GetSceneList':
+        return {
+          currentProgramSceneName: this._scene,
+          scenes: this._scenes.map((sceneName, sceneIndex) => ({ sceneName, sceneIndex })),
+        };
 
       case 'GetSourceScreenshot':
         return { imageData: `data:image/jpeg;base64,${BLANK_JPEG_BASE64}` };
@@ -121,6 +137,46 @@ class FakeOBS extends EventEmitter {
           outputActive: this._streaming,
           outputBytes: this._streamBytes,
           outputSkippedFrames: this._droppedFrames,
+        };
+
+      case 'GetRecordStatus':
+        return { outputActive: this._recording };
+
+      case 'GetVideoSettings':
+        return {
+          baseWidth: 1920,
+          baseHeight: 1080,
+          outputWidth: 1920,
+          outputHeight: 1080,
+          fpsNumerator: 30000,
+          fpsDenominator: 1000,
+        };
+
+      case 'GetVersion':
+        return {
+          obsVersion: '30.2.0-mock',
+          obsWebSocketVersion: '5.1.0',
+          rpcVersion: 1,
+          availableRequests: [
+            'GetVersion',
+            'GetStats',
+            'GetStreamStatus',
+            'GetRecordStatus',
+            'GetCurrentProgramScene',
+            'SetCurrentProgramScene',
+            'GetSceneList',
+            'GetSourceScreenshot',
+            'StartStream',
+            'StopStream',
+            'StartRecord',
+            'StopRecord',
+            'GetStreamServiceSettings',
+            'SetStreamServiceSettings',
+            'GetVideoSettings',
+          ],
+          supportedImageFormats: ['jpg', 'jpeg', 'png'],
+          platform: process.platform,
+          platformDescription: `MockLab (${process.platform})`,
         };
 
       case 'SetStreamServiceSettings': {
@@ -161,6 +217,7 @@ class FakeOBS extends EventEmitter {
       this._streamBytes = 0;
       this._totalFrames = 0;
       this._droppedFrames = 0;
+      this._mockStreamBytesOut = 0;
     }
     this.emit('StreamStateChanged', { outputActive: this._streaming });
   }
@@ -183,8 +240,12 @@ class FakeOBS extends EventEmitter {
   setScene(sceneName) {
     const scene = String(sceneName || '').trim();
     if (!scene) return;
+    const changed = this._scene !== scene;
     this._scene = scene;
     if (!this._scenes.includes(scene)) this._scenes.push(scene);
+    if (changed) {
+      this.emit('CurrentProgramSceneChanged', { sceneName: this._scene });
+    }
   }
 
   setEncoderHealth({ fps, cpuUsage, congestion, bitrateKbps } = {}) {
@@ -196,6 +257,76 @@ class FakeOBS extends EventEmitter {
 
   clearEncoderOverride() {
     this._manualBitrateKbps = null;
+  }
+
+  setMockGraphic({ title, subtitle, fps } = {}) {
+    if (title !== undefined) {
+      const clean = String(title || '').trim();
+      this._mockGraphic.title = clean ? clean.slice(0, 80) : 'Tally Mock OBS';
+    }
+    if (subtitle !== undefined) {
+      const clean = String(subtitle || '').trim();
+      this._mockGraphic.subtitle = clean ? clean.slice(0, 100) : 'Static Graphic Feed';
+    }
+    if (fps !== undefined) {
+      const n = Number(fps);
+      if (Number.isFinite(n)) this._mockStreamFps = Math.max(1, Math.min(10, Math.round(n)));
+    }
+  }
+
+  getMockGraphicSvg() {
+    const esc = (value) => String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+    const streamState = this._streaming ? 'LIVE' : 'OFFLINE';
+    const recState = this._recording ? 'REC' : 'NO REC';
+    const scene = esc(this._scene);
+    const now = new Date().toLocaleTimeString();
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="${esc(this._mockGraphic.bgA)}"/>
+      <stop offset="100%" stop-color="${esc(this._mockGraphic.bgB)}"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1280" height="720" fill="url(#bg)"/>
+  <rect x="40" y="40" width="1200" height="640" rx="24" fill="rgba(0,0,0,0.24)" stroke="rgba(255,255,255,0.18)"/>
+  <text x="88" y="150" font-family="Avenir Next, Segoe UI, sans-serif" font-size="68" fill="#e8fff2" font-weight="700">${esc(this._mockGraphic.title)}</text>
+  <text x="88" y="205" font-family="Avenir Next, Segoe UI, sans-serif" font-size="34" fill="#b9d7c8">${esc(this._mockGraphic.subtitle)}</text>
+  <rect x="88" y="255" width="1104" height="2" fill="${esc(this._mockGraphic.accent)}" opacity="0.7"/>
+  <text x="88" y="340" font-family="Menlo, monospace" font-size="34" fill="#d3efe2">SCENE: ${scene}</text>
+  <text x="88" y="392" font-family="Menlo, monospace" font-size="30" fill="#d3efe2">STREAM: ${streamState}  |  RECORD: ${recState}</text>
+  <text x="88" y="444" font-family="Menlo, monospace" font-size="30" fill="#d3efe2">FPS: ${this._fps}  |  CPU: ${this._cpuUsage.toFixed(1)}%  |  CONGESTION: ${(this._congestion * 100).toFixed(1)}%</text>
+  <text x="88" y="640" font-family="Menlo, monospace" font-size="24" fill="#c5dfd0">${esc(now)} • ${esc(this.url)}</text>
+  <circle cx="1160" cy="104" r="20" fill="${this._streaming ? '#ef4444' : '#334155'}"/>
+  <text x="1192" y="112" font-family="Menlo, monospace" font-size="22" fill="#e2f7ea">${streamState}</text>
+</svg>`;
+  }
+
+  getMockJpegBuffer() {
+    return Buffer.from(BLANK_JPEG_BASE64, 'base64');
+  }
+
+  getMockStreamFps() {
+    return this._mockStreamFps;
+  }
+
+  addMockStreamClient() {
+    this._mockStreamClients += 1;
+  }
+
+  removeMockStreamClient() {
+    this._mockStreamClients = Math.max(0, this._mockStreamClients - 1);
+  }
+
+  addMockStreamBytes(count) {
+    this._mockStreamBytesOut += Math.max(0, Number(count) || 0);
   }
 
   getSnapshot() {
@@ -216,6 +347,15 @@ class FakeOBS extends EventEmitter {
       streamService: {
         type: this._streamServiceType,
         settings: { ...this._streamServiceSettings },
+      },
+      mockOutput: {
+        streamPath: '/api/obs/mock-stream.mjpg',
+        graphicPath: '/api/obs/mock-graphic.svg',
+        fps: this._mockStreamFps,
+        clients: this._mockStreamClients,
+        bytesOut: this._mockStreamBytesOut,
+        title: this._mockGraphic.title,
+        subtitle: this._mockGraphic.subtitle,
       },
     };
   }

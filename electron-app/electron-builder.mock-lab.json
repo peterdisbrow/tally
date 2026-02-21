@@ -5,6 +5,16 @@
   "directories": {
     "output": "dist-mock-lab"
   },
+  "files": [
+    "src/**/*",
+    "assets/**/*",
+    "package.json",
+    "package-lock.json",
+    "!dist{,/**/*}",
+    "!dist-mock-lab{,/**/*}",
+    "!.git{,/**/*}",
+    "!**/.DS_Store"
+  ],
   "mac": {
     "category": "public.app-category.utilities",
     "target": [
@@ -43,7 +53,8 @@
         "fakeObs.js",
         "fakeMixer.js",
         "fakeProPresenter.js",
-        "fakeAtemApi.js"
+        "fakeAtemApi.js",
+        "osc.js"
       ]
     }
   ],

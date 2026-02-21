@@ -1481,11 +1481,21 @@ ${colorOverride}
       <label>Contact Email</label>
       <input type="email" id="ac_email" placeholder="td@gracecommunity.org">
     </div>
+    <div class="form-group">
+      <label>Portal Login Email (optional)</label>
+      <input type="email" id="ac_portal_email" placeholder="admin@gracecommunity.org">
+    </div>
+    <div class="form-group">
+      <label>Portal Password (optional)</label>
+      <input type="password" id="ac_portal_password" placeholder="At least 8 characters">
+    </div>
+    <div style="font-size:0.75rem;color:var(--muted);margin-top:-2px;">Set both portal fields to create app login credentials now.</div>
     <div id="ac_error" style="color:var(--red);font-size:0.82rem;display:none;margin-top:8px;"></div>
     <div class="success-box" id="ac_success">
       <div style="font-weight:600;color:var(--accent);margin-bottom:6px;">✅ Church registered!</div>
       <div style="font-size:0.82rem;color:var(--muted);margin-bottom:8px;">Share this code with your TD. They register with: <code>/register CODE</code></div>
       <div class="code-copy" id="ac_code" onclick="copyText(this.textContent)"></div>
+      <div id="ac_portal_notice" style="display:none;font-size:0.78rem;color:var(--green);margin-top:8px;"></div>
       <div style="font-size:0.75rem;color:var(--muted);margin-top:8px;">Click the code to copy it.</div>
     </div>
     <div class="modal-actions">
@@ -1641,6 +1651,9 @@ function openAddChurchModal() {
   document.getElementById('ac_submit').style.display = 'inline-block';
   document.getElementById('ac_name').value = '';
   document.getElementById('ac_email').value = '';
+  document.getElementById('ac_portal_email').value = '';
+  document.getElementById('ac_portal_password').value = '';
+  document.getElementById('ac_portal_notice').style.display = 'none';
   setTimeout(() => document.getElementById('ac_name').focus(), 100);
 }
 function closeAddChurchModal() {
@@ -1651,9 +1664,16 @@ function closeAddChurchModal() {
 async function submitAddChurch() {
   const name  = document.getElementById('ac_name').value.trim();
   const email = document.getElementById('ac_email').value.trim();
+  const portalEmail = document.getElementById('ac_portal_email').value.trim().toLowerCase();
+  const portalPassword = document.getElementById('ac_portal_password').value;
+  const portalNotice = document.getElementById('ac_portal_notice');
   const errEl = document.getElementById('ac_error');
   if (!name) { errEl.textContent = 'Church name is required.'; errEl.style.display = 'block'; return; }
+  if (portalPassword && !portalEmail) { errEl.textContent = 'Portal login email is required when a password is provided.'; errEl.style.display = 'block'; return; }
+  if (portalEmail && !portalPassword) { errEl.textContent = 'Portal password is required when a portal login email is provided.'; errEl.style.display = 'block'; return; }
+  if (portalPassword && portalPassword.length < 8) { errEl.textContent = 'Portal password must be at least 8 characters.'; errEl.style.display = 'block'; return; }
   errEl.style.display = 'none';
+  portalNotice.style.display = 'none';
 
   const btn = document.getElementById('ac_submit');
   btn.disabled = true; btn.textContent = 'Registering…';
@@ -1662,12 +1682,18 @@ async function submitAddChurch() {
     const resp = await fetch('/api/reseller/churches/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-reseller-key': RESELLER_KEY },
-      body: JSON.stringify({ churchName: name, contactEmail: email }),
+      body: JSON.stringify({ churchName: name, contactEmail: email, portalEmail, password: portalPassword }),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || 'Registration failed');
     document.getElementById('ac_code').textContent = data.registrationCode;
     document.getElementById('ac_success').classList.add('visible');
+    if (data.appLoginCreated && data.portalEmail) {
+      portalNotice.textContent = 'Portal login created for ' + data.portalEmail;
+      portalNotice.style.display = 'block';
+    } else {
+      portalNotice.style.display = 'none';
+    }
     btn.style.display = 'none';
     // Add to local state
     if (data.churchId) {

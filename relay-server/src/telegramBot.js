@@ -73,6 +73,15 @@ const patterns = [
   { match: /(?:what'?s?\s+on\s+screen|current\s+slide|what\s+slide)/i, command: 'propresenter.status', extract: () => ({}), desc: 'current slide / what\'s on screen?' },
   { match: /(?:go|jump)\s+to\s+slide\s+(\d+)/i, command: 'propresenter.goToSlide', extract: m => ({ index: parseInt(m[1]) }), desc: 'go to slide N' },
   { match: /^(?:playlist|what'?s?\s+loaded)\s*\??$/i, command: 'propresenter.playlist', extract: () => ({}), desc: 'playlist / what\'s loaded?' },
+  { match: /^(?:clear\s+all|blank\s+all|clear\s+everything)$/i, command: 'propresenter.clearAll', extract: () => ({}), desc: 'clear all / blank all' },
+  { match: /^(?:clear\s+slide|blank\s+slide)$/i, command: 'propresenter.clearSlide', extract: () => ({}), desc: 'clear slide' },
+  { match: /(?:stage\s+message|show\s+message)\s+["""]?(.+?)["""]?\s*$/i, command: 'propresenter.stageMessage', extract: m => ({ name: m[1].trim() }), desc: 'stage message [name]' },
+  { match: /^(?:clear\s+message|hide\s+message)s?\s*$/i, command: 'propresenter.clearMessage', extract: () => ({}), desc: 'clear message' },
+  { match: /^(?:list\s+)?looks?\s*\??$/i, command: 'propresenter.getLooks', extract: () => ({}), desc: 'looks' },
+  { match: /(?:set\s+look|switch\s+(?:to\s+)?look|activate\s+look)\s+["""]?(.+?)["""]?\s*$/i, command: 'propresenter.setLook', extract: m => ({ name: m[1].trim() }), desc: 'set look [name]' },
+  { match: /^(?:list\s+)?timers?\s*\??$/i, command: 'propresenter.getTimers', extract: () => ({}), desc: 'timers' },
+  { match: /start\s+timer\s+["""]?(.+?)["""]?\s*$/i, command: 'propresenter.startTimer', extract: m => ({ name: m[1].trim() }), desc: 'start timer [name]' },
+  { match: /stop\s+timer\s+["""]?(.+?)["""]?\s*$/i, command: 'propresenter.stopTimer', extract: m => ({ name: m[1].trim() }), desc: 'stop timer [name]' },
 
   // Dante (via Companion)
   { match: /(?:load\s+dante\s+scene|dante\s+preset)\s+["""]?(.+?)["""]?\s*$/i, command: 'dante.scene', extract: m => ({ name: m[1].trim() }), desc: 'load dante scene [name]' },
@@ -128,6 +137,14 @@ function getHelpText(brandName = 'Tally') {
 • current slide / what's on screen?
 • go to slide 3
 • playlist / what's loaded?
+• clear all — blank all layers
+• clear slide — blank slide layer only
+• stage message \\[name\\] — show stage message
+• clear message — hide stage messages
+• looks — list available looks
+• set look \\[name\\] — switch look
+• timers — list timers
+• start timer \\[name\\] / stop timer \\[name\\]
 
 *Dante*
 • load dante scene \\[name\\] — trigger Companion button 'Dante: \\[name\\]'
@@ -157,7 +174,7 @@ class TallyBot {
    * @param {object} [opts.preServiceCheck] - PreServiceCheck instance (optional)
    * @param {object} [opts.resellerSystem]  - ResellerSystem instance for white-labeling (optional)
    */
-  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem }) {
+  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem, autoPilot }) {
     this.token = botToken;
     this.adminChatId = adminChatId;
     this.db = db;
@@ -168,6 +185,7 @@ class TallyBot {
     this.presetLibrary   = presetLibrary   || null;
     this.planningCenter  = planningCenter  || null;
     this.resellerSystem  = resellerSystem  || null;
+    this.autoPilot       = autoPilot       || null;
     this._apiBase = `https://api.telegram.org/bot${botToken}`;
 
     // Ensure church_tds table
@@ -491,6 +509,25 @@ class TallyBot {
     }
     if (/^(show\s+schedule|upcoming\s+services?)$/i.test(ltext)) {
       return this._handlePCShowSchedule(church, chatId);
+    }
+
+    // ── Autopilot commands ─────────────────────────────────────────────────
+    if (/^pause\s+autopilot$/i.test(ltext) && this.autoPilot) {
+      this.autoPilot.pause(church.churchId);
+      return this.sendMessage(chatId, `⏸️ Autopilot paused for *${church.name}*. No automation rules will fire until resumed.`, { parse_mode: 'Markdown' });
+    }
+    if (/^resume\s+autopilot$/i.test(ltext) && this.autoPilot) {
+      this.autoPilot.resume(church.churchId);
+      return this.sendMessage(chatId, `▶️ Autopilot resumed for *${church.name}*. Automation rules are active.`, { parse_mode: 'Markdown' });
+    }
+    if (/^autopilot\s+status$/i.test(ltext) && this.autoPilot) {
+      const paused = this.autoPilot.isPaused(church.churchId);
+      const rules = this.autoPilot.getRules(church.churchId);
+      const enabled = rules.filter(r => r.enabled).length;
+      return this.sendMessage(chatId,
+        `🤖 *Autopilot — ${church.name}*\n\nStatus: ${paused ? '⏸️ Paused' : '▶️ Active'}\nRules: ${enabled} enabled / ${rules.length} total\n\nCommands:\n• \`pause autopilot\`\n• \`resume autopilot\``,
+        { parse_mode: 'Markdown' }
+      );
     }
 
     // ── Fast path: regex parser ──────────────────────────────────────────────

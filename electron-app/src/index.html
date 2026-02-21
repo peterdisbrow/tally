@@ -691,59 +691,147 @@
 
     .btn-save:disabled { opacity: 0.5; cursor: default; }
 
+    /* ── Sign-In Screen ────────────────────────────────────────── */
+    body { opacity: 0; transition: opacity 0.15s; }
+    body.ready { opacity: 1; }
+
+    .sign-in { display: none; }
+    .sign-in.active {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .sign-in .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 30px 20px;
+    }
+    .sign-in-box {
+      width: 100%;
+      max-width: 340px;
+    }
+    .sign-in-box .wizard-headline {
+      text-align: center;
+    }
+    .sign-in-box .wizard-badge {
+      display: block;
+      text-align: center;
+    }
+    .sign-in-loading {
+      display: none;
+      text-align: center;
+      padding: 20px 0;
+    }
+    .sign-in-loading.active { display: block; }
+    .sign-in-form { display: block; }
+    .sign-in-form.hidden { display: none; }
+    .sign-in-message {
+      font-size: 11px;
+      font-family: var(--mono);
+      min-height: 18px;
+      margin-top: 10px;
+      text-align: center;
+    }
+    .sign-in-advanced {
+      margin-top: 8px;
+      border: 1px solid rgba(43, 59, 66, 0.9);
+      border-radius: 8px;
+      background: rgba(8, 12, 15, 0.95);
+      padding: 0 10px;
+    }
+    .sign-in-advanced summary {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--dim);
+      padding: 9px 0;
+    }
+    .sign-in-advanced summary::-webkit-details-marker { display: none; }
+    .sign-in-advanced summary::before {
+      content: '▸';
+      color: var(--green);
+      margin-right: 6px;
+    }
+    .sign-in-advanced[open] summary::before {
+      content: '▾';
+    }
+    .sign-in-advanced .form-group {
+      margin-top: 2px;
+      margin-bottom: 10px;
+    }
+
   </style>
 </head>
 <body>
 
-<!-- ═══════════════════════ SETUP WIZARD ═══════════════════════ -->
-<div class="wizard active" id="wizard">
+<!-- ═══════════════════════ SIGN-IN SCREEN ═══════════════════════ -->
+<div class="sign-in" id="sign-in">
   <div class="header">
     <div class="header-title">
       <div class="header-dot"></div>
       <h1>Tally</h1>
     </div>
-    <p class="sub">Setup Wizard</p>
+    <p class="sub">Sign In</p>
+  </div>
+
+  <div class="content">
+    <div class="sign-in-box">
+      <div style="text-align:center; margin-bottom: 20px;">
+        <div class="wizard-badge">Tally by ATEM School</div>
+        <div class="wizard-headline">Sign In</div>
+      </div>
+
+      <div class="sign-in-loading" id="sign-in-loading">
+        <div class="spinner-inline" style="width:20px; height:20px; border-width:3px;"></div>
+        <p style="color: var(--muted); font-size: 12px; margin-top: 10px;" id="sign-in-loading-text">Validating session...</p>
+      </div>
+
+      <div class="sign-in-form" id="sign-in-form">
+        <div class="form-group">
+          <label>Email</label>
+          <input id="si-email" type="email" placeholder="td@yourchurch.org">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input id="si-password" type="password" placeholder="••••••••">
+        </div>
+        <div style="font-size:11px; color:var(--dim); margin-top:2px; margin-bottom:10px; font-family:var(--mono);">
+          Relay: <code>wss://tally-by-atemschool.up.railway.app</code>
+        </div>
+        <button class="btn-save" style="width:100%; margin-top: 8px;" id="si-btn" onclick="doSignIn()">Sign In</button>
+        <div class="sign-in-message" id="si-message"></div>
+        <p style="text-align:center; margin-top: 16px;">
+          <a href="#" style="color: var(--green); font-size: 12px;" class="ext-link" data-url="https://tally.atemschool.com">Create account &#8594;</a>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="branding">
+    Powered by <a href="#" class="ext-link" data-url="https://atemschool.com">ATEM School</a>
+  </div>
+</div>
+
+<!-- ═══════════════════════ SETUP WIZARD ═══════════════════════ -->
+<div class="wizard" id="wizard">
+  <div class="header">
+    <div class="header-title">
+      <div class="header-dot"></div>
+      <h1>Tally</h1>
+    </div>
+    <p class="sub">Equipment Setup</p>
   </div>
 
   <div class="content">
     <div class="step-indicator" id="step-indicator"></div>
 
-    <!-- Step 1: Welcome -->
+    <!-- Step 1: ATEM -->
     <div class="wizard-step active" data-step="1">
-      <div style="text-align:center; padding: 24px 0 16px;">
-        <div class="wizard-badge">Tally Setup</div>
-        <div class="wizard-headline">Welcome to Tally</div>
-        <p style="color: var(--muted); font-size: 13px; line-height: 1.6; max-width: 340px; margin: 0 auto;">
-          Remote monitoring and control for your church production system.<br>
-          Built by <a href="https://atemschool.com" style="color: var(--green);" class="ext-link" data-url="https://atemschool.com">ATEM School</a>.
-        </p>
-      </div>
-    </div>
-
-    <!-- Step 2: Account Login -->
-    <div class="wizard-step" data-step="2">
-      <h2 style="font-size: 14px; color: var(--white); font-weight: 700; letter-spacing: -0.01em; text-transform: none; font-family: var(--font); margin-bottom: 10px;">Sign In to Your Tally Account</h2>
-      <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
-        Use the account credentials you created on the website.
-        <a href="#" style="color: var(--green);" class="ext-link" data-url="https://tally.atemschool.com">Create account →</a>
-      </p>
-      <div class="form-group">
-        <label>Email</label>
-        <input id="wiz-email" type="email" placeholder="td@yourchurch.org" oninput="invalidateCredentialVerification()">
-      </div>
-      <div class="form-group">
-        <label>Password</label>
-        <input id="wiz-password" type="password" placeholder="••••••••" oninput="invalidateCredentialVerification()">
-      </div>
-      <div class="form-group">
-        <label>Relay URL</label>
-        <input id="wiz-relay" type="text" value="wss://tally-production-cde2.up.railway.app" oninput="invalidateCredentialVerification()">
-      </div>
-      <div id="wiz-login-result" style="margin-top:8px; font-size:11px; color: var(--warn); min-height: 18px; display:none;"></div>
-    </div>
-
-    <!-- Step 3: ATEM -->
-    <div class="wizard-step" data-step="3">
       <h2 style="font-size: 14px; color: var(--white); font-weight: 700; letter-spacing: -0.01em; text-transform: none; font-family: var(--font); margin-bottom: 10px;">ATEM Switcher</h2>
       <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
         Pick your network interface first, then scan for ATEM on that subnet. For testing with no hardware, enter <code>mock</code>.
@@ -766,8 +854,8 @@
       <div id="scan-result" style="margin-top:8px; font-size:11px; color: var(--muted); font-family: var(--mono);"></div>
     </div>
 
-    <!-- Step 4: OBS + Companion -->
-    <div class="wizard-step" data-step="4">
+    <!-- Step 2: OBS + Companion -->
+    <div class="wizard-step" data-step="2">
       <h2 style="font-size: 14px; color: var(--white); font-weight: 700; letter-spacing: -0.01em; text-transform: none; font-family: var(--font); margin-bottom: 10px;">Optional: OBS &amp; Companion</h2>
       <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
         Skip these if you don't use OBS Studio or Bitfocus Companion.
@@ -791,8 +879,8 @@
       </div>
     </div>
 
-    <!-- Step 5: Done -->
-    <div class="wizard-step" data-step="5">
+    <!-- Step 3: Done -->
+    <div class="wizard-step" data-step="3">
       <div style="text-align:center; padding: 24px 0 16px;">
         <div class="wizard-badge">Setup Complete</div>
         <div class="wizard-headline">All Set!</div>
@@ -1129,20 +1217,20 @@
     <button class="btn-start" id="btn-toggle" onclick="toggleAgent()">Start Agent</button>
     <button class="btn-secondary btn-small" onclick="testConn()">🔌 Test</button>
     <button class="btn-secondary btn-small" onclick="exportLogs()">🧾 Logs</button>
-    <button class="btn-secondary btn-small" onclick="showWizard()">⚙️ Setup</button>
+    <button class="btn-secondary btn-small" onclick="showEquipmentWizard()">⚙️ Setup</button>
+    <button class="btn-secondary btn-small" onclick="doSignOut()">🚪 Sign Out</button>
   </div>
 
 </div><!-- /dashboard -->
 
 <script>
 const api = window.electronAPI;
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 3;
 let currentStep = 1;
 let isRunning = false;
 let alertCount = 0;
 let pendingDiscoveryNic = '';
-let credentialVerified = false;
-let wizardAuthToken = '';
+const DEFAULT_RELAY_URL = 'wss://tally-by-atemschool.up.railway.app';
 
 function showFatalInitError(message) {
   const wizard = document.getElementById('wizard');
@@ -1189,14 +1277,54 @@ async function init() {
       });
     }
 
+    // Enter key on sign-in password field triggers sign-in
+    const siPassword = document.getElementById('si-password');
+    if (siPassword) {
+      siPassword.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doSignIn();
+      });
+    }
+
+    // Listen for mid-session auth invalidation
+    api.onAuthInvalid(() => {
+      showSignIn();
+      showSignInMessage('Session was invalidated by the server. Please sign in again.', 'var(--warn)');
+    });
+
     const config = await api.getConfig();
     isRunning = await api.isRunning();
 
-    if (config.token && config.setupComplete) {
-      showDashboard();
-      if (config.name) document.getElementById('church-name').textContent = config.name;
+    if (config.token) {
+      // Returning user — validate token silently
+      showSignInLoading('Validating session...');
+      document.body.classList.add('ready');
+
+      const result = await api.validateToken();
+      if (result.valid) {
+        // Token is good — go to dashboard
+        if (config.name) document.getElementById('church-name').textContent = config.name;
+        if (config.setupComplete) {
+          showDashboard();
+          await api.startAgent();
+          isRunning = true;
+          updateToggleBtn();
+        } else {
+          showEquipmentWizard();
+        }
+      } else {
+        // Token invalid or expired
+        const reason = result.reason || 'unknown';
+        let msg = 'Session expired. Please sign in again.';
+        if (reason === 'expired') msg = 'Session expired. Please sign in again.';
+        else if (reason.includes('reach') || reason.includes('timeout') || reason.includes('Timeout')) msg = 'Could not reach relay server. Please try again.';
+        else if (reason !== 'invalid' && reason !== 'expired') msg = `Authentication failed: ${reason}`;
+        showSignIn();
+        showSignInMessage(msg, 'var(--warn)');
+      }
     } else {
-      showWizard();
+      // No token — new user, show sign-in form
+      showSignIn();
+      document.body.classList.add('ready');
     }
 
     updateToggleBtn();
@@ -1205,23 +1333,112 @@ async function init() {
   } catch (err) {
     console.error('Init failed:', err);
     showFatalInitError(err?.message || 'Unknown initialization error');
+    document.body.classList.add('ready');
   }
 }
 
 // ─── WIZARD ────────────────────────────────────────────────────────────────
 
-function showWizard() {
-  document.getElementById('wizard').classList.add('active');
+function hideAllViews() {
+  document.getElementById('sign-in').classList.remove('active');
+  document.getElementById('wizard').classList.remove('active');
   document.getElementById('dashboard').classList.remove('active');
-  credentialVerified = false;
-  wizardAuthToken = '';
+}
+
+function showSignIn() {
+  hideAllViews();
+  document.getElementById('sign-in').classList.add('active');
+  document.getElementById('sign-in-loading').classList.remove('active');
+  document.getElementById('sign-in-form').classList.remove('hidden');
+}
+
+function showSignInLoading(text) {
+  hideAllViews();
+  document.getElementById('sign-in').classList.add('active');
+  document.getElementById('sign-in-loading').classList.add('active');
+  document.getElementById('sign-in-loading-text').textContent = text || 'Validating session...';
+  document.getElementById('sign-in-form').classList.add('hidden');
+}
+
+function showSignInMessage(msg, color) {
+  const el = document.getElementById('si-message');
+  if (el) {
+    el.textContent = msg;
+    el.style.color = color || 'var(--muted)';
+  }
+}
+
+function showEquipmentWizard() {
+  hideAllViews();
+  document.getElementById('wizard').classList.add('active');
   renderStepIndicator();
   goToStep(1);
 }
 
+function showWizard() {
+  showEquipmentWizard();
+}
+
 function showDashboard() {
-  document.getElementById('wizard').classList.remove('active');
+  hideAllViews();
   document.getElementById('dashboard').classList.add('active');
+}
+
+async function doSignIn() {
+  const email = document.getElementById('si-email').value.trim();
+  const password = document.getElementById('si-password').value;
+  const relay = DEFAULT_RELAY_URL;
+  const btn = document.getElementById('si-btn');
+
+  if (!email || !password) {
+    showSignInMessage('Enter your email and password.', 'var(--warn)');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Signing in...';
+  showSignInMessage('Signing in and validating membership...', 'var(--muted)');
+
+  try {
+    const result = await api.churchAuthLogin({ relay, email, password });
+    if (result.success && result.data?.token) {
+      const token = result.data.token;
+      const churchName = result.data?.church?.name || '';
+      await api.saveConfig({ token, relay, name: churchName });
+
+      // Check if setup is already complete
+      const config = await api.getConfig();
+      if (config.name) document.getElementById('church-name').textContent = config.name;
+
+      if (config.setupComplete) {
+        showDashboard();
+        await api.startAgent();
+        isRunning = true;
+        updateToggleBtn();
+      } else {
+        showEquipmentWizard();
+      }
+    } else {
+      showSignInMessage(`Sign-in failed: ${result.error || result.data?.error || 'connection issue'}`, 'var(--warn)');
+    }
+  } catch (e) {
+    showSignInMessage(`Sign-in error: ${e.message}`, 'var(--danger)');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+}
+
+async function doSignOut() {
+  try {
+    await api.signOut();
+    isRunning = false;
+    updateToggleBtn();
+    showSignIn();
+    showSignInMessage('Signed out.', 'var(--muted)');
+  } catch (e) {
+    addAlert(`❌ Sign-out failed: ${e.message}`);
+  }
 }
 
 function renderStepIndicator() {
@@ -1244,80 +1461,25 @@ function goToStep(n) {
   const back = document.getElementById('wiz-back');
   const next = document.getElementById('wiz-next');
   back.style.display = n > 1 ? '' : 'none';
-  next.textContent = n === 1 ? 'Get Started →' : n === TOTAL_STEPS ? 'Finish & Connect' : 'Next →';
-}
-
-async function invalidateCredentialVerification() {
-  credentialVerified = false;
-  wizardAuthToken = '';
-  const el = document.getElementById('wiz-login-result');
-  if (el) {
-    el.style.display = 'none';
-    el.textContent = '';
-  }
-}
-
-async function verifyCredentials() {
-  const email = document.getElementById('wiz-email').value.trim();
-  const password = document.getElementById('wiz-password').value;
-  const relayResultEl = document.getElementById('wiz-login-result');
-  const relay = (document.getElementById('wiz-relay')?.value || 'wss://tally-production-cde2.up.railway.app').trim();
-  const nextBtn = document.getElementById('wiz-next');
-
-  if (!email || !password) {
-    relayResultEl.textContent = 'Enter your account email and password before continuing.';
-    relayResultEl.style.color = 'var(--warn)';
-    relayResultEl.style.display = 'block';
-    return false;
-  }
-
-  nextBtn.disabled = true;
-  nextBtn.textContent = 'Verifying…';
-  relayResultEl.textContent = 'Signing in and validating membership…';
-  relayResultEl.style.color = 'var(--muted)';
-  relayResultEl.style.display = 'block';
-
-  try {
-    const result = await api.churchAuthLogin({ relay, email, password });
-    if (result.success && result.data?.token) {
-      wizardAuthToken = result.data.token;
-      const churchName = result.data?.church?.name || 'Account';
-      relayResultEl.textContent = `✓ Signed in as ${churchName}. You can continue.`;
-      relayResultEl.style.color = 'var(--green)';
-      return true;
-    }
-
-    relayResultEl.textContent = `⚠ Sign-in failed: ${result.error || result.message || 'connection issue'}`;
-    relayResultEl.style.color = 'var(--warn)';
-    return false;
-  } finally {
-    nextBtn.disabled = false;
-    nextBtn.textContent = currentStep === 2 ? 'Next →' : (currentStep === 1 ? 'Get Started →' : currentStep === TOTAL_STEPS ? 'Finish & Connect' : 'Next →');
-  }
+  next.textContent = n === TOTAL_STEPS ? 'Finish & Connect' : 'Next →';
 }
 
 async function wizardNext() {
   if (currentStep < TOTAL_STEPS) {
-    if (currentStep === 2 && !credentialVerified) {
-      credentialVerified = await verifyCredentials();
-      if (!credentialVerified) return;
-    }
-
     goToStep(currentStep + 1);
     if (currentStep === TOTAL_STEPS) {
-      // Save config and test
-      const config = {
-        token: wizardAuthToken,
+      // Save equipment config + mark setup complete
+      const equipConfig = {
         atemIp: document.getElementById('wiz-atem').value.trim(),
         obsPassword: document.getElementById('wiz-obs-pw').value.trim(),
         companionUrl: document.getElementById('wiz-companion').value.trim() || 'http://localhost:8888',
         name: document.getElementById('wiz-name').value.trim(),
         liveStreamUrl: document.getElementById('wiz-livestream').value.trim(),
-        relay: (document.getElementById('wiz-relay')?.value || 'wss://tally-production-cde2.up.railway.app').trim(),
         setupComplete: true,
       };
-      await api.saveConfig(config);
+      await api.saveConfig(equipConfig);
       // Test connection
+      const config = await api.getConfig();
       const el = document.getElementById('test-result');
       el.innerHTML = '<span class="spinner-inline"></span> Testing connection…';
       el.style.color = 'var(--muted)';
@@ -1331,7 +1493,7 @@ async function wizardNext() {
       }
     }
   } else {
-    // Finish
+    // Finish — go to dashboard and start agent
     showDashboard();
     const config = await api.getConfig();
     if (config.name) document.getElementById('church-name').textContent = config.name;
@@ -1542,8 +1704,8 @@ async function toggleAgent() {
 
 async function testConn() {
   const config = await api.getConfig();
-  const relay = config.relay || 'wss://tally-production-cde2.up.railway.app';
-  const token = wizardAuthToken || config.token || '';
+  const relay = config.relay || 'wss://tally-by-atemschool.up.railway.app';
+  const token = config.token || '';
   const result = await api.testConnection({ url: relay, token });
   addAlert(result.success ? '✅ Relay connection OK' : `❌ Relay unreachable: ${result.error}`);
 }

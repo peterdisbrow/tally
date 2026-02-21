@@ -33,6 +33,7 @@ class PlanningCenter {
       pc_secret:          'TEXT',
       pc_service_type_id: 'TEXT',
       pc_sync_enabled:    'INTEGER DEFAULT 0',
+      pc_writeback_enabled: 'INTEGER DEFAULT 0',
       pc_last_synced:     'TEXT',
     };
     for (const [col, type] of Object.entries(cols)) {
@@ -256,6 +257,90 @@ class PlanningCenter {
       lastSynced:     church.pc_last_synced || null,
       nextService,
     };
+  }
+
+  // ─── WRITE-BACK — Push production notes to Planning Center ────────────────
+
+  /**
+   * Write production notes back to the most recent Planning Center plan.
+   * Called after each service session ends (from scheduleEngine close callback).
+   *
+   * @param {string} churchId
+   * @param {object} sessionData - From sessionRecap.endSession()
+   * @returns {Promise<{written: boolean, planId?: string}>}
+   */
+  async writeServiceNotes(churchId, sessionData) {
+    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    if (!church) return { written: false, reason: 'Church not found' };
+
+    if (!church.pc_writeback_enabled) return { written: false, reason: 'Write-back disabled' };
+    if (!church.pc_app_id || !church.pc_secret || !church.pc_service_type_id) {
+      return { written: false, reason: 'PC credentials not configured' };
+    }
+
+    try {
+      // Find the most recent plan (past, today's)
+      const credentials = Buffer.from(`${church.pc_app_id}:${church.pc_secret}`).toString('base64');
+      const url = `${PC_API_BASE}/service_types/${church.pc_service_type_id}/plans?filter=past&per_page=1&order=-sort_date`;
+
+      const resp = await fetch(url, {
+        headers: { Authorization: `Basic ${credentials}`, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!resp.ok) throw new Error(`PC API ${resp.status}`);
+      const data = await resp.json();
+      const plan = data.data?.[0];
+      if (!plan) return { written: false, reason: 'No recent plan found' };
+
+      // Build production notes
+      const grade = sessionData.grade || 'N/A';
+      const duration = sessionData.duration_minutes ? `${sessionData.duration_minutes} min` : 'Unknown';
+      const alerts = sessionData.alert_count || 0;
+      const autoFixed = sessionData.auto_recovered_count || 0;
+      const stream = sessionData.stream_ran ? `Yes (${sessionData.stream_runtime_minutes || 0} min)` : 'No';
+      const tdName = sessionData.td_name || 'Unknown';
+
+      const noteText = [
+        `--- Tally Production Report ---`,
+        `Grade: ${grade}`,
+        `Duration: ${duration}`,
+        `TD: ${tdName}`,
+        `Stream: ${stream}`,
+        `Alerts: ${alerts} (${autoFixed} auto-recovered)`,
+        `Audio silences: ${sessionData.audio_silence_count || 0}`,
+        `Recording confirmed: ${sessionData.recording_confirmed ? 'Yes' : 'No'}`,
+        `---`,
+      ].join('\n');
+
+      // POST a note to the plan
+      const noteUrl = `${PC_API_BASE}/service_types/${church.pc_service_type_id}/plans/${plan.id}/notes`;
+      const noteResp = await fetch(noteUrl, {
+        method: 'POST',
+        headers: { Authorization: `Basic ${credentials}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: {
+            type: 'PlanNote',
+            attributes: {
+              content: noteText,
+              category_name: 'Production',
+            },
+          },
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!noteResp.ok) {
+        const body = await noteResp.text();
+        throw new Error(`Note POST failed ${noteResp.status}: ${body.slice(0, 100)}`);
+      }
+
+      console.log(`[PlanningCenter] ✅ Production notes written to plan ${plan.id} for ${church.name || churchId}`);
+      return { written: true, planId: plan.id };
+    } catch (e) {
+      console.warn(`[PlanningCenter] ⚠️ Write-back failed for ${church.name || churchId}: ${e.message}`);
+      return { written: false, reason: e.message };
+    }
   }
 
   // ─── LIFECYCLE ────────────────────────────────────────────────────────────────

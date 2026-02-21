@@ -126,6 +126,10 @@ class AlertEngine {
         resolved INTEGER DEFAULT 0
       )
     `);
+
+    // Migration: add session_id column for timeline linking
+    try { this.db.prepare('SELECT session_id FROM alerts LIMIT 1').get(); }
+    catch { this.db.exec('ALTER TABLE alerts ADD COLUMN session_id TEXT'); }
   }
 
   classifyAlert(alertType, context) {
@@ -140,16 +144,16 @@ class AlertEngine {
     };
   }
 
-  async sendAlert(church, alertType, context = {}) {
+  async sendAlert(church, alertType, context = {}, sessionId = null) {
     const severity = this.classifyAlert(alertType, context);
     const alertId = uuidv4();
     const now = new Date().toISOString();
     const diagnosis = this.getDiagnosis(alertType);
 
-    // Log to DB
+    // Log to DB (with optional session_id for timeline linking)
     this.db.prepare(
-      'INSERT INTO alerts (id, church_id, alert_type, severity, context, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(alertId, church.churchId, alertType, severity, JSON.stringify(context), now);
+      'INSERT INTO alerts (id, church_id, alert_type, severity, context, created_at, session_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(alertId, church.churchId, alertType, severity, JSON.stringify(context), now, sessionId);
 
     const ts = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     console.log(`[${now}] ALERT [${severity}] ${church.name}: ${alertType}`);

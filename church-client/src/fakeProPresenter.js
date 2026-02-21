@@ -47,26 +47,56 @@ class FakeProPresenter extends EventEmitter {
 
   async nextSlide() {
     this._slideIndex = Math.min(this._slideIndex + 1, Math.max(0, this._slideTotal - 1));
-    this.emit('slideChanged');
+    this._emitSlideChanged();
     return true;
   }
 
   async previousSlide() {
     this._slideIndex = Math.max(0, this._slideIndex - 1);
-    this.emit('slideChanged');
+    this._emitSlideChanged();
     return true;
   }
 
   async goToSlide(index) {
     const i = Math.max(0, Math.min(Math.max(0, this._slideTotal - 1), Number(index) || 0));
     this._slideIndex = i;
-    this.emit('slideChanged');
+    this._emitSlideChanged();
     return true;
   }
 
   async getPlaylist() {
     return [...this._playlist];
   }
+
+  async clearAll() { return true; }
+  async clearSlide() { return true; }
+
+  async getMessages() {
+    return [
+      { id: 'msg-1', name: 'Welcome Message' },
+      { id: 'msg-2', name: 'Prayer Request' },
+    ];
+  }
+  async triggerMessage() { return true; }
+  async clearMessages() { return true; }
+
+  async getLooks() {
+    return [
+      { id: 'look-1', name: 'Default' },
+      { id: 'look-2', name: 'Worship' },
+      { id: 'look-3', name: 'Message' },
+    ];
+  }
+  async setLook(name) { return name; }
+
+  async getTimers() {
+    return [
+      { id: 'timer-1', name: 'Sermon Timer', allows_overrun: true },
+      { id: 'timer-2', name: 'Countdown', allows_overrun: false },
+    ];
+  }
+  async startTimer(name) { return name; }
+  async stopTimer(name) { return name; }
 
   setRunning(running) {
     this.running = !!running;
@@ -80,14 +110,34 @@ class FakeProPresenter extends EventEmitter {
       this._slideTotal = Math.floor(total);
       if (this._slideIndex >= this._slideTotal) this._slideIndex = this._slideTotal - 1;
     }
-    this.emit('slideChanged');
+    this._emitPresentationChanged();
+    this._emitSlideChanged();
   }
 
   setSlide(index) {
     const i = Number(index);
     if (!Number.isFinite(i)) return;
     this._slideIndex = Math.max(0, Math.min(Math.max(0, this._slideTotal - 1), Math.floor(i)));
-    this.emit('slideChanged');
+    this._emitSlideChanged();
+  }
+
+  _emitSlideChanged() {
+    this.emit('slideChanged', {
+      action: 'slideChanged',
+      presentationName: this._presentationName,
+      slideIndex: this._slideIndex,
+      slideCount: this._slideTotal,
+      acn: 'fv',
+      txt: `${this._slideIndex + 1}/${this._slideTotal}`,
+    });
+  }
+
+  _emitPresentationChanged() {
+    this.emit('presentationChanged', {
+      action: 'presentationChanged',
+      presentationName: this._presentationName,
+      slideCount: this._slideTotal,
+    });
   }
 
   getSnapshot() {

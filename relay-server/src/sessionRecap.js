@@ -51,6 +51,16 @@ class SessionRecap {
     `);
   }
 
+  /**
+   * Get the active session ID for a church (used by alertEngine and weeklyDigest for timeline linking).
+   * @param {string} churchId
+   * @returns {string|null} The session ID or null if no active session
+   */
+  getActiveSessionId(churchId) {
+    const session = this.activeSessions.get(churchId);
+    return session?.sessionId || null;
+  }
+
   // ─── SESSION LIFECYCLE ───────────────────────────────────────────────────────
 
   /**
