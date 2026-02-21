@@ -37,6 +37,8 @@ const PRICES = {
 };
 
 const TIER_NAMES = { connect: 'Connect', pro: 'Pro', managed: 'Managed', event: 'Event' };
+const TRIAL_PERIOD_DAYS = 60; // must match landing page pricing promise
+const GRACE_PERIOD_DAYS = 7;  // days after payment failure before deactivation
 const TIER_LIMITS = {
   connect: { churches: 1, devices: ['atem', 'obs', 'vmix'] },
   pro:     { churches: 999, devices: 'all' },
@@ -64,11 +66,19 @@ class BillingSystem {
         trial_ends_at TEXT,
         current_period_end TEXT,
         cancel_at_period_end INTEGER DEFAULT 0,
+        grace_ends_at TEXT,
         email TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
     `);
+
+    // Add grace_ends_at column to billing_customers (safe migration for existing DBs)
+    try {
+      this.db.prepare('SELECT grace_ends_at FROM billing_customers LIMIT 1').get();
+    } catch {
+      this.db.exec('ALTER TABLE billing_customers ADD COLUMN grace_ends_at TEXT');
+    }
 
     // Add billing columns to churches table
     const cols = {
@@ -114,9 +124,9 @@ class BillingSystem {
     };
 
     if (!isEvent) {
-      // 14-day free trial for subscriptions
+      // 60-day free trial for subscriptions (matches landing page promise)
       sessionParams.subscription_data = {
-        trial_period_days: 14,
+        trial_period_days: TRIAL_PERIOD_DAYS,
         metadata: { churchId: churchId || '', tier },
       };
     }
@@ -249,11 +259,23 @@ class BillingSystem {
 
   async _onPaymentFailed(invoice) {
     const subId = invoice.subscription;
-    const billing = this.db.prepare('SELECT * FROM billing_customers WHERE stripe_subscription_id = ?').get(subId);
-    if (billing) {
-      this.db.prepare(`UPDATE billing_customers SET status = 'past_due', updated_at = ? WHERE stripe_subscription_id = ?`)
-        .run(new Date().toISOString(), subId);
-      console.log(`[Billing] ⚠️ Payment failed for church ${billing.church_id}`);
+    const billingRecord = this.db.prepare('SELECT * FROM billing_customers WHERE stripe_subscription_id = ?').get(subId);
+    if (billingRecord) {
+      const now = new Date();
+      const graceEndsAt = new Date(now.getTime() + GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      this.db.prepare(`
+        UPDATE billing_customers
+        SET status = 'past_due', grace_ends_at = ?, updated_at = ?
+        WHERE stripe_subscription_id = ?
+      `).run(graceEndsAt, now.toISOString(), subId);
+
+      // Update churches table status
+      if (billingRecord.church_id) {
+        this.db.prepare('UPDATE churches SET billing_status = ? WHERE churchId = ?')
+          .run('past_due', billingRecord.church_id);
+      }
+
+      console.log(`[Billing] ⚠️ Payment failed for church ${billingRecord.church_id} — grace period until ${graceEndsAt}`);
     }
   }
 
@@ -351,4 +373,4 @@ class BillingSystem {
   }
 }
 
-module.exports = { BillingSystem, PRICES, TIER_NAMES, TIER_LIMITS };
+module.exports = { BillingSystem, PRICES, TIER_NAMES, TIER_LIMITS, TRIAL_PERIOD_DAYS, GRACE_PERIOD_DAYS };

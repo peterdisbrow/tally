@@ -160,8 +160,13 @@ class MonthlyReport {
 
       console.log(`[MonthlyReport] Generating ${reportMonth} reports`);
 
+      // Only send reports to Pro/Managed tier churches (skip Connect and Event)
       const allChurches = this.db.prepare('SELECT * FROM churches').all();
       for (const church of allChurches) {
+        const tier = (church.billing_tier || 'connect').toLowerCase();
+        if (tier === 'connect' || tier === 'event') {
+          continue; // monthly reports are a Pro/Managed feature
+        }
         this._sendReport(church.churchId, reportMonth).catch(e =>
           console.error(`[MonthlyReport] Error for ${church.name}:`, e.message)
         );

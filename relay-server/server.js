@@ -56,7 +56,7 @@ const { PresetLibrary } = require('./src/presetLibrary');
 const { EventMode } = require('./src/eventMode');
 const { ResellerSystem } = require('./src/reseller');
 
-const { BillingSystem } = require('./src/billing');
+const { BillingSystem, TRIAL_PERIOD_DAYS } = require('./src/billing');
 const { buildDashboardHtml, buildResellerPortalHtml } = require('./src/dashboard');
 const { setupSyncMonitor } = require('./src/syncMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
@@ -319,6 +319,49 @@ const planningCenter = new PlanningCenter(db);
 planningCenter.setScheduleEngine(scheduleEngine);
 planningCenter.start();
 
+// ─── TRIAL EXPIRATION CRON ────────────────────────────────────────────────────
+// Every hour, check for expired trials and deactivate them.
+
+function checkExpiredTrials() {
+  try {
+    const now = new Date().toISOString();
+    const expired = db.prepare(`
+      SELECT churchId, name, billing_trial_ends
+      FROM churches
+      WHERE billing_status = 'trialing'
+        AND billing_trial_ends IS NOT NULL
+        AND billing_trial_ends < ?
+    `).all(now);
+
+    for (const church of expired) {
+      db.prepare('UPDATE churches SET billing_status = ? WHERE churchId = ?')
+        .run('trial_expired', church.churchId);
+      // Also update billing_customers if a record exists
+      db.prepare(`UPDATE billing_customers SET status = 'trial_expired', updated_at = ? WHERE church_id = ?`)
+        .run(now, church.churchId);
+
+      log(`[TrialExpiry] Trial expired for "${church.name}" (${church.churchId}) — trial ended ${church.billing_trial_ends}`);
+
+      // Disconnect the church if it's currently connected
+      const runtime = churches.get(church.churchId);
+      if (runtime?.ws?.readyState === 1) {
+        runtime.ws.close(1008, 'billing_trial_expired');
+        log(`[TrialExpiry] Disconnected "${church.name}" due to expired trial`);
+      }
+    }
+
+    if (expired.length > 0) {
+      log(`[TrialExpiry] Deactivated ${expired.length} expired trial(s)`);
+    }
+  } catch (e) {
+    console.error('[TrialExpiry] Error:', e.message);
+  }
+}
+
+// Run immediately on startup, then every hour
+checkExpiredTrials();
+setInterval(checkExpiredTrials, 60 * 60 * 1000);
+
 // ─── RESELLER SYSTEM (needed early for TallyBot) ────────────────────────────
 
 // Initialized earlier after DB setup so it is always available before any dependent services start.
@@ -455,7 +498,7 @@ app.get('/api/health', (req, res) => {
   const connectedCount = Array.from(churches.values()).filter(c => c.ws?.readyState === WebSocket.OPEN).length;
   res.json({
     service: 'tally-relay',
-    version: '2026.02.20.3',
+    version: '2026.02.21.1',
     uptime: Math.floor(process.uptime()),
     registeredChurches: churches.size,
     connectedChurches: connectedCount,
@@ -525,7 +568,7 @@ function rateLimit(maxAttempts = 10, windowMs = 15 * 60 * 1000) {
 }
 
 const BILLING_TIERS = new Set(['connect', 'pro', 'managed', 'event']);
-const BILLING_STATUSES = new Set(['active', 'trialing', 'inactive', 'pending', 'past_due', 'canceled']);
+const BILLING_STATUSES = new Set(['active', 'trialing', 'inactive', 'pending', 'past_due', 'canceled', 'trial_expired']);
 
 function getChurchBillingSnapshot(churchId) {
   const church = stmtGet.get(churchId);
@@ -534,7 +577,7 @@ function getChurchBillingSnapshot(churchId) {
   }
 
   const billingRow = db.prepare(`
-    SELECT tier, status
+    SELECT tier, status, trial_ends_at, grace_ends_at
     FROM billing_customers
     WHERE church_id = ?
     ORDER BY datetime(updated_at) DESC
@@ -545,6 +588,8 @@ function getChurchBillingSnapshot(churchId) {
     exists: true,
     tier: church.billing_tier || billingRow?.tier || null,
     status: String(church.billing_status || billingRow?.status || 'inactive').toLowerCase(),
+    trialEndsAt: church.billing_trial_ends || billingRow?.trial_ends_at || null,
+    graceEndsAt: billingRow?.grace_ends_at || null,
   };
 }
 
@@ -558,14 +603,65 @@ function checkChurchPaidAccess(churchId) {
     return { allowed: true, ...snapshot, bypassed: true };
   }
 
-  if (snapshot.status === 'active' || snapshot.status === 'trialing') {
+  if (snapshot.status === 'active') {
     return { allowed: true, ...snapshot };
+  }
+
+  // For trialing: check if trial has expired
+  if (snapshot.status === 'trialing') {
+    if (snapshot.trialEndsAt && new Date(snapshot.trialEndsAt) < new Date()) {
+      return {
+        allowed: false,
+        ...snapshot,
+        status: 'trial_expired',
+        message: 'Your free trial has ended. Subscribe at tally.atemschool.com to continue.',
+      };
+    }
+    return { allowed: true, ...snapshot };
+  }
+
+  // Grace period for past_due: allow access during the grace window
+  if (snapshot.status === 'past_due') {
+    if (snapshot.graceEndsAt && new Date(snapshot.graceEndsAt) > new Date()) {
+      return { allowed: true, ...snapshot, inGracePeriod: true };
+    }
+    return {
+      allowed: false,
+      ...snapshot,
+      message: 'Payment is overdue and grace period has ended. Update payment at tally.atemschool.com to restore access.',
+    };
   }
 
   return {
     allowed: false,
     ...snapshot,
     message: `Subscription is "${snapshot.status}". Complete billing to connect this system.`,
+  };
+}
+
+/**
+ * Feature-level access gating middleware.
+ * Uses billing.checkAccess() to enforce tier-based feature limits.
+ * Extracts churchId from req.params.churchId, req.body.churchId, or req.church.churchId.
+ *
+ * Usage: app.post('/route', requireAdmin, requireFeature('planning_center'), handler)
+ */
+function requireFeature(featureName) {
+  return (req, res, next) => {
+    // Skip feature gating if billing isn't enforced
+    if (!REQUIRE_ACTIVE_BILLING || !billing.isEnabled()) return next();
+
+    const churchId = req.params?.churchId || req.body?.churchId || req.church?.churchId;
+    if (!churchId) return next(); // no church context — let route handle it
+
+    const church = stmtGet.get(churchId);
+    if (!church) return next(); // let route's own 404 handle it
+
+    const access = billing.checkAccess(church, featureName);
+    if (!access.allowed) {
+      return res.status(403).json({ error: access.reason, feature: featureName });
+    }
+    next();
   };
 }
 
@@ -603,17 +699,24 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
   const registeredAt = new Date().toISOString();
   const registrationCode = generateRegistrationCode();
 
+  // Compute trial end date if status is trialing
+  const finalStatus = normalizedStatus || 'active';
+  const trialEndsAt = finalStatus === 'trialing'
+    ? new Date(Date.now() + TRIAL_PERIOD_DAYS * 24 * 60 * 60 * 1000).toISOString()
+    : null;
+
   stmtInsert.run(churchId, name, email || '', token, registeredAt);
   stmtUpdateRegistrationCode.run(registrationCode, churchId);
   db.prepare(`
     UPDATE churches
-    SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?
+    SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?, billing_trial_ends = ?
     WHERE churchId = ?
   `).run(
     cleanPortalEmail || null,
     password ? hashPassword(password) : null,
     normalizedTier || 'connect',
-    normalizedStatus || 'active',
+    finalStatus,
+    trialEndsAt,
     churchId
   );
 
@@ -633,7 +736,8 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
     portalEmail: cleanPortalEmail || null,
     billing: {
       tier: normalizedTier || 'connect',
-      status: normalizedStatus || 'active',
+      status: finalStatus,
+      trialEndsAt,
     },
     registrationCode,
     message: 'Share this token with the church to connect their client app. Also share the 6-char code with a TD for Telegram registration.',
@@ -667,13 +771,19 @@ app.post('/api/church/app/onboard', async (req, res) => {
   const registeredAt = new Date().toISOString();
   const registrationCode = generateRegistrationCode();
 
+  // Self-service onboarding: start as trialing with 60-day trial
+  // When Stripe is enabled, status starts as 'pending' until checkout completes → 'trialing'
+  // When Stripe is disabled, start directly as 'trialing' with local trial expiration
+  const onboardStatus = billing.isEnabled() ? 'pending' : 'trialing';
+  const trialEndsAt = new Date(Date.now() + TRIAL_PERIOD_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
   stmtInsert.run(churchId, cleanName, cleanEmail, connectionToken, registeredAt);
   stmtUpdateRegistrationCode.run(registrationCode, churchId);
   db.prepare(`
     UPDATE churches
-    SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?
+    SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?, billing_trial_ends = ?
     WHERE churchId = ?
-  `).run(cleanEmail, hashPassword(password), planTier, billing.isEnabled() ? 'pending' : 'active', churchId);
+  `).run(cleanEmail, hashPassword(password), planTier, onboardStatus, trialEndsAt, churchId);
 
   churches.set(churchId, {
     churchId,
@@ -731,6 +841,7 @@ app.post('/api/church/app/onboard', async (req, res) => {
       required: REQUIRE_ACTIVE_BILLING && billing.isEnabled(),
       status: access.status,
       tier: planTier,
+      trialEndsAt,
     },
     checkoutUrl,
     checkoutSessionId,
@@ -1203,11 +1314,12 @@ app.get('/api/churches', requireAdmin, (req, res) => {
       event_expires_at: c.event_expires_at || null,
       event_label:      c.event_label      || null,
       reseller_id:      c.reseller_id      || null,
-      portal_email:      row.portal_email || null,
-      billing_tier:      row.billing_tier || null,
-      billing_status:    row.billing_status || 'inactive',
-      registrationCode:  row.registration_code || c.registrationCode || null,
-      token:            row.token || c.token || null,
+      portal_email:        row.portal_email || null,
+      billing_tier:        row.billing_tier || null,
+      billing_status:      row.billing_status || 'inactive',
+      billing_trial_ends:  row.billing_trial_ends || null,
+      registrationCode:    row.registration_code || c.registrationCode || null,
+      token:               row.token || c.token || null,
     };
   });
   res.json(list);
@@ -1433,7 +1545,8 @@ app.post('/api/chat', requireAdmin, async (req, res) => {
 
 // ─── MONTHLY REPORT API ───────────────────────────────────────────────────────
 
-app.get('/api/churches/:churchId/report', requireAdmin, async (req, res) => {
+// Monthly report — Pro/Managed only
+app.get('/api/churches/:churchId/report', requireAdmin, requireFeature('monthly_report'), async (req, res) => {
   const church = churches.get(req.params.churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
   const monthStr = req.query.month; // "YYYY-MM" or omit for previous month
@@ -1468,16 +1581,16 @@ app.get('/api/churches/:churchId/sessions/current', requireAdmin, (req, res) => 
 
 // ─── PLANNING CENTER API ──────────────────────────────────────────────────────
 
-// GET current PC status (no credentials in response)
-app.get('/api/churches/:churchId/planning-center', requireAdmin, (req, res) => {
+// GET current PC status (no credentials in response) — Pro/Managed only
+app.get('/api/churches/:churchId/planning-center', requireAdmin, requireFeature('planning_center'), (req, res) => {
   const church = churches.get(req.params.churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
   const status = planningCenter.getStatus(req.params.churchId);
   res.json(status);
 });
 
-// PUT set credentials
-app.put('/api/churches/:churchId/planning-center', requireAdmin, (req, res) => {
+// PUT set credentials — Pro/Managed only
+app.put('/api/churches/:churchId/planning-center', requireAdmin, requireFeature('planning_center'), (req, res) => {
   const church = churches.get(req.params.churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
   const { appId, secret, serviceTypeId, syncEnabled } = req.body;
@@ -1485,8 +1598,8 @@ app.put('/api/churches/:churchId/planning-center', requireAdmin, (req, res) => {
   res.json({ saved: true });
 });
 
-// POST manual sync now
-app.post('/api/churches/:churchId/planning-center/sync', requireAdmin, async (req, res) => {
+// POST manual sync now — Pro/Managed only
+app.post('/api/churches/:churchId/planning-center/sync', requireAdmin, requireFeature('planning_center'), async (req, res) => {
   const church = churches.get(req.params.churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
   try {
@@ -1497,8 +1610,8 @@ app.post('/api/churches/:churchId/planning-center/sync', requireAdmin, async (re
   }
 });
 
-// GET preview upcoming services without saving
-app.get('/api/churches/:churchId/planning-center/preview', requireAdmin, async (req, res) => {
+// GET preview upcoming services without saving — Pro/Managed only
+app.get('/api/churches/:churchId/planning-center/preview', requireAdmin, requireFeature('planning_center'), async (req, res) => {
   const church = churches.get(req.params.churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
   try {
