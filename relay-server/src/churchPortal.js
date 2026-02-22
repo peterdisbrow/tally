@@ -790,7 +790,8 @@ function buildChurchPortalHtml(church) {
         profileData = d;
         document.getElementById('stat-tds').textContent = (d.tds || []).length;
         document.getElementById('registered-date').textContent = d.registeredAt ? new Date(d.registeredAt).toLocaleDateString() : '—';
-        document.getElementById('plan-name').textContent = d.plan || 'Connect';
+        const tierNames = { connect: 'Connect', pro: 'Pro', managed: 'Managed', event: 'Event' };
+        document.getElementById('plan-name').textContent = tierNames[d.billing_tier] || d.billing_tier || 'Connect';
 
         const tbody = document.getElementById('equipment-tbody');
         const status = d.status || {};
