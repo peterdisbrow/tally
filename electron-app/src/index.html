@@ -350,6 +350,7 @@
     }
     .tab-content { display: none; }
     .tab-content.active { display: block; }
+    #tab-chat.active { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
 
     /* ── Setup Wizard ───────────────────────────────────────────── */
     .wizard { display: none; }
@@ -1211,7 +1212,7 @@
   </div><!-- /tab-equipment -->
 
   <!-- ══════════ CHAT TAB ══════════ -->
-  <div class="content tab-content" id="tab-chat" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+  <div class="content tab-content" id="tab-chat">
     <div id="chat-messages" style="flex:1; overflow-y:auto; padding:8px 0;">
       <div style="text-align:center; color:var(--dim); font-size:11px; padding:40px 20px;">
         No messages yet. Start a conversation.
