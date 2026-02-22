@@ -992,7 +992,10 @@ function requireChurchAppAuth(req, res, next) {
 app.get('/api/church/app/me', requireChurchAppAuth, (req, res) => {
   const c = req.church;
   const runtime = churches.get(c.churchId);
-  const tds = db.prepare('SELECT * FROM church_tds WHERE churchId = ? ORDER BY createdAt ASC').all(c.churchId);
+  let tds = [];
+  try {
+    tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ? AND active = 1 ORDER BY registered_at ASC').all(c.churchId);
+  } catch { /* schema may vary */ }
   const { portal_password_hash, token, ...safe } = c;
 
   let notifications = {};
