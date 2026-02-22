@@ -1023,7 +1023,17 @@ function buildChurchPortalHtml(church) {
         const d = await api('GET', '/api/church/billing');
         const div = document.getElementById('billing-info');
         if (d.noStripe) {
-          div.innerHTML = \`<div style="text-align:center;padding:30px"><div style="color:#94A3B8;margin-bottom:16px">Billing managed by your account administrator.</div><div style="color:#475569;font-size:13px">Contact <a href="mailto:support@atemschool.com" style="color:#22c55e">support@atemschool.com</a> for billing questions.</div></div>\`;
+          const tierNames = { connect: 'Connect', pro: 'Pro', managed: 'Managed', event: 'Event' };
+          const tierDisplay = tierNames[d.tier] || d.tier || 'Connect';
+          const statusDisplay = d.billingStatus || 'active';
+          const statusColor = { active: '#22c55e', trialing: '#eab308', past_due: '#f87171', canceled: '#94A3B8', inactive: '#94A3B8' };
+          div.innerHTML = \`
+            <div class="card-title">Subscription</div>
+            <table><tbody>
+              <tr><td style="color:#94A3B8;width:160px">Plan</td><td style="color:#F8FAFC;font-weight:600">\${tierDisplay}</td></tr>
+              <tr><td style="color:#94A3B8">Status</td><td><span class="badge" style="background:rgba(34,197,94,0.1);color:\${statusColor[statusDisplay]||'#94A3B8'}">\${statusDisplay}</span></td></tr>
+            </tbody></table>
+            <div style="color:#475569;font-size:13px;margin-top:16px">Billing managed by your account administrator. Contact <a href="mailto:support@atemschool.com" style="color:#22c55e">support@atemschool.com</a> for billing questions.</div>\`;
           return;
         }
         const planColor = { active: '#22c55e', trialing: '#eab308', past_due: '#f87171', canceled: '#94A3B8' };
@@ -1267,11 +1277,12 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
   app.get('/api/church/billing', authMiddleware, async (req, res) => {
     try {
       const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
-      if (!STRIPE_KEY) return res.json({ noStripe: true });
+      const church = req.church;
+      const dbFallback = { noStripe: true, tier: church.billing_tier || 'connect', billingStatus: church.billing_status || 'active' };
+      if (!STRIPE_KEY) return res.json(dbFallback);
       const Stripe = require('stripe');
       const stripe = Stripe(STRIPE_KEY);
-      const church = req.church;
-      if (!church.stripe_customer_id) return res.json({ noStripe: true });
+      if (!church.stripe_customer_id) return res.json(dbFallback);
       const subs = await stripe.subscriptions.list({ customer: church.stripe_customer_id, limit: 1 });
       const sub = subs.data[0];
       if (!sub) return res.json({ status: 'none', plan: 'No active subscription' });
