@@ -316,16 +316,17 @@ class BillingSystem {
    * Returns { allowed: bool, reason?: string }
    */
   checkAccess(church, feature) {
-    if (!this.isEnabled()) return { allowed: true }; // billing disabled = all access
-
     const tier = church.billing_tier || 'connect';
     const status = church.billing_status || 'inactive';
 
-    // Allow during grace period (active or trialing)
-    if (!['active', 'trialing'].includes(status)) {
-      return { allowed: false, reason: `Subscription ${status}. Visit tally.atemschool.com to manage billing.` };
+    // When Stripe is configured, enforce billing status (payment checks)
+    if (this.isEnabled()) {
+      if (!['active', 'trialing'].includes(status)) {
+        return { allowed: false, reason: `Subscription ${status}. Visit tally.atemschool.com to manage billing.` };
+      }
     }
 
+    // Tier-based feature gating is always enforced (even without Stripe)
     const limits = TIER_LIMITS[tier] || TIER_LIMITS.connect;
 
     // Device access
