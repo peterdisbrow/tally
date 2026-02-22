@@ -377,9 +377,10 @@ function startAgent() {
   const mockLabRunning = mockLabManager?.isRunning?.() || false;
   const useMockProduction = config.mockProduction || mockLabRunning || isFakeAtemMode(config.atemIp);
 
+  const agentRelay = enforceRelayPolicy(config.relay || DEFAULT_RELAY_URL);
   const args = [clientPaths.script,
     '--token', config.token,
-    '--relay', config.relay || DEFAULT_RELAY_URL,
+    '--relay', agentRelay,
   ];
 
   if (useMockProduction) {
@@ -405,7 +406,7 @@ function startAgent() {
     return;
   }
 
-  appendAppLog('SYSTEM', `Starting agent (relay=${config.relay || DEFAULT_RELAY_URL}, name=${config.name || 'n/a'}, script=${clientPaths.script})`);
+  appendAppLog('SYSTEM', `Starting agent (relay=${agentRelay}, name=${config.name || 'n/a'}, script=${clientPaths.script})`);
 
   agentProcess = spawn(nodeBinary, args, {
     cwd: clientPaths.cwd,
@@ -945,8 +946,8 @@ ipcMain.handle('validate-token', async () => {
       // If we can't decode the JWT, still try server validation
     }
 
-    // Server-side validation
-    const relay = config.relay || DEFAULT_RELAY_URL;
+    // Server-side validation — always enforce relay policy so stale config URLs don't persist
+    const relay = enforceRelayPolicy(config.relay || DEFAULT_RELAY_URL);
     const result = await checkTokenWithRelay(config.token, relay, 8000);
     if (result.success) {
       return { valid: true, churchName: config.name || '' };
@@ -976,8 +977,8 @@ ipcMain.handle('copy-to-clipboard', (_, text) => { clipboard.writeText(text); re
 // ─── CHAT IPC ──────────────────────────────────────────────────────────────────
 ipcMain.handle('send-chat', async (_, { message, senderName }) => {
   const config = loadConfig();
-  if (!config.token || !config.relay) return { error: 'Not configured' };
-  const relayHttp = config.relay.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://');
+  if (!config.token) return { error: 'Not configured' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
   try {
     const resp = await fetch(`${relayHttp}/api/church/chat`, {
       method: 'POST',
@@ -992,8 +993,8 @@ ipcMain.handle('send-chat', async (_, { message, senderName }) => {
 
 ipcMain.handle('get-chat', async (_, opts = {}) => {
   const config = loadConfig();
-  if (!config.token || !config.relay) return { messages: [] };
-  const relayHttp = config.relay.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://');
+  if (!config.token) return { messages: [] };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
   const qs = opts.since ? `?since=${encodeURIComponent(opts.since)}` : '';
   try {
     const resp = await fetch(`${relayHttp}/api/church/chat${qs}`, {
