@@ -1073,18 +1073,15 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
     try { db.exec(m); } catch { /* already exists */ }
   }
 
-  // TD table
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS church_tds (
-      id        TEXT PRIMARY KEY,
-      churchId  TEXT NOT NULL,
-      name      TEXT NOT NULL,
-      role      TEXT DEFAULT 'td',
-      email     TEXT,
-      phone     TEXT,
-      createdAt TEXT NOT NULL
-    )
-  `);
+  // Ensure portal-specific columns exist on church_tds (table created by telegramBot)
+  const _portalMigrations = [
+    "ALTER TABLE church_tds ADD COLUMN role TEXT DEFAULT 'td'",
+    "ALTER TABLE church_tds ADD COLUMN email TEXT",
+    "ALTER TABLE church_tds ADD COLUMN phone TEXT",
+  ];
+  for (const m of _portalMigrations) {
+    try { db.exec(m); } catch { /* column already exists */ }
+  }
 
   // Guest tokens table (extend if not exists)
   db.exec(`
@@ -1143,7 +1140,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
   app.get('/api/church/me', authMiddleware, (req, res) => {
     const c = req.church;
     const runtime = churches.get(c.churchId);
-    const tds = db.prepare('SELECT * FROM church_tds WHERE churchId = ? ORDER BY createdAt ASC').all(c.churchId);
+    let tds = [];
+    try { tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC').all(c.churchId); } catch {}
     const { portal_password_hash, token, ...safe } = c;
 
     let notifications = {};
@@ -1208,7 +1206,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
 
   // ── GET /api/church/tds ───────────────────────────────────────────────────────
   app.get('/api/church/tds', authMiddleware, (req, res) => {
-    res.json(db.prepare('SELECT * FROM church_tds WHERE churchId = ? ORDER BY createdAt ASC').all(req.church.churchId));
+    let tds = [];
+    try { tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC').all(req.church.churchId); } catch {}
+    res.json(tds);
   });
 
   // ── POST /api/church/tds ──────────────────────────────────────────────────────
@@ -1217,14 +1217,14 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
     if (!name) return res.status(400).json({ error: 'name required' });
     const { v4: uuidv4 } = require('uuid');
     const id = uuidv4();
-    db.prepare('INSERT INTO church_tds (id, churchId, name, role, email, phone, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, req.church.churchId, name, role || 'td', email || '', phone || '', new Date().toISOString());
+    db.prepare('INSERT INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active, role, email, phone) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)')
+      .run(req.church.churchId, `portal_${id}`, `portal_${id}`, name, new Date().toISOString(), role || 'td', email || '', phone || '');
     res.json({ id, name, role, email, phone });
   });
 
   // ── DELETE /api/church/tds/:tdId ──────────────────────────────────────────────
   app.delete('/api/church/tds/:tdId', authMiddleware, (req, res) => {
-    db.prepare('DELETE FROM church_tds WHERE id = ? AND churchId = ?').run(req.params.tdId, req.church.churchId);
+    db.prepare('DELETE FROM church_tds WHERE id = ? AND church_id = ?').run(req.params.tdId, req.church.churchId);
     res.json({ ok: true });
   });
 
