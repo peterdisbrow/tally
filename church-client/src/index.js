@@ -39,7 +39,7 @@ program
 
 program
   .option('-t, --token <token>', 'Your church connection token (from ATEM School)')
-  .option('-r, --relay <url>', 'Relay server URL', 'wss://tally-by-atemschool.up.railway.app')
+  .option('-r, --relay <url>', 'Relay server URL', 'wss://tally-production-cde2.up.railway.app')
   .option('-a, --atem <ip>', 'ATEM switcher IP (use "mock" for built-in simulator)')
   .option('--mock-production', 'Run full mock production stack (ATEM + OBS + X32 + HyperDeck + ProPresenter)')
   .option('--fake-atem-api-port <port>', 'Fake ATEM control API port (default: 9911)')

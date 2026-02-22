@@ -14,7 +14,7 @@ try {
 
 const CONFIG_PATH = path.join(os.homedir(), '.church-av', 'config.json');
 const CONFIG_DIR  = path.dirname(CONFIG_PATH);
-const DEFAULT_RELAY_URL = 'wss://tally-by-atemschool.up.railway.app';
+const DEFAULT_RELAY_URL = 'wss://tally-production-cde2.up.railway.app';
 const STANDALONE_MOCK_LAB = process.argv.includes('--mock-lab') || process.env.TALLY_STANDALONE_MOCK_LAB === '1';
 const LOG_DIR = path.join(CONFIG_DIR, 'logs');
 const APP_LOG_PATH = path.join(LOG_DIR, 'tally-app.log');

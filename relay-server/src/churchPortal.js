@@ -790,7 +790,7 @@ function buildChurchPortalHtml(church) {
         profileData = d;
         document.getElementById('stat-tds').textContent = (d.tds || []).length;
         document.getElementById('registered-date').textContent = d.registeredAt ? new Date(d.registeredAt).toLocaleDateString() : '—';
-        const tierNames = { connect: 'Connect', pro: 'Pro', managed: 'Managed', event: 'Event' };
+        const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed', event: 'Event' };
         document.getElementById('plan-name').textContent = tierNames[d.billing_tier] || d.billing_tier || 'Connect';
 
         const tbody = document.getElementById('equipment-tbody');
@@ -1023,7 +1023,7 @@ function buildChurchPortalHtml(church) {
         const d = await api('GET', '/api/church/billing');
         const div = document.getElementById('billing-info');
         if (d.noStripe) {
-          const tierNames = { connect: 'Connect', pro: 'Pro', managed: 'Managed', event: 'Event' };
+          const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed', event: 'Event' };
           const tierDisplay = tierNames[d.tier] || d.tier || 'Connect';
           const statusDisplay = d.billingStatus || 'active';
           const statusColor = { active: '#22c55e', trialing: '#eab308', past_due: '#f87171', canceled: '#94A3B8', inactive: '#94A3B8' };

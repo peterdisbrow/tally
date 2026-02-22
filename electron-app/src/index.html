@@ -801,7 +801,7 @@
           <input id="si-password" type="password" placeholder="••••••••">
         </div>
         <div style="font-size:11px; color:var(--dim); margin-top:2px; margin-bottom:10px; font-family:var(--mono);">
-          Relay: <code>wss://tally-by-atemschool.up.railway.app</code>
+          Relay: <code>wss://tally-production-cde2.up.railway.app</code>
         </div>
         <button class="btn-save" style="width:100%; margin-top: 8px;" id="si-btn" onclick="doSignIn()">Sign In</button>
         <div class="sign-in-message" id="si-message"></div>
@@ -1252,7 +1252,7 @@ let currentStep = 1;
 let isRunning = false;
 let alertCount = 0;
 let pendingDiscoveryNic = '';
-const DEFAULT_RELAY_URL = 'wss://tally-by-atemschool.up.railway.app';
+const DEFAULT_RELAY_URL = 'wss://tally-production-cde2.up.railway.app';
 
 function showFatalInitError(message) {
   const wizard = document.getElementById('wizard');
@@ -1726,7 +1726,7 @@ async function toggleAgent() {
 
 async function testConn() {
   const config = await api.getConfig();
-  const relay = config.relay || 'wss://tally-by-atemschool.up.railway.app';
+  const relay = config.relay || 'wss://tally-production-cde2.up.railway.app';
   const token = config.token || '';
   const result = await api.testConnection({ url: relay, token });
   addAlert(result.success ? '✅ Relay connection OK' : `❌ Relay unreachable: ${result.error}`);

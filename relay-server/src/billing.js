@@ -31,16 +31,18 @@ try {
 
 const PRICES = {
   connect:  process.env.STRIPE_PRICE_CONNECT  || 'price_connect_placeholder',
+  plus:     process.env.STRIPE_PRICE_PLUS      || 'price_plus_placeholder',
   pro:      process.env.STRIPE_PRICE_PRO       || 'price_pro_placeholder',
   managed:  process.env.STRIPE_PRICE_MANAGED   || 'price_managed_placeholder',
   event:    process.env.STRIPE_PRICE_EVENT     || 'price_event_placeholder', // one-time
 };
 
-const TIER_NAMES = { connect: 'Connect', pro: 'Pro', managed: 'Managed', event: 'Event' };
+const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed', event: 'Event' };
 const TRIAL_PERIOD_DAYS = 30; // 30-day free trial
 const GRACE_PERIOD_DAYS = 7;  // days after payment failure before deactivation
 const TIER_LIMITS = {
   connect: { churches: 1, devices: ['atem', 'obs', 'vmix'] },
+  plus:    { churches: 1, devices: 'all' },
   pro:     { churches: 999, devices: 'all' },
   managed: { churches: 999, devices: 'all' },
   event:   { churches: 1, devices: 'all' },
@@ -334,15 +336,15 @@ class BillingSystem {
       return { allowed: false, reason: 'Multi-church support requires Pro or Managed plan.' };
     }
 
-    if (feature === 'planning_center' && tier === 'connect') {
+    if (feature === 'planning_center' && (tier === 'connect' || tier === 'plus')) {
       return { allowed: false, reason: 'Planning Center sync requires Pro or Managed plan.' };
     }
 
-    if (feature === 'monthly_report' && tier === 'connect') {
+    if (feature === 'monthly_report' && (tier === 'connect' || tier === 'plus')) {
       return { allowed: false, reason: 'Monthly reports require Pro or Managed plan.' };
     }
 
-    if (feature === 'autopilot' && tier === 'connect') {
+    if (feature === 'autopilot' && (tier === 'connect' || tier === 'plus')) {
       return { allowed: false, reason: 'AI Autopilot requires Pro or Managed plan.' };
     }
 
