@@ -1,6 +1,7 @@
 /**
  * Bitfocus Companion Bridge
- * Connects to Companion 3.x+ HTTP API for device-agnostic control.
+ * Connects to Companion 4.x HTTP API for device-agnostic control.
+ * Companion 4.x runs on port 8000 and uses /api/location endpoints.
  */
 
 const http = require('http');
@@ -56,8 +57,10 @@ class CompanionBridge extends EventEmitter {
 
   async isAvailable() {
     try {
-      const { status } = await this._request('GET', '/api/connections');
-      this.connected = status >= 200 && status < 400;
+      // Companion 4.x has no /api/connections endpoint.
+      // Probe a known location slot; any HTTP response means Companion is up.
+      const { status } = await this._request('GET', '/api/location/1/0/0');
+      this.connected = status >= 200 && status < 500;
       return this.connected;
     } catch {
       this.connected = false;
@@ -72,23 +75,20 @@ class CompanionBridge extends EventEmitter {
   }
 
   async getConnections() {
-    const { status, body } = await this._request('GET', '/api/connections');
-    if (status >= 400) throw new Error('Failed to get connections');
+    // Companion 4.x does not expose a connections list via HTTP API.
+    // We just confirm it's reachable and report that.
+    const reachable = await this.isAvailable();
+    if (!reachable) throw new Error('Companion not reachable');
 
-    // Companion returns object keyed by connection id
-    const list = [];
-    if (body && typeof body === 'object') {
-      for (const [id, conn] of Object.entries(body)) {
-        list.push({
-          id,
-          label: conn.label || conn.instance_type || id,
-          moduleId: conn.instance_type || conn.module || 'unknown',
-          enabled: conn.enabled !== false,
-          status: conn.status || 'unknown',
-          hasError: conn.status === 'error' || conn.status === 'bad_config',
-        });
-      }
-    }
+    // Return a single synthetic entry representing the Companion instance
+    const list = [{
+      id: 'companion',
+      label: 'Companion',
+      moduleId: 'companion',
+      enabled: true,
+      status: 'ok',
+      hasError: false,
+    }];
 
     this.connections = list;
     this.connectionCount = list.length;
@@ -96,8 +96,8 @@ class CompanionBridge extends EventEmitter {
   }
 
   async getButtonGrid(page) {
-    // Companion 3.x: get all buttons on a page
-    // We'll try the location API for a standard 8x4 grid
+    // Companion 4.x: get all buttons on a page via location API
+    // Standard 8x4 grid
     const grid = [];
     const rows = 4;
     const cols = 8;
@@ -149,18 +149,21 @@ class CompanionBridge extends EventEmitter {
     this.stopPolling();
     this._pollTimer = setInterval(async () => {
       try {
+        const wasConnected = this.connected;
         const available = await this.isAvailable();
-        if (!available) return;
-        await this.getConnections();
 
-        // Emit connection status changes
-        for (const conn of this.connections) {
-          const key = conn.id;
-          const prev = this._lastButtonStates.get(key);
-          if (prev && prev !== conn.status) {
-            this.emit('stateChange', { type: 'connection', connection: conn, previousStatus: prev });
-          }
-          this._lastButtonStates.set(key, conn.status);
+        if (available && !wasConnected) {
+          this.emit('stateChange', { type: 'connection', connection: { id: 'companion', status: 'ok' }, previousStatus: 'offline' });
+        } else if (!available && wasConnected) {
+          this.emit('stateChange', { type: 'connection', connection: { id: 'companion', status: 'offline' }, previousStatus: 'ok' });
+        }
+
+        if (available) {
+          this.connections = [{ id: 'companion', label: 'Companion', moduleId: 'companion', enabled: true, status: 'ok', hasError: false }];
+          this.connectionCount = 1;
+        } else {
+          this.connections = [];
+          this.connectionCount = 0;
         }
       } catch { /* ignore poll errors */ }
     }, intervalMs);

@@ -89,30 +89,6 @@ function tryHttpGet(url, timeoutMs = 2000) {
   });
 }
 
-function companionConnectionCount(resp) {
-  if (!resp || !resp.success || !resp.data) return null;
-
-  const data = resp.data;
-
-  if (Array.isArray(data)) return data.length;
-  if (Array.isArray(data.connections)) return data.connections.length;
-  if (typeof data.connections === 'number') return data.connections;
-
-  const dataKeys = Object.keys(data);
-  if (dataKeys.length > 0) {
-    // Companion often returns {connections: [...]} or sometimes nested objects.
-    // If it returns a map/object of connection entries, use object cardinality.
-    if (typeof data === 'object') {
-      if (typeof data.ok === 'boolean' && data.ok === false) return 0;
-      if (typeof data.connections === 'object' && !Array.isArray(data.connections)) {
-        return Object.keys(data.connections).length;
-      }
-      return dataKeys.length >= 2 ? dataKeys.length : 1;
-    }
-  }
-
-  return 1;
-}
 
 function isLikelyResolume(data) {
   return data && typeof data === 'object' && typeof (data.name || data.title || data.productName || data.version) === 'string';
@@ -128,7 +104,7 @@ function isLikelyVmixXml(xml) {
  * @returns {Promise<Object>} discovered devices
  */
 async function discoverDevices(onProgress = () => {}, options = {}) {
-  const results = { atem: [], companion: [], obs: [], hyperdeck: [], propresenter: [], nmos: [], resolume: [], vmix: [], mixers: [] };
+  const results = { atem: [], companion: [], obs: [], hyperdeck: [], propresenter: [], nmos: [], resolume: [], vmix: [], mixers: [], encoders: [] };
   const { subnet, localIp, interfaceName } = getLocalSubnet(options.interfaceName);
 
   const ifaceLabel = interfaceName ? ` on ${interfaceName}` : '';
@@ -150,6 +126,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { type: 'mixer-behringer', ip: '127.0.0.1', port: 10023 },
     { type: 'mixer-allenheath', ip: '127.0.0.1', port: 51326 },
     { type: 'mixer-yamaha', ip: '127.0.0.1', port: 8765 },
+    { type: 'tally-encoder', ip: '127.0.0.1', port: 7070 },
   ];
 
   // Check localhost first
@@ -164,10 +141,10 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
         results.obs.push({ ip: '127.0.0.1', port: 4455 });
         onProgress(3, 'Found OBS on localhost ✅');
       } else if (check.type === 'companion') {
-        const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/api/connections`, 2000);
-        const connCount = companionConnectionCount(resp);
-        if (connCount !== null) {
-          results.companion.push({ ip: '127.0.0.1', port: check.port, connections: connCount });
+        // Companion 4.x: simple HTTP probe — web UI always responds at root
+        const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/`, 2000);
+        if (resp.success) {
+          results.companion.push({ ip: '127.0.0.1', port: check.port, connections: 0 });
           onProgress(4, 'Found Companion on localhost ✅');
         }
       } else if (check.type === 'propresenter') {
@@ -202,6 +179,12 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
       } else if (check.type === 'mixer-yamaha') {
         results.mixers.push({ ip: '127.0.0.1', port: check.port, type: 'yamaha (CL/QL)' });
         onProgress(5, 'Found possible Yamaha console on localhost ✅');
+      } else if (check.type === 'tally-encoder') {
+        const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/health`, 2000);
+        if (resp.success) {
+          results.encoders.push({ ip: '127.0.0.1', port: check.port, type: 'tally-encoder', label: 'Tally Encoder' });
+          onProgress(5, 'Found Tally Encoder on localhost ✅');
+        }
       }
     }
   }
@@ -220,6 +203,8 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { port: 10023, type: 'mixer-behringer' },  // Behringer X32 / Midas M32
     { port: 51326, type: 'mixer-allenheath' }, // Allen & Heath SQ
     { port: 8765,  type: 'mixer-yamaha' },     // Yamaha CL/QL
+    // Streaming encoders
+    { port: 7070,  type: 'tally-encoder' },    // Tally Encoder (RPi)
   ];
 
   let scanned = 0;
@@ -244,10 +229,10 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
               results.atem.push({ ip, name: 'ATEM Switcher', model: 'Unknown' });
               onProgress(null, `Found ATEM at ${ip} ✅`);
             } else if (type === 'companion' && !results.companion.find((d) => d.ip === ip)) {
-              const resp = await tryHttpGet(`http://${ip}:${port}/api/connections`, 2000);
-              const connCount = companionConnectionCount(resp);
-              if (connCount !== null) {
-                results.companion.push({ ip, port, connections: connCount });
+              // Companion 4.x: simple HTTP probe — web UI always responds at root
+              const resp = await tryHttpGet(`http://${ip}:${port}/`, 2000);
+              if (resp.success) {
+                results.companion.push({ ip, port, connections: 0 });
                 onProgress(null, `Found Companion at ${ip} ✅`);
               }
             } else if (type === 'obs' && !results.obs.find((d) => d.ip === ip)) {
@@ -285,6 +270,12 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
             } else if (type === 'mixer-yamaha' && !results.mixers.find((d) => d.ip === ip && d.port === port)) {
               results.mixers.push({ ip, port, type: 'yamaha (CL/QL)' });
               onProgress(null, `Found possible Yamaha console at ${ip}:${port} ✅`);
+            } else if (type === 'tally-encoder' && !results.encoders.find((d) => d.ip === ip)) {
+              const eResp = await tryHttpGet(`http://${ip}:${port}/health`, 2000);
+              if (eResp.success) {
+                results.encoders.push({ ip, port, type: 'tally-encoder', label: 'Tally Encoder' });
+                onProgress(null, `Found Tally Encoder at ${ip}:${port} ✅`);
+              }
             }
           })
         );
@@ -297,7 +288,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     onProgress(pct, `Scanned ${scanned}/${totalScans} IPs...`);
   }
 
-  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.propresenter.length + results.resolume.length + results.vmix.length} devices found`);
+  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.propresenter.length + results.resolume.length + results.vmix.length + results.encoders.length} devices found`);
   return results;
 }
 

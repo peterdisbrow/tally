@@ -572,6 +572,12 @@ function buildChurchPortalHtml(church) {
       <div class="card">
         <div class="card-title">Change Password</div>
         <div class="field-row">
+          <div class="field" style="flex:1">
+            <label>Current Password</label>
+            <input type="password" id="current-password" placeholder="••••••••">
+          </div>
+        </div>
+        <div class="field-row">
           <div class="field">
             <label>New Password</label>
             <input type="password" id="new-password" placeholder="••••••••">
@@ -795,18 +801,31 @@ function buildChurchPortalHtml(church) {
 
         const tbody = document.getElementById('equipment-tbody');
         const status = d.status || {};
+        const enc = status.encoder || {};
+        const encNames = { obs:'OBS', vmix:'vMix', ecamm:'Ecamm', blackmagic:'Blackmagic', aja:'AJA HELO', epiphan:'Epiphan', teradek:'Teradek', yolobox:'YoloBox', 'tally-encoder':'Tally Encoder', custom:'Custom' };
+        const encoderLabel = encNames[enc.type] || (status.obs ? 'OBS Studio' : 'Encoder');
+        const encoderStatus = enc.connected ? (enc.live ? 'streaming' : 'connected') : (status.obs && status.obs.connected ? (status.obs.streaming ? 'streaming' : 'connected') : 'unknown');
+        const audioStatus = (status.mixer && status.mixer.mainMuted) ? 'muted' : (status.audio && status.audio.silenceDetected) ? 'warning' : (enc.live || (status.obs && status.obs.streaming)) ? 'ok' : 'unknown';
         const rows = [
           ['ATEM Switcher', status.atem ? 'connected' : 'unknown', status.atemLastSeen],
-          ['OBS Studio', status.obs ? 'connected' : 'unknown', status.obsLastSeen],
+          [encoderLabel, encoderStatus, null],
+          ['Stream', (enc.live || (status.obs && status.obs.streaming)) ? 'live' : 'offline', null],
+          ['Audio', audioStatus, null],
           ['A/V Sync', status.syncOk === false ? 'warning' : (status.syncOk ? 'ok' : 'unknown'), null],
-          ['Stream', status.streaming ? 'live' : 'offline', null],
         ];
-        tbody.innerHTML = rows.map(([name, st, ts]) => \`
-          <tr>
+        tbody.innerHTML = rows.map(([name, st, ts]) => {
+          let badgeCls = 'badge-gray';
+          let label = st;
+          if (st === 'connected' || st === 'ok') badgeCls = 'badge-green';
+          else if (st === 'live' || st === 'streaming') { badgeCls = 'badge-green'; label = st === 'live' ? '🔴 Live' : 'Streaming'; }
+          else if (st === 'warning') badgeCls = 'badge-yellow';
+          else if (st === 'muted') { badgeCls = 'badge-yellow'; label = '🔇 Muted'; }
+          return \`<tr>
             <td>\${name}</td>
-            <td><span class="badge \${st === 'connected' || st === 'ok' || st === 'live' ? 'badge-green' : st === 'warning' ? 'badge-yellow' : 'badge-gray'}">\${st}</span></td>
+            <td><span class="badge \${badgeCls}">\${label}</span></td>
             <td style="color:#475569;font-size:12px">\${ts ? new Date(ts).toLocaleTimeString() : '—'}</td>
-          </tr>\`).join('');
+          </tr>\`;
+        }).join('');
 
         document.getElementById('stat-status').textContent = d.connected ? 'Online' : 'Offline';
         document.getElementById('stat-status').style.color = d.connected ? '#22c55e' : '#94A3B8';
@@ -840,13 +859,16 @@ function buildChurchPortalHtml(church) {
     }
 
     async function changePassword() {
+      const cur = document.getElementById('current-password').value;
       const np = document.getElementById('new-password').value;
       const cp = document.getElementById('confirm-password').value;
+      if (!cur) return toast('Enter your current password', true);
       if (!np) return toast('Enter a new password', true);
       if (np !== cp) return toast('Passwords do not match', true);
       if (np.length < 8) return toast('Password must be at least 8 characters', true);
       try {
-        await api('PUT', '/api/church/me', { newPassword: np });
+        await api('PUT', '/api/church/me', { currentPassword: cur, newPassword: np });
+        document.getElementById('current-password').value = '';
         document.getElementById('new-password').value = '';
         document.getElementById('confirm-password').value = '';
         toast('Password updated');
@@ -1070,6 +1092,35 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
   const express = require('express');
   console.log('[ChurchPortal] Setup started');
 
+  // ── Rate limiting for login endpoint ───────────────────────────────────────
+  const loginAttempts = new Map();
+  function loginRateLimit(req, res, next) {
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const now = Date.now();
+    const windowMs = 15 * 60 * 1000; // 15 minutes
+    const maxAttempts = 10;
+    let entry = loginAttempts.get(ip);
+    if (!entry || now - entry.windowStart > windowMs) {
+      entry = { windowStart: now, count: 0 };
+      loginAttempts.set(ip, entry);
+    }
+    entry.count++;
+    if (entry.count > maxAttempts) {
+      const retryAfter = Math.ceil((entry.windowStart + windowMs - now) / 1000);
+      res.set('Retry-After', String(retryAfter));
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(429).send(buildChurchLoginHtml('Too many login attempts. Please try again later.'));
+    }
+    next();
+  }
+  // Cleanup stale entries every 10 minutes
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of loginAttempts) {
+      if (now - entry.windowStart > 15 * 60 * 1000) loginAttempts.delete(key);
+    }
+  }, 10 * 60 * 1000).unref();
+
   // ── Schema ──────────────────────────────────────────────────────────────────
   const migrations = [
     "ALTER TABLE churches ADD COLUMN portal_email TEXT",
@@ -1114,7 +1165,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
   });
 
   // ── Login POST ────────────────────────────────────────────────────────────────
-  app.post('/api/church/login', express.urlencoded({ extended: false }), (req, res) => {
+  app.post('/api/church/login', express.urlencoded({ extended: false }), loginRateLimit, (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -1170,11 +1221,17 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
 
   // ── PUT /api/church/me ────────────────────────────────────────────────────────
   app.put('/api/church/me', authMiddleware, (req, res) => {
-    const { email, phone, location, notes, notifications, telegramChatId, newPassword } = req.body;
+    const { email, phone, location, notes, notifications, telegramChatId, currentPassword, newPassword } = req.body;
     const churchId = req.church.churchId;
 
     if (newPassword) {
       if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+      // Require current password for security
+      if (!currentPassword) return res.status(400).json({ error: 'Current password is required to change password' });
+      const row = db.prepare('SELECT portal_password_hash FROM churches WHERE churchId = ?').get(churchId);
+      if (!row?.portal_password_hash || !verifyPassword(currentPassword, row.portal_password_hash)) {
+        return res.status(403).json({ error: 'Current password is incorrect' });
+      }
       db.prepare('UPDATE churches SET portal_password_hash = ? WHERE churchId = ?')
         .run(hashPassword(newPassword), churchId);
     }

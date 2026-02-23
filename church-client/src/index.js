@@ -18,6 +18,7 @@ const os = require('os');
 const { commandHandlers } = require('./commands');
 const { CompanionBridge } = require('./companion');
 const { VideoHub } = require('./videohub');
+const { EncoderBridge } = require('./encoderBridge');
 const { ProPresenter } = require('./propresenter');
 const { Resolume } = require('./resolume');
 const { VMix } = require('./vmix');
@@ -176,6 +177,8 @@ class ChurchAVAgent {
     this.resolume = null;
     this.vmix = null;
     this.mixer = null;
+    this.encoderBridge = null;
+    this._encoderManaged = false;  // true when EncoderBridge owns status.encoder
     this.fakeAtemApi = null;
     this._stopping = false;
     this._fakeAtemMode = false;
@@ -221,6 +224,7 @@ class ChurchAVAgent {
     await this.connectResolume();
     await this.connectVMix();
     await this.connectMixer();
+    await this.connectEncoder();
     await this.startMockControlApi();
 
     setInterval(() => this.sendStatus(), 10_000);
@@ -558,7 +562,7 @@ class ChurchAVAgent {
       this.obs.on('ConnectionOpened', () => {
         console.log('✅ OBS connected');
         this.status.obs.connected = true;
-        this.status.encoder.connected = true;
+        if (!this._encoderManaged) this.status.encoder.connected = true;
         this._obsReconnectDelay = 5000; // reset backoff on success
         this.sendStatus();
       });
@@ -567,7 +571,7 @@ class ChurchAVAgent {
         if (this._stopping) return;
         console.warn(`⚠️  OBS disconnected. Retrying in ${this._obsReconnectDelay / 1000}s...`);
         this.status.obs.connected = false;
-        this.status.encoder.connected = false;
+        if (!this._encoderManaged) this.status.encoder.connected = false;
         this.sendStatus();
         const delay = this._obsReconnectDelay;
         this._obsReconnectDelay = Math.min(this._obsReconnectDelay * 2, 60_000);
@@ -577,7 +581,7 @@ class ChurchAVAgent {
       this.obs.on('StreamStateChanged', ({ outputActive }) => {
         const wasStreaming = this.status.obs.streaming;
         this.status.obs.streaming = outputActive;
-        this.status.encoder.live = !!outputActive;
+        if (!this._encoderManaged) this.status.encoder.live = !!outputActive;
         if (wasStreaming !== outputActive) {
           this.sendAlert(`Stream ${outputActive ? 'STARTED' : 'STOPPED'}`, 'info');
           this.sendStatus();
@@ -598,19 +602,23 @@ class ChurchAVAgent {
             const stats = await this.obs.call('GetStats');
             this.status.obs.fps = Math.round(stats.activeFps || 0);
             this.status.obs.cpuUsage = Math.round(stats.cpuUsage || 0);
-            this.status.encoder.fps = this.status.obs.fps;
-            this.status.encoder.cpuUsage = this.status.obs.cpuUsage;
-            this.status.encoder.congestion = typeof stats.outputCongestion === 'number'
-              ? Number(stats.outputCongestion.toFixed(2))
-              : null;
+            if (!this._encoderManaged) {
+              this.status.encoder.fps = this.status.obs.fps;
+              this.status.encoder.cpuUsage = this.status.obs.cpuUsage;
+              this.status.encoder.congestion = typeof stats.outputCongestion === 'number'
+                ? Number(stats.outputCongestion.toFixed(2))
+                : null;
+            }
 
             const streamStatus = await this.obs.call('GetStreamStatus');
             this.status.obs.streaming = streamStatus.outputActive;
             this.status.obs.bitrate = streamStatus.outputBytes
               ? Math.round((streamStatus.outputBytes / 1024 / 15))
               : null;
-            this.status.encoder.bitrateKbps = this.status.obs.bitrate;
-            this.status.encoder.live = !!streamStatus.outputActive;
+            if (!this._encoderManaged) {
+              this.status.encoder.bitrateKbps = this.status.obs.bitrate;
+              this.status.encoder.live = !!streamStatus.outputActive;
+            }
 
             if (this.status.obs.fps < 24 && this.status.obs.streaming) {
               this.sendAlert(`⚠️ Low stream FPS: ${this.status.obs.fps}fps`, 'warning');
@@ -627,6 +635,48 @@ class ChurchAVAgent {
       console.warn('⚠️  OBS not available:', e.message);
       console.log('   (OBS optional — ATEM monitoring still works)');
     }
+  }
+
+  // ─── ENCODER BRIDGE ──────────────────────────────────────────────────────
+
+  async connectEncoder() {
+    const cfg = this.config.encoder;
+    if (!cfg || !cfg.type) {
+      // No explicit encoder configured — OBS fallback (existing behavior)
+      console.log('📡 Encoder: using OBS default (no encoder configured)');
+      return;
+    }
+
+    console.log(`📡 Connecting to encoder: ${cfg.type}${cfg.host ? ` at ${cfg.host}:${cfg.port || ''}` : ''}...`);
+    this._encoderManaged = true;
+    this.encoderBridge = new EncoderBridge(cfg);
+
+    // If encoder type is OBS, share the existing OBS WebSocket instance
+    if (cfg.type === 'obs' && this.obs) {
+      this.encoderBridge.setObs(this.obs);
+    }
+
+    const online = await this.encoderBridge.connect();
+    if (online) {
+      console.log('✅ Encoder connected');
+      const s = await this.encoderBridge.getStatus();
+      Object.assign(this.status.encoder, s);
+    } else {
+      console.log('⚠️  Encoder not available (will retry)');
+    }
+
+    // Poll every 15 seconds
+    setInterval(async () => {
+      if (!this.encoderBridge) return;
+      try {
+        const wasConnected = this.status.encoder.connected;
+        const s = await this.encoderBridge.getStatus();
+        Object.assign(this.status.encoder, s);
+
+        if (s.connected && !wasConnected) console.log('✅ Encoder connected');
+        if (!s.connected && wasConnected) console.log('⚠️  Encoder disconnected');
+      } catch { /* ignore */ }
+    }, 15_000);
   }
 
   // ─── COMPANION CONNECTION ────────────────────────────────────────────────
@@ -654,6 +704,7 @@ class ChurchAVAgent {
     // Periodically refresh companion status
     setInterval(async () => {
       try {
+        const wasConnected = this.status.companion.connected;
         const avail = await this.companion.isAvailable();
         this.status.companion.connected = avail;
         if (avail) {
@@ -661,6 +712,9 @@ class ChurchAVAgent {
           this.status.companion.connectionCount = conns.length;
           this.status.companion.connections = conns.map(c => ({ id: c.id, label: c.label, moduleId: c.moduleId, status: c.status }));
         }
+        // Log state changes so the Electron host picks them up
+        if (avail && !wasConnected) console.log('✅ Companion connected');
+        if (!avail && wasConnected) console.log('⚠️  Companion disconnected');
       } catch { /* ignore */ }
     }, 30_000);
   }
@@ -818,9 +872,9 @@ class ChurchAVAgent {
   }
 
   _sendSlideChangeEvent(data) {
-    if (!this.ws || this.ws.readyState !== 1) return;
+    if (!this.relay || this.relay.readyState !== 1) return;
     try {
-      this.ws.send(JSON.stringify({
+      this.relay.send(JSON.stringify({
         type: 'propresenter_slide_change',
         presentationName: data?.presentationName || this.status.proPresenter?.currentSlide || '',
         slideIndex: data?.slideIndex ?? this.status.proPresenter?.slideIndex ?? 0,

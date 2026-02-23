@@ -39,7 +39,7 @@ app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: 256 * 1024 }); // 256 KB max message
 
 const { ScheduleEngine } = require('./src/scheduleEngine');
 const { AlertEngine } = require('./src/alertEngine');
@@ -157,6 +157,17 @@ for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
 }
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_churches_portal_email ON churches(portal_email)');
+
+// Performance indexes for commonly queried columns
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_church_tds_church_id ON church_tds(church_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_alerts_church_id ON alerts(church_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_service_events_church_id ON service_events(church_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_service_sessions_church_id ON service_sessions(church_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_guest_tokens_church_id ON guest_tokens(church_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_churches_reseller_id ON churches(reseller_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_billing_customers_church_id ON billing_customers(church_id)');
+} catch { /* tables may not exist yet — indexes will be created when they are */ }
 
 // ─── ADMIN USERS TABLE ──────────────────────────────────────────────────────
 db.exec(`
@@ -2485,6 +2496,10 @@ function handleChurchConnection(ws, url, clientIp) {
     broadcastToSSE(disconnectEvent);
   });
 
+  ws.on('error', (err) => {
+    console.error(`WS error from church "${church.name}":`, err.message);
+  });
+
   ws.send(JSON.stringify({ type: 'connected', churchId: church.churchId, name: church.name }));
 }
 
@@ -2521,6 +2536,10 @@ function handleControllerConnection(ws, url) {
     clearInterval(wsPingInterval);
     controllers.delete(ws);
     log(`Controller disconnected (total: ${controllers.size})`);
+  });
+
+  ws.on('error', (err) => {
+    console.error('WS error from controller:', err.message);
   });
 }
 
@@ -3193,6 +3212,48 @@ server.listen(PORT, () => {
   log(`Tally Relay running on port ${PORT}`);
   log(`Admin API key: configured (${ADMIN_API_KEY.length} chars)`);
 });
+
+// ─── GRACEFUL SHUTDOWN ─────────────────────────────────────────────────────────
+
+function gracefulShutdown(signal) {
+  log(`${signal} received — shutting down gracefully...`);
+
+  // Close WebSocket server (stops accepting new connections)
+  wss.close(() => {
+    log('WebSocket server closed');
+  });
+
+  // Close all church WebSocket connections
+  for (const church of churches.values()) {
+    if (church.ws?.readyState === WebSocket.OPEN) {
+      church.ws.close(1001, 'server shutting down');
+    }
+  }
+
+  // Close all controller connections
+  for (const ws of controllers) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.close(1001, 'server shutting down');
+    }
+  }
+
+  // Close HTTP server
+  server.close(() => {
+    log('HTTP server closed');
+    // Close database
+    try { db.close(); } catch {}
+    process.exit(0);
+  });
+
+  // Force exit after 10s if graceful close hangs
+  setTimeout(() => {
+    console.error('Forced exit after 10s timeout');
+    process.exit(1);
+  }, 10_000).unref();
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 
 // Export for testing
 module.exports = { app, server, wss, churches, controllers };

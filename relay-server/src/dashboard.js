@@ -269,6 +269,16 @@ function syncBadge(syncStatus) {
   return '<span class="tag tag-sync-na">⚫ SYNC</span>';
 }
 
+function encoderTypeName(type) {
+  const names = {
+    obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
+    aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek',
+    yolobox: 'YoloBox', 'tally-encoder': 'Tally Enc', custom: 'Custom',
+    'custom-rtmp': 'RTMP', 'rtmp-generic': 'RTMP',
+  };
+  return names[type] || 'Encoder';
+}
+
 function copyText(text) {
   navigator.clipboard.writeText(text).then(() => {
     const el = event.target.closest ? event.target.closest('.code-copy') : event.target;
@@ -299,7 +309,14 @@ function patchCard(church) {
   const atemConnected = s.atem && s.atem.connected;
   const obsConnected  = s.obs  && s.obs.connected;
   const obsStreaming   = s.obs  && s.obs.streaming;
-  const encoderActive  = church.encoderActive || false;
+  const encoderActive  = church.encoderActive || (s.encoder && s.encoder.connected) || false;
+  const encoderData    = s.encoder || {};
+  const encoderName    = encoderTypeName(encoderData.type);
+  const encoderLive    = encoderData.live || obsStreaming || false;
+  const audioData      = s.audio || {};
+  const mixerData      = s.mixer || {};
+  const audioMuted     = mixerData.mainMuted || false;
+  const audioSilence   = audioData.silenceDetected || false;
   const alerts = church.activeAlerts || 0;
 
   // 1) Status dot
@@ -314,13 +331,12 @@ function patchCard(church) {
     }
   }
 
-  // 2) Row values — Connection, ATEM, OBS, Stream, (Encoder if present)
+  // 2) Row values — Connection, ATEM, Stream, Encoder, Audio
   const rows = card.querySelectorAll('.card-rows .row');
   const rowDefs = [
     { val: church.connected, on: 'Online',    off: 'Offline' },
     { val: atemConnected,    on: 'Connected',  off: 'Disconnected' },
-    { val: obsConnected,     on: 'Connected',  off: 'Disconnected' },
-    { val: obsStreaming,     on: '🔴 Live',    off: 'Off-air', na: 'Unknown' },
+    { val: encoderLive,      on: '🔴 Live',    off: 'Off-air', na: 'Unknown' },
   ];
   rowDefs.forEach((def, i) => {
     if (i >= rows.length) return;
@@ -334,19 +350,34 @@ function patchCard(church) {
     }
   });
 
-  // 3) Encoder row (5th row) — update encoder badge + sync badge
-  if (rows.length >= 5) {
-    const rv = rows[4].querySelector('.row-value');
+  // 3) Encoder row (4th row) — update encoder badge + sync badge
+  if (rows.length >= 4) {
+    const rv = rows[3].querySelector('.row-value');
     if (rv) {
       const encoderBadge = encoderActive
-        ? '<span class="tag tag-encoder-on">📡 Encoder</span>'
-        : '<span class="tag tag-encoder-off">📡 Encoder</span>';
+        ? \`<span class="tag tag-encoder-on">📡 \${encoderName}</span>\`
+        : \`<span class="tag tag-encoder-off">📡 \${encoderName}</span>\`;
       const newHtml = encoderBadge + ' ' + syncBadge(church.syncStatus);
       if (rv.innerHTML !== newHtml) rv.innerHTML = newHtml;
     }
   }
 
-  // 4) Alert badge
+  // 4) Audio row (5th row)
+  if (rows.length >= 5) {
+    const rv = rows[4].querySelector('.row-value');
+    if (rv) {
+      const audioBadge = audioMuted
+        ? '<span class="tag tag-off">🔇 Muted</span>'
+        : audioSilence
+          ? '<span class="tag" style="background:rgba(245,158,11,0.15);color:var(--yellow);">⚠ Silence</span>'
+          : encoderLive
+            ? '<span class="tag tag-on">🔊 OK</span>'
+            : '<span class="tag tag-na">🔊 —</span>';
+      if (rv.innerHTML !== audioBadge) rv.innerHTML = audioBadge;
+    }
+  }
+
+  // 5) Alert badge
   const badge = card.querySelector('.alert-badge');
   if (badge) {
     const wasVisible = badge.classList.contains('visible');
@@ -784,10 +815,26 @@ function renderCard(church) {
   const atemConnected = s.atem && s.atem.connected;
   const obsStreaming   = s.obs  && s.obs.streaming;
   const obsConnected   = s.obs  && s.obs.connected;
-  const encoderActive  = church.encoderActive || false;
+  const encoderActive  = church.encoderActive || (s.encoder && s.encoder.connected) || false;
+  const encoderData    = s.encoder || {};
+  const encoderName    = encoderTypeName(encoderData.type);
+  const encoderLive    = encoderData.live || obsStreaming || false;
+  const audioData      = s.audio || {};
+  const mixerData      = s.mixer || {};
+  const audioMuted     = mixerData.mainMuted || false;
+  const audioSilence   = audioData.silenceDetected || false;
   const reseller = church.reseller_id && _resellersMap[church.reseller_id];
   const resellerTag = reseller ? \`<div class="reseller-tag">🏢 \${esc(reseller.brand_name || reseller.name)}</div>\` : '';
-  const encoderBadge = encoderActive ? '<span class="tag tag-encoder-on">📡 Encoder</span>' : '<span class="tag tag-encoder-off">📡 Encoder</span>';
+  const encoderBadge = encoderActive
+    ? \`<span class="tag tag-encoder-on">📡 \${encoderName}</span>\`
+    : \`<span class="tag tag-encoder-off">📡 \${encoderName}</span>\`;
+  const audioBadge = audioMuted
+    ? '<span class="tag tag-off">🔇 Muted</span>'
+    : audioSilence
+      ? '<span class="tag" style="background:rgba(245,158,11,0.15);color:var(--yellow);">⚠ Silence</span>'
+      : encoderLive
+        ? '<span class="tag tag-on">🔊 OK</span>'
+        : '<span class="tag tag-na">🔊 —</span>';
   const cid   = esc(church.churchId);
   const cname = esc(church.name);
 
@@ -810,9 +857,9 @@ function renderCard(church) {
     <div class="card-rows">
       <div class="row"><span class="row-label">Connection</span><span class="row-value">\${tag(church.connected,'Online','Offline')}</span></div>
       <div class="row"><span class="row-label">ATEM</span><span class="row-value">\${tag(atemConnected,'Connected','Disconnected')}</span></div>
-      <div class="row"><span class="row-label">OBS</span><span class="row-value">\${tag(obsConnected,'Connected','Disconnected')}</span></div>
-      <div class="row"><span class="row-label">Stream</span><span class="row-value">\${tag(obsStreaming,'🔴 Live','Off-air','Unknown')}</span></div>
+      <div class="row"><span class="row-label">Stream</span><span class="row-value">\${tag(encoderLive,'🔴 Live','Off-air','Unknown')}</span></div>
       <div class="row"><span class="row-label">Encoder</span><span class="row-value">\${encoderBadge} \${syncBadge(church.syncStatus)}</span></div>
+      <div class="row"><span class="row-label">Audio</span><span class="row-value">\${audioBadge}</span></div>
     </div>
     <div class="last-seen">Last seen: \${fmtLastSeen(church.lastSeen)}</div>
   </div>\`;
@@ -1231,7 +1278,27 @@ async function loadDrawerTab(tab) {
       <div class="drawer-item"><span class="drawer-item-label">Last Seen</span><span class="drawer-item-value" style="color:var(--muted);">\${fmtLastSeen(church.lastSeen)}</span></div>
       <div class="drawer-section-title">Equipment</div>
       <div class="drawer-item"><span class="drawer-item-label">ATEM</span><span class="drawer-item-value">\${tag(s.atem && s.atem.connected,'Connected','Disconnected')}\${s.atem && s.atem.programInput != null ? ' <small style="color:var(--muted);">Cam '+s.atem.programInput+'</small>' : ''}</span></div>
-      <div class="drawer-item"><span class="drawer-item-label">OBS</span><span class="drawer-item-value">\${!s.obs ? '–' : s.obs.streaming ? '<span class="tag tag-on">🔴 Streaming</span>' : s.obs.connected ? '<span class="tag tag-na">Idle</span>' : '<span class="tag tag-off">Offline</span>'}</span></div>
+      <div class="drawer-item"><span class="drawer-item-label">Encoder</span><span class="drawer-item-value">\${(() => {
+        const enc = s.encoder || {};
+        const name = encoderTypeName(enc.type);
+        if (!enc.connected && !(s.obs && s.obs.connected)) return '<span class="tag tag-off">Offline</span>';
+        const live = enc.live || (s.obs && s.obs.streaming);
+        if (live) {
+          let detail = '<span class="tag tag-on">🔴 Streaming</span>';
+          if (enc.bitrateKbps) detail += ' <small style="color:var(--muted);">' + (enc.bitrateKbps >= 1000 ? (enc.bitrateKbps/1000).toFixed(1)+'Mbps' : enc.bitrateKbps+'Kbps') + '</small>';
+          if (enc.fps) detail += ' <small style="color:var(--muted);">' + Math.round(enc.fps) + 'fps</small>';
+          return detail;
+        }
+        return '<span class="tag tag-na">' + name + ' — Idle</span>';
+      })()}</span></div>
+      <div class="drawer-item"><span class="drawer-item-label">Audio</span><span class="drawer-item-value">\${(() => {
+        const audio = s.audio || {};
+        const mixer = s.mixer || {};
+        if (mixer.mainMuted) return '<span class="tag tag-off">🔇 Master Muted</span>';
+        if (audio.silenceDetected) return '<span class="tag" style="background:rgba(245,158,11,0.15);color:var(--yellow);">⚠ Silence Detected</span>';
+        const live = (s.encoder && s.encoder.live) || (s.obs && s.obs.streaming);
+        return live ? '<span class="tag tag-on">🔊 OK</span>' : '<span class="tag tag-na">🔊 Standby</span>';
+      })()}</span></div>
       <div class="drawer-item"><span class="drawer-item-label">Companion</span><span class="drawer-item-value">\${tag(s.companion && s.companion.connected,'Online','Offline')}</span></div>
       <div class="drawer-item"><span class="drawer-item-label">ProPresenter</span><span class="drawer-item-value">\${tag(s.proPresenter && s.proPresenter.connected,'Online','Offline')}</span></div>
       <div class="drawer-item"><span class="drawer-item-label">A/V Sync</span><span class="drawer-item-value">\${syncBadge(church.syncStatus)}</span></div>
@@ -1551,11 +1618,23 @@ function renderCard(church) {
   const s = church.status || {};
   const atemConnected = s.atem && s.atem.connected;
   const obsStreaming   = s.obs  && s.obs.streaming;
-  const obsConnected   = s.obs  && s.obs.connected;
-  const encoderActive  = church.encoderActive || false;
+  const encoderActive  = church.encoderActive || (s.encoder && s.encoder.connected) || false;
+  const encoderData    = s.encoder || {};
+  const encoderName    = encoderTypeName(encoderData.type);
+  const encoderLive    = encoderData.live || obsStreaming || false;
   const encoderBadge = encoderActive
-    ? '<span class="tag tag-encoder-on">📡 Encoder</span>'
-    : '<span class="tag tag-encoder-off">📡 Encoder</span>';
+    ? \`<span class="tag tag-encoder-on">📡 \${encoderName}</span>\`
+    : \`<span class="tag tag-encoder-off">📡 \${encoderName}</span>\`;
+  const audioData  = s.audio || {};
+  const mixerData  = s.mixer || {};
+  const audioMuted = mixerData.mainMuted || false;
+  const audioBadge = audioMuted
+    ? '<span class="tag tag-off">🔇 Muted</span>'
+    : audioData.silenceDetected
+      ? '<span class="tag" style="background:rgba(245,158,11,0.15);color:var(--yellow);">⚠ Silence</span>'
+      : encoderLive
+        ? '<span class="tag tag-on">🔊 OK</span>'
+        : '<span class="tag tag-na">🔊 —</span>';
 
   return \`<div class="card" id="card-\${esc(church.churchId)}">
     <div class="card-header">
@@ -1566,8 +1645,9 @@ function renderCard(church) {
     <div class="card-rows">
       <div class="row"><span class="row-label">Connection</span><span class="row-value">\${tag(church.connected, 'Online', 'Offline')}</span></div>
       <div class="row"><span class="row-label">ATEM</span><span class="row-value">\${tag(atemConnected, 'Connected', 'Disconnected')}</span></div>
-      <div class="row"><span class="row-label">OBS</span><span class="row-value">\${tag(obsConnected, 'Connected', 'Disconnected')}</span></div>
-      <div class="row"><span class="row-label">Stream</span><span class="row-value">\${tag(obsStreaming, '🔴 Live', 'Off-air', 'Unknown')}</span></div>
+      <div class="row"><span class="row-label">Stream</span><span class="row-value">\${tag(encoderLive, '🔴 Live', 'Off-air', 'Unknown')}</span></div>
+      <div class="row"><span class="row-label">Encoder</span><span class="row-value">\${encoderBadge}</span></div>
+      <div class="row"><span class="row-label">Audio</span><span class="row-value">\${audioBadge}</span></div>
     </div>
     <div class="last-seen">Last seen: \${fmtLastSeen(church.lastSeen)}</div>
   </div>\`;

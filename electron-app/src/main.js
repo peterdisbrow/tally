@@ -25,7 +25,7 @@ let mainWindow = null;
 let agentProcess = null;
 let mockLabManager = null;
 let MockLabManagerClass = null;
-let agentStatus = { relay: false, atem: false, obs: false, companion: false };
+let agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
 let previewControllerSocket = null;
 let lastNotifiedState = {};
 const recentLogLines = [];
@@ -182,10 +182,10 @@ function computeTrayState() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 560,
-    height: 740,
-    minWidth: 500,
-    minHeight: 660,
+    width: 580,
+    height: 820,
+    minWidth: 520,
+    minHeight: 720,
     resizable: true,
     webPreferences: {
       nodeIntegration: false,
@@ -244,11 +244,12 @@ function updateTray() {
 
   const connected = agentStatus.relay;
   const atemOk = agentStatus.atem;
-  const obsOk  = agentStatus.obs;
+  const encoderOk = agentStatus.encoder || agentStatus.obs;
   const compOk = agentStatus.companion;
+  const encLabel = agentStatus.encoderType || 'OBS';
 
   const statusLine = connected
-    ? `Connected — ATEM: ${atemOk ? '✓' : '✗'} | OBS: ${obsOk ? '✓' : '✗'} | Companion: ${compOk ? '✓' : '✗'}`
+    ? `Connected — ATEM: ${atemOk ? '✓' : '✗'} | ${encLabel}: ${encoderOk ? '✓' : '✗'} | Companion: ${compOk ? '✓' : '✗'}`
     : 'Disconnected';
 
   const menu = Menu.buildFromTemplate([
@@ -258,6 +259,7 @@ function updateTray() {
     { label: 'Open Dashboard', click: () => mainWindow?.show() },
     { label: connected ? 'Stop Agent' : 'Start Agent', click: () => connected ? stopAgent() : startAgent() },
     { type: 'separator' },
+    { label: 'Client Portal', click: () => shell.openExternal('https://tally-production-cde2.up.railway.app/church-portal') },
     { label: 'ATEM School', click: () => shell.openExternal('https://atemschool.com') },
     { type: 'separator' },
     { label: 'Quit', click: () => { stopAgent(); app.exit(0); } },
@@ -406,6 +408,15 @@ function startAgent() {
     return;
   }
 
+  // Set encoder type label from config so UI can adapt
+  const encoderTypeNames = {
+    obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
+    aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek',
+    yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder',
+    custom: 'Custom', 'custom-rtmp': 'Custom RTMP', 'rtmp-generic': 'RTMP',
+  };
+  agentStatus.encoderType = encoderTypeNames[config.encoder?.type] || '';
+
   appendAppLog('SYSTEM', `Starting agent (relay=${agentRelay}, name=${config.name || 'n/a'}, script=${clientPaths.script})`);
 
   agentProcess = spawn(nodeBinary, args, {
@@ -433,10 +444,21 @@ function startAgent() {
     if (text.includes('Companion connected'))        agentStatus.companion = true;
     if (text.includes('ATEM disconnected'))          agentStatus.atem = false;
     if (text.includes('OBS disconnected'))           agentStatus.obs = false;
+    if (text.includes('Companion disconnected'))     agentStatus.companion = false;
+    if (text.includes('Encoder connected'))          agentStatus.encoder = true;
+    if (text.includes('Encoder disconnected'))       agentStatus.encoder = false;
     if (text.includes('Relay disconnected'))         agentStatus.relay = false;
 
-    // Forward preview frames if embedded in agent stdout (they're sent via relay WS, not stdout, 
-    // but if future versions embed them, this catches it)
+    // Parse audio silence alerts
+    if (text.includes('[AudioMonitor]') && text.includes('silence detected')) {
+      agentStatus.audio = { ...(agentStatus.audio || {}), silenceDetected: true };
+    }
+    if (text.includes('AUDIO:') && text.includes('MUTED')) {
+      agentStatus.audio = { ...(agentStatus.audio || {}), masterMuted: true };
+    }
+    if (text.includes('Audio master unmuted')) {
+      agentStatus.audio = { ...(agentStatus.audio || {}), masterMuted: false };
+    }
 
     // Parse streaming/FPS from status logs
     if (text.includes('Stream STARTED'))  agentStatus.streaming = true;
@@ -475,7 +497,8 @@ function startAgent() {
 
   agentProcess.on('close', (code) => {
     agentProcess = null;
-    agentStatus = { relay: false, atem: false, obs: false, companion: false };
+    const savedEncoderType = agentStatus.encoderType;
+    agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: savedEncoderType, audio: {} };
     mainWindow?.webContents.send('status', agentStatus);
     updateTray();
     console.log(`Agent exited with code ${code}`);
@@ -965,7 +988,7 @@ ipcMain.handle('sign-out', async () => {
     delete config.token;
     delete config.setupComplete;
     saveConfig(config);
-    agentStatus = { relay: false, atem: false, obs: false, companion: false };
+    agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
     mainWindow?.webContents.send('status', agentStatus);
     return { success: true };
   } catch (e) {
@@ -973,6 +996,12 @@ ipcMain.handle('sign-out', async () => {
   }
 });
 ipcMain.handle('copy-to-clipboard', (_, text) => { clipboard.writeText(text); return true; });
+ipcMain.handle('open-external', (_, url) => {
+  if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
+    shell.openExternal(url);
+  }
+  return true;
+});
 
 // ─── CHAT IPC ──────────────────────────────────────────────────────────────────
 ipcMain.handle('send-chat', async (_, { message, senderName }) => {
@@ -1061,9 +1090,9 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
       }
       case 'companion': {
         const target = url || `http://${ip}:${port || 8888}`;
-        const resp = await tryHttpGet(`${target}/api/connections`, 2000);
-        const connCount = resp.success && Array.isArray(resp.data) ? resp.data.length : 0;
-        return { success: resp.success, details: resp.success ? `${connCount} connections active` : 'Cannot reach Companion' };
+        // Companion 4.x: probe a location slot — any HTTP response means it's running
+        const resp = await tryHttpGet(`${target}/api/location/1/0/0`, 2000);
+        return { success: resp.success, details: resp.success ? 'Companion connected' : 'Cannot reach Companion' };
       }
       case 'obs': {
         const ok = await tryTcpConnect(ip || '127.0.0.1', port || 4455, 2000);
@@ -1114,6 +1143,73 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
             : `Cannot reach ${mixerType} console at ${ip}:${targetPort}`,
         };
       }
+      case 'encoder': {
+        const et = (params.encoderType || '').toLowerCase();
+        if (et === 'obs') {
+          const ok = await tryTcpConnect(ip || '127.0.0.1', port || 4455, 2000);
+          return { success: ok, details: ok ? 'OBS WebSocket reachable' : 'Cannot reach OBS WebSocket' };
+        }
+        if (et === 'vmix') {
+          const resp = await tryHttpGet(`http://${ip || 'localhost'}:${port || 8088}/api/?Function=GetShortXML`, 3000);
+          return { success: resp.success, details: resp.success ? 'vMix API reachable' : 'Cannot reach vMix API' };
+        }
+        if (et === 'ecamm') {
+          const resp = await tryHttpGet(`http://127.0.0.1:${port || 65194}/getInfo`, 3000);
+          return { success: resp.success, details: resp.success ? 'Ecamm Live API connected' : 'Ecamm Live not detected (port 65194)' };
+        }
+        if (et === 'blackmagic') {
+          const resp = await tryHttpGet(`http://${ip}:${port || 80}/control/api/v1/livestreams/0`, 3000);
+          if (resp.success && resp.data) {
+            const status = resp.data.status || 'Unknown';
+            return { success: true, details: `Blackmagic connected — status: ${status}` };
+          }
+          return { success: resp.success, details: resp.success ? 'Blackmagic REST API reachable' : 'Cannot reach Blackmagic REST API (requires firmware 3.4+)' };
+        }
+        if (et === 'aja') {
+          const resp = await tryHttpGet(`http://${ip}:${port || 80}/config?action=get&paramid=eParamID_ReplicatorStreamState`, 3000);
+          if (resp.success && resp.data?.value !== undefined) {
+            const states = ['Uninitialized', 'Idle', 'Streaming', 'Failing (Idle)', 'Failing (Stream)', 'Shutdown'];
+            const state = states[parseInt(resp.data.value)] || 'Unknown';
+            return { success: true, details: `AJA HELO connected — stream: ${state}` };
+          }
+          return { success: resp.success, details: resp.success ? 'AJA HELO reachable' : 'Cannot reach AJA HELO REST API' };
+        }
+        if (et === 'epiphan') {
+          const resp = await tryHttpGet(`http://${ip}:${port || 80}/api/channels`, 3000);
+          if (resp.success && resp.data?.result) {
+            const count = resp.data.result.length;
+            return { success: true, details: `Epiphan Pearl connected — ${count} channel${count !== 1 ? 's' : ''}` };
+          }
+          // Try v2 endpoint
+          const resp2 = await tryHttpGet(`http://${ip}:${port || 80}/api/v2.0/channels`, 3000);
+          if (resp2.success) return { success: true, details: 'Epiphan Pearl connected (API v2)' };
+          return { success: false, details: 'Cannot reach Epiphan Pearl API (check IP and credentials)' };
+        }
+        if (et === 'teradek') {
+          const resp = await tryHttpGet(`http://${ip}:${port || 80}/cgi-bin/system.cgi?command=status`, 3000);
+          if (resp.success && resp.data?.status) {
+            const state = resp.data.status['Broadcast-State'] || 'Unknown';
+            return { success: true, details: `Teradek connected — broadcast: ${state}` };
+          }
+          // May need login first — just check if the web UI responds
+          const resp2 = await tryHttpGet(`http://${ip}:${port || 80}/`, 3000);
+          return { success: resp2.success, details: resp2.success ? 'Teradek web UI reachable (may need password)' : 'Cannot reach Teradek' };
+        }
+        if (et === 'tally-encoder') {
+          const resp = await tryHttpGet(`http://${ip}:${port || 7070}/health`, 3000);
+          return { success: resp.success, details: resp.success ? 'Tally Encoder reachable' : 'Cannot reach Tally Encoder' };
+        }
+        if (et === 'custom') {
+          const statusUrl = params.statusUrl || '/status';
+          const resp = await tryHttpGet(`http://${ip}:${port || 80}${statusUrl}`, 3000);
+          return { success: resp.success, details: resp.success ? 'Custom encoder reachable' : 'Cannot reach custom encoder' };
+        }
+        // RTMP-push types (YoloBox, etc.) — no API, stream direct to CDN
+        if (['yolobox', 'custom-rtmp', 'rtmp-generic'].includes(et)) {
+          return { success: true, details: 'Device configured — streams directly to CDN (no API monitoring)' };
+        }
+        return { success: false, details: 'Select an encoder type' };
+      }
       default:
         return { success: false, details: 'Unknown device type' };
     }
@@ -1155,6 +1251,18 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
         }
       : null;
   }
+  if (equipConfig.encoderType !== undefined) {
+    config.encoder = equipConfig.encoderType
+      ? {
+          type: equipConfig.encoderType,
+          host: equipConfig.encoderHost || '',
+          port: equipConfig.encoderPort || null,
+          password: equipConfig.encoderPassword || '',
+          label: equipConfig.encoderLabel || '',
+          statusUrl: equipConfig.encoderStatusUrl || '',
+        }
+      : null;
+  }
   saveConfig(config);
   return true;
 });
@@ -1183,6 +1291,12 @@ ipcMain.handle('get-equipment', () => {
     mixerType: config.mixer?.type || '',
     mixerHost: config.mixer?.host || '',
     mixerPort: config.mixer?.port || '',
+    encoderType: config.encoder?.type || '',
+    encoderHost: config.encoder?.host || '',
+    encoderPort: config.encoder?.port || '',
+    encoderPassword: config.encoder?.password || '',
+    encoderLabel: config.encoder?.label || '',
+    encoderStatusUrl: config.encoder?.statusUrl || '',
   };
 });
 

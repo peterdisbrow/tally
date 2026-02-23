@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer, shell } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getConfig: () => ipcRenderer.invoke('get-config'),
@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   validateToken: () => ipcRenderer.invoke('validate-token'),
   signOut: () => ipcRenderer.invoke('sign-out'),
   copyToClipboard: (text) => ipcRenderer.invoke('copy-to-clipboard', text),
-  openExternal: (url) => shell.openExternal(url),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
   onStatus: (cb) => ipcRenderer.on('status', (_, data) => cb(data)),
   onAuthInvalid: (cb) => ipcRenderer.on('auth-invalid', () => cb()),
   onLog: (cb) => ipcRenderer.on('log', (_, data) => cb(data)),

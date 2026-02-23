@@ -2,16 +2,18 @@
  * Reseller Portal — self-service management for resellers/integrators
  *
  * Routes:
- *   GET  /reseller-login                    login page
- *   POST /api/reseller-portal/login         validate → JWT cookie → redirect
- *   POST /api/reseller-portal/logout        clear cookie
- *   GET  /reseller-portal                   portal HTML (cookie auth)
+ *   GET  /reseller                           public sales / signup page
+ *   POST /api/reseller-portal/signup         self-service reseller registration
+ *   GET  /reseller-login                     login page
+ *   POST /api/reseller-portal/login          validate → JWT cookie → redirect
+ *   POST /api/reseller-portal/logout         clear cookie
+ *   GET  /reseller-portal                    portal HTML (cookie auth)
  *
- *   GET  /api/reseller-portal/me            reseller info + stats
- *   PUT  /api/reseller-portal/me            update branding/settings
- *   GET  /api/reseller-portal/churches      their churches + status
- *   POST /api/reseller-portal/churches      add a new church
- *   DELETE /api/reseller-portal/churches/:id remove a church
+ *   GET  /api/reseller-portal/me             reseller info + stats
+ *   PUT  /api/reseller-portal/me             update branding/settings
+ *   GET  /api/reseller-portal/churches       their churches + status
+ *   POST /api/reseller-portal/churches       add a new church
+ *   DELETE /api/reseller-portal/churches/:id  remove a church
  *
  * Admin helper routes (requireAdmin):
  *   POST /api/resellers/:resellerId/portal-credentials  { email, password }
@@ -175,8 +177,380 @@ function buildResellerLoginHtml(error = '') {
       <input type="password" name="password" placeholder="••••••••" required autocomplete="current-password">
       <button type="submit" class="btn">Sign in</button>
     </form>
+    <div style="text-align:center;margin-top:18px;font-size:13px;color:#94A3B8">
+      Don't have an account? <a href="/reseller" style="color:#22c55e;text-decoration:none;font-weight:500">Become a reseller &rarr;</a>
+    </div>
     <div class="footer">Tally by Atem School — <a href="https://tally.atemschool.com" style="color:#22c55e;text-decoration:none">tally.atemschool.com</a></div>
   </div>
+</body>
+</html>`;
+}
+
+// ─── Sales / Landing page ──────────────────────────────────────────────────────
+
+function buildResellerSalesPageHtml(error = '') {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reseller Program — Tally by ATEM School</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #09090B;
+      color: #F8FAFC;
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+      line-height: 1.6;
+    }
+    a { color: #22c55e; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── Nav ─────────────────────────────────────── */
+    .nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(9,9,11,0.92); backdrop-filter: blur(12px);
+      border-bottom: 1px solid #1a2e1f;
+      padding: 0 24px;
+    }
+    .nav-inner {
+      max-width: 1100px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 56px;
+    }
+    .nav-brand { display: flex; align-items: center; gap: 8px; }
+    .logo-dot { width: 9px; height: 9px; background: #22c55e; border-radius: 50%; box-shadow: 0 0 8px #22c55e; }
+    .nav-brand span { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: #F8FAFC; }
+    .nav-brand small { font-size: 12px; color: #64748B; margin-left: 6px; }
+    .nav-links { display: flex; gap: 20px; align-items: center; }
+    .nav-links a { font-size: 13px; font-weight: 500; color: #94A3B8; }
+    .nav-links a:hover { color: #F8FAFC; text-decoration: none; }
+    .btn-nav {
+      background: #22c55e; color: #09090B; border: none; border-radius: 6px;
+      padding: 7px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+      text-decoration: none; display: inline-block;
+    }
+    .btn-nav:hover { opacity: 0.9; text-decoration: none; }
+
+    /* ── Section wrapper ─────────────────────────── */
+    .section { max-width: 1100px; margin: 0 auto; padding: 80px 24px; }
+    .section-sm { max-width: 520px; margin: 0 auto; padding: 80px 24px; }
+
+    /* ── Hero ─────────────────────────────────────── */
+    .hero { text-align: center; padding-top: 100px; padding-bottom: 60px; }
+    .hero-badge {
+      background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2);
+      border-radius: 20px; padding: 5px 14px; font-size: 11px; color: #22c55e;
+      display: inline-block; margin-bottom: 24px;
+      font-family: 'Courier New', monospace; letter-spacing: 1px; text-transform: uppercase;
+    }
+    .hero h1 {
+      font-size: clamp(32px, 5vw, 52px); font-weight: 800; letter-spacing: -1.5px;
+      line-height: 1.1; margin-bottom: 20px;
+      background: linear-gradient(135deg, #F8FAFC 60%, #22c55e);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero p { font-size: 18px; color: #94A3B8; max-width: 580px; margin: 0 auto 36px; }
+    .hero-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn-primary {
+      background: #22c55e; color: #09090B; border: none; border-radius: 8px;
+      padding: 13px 28px; font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: opacity 0.15s; text-decoration: none; display: inline-block;
+    }
+    .btn-primary:hover { opacity: 0.9; text-decoration: none; }
+    .btn-ghost {
+      background: transparent; color: #94A3B8; border: 1px solid #1a2e1f; border-radius: 8px;
+      padding: 13px 28px; font-size: 15px; font-weight: 500; cursor: pointer;
+      transition: all 0.15s; text-decoration: none; display: inline-block;
+    }
+    .btn-ghost:hover { border-color: #22c55e; color: #F8FAFC; text-decoration: none; }
+
+    /* ── Benefits grid ────────────────────────────── */
+    .benefits-heading { text-align: center; margin-bottom: 48px; }
+    .benefits-heading h2 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+    .benefits-heading p { color: #94A3B8; font-size: 15px; margin-top: 8px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 20px; }
+    .benefit-card {
+      background: #0F1613; border: 1px solid #1a2e1f; border-radius: 12px; padding: 28px;
+      transition: border-color 0.2s;
+    }
+    .benefit-card:hover { border-color: rgba(34,197,94,0.4); }
+    .benefit-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: rgba(34,197,94,0.1); display: flex; align-items: center; justify-content: center;
+      font-size: 18px; margin-bottom: 16px;
+    }
+    .benefit-card h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+    .benefit-card p { font-size: 13px; color: #94A3B8; line-height: 1.5; }
+
+    /* ── Pricing ──────────────────────────────────── */
+    .pricing-heading { text-align: center; margin-bottom: 48px; }
+    .pricing-heading h2 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+    .pricing-heading p { color: #94A3B8; font-size: 15px; margin-top: 8px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+    .price-card {
+      background: #0F1613; border: 1px solid #1a2e1f; border-radius: 12px; padding: 32px;
+      display: flex; flex-direction: column; position: relative;
+    }
+    .price-card.popular { border-color: #22c55e; }
+    .popular-badge {
+      position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+      background: #22c55e; color: #09090B; font-size: 11px; font-weight: 700;
+      padding: 3px 14px; border-radius: 10px; letter-spacing: 0.5px;
+    }
+    .price-card .tier-name { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .price-card .price {
+      font-size: 42px; font-weight: 800; color: #22c55e; letter-spacing: -1px;
+      margin: 12px 0 4px;
+    }
+    .price-card .price span { font-size: 15px; font-weight: 400; color: #64748B; }
+    .price-card .tier-desc { font-size: 13px; color: #94A3B8; margin-bottom: 24px; }
+    .feature-list { list-style: none; flex: 1; margin-bottom: 28px; }
+    .feature-list li {
+      font-size: 13px; color: #CBD5E1; padding: 7px 0;
+      border-bottom: 1px solid rgba(26,46,31,0.5);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .feature-list li:last-child { border-bottom: none; }
+    .check { color: #22c55e; font-weight: 700; }
+    .cross { color: #475569; }
+    .btn-tier {
+      background: #22c55e; color: #09090B; border: none; border-radius: 8px;
+      padding: 11px; font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: opacity 0.15s; text-align: center; text-decoration: none; display: block;
+    }
+    .btn-tier:hover { opacity: 0.9; text-decoration: none; }
+    .btn-tier-ghost {
+      background: transparent; color: #F8FAFC; border: 1px solid #1a2e1f; border-radius: 8px;
+      padding: 11px; font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: all 0.15s; text-align: center; text-decoration: none; display: block;
+    }
+    .btn-tier-ghost:hover { border-color: #22c55e; text-decoration: none; }
+
+    /* ── Signup form ──────────────────────────────── */
+    .signup-card {
+      background: #0F1613; border: 1px solid #1a2e1f; border-radius: 12px; padding: 40px;
+    }
+    .signup-card h2 { font-size: 22px; font-weight: 600; margin-bottom: 6px; text-align: center; }
+    .signup-card .subtitle { color: #94A3B8; font-size: 14px; margin-bottom: 28px; text-align: center; }
+    label { display: block; font-size: 13px; color: #94A3B8; margin-bottom: 6px; }
+    input {
+      width: 100%; background: #09090B; border: 1px solid #1a2e1f; border-radius: 8px;
+      padding: 10px 14px; color: #F8FAFC; font-size: 14px; outline: none;
+      transition: border-color 0.15s; margin-bottom: 16px;
+    }
+    input:focus { border-color: #22c55e; }
+    .btn-submit {
+      width: 100%; background: #22c55e; color: #09090B; border: none; border-radius: 8px;
+      padding: 12px; font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: opacity 0.15s; margin-top: 4px;
+    }
+    .btn-submit:hover { opacity: 0.9; }
+    .error {
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+      color: #f87171; border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 16px;
+    }
+    .form-footer { text-align: center; margin-top: 18px; font-size: 13px; color: #94A3B8; }
+
+    /* ── Footer ───────────────────────────────────── */
+    .page-footer {
+      text-align: center; padding: 40px 24px; border-top: 1px solid #1a2e1f;
+      font-size: 13px; color: #475569;
+    }
+
+    /* ── Responsive ───────────────────────────────── */
+    @media (max-width: 640px) {
+      .hero { padding-top: 60px; }
+      .hero h1 { font-size: 28px; }
+      .hero p { font-size: 15px; }
+      .section { padding: 48px 16px; }
+      .section-sm { padding: 48px 16px; }
+      .signup-card { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Nav ──────────────────────────────────────── -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <div class="nav-brand">
+        <div class="logo-dot"></div>
+        <span>Tally</span>
+        <small>Reseller Program</small>
+      </div>
+      <div class="nav-links">
+        <a href="#pricing">Pricing</a>
+        <a href="/reseller-login">Sign in</a>
+        <a href="#signup" class="btn-nav">Get Started</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Hero ─────────────────────────────────────── -->
+  <div class="section hero">
+    <div class="hero-badge">RESELLER &amp; INTEGRATOR PROGRAM</div>
+    <h1>White-Label Church<br>AV Monitoring</h1>
+    <p>Offer professional streaming &amp; AV monitoring to your church clients under your own brand. Manage every site from a single dashboard.</p>
+    <div class="hero-buttons">
+      <a href="#signup" class="btn-primary">Get Started Free</a>
+      <a href="/reseller-login" class="btn-ghost">Sign in</a>
+    </div>
+  </div>
+
+  <!-- ── Benefits ─────────────────────────────────── -->
+  <div class="section">
+    <div class="benefits-heading">
+      <h2>Everything You Need to Scale</h2>
+      <p>A complete platform to manage church AV monitoring for all your clients</p>
+    </div>
+    <div class="grid-4">
+      <div class="benefit-card">
+        <div class="benefit-icon">\u229A</div>
+        <h3>Manage All Churches</h3>
+        <p>Add and monitor all your client churches from one centralized dashboard. Provision new sites in seconds.</p>
+      </div>
+      <div class="benefit-card">
+        <div class="benefit-icon">\u2726</div>
+        <h3>Custom Branding</h3>
+        <p>Your logo, colors, and company name on every interface. Clients see your brand, not ours.</p>
+      </div>
+      <div class="benefit-card">
+        <div class="benefit-icon">\u25C9</div>
+        <h3>Real-Time Monitoring</h3>
+        <p>Live status of ATEM switchers, encoders, audio, and streaming across every site — all in real time.</p>
+      </div>
+      <div class="benefit-card">
+        <div class="benefit-icon">\u2699</div>
+        <h3>API Access</h3>
+        <p>Full REST API with your own reseller key. Integrate monitoring into your existing tools and workflows.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Pricing ──────────────────────────────────── -->
+  <div class="section" id="pricing">
+    <div class="pricing-heading">
+      <h2>Simple, Transparent Pricing</h2>
+      <p>Start free, upgrade as you grow. All plans include a 30-day trial.</p>
+    </div>
+    <div class="grid-3">
+
+      <!-- Starter -->
+      <div class="price-card">
+        <div class="tier-name">Starter</div>
+        <div class="tier-desc">For integrators getting started</div>
+        <div class="price">$49<span>/mo</span></div>
+        <ul class="feature-list">
+          <li><span class="check">\u2713</span> Up to 10 churches</li>
+          <li><span class="check">\u2713</span> Reseller dashboard</li>
+          <li><span class="check">\u2713</span> Basic branding (name + color)</li>
+          <li><span class="check">\u2713</span> Church portal access</li>
+          <li><span class="check">\u2713</span> API access</li>
+          <li><span class="cross">\u2014</span> Webhook alerts</li>
+          <li><span class="cross">\u2014</span> Custom domain</li>
+          <li><span class="check">\u2713</span> Email support</li>
+        </ul>
+        <a href="#signup" class="btn-tier-ghost" onclick="selectTier('starter')">Get Started</a>
+      </div>
+
+      <!-- Growth -->
+      <div class="price-card popular">
+        <div class="popular-badge">POPULAR</div>
+        <div class="tier-name">Growth</div>
+        <div class="tier-desc">For growing AV companies</div>
+        <div class="price">$149<span>/mo</span></div>
+        <ul class="feature-list">
+          <li><span class="check">\u2713</span> Up to 25 churches</li>
+          <li><span class="check">\u2713</span> Reseller dashboard</li>
+          <li><span class="check">\u2713</span> Full branding (logo + colors)</li>
+          <li><span class="check">\u2713</span> Church portal access</li>
+          <li><span class="check">\u2713</span> API access</li>
+          <li><span class="check">\u2713</span> Webhook alerts</li>
+          <li><span class="cross">\u2014</span> Custom domain</li>
+          <li><span class="check">\u2713</span> Priority email support</li>
+        </ul>
+        <a href="#signup" class="btn-tier" onclick="selectTier('growth')">Get Started</a>
+      </div>
+
+      <!-- Scale -->
+      <div class="price-card">
+        <div class="tier-name">Scale</div>
+        <div class="tier-desc">For large operations</div>
+        <div class="price">$399<span>/mo</span></div>
+        <ul class="feature-list">
+          <li><span class="check">\u2713</span> Up to 100 churches</li>
+          <li><span class="check">\u2713</span> Reseller dashboard</li>
+          <li><span class="check">\u2713</span> Full branding (logo + colors)</li>
+          <li><span class="check">\u2713</span> Church portal access</li>
+          <li><span class="check">\u2713</span> API access</li>
+          <li><span class="check">\u2713</span> Webhook alerts</li>
+          <li><span class="check">\u2713</span> Custom domain</li>
+          <li><span class="check">\u2713</span> Dedicated account manager</li>
+        </ul>
+        <a href="#signup" class="btn-tier-ghost" onclick="selectTier('scale')">Get Started</a>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Signup Form ──────────────────────────────── -->
+  <div class="section-sm" id="signup">
+    <div class="signup-card">
+      <h2>Create Your Reseller Account</h2>
+      <p class="subtitle">Start your 30-day free trial — no credit card required</p>
+      ${error ? '<div class="error">' + error + '</div>' : ''}
+      <form method="POST" action="/api/reseller-portal/signup" id="signup-form">
+        <input type="hidden" name="tier" id="tier-input" value="starter">
+        <label>Company Name</label>
+        <input type="text" name="name" placeholder="Your AV Company" required>
+        <label>Email Address</label>
+        <input type="email" name="email" placeholder="you@yourcompany.com" required autocomplete="email">
+        <label>Password</label>
+        <input type="password" name="password" id="pw1" placeholder="Min. 8 characters" required minlength="8" autocomplete="new-password">
+        <label>Confirm Password</label>
+        <input type="password" name="password_confirm" id="pw2" placeholder="••••••••" required minlength="8" autocomplete="new-password">
+        <button type="submit" class="btn-submit" id="signup-btn">Create Account</button>
+      </form>
+      <div class="form-footer">
+        Already have an account? <a href="/reseller-login">Sign in</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Footer ───────────────────────────────────── -->
+  <div class="page-footer">
+    Tally by ATEM School &mdash; <a href="https://tally.atemschool.com">tally.atemschool.com</a>
+  </div>
+
+  <script>
+    function selectTier(tier) {
+      document.getElementById('tier-input').value = tier;
+    }
+    document.getElementById('signup-form').addEventListener('submit', function(e) {
+      var pw1 = document.getElementById('pw1').value;
+      var pw2 = document.getElementById('pw2').value;
+      if (pw1 !== pw2) {
+        e.preventDefault();
+        alert('Passwords do not match.');
+        return;
+      }
+      if (pw1.length < 8) {
+        e.preventDefault();
+        alert('Password must be at least 8 characters.');
+        return;
+      }
+      document.getElementById('signup-btn').textContent = 'Creating account...';
+      document.getElementById('signup-btn').disabled = true;
+    });
+    // Smooth scroll for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(function(a) {
+      a.addEventListener('click', function(e) {
+        var target = document.querySelector(this.getAttribute('href'));
+        if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      });
+    });
+  </script>
 </body>
 </html>`;
 }
@@ -832,6 +1206,142 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
 
   const authMiddleware = requireResellerPortalAuth(db, resellerSystem, jwtSecret);
 
+  // ── Rate limiting for login endpoint ───────────────────────────────────────
+  const loginAttempts = new Map();
+  function loginRateLimit(req, res, next) {
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const now = Date.now();
+    const windowMs = 15 * 60 * 1000;
+    const maxAttempts = 10;
+    let entry = loginAttempts.get(ip);
+    if (!entry || now - entry.windowStart > windowMs) {
+      entry = { windowStart: now, count: 0 };
+      loginAttempts.set(ip, entry);
+    }
+    entry.count++;
+    if (entry.count > maxAttempts) {
+      const retryAfter = Math.ceil((entry.windowStart + windowMs - now) / 1000);
+      res.set('Retry-After', String(retryAfter));
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(429).send(buildResellerLoginHtml('Too many login attempts. Please try again later.'));
+    }
+    next();
+  }
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of loginAttempts) {
+      if (now - entry.windowStart > 15 * 60 * 1000) loginAttempts.delete(key);
+    }
+  }, 10 * 60 * 1000).unref();
+
+  // ── Signup rate limiting ─────────────────────────────────────────────────────
+  const signupAttempts = new Map();
+  function signupRateLimit(req, res, next) {
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    const now = Date.now();
+    const windowMs = 60 * 60 * 1000; // 1 hour
+    const maxAttempts = 5;
+    let entry = signupAttempts.get(ip);
+    if (!entry || now - entry.windowStart > windowMs) {
+      entry = { windowStart: now, count: 0 };
+      signupAttempts.set(ip, entry);
+    }
+    entry.count++;
+    if (entry.count > maxAttempts) {
+      const retryAfter = Math.ceil((entry.windowStart + windowMs - now) / 1000);
+      res.set('Retry-After', String(retryAfter));
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(429).send(buildResellerSalesPageHtml('Too many signup attempts. Please try again later.'));
+    }
+    next();
+  }
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of signupAttempts) {
+      if (now - entry.windowStart > 60 * 60 * 1000) signupAttempts.delete(key);
+    }
+  }, 10 * 60 * 1000).unref();
+
+  // ── Public sales page ──────────────────────────────────────────────────────
+  app.get('/reseller', (req, res) => {
+    // If already logged in, redirect to portal
+    const token = req.cookies?.tally_reseller_session;
+    if (token) {
+      try {
+        const payload = jwt.verify(token, jwtSecret);
+        if (payload.type === 'reseller_portal') {
+          const reseller = resellerSystem.getResellerById(payload.resellerId);
+          if (reseller && reseller.active !== 0) {
+            return res.redirect('/reseller-portal');
+          }
+        }
+      } catch { /* invalid token, show sales page */ }
+    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(buildResellerSalesPageHtml());
+  });
+
+  // ── Self-service signup ────────────────────────────────────────────────────
+  app.post('/api/reseller-portal/signup', express.urlencoded({ extended: false }), signupRateLimit, (req, res) => {
+    const { name, email, password, password_confirm } = req.body;
+
+    // Validation
+    if (!name || !email || !password) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(400).send(buildResellerSalesPageHtml('All fields are required.'));
+    }
+    if (password !== password_confirm) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(400).send(buildResellerSalesPageHtml('Passwords do not match.'));
+    }
+    if (password.length < 8) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(400).send(buildResellerSalesPageHtml('Password must be at least 8 characters.'));
+    }
+    const emailNorm = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailNorm)) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(400).send(buildResellerSalesPageHtml('Please enter a valid email address.'));
+    }
+
+    // Duplicate check
+    const existing = db.prepare('SELECT id FROM resellers WHERE portal_email = ?').get(emailNorm);
+    if (existing) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.status(409).send(buildResellerSalesPageHtml('An account with this email already exists. <a href="/reseller-login" style="color:#22c55e">Sign in instead</a>'));
+    }
+
+    try {
+      // Create reseller (generates API key, slug, etc.)
+      const result = resellerSystem.createReseller({
+        name: name.trim(),
+        brandName: name.trim(),
+        supportEmail: emailNorm,
+        churchLimit: 10, // Starter tier
+      });
+
+      // Set portal credentials
+      db.prepare('UPDATE resellers SET portal_email = ?, portal_password_hash = ? WHERE id = ?')
+        .run(emailNorm, hashPassword(password), result.resellerId);
+
+      // Issue session cookie
+      const token = issueResellerToken(result.resellerId, jwtSecret);
+      res.cookie('tally_reseller_session', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+
+      console.log(`[ResellerPortal] Self-service signup: "${name.trim()}" (${result.resellerId}) email=${emailNorm}`);
+      res.redirect('/reseller-portal');
+    } catch (e) {
+      console.error('[ResellerPortal] Signup error:', e.message);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.status(500).send(buildResellerSalesPageHtml('Something went wrong. Please try again.'));
+    }
+  });
+
   // ── Login page ───────────────────────────────────────────────────────────────
   app.get('/reseller-login', (req, res) => {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -839,7 +1349,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
   });
 
   // ── Login POST ────────────────────────────────────────────────────────────────
-  app.post('/api/reseller-portal/login', express.urlencoded({ extended: false }), (req, res) => {
+  app.post('/api/reseller-portal/login', express.urlencoded({ extended: false }), loginRateLimit, (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');

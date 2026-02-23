@@ -942,16 +942,36 @@
       <div id="scan-result" style="margin-top:8px; font-size:11px; color: var(--muted); font-family: var(--mono);"></div>
     </div>
 
-    <!-- Step 2: OBS + Companion -->
+    <!-- Step 2: Streaming Encoder -->
     <div class="wizard-step" data-step="2">
-      <h2 class="wizard-headline">Optional: OBS &amp; Companion</h2>
+      <h2 style="font-size: 14px; color: var(--white); font-weight: 700; letter-spacing: -0.01em; text-transform: none; font-family: var(--font); margin-bottom: 10px;">Streaming Encoder</h2>
       <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
-        Skip these if you don't use OBS Studio or Bitfocus Companion.
+        Select the encoder your church uses to stream. This can be changed later in Equipment settings.
       </p>
       <div class="form-group">
-        <label>OBS WebSocket Password (optional)</label>
-        <input id="wiz-obs-pw" type="password" placeholder="Leave blank if not set">
+        <label>Encoder Type</label>
+        <select id="wiz-encoder-type" onchange="onWizEncoderTypeChanged()" style="width:100%;">
+          <option value="blackmagic">Blackmagic Web Presenter</option>
+          <option value="obs">OBS Studio</option>
+          <option value="vmix">vMix</option>
+          <option value="ecamm">Ecamm Live (Mac only)</option>
+          <option value="aja">AJA HELO</option>
+          <option value="epiphan">Epiphan Pearl</option>
+          <option value="teradek">Teradek Cube / VidiU</option>
+          <option value="yolobox">YoloBox</option>
+          <option value="tally-encoder">Tally Encoder (Raspberry Pi)</option>
+          <option value="custom">Custom Encoder</option>
+        </select>
       </div>
+      <div id="wiz-encoder-fields"></div>
+    </div>
+
+    <!-- Step 3: Companion & Details -->
+    <div class="wizard-step" data-step="3">
+      <h2 style="font-size: 14px; color: var(--white); font-weight: 700; letter-spacing: -0.01em; text-transform: none; font-family: var(--font); margin-bottom: 10px;">Optional: Companion &amp; Details</h2>
+      <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
+        Skip these if you don't use Bitfocus Companion.
+      </p>
       <div class="form-group">
         <label>Companion URL (optional)</label>
         <input id="wiz-companion" type="text" placeholder="http://localhost:8888" value="http://localhost:8888">
@@ -967,8 +987,8 @@
       </div>
     </div>
 
-    <!-- Step 3: Done -->
-    <div class="wizard-step" data-step="3">
+    <!-- Step 4: Done -->
+    <div class="wizard-step" data-step="4">
       <div style="text-align:center; padding: 24px 0 16px;">
         <div class="wizard-badge">Setup Complete</div>
         <div class="wizard-headline">All Set!</div>
@@ -1001,7 +1021,7 @@
   <div class="status-bar">
     <div class="status-chip"><div class="dot" id="dot-relay"></div><span>Relay</span></div>
     <div class="status-chip"><div class="dot" id="dot-atem"></div><span>ATEM</span></div>
-    <div class="status-chip"><div class="dot" id="dot-obs"></div><span>OBS</span></div>
+    <div class="status-chip"><div class="dot" id="dot-encoder"></div><span id="dot-encoder-label">Encoder</span></div>
     <div class="status-chip"><div class="dot" id="dot-companion"></div><span>Companion</span></div>
   </div>
 
@@ -1039,9 +1059,9 @@
       <div id="val-audio-delay" style="display:none; margin-top:8px; padding:6px 10px; background:rgba(234,179,8,0.12); border:1px solid rgba(234,179,8,0.3); border-radius:6px; font-size:11px; color:#eab308; font-family:var(--mono);"></div>
     </div>
 
-    <!-- OBS Status -->
+    <!-- Streaming Encoder Status -->
     <div class="section">
-      <h2>OBS Studio</h2>
+      <h2 id="encoder-section-title">Streaming Encoder</h2>
       <div class="info-grid">
         <div class="info-card">
           <div class="label">Stream</div>
@@ -1050,6 +1070,14 @@
         <div class="info-card">
           <div class="label">FPS</div>
           <div class="value muted" id="val-fps">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Bitrate</div>
+          <div class="value muted" id="val-bitrate">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Audio</div>
+          <div class="value muted" id="val-audio">—</div>
         </div>
       </div>
     </div>
@@ -1097,15 +1125,23 @@
           <div class="equip-detail" id="equip-atem-detail">Tip: use IP value <code>mock</code> to run the built-in fake ATEM simulator.</div>
         </div>
         <div class="equip-section">
-          <h3>OBS Studio <div class="equip-status" id="equip-dot-obs"></div></h3>
+          <h3>Streaming Encoder <div class="equip-status" id="equip-dot-encoder"></div></h3>
           <div class="equip-row">
-            <input type="text" id="equip-obs-url" placeholder="ws://localhost:4455">
-            <button class="btn-test" onclick="testEquip('obs')">Test</button>
+            <select id="equip-encoder-type" onchange="onEncoderTypeChanged()" style="flex:1;">
+              <option value="blackmagic">Blackmagic Web Presenter</option>
+              <option value="obs">OBS Studio</option>
+              <option value="vmix">vMix</option>
+              <option value="ecamm">Ecamm Live (Mac)</option>
+              <option value="aja">AJA HELO</option>
+              <option value="epiphan">Epiphan Pearl</option>
+              <option value="teradek">Teradek Cube / VidiU</option>
+              <option value="yolobox">YoloBox</option>
+              <option value="tally-encoder">Tally Encoder</option>
+              <option value="custom">Custom Encoder</option>
+            </select>
           </div>
-          <div class="equip-row" style="margin-top:4px;">
-            <input type="password" id="equip-obs-password" placeholder="Password (optional)" style="flex:1;">
-          </div>
-          <div class="equip-detail" id="equip-obs-detail"></div>
+          <div id="encoder-config-fields"></div>
+          <div class="equip-detail" id="equip-encoder-detail"></div>
         </div>
         <div class="equip-section">
           <h3>Bitfocus Companion <div class="equip-status" id="equip-dot-companion"></div></h3>
@@ -1335,7 +1371,7 @@
 
 <script>
 const api = window.electronAPI;
-const TOTAL_STEPS = 3;
+const TOTAL_STEPS = 4;
 let currentStep = 1;
 let isRunning = false;
 let alertCount = 0;
@@ -1489,9 +1525,25 @@ function showWizard() {
   showEquipmentWizard();
 }
 
-function showDashboard() {
+async function showDashboard() {
   hideAllViews();
   document.getElementById('dashboard').classList.add('active');
+
+  // Set encoder label from saved config so it shows immediately (before agent status arrives)
+  try {
+    const eq = await api.getEquipment();
+    const encNames = {
+      obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
+      aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek',
+      yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
+      'custom-rtmp': 'Custom RTMP', 'rtmp-generic': 'RTMP',
+    };
+    const label = encNames[eq.encoderType] || 'Encoder';
+    const dotLabel = document.getElementById('dot-encoder-label');
+    if (dotLabel) dotLabel.textContent = label;
+    const sectionTitle = document.getElementById('encoder-section-title');
+    if (sectionTitle) sectionTitle.textContent = label;
+  } catch { /* ignore — status updates will set it later */ }
 }
 
 async function doSignIn() {
@@ -1572,6 +1624,11 @@ function goToStep(n) {
   const next = document.getElementById('wiz-next');
   back.style.display = n > 1 ? '' : 'none';
   next.textContent = n === TOTAL_STEPS ? 'Finish & Connect' : 'Next →';
+
+  // Render dynamic encoder fields when entering step 2
+  if (n === 2 && typeof onWizEncoderTypeChanged === 'function') {
+    onWizEncoderTypeChanged();
+  }
 }
 
 async function wizardNext() {
@@ -1579,12 +1636,27 @@ async function wizardNext() {
     goToStep(currentStep + 1);
     if (currentStep === TOTAL_STEPS) {
       // Save equipment config + mark setup complete
+      const encType = document.getElementById('wiz-encoder-type').value;
+      const encHostEl = document.getElementById('wiz-encoder-host');
+      const encPortEl = document.getElementById('wiz-encoder-port');
+      const encPwEl = document.getElementById('wiz-encoder-password');
+      const encLabelEl = document.getElementById('wiz-encoder-label');
+      const encStatusUrlEl = document.getElementById('wiz-encoder-status-url');
+
       const equipConfig = {
         atemIp: document.getElementById('wiz-atem').value.trim(),
-        obsPassword: document.getElementById('wiz-obs-pw').value.trim(),
         companionUrl: document.getElementById('wiz-companion').value.trim() || 'http://localhost:8888',
         name: document.getElementById('wiz-name').value.trim(),
         liveStreamUrl: document.getElementById('wiz-livestream').value.trim(),
+        // Encoder config
+        encoderType: encType,
+        encoderHost: encHostEl ? encHostEl.value.trim() : '',
+        encoderPort: encPortEl ? parseInt(encPortEl.value) || 0 : 0,
+        encoderPassword: encPwEl ? encPwEl.value : '',
+        encoderLabel: encLabelEl ? encLabelEl.value.trim() : '',
+        encoderStatusUrl: encStatusUrlEl ? encStatusUrlEl.value.trim() : '',
+        // For OBS, also save obsPassword for switcher features
+        obsPassword: encType === 'obs' && encPwEl ? encPwEl.value : '',
         setupComplete: true,
       };
       await api.saveConfig(equipConfig);
@@ -1616,6 +1688,66 @@ async function wizardNext() {
 
 function wizardBack() {
   if (currentStep > 1) goToStep(currentStep - 1);
+}
+
+function onWizEncoderTypeChanged() {
+  const type = document.getElementById('wiz-encoder-type').value;
+  const container = document.getElementById('wiz-encoder-fields');
+
+  const apiTypes = ['obs', 'vmix', 'blackmagic', 'aja', 'epiphan', 'teradek', 'tally-encoder', 'custom'];
+
+  if (type === 'ecamm') {
+    container.innerHTML = `<div style="margin-top:10px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px; font-size:11px; color:var(--muted); line-height:1.5;">
+      Ecamm Live runs locally on your Mac. Port is auto-detected via Bonjour (fallback 65194).<br>No configuration needed — just make sure Ecamm Live is running.
+    </div>`;
+    return;
+  }
+
+  if (apiTypes.includes(type)) {
+    const defaults = {
+      obs:              { host: 'localhost', port: '4455', pw: true, note: 'WebSocket v5 — status, start/stop, scenes' },
+      vmix:             { host: 'localhost', port: '8088', note: 'HTTP API — streaming, recording, inputs' },
+      blackmagic:       { host: '', port: '80', note: 'REST API — start/stop, platform config, bitrate' },
+      aja:              { host: '', port: '80', pw: true, note: 'REST API — stream/record, profiles, inputs, presets' },
+      epiphan:          { host: '', port: '80', pw: true, note: 'REST API v2 — channels, publishers, recorders, layouts' },
+      teradek:          { host: '', port: '80', pw: true, note: 'CGI API — broadcast, recording, battery, video input' },
+      'tally-encoder':  { host: '', port: '7070', note: 'Streams to relay server for tally monitoring' },
+      custom:           { host: '', port: '80', statusUrl: true, note: 'Custom HTTP status endpoint' },
+    };
+    const d = defaults[type] || { host: '', port: '' };
+    let html = '';
+    if (d.note) {
+      html += `<div style="margin-top:8px; font-size:10px; color:var(--dim); font-family:var(--mono);">${d.note}</div>`;
+    }
+    html += `<div style="display:flex; gap:8px; margin-top:8px;">
+      <input type="text" id="wiz-encoder-host" placeholder="${d.host || 'IP address'}" value="${d.host}" style="flex:1;">
+      <input type="text" id="wiz-encoder-port" placeholder="${d.port}" value="${d.port}" style="max-width:80px;">
+    </div>`;
+    if (d.pw) {
+      html += `<div style="margin-top:6px;">
+        <input type="password" id="wiz-encoder-password" placeholder="Password (optional)" style="width:100%;">
+      </div>`;
+    }
+    if (d.statusUrl) {
+      html += `<div style="margin-top:6px;">
+        <input type="text" id="wiz-encoder-status-url" placeholder="Status endpoint (e.g. /status)" value="/status" style="width:100%;">
+      </div>
+      <div style="margin-top:6px;">
+        <input type="text" id="wiz-encoder-label" placeholder="Device label (optional)" style="width:100%;">
+      </div>`;
+    }
+    container.innerHTML = html;
+    return;
+  }
+
+  if (type === 'yolobox') {
+    container.innerHTML = `<div style="margin-top:10px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px; font-size:11px; color:var(--muted); line-height:1.5;">
+      YoloBox streams directly to your CDN. No network API is available — status is reported as "configured" only.
+    </div>`;
+    return;
+  }
+
+  container.innerHTML = '';
 }
 
 async function scanForATEM() {
@@ -1650,11 +1782,21 @@ async function scanForATEM() {
 function updateStatusUI(status) {
   setDot('relay', status.relay);
   setDot('atem', status.atem);
-  setDot('obs', status.obs);
   setDot('companion', status.companion);
 
+  // ── Dynamic encoder dot + label ─────────────────────────────────────────
+  const encoderLabel = status.encoderType || 'Encoder';
+  const encoderLabelEl = document.getElementById('dot-encoder-label');
+  if (encoderLabelEl) encoderLabelEl.textContent = encoderLabel;
+
+  const encoderTitleEl = document.getElementById('encoder-section-title');
+  if (encoderTitleEl) encoderTitleEl.textContent = encoderLabel;
+
+  // Encoder dot: use encoder status if managed, fallback to OBS
+  const encoderConnected = status.encoder || getStatusActive(status.obs);
+  setDot('encoder', encoderConnected);
+
   const atemConnected = getStatusActive(status.atem);
-  const obsConnected = getStatusActive(status.obs);
   const companionConnected = getStatusActive(status.companion);
   const relayConnected = getStatusActive(status.relay);
 
@@ -1662,6 +1804,7 @@ function updateStatusUI(status) {
   const atemData = status.atem && typeof status.atem === 'object' ? status.atem : {};
   const streaming = status.streaming ?? obsData.streaming;
   const fps = status.fps ?? obsData.fps;
+  const bitrate = status.bitrate ?? obsData.bitrate ?? null;
 
   const liveBadge = document.getElementById('live-badge');
   liveBadge.classList.toggle('active', streaming === true);
@@ -1691,9 +1834,10 @@ function updateStatusUI(status) {
     setStatusValue('val-companion', '—', false);
   }
 
+  // ── Streaming encoder status cards ──────────────────────────────────────
   if (typeof streaming === 'boolean') {
     setStatusValue('val-stream', streaming ? '● LIVE' : 'Off', streaming);
-  } else if (!obsConnected) {
+  } else if (!encoderConnected) {
     setStatusValue('val-stream', '—', false);
   }
 
@@ -1701,8 +1845,31 @@ function updateStatusUI(status) {
     const fpsValue = Math.round(fps);
     const fpsHealthy = fpsValue >= 24;
     setStatusValue('val-fps', String(fpsValue), fpsHealthy);
-  } else if (!obsConnected) {
+  } else if (!encoderConnected) {
     setStatusValue('val-fps', '—', false);
+  }
+
+  // Bitrate card
+  if (typeof bitrate === 'number' && bitrate > 0) {
+    const brText = bitrate >= 1000 ? `${(bitrate / 1000).toFixed(1)} Mbps` : `${bitrate} Kbps`;
+    setStatusValue('val-bitrate', brText, true);
+  } else {
+    setStatusValue('val-bitrate', '—', false);
+  }
+
+  // Audio status card
+  const audio = status.audio || {};
+  const mixerData = status.mixer && typeof status.mixer === 'object' ? status.mixer : {};
+  if (audio.masterMuted || mixerData.mainMuted) {
+    setStatusValue('val-audio', '🔇 MUTED', false);
+  } else if (audio.silenceDetected) {
+    setStatusValue('val-audio', '⚠ Silence', false);
+  } else if (streaming) {
+    setStatusValue('val-audio', '● OK', true);
+  } else if (encoderConnected || atemConnected) {
+    setStatusValue('val-audio', 'Standby', null);
+  } else {
+    setStatusValue('val-audio', '—', false);
   }
 
   // ── ATEM audio delay warning ─────────────────────────────────────────────
@@ -2193,6 +2360,17 @@ async function loadEquipment() {
   ptzEntries = eq.ptz || [];
   renderHyperdecks();
   renderPtz();
+
+  // Encoder
+  document.getElementById('equip-encoder-type').value = eq.encoderType || 'blackmagic';
+  window._encoderConfig = {
+    host: eq.encoderHost || '',
+    port: eq.encoderPort || '',
+    password: eq.encoderPassword || '',
+    label: eq.encoderLabel || '',
+    statusUrl: eq.encoderStatusUrl || '',
+  };
+  onEncoderTypeChanged();
 }
 
 function renderHyperdecks() {
@@ -2244,6 +2422,87 @@ function showHideKey(id) {
   el.type = el.type === 'password' ? 'text' : 'password';
 }
 
+function onEncoderTypeChanged() {
+  const type = document.getElementById('equip-encoder-type').value;
+  const container = document.getElementById('encoder-config-fields');
+  const detailEl = document.getElementById('equip-encoder-detail');
+  const saved = window._encoderConfig || {};
+
+  const apiTypes = ['obs', 'vmix', 'blackmagic', 'aja', 'epiphan', 'teradek', 'tally-encoder', 'custom'];
+  const rtmpTypes = ['yolobox', 'rtmp-generic', 'custom-rtmp'];
+
+  if (!type) {
+    container.innerHTML = '';
+    detailEl.textContent = 'Blackmagic Web Presenter will be used as the default encoder.';
+    return;
+  }
+  detailEl.textContent = '';
+
+  if (type === 'ecamm') {
+    container.innerHTML = `<div class="equip-detail" style="margin-top:8px;">
+      Ecamm Live runs locally on Mac. Uses HTTP remote control API (port auto-detected via Bonjour, fallback 65194).
+    </div>
+    <div class="equip-row" style="margin-top:4px;">
+      <button class="btn-test" onclick="testEquip('encoder')">Test Connection</button>
+    </div>`;
+    return;
+  }
+
+  if (apiTypes.includes(type)) {
+    const defaults = {
+      obs:              { host: 'localhost', port: '4455', pw: true, note: 'OBS WebSocket v5 — GetStats, StartStream, StopStream' },
+      vmix:             { host: 'localhost', port: '8088', note: 'vMix HTTP API — streaming, recording, status' },
+      blackmagic:       { host: '', port: '80', note: 'REST API v1 — streaming status, start/stop, platform config, bitrate' },
+      aja:              { host: '', port: '80', pw: true, note: 'REST API — start/stop stream/record, profiles, inputs, temperature' },
+      epiphan:          { host: '', port: '80', pw: true, note: 'REST API v2 — channels, publishers, recorders, layouts, system status' },
+      teradek:          { host: '', port: '80', pw: true, note: 'CGI API — broadcast start/stop, recording, bitrate, battery, video input' },
+      'tally-encoder':  { host: '', port: '7070', note: 'Tally Encoder API — streams to relay server' },
+      custom:           { host: '', port: '80', statusUrl: true, note: 'Custom HTTP status endpoint' },
+    };
+    const d = defaults[type] || { host: '', port: '' };
+    const h = saved.host || d.host;
+    const p = saved.port || d.port;
+    let html = '';
+    if (d.note) {
+      html += `<div class="equip-detail" style="margin-top:6px; font-size:10px; color:var(--dim);">${d.note}</div>`;
+    }
+    html += `<div class="equip-row" style="margin-top:6px;">
+      <input type="text" id="equip-encoder-host" placeholder="${d.host || 'IP address'}" value="${h}">
+      <input type="text" id="equip-encoder-port" placeholder="${d.port}" value="${p}" style="max-width:80px;">
+      <button class="btn-test" onclick="testEquip('encoder')">Test</button>
+    </div>`;
+    if (d.pw) {
+      html += `<div class="equip-row" style="margin-top:4px;">
+        <input type="password" id="equip-encoder-password" placeholder="Password (optional)" value="${saved.password || ''}">
+      </div>`;
+    }
+    if (d.statusUrl) {
+      html += `<div class="equip-row" style="margin-top:4px;">
+        <input type="text" id="equip-encoder-status-url" placeholder="Status endpoint path (e.g. /status)" value="${saved.statusUrl || '/status'}" style="flex:1;">
+      </div>
+      <div class="equip-row" style="margin-top:4px;">
+        <input type="text" id="equip-encoder-label" placeholder="Device label (optional)" value="${saved.label || ''}">
+      </div>`;
+    }
+    container.innerHTML = html;
+    return;
+  }
+
+  if (rtmpTypes.includes(type) || type === 'yolobox') {
+    let html = `<div class="equip-detail" style="margin-top:8px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px;">
+      This device streams directly to your CDN (YouTube, Facebook, etc.).<br>
+      <span style="font-size:10px; color:var(--dim);">Configure the streaming destination on the device itself. No API monitoring is available for this encoder type — status will show as "configured" only.</span>
+    </div>`;
+    html += `<div class="equip-row" style="margin-top:4px;">
+      <input type="text" id="equip-encoder-label" placeholder="Device label (optional)" value="${saved.label || ''}">
+    </div>`;
+    container.innerHTML = html;
+    return;
+  }
+
+  container.innerHTML = '';
+}
+
 async function testEquip(type) {
   const detailEl = document.getElementById(`equip-${type}-detail`);
   const dotId = `equip-dot-${type}`;
@@ -2275,6 +2534,27 @@ async function testEquip(type) {
   } else if (type === 'resolume') {
     params.ip = document.getElementById('equip-resolume-host').value.trim() || 'localhost';
     params.port = parseInt(document.getElementById('equip-resolume-port').value) || 8080;
+  } else if (type === 'encoder') {
+    params.encoderType = document.getElementById('equip-encoder-type').value;
+    const hostEl = document.getElementById('equip-encoder-host');
+    const portEl = document.getElementById('equip-encoder-port');
+    const pwEl = document.getElementById('equip-encoder-password');
+    params.ip = hostEl ? hostEl.value.trim() : '';
+    params.port = portEl ? parseInt(portEl.value) || 80 : 80;
+    params.password = pwEl ? pwEl.value : '';
+    if (!params.encoderType) { detailEl.textContent = 'Select encoder type first'; setEquipDot(dotId, false); return; }
+    if (params.encoderType === 'ecamm') {
+      params.ip = '127.0.0.1';
+      params.port = 65194;
+    } else if (params.encoderType === 'yolobox') {
+      detailEl.textContent = 'YoloBox has no API — status is "configured" only';
+      setEquipDot(dotId, null);
+      return;
+    } else if (!params.ip) {
+      detailEl.textContent = 'Enter encoder IP address';
+      setEquipDot(dotId, false);
+      return;
+    }
   } else if (type === 'mixer') {
     params.mixerType = document.getElementById('equip-mixer-type').value;
     params.ip = document.getElementById('equip-mixer-host').value.trim();
@@ -2321,11 +2601,27 @@ async function saveEquipment() {
     ptzEntries[i] = { ip: inputs[0].value.trim(), name: inputs[1].value.trim() };
   });
 
+  // Gather encoder fields
+  const encType = document.getElementById('equip-encoder-type').value;
+  const encHostEl = document.getElementById('equip-encoder-host');
+  const encPortEl = document.getElementById('equip-encoder-port');
+  const encPwEl = document.getElementById('equip-encoder-password');
+  const encLabelEl = document.getElementById('equip-encoder-label');
+  const encStatusUrlEl = document.getElementById('equip-encoder-status-url');
+
   const config = {
     atemIp: document.getElementById('equip-atem-ip').value.trim(),
     companionUrl: document.getElementById('equip-companion-url').value.trim(),
-    obsUrl: document.getElementById('equip-obs-url').value.trim(),
-    obsPassword: document.getElementById('equip-obs-password').value,
+    // Encoder config
+    encoderType: encType,
+    encoderHost: encHostEl ? encHostEl.value.trim() : '',
+    encoderPort: encPortEl ? parseInt(encPortEl.value) || 0 : 0,
+    encoderPassword: encPwEl ? encPwEl.value : '',
+    encoderLabel: encLabelEl ? encLabelEl.value.trim() : '',
+    encoderStatusUrl: encStatusUrlEl ? encStatusUrlEl.value.trim() : '',
+    // For OBS type, also save obsUrl/obsPassword for switcher features
+    obsUrl: encType === 'obs' && encHostEl ? `ws://${encHostEl.value.trim() || 'localhost'}:${encPortEl ? encPortEl.value || '4455' : '4455'}` : '',
+    obsPassword: encType === 'obs' && encPwEl ? encPwEl.value : '',
     hyperdecks: hyperdeckEntries.filter(ip => ip),
     ptz: ptzEntries.filter(c => c.ip),
     proPresenterHost: isOptionalDeviceVisible('propresenter') ? (document.getElementById('equip-pp-host').value.trim() || 'localhost') : '',
@@ -2354,6 +2650,17 @@ async function saveEquipment() {
       confirmEl.style.display = 'inline';
       setTimeout(() => { confirmEl.style.display = 'none'; }, 2000);
     }
+    // Update dashboard encoder label immediately after save
+    const encNames = {
+      obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
+      aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek',
+      yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
+    };
+    const newLabel = encNames[encType] || 'Encoder';
+    const dotLabel = document.getElementById('dot-encoder-label');
+    if (dotLabel) dotLabel.textContent = newLabel;
+    const sectionTitle = document.getElementById('encoder-section-title');
+    if (sectionTitle) sectionTitle.textContent = newLabel;
   } catch (e) {
     if (errorEl) {
       errorEl.textContent = 'Save failed: ' + (e.message || 'unknown error');
