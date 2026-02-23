@@ -1340,8 +1340,8 @@ app.get('/api/reseller/branding', requireReseller, (req, res) => {
 app.post('/api/billing/checkout', requireAdmin, async (req, res) => {
   try {
     const { tier, churchId, email, successUrl, cancelUrl } = req.body;
-    if (!tier || !['connect', 'pro', 'managed', 'event'].includes(tier)) {
-      return res.status(400).json({ error: 'Invalid tier. Must be connect, pro, managed, or event.' });
+    if (!tier || !['connect', 'plus', 'pro', 'managed', 'event'].includes(tier)) {
+      return res.status(400).json({ error: 'Invalid tier. Must be connect, plus, pro, managed, or event.' });
     }
     const result = await billing.createCheckout({
       tier, churchId, email, successUrl, cancelUrl,
@@ -2643,9 +2643,10 @@ function handleChurchMessage(church, msg) {
               sessionRecap.recordAlert(church.churchId, msg.alertType, true, false);
               log(`[AutoRecovery] ✅ ${recovery.event} for ${church.name}`);
             } else {
-              // Send alert through escalation ladder (with session ID)
+              // Send alert through escalation ladder (with session ID + recovery result)
               const dbChurch = stmtGet.get(church.churchId);
-              const alertResult = await alertEngine.sendAlert({ ...church, ...dbChurch }, msg.alertType, { message: msg.message, status: church.status }, activeSessionId);
+              const recoveryInfo = recovery.attempted ? recovery : null;
+              const alertResult = await alertEngine.sendAlert({ ...church, ...dbChurch }, msg.alertType, { message: msg.message, status: church.status }, activeSessionId, recoveryInfo);
               // Record in session — escalated if EMERGENCY severity
               const escalated = alertResult && alertResult.severity === 'EMERGENCY';
               sessionRecap.recordAlert(church.churchId, msg.alertType, false, escalated);

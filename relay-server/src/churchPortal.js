@@ -1170,6 +1170,8 @@ function buildChurchPortalHtml(church) {
         el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">Payment failed. <a href="' + (b.portalUrl || 'https://tally.atemschool.com/signup') + '" style="color:#22c55e;font-weight:700">Update your card</a> to avoid service interruption.</div>';
       } else if (b.status === 'canceled' || b.status === 'trial_expired') {
         el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">Your subscription has ended. <a href="https://tally.atemschool.com/signup" style="color:#22c55e;font-weight:700">Resubscribe</a> to continue monitoring your services.</div>';
+      } else if (b.status === 'inactive' || b.status === 'pending') {
+        el.innerHTML = '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">Your subscription is not yet active. <a href="https://tally.atemschool.com/signup" style="color:#22c55e;font-weight:700">Complete checkout</a> to start monitoring.</div>';
       } else {
         el.innerHTML = '';
       }
@@ -1397,7 +1399,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
     }
 
     const patch = {};
-    if (email          !== undefined) patch.email            = email;
+    if (email          !== undefined) patch.portal_email     = email.trim().toLowerCase();
     if (phone          !== undefined) patch.phone            = phone;
     if (location       !== undefined) patch.location         = location;
     if (notes          !== undefined) patch.notes            = notes;
@@ -1503,11 +1505,12 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
       let portalUrl = null;
       try {
         const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
-        if (STRIPE_KEY && church.stripe_customer_id) {
+        const billingRow = db.prepare('SELECT stripe_customer_id FROM billing_customers WHERE church_id = ?').get(church.churchId);
+        if (STRIPE_KEY && billingRow?.stripe_customer_id) {
           const Stripe = require('stripe');
           const stripe = Stripe(STRIPE_KEY);
           const session = await stripe.billingPortal.sessions.create({
-            customer: church.stripe_customer_id,
+            customer: billingRow.stripe_customer_id,
             return_url: req.headers.origin || 'https://tally.atemschool.com',
           });
           portalUrl = session.url;
