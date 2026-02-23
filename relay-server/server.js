@@ -654,7 +654,7 @@ function rateLimit(maxAttempts = 10, windowMs = 15 * 60 * 1000) {
   };
 }
 
-const BILLING_TIERS = new Set(['connect', 'pro', 'managed', 'event']);
+const BILLING_TIERS = new Set(['connect', 'plus', 'pro', 'managed', 'event']);
 const BILLING_STATUSES = new Set(['active', 'trialing', 'inactive', 'pending', 'past_due', 'canceled', 'trial_expired']);
 
 function getChurchBillingSnapshot(churchId) {
@@ -843,7 +843,7 @@ app.post('/api/church/app/onboard', async (req, res) => {
   if (!password || String(password).length < 8) {
     return res.status(400).json({ error: 'password must be at least 8 characters' });
   }
-  if (!['connect', 'pro', 'managed', 'event'].includes(planTier)) {
+  if (!['connect', 'plus', 'pro', 'managed', 'event'].includes(planTier)) {
     return res.status(400).json({ error: 'invalid tier' });
   }
 
@@ -1478,6 +1478,20 @@ app.delete('/api/churches/:churchId', requireAdmin, (req, res) => {
   res.json({ deleted: true, name: church.name });
 });
 
+// Map command prefixes to device types for tier-based gating
+// Connect tier: atem, obs, vmix only. Plus+: everything.
+const COMMAND_DEVICE_MAP = {
+  atem: 'atem', hyperdeck: 'atem', ptz: 'atem',
+  obs: 'obs',
+  vmix: 'vmix',
+  propresenter: 'propresenter',
+  companion: 'companion',
+  resolume: 'resolume',
+  mixer: 'audio', dante: 'audio',
+  videohub: 'videohub',
+  // system/status/preview/preset always allowed (no device mapping)
+};
+
 // Send a command to a specific church
 app.post('/api/command', requireAdmin, (req, res) => {
   const { churchId, command, params = {} } = req.body;
@@ -1489,6 +1503,21 @@ app.post('/api/command', requireAdmin, (req, res) => {
 
   const church = churches.get(churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
+
+  // Device-level billing gate: check if the church's tier allows this command's device
+  if (REQUIRE_ACTIVE_BILLING && billing.isEnabled()) {
+    const cmdPrefix = String(command).split('.')[0];
+    const deviceType = COMMAND_DEVICE_MAP[cmdPrefix];
+    if (deviceType) {
+      const dbChurch = stmtGet.get(churchId);
+      if (dbChurch) {
+        const access = billing.checkDeviceAccess(dbChurch, deviceType);
+        if (!access.allowed) {
+          return res.status(403).json({ error: access.reason, command, device: deviceType });
+        }
+      }
+    }
+  }
 
   const msg = { type: 'command', command, params, id: uuidv4() };
   totalMessagesRelayed++;
@@ -2283,20 +2312,20 @@ app.delete('/api/maintenance/:id', requireAdmin, (req, res) => {
 
 // ─── ON-CALL ROTATION API ─────────────────────────────────────────────────────
 
-app.get('/api/churches/:churchId/oncall', requireAdmin, (req, res) => {
+app.get('/api/churches/:churchId/oncall', requireAdmin, requireFeature('oncall_rotation'), (req, res) => {
   const onCall = onCallRotation.getOnCallTD(req.params.churchId);
   const all = db.prepare('SELECT * FROM td_oncall WHERE churchId = ? ORDER BY isPrimary DESC, id ASC').all(req.params.churchId);
   res.json({ onCall, all });
 });
 
-app.post('/api/churches/:churchId/oncall', requireAdmin, (req, res) => {
+app.post('/api/churches/:churchId/oncall', requireAdmin, requireFeature('oncall_rotation'), (req, res) => {
   const { tdName } = req.body;
   if (!tdName) return res.status(400).json({ error: 'tdName required' });
   const result = onCallRotation.setOnCall(req.params.churchId, tdName);
   res.json(result);
 });
 
-app.post('/api/churches/:churchId/tds/add', requireAdmin, (req, res) => {
+app.post('/api/churches/:churchId/tds/add', requireAdmin, requireFeature('oncall_rotation'), (req, res) => {
   const { name, telegramChatId, telegramUserId, phone, isPrimary } = req.body;
   if (!name || !telegramChatId) return res.status(400).json({ error: 'name and telegramChatId required' });
   const id = onCallRotation.addOrUpdateTD({ churchId: req.params.churchId, name, telegramChatId, telegramUserId, phone, isPrimary });
@@ -2957,7 +2986,7 @@ app.post('/api/churches/:churchId/presets/:name/recall', requireChurchOrAdmin, a
 // ─── AUTOPILOT API ────────────────────────────────────────────────────────────
 
 // List rules + paused state
-app.get('/api/churches/:churchId/automation', requireAdmin, (req, res) => {
+app.get('/api/churches/:churchId/automation', requireAdmin, requireFeature('autopilot'), (req, res) => {
   const church = churches.get(req.params.churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
   const rules = autoPilot.getRules(req.params.churchId);
@@ -2968,16 +2997,9 @@ app.get('/api/churches/:churchId/automation', requireAdmin, (req, res) => {
 });
 
 // Create rule
-app.post('/api/churches/:churchId/automation', requireAdmin, (req, res) => {
+app.post('/api/churches/:churchId/automation', requireAdmin, requireFeature('autopilot'), (req, res) => {
   const church = churches.get(req.params.churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
-
-  // Tier gate: autopilot requires Pro or Managed
-  const dbChurch = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(req.params.churchId);
-  if (dbChurch && billing) {
-    const access = billing.checkAccess(dbChurch, 'autopilot');
-    if (!access.allowed) return res.status(403).json({ error: access.reason });
-  }
 
   try {
     const rule = autoPilot.createRule(req.params.churchId, {
@@ -2993,7 +3015,7 @@ app.post('/api/churches/:churchId/automation', requireAdmin, (req, res) => {
 });
 
 // Update rule
-app.put('/api/churches/:churchId/automation/:ruleId', requireAdmin, (req, res) => {
+app.put('/api/churches/:churchId/automation/:ruleId', requireAdmin, requireFeature('autopilot'), (req, res) => {
   try {
     const rule = autoPilot.updateRule(req.params.ruleId, req.body);
     res.json(rule);
@@ -3003,26 +3025,26 @@ app.put('/api/churches/:churchId/automation/:ruleId', requireAdmin, (req, res) =
 });
 
 // Delete rule
-app.delete('/api/churches/:churchId/automation/:ruleId', requireAdmin, (req, res) => {
+app.delete('/api/churches/:churchId/automation/:ruleId', requireAdmin, requireFeature('autopilot'), (req, res) => {
   const deleted = autoPilot.deleteRule(req.params.ruleId);
   if (!deleted) return res.status(404).json({ error: 'Rule not found' });
   res.json({ deleted: true });
 });
 
 // Pause autopilot for a church
-app.post('/api/churches/:churchId/automation/pause', requireAdmin, (req, res) => {
+app.post('/api/churches/:churchId/automation/pause', requireAdmin, requireFeature('autopilot'), (req, res) => {
   autoPilot.pause(req.params.churchId);
   res.json({ paused: true });
 });
 
 // Resume autopilot for a church
-app.post('/api/churches/:churchId/automation/resume', requireAdmin, (req, res) => {
+app.post('/api/churches/:churchId/automation/resume', requireAdmin, requireFeature('autopilot'), (req, res) => {
   autoPilot.resume(req.params.churchId);
   res.json({ paused: false });
 });
 
 // Command log
-app.get('/api/churches/:churchId/command-log', requireAdmin, (req, res) => {
+app.get('/api/churches/:churchId/command-log', requireAdmin, requireFeature('autopilot'), (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   const offset = parseInt(req.query.offset) || 0;
   const log = autoPilot.getCommandLog(req.params.churchId, limit, offset);

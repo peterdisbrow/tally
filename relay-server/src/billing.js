@@ -352,6 +352,46 @@ class BillingSystem {
       return { allowed: false, reason: 'Reseller API requires Managed plan.' };
     }
 
+    // Plus+ features
+    if (feature === 'propresenter' && tier === 'connect') {
+      return { allowed: false, reason: 'ProPresenter control requires Plus or higher plan.' };
+    }
+
+    if (feature === 'oncall_rotation' && tier === 'connect') {
+      return { allowed: false, reason: 'On-call TD rotation requires Plus or higher plan.' };
+    }
+
+    if (feature === 'live_preview' && tier === 'connect') {
+      return { allowed: false, reason: 'Live video preview requires Plus or higher plan.' };
+    }
+
+    // Device-level access (Connect tier limited to ATEM, OBS, vMix)
+    if (feature === 'device_access') {
+      // device_access expects the device type passed as a second argument via checkDeviceAccess()
+      return { allowed: true }; // handled by checkDeviceAccess() below
+    }
+
+    return { allowed: true };
+  }
+
+  /**
+   * Check if a church's tier allows access to a specific device type.
+   * Connect tier is limited to ATEM, OBS, vMix. All other tiers get full access.
+   * @param {object} church - Church row from DB
+   * @param {string} deviceType - e.g. 'atem', 'obs', 'vmix', 'propresenter', 'companion', etc.
+   * @returns {{ allowed: boolean, reason?: string }}
+   */
+  checkDeviceAccess(church, deviceType) {
+    const tier = church.billing_tier || 'connect';
+    const limits = TIER_LIMITS[tier] || TIER_LIMITS.connect;
+
+    if (limits.devices === 'all') return { allowed: true };
+
+    const normalised = String(deviceType).toLowerCase().replace(/[\s_-]/g, '');
+    const allowed = limits.devices.some(d => normalised.includes(d));
+    if (!allowed) {
+      return { allowed: false, reason: `${deviceType} is not available on the ${TIER_NAMES[tier] || tier} plan. Upgrade to Plus or higher.` };
+    }
     return { allowed: true };
   }
 
