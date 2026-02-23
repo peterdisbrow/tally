@@ -58,7 +58,17 @@ const DIAGNOSIS_TEMPLATES = {
   },
   'companion_disconnected': {
     likely_cause: 'Companion app crashed or network issue',
-    steps: ['Check if Companion is running', 'Restart Companion if needed'],
+    steps: ['Check if Companion is running on the booth computer', 'Restart Companion app if needed', 'Verify Companion HTTP API is enabled on port 8000'],
+    canAutoFix: false,
+  },
+  'vmix_disconnected': {
+    likely_cause: 'vMix lost connection or Web Controller disabled',
+    steps: ['Check if vMix is running', 'Verify Web Controller is enabled in vMix Settings', 'Check network connectivity'],
+    canAutoFix: false,
+  },
+  'audio_silence': {
+    likely_cause: 'Audio signal lost — mixer may be muted or disconnected',
+    steps: ['Check mixer master fader and mute status', 'Verify audio routing from mixer to encoder', 'Check physical audio cable connections'],
     canAutoFix: false,
   },
   'multiple_systems_down': {
@@ -144,16 +154,23 @@ class AlertEngine {
     };
   }
 
-  async sendAlert(church, alertType, context = {}, sessionId = null) {
+  async sendAlert(church, alertType, context = {}, sessionId = null, recoveryResult = null) {
     const severity = this.classifyAlert(alertType, context);
     const alertId = uuidv4();
     const now = new Date().toISOString();
     const diagnosis = this.getDiagnosis(alertType);
 
+    // Include diagnosis + recovery result in stored context for portal display
+    const enrichedContext = {
+      ...context,
+      diagnosis,
+      ...(recoveryResult ? { recovery: recoveryResult } : {}),
+    };
+
     // Log to DB (with optional session_id for timeline linking)
     this.db.prepare(
       'INSERT INTO alerts (id, church_id, alert_type, severity, context, created_at, session_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(alertId, church.churchId, alertType, severity, JSON.stringify(context), now, sessionId);
+    ).run(alertId, church.churchId, alertType, severity, JSON.stringify(enrichedContext), now, sessionId);
 
     const ts = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     console.log(`[${now}] ALERT [${severity}] ${church.name}: ${alertType}`);
@@ -182,8 +199,17 @@ class AlertEngine {
     if (brandName === 'Tally') msgLines.push(`Church: ${church.name}`);
     msgLines.push(`Time: ${ts}`, '', `💡 Likely cause: ${diagnosis.likely_cause}`);
     diagnosis.steps.forEach((s, i) => msgLines.push(`${i + 1}. ${s}`));
-    msgLines.push('', diagnosis.canAutoFix ? '🤖 Auto-recovery will be attempted.' : '👋 Manual intervention needed.',
-      '', `Reply /ack_${alertId.slice(0, 8)} to acknowledge.`);
+    // Include recovery status if available
+    if (recoveryResult && recoveryResult.attempted) {
+      if (recoveryResult.success) {
+        msgLines.push('', `✅ *Tally auto-recovered:* ${recoveryResult.command || 'recovery action'} succeeded.`);
+      } else {
+        msgLines.push('', `❌ *Auto-recovery failed:* ${recoveryResult.command || 'recovery action'} did not resolve the issue. Manual intervention needed.`);
+      }
+    } else {
+      msgLines.push('', diagnosis.canAutoFix ? '🤖 Auto-recovery will be attempted.' : '👋 Manual intervention needed.');
+    }
+    msgLines.push('', `Reply /ack_${alertId.slice(0, 8)} to acknowledge.`);
     const msg = msgLines.join('\n');
 
     // Determine on-call TD chat ID

@@ -252,14 +252,30 @@ function updateTray() {
     ? `Connected — ATEM: ${atemOk ? '✓' : '✗'} | ${encLabel}: ${encoderOk ? '✓' : '✗'} | Companion: ${compOk ? '✓' : '✗'}`
     : 'Disconnected';
 
+  // Billing status line for tray
+  const billingTier = agentStatus.billingTier || '';
+  const billingStatus = agentStatus.billingStatus || '';
+  const trialDays = agentStatus.trialDaysRemaining;
+  let billingLine = null;
+  if (billingStatus === 'trialing' && trialDays != null) {
+    billingLine = `\u23F3 Trial: ${trialDays} day${trialDays !== 1 ? 's' : ''} left`;
+  } else if (billingStatus === 'past_due') {
+    billingLine = '\u26A0\uFE0F Payment issue \u2014 update card';
+  } else if (billingStatus === 'active' && billingTier) {
+    const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed', event: 'Event' };
+    billingLine = `\u2705 Plan: ${tierNames[billingTier] || billingTier}`;
+  }
+
   const menu = Menu.buildFromTemplate([
     { label: 'Tally', enabled: false },
     { label: statusLine, enabled: false },
+    ...(billingLine ? [{ label: billingLine, enabled: false }] : []),
     { type: 'separator' },
     { label: 'Open Dashboard', click: () => mainWindow?.show() },
     { label: connected ? 'Stop Agent' : 'Start Agent', click: () => connected ? stopAgent() : startAgent() },
     { type: 'separator' },
     { label: 'Client Portal', click: () => shell.openExternal('https://tally-production-cde2.up.railway.app/church-portal') },
+    { label: 'Help & Support', click: () => shell.openExternal('https://tally.atemschool.com/help') },
     { label: 'ATEM School', click: () => shell.openExternal('https://atemschool.com') },
     { type: 'separator' },
     { label: 'Quit', click: () => { stopAgent(); app.exit(0); } },

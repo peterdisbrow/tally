@@ -152,6 +152,7 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN registration_code TEXT",
   "ALTER TABLE churches ADD COLUMN portal_email TEXT",
   "ALTER TABLE churches ADD COLUMN portal_password_hash TEXT",
+  "ALTER TABLE churches ADD COLUMN tos_accepted_at TEXT",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -833,7 +834,7 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
 
 // Self-serve onboarding from website signup flow
 app.post('/api/church/app/onboard', async (req, res) => {
-  const { name, email, password, tier, successUrl, cancelUrl } = req.body || {};
+  const { name, email, password, tier, successUrl, cancelUrl, tosAcceptedAt } = req.body || {};
   const cleanName = String(name || '').trim();
   const cleanEmail = String(email || '').trim().toLowerCase();
   const planTier = String(tier || 'connect').toLowerCase();
@@ -868,9 +869,9 @@ app.post('/api/church/app/onboard', async (req, res) => {
   stmtUpdateRegistrationCode.run(registrationCode, churchId);
   db.prepare(`
     UPDATE churches
-    SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?, billing_trial_ends = ?
+    SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?, billing_trial_ends = ?, tos_accepted_at = ?
     WHERE churchId = ?
-  `).run(cleanEmail, hashPassword(password), planTier, onboardStatus, trialEndsAt, churchId);
+  `).run(cleanEmail, hashPassword(password), planTier, onboardStatus, trialEndsAt, tosAcceptedAt || null, churchId);
 
   churches.set(churchId, {
     churchId,

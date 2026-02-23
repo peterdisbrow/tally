@@ -23,6 +23,12 @@ const { v4: uuidv4 } = require('uuid');
 
 const TRIGGER_TYPES = ['propresenter_slide_change', 'schedule_timer', 'equipment_state_match'];
 
+// Max rules per billing tier
+const MAX_RULES_PER_TIER = { connect: 0, plus: 0, pro: 10, managed: 25, event: 0 };
+
+// Max total rule fires per service session before auto-pause
+const MAX_FIRES_PER_SESSION = 50;
+
 class AutoPilot {
   /**
    * @param {import('better-sqlite3').Database} db
@@ -122,6 +128,17 @@ class AutoPilot {
   createRule(churchId, { name, triggerType, triggerConfig, actions }) {
     if (!TRIGGER_TYPES.includes(triggerType)) {
       throw new Error(`Invalid trigger type: ${triggerType}. Must be one of: ${TRIGGER_TYPES.join(', ')}`);
+    }
+
+    // Enforce per-tier rule limits
+    if (this.billing) {
+      const church = this.db.prepare('SELECT billing_tier FROM churches WHERE churchId = ?').get(churchId);
+      const tier = church?.billing_tier || 'connect';
+      const maxRules = MAX_RULES_PER_TIER[tier] ?? 0;
+      const currentCount = this.db.prepare('SELECT COUNT(*) as cnt FROM automation_rules WHERE church_id = ?').get(churchId).cnt;
+      if (currentCount >= maxRules) {
+        throw new Error(`Rule limit reached (${maxRules} rules for ${tier} plan). Upgrade to add more rules.`);
+      }
     }
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -348,6 +365,18 @@ class AutoPilot {
   }
 
   async _fireRule(churchId, rule, triggerContext) {
+    // Check per-session fire cap to prevent runaway automation
+    const sessionId = this.sessionRecap?.getActiveSessionId(churchId);
+    if (sessionId) {
+      const firedSet = this._firedThisSession.get(sessionId);
+      if (firedSet && firedSet.size >= MAX_FIRES_PER_SESSION) {
+        console.warn(`[AutoPilot] Session fire cap reached (${MAX_FIRES_PER_SESSION}) for church ${churchId} — pausing autopilot`);
+        this.pause(churchId);
+        this.logCommand(churchId, 'autopilot.auto_paused', { reason: 'session_fire_cap', limit: MAX_FIRES_PER_SESSION }, 'system');
+        return;
+      }
+    }
+
     console.log(`[AutoPilot] Firing rule "${rule.name}" for church ${churchId}`);
 
     // Mark as fired this session (dedup)

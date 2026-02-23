@@ -27,6 +27,30 @@ const RECOVERY_PLAYBOOK = {
     onSuccess: 'recording_auto_started',
     onFail: 'alert_td_recording',
   },
+  'atem_disconnected': {
+    waitMs: 15000,
+    command: 'status', // request fresh status — triggers reconnect attempt on client
+    params: {},
+    maxAttempts: 2,
+    onSuccess: 'atem_reconnected',
+    onFail: 'escalate_to_td',
+  },
+  'obs_disconnected': {
+    waitMs: 10000,
+    command: 'status', // request fresh status — client will retry OBS connection
+    params: {},
+    maxAttempts: 1,
+    onSuccess: 'obs_reconnected',
+    onFail: 'alert_td_obs',
+  },
+  'companion_disconnected': {
+    waitMs: 0,
+    command: null, // cannot auto-fix external app — log only
+    params: {},
+    maxAttempts: 0,
+    onSuccess: null,
+    onFail: 'alert_td_companion',
+  },
 };
 
 class AutoRecovery {
@@ -47,6 +71,11 @@ class AutoRecovery {
   async attempt(church, failureType, currentStatus) {
     const playbook = RECOVERY_PLAYBOOK[failureType];
     if (!playbook) return { attempted: false, reason: 'no_playbook' };
+
+    // No auto-fix available (e.g., companion_disconnected)
+    if (!playbook.command || playbook.maxAttempts === 0) {
+      return { attempted: false, reason: 'no_auto_fix', command: null, event: playbook.onFail };
+    }
 
     const key = this._key(church.churchId, failureType);
     const attempts = this.attemptCounts.get(key) || 0;

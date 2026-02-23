@@ -448,6 +448,8 @@ function buildChurchPortalHtml(church) {
     .modal-close { background: none; border: none; color: #94A3B8; font-size: 20px; cursor: pointer; line-height: 1; }
     .modal-close:hover { color: #F8FAFC; }
     .modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+    .help-box { background: rgba(34,197,94,0.06); border: 1px solid rgba(34,197,94,0.15); border-radius: 8px; padding: 12px 16px; color: #94A3B8; font-size: 13px; line-height: 1.6; margin-bottom: 16px; }
+    .help-box strong { color: #F8FAFC; }
     @media (max-width: 640px) {
       .sidebar { display: none; }
       .main { margin-left: 0; padding: 20px; }
@@ -484,8 +486,14 @@ function buildChurchPortalHtml(church) {
     <button class="nav-item" data-page="sessions" onclick="showPage('sessions', this)">
       <span class="icon">⊟</span> Sessions
     </button>
+    <button class="nav-item" data-page="alerts" onclick="showPage('alerts',this)">
+      <span class="icon">⊡</span> Alerts
+    </button>
     <button class="nav-item" data-page="billing" onclick="showPage('billing', this)">
       <span class="icon">⊠</span> Billing
+    </button>
+    <button class="nav-item" data-page="support" onclick="showPage('support',this)">
+      <span class="icon">⊜</span> Help & Support
     </button>
     <div class="sidebar-footer">
       <button class="btn-logout" onclick="logout()">Sign out</button>
@@ -493,6 +501,8 @@ function buildChurchPortalHtml(church) {
   </nav>
 
   <main class="main">
+
+    <div id="billing-banner"></div>
 
     <!-- OVERVIEW -->
     <div class="page active" id="page-overview">
@@ -597,6 +607,7 @@ function buildChurchPortalHtml(church) {
         <div class="page-title">Tech Directors</div>
         <div class="page-sub">People who receive alerts and have TD access</div>
       </div>
+      <p class="help-box"><strong>How On-Call Routing Works:</strong> When Tally detects an issue during your service, it sends an alert to whichever TD is on-call that week. If no one responds within 90 seconds, it escalates to your primary TD. TDs can swap on-call duty via Telegram using <code style="color:#22c55e">/swap [name]</code>.</p>
       <div class="card">
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
           <button class="btn-primary" onclick="document.getElementById('modal-add-td').classList.add('open')">+ Add TD</button>
@@ -633,6 +644,7 @@ function buildChurchPortalHtml(church) {
         <div class="page-title">Notifications</div>
         <div class="page-sub">Control how and when you receive alerts</div>
       </div>
+      <p class="help-box"><strong>Alert Notifications:</strong> Tally classifies alerts by severity — INFO (logged only), WARNING (sent during services), CRITICAL (sent + escalated after 90s), and EMERGENCY (sent immediately). Configure your notification preferences below.</p>
       <div class="card">
         <div class="card-title">Alert Preferences</div>
         <div class="toggle-row">
@@ -710,14 +722,53 @@ function buildChurchPortalHtml(church) {
       </div>
     </div>
 
+    <!-- ALERTS -->
+    <div class="page" id="page-alerts">
+      <div class="page-header">
+        <div class="page-title">Alert History</div>
+        <div class="page-sub">Recent alerts from your services</div>
+      </div>
+      <p class="help-box">Alerts are classified by severity: <span style="color:#22c55e">INFO</span> (logged only), <span style="color:#eab308">WARNING</span> (sent to on-call TD), <span style="color:#ef4444">CRITICAL</span> (sent + escalated after 90s), <span style="color:#ef4444;font-weight:700">EMERGENCY</span> (immediate escalation). Acknowledge alerts via Telegram with <code style="color:#22c55e">/ack_[code]</code>.</p>
+      <div id="alerts-content"><p style="color:#475569;text-align:center;padding:20px">Loading alerts...</p></div>
+    </div>
+
     <!-- BILLING -->
     <div class="page" id="page-billing">
       <div class="page-header">
-        <div class="page-title">Billing</div>
-        <div class="page-sub">Your subscription and payment information</div>
+        <div class="page-title">Billing & Subscription</div>
+        <div class="page-sub">Manage your plan, payment method, and invoices</div>
       </div>
-      <div class="card" id="billing-info">
-        <div style="color:#475569;text-align:center;padding:30px">Loading billing info…</div>
+      <div id="billing-content">
+        <div style="color:#475569;text-align:center;padding:30px">Loading billing info...</div>
+      </div>
+    </div>
+
+    <!-- HELP & SUPPORT -->
+    <div class="page" id="page-support">
+      <div class="page-header">
+        <div class="page-title">Help & Support</div>
+        <div class="page-sub">Get help, view docs, and contact support</div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">Contact Support</div>
+        <p style="color:#94A3B8;font-size:14px;line-height:1.6;margin:8px 0">
+          Email us at <a href="mailto:support@atemschool.com" style="color:#22c55e">support@atemschool.com</a>
+        </p>
+        <p id="support-response-time" style="color:#475569;font-size:13px;margin-top:8px"></p>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">Help Center</div>
+        <p style="color:#94A3B8;font-size:14px;line-height:1.6;margin:8px 0">
+          Visit our <a href="https://tally.atemschool.com/help" target="_blank" style="color:#22c55e">Help & FAQ page</a> for getting started guides, troubleshooting, feature explainers, and answers to common questions.
+        </p>
+      </div>
+      <div class="card">
+        <div class="card-title">Links</div>
+        <ul style="color:#94A3B8;font-size:14px;line-height:1.9;padding-left:20px;margin:8px 0">
+          <li><a href="https://tally.atemschool.com/help" target="_blank" style="color:#22c55e">Getting Started Guide</a></li>
+          <li><a href="https://tally.atemschool.com/terms" target="_blank" style="color:#22c55e">Terms of Service</a></li>
+          <li><a href="https://tally.atemschool.com/privacy" target="_blank" style="color:#22c55e">Privacy Policy</a></li>
+        </ul>
       </div>
     </div>
 
@@ -766,8 +817,10 @@ function buildChurchPortalHtml(church) {
       if (id === 'schedule') loadSchedule();
       if (id === 'guests') loadGuests();
       if (id === 'sessions') loadSessions();
+      if (id === 'alerts') loadAlerts();
       if (id === 'billing') loadBilling();
       if (id === 'notifications') loadNotifications();
+      if (id === 'support') loadSupportInfo();
     }
 
     // ── toast ──────────────────────────────────────────────────────────────────
@@ -1040,37 +1093,143 @@ function buildChurchPortalHtml(church) {
     }
 
     // ── Billing ───────────────────────────────────────────────────────────────
+    let billingData = null;
     async function loadBilling() {
       try {
-        const d = await api('GET', '/api/church/billing');
-        const div = document.getElementById('billing-info');
-        if (d.noStripe) {
-          const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed', event: 'Event' };
-          const tierDisplay = tierNames[d.tier] || d.tier || 'Connect';
-          const statusDisplay = d.billingStatus || 'active';
-          const statusColor = { active: '#22c55e', trialing: '#eab308', past_due: '#f87171', canceled: '#94A3B8', inactive: '#94A3B8' };
-          div.innerHTML = \`
-            <div class="card-title">Subscription</div>
-            <table><tbody>
-              <tr><td style="color:#94A3B8;width:160px">Plan</td><td style="color:#F8FAFC;font-weight:600">\${tierDisplay}</td></tr>
-              <tr><td style="color:#94A3B8">Status</td><td><span class="badge" style="background:rgba(34,197,94,0.1);color:\${statusColor[statusDisplay]||'#94A3B8'}">\${statusDisplay}</span></td></tr>
-            </tbody></table>
-            <div style="color:#475569;font-size:13px;margin-top:16px">Billing managed by your account administrator. Contact <a href="mailto:support@atemschool.com" style="color:#22c55e">support@atemschool.com</a> for billing questions.</div>\`;
+        const b = await api('GET', '/api/church/billing');
+        billingData = b;
+        const statusColors = { active: '#22c55e', trialing: '#eab308', past_due: '#ef4444', canceled: '#94A3B8', pending: '#94A3B8', trial_expired: '#ef4444', inactive: '#94A3B8' };
+        const statusLabels = { active: 'Active', trialing: 'Trial', past_due: 'Past Due', canceled: 'Canceled', pending: 'Pending', trial_expired: 'Expired', inactive: 'Inactive' };
+        const tierName = b.tierName || b.tier || 'Connect';
+        const statusColor = statusColors[b.status] || '#94A3B8';
+        const statusLabel = statusLabels[b.status] || b.status;
+
+        let html = '<div class="card" style="margin-bottom:16px">';
+        html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">';
+        html += '<span style="font-size:20px;font-weight:800;color:#F8FAFC">' + tierName + '</span>';
+        html += '<span style="background:' + statusColor + ';color:#000;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700">' + statusLabel + '</span>';
+        html += '</div>';
+
+        if (b.status === 'trialing' && b.trialDaysRemaining != null) {
+          const pct = Math.max(0, Math.min(100, ((30 - b.trialDaysRemaining) / 30) * 100));
+          html += '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:12px;margin-bottom:16px">';
+          html += '<div style="color:#eab308;font-size:13px;font-weight:600;margin-bottom:6px">Trial: ' + b.trialDaysRemaining + ' days remaining</div>';
+          html += '<div style="background:#1a2e1f;border-radius:4px;height:6px;overflow:hidden"><div style="background:#eab308;height:100%;width:' + pct + '%;border-radius:4px"></div></div>';
+          html += '</div>';
+        }
+
+        if (b.status === 'past_due') {
+          html += '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:12px;margin-bottom:16px">';
+          html += '<div style="color:#ef4444;font-size:13px;font-weight:600">Payment failed — update your card to avoid service interruption.</div></div>';
+        }
+
+        html += '<h3 style="font-size:14px;color:#F8FAFC;margin:12px 0 8px">Your Plan Includes</h3>';
+        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px">';
+        const features = b.features || {};
+        const featureList = [
+          ['ATEM, OBS, vMix monitoring', true],
+          ['Pre-service checks', true],
+          ['Slack + Telegram alerts', true],
+          ['Auto-recovery', true],
+          ['ProPresenter control', features.propresenter],
+          ['On-call TD rotation', features.oncall],
+          ['Live video preview', features.livePreview],
+          ['AI Autopilot', features.autopilot],
+          ['Planning Center sync', features.planningCenter],
+          ['Monthly reports', features.monthlyReport],
+        ];
+        featureList.forEach(function(f) {
+          html += '<div style="color:' + (f[1] ? '#94A3B8' : '#475569') + '">' + (f[1] ? '\\u2713 ' : '\\u2717 ') + f[0] + '</div>';
+        });
+        html += '</div></div>';
+
+        if (b.portalUrl) {
+          html += '<a href="' + b.portalUrl + '" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none;margin-bottom:12px">Manage Subscription \\u2192</a>';
+          html += '<p style="color:#475569;font-size:12px">Update payment method, view invoices, or cancel your subscription via Stripe\\u2019s secure portal.</p>';
+        } else if (['trialing','trial_expired','canceled','inactive'].includes(b.status)) {
+          html += '<a href="https://tally.atemschool.com/signup" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none;margin-bottom:12px">Subscribe Now \\u2192</a>';
+        }
+
+        html += '<div style="margin-top:20px;padding-top:16px;border-top:1px solid #1a2e1f">';
+        html += '<p style="color:#475569;font-size:12px;line-height:1.6">Cancel anytime from the Stripe portal. Service continues through the end of your billing period. No partial-month refunds. Questions? <a href="mailto:support@atemschool.com" style="color:#22c55e">support@atemschool.com</a></p>';
+        html += '</div>';
+
+        document.getElementById('billing-content').innerHTML = html;
+        updateBillingBanner(b);
+      } catch(e) {
+        document.getElementById('billing-content').innerHTML = '<div style="color:#475569;text-align:center;padding:30px">Billing info unavailable. <a href="mailto:support@atemschool.com" style="color:#22c55e">Contact support</a></div>';
+      }
+    }
+
+    function updateBillingBanner(b) {
+      var el = document.getElementById('billing-banner');
+      if (!el) return;
+      if (b.status === 'trialing' && b.trialDaysRemaining != null && b.trialDaysRemaining <= 7) {
+        el.innerHTML = '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">Your trial ends in ' + b.trialDaysRemaining + ' day' + (b.trialDaysRemaining !== 1 ? 's' : '') + '. <a href="https://tally.atemschool.com/signup" style="color:#22c55e;font-weight:700">Subscribe now</a> to keep your service running.</div>';
+      } else if (b.status === 'past_due') {
+        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">Payment failed. <a href="' + (b.portalUrl || 'https://tally.atemschool.com/signup') + '" style="color:#22c55e;font-weight:700">Update your card</a> to avoid service interruption.</div>';
+      } else if (b.status === 'canceled' || b.status === 'trial_expired') {
+        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">Your subscription has ended. <a href="https://tally.atemschool.com/signup" style="color:#22c55e;font-weight:700">Resubscribe</a> to continue monitoring your services.</div>';
+      } else {
+        el.innerHTML = '';
+      }
+    }
+
+    // ── Alerts ────────────────────────────────────────────────────────────────
+    async function loadAlerts() {
+      try {
+        const alerts = await api('GET', '/api/church/alerts');
+        var container = document.getElementById('alerts-content');
+        if (!alerts.length) {
+          container.innerHTML = '<p style="color:#475569;text-align:center;padding:20px">No alerts yet. Alerts will appear here during and after your services.</p>';
           return;
         }
-        const planColor = { active: '#22c55e', trialing: '#eab308', past_due: '#f87171', canceled: '#94A3B8' };
-        div.innerHTML = \`
-          <div class="card-title">Subscription</div>
-          <table><tbody>
-            <tr><td style="color:#94A3B8;width:160px">Plan</td><td style="color:#F8FAFC;font-weight:600">\${d.plan || '—'}</td></tr>
-            <tr><td style="color:#94A3B8">Status</td><td><span class="badge" style="background:rgba(34,197,94,0.1);color:\${planColor[d.status]||'#94A3B8'}">\${d.status||'—'}</span></td></tr>
-            <tr><td style="color:#94A3B8">Next Bill</td><td style="color:#F8FAFC">\${d.nextBillingDate ? new Date(d.nextBillingDate * 1000).toLocaleDateString() : '—'}</td></tr>
-            <tr><td style="color:#94A3B8">Amount</td><td style="color:#F8FAFC">\${d.amount ? '$' + (d.amount / 100).toFixed(2) + '/mo' : '—'}</td></tr>
-          </tbody></table>
-          \${d.portalUrl ? \`<div style="margin-top:20px"><a href="\${d.portalUrl}" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none">Manage Billing →</a></div>\` : ''}\`;
+        var sevColors = { INFO: '#22c55e', WARNING: '#eab308', CRITICAL: '#ef4444', EMERGENCY: '#ef4444' };
+        var html = '<div style="display:flex;flex-direction:column;gap:8px">';
+        alerts.forEach(function(a) {
+          var color = sevColors[a.severity] || '#94A3B8';
+          var time = new Date(a.created_at).toLocaleString();
+          var type = (a.alert_type || '').replace(/_/g, ' ');
+          var acked = a.acknowledged_at ? '<span style="color:#22c55e;font-size:11px">\\u2713 Acknowledged' + (a.acknowledged_by ? ' by ' + a.acknowledged_by : '') + '</span>' : '<span style="color:#475569;font-size:11px">Not acknowledged</span>';
+          var ctx = a.context || {};
+          var diag = ctx.diagnosis || ctx;
+
+          html += '<div class="card" style="padding:12px">';
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
+          html += '<span style="background:' + color + ';color:#000;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700">' + (a.severity || 'INFO') + '</span>';
+          html += '<span style="color:#F8FAFC;font-size:13px;font-weight:600">' + type + '</span>';
+          html += '<span style="color:#475569;font-size:11px;margin-left:auto">' + time + '</span>';
+          html += '</div>';
+          html += '<div style="margin-top:4px">' + acked;
+          if (a.resolved) html += ' <span style="color:#22c55e;font-size:11px;margin-left:8px">\\u2713 Resolved</span>';
+          html += '</div>';
+
+          if (diag.likely_cause || (diag.steps && diag.steps.length)) {
+            html += '<div style="margin-top:8px;background:#09090B;border-radius:6px;padding:8px 12px;font-size:12px">';
+            if (diag.likely_cause) html += '<div style="color:#94A3B8;margin-bottom:4px"><strong style="color:#F8FAFC">Likely cause:</strong> ' + diag.likely_cause + '</div>';
+            if (diag.steps && diag.steps.length) {
+              html += '<div style="color:#94A3B8"><strong style="color:#F8FAFC">Steps:</strong></div><ol style="margin:4px 0 0;padding-left:20px;color:#94A3B8">';
+              diag.steps.forEach(function(s) { html += '<li>' + s + '</li>'; });
+              html += '</ol>';
+            }
+            if (diag.canAutoFix) html += '<div style="color:#22c55e;font-size:11px;margin-top:4px">Tally can attempt auto-recovery for this issue.</div>';
+            html += '</div>';
+          }
+          html += '</div>';
+        });
+        html += '</div>';
+        container.innerHTML = html;
       } catch(e) {
-        document.getElementById('billing-info').innerHTML = '<div style="color:#475569;text-align:center;padding:30px">Billing info unavailable.</div>';
+        document.getElementById('alerts-content').innerHTML = '<p style="color:#ef4444">' + e.message + '</p>';
       }
+    }
+
+    // ── Support info ──────────────────────────────────────────────────────────
+    function loadSupportInfo() {
+      var tier = billingData ? billingData.tier : (profileData.billing_tier || 'connect');
+      var times = { connect: '48 hours', plus: '24 hours', pro: '12 hours', managed: '15 minutes (Mon\\u2013Fri 9\\u20135 ET + service windows)' };
+      var el = document.getElementById('support-response-time');
+      if (el) el.textContent = 'Response time for your plan: ' + (times[tier] || '48 hours');
     }
 
     // ── Logout ────────────────────────────────────────────────────────────────
@@ -1079,8 +1238,9 @@ function buildChurchPortalHtml(church) {
       window.location.href = '/church-login';
     }
 
-    // Auto-load overview on start
+    // Auto-load overview + billing banner on start
     loadOverview();
+    loadBilling(); // populates billing banner on all pages
   </script>
 </body>
 </html>`;
@@ -1333,30 +1493,65 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
   // ── GET /api/church/billing ───────────────────────────────────────────────────
   app.get('/api/church/billing', authMiddleware, async (req, res) => {
     try {
-      const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
       const church = req.church;
-      const dbFallback = { noStripe: true, tier: church.billing_tier || 'connect', billingStatus: church.billing_status || 'active' };
-      if (!STRIPE_KEY) return res.json(dbFallback);
-      const Stripe = require('stripe');
-      const stripe = Stripe(STRIPE_KEY);
-      if (!church.stripe_customer_id) return res.json(dbFallback);
-      const subs = await stripe.subscriptions.list({ customer: church.stripe_customer_id, limit: 1 });
-      const sub = subs.data[0];
-      if (!sub) return res.json({ status: 'none', plan: 'No active subscription' });
-      const amount = sub.items.data[0]?.price?.unit_amount;
-      const planName = sub.items.data[0]?.price?.nickname || 'Connect';
-      const session = await stripe.billingPortal.sessions.create({
-        customer: church.stripe_customer_id,
-        return_url: req.headers.origin || 'https://tally.atemschool.com',
-      });
+      const tier = church.billing_tier || 'connect';
+      const status = church.billing_status || 'inactive';
+      const trialEnds = church.billing_trial_ends;
+      const trialDaysRemaining = trialEnds ? Math.max(0, Math.ceil((new Date(trialEnds) - Date.now()) / (1000 * 60 * 60 * 24))) : null;
+      const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed', event: 'Event' };
+
+      let portalUrl = null;
+      try {
+        const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
+        if (STRIPE_KEY && church.stripe_customer_id) {
+          const Stripe = require('stripe');
+          const stripe = Stripe(STRIPE_KEY);
+          const session = await stripe.billingPortal.sessions.create({
+            customer: church.stripe_customer_id,
+            return_url: req.headers.origin || 'https://tally.atemschool.com',
+          });
+          portalUrl = session.url;
+        }
+      } catch (e) { console.error('[billing portal session]', e.message); }
+
       res.json({
-        status: sub.status,
-        plan: planName,
-        nextBillingDate: sub.current_period_end,
-        amount,
-        portalUrl: session.url,
+        tier,
+        tierName: TIER_NAMES[tier] || tier,
+        status,
+        trialEndsAt: trialEnds,
+        trialDaysRemaining,
+        portalUrl,
+        features: {
+          autopilot: !['connect', 'plus'].includes(tier),
+          planningCenter: !['connect', 'plus'].includes(tier),
+          oncall: tier !== 'connect',
+          propresenter: tier !== 'connect',
+          livePreview: tier !== 'connect',
+          monthlyReport: !['connect', 'plus'].includes(tier),
+        },
       });
-    } catch(e) { res.json({ noStripe: true }); }
+    } catch (e) {
+      res.status(500).json({ error: 'Billing info unavailable' });
+    }
+  });
+
+  // ── GET /api/church/alerts ──────────────────────────────────────────────────
+  app.get('/api/church/alerts', authMiddleware, (req, res) => {
+    try {
+      const alerts = db.prepare(`
+        SELECT id, alert_type, severity, context, created_at, acknowledged_at, acknowledged_by, escalated, resolved
+        FROM alerts WHERE church_id = ? ORDER BY datetime(created_at) DESC LIMIT 50
+      `).all(req.church.churchId);
+
+      const parsed = alerts.map(a => ({
+        ...a,
+        context: (() => { try { return JSON.parse(a.context || '{}'); } catch { return {}; } })(),
+      }));
+      res.json(parsed);
+    } catch (e) {
+      // alerts table may not exist yet
+      res.json([]);
+    }
   });
 
   // ── Admin: set portal credentials ─────────────────────────────────────────────
