@@ -194,7 +194,7 @@ function buildResellerSalesPageHtml(error = '') {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reseller Program — Tally by ATEM School</title>
+  <title>Reseller Program — Earn Recurring Revenue with Tally</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -390,118 +390,142 @@ function buildResellerSalesPageHtml(error = '') {
   <!-- ── Hero ─────────────────────────────────────── -->
   <div class="section hero">
     <div class="hero-badge">RESELLER &amp; INTEGRATOR PROGRAM</div>
-    <h1>White-Label Church<br>AV Monitoring</h1>
-    <p>Offer professional streaming &amp; AV monitoring to your church clients under your own brand. Manage every site from a single dashboard.</p>
+    <h1>Earn Recurring Revenue<br>Selling Tally</h1>
+    <p>Recommend Tally to your church clients and earn a commission on every subscription — every month. No inventory, no support burden, just recurring income.</p>
     <div class="hero-buttons">
-      <a href="#signup" class="btn-primary">Get Started Free</a>
+      <a href="#signup" class="btn-primary">Become a Reseller</a>
       <a href="/reseller-login" class="btn-ghost">Sign in</a>
+    </div>
+  </div>
+
+  <!-- ── How It Works ─────────────────────────────── -->
+  <div class="section">
+    <div class="benefits-heading">
+      <h2>How It Works</h2>
+      <p>Three simple steps to start earning</p>
+    </div>
+    <div class="grid-3" style="max-width:900px; margin:0 auto;">
+      <div class="benefit-card" style="text-align:center;">
+        <div class="benefit-icon" style="margin:0 auto 16px; font-size:22px;">1</div>
+        <h3>Sign Up Free</h3>
+        <p>Create your reseller account in 30 seconds. No fees, no commitments, no credit card required.</p>
+      </div>
+      <div class="benefit-card" style="text-align:center;">
+        <div class="benefit-icon" style="margin:0 auto 16px; font-size:22px;">2</div>
+        <h3>Refer Churches</h3>
+        <p>Recommend Tally to your church clients. We handle setup, support, and billing — you just make the intro.</p>
+      </div>
+      <div class="benefit-card" style="text-align:center;">
+        <div class="benefit-icon" style="margin:0 auto 16px; font-size:22px;">3</div>
+        <h3>Earn Monthly</h3>
+        <p>Get paid a percentage of every subscription, every month, for as long as the church stays active.</p>
+      </div>
     </div>
   </div>
 
   <!-- ── Benefits ─────────────────────────────────── -->
   <div class="section">
     <div class="benefits-heading">
-      <h2>Everything You Need to Scale</h2>
-      <p>A complete platform to manage church AV monitoring for all your clients</p>
+      <h2>Why Resellers Love Tally</h2>
+      <p>Everything you need to grow a passive income stream</p>
     </div>
     <div class="grid-4">
       <div class="benefit-card">
         <div class="benefit-icon">\u229A</div>
-        <h3>Manage All Churches</h3>
-        <p>Add and monitor all your client churches from one centralized dashboard. Provision new sites in seconds.</p>
+        <h3>Reseller Dashboard</h3>
+        <p>Track all your referred churches, see who's online, and monitor your earnings from one dashboard.</p>
       </div>
       <div class="benefit-card">
-        <div class="benefit-icon">\u2726</div>
-        <h3>Custom Branding</h3>
-        <p>Your logo, colors, and company name on every interface. Clients see your brand, not ours.</p>
+        <div class="benefit-icon">\u2713</div>
+        <h3>We Handle Support</h3>
+        <p>You make the sale, we handle onboarding, tech support, and billing. Zero support burden on you.</p>
       </div>
       <div class="benefit-card">
         <div class="benefit-icon">\u25C9</div>
         <h3>Real-Time Monitoring</h3>
-        <p>Live status of ATEM switchers, encoders, audio, and streaming across every site — all in real time.</p>
+        <p>See live status of every church you've referred — ATEM, encoders, audio, streaming — all in real time.</p>
       </div>
       <div class="benefit-card">
-        <div class="benefit-icon">\u2699</div>
-        <h3>API Access</h3>
-        <p>Full REST API with your own reseller key. Integrate monitoring into your existing tools and workflows.</p>
+        <div class="benefit-icon">\u2191</div>
+        <h3>Growing Commissions</h3>
+        <p>The more churches you refer, the higher your commission rate. Reward for your hustle.</p>
       </div>
     </div>
   </div>
 
-  <!-- ── Pricing ──────────────────────────────────── -->
+  <!-- ── Commission Tiers ─────────────────────────── -->
   <div class="section" id="pricing">
     <div class="pricing-heading">
-      <h2>Simple, Transparent Pricing</h2>
-      <p>Start free, upgrade as you grow. All plans include a 30-day trial.</p>
+      <h2>Commission Structure</h2>
+      <p>Earn more as you grow. No caps, no limits. Commissions are paid monthly on active subscriptions.</p>
     </div>
-    <div class="grid-3">
+    <div class="grid-3" style="max-width:960px; margin:0 auto;">
 
-      <!-- Starter -->
       <div class="price-card">
-        <div class="tier-name">Starter</div>
-        <div class="tier-desc">For integrators getting started</div>
-        <div class="price">$49<span>/mo</span></div>
+        <div class="tier-name">Getting Started</div>
+        <div class="tier-desc">1 – 10 active churches</div>
+        <div class="price">50%<span> commission</span></div>
         <ul class="feature-list">
-          <li><span class="check">\u2713</span> Up to 10 churches</li>
+          <li><span class="check">\u2713</span> 50% of every subscription</li>
           <li><span class="check">\u2713</span> Reseller dashboard</li>
-          <li><span class="check">\u2713</span> Basic branding (name + color)</li>
-          <li><span class="check">\u2713</span> Church portal access</li>
-          <li><span class="check">\u2713</span> API access</li>
-          <li><span class="cross">\u2014</span> Webhook alerts</li>
-          <li><span class="cross">\u2014</span> Custom domain</li>
+          <li><span class="check">\u2713</span> Church provisioning tools</li>
+          <li><span class="check">\u2713</span> Monthly payouts</li>
           <li><span class="check">\u2713</span> Email support</li>
         </ul>
-        <a href="#signup" class="btn-tier-ghost" onclick="selectTier('starter')">Get Started</a>
+        <div style="text-align:center;padding:12px 0 4px;font-size:12px;color:#94A3B8;">
+          Example: 10 churches on Connect ($49/mo)<br>
+          <strong style="color:#22c55e;">You earn $245/mo</strong>
+        </div>
       </div>
 
-      <!-- Growth -->
       <div class="price-card popular">
-        <div class="popular-badge">POPULAR</div>
-        <div class="tier-name">Growth</div>
-        <div class="tier-desc">For growing AV companies</div>
-        <div class="price">$149<span>/mo</span></div>
+        <div class="popular-badge">SWEET SPOT</div>
+        <div class="tier-name">Growing</div>
+        <div class="tier-desc">11 – 25 active churches</div>
+        <div class="price">55%<span> commission</span></div>
         <ul class="feature-list">
-          <li><span class="check">\u2713</span> Up to 25 churches</li>
+          <li><span class="check">\u2713</span> 55% of every subscription</li>
           <li><span class="check">\u2713</span> Reseller dashboard</li>
-          <li><span class="check">\u2713</span> Full branding (logo + colors)</li>
-          <li><span class="check">\u2713</span> Church portal access</li>
-          <li><span class="check">\u2713</span> API access</li>
-          <li><span class="check">\u2713</span> Webhook alerts</li>
-          <li><span class="cross">\u2014</span> Custom domain</li>
-          <li><span class="check">\u2713</span> Priority email support</li>
+          <li><span class="check">\u2713</span> Church provisioning tools</li>
+          <li><span class="check">\u2713</span> Monthly payouts</li>
+          <li><span class="check">\u2713</span> Priority support</li>
         </ul>
-        <a href="#signup" class="btn-tier" onclick="selectTier('growth')">Get Started</a>
+        <div style="text-align:center;padding:12px 0 4px;font-size:12px;color:#94A3B8;">
+          Example: 20 churches on Connect ($49/mo)<br>
+          <strong style="color:#22c55e;">You earn $539/mo</strong>
+        </div>
       </div>
 
-      <!-- Scale -->
       <div class="price-card">
-        <div class="tier-name">Scale</div>
-        <div class="tier-desc">For large operations</div>
-        <div class="price">$399<span>/mo</span></div>
+        <div class="tier-name">Scaling</div>
+        <div class="tier-desc">26+ active churches</div>
+        <div class="price">60%<span> commission</span></div>
         <ul class="feature-list">
-          <li><span class="check">\u2713</span> Up to 100 churches</li>
+          <li><span class="check">\u2713</span> 60% of every subscription</li>
           <li><span class="check">\u2713</span> Reseller dashboard</li>
-          <li><span class="check">\u2713</span> Full branding (logo + colors)</li>
-          <li><span class="check">\u2713</span> Church portal access</li>
-          <li><span class="check">\u2713</span> API access</li>
-          <li><span class="check">\u2713</span> Webhook alerts</li>
-          <li><span class="check">\u2713</span> Custom domain</li>
+          <li><span class="check">\u2713</span> Church provisioning tools</li>
+          <li><span class="check">\u2713</span> Monthly payouts</li>
           <li><span class="check">\u2713</span> Dedicated account manager</li>
         </ul>
-        <a href="#signup" class="btn-tier-ghost" onclick="selectTier('scale')">Get Started</a>
+        <div style="text-align:center;padding:12px 0 4px;font-size:12px;color:#94A3B8;">
+          Example: 40 churches on Connect ($49/mo)<br>
+          <strong style="color:#22c55e;">You earn $1,176/mo</strong>
+        </div>
       </div>
 
+    </div>
+    <div style="text-align:center; margin-top:32px; font-size:13px; color:#64748B;">
+      Tally plans: Connect $49/mo &bull; Pro $149/mo &bull; Managed $299/mo — your commission applies to all tiers
     </div>
   </div>
 
   <!-- ── Signup Form ──────────────────────────────── -->
   <div class="section-sm" id="signup">
     <div class="signup-card">
-      <h2>Create Your Reseller Account</h2>
-      <p class="subtitle">Start your 30-day free trial — no credit card required</p>
+      <h2>Become a Tally Reseller</h2>
+      <p class="subtitle">Free to join — start earning commissions today</p>
       ${error ? '<div class="error">' + error + '</div>' : ''}
       <form method="POST" action="/api/reseller-portal/signup" id="signup-form">
-        <input type="hidden" name="tier" id="tier-input" value="starter">
         <label>Company Name</label>
         <input type="text" name="name" placeholder="Your AV Company" required>
         <label>Email Address</label>
@@ -524,9 +548,6 @@ function buildResellerSalesPageHtml(error = '') {
   </div>
 
   <script>
-    function selectTier(tier) {
-      document.getElementById('tier-input').value = tier;
-    }
     document.getElementById('signup-form').addEventListener('submit', function(e) {
       var pw1 = document.getElementById('pw1').value;
       var pw2 = document.getElementById('pw2').value;
