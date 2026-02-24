@@ -7,8 +7,21 @@
 
 const assert = require('assert');
 const http = require('http');
-const WebSocket = require('ws');
-const { v4: uuidv4 } = require('uuid');
+const path = require('path');
+
+let WebSocket;
+try {
+  WebSocket = require('ws');
+} catch {
+  WebSocket = require(path.join(__dirname, '../relay-server/node_modules/ws'));
+}
+
+let uuidv4;
+try {
+  ({ v4: uuidv4 } = require('uuid'));
+} catch {
+  ({ v4: uuidv4 } = require(path.join(__dirname, '../relay-server/node_modules/uuid')));
+}
 
 const TEST_PORT = 30000 + Math.floor(Math.random() * 10000);
 const API_KEY = 'test-admin-key-' + uuidv4().substring(0, 8);
@@ -18,6 +31,7 @@ let serverProcess;
 let results = [];
 let totalTests = 0;
 let passed = 0;
+let testDbPath;
 
 function test(name, fn) {
   totalTests++;
@@ -52,19 +66,29 @@ function apiRequest(method, path, body = null) {
 function connectWS(path) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://localhost:${TEST_PORT}${path}`);
-    ws.on('open', () => resolve(ws));
-    ws.on('error', reject);
-    setTimeout(() => reject(new Error('WS connect timeout')), 5000);
+    const timer = setTimeout(() => reject(new Error('WS connect timeout')), 5000);
+    ws.on('open', () => {
+      clearTimeout(timer);
+      resolve(ws);
+    });
+    ws.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
   });
 }
 
 function waitForMessage(ws, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('WS message timeout')), timeoutMs);
-    ws.once('message', (data) => {
+    const onMessage = (data) => {
       clearTimeout(timer);
       resolve(JSON.parse(data.toString()));
-    });
+    };
+    const timer = setTimeout(() => {
+      ws.off('message', onMessage);
+      reject(new Error('WS message timeout'));
+    }, timeoutMs);
+    ws.once('message', onMessage);
   });
 }
 
@@ -85,8 +109,9 @@ async function startServer() {
   const { spawn } = require('child_process');
   const serverPath = require('path').join(__dirname, '../relay-server/server.js');
 
+  testDbPath = require('path').join(__dirname, '../relay-server/data', `test-${Date.now()}.db`);
   serverProcess = spawn('node', [serverPath], {
-    env: { ...process.env, PORT: TEST_PORT, ADMIN_API_KEY: API_KEY, JWT_SECRET: JWT_SECRET, DATABASE_PATH: './data/test-' + Date.now() + '.db' },
+    env: { ...process.env, PORT: TEST_PORT, ADMIN_API_KEY: API_KEY, JWT_SECRET: JWT_SECRET, DATABASE_PATH: testDbPath },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
@@ -199,9 +224,10 @@ async function runTests() {
 
   // 10. Send command via API
   await test('Send command to church via API', async () => {
+    const waitCommand = waitForMessage(churchWS);
     const { body } = await apiRequest('POST', '/api/command', { churchId, command: 'atem.cut', params: { input: 2 } });
     assert.ok(body.sent);
-    const msg = await waitForMessage(churchWS);
+    const msg = await waitCommand;
     assert.strictEqual(msg.type, 'command');
     assert.strictEqual(msg.command, 'atem.cut');
     assert.strictEqual(msg.params.input, 2);
@@ -237,10 +263,12 @@ async function runTests() {
     const bigData = 'x'.repeat(200_000);
     churchWS.send(JSON.stringify({ type: 'preview_frame', data: bigData }));
     // Controller should NOT receive this
-    const received = await Promise.race([
-      waitForMessage(controllerWS, 1000).then(() => true),
-      sleep(1200).then(() => false),
-    ]);
+    const received = await waitForMessage(controllerWS, 1000)
+      .then(() => true)
+      .catch((err) => {
+        if (err.message === 'WS message timeout') return false;
+        throw err;
+      });
     assert.strictEqual(received, false);
   });
 
@@ -254,9 +282,10 @@ async function runTests() {
 
   // 16. Broadcast
   await test('Broadcast command reaches connected church', async () => {
+    const waitBroadcast = waitForMessage(churchWS);
     const { body } = await apiRequest('POST', '/api/broadcast', { command: 'atem.fadeToBlack' });
     assert.strictEqual(body.sent, 1);
-    const msg = await waitForMessage(churchWS);
+    const msg = await waitBroadcast;
     assert.strictEqual(msg.command, 'atem.fadeToBlack');
   });
 
