@@ -133,6 +133,9 @@ AUDIO_DEVICE=hw:0,0
 # Local API server port and auth token
 TALLY_API_PORT=7070
 TALLY_API_TOKEN=your-random-api-secret
+
+# Optional local-dev override only (keep false in production)
+TALLY_ALLOW_INSECURE_API=false
 ```
 
 ### Finding your v4l2 device
@@ -186,6 +189,7 @@ sudo systemctl stop tally-encoder
 ## Remote Management API
 
 The API server runs on port `7070` and requires a `Bearer` token.
+If `TALLY_API_TOKEN` is not set, protected endpoints now fail closed with `503` unless `TALLY_ALLOW_INSECURE_API=true` is explicitly set for local development.
 
 ### Check health (no auth)
 

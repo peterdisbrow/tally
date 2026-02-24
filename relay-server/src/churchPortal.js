@@ -9,6 +9,9 @@
  *
  *   GET  /api/church/me                  church profile
  *   PUT  /api/church/me                  update email, phone, notification prefs
+ *   GET  /api/church/campuses            list linked campuses
+ *   POST /api/church/campuses            create linked campus
+ *   DELETE /api/church/campuses/:id      remove linked campus
  *   GET  /api/church/schedule            service schedule
  *   PUT  /api/church/schedule            update schedule
  *   GET  /api/church/tds                 tech directors list
@@ -50,6 +53,14 @@ function issueChurchToken(churchId, jwtSecret) {
   return jwt.sign({ type: 'church_portal', churchId }, jwtSecret, { expiresIn: '7d' });
 }
 
+function generateRegistrationCode(db) {
+  let code;
+  do {
+    code = crypto.randomBytes(3).toString('hex').toUpperCase();
+  } while (db.prepare('SELECT 1 FROM churches WHERE registration_code = ?').get(code));
+  return code;
+}
+
 function requireChurchPortalAuth(db, jwtSecret) {
   return (req, res, next) => {
     const token = req.cookies?.tally_church_session;
@@ -69,6 +80,28 @@ function requireChurchPortalAuth(db, jwtSecret) {
       if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Session expired' });
       return res.redirect('/church-login');
     }
+  };
+}
+
+function requireChurchPortalOrAppAuth(db, jwtSecret) {
+  const cookieAuth = requireChurchPortalAuth(db, jwtSecret);
+  return (req, res, next) => {
+    const auth = req.headers?.authorization || '';
+    if (auth.startsWith('Bearer ')) {
+      try {
+        const payload = jwt.verify(auth.slice(7), jwtSecret);
+        if (payload.type !== 'church_portal' && payload.type !== 'church_app') {
+          throw new Error('wrong type');
+        }
+        const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
+        if (!church) return res.status(404).json({ error: 'Church not found' });
+        req.church = church;
+        return next();
+      } catch {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+    }
+    return cookieAuth(req, res, next);
   };
 }
 
@@ -310,6 +343,36 @@ function buildChurchPortalHtml(church) {
     .field input:focus, .field textarea:focus, .field select:focus { border-color: #22c55e; }
     .field textarea { resize: vertical; min-height: 100px; font-family: 'Courier New', monospace; font-size: 12px; }
     .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    /* SCHEDULE EDITOR */
+    .schedule-empty {
+      border: 1px dashed #1a2e1f;
+      border-radius: 8px;
+      padding: 14px;
+      color: #64748B;
+      font-size: 12px;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+    .schedule-rows { display: flex; flex-direction: column; gap: 10px; }
+    .schedule-row {
+      display: grid;
+      grid-template-columns: 150px 120px 120px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      background: #09090B;
+      border: 1px solid #1a2e1f;
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .schedule-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .schedule-note { color: #64748B; font-size: 12px; }
     .btn-primary {
       background: #22c55e;
       color: #09090B;
@@ -453,6 +516,9 @@ function buildChurchPortalHtml(church) {
     @media (max-width: 640px) {
       .sidebar { display: none; }
       .main { margin-left: 0; padding: 20px; }
+      .schedule-row {
+        grid-template-columns: 1fr 1fr;
+      }
     }
   </style>
 </head>
@@ -470,6 +536,9 @@ function buildChurchPortalHtml(church) {
     </button>
     <button class="nav-item" data-page="profile" onclick="showPage('profile', this)">
       <span class="icon">⊞</span> Profile
+    </button>
+    <button class="nav-item" data-page="campuses" onclick="showPage('campuses', this)">
+      <span class="icon">⊚</span> Campuses
     </button>
     <button class="nav-item" data-page="tds" onclick="showPage('tds', this)">
       <span class="icon">⊛</span> Tech Directors
@@ -540,6 +609,7 @@ function buildChurchPortalHtml(church) {
             <tr><td style="color:#94A3B8;width:160px">Church ID</td><td><code style="font-size:12px;color:#475569">${church.churchId}</code></td></tr>
             <tr><td style="color:#94A3B8">Registered</td><td id="registered-date" style="color:#F8FAFC">—</td></tr>
             <tr><td style="color:#94A3B8">Plan</td><td id="plan-name" style="color:#F8FAFC">—</td></tr>
+            <tr><td style="color:#94A3B8">Campuses / Rooms</td><td id="plan-campus-limit" style="color:#F8FAFC">—</td></tr>
           </tbody>
         </table>
       </div>
@@ -601,6 +671,39 @@ function buildChurchPortalHtml(church) {
       </div>
     </div>
 
+    <!-- CAMPUSES -->
+    <div class="page" id="page-campuses">
+      <div class="page-header">
+        <div class="page-title">Multi-Campus</div>
+        <div class="page-sub">Manage additional campuses under this account</div>
+      </div>
+      <p class="help-box"><strong>How it works:</strong> Each campus gets its own Church ID, connection token, and Telegram registration code. Install the Tally app at each campus and connect using that campus token.</p>
+      <div id="campus-plan-note" class="help-box" style="display:none"></div>
+      <div class="card">
+        <div class="card-title">Add Campus</div>
+        <div class="field-row">
+          <div class="field">
+            <label>Campus Name</label>
+            <input type="text" id="campus-name" placeholder="North Campus">
+          </div>
+          <div class="field">
+            <label>City / State (optional)</label>
+            <input type="text" id="campus-location" placeholder="Franklin, TN">
+          </div>
+        </div>
+        <button class="btn-primary" id="btn-create-campus" onclick="addCampus()">Create Campus</button>
+      </div>
+      <div class="card">
+        <div class="card-title">Linked Campuses</div>
+        <table>
+          <thead><tr><th>Campus</th><th>Status</th><th>Registration Code</th><th>Connection Token</th><th></th></tr></thead>
+          <tbody id="campuses-tbody">
+            <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- TECH DIRECTORS -->
     <div class="page" id="page-tds">
       <div class="page-header">
@@ -628,13 +731,17 @@ function buildChurchPortalHtml(church) {
         <div class="page-sub">Define your recurring service windows for smart alerts</div>
       </div>
       <div class="card">
-        <div class="card-title">Schedule Configuration (JSON)</div>
-        <p style="font-size:12px;color:#94A3B8;margin-bottom:14px">Format: <code style="color:#22c55e">{ "sunday": [{"start":"09:00","end":"11:30","label":"Morning Service"}] }</code></p>
-        <div class="field">
-          <textarea id="schedule-json" style="min-height:200px;font-size:12px" placeholder='{"sunday":[{"start":"09:00","end":"11:30","label":"Morning Service"}]}'></textarea>
+        <div class="card-title">Weekly Service Windows</div>
+        <p style="font-size:12px;color:#94A3B8;margin-bottom:14px">Add each recurring service window below. Alerts and automation use these time windows.</p>
+        <div id="schedule-empty" class="schedule-empty">No service windows yet. Add your first one.</div>
+        <div id="schedule-rows" class="schedule-rows"></div>
+        <div class="schedule-actions">
+          <button class="btn-secondary" onclick="addScheduleRow()">+ Add Service Window</button>
+          <span class="schedule-note">Tip: set separate windows for Saturday rehearsal and Sunday service.</span>
         </div>
-        <button class="btn-primary" onclick="saveSchedule()">Save Schedule</button>
-        <button class="btn-secondary" style="margin-left:10px" onclick="formatScheduleJson()">Format JSON</button>
+        <div style="margin-top:16px">
+          <button class="btn-primary" onclick="saveSchedule()">Save Schedule</button>
+        </div>
       </div>
     </div>
 
@@ -747,28 +854,63 @@ function buildChurchPortalHtml(church) {
     <div class="page" id="page-support">
       <div class="page-header">
         <div class="page-title">Help & Support</div>
-        <div class="page-sub">Get help, view docs, and contact support</div>
+        <div class="page-sub">Run diagnostics, open tickets, and track platform status</div>
       </div>
       <div class="card" style="margin-bottom:16px">
-        <div class="card-title">Contact Support</div>
-        <p style="color:#94A3B8;font-size:14px;line-height:1.6;margin:8px 0">
-          Email us at <a href="mailto:support@atemschool.com" style="color:#22c55e">support@atemschool.com</a>
-        </p>
+        <div class="card-title">Support SLA</div>
         <p id="support-response-time" style="color:#475569;font-size:13px;margin-top:8px"></p>
+        <p style="color:#94A3B8;font-size:13px;line-height:1.6;margin-top:8px">
+          Direct support: <a href="mailto:support@atemschool.com" style="color:#22c55e">support@atemschool.com</a>
+        </p>
       </div>
       <div class="card" style="margin-bottom:16px">
-        <div class="card-title">Help Center</div>
-        <p style="color:#94A3B8;font-size:14px;line-height:1.6;margin:8px 0">
-          Visit our <a href="https://tally.atemschool.com/help" target="_blank" style="color:#22c55e">Help & FAQ page</a> for getting started guides, troubleshooting, feature explainers, and answers to common questions.
-        </p>
+        <div class="card-title">Run Guided Diagnostics</div>
+        <div class="field">
+          <label>Issue category</label>
+          <select id="support-issue">
+            <option value="stream_down">Stream down</option>
+            <option value="no_audio_stream">No audio on stream</option>
+            <option value="slides_issue">Slides / ProPresenter issue</option>
+            <option value="atem_connectivity">ATEM connectivity issue</option>
+            <option value="recording_issue">Recording issue</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Severity</label>
+          <select id="support-severity">
+            <option value="P2">P2 - High (service impact)</option>
+            <option value="P3">P3 - Medium</option>
+            <option value="P4">P4 - Low / question</option>
+            <option value="P1">P1 - Critical outage</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Summary</label>
+          <textarea id="support-summary" rows="3" placeholder="What happened? Include timing and what changed."></textarea>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn-primary" onclick="runSupportTriage()">Run Triage</button>
+          <button class="btn-secondary" onclick="createSupportTicket()">Open Ticket</button>
+          <button class="btn-secondary" onclick="loadSupportTickets()">Refresh Tickets</button>
+        </div>
+        <div id="support-triage-result" style="margin-top:12px;color:#94A3B8;font-size:13px;line-height:1.6"></div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">Platform Status</div>
+        <div id="support-status-components" style="display:flex;flex-direction:column;gap:8px;color:#94A3B8;font-size:13px"></div>
+        <div style="margin-top:10px">
+          <a href="/status" target="_blank" style="color:#22c55e">Open full status page →</a>
+        </div>
       </div>
       <div class="card">
-        <div class="card-title">Links</div>
-        <ul style="color:#94A3B8;font-size:14px;line-height:1.9;padding-left:20px;margin:8px 0">
-          <li><a href="https://tally.atemschool.com/help" target="_blank" style="color:#22c55e">Getting Started Guide</a></li>
-          <li><a href="https://tally.atemschool.com/terms" target="_blank" style="color:#22c55e">Terms of Service</a></li>
-          <li><a href="https://tally.atemschool.com/privacy" target="_blank" style="color:#22c55e">Privacy Policy</a></li>
-        </ul>
+        <div class="card-title">Support Tickets</div>
+        <table>
+          <thead><tr><th>Created</th><th>Status</th><th>Severity</th><th>Title</th><th>Action</th></tr></thead>
+          <tbody id="support-tickets-tbody">
+            <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -805,6 +947,18 @@ function buildChurchPortalHtml(church) {
     const CHURCH_ID = '${church.churchId}';
     let profileData = {};
     let notifData = {};
+    let campusData = [];
+    let supportTriage = null;
+    const SCHEDULE_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const SCHEDULE_DAY_LABELS = {
+      sunday: 'Sunday',
+      monday: 'Monday',
+      tuesday: 'Tuesday',
+      wednesday: 'Wednesday',
+      thursday: 'Thursday',
+      friday: 'Friday',
+      saturday: 'Saturday',
+    };
 
     // ── navigation ──────────────────────────────────────────────────────────────
     function showPage(id, el) {
@@ -813,6 +967,7 @@ function buildChurchPortalHtml(church) {
       document.getElementById('page-' + id).classList.add('active');
       el.classList.add('active');
       if (id === 'overview') loadOverview();
+      if (id === 'campuses') loadCampuses();
       if (id === 'tds') loadTds();
       if (id === 'schedule') loadSchedule();
       if (id === 'guests') loadGuests();
@@ -851,12 +1006,32 @@ function buildChurchPortalHtml(church) {
         document.getElementById('registered-date').textContent = d.registeredAt ? new Date(d.registeredAt).toLocaleDateString() : '—';
         const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed', event: 'Event' };
         document.getElementById('plan-name').textContent = tierNames[d.billing_tier] || d.billing_tier || 'Connect';
+        try {
+          const campusPayload = await api('GET', '/api/church/campuses');
+          const limits = campusPayload && campusPayload.limits ? campusPayload.limits : null;
+          const limitEl = document.getElementById('plan-campus-limit');
+          if (limitEl) {
+            if (limits) {
+              limitEl.textContent = limits.usedTotal + ' / ' + limits.maxTotal;
+            } else {
+              limitEl.textContent = '1 / 1';
+            }
+          }
+        } catch {
+          const limitEl = document.getElementById('plan-campus-limit');
+          if (limitEl) limitEl.textContent = '—';
+        }
 
         const tbody = document.getElementById('equipment-tbody');
         const status = d.status || {};
         const enc = status.encoder || {};
-        const encNames = { obs:'OBS', vmix:'vMix', ecamm:'Ecamm', blackmagic:'Blackmagic', aja:'AJA HELO', epiphan:'Epiphan', teradek:'Teradek', yolobox:'YoloBox', 'tally-encoder':'Tally Encoder', custom:'Custom' };
-        const encoderLabel = encNames[enc.type] || (status.obs ? 'OBS Studio' : 'Encoder');
+        const encNames = {
+          obs:'OBS', vmix:'vMix', ecamm:'Ecamm', blackmagic:'Blackmagic',
+          aja:'AJA HELO', epiphan:'Epiphan', teradek:'Teradek', ndi:'NDI Decoder',
+          yolobox:'YoloBox', 'tally-encoder':'Tally Encoder', custom:'Custom',
+          'custom-rtmp':'Custom RTMP', 'rtmp-generic':'RTMP Encoder',
+        };
+        const encoderLabel = encNames[enc.type] || (enc.type ? ('Encoder (' + enc.type + ')') : (status.obs ? 'OBS Studio' : 'Streaming Encoder'));
         const encoderStatus = enc.connected ? (enc.live ? 'streaming' : 'connected') : (status.obs && status.obs.connected ? (status.obs.streaming ? 'streaming' : 'connected') : 'unknown');
         const audioStatus = (status.mixer && status.mixer.mainMuted) ? 'muted' : (status.audio && status.audio.silenceDetected) ? 'warning' : (enc.live || (status.obs && status.obs.streaming)) ? 'ok' : 'unknown';
         const rows = [
@@ -928,6 +1103,139 @@ function buildChurchPortalHtml(church) {
       } catch(e) { toast(e.message, true); }
     }
 
+    // ── Campuses ───────────────────────────────────────────────────────────────
+    function getCampusById(churchId) {
+      return campusData.find(function(c) { return c.churchId === churchId; }) || null;
+    }
+
+    async function copyCampusValue(value, okMessage) {
+      if (!value) return;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(value);
+          toast(okMessage || 'Copied');
+          return;
+        }
+      } catch { /* fallback below */ }
+      prompt('Copy value:', value);
+    }
+
+    async function loadCampuses() {
+      try {
+        const payload = await api('GET', '/api/church/campuses');
+        campusData = Array.isArray(payload) ? payload : (Array.isArray(payload.campuses) ? payload.campuses : []);
+        const limits = (!Array.isArray(payload) && payload && payload.limits) ? payload.limits : null;
+
+        const noteEl = document.getElementById('campus-plan-note');
+        const createBtn = document.getElementById('btn-create-campus');
+        const nameEl = document.getElementById('campus-name');
+        const locEl = document.getElementById('campus-location');
+        if (noteEl) {
+          if (limits) {
+            const tierLabel = String(limits.tier || 'connect').toUpperCase();
+            noteEl.innerHTML = '<strong>Campus Limits:</strong> Plan ' + tierLabel + ': up to ' + limits.maxTotal + ' total campus/room setup' + (limits.maxTotal === 1 ? '' : 's') + '. You are using ' + limits.usedTotal + '.';
+            noteEl.style.display = 'block';
+          } else {
+            noteEl.style.display = 'none';
+            noteEl.textContent = '';
+          }
+        }
+        if (createBtn) {
+          const canAdd = !limits || limits.canAdd;
+          createBtn.disabled = !canAdd;
+          createBtn.style.opacity = canAdd ? '1' : '0.55';
+          if (nameEl) nameEl.disabled = !canAdd;
+          if (locEl) locEl.disabled = !canAdd;
+        }
+
+        const tbody = document.getElementById('campuses-tbody');
+        if (!campusData.length) {
+          tbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">No linked campuses yet.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = campusData.map(function(c) {
+          const status = c.connected ? 'Online' : 'Offline';
+          const statusClass = c.connected ? 'badge-green' : 'badge-gray';
+          const code = c.registrationCode || '—';
+          const tokenPreview = c.token ? (c.token.slice(0, 16) + '…') : '—';
+          const location = c.location ? ('<div style="color:#64748B;font-size:12px">' + c.location + '</div>') : '';
+          return '<tr>' +
+            '<td>' + c.name + location + '</td>' +
+            '<td><span class="badge ' + statusClass + '">' + status + '</span></td>' +
+            '<td><code style="font-size:12px;color:#22c55e">' + code + '</code><div><button class="btn-sm campus-copy-code-btn" data-campus-id="' + c.churchId + '">Copy</button></div></td>' +
+            '<td><code style="font-size:12px;color:#94A3B8">' + tokenPreview + '</code><div><button class="btn-sm campus-copy-token-btn" data-campus-id="' + c.churchId + '">Copy</button></div></td>' +
+            '<td><button class="btn-danger campus-remove-btn" data-campus-id="' + c.churchId + '">Remove</button></td>' +
+          '</tr>';
+        }).join('');
+        Array.from(tbody.querySelectorAll('.campus-copy-code-btn')).forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            copyCampusCode(btn.getAttribute('data-campus-id'));
+          });
+        });
+        Array.from(tbody.querySelectorAll('.campus-copy-token-btn')).forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            copyCampusToken(btn.getAttribute('data-campus-id'));
+          });
+        });
+        Array.from(tbody.querySelectorAll('.campus-remove-btn')).forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            removeCampus(btn.getAttribute('data-campus-id'));
+          });
+        });
+      } catch (e) {
+        document.getElementById('campuses-tbody').innerHTML = '<tr><td colspan="5" style="color:#ef4444;text-align:center;padding:20px">Failed to load campuses.</td></tr>';
+      }
+    }
+
+    function copyCampusCode(churchId) {
+      const c = getCampusById(churchId);
+      copyCampusValue(c && c.registrationCode, 'Registration code copied');
+    }
+
+    function copyCampusToken(churchId) {
+      const c = getCampusById(churchId);
+      copyCampusValue(c && c.token, 'Connection token copied');
+    }
+
+    async function addCampus() {
+      const createBtn = document.getElementById('btn-create-campus');
+      if (createBtn && createBtn.disabled) {
+        return toast('Your current plan has reached its campus limit', true);
+      }
+      const nameEl = document.getElementById('campus-name');
+      const locEl = document.getElementById('campus-location');
+      const name = String(nameEl.value || '').trim();
+      const location = String(locEl.value || '').trim();
+      if (!name) return toast('Campus name is required', true);
+
+      try {
+        const created = await api('POST', '/api/church/campuses', { name, location });
+        nameEl.value = '';
+        locEl.value = '';
+        toast('Campus created');
+        loadCampuses();
+        if (created && created.registrationCode) {
+          prompt('Campus created. Save this registration code:', created.registrationCode);
+        }
+      } catch (e) {
+        toast(e.message || 'Failed to create campus', true);
+      }
+    }
+
+    async function removeCampus(churchId) {
+      const campus = getCampusById(churchId);
+      const label = campus ? campus.name : 'this campus';
+      if (!confirm('Remove ' + label + '? This will disconnect it and delete its campus record.')) return;
+      try {
+        await api('DELETE', '/api/church/campuses/' + churchId);
+        toast('Campus removed');
+        loadCampuses();
+      } catch (e) {
+        toast(e.message || 'Failed to remove campus', true);
+      }
+    }
+
     // ── TDs ──────────────────────────────────────────────────────────────────
     async function loadTds() {
       try {
@@ -977,27 +1285,209 @@ function buildChurchPortalHtml(church) {
     }
 
     // ── Schedule ─────────────────────────────────────────────────────────────
+    function pad2(n) {
+      return String(n).padStart(2, '0');
+    }
+
+    function toMinutes(hhmm) {
+      const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})$/);
+      if (!m) return null;
+      const h = Number(m[1]);
+      const min = Number(m[2]);
+      if (!Number.isFinite(h) || !Number.isFinite(min) || h < 0 || h > 23 || min < 0 || min > 59) return null;
+      return (h * 60) + min;
+    }
+
+    function fromMinutes(total) {
+      const safe = Math.max(0, Math.min(1439, Number(total) || 0));
+      const h = Math.floor(safe / 60);
+      const m = safe % 60;
+      return pad2(h) + ':' + pad2(m);
+    }
+
+    function normalizeTime(value) {
+      const mins = toMinutes(value);
+      return mins === null ? '' : fromMinutes(mins);
+    }
+
+    function defaultEndFor(start) {
+      const startMin = toMinutes(start);
+      if (startMin === null) return '11:00';
+      return fromMinutes(Math.min(1439, startMin + 120));
+    }
+
+    function emptyScheduleObject() {
+      const out = {};
+      SCHEDULE_DAYS.forEach(function(day) { out[day] = []; });
+      return out;
+    }
+
+    function normalizeSchedulePayload(raw) {
+      const out = emptyScheduleObject();
+
+      // Legacy service_times array support (day/startHour/startMin/durationHours)
+      if (Array.isArray(raw)) {
+        raw.forEach(function(item) {
+          const dayNum = Number(item && item.day);
+          if (!Number.isInteger(dayNum) || dayNum < 0 || dayNum > 6) return;
+          const dayKey = SCHEDULE_DAYS[dayNum];
+          const startHour = Number(item && item.startHour);
+          const startMin = Number((item && item.startMin) || 0);
+          const durationHours = Number((item && item.durationHours) || 2);
+          if (!Number.isFinite(startHour) || !Number.isFinite(startMin) || !Number.isFinite(durationHours)) return;
+          const start = fromMinutes((startHour * 60) + startMin);
+          const end = fromMinutes((startHour * 60) + startMin + Math.max(15, Math.round(durationHours * 60)));
+          out[dayKey].push({
+            start: start,
+            end: end,
+            label: String((item && (item.label || item.title)) || '').trim(),
+          });
+        });
+      }
+
+      // Preferred object format: { sunday: [{start,end,label}], ... }
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        Object.keys(raw).forEach(function(k) {
+          const dayKey = String(k || '').toLowerCase();
+          if (!SCHEDULE_DAYS.includes(dayKey)) return;
+          const entries = Array.isArray(raw[dayKey]) ? raw[dayKey] : [];
+          entries.forEach(function(entry) {
+            const start = normalizeTime(entry && (entry.start || entry.startTime));
+            const end = normalizeTime(entry && (entry.end || entry.endTime));
+            if (!start || !end) return;
+            out[dayKey].push({
+              start: start,
+              end: end,
+              label: String((entry && entry.label) || '').trim(),
+            });
+          });
+        });
+      }
+
+      SCHEDULE_DAYS.forEach(function(dayKey) {
+        out[dayKey].sort(function(a, b) {
+          return (toMinutes(a.start) || 0) - (toMinutes(b.start) || 0);
+        });
+      });
+
+      return out;
+    }
+
+    function compactSchedule(scheduleObj) {
+      const out = {};
+      SCHEDULE_DAYS.forEach(function(day) {
+        const entries = Array.isArray(scheduleObj[day]) ? scheduleObj[day] : [];
+        if (entries.length) out[day] = entries;
+      });
+      return out;
+    }
+
+    function updateScheduleEmptyState() {
+      const emptyEl = document.getElementById('schedule-empty');
+      const rowsEl = document.getElementById('schedule-rows');
+      if (!emptyEl || !rowsEl) return;
+      emptyEl.style.display = rowsEl.children.length ? 'none' : 'block';
+    }
+
+    function buildDayOptionsHtml(selectedDay) {
+      return SCHEDULE_DAYS.map(function(day) {
+        return '<option value="' + day + '"' + (day === selectedDay ? ' selected' : '') + '>' + SCHEDULE_DAY_LABELS[day] + '</option>';
+      }).join('');
+    }
+
+    function addScheduleRow(prefill) {
+      const rowsEl = document.getElementById('schedule-rows');
+      if (!rowsEl) return;
+
+      const day = (prefill && SCHEDULE_DAYS.includes(prefill.day)) ? prefill.day : 'sunday';
+      const start = normalizeTime(prefill && prefill.start) || '09:00';
+      const end = normalizeTime(prefill && prefill.end) || defaultEndFor(start);
+      const label = String((prefill && prefill.label) || '').trim();
+
+      const row = document.createElement('div');
+      row.className = 'schedule-row';
+      row.innerHTML =
+        '<select data-schedule-field="day">' + buildDayOptionsHtml(day) + '</select>' +
+        '<input data-schedule-field="start" type="time" value="' + start + '">' +
+        '<input data-schedule-field="end" type="time" value="' + end + '">' +
+        '<input data-schedule-field="label" type="text" placeholder="Service label (optional)" value="' + label.replace(/"/g, '&quot;') + '">' +
+        '<button class="btn-danger" type="button">Remove</button>';
+
+      const removeBtn = row.querySelector('button');
+      removeBtn.addEventListener('click', function() {
+        row.remove();
+        updateScheduleEmptyState();
+      });
+
+      rowsEl.appendChild(row);
+      updateScheduleEmptyState();
+    }
+
+    function renderScheduleRows(scheduleObj) {
+      const rowsEl = document.getElementById('schedule-rows');
+      if (!rowsEl) return;
+      rowsEl.innerHTML = '';
+
+      let added = 0;
+      SCHEDULE_DAYS.forEach(function(day) {
+        const entries = Array.isArray(scheduleObj[day]) ? scheduleObj[day] : [];
+        entries.forEach(function(entry) {
+          addScheduleRow({ day: day, start: entry.start, end: entry.end, label: entry.label });
+          added += 1;
+        });
+      });
+
+      if (!added) {
+        updateScheduleEmptyState();
+      }
+    }
+
+    function collectScheduleFromRows() {
+      const out = emptyScheduleObject();
+      const rows = Array.from(document.querySelectorAll('#schedule-rows .schedule-row'));
+
+      for (const row of rows) {
+        const day = String(row.querySelector('[data-schedule-field="day"]')?.value || '').toLowerCase();
+        const start = normalizeTime(row.querySelector('[data-schedule-field="start"]')?.value || '');
+        const end = normalizeTime(row.querySelector('[data-schedule-field="end"]')?.value || '');
+        const label = String(row.querySelector('[data-schedule-field="label"]')?.value || '').trim();
+
+        if (!day || !SCHEDULE_DAYS.includes(day)) continue;
+        if (!start && !end && !label) continue;
+        if (!start || !end) throw new Error('Each service window needs both a start and end time');
+
+        const startMin = toMinutes(start);
+        const endMin = toMinutes(end);
+        if (startMin === null || endMin === null || endMin <= startMin) {
+          throw new Error('End time must be after start time');
+        }
+
+        out[day].push({ start: start, end: end, label: label });
+      }
+
+      SCHEDULE_DAYS.forEach(function(day) {
+        out[day].sort(function(a, b) {
+          return (toMinutes(a.start) || 0) - (toMinutes(b.start) || 0);
+        });
+      });
+
+      return compactSchedule(out);
+    }
+
     async function loadSchedule() {
       try {
-        const d = await api('GET', '/api/church/schedule');
-        document.getElementById('schedule-json').value = JSON.stringify(d, null, 2);
+        const raw = await api('GET', '/api/church/schedule');
+        const normalized = normalizeSchedulePayload(raw);
+        renderScheduleRows(normalized);
       } catch(e) { toast('Failed to load schedule', true); }
     }
 
     async function saveSchedule() {
       try {
-        const raw = document.getElementById('schedule-json').value;
-        const parsed = JSON.parse(raw);
-        await api('PUT', '/api/church/schedule', parsed);
+        const schedule = collectScheduleFromRows();
+        await api('PUT', '/api/church/schedule', schedule);
         toast('Schedule saved');
-      } catch(e) { toast(e.message.includes('JSON') ? 'Invalid JSON' : e.message, true); }
-    }
-
-    function formatScheduleJson() {
-      try {
-        const raw = document.getElementById('schedule-json').value;
-        document.getElementById('schedule-json').value = JSON.stringify(JSON.parse(raw), null, 2);
-      } catch { toast('Invalid JSON', true); }
+      } catch(e) { toast(e.message || 'Unable to save schedule', true); }
     }
 
     // ── Notifications ─────────────────────────────────────────────────────────
@@ -1127,7 +1617,7 @@ function buildChurchPortalHtml(church) {
         html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px">';
         const features = b.features || {};
         const featureList = [
-          ['ATEM, OBS, vMix monitoring', true],
+          ['ATEM + encoder monitoring (OBS, vMix, NDI, hardware)', true],
           ['Pre-service checks', true],
           ['Slack + Telegram alerts', true],
           ['Auto-recovery', true],
@@ -1232,6 +1722,151 @@ function buildChurchPortalHtml(church) {
       var times = { connect: '48 hours', plus: '24 hours', pro: '12 hours', managed: '15 minutes (Mon\\u2013Fri 9\\u20135 ET + service windows)' };
       var el = document.getElementById('support-response-time');
       if (el) el.textContent = 'Response time for your plan: ' + (times[tier] || '48 hours');
+      loadSupportStatus();
+      loadSupportTickets();
+    }
+
+    function supportStateChip(state) {
+      if (state === 'operational') return '<span style="color:#22c55e;font-weight:700">Operational</span>';
+      if (state === 'degraded') return '<span style="color:#eab308;font-weight:700">Degraded</span>';
+      return '<span style="color:#ef4444;font-weight:700">Outage</span>';
+    }
+
+    function escapeHtml(v) {
+      return String(v || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    async function loadSupportStatus() {
+      var wrap = document.getElementById('support-status-components');
+      if (!wrap) return;
+      wrap.innerHTML = '<div style="color:#475569">Loading status...</div>';
+      try {
+        var r = await fetch('/api/status/components');
+        var payload = await r.json();
+        var items = payload.components || [];
+        if (!items.length) {
+          wrap.innerHTML = '<div style="color:#475569">No status data available.</div>';
+          return;
+        }
+        wrap.innerHTML = items.map(function(c) {
+          var latency = c.latency_ms == null ? '\\u2014' : (c.latency_ms + ' ms');
+          return '<div style=\"display:flex;justify-content:space-between;gap:10px;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:8px 10px\">' +
+            '<div><div style=\"color:#F8FAFC;font-size:13px;font-weight:600\">' + escapeHtml(c.name) + '</div><div style=\"color:#64748B;font-size:12px\">' + escapeHtml(c.detail || '') + '</div></div>' +
+            '<div style=\"text-align:right;font-size:12px\">' + supportStateChip(c.state) + '<div style=\"color:#64748B;margin-top:3px\">' + latency + '</div></div>' +
+          '</div>';
+        }).join('');
+      } catch (e) {
+        wrap.innerHTML = '<div style="color:#ef4444">Unable to load status right now.</div>';
+      }
+    }
+
+    async function runSupportTriage() {
+      try {
+        var issue = document.getElementById('support-issue').value;
+        var severity = document.getElementById('support-severity').value;
+        var summary = document.getElementById('support-summary').value.trim();
+        var triage = await api('POST', '/api/church/support/triage', {
+          issueCategory: issue,
+          severity: severity,
+          summary: summary,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+        });
+        supportTriage = triage;
+        var checks = (triage.checks || []).map(function(c) {
+          return (c.ok ? '\\u2705 ' : '\\u274C ') + c.note;
+        }).join('<br>');
+        document.getElementById('support-triage-result').innerHTML =
+          '<div style=\"background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:10px\">' +
+          '<div style=\"font-weight:700;color:#F8FAFC;margin-bottom:6px\">Triage result: ' + escapeHtml(triage.triageResult || 'monitoring') + '</div>' +
+          '<div style=\"color:#94A3B8\">' + checks + '</div>' +
+          '</div>';
+        toast('Triage complete');
+      } catch (e) {
+        toast(e.message, true);
+      }
+    }
+
+    async function createSupportTicket() {
+      try {
+        if (!supportTriage || !supportTriage.triageId) {
+          await runSupportTriage();
+        }
+        if (!supportTriage || !supportTriage.triageId) {
+          throw new Error('Run triage before opening a ticket');
+        }
+        var issue = document.getElementById('support-issue').value;
+        var severity = document.getElementById('support-severity').value;
+        var summary = document.getElementById('support-summary').value.trim();
+        if (!summary) throw new Error('Please add a short summary before opening a ticket');
+
+        await api('POST', '/api/church/support/tickets', {
+          triageId: supportTriage.triageId,
+          issueCategory: issue,
+          severity: severity,
+          title: summary.slice(0, 120),
+          description: summary,
+        });
+        toast('Support ticket opened');
+        document.getElementById('support-summary').value = '';
+        await loadSupportTickets();
+      } catch (e) {
+        toast(e.message, true);
+      }
+    }
+
+    function formatTicketStatus(status) {
+      if (status === 'open') return 'Open';
+      if (status === 'in_progress') return 'In Progress';
+      if (status === 'waiting_customer') return 'Waiting on You';
+      if (status === 'resolved') return 'Resolved';
+      if (status === 'closed') return 'Closed';
+      return status || 'Open';
+    }
+
+    async function addSupportUpdate(ticketId) {
+      var note = prompt('Add an update to this ticket:');
+      if (!note) return;
+      try {
+        await api('POST', '/api/church/support/tickets/' + ticketId + '/updates', { message: note, status: 'waiting_customer' });
+        toast('Update sent');
+        await loadSupportTickets();
+      } catch (e) {
+        toast(e.message, true);
+      }
+    }
+
+    async function loadSupportTickets() {
+      var tbody = document.getElementById('support-tickets-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '<tr><td colspan=\"5\" style=\"color:#475569;text-align:center;padding:20px\">Loading...</td></tr>';
+      try {
+        var tickets = await api('GET', '/api/church/support/tickets?limit=25');
+        if (!tickets.length) {
+          tbody.innerHTML = '<tr><td colspan=\"5\" style=\"color:#475569;text-align:center;padding:20px\">No tickets yet.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = tickets.map(function(t) {
+          return '<tr>' +
+            '<td>' + new Date(t.created_at).toLocaleString() + '</td>' +
+            '<td>' + escapeHtml(formatTicketStatus(t.status)) + '</td>' +
+            '<td>' + escapeHtml(t.severity || 'P3') + '</td>' +
+            '<td>' + escapeHtml(t.title || '') + '</td>' +
+            '<td><button class=\"btn-secondary support-note-btn\" style=\"padding:6px 10px\" data-ticket-id=\"' + escapeHtml(t.id) + '\">Add note</button></td>' +
+          '</tr>';
+        }).join('');
+        Array.from(tbody.querySelectorAll('.support-note-btn')).forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            addSupportUpdate(btn.getAttribute('data-ticket-id'));
+          });
+        });
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan=\"5\" style=\"color:#ef4444;text-align:center;padding:20px\">' + escapeHtml(e.message) + '</td></tr>';
+      }
     }
 
     // ── Logout ────────────────────────────────────────────────────────────────
@@ -1292,10 +1927,13 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
     "ALTER TABLE churches ADD COLUMN notes TEXT",
     "ALTER TABLE churches ADD COLUMN notifications TEXT DEFAULT '{}'",
     "ALTER TABLE churches ADD COLUMN telegram_chat_id TEXT",
+    "ALTER TABLE churches ADD COLUMN parent_church_id TEXT",
+    "ALTER TABLE churches ADD COLUMN campus_name TEXT",
   ];
   for (const m of migrations) {
     try { db.exec(m); } catch { /* already exists */ }
   }
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_churches_parent_church_id ON churches(parent_church_id)'); } catch {}
 
   // Ensure portal-specific columns exist on church_tds (table created by telegramBot)
   const _portalMigrations = [
@@ -1318,7 +1956,78 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
     )
   `);
 
+  // Support triage/ticket tables (created in relay too; repeated here for module resilience)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS support_triage_runs (
+      id TEXT PRIMARY KEY,
+      church_id TEXT NOT NULL,
+      issue_category TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      summary TEXT DEFAULT '',
+      triage_result TEXT NOT NULL,
+      diagnostics_json TEXT NOT NULL,
+      autofix_attempts_json TEXT DEFAULT '[]',
+      timezone TEXT,
+      app_version TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      id TEXT PRIMARY KEY,
+      church_id TEXT NOT NULL,
+      triage_id TEXT,
+      issue_category TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'open',
+      forced_bypass INTEGER NOT NULL DEFAULT 0,
+      diagnostics_json TEXT DEFAULT '{}',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS support_ticket_updates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id TEXT NOT NULL,
+      message TEXT NOT NULL,
+      actor_type TEXT NOT NULL,
+      actor_id TEXT DEFAULT '',
+      created_at TEXT NOT NULL
+    )
+  `);
+
   const authMiddleware = requireChurchPortalAuth(db, jwtSecret);
+  const supportAuthMiddleware = requireChurchPortalOrAppAuth(db, jwtSecret);
+
+  function maxCampusesForTier(tierValue) {
+    const tier = String(tierValue || 'connect').toLowerCase();
+    const limits = {
+      connect: 1, // single room/campus total
+      plus: 3,
+      pro: 10,
+      managed: 50,
+      event: 1,
+    };
+    return limits[tier] || 1;
+  }
+
+  function campusLimitsForChurch(churchRow) {
+    const tier = String(churchRow?.billing_tier || 'connect').toLowerCase();
+    const maxTotal = maxCampusesForTier(tier);
+    const linkedCountRow = db.prepare('SELECT COUNT(*) AS cnt FROM churches WHERE parent_church_id = ?').get(churchRow.churchId);
+    const linkedCount = Number(linkedCountRow?.cnt || 0);
+    const usedTotal = 1 + linkedCount; // include this primary campus/room
+    const remaining = Math.max(0, maxTotal - usedTotal);
+    const canAdd = !churchRow.parent_church_id && remaining > 0;
+    return { tier, maxTotal, linkedCount, usedTotal, remaining, canAdd };
+  }
 
   // ── Login page ───────────────────────────────────────────────────────────────
   app.get('/church-login', (req, res) => {
@@ -1411,6 +2120,147 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
       db.prepare(`UPDATE churches SET ${sets} WHERE churchId = ?`).run(...Object.values(patch), churchId);
     }
     res.json({ ok: true });
+  });
+
+  // ── Campus management (multi-campus) ────────────────────────────────────────
+  app.get('/api/church/campuses', authMiddleware, (req, res) => {
+    try {
+      const limits = campusLimitsForChurch(req.church);
+      const rows = db.prepare(`
+        SELECT churchId, name, location, token, registration_code, registeredAt
+        FROM churches
+        WHERE parent_church_id = ?
+        ORDER BY name ASC
+      `).all(req.church.churchId);
+
+      const campuses = rows.map((row) => {
+        const runtime = churches.get(row.churchId);
+        const connected = !!(runtime && runtime.ws && runtime.ws.readyState === 1);
+        return {
+          churchId: row.churchId,
+          name: row.name,
+          location: row.location || '',
+          token: row.token || '',
+          registrationCode: row.registration_code || '',
+          registeredAt: row.registeredAt || null,
+          connected,
+        };
+      });
+      res.json({
+        limits: {
+          tier: limits.tier,
+          maxTotal: limits.maxTotal,
+          usedTotal: limits.usedTotal,
+          remaining: limits.remaining,
+          canAdd: limits.canAdd,
+        },
+        campuses,
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/church/campuses', authMiddleware, express.json(), (req, res) => {
+    try {
+      if (req.church.parent_church_id) {
+        return res.status(403).json({ error: 'Only the primary campus account can manage campuses' });
+      }
+      const limits = campusLimitsForChurch(req.church);
+      if (!limits.canAdd) {
+        return res.status(403).json({
+          error: `Your ${String(limits.tier).toUpperCase()} plan allows ${limits.maxTotal} total campus/room setup${limits.maxTotal === 1 ? '' : 's'}.`,
+          limits: {
+            tier: limits.tier,
+            maxTotal: limits.maxTotal,
+            usedTotal: limits.usedTotal,
+            remaining: limits.remaining,
+            canAdd: limits.canAdd,
+          },
+        });
+      }
+
+      const name = String(req.body?.name || '').trim();
+      const location = String(req.body?.location || '').trim();
+      if (!name) return res.status(400).json({ error: 'Campus name is required' });
+
+      const conflict = db.prepare('SELECT churchId FROM churches WHERE name = ?').get(name);
+      if (conflict) return res.status(409).json({ error: 'A church or campus with that name already exists' });
+
+      const churchId = crypto.randomUUID();
+      const token = jwt.sign({ churchId, name }, jwtSecret, { expiresIn: '365d' });
+      const registeredAt = new Date().toISOString();
+      const registrationCode = generateRegistrationCode(db);
+
+      db.prepare('INSERT INTO churches (churchId, name, email, token, registeredAt) VALUES (?, ?, ?, ?, ?)')
+        .run(churchId, name, '', token, registeredAt);
+
+      db.prepare(`
+        UPDATE churches
+        SET parent_church_id = ?, campus_name = ?, location = ?, registration_code = ?,
+            billing_tier = COALESCE(?, billing_tier),
+            billing_status = COALESCE(?, billing_status),
+            reseller_id = COALESCE(?, reseller_id)
+        WHERE churchId = ?
+      `).run(
+        req.church.churchId,
+        name,
+        location || '',
+        registrationCode,
+        req.church.billing_tier || null,
+        req.church.billing_status || null,
+        req.church.reseller_id || null,
+        churchId
+      );
+
+      churches.set(churchId, {
+        churchId,
+        name,
+        email: '',
+        token,
+        ws: null,
+        status: { connected: false, atem: null, obs: null },
+        lastSeen: null,
+        registeredAt,
+        disconnectedAt: null,
+        registrationCode,
+        parent_church_id: req.church.churchId,
+        campus_name: name,
+      });
+
+      res.status(201).json({
+        churchId,
+        name,
+        location: location || '',
+        token,
+        registrationCode,
+        registeredAt,
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/church/campuses/:campusId', authMiddleware, (req, res) => {
+    try {
+      const campusId = String(req.params.campusId || '').trim();
+      const campus = db.prepare('SELECT * FROM churches WHERE churchId = ? AND parent_church_id = ?')
+        .get(campusId, req.church.churchId);
+      if (!campus) return res.status(404).json({ error: 'Campus not found' });
+
+      const runtime = churches.get(campusId);
+      if (runtime && runtime.ws) {
+        try { runtime.ws.close(1000, 'Campus removed'); } catch { /* ignore */ }
+      }
+      churches.delete(campusId);
+
+      try { db.prepare('DELETE FROM church_tds WHERE church_id = ?').run(campusId); } catch {}
+      try { db.prepare('DELETE FROM guest_tokens WHERE churchId = ?').run(campusId); } catch {}
+      db.prepare('DELETE FROM churches WHERE churchId = ?').run(campusId);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // ── GET /api/church/schedule ──────────────────────────────────────────────────
@@ -1554,6 +2404,234 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
     } catch (e) {
       // alerts table may not exist yet
       res.json([]);
+    }
+  });
+
+  // ── Church support hub API ──────────────────────────────────────────────────
+
+  app.get('/api/church/support/tickets', supportAuthMiddleware, (req, res) => {
+    try {
+      const status = String(req.query.status || '').trim().toLowerCase();
+      const limit = Math.max(1, Math.min(Number(req.query.limit || 25), 100));
+      let rows;
+      if (status) {
+        rows = db.prepare(`
+          SELECT id, church_id, triage_id, issue_category, severity, title, description, status, created_at, updated_at
+          FROM support_tickets
+          WHERE church_id = ? AND status = ?
+          ORDER BY datetime(updated_at) DESC
+          LIMIT ?
+        `).all(req.church.churchId, status, limit);
+      } else {
+        rows = db.prepare(`
+          SELECT id, church_id, triage_id, issue_category, severity, title, description, status, created_at, updated_at
+          FROM support_tickets
+          WHERE church_id = ?
+          ORDER BY datetime(updated_at) DESC
+          LIMIT ?
+        `).all(req.church.churchId, limit);
+      }
+      res.json(rows);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/church/support/tickets/:ticketId', supportAuthMiddleware, (req, res) => {
+    try {
+      const ticket = db.prepare(`
+        SELECT id, church_id, triage_id, issue_category, severity, title, description, status, diagnostics_json, created_at, updated_at
+        FROM support_tickets
+        WHERE id = ? AND church_id = ?
+      `).get(req.params.ticketId, req.church.churchId);
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+      const updates = db.prepare(`
+        SELECT id, message, actor_type, created_at
+        FROM support_ticket_updates
+        WHERE ticket_id = ?
+        ORDER BY datetime(created_at) ASC
+      `).all(ticket.id);
+      let diagnostics = {};
+      try { diagnostics = JSON.parse(ticket.diagnostics_json || '{}'); } catch {}
+      res.json({ ...ticket, diagnostics, updates });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/church/support/triage', supportAuthMiddleware, (req, res) => {
+    try {
+      const issueCategory = String(req.body.issueCategory || 'other').trim().toLowerCase();
+      const severity = String(req.body.severity || 'P3').trim().toUpperCase();
+      const summary = String(req.body.summary || '').trim().slice(0, 2000);
+      const runtime = churches.get(req.church.churchId);
+      const sinceIso = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+      const alerts = db.prepare(`
+        SELECT id, alert_type, severity, created_at
+        FROM alerts
+        WHERE church_id = ? AND created_at >= ?
+        ORDER BY datetime(created_at) DESC
+        LIMIT 15
+      `).all(req.church.churchId, sinceIso);
+
+      const checks = [];
+      checks.push({
+        key: 'church_client_connection',
+        ok: runtime?.ws?.readyState === 1,
+        note: runtime?.ws?.readyState === 1 ? 'Church client connected' : 'Church client offline',
+      });
+
+      const s = runtime?.status || {};
+      if (issueCategory === 'stream_down') {
+        checks.push({
+          key: 'stream_state',
+          ok: s.obs?.streaming === true || s.encoder?.streaming === true,
+          note: (s.obs?.streaming === true || s.encoder?.streaming === true) ? 'Stream appears active' : 'Stream appears inactive',
+        });
+      }
+      if (issueCategory === 'atem_connectivity') {
+        checks.push({
+          key: 'atem_link',
+          ok: s.atem?.connected === true,
+          note: s.atem?.connected ? 'ATEM connected' : 'ATEM disconnected',
+        });
+      }
+      if (issueCategory === 'recording_issue') {
+        checks.push({
+          key: 'recording_state',
+          ok: s.atem?.recording === true || s.obs?.recording === true || s.hyperDeck?.recording === true,
+          note: (s.atem?.recording === true || s.obs?.recording === true || s.hyperDeck?.recording === true) ? 'Recording appears active' : 'Recording appears inactive',
+        });
+      }
+
+      const failed = checks.filter(c => !c.ok).length;
+      const triageResult = failed > 0 ? 'needs_escalation' : 'monitoring';
+
+      const diagnostics = {
+        churchId: req.church.churchId,
+        issueCategory,
+        severity,
+        timezone: String(req.body.timezone || ''),
+        relayVersion: process.env.RELAY_VERSION || null,
+        appVersion: String(req.body.appVersion || ''),
+        generatedAt: new Date().toISOString(),
+        connection: {
+          churchClientConnected: runtime?.ws?.readyState === 1,
+          lastSeen: runtime?.lastSeen || null,
+          lastHeartbeat: runtime?.lastHeartbeat || null,
+        },
+        deviceHealth: s,
+        recentAlerts: alerts,
+        checks,
+      };
+
+      const triageId = crypto.randomUUID();
+      const nowIso = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO support_triage_runs (
+          id, church_id, issue_category, severity, summary, triage_result,
+          diagnostics_json, autofix_attempts_json, timezone, app_version, created_by, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        triageId,
+        req.church.churchId,
+        issueCategory,
+        severity,
+        summary,
+        triageResult,
+        JSON.stringify(diagnostics),
+        JSON.stringify([]),
+        diagnostics.timezone || null,
+        diagnostics.appVersion || null,
+        `church:${req.church.churchId}`,
+        nowIso
+      );
+
+      res.status(201).json({
+        triageId,
+        triageResult,
+        checks,
+        diagnostics,
+        createdAt: nowIso,
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/church/support/tickets', supportAuthMiddleware, (req, res) => {
+    try {
+      const triageId = String(req.body.triageId || '').trim();
+      if (!triageId) return res.status(400).json({ error: 'triageId required' });
+
+      const triage = db.prepare(`
+        SELECT * FROM support_triage_runs
+        WHERE id = ? AND church_id = ?
+      `).get(triageId, req.church.churchId);
+      if (!triage) return res.status(404).json({ error: 'triageId not found' });
+
+      const title = String(req.body.title || triage.summary || 'Support ticket').trim().slice(0, 160);
+      if (!title) return res.status(400).json({ error: 'title required' });
+      const description = String(req.body.description || '').trim().slice(0, 4000);
+      const severity = String(req.body.severity || triage.severity || 'P3').trim().toUpperCase();
+      const issueCategory = String(req.body.issueCategory || triage.issue_category || 'other').trim().toLowerCase();
+
+      const ticketId = crypto.randomUUID();
+      const nowIso = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO support_tickets (
+          id, church_id, triage_id, issue_category, severity, title, description, status, forced_bypass,
+          diagnostics_json, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', 0, ?, ?, ?, ?)
+      `).run(
+        ticketId,
+        req.church.churchId,
+        triageId,
+        issueCategory,
+        severity,
+        title,
+        description,
+        triage.diagnostics_json || '{}',
+        `church:${req.church.churchId}`,
+        nowIso,
+        nowIso
+      );
+
+      db.prepare(`
+        INSERT INTO support_ticket_updates (ticket_id, message, actor_type, actor_id, created_at)
+        VALUES (?, ?, 'church', ?, ?)
+      `).run(ticketId, description || 'Ticket opened from church portal', req.church.churchId, nowIso);
+
+      res.status(201).json({ ticketId, status: 'open', createdAt: nowIso });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/church/support/tickets/:ticketId/updates', supportAuthMiddleware, (req, res) => {
+    try {
+      const ticket = db.prepare('SELECT * FROM support_tickets WHERE id = ? AND church_id = ?')
+        .get(req.params.ticketId, req.church.churchId);
+      if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+      const message = String(req.body.message || '').trim();
+      if (!message) return res.status(400).json({ error: 'message required' });
+      const status = String(req.body.status || ticket.status).trim().toLowerCase();
+      const allowedStatus = new Set(['open', 'waiting_customer', 'closed']);
+      if (!allowedStatus.has(status)) return res.status(400).json({ error: 'invalid status for church update' });
+
+      const nowIso = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO support_ticket_updates (ticket_id, message, actor_type, actor_id, created_at)
+        VALUES (?, ?, 'church', ?, ?)
+      `).run(ticket.id, message.slice(0, 4000), req.church.churchId, nowIso);
+
+      db.prepare('UPDATE support_tickets SET status = ?, updated_at = ? WHERE id = ?')
+        .run(status, nowIso, ticket.id);
+
+      res.json({ ok: true, ticketId: ticket.id, status, updatedAt: nowIso });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
     }
   });
 

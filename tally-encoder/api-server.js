@@ -24,6 +24,7 @@ const { execSync, spawn } = require('child_process');
 const CONFIG_FILE  = process.env.CONFIG_FILE  || '/etc/tally-encoder/config.env';
 const PORT         = parseInt(process.env.TALLY_API_PORT || '7070', 10);
 const API_TOKEN    = process.env.TALLY_API_TOKEN || '';
+const ALLOW_INSECURE_API = process.env.TALLY_ALLOW_INSECURE_API === 'true';
 const LOG_FILE     = process.env.LOG_FILE || '/var/log/tally-encoder.log';
 
 const startTime = Date.now();
@@ -113,11 +114,20 @@ const app = express();
 app.use(express.json());
 
 // ── Bearer token auth middleware ──────────────────────────────────────────────
+let insecureAuthWarned = false;
 function requireAuth(req, res, next) {
-  if (!API_TOKEN) {
-    // No token configured — warn but allow (dev mode)
-    console.warn('[API] WARNING: TALLY_API_TOKEN not set — auth disabled!');
+  if (!API_TOKEN && ALLOW_INSECURE_API) {
+    if (!insecureAuthWarned) {
+      insecureAuthWarned = true;
+      console.warn('[API] WARNING: TALLY_API_TOKEN not set — insecure auth bypass enabled by TALLY_ALLOW_INSECURE_API=true');
+    }
     return next();
+  }
+
+  if (!API_TOKEN) {
+    return res.status(503).json({
+      error: 'API auth is not configured. Set TALLY_API_TOKEN (recommended) or set TALLY_ALLOW_INSECURE_API=true for local dev only.',
+    });
   }
 
   const authHeader = req.headers.authorization || '';
@@ -239,7 +249,13 @@ app.use((_req, res) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[Tally API] Listening on port ${PORT}`);
-  console.log(`[Tally API] Auth: ${API_TOKEN ? 'Bearer token required' : 'DISABLED (set TALLY_API_TOKEN)'}`);
+  if (API_TOKEN) {
+    console.log('[Tally API] Auth: Bearer token required');
+  } else if (ALLOW_INSECURE_API) {
+    console.log('[Tally API] Auth: INSECURE BYPASS ENABLED (dev only)');
+  } else {
+    console.log('[Tally API] Auth: MISCONFIGURED (set TALLY_API_TOKEN)');
+  }
 });
 
 module.exports = app; // for testing
