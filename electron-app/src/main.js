@@ -15,7 +15,6 @@ try {
 const CONFIG_PATH = path.join(os.homedir(), '.church-av', 'config.json');
 const CONFIG_DIR  = path.dirname(CONFIG_PATH);
 const DEFAULT_RELAY_URL = 'wss://tally-production-cde2.up.railway.app';
-const STANDALONE_MOCK_LAB = process.argv.includes('--mock-lab') || process.env.TALLY_STANDALONE_MOCK_LAB === '1';
 const LOG_DIR = path.join(CONFIG_DIR, 'logs');
 const APP_LOG_PATH = path.join(LOG_DIR, 'tally-app.log');
 const MAX_RECENT_LOG_LINES = 2000;
@@ -23,8 +22,6 @@ const MAX_RECENT_LOG_LINES = 2000;
 let tray = null;
 let mainWindow = null;
 let agentProcess = null;
-let mockLabManager = null;
-let MockLabManagerClass = null;
 let agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
 let previewControllerSocket = null;
 let lastNotifiedState = {};
@@ -56,26 +53,6 @@ function appendAppLog(source, message) {
   } catch {
     // Logging should never crash the app
   }
-}
-
-function ensureMockLabManager() {
-  if (!MockLabManagerClass) {
-    try {
-      ({ MockLabManager: MockLabManagerClass } = require('./mockLabManager'));
-    } catch (err) {
-      throw new Error(`Mock Lab is unavailable in this build: ${err.message}`);
-    }
-  }
-
-  if (!mockLabManager) {
-    mockLabManager = new MockLabManagerClass((msg) => appendAppLog('MOCK', msg));
-  }
-  return mockLabManager;
-}
-
-function isFakeAtemMode(value) {
-  const v = String(value || '').trim().toLowerCase();
-  return v === 'mock' || v === 'fake' || v === 'sim' || v === 'simulate' || v.startsWith('mock://');
 }
 
 function getSanitizedConfigForExport() {
@@ -140,10 +117,12 @@ async function exportTestLogs() {
 
 // ─── TRAY ICON STATES ─────────────────────────────────────────────────────────
 
+// Pre-compute tray icons once (avoids recalculating on every status update)
+const trayIconCache = new Map();
+
 function getTrayIcon(state) {
-  // state: 'grey' | 'green' | 'yellow' | 'red'
-  // In production, these would be actual .png files in assets/
-  // For now we create colored 16x16 icons programmatically
+  if (trayIconCache.has(state)) return trayIconCache.get(state);
+
   const size = 16;
   const canvas = Buffer.alloc(size * size * 4);
   const colors = {
@@ -154,7 +133,6 @@ function getTrayIcon(state) {
   };
   const [r, g, b, a] = colors[state] || colors.grey;
 
-  // Draw a filled circle
   const cx = size / 2, cy = size / 2, radius = 6;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -168,7 +146,9 @@ function getTrayIcon(state) {
     }
   }
 
-  return nativeImage.createFromBuffer(canvas, { width: size, height: size });
+  const icon = nativeImage.createFromBuffer(canvas, { width: size, height: size });
+  trayIconCache.set(state, icon);
+  return icon;
 }
 
 function computeTrayState() {
@@ -190,6 +170,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
       preload: path.join(__dirname, 'preload.js'),
     },
     titleBarStyle: 'hiddenInset',
@@ -209,36 +190,15 @@ function createWindow() {
   });
 }
 
-function createMockLabWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1120,
-    height: 840,
-    minWidth: 980,
-    minHeight: 700,
-    resizable: true,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
-    },
-    titleBarStyle: 'hiddenInset',
-    title: 'Tally Mock Lab',
-    show: true,
-  });
-
-  mainWindow.loadFile(path.join(__dirname, 'mock-lab.html'));
-}
-
 // ─── TRAY ─────────────────────────────────────────────────────────────────────
 
 function createTray() {
-  if (STANDALONE_MOCK_LAB) return;
   tray = new Tray(getTrayIcon('grey'));
   updateTray();
 }
 
 function updateTray() {
-  if (STANDALONE_MOCK_LAB || !tray) return;
+  if (!tray) return;
   const state = computeTrayState();
   tray.setImage(getTrayIcon(state));
 
@@ -274,8 +234,8 @@ function updateTray() {
     { label: 'Open Dashboard', click: () => mainWindow?.show() },
     { label: connected ? 'Stop Agent' : 'Start Agent', click: () => connected ? stopAgent() : startAgent() },
     { type: 'separator' },
-    { label: 'Client Portal', click: () => shell.openExternal('https://tally-production-cde2.up.railway.app/church-portal') },
-    { label: 'Help & Support', click: () => shell.openExternal('https://tally.atemschool.com/help') },
+    { label: 'Client Portal', click: () => shell.openExternal('https://tallyconnect.app/portal') },
+    { label: 'Help & Support', click: () => shell.openExternal('https://tallyconnect.app/help') },
     { label: 'ATEM School', click: () => shell.openExternal('https://atemschool.com') },
     { type: 'separator' },
     { label: 'Quit', click: () => { stopAgent(); app.exit(0); } },
@@ -391,23 +351,13 @@ function startAgent() {
     return;
   }
 
-  // Detect if mock lab is running — if so, force mock production mode
-  const mockLabRunning = mockLabManager?.isRunning?.() || false;
-  const useMockProduction = config.mockProduction || mockLabRunning || isFakeAtemMode(config.atemIp);
-
   const agentRelay = enforceRelayPolicy(config.relay || DEFAULT_RELAY_URL);
   const args = [clientPaths.script,
     '--token', config.token,
     '--relay', agentRelay,
   ];
 
-  if (useMockProduction) {
-    args.push('--mock-production');
-    if (config.fakeAtemApiPort) args.push('--fake-atem-api-port', String(config.fakeAtemApiPort));
-  } else {
-    if (config.atemIp) args.push('--atem', config.atemIp);
-    if (config.fakeAtemApiPort) args.push('--fake-atem-api-port', String(config.fakeAtemApiPort));
-  }
+  if (config.atemIp) args.push('--atem', config.atemIp);
   if (config.obsUrl)       args.push('--obs', config.obsUrl);
   if (config.obsPassword)  args.push('--obs-password', config.obsPassword);
   if (config.name)         args.push('--name', config.name);
@@ -429,7 +379,7 @@ function startAgent() {
     obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
     aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek',
     yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder',
-    custom: 'Custom', 'custom-rtmp': 'Custom RTMP', 'rtmp-generic': 'RTMP',
+    ndi: 'NDI Decoder', custom: 'Custom', 'custom-rtmp': 'Custom RTMP', 'rtmp-generic': 'RTMP',
   };
   agentStatus.encoderType = encoderTypeNames[config.encoder?.type] || '';
 
@@ -463,7 +413,13 @@ function startAgent() {
     if (text.includes('Companion disconnected'))     agentStatus.companion = false;
     if (text.includes('Encoder connected'))          agentStatus.encoder = true;
     if (text.includes('Encoder disconnected'))       agentStatus.encoder = false;
-    if (text.includes('Relay disconnected'))         agentStatus.relay = false;
+    if (text.includes('Relay disconnected')) {
+      agentStatus.relay = false;
+      agentStatus._relayDisconnectedAt = Date.now();
+    }
+    if (text.includes('Connected to relay server')) {
+      agentStatus._relayDisconnectedAt = null;
+    }
 
     // Parse audio silence alerts
     if (text.includes('[AudioMonitor]') && text.includes('silence detected')) {
@@ -548,6 +504,22 @@ function stopAgent() {
   }
 }
 
+// ─── RELAY RECONNECT WATCHDOG ────────────────────────────────────────────────
+// If relay stays disconnected for 2+ minutes while agent is running, restart it.
+const RELAY_RECONNECT_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+setInterval(() => {
+  if (agentProcess && agentStatus._relayDisconnectedAt) {
+    const elapsed = Date.now() - agentStatus._relayDisconnectedAt;
+    if (elapsed >= RELAY_RECONNECT_TIMEOUT_MS) {
+      appendAppLog('SYSTEM', `Relay disconnected for ${Math.round(elapsed / 1000)}s — restarting agent`);
+      mainWindow?.webContents?.send('log', '[Watchdog] Relay disconnected too long — restarting agent');
+      agentStatus._relayDisconnectedAt = null; // Reset to avoid repeated kills
+      stopAgent();
+      setTimeout(() => startAgent(), 3000);
+    }
+  }
+}, 30_000); // Check every 30 seconds
+
 // ─── TEST CONNECTION ──────────────────────────────────────────────────────────
 
 function normalizeRelayUrl(url) {
@@ -608,8 +580,15 @@ function checkTokenWithRelay(token, relayUrl, ms = 5000) {
     const wsUrl = normalizeRelayUrl(relayUrl).replace(/\/$/, '') + '/church';
     const target = `${wsUrl}?token=${encodeURIComponent(token)}`;
     const socket = new WebSocket(target);
+    const AUTH_STABILITY_MS = 1200;
+    let opened = false;
+    let authTimer = null;
+    let done = false;
 
     const finish = (result) => {
+      if (done) return;
+      done = true;
+      if (authTimer) clearTimeout(authTimer);
       try { socket.removeAllListeners(); } catch {}
       if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
         try { socket.close(); } catch {}
@@ -619,8 +598,11 @@ function checkTokenWithRelay(token, relayUrl, ms = 5000) {
 
     const timer = setTimeout(() => finish({ success: false, error: 'Token validation timed out' }), ms);
     socket.once('open', () => {
-      clearTimeout(timer);
-      finish({ success: true, message: 'Token handshake succeeded' });
+      opened = true;
+      authTimer = setTimeout(() => {
+        clearTimeout(timer);
+        finish({ success: true, message: 'Token handshake succeeded' });
+      }, AUTH_STABILITY_MS);
     });
     socket.once('error', (err) => {
       clearTimeout(timer);
@@ -630,7 +612,13 @@ function checkTokenWithRelay(token, relayUrl, ms = 5000) {
       clearTimeout(timer);
       if (code === 1008) {
         finish({ success: false, error: 'Invalid token for this relay' });
+        return;
       }
+      if (!opened) {
+        finish({ success: false, error: `Connection closed before auth (${code})` });
+        return;
+      }
+      finish({ success: false, error: `Relay closed connection (${code})` });
     });
   });
 }
@@ -700,105 +688,6 @@ async function testConnection({ url, token } = {}) {
       resolve({ success: false, error: 'Timeout' });
     });
   });
-}
-
-async function getMockLabStatus() {
-  const config = loadConfig();
-  const manager = ensureMockLabManager();
-  const addresses = manager.getAddresses();
-  const configuredAddresses = manager.getConfiguredAddresses();
-  const controlUrl = `http://${addresses.controlApi.ip}:${addresses.controlApi.port}`;
-
-  let mockState = null;
-  try {
-    if (manager.isRunning()) {
-      const resp = await fetch(`${controlUrl}/api/state`, { signal: AbortSignal.timeout(1000) });
-      if (resp.ok) {
-        const data = await resp.json();
-        mockState = data?.state || null;
-      }
-    }
-  } catch {
-    mockState = null;
-  }
-
-  return {
-    running: manager.isRunning(),
-    fallbackMode: manager.isFallbackMode(),
-    mockProduction: !!config.mockProduction,
-    addresses,
-    configuredAddresses,
-    controlUrl,
-    state: mockState,
-  };
-}
-
-async function startMockLab(opts = {}) {
-  const withAgent = opts.withAgent !== undefined ? opts.withAgent === true : !STANDALONE_MOCK_LAB;
-  const manager = ensureMockLabManager();
-  const addresses = await manager.start({
-    addresses: opts.addresses,
-    allowFallback: opts.allowFallback,
-    requireUniqueIps: opts.requireUniqueIps,
-  });
-  const controlUrl = `http://${addresses.controlApi.ip}:${addresses.controlApi.port}`;
-
-  if (withAgent) {
-    const config = loadConfig();
-    // Save pre-mock values so stopMockLab can restore them
-    config._preMock = {
-      atemIp: config.atemIp || '',
-      obsUrl: config.obsUrl || '',
-      obsPassword: config.obsPassword || '',
-      hyperdecks: config.hyperdecks || [],
-      proPresenter: config.proPresenter || null,
-      mixer: config.mixer || null,
-      fakeAtemApiPort: config.fakeAtemApiPort || null,
-    };
-    config.mockProduction = true;
-    config.fakeAtemApiPort = addresses.controlApi.port;
-    config.atemIp = addresses.atem.ip;
-    config.obsUrl = `ws://${addresses.obs.ip}:${addresses.obs.port}`;
-    config.obsPassword = '';
-    config.hyperdecks = [addresses.hyperdeck.ip];
-    config.proPresenter = { host: addresses.propresenter.ip, port: addresses.propresenter.port };
-    config.mixer = { type: 'x32', host: addresses.x32.ip, port: addresses.x32.port };
-    if (!config.companionUrl) config.companionUrl = 'http://localhost:8888';
-    saveConfig(config);
-
-    if (agentProcess) stopAgent();
-    startAgent();
-  }
-
-  appendAppLog('MOCK', `Mock lab started. Control API: ${controlUrl}${withAgent ? ' (agent mode)' : ' (standalone mode)'}`);
-  return { success: true, addresses, controlUrl };
-}
-
-async function stopMockLab(opts = {}) {
-  const withAgent = opts.withAgent !== undefined ? opts.withAgent === true : !STANDALONE_MOCK_LAB;
-  if (withAgent && agentProcess) stopAgent();
-  const manager = ensureMockLabManager();
-  await manager.stop();
-
-  if (withAgent) {
-    const config = loadConfig();
-    config.mockProduction = false;
-    // Restore pre-mock values so the agent doesn't try to connect to mock IPs
-    if (config._preMock) {
-      config.atemIp = config._preMock.atemIp;
-      config.obsUrl = config._preMock.obsUrl;
-      config.obsPassword = config._preMock.obsPassword;
-      config.hyperdecks = config._preMock.hyperdecks;
-      config.proPresenter = config._preMock.proPresenter;
-      config.mixer = config._preMock.mixer;
-      config.fakeAtemApiPort = config._preMock.fakeAtemApiPort;
-      delete config._preMock;
-    }
-    saveConfig(config);
-  }
-
-  appendAppLog('MOCK', `Mock lab stopped${withAgent ? ' (agent mode)' : ''}`);
-  return { success: true };
 }
 
 function sendPreviewCommand(command, params = {}) {
@@ -917,12 +806,36 @@ function sendPreviewCommand(command, params = {}) {
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 
+function isMockValue(value) {
+  const v = String(value || '').trim().toLowerCase();
+  return v === 'mock' || v === 'fake' || v === 'sim' || v === 'simulate' || v.startsWith('mock://') || v.includes('mock-hyperdeck');
+}
+
+function stripMockConfig(config = {}) {
+  const cleaned = { ...(config || {}) };
+
+  if (isMockValue(cleaned.atemIp)) cleaned.atemIp = '';
+  if (isMockValue(cleaned.obsUrl)) {
+    cleaned.obsUrl = '';
+    cleaned.obsPassword = '';
+  }
+  if (cleaned.proPresenter && isMockValue(cleaned.proPresenter.host)) cleaned.proPresenter = null;
+  if (cleaned.mixer && isMockValue(cleaned.mixer.host)) cleaned.mixer = null;
+  if (Array.isArray(cleaned.hyperdecks)) {
+    cleaned.hyperdecks = cleaned.hyperdecks.filter((entry) => !isMockValue(entry));
+  }
+  delete cleaned.mockProduction;
+  delete cleaned.fakeAtemApiPort;
+  delete cleaned._preMock;
+  return cleaned;
+}
+
 function loadConfig() {
   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
   if (!fs.existsSync(CONFIG_PATH)) return {};
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    const config = decryptConfig(raw); // decrypt secure fields on load
+    const config = stripMockConfig(decryptConfig(raw)); // decrypt secure fields on load
     config.relay = enforceRelayPolicy(config.relay);
     return config;
   }
@@ -934,7 +847,7 @@ function saveConfig(config) {
   // Merge partial UI updates into existing config so token/relay are not lost.
   const merged = { ...loadConfig(), ...(config || {}) };
   // Only persist defined values; undefined means "leave existing as-is" before merge.
-  const toSave = Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined));
+  const toSave = stripMockConfig(Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined)));
   toSave.relay = enforceRelayPolicy(toSave.relay);
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(encryptConfig(toSave), null, 2));
 }
@@ -1051,9 +964,6 @@ ipcMain.handle('get-chat', async (_, opts = {}) => {
   }
 });
 ipcMain.handle('get-network-interfaces', () => listAvailableInterfaces());
-ipcMain.handle('mock-lab-status', async () => getMockLabStatus());
-ipcMain.handle('mock-lab-start', async (_, opts = {}) => startMockLab(opts));
-ipcMain.handle('mock-lab-stop', async (_, opts = {}) => stopMockLab(opts));
 ipcMain.handle('export-test-logs', async () => {
   try {
     return await exportTestLogs();
@@ -1086,6 +996,127 @@ function tryTcpConnectLocal(host, port, timeoutMs) {
   });
 }
 
+function tryUdpSendLocal(host, port, payloadHex = '', timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const dgram = require('dgram');
+    const socket = dgram.createSocket('udp4');
+    const payload = payloadHex ? Buffer.from(payloadHex.replace(/\s+/g, ''), 'hex') : Buffer.from([0x81, 0x09, 0x04, 0x00, 0xff]);
+    let done = false;
+    const finish = (success) => {
+      if (done) return;
+      done = true;
+      try { socket.close(); } catch { /* ignore */ }
+      resolve({ success });
+    };
+    const timer = setTimeout(() => finish(true), timeoutMs); // UDP is fire-and-forget; no error => likely routable
+    socket.once('error', () => {
+      clearTimeout(timer);
+      finish(false);
+    });
+    socket.send(payload, port, host, (err) => {
+      clearTimeout(timer);
+      finish(!err);
+    });
+  });
+}
+
+function parseProbeRate(value) {
+  if (!value || typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!raw) return null;
+  if (raw.includes('/')) {
+    const [numRaw, denRaw] = raw.split('/');
+    const num = Number(numRaw);
+    const den = Number(denRaw);
+    if (Number.isFinite(num) && Number.isFinite(den) && den > 0) {
+      return Number((num / den).toFixed(2));
+    }
+    return null;
+  }
+  const asNum = Number(raw);
+  return Number.isFinite(asNum) ? Number(asNum.toFixed(2)) : null;
+}
+
+function runLocalCommand(command, args, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+
+    const child = spawn(command, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { child.kill('SIGKILL'); } catch { /* ignore */ }
+    }, timeoutMs);
+
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      resolve({ ok: false, code: null, stdout, stderr, timedOut, error });
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ ok: code === 0 && !timedOut, code, stdout, stderr, timedOut, error: null });
+    });
+  });
+}
+
+async function probeNdiSourceLocal(source, timeoutMs = 5000) {
+  const ndiSource = String(source || '').trim();
+  if (!ndiSource) {
+    return { success: false, details: 'Enter NDI source name' };
+  }
+
+  const args = [
+    '-v', 'error',
+    '-f', 'libndi_newtek',
+    '-i', ndiSource,
+    '-select_streams', 'v:0',
+    '-show_entries', 'stream=width,height,avg_frame_rate,r_frame_rate',
+    '-of', 'json',
+    '-read_intervals', '%+1',
+  ];
+
+  const result = await runLocalCommand('ffprobe', args, timeoutMs);
+  if (result.error && result.error.code === 'ENOENT') {
+    return { success: false, details: 'ffprobe not installed (required for NDI monitoring)' };
+  }
+  if (result.timedOut) {
+    return { success: false, details: `NDI probe timed out for "${ndiSource}"` };
+  }
+  if (!result.ok) {
+    const errText = `${result.stderr || ''} ${result.stdout || ''}`.toLowerCase();
+    const pluginMissing = errText.includes('unknown input format') || errText.includes('libndi_newtek');
+    if (pluginMissing) return { success: false, details: 'ffprobe lacks libndi_newtek support' };
+    return { success: false, details: `NDI source "${ndiSource}" not reachable` };
+  }
+
+  let stream = null;
+  try {
+    const parsed = JSON.parse(result.stdout || '{}');
+    stream = Array.isArray(parsed.streams) ? parsed.streams[0] : null;
+  } catch {
+    stream = null;
+  }
+
+  const width = stream && Number.isFinite(Number(stream.width)) ? Number(stream.width) : null;
+  const height = stream && Number.isFinite(Number(stream.height)) ? Number(stream.height) : null;
+  const fps = parseProbeRate(stream?.avg_frame_rate || stream?.r_frame_rate || '');
+  const resolution = width && height ? `${width}x${height}` : null;
+  const fpsText = Number.isFinite(fps) ? `${fps} fps` : null;
+
+  return {
+    success: true,
+    details: `NDI source reachable (${ndiSource})${resolution ? ` · ${resolution}` : ''}${fpsText ? ` @ ${fpsText}` : ''}`,
+  };
+}
+
 ipcMain.handle('scan-network', async (event, options = {}) => {
   const results = await discoverDevices((percent, message) => {
     mainWindow?.webContents.send('scan-progress', { percent, message });
@@ -1098,9 +1129,6 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
   try {
     switch (type) {
       case 'atem': {
-        if (isFakeAtemMode(ip)) {
-          return { success: true, details: 'Fake ATEM simulator mode is enabled (use IP "mock")' };
-        }
         const ok = await tryTcpConnect(ip, port || 9910, 2000);
         return { success: ok, details: ok ? 'ATEM reachable' : 'Cannot reach ATEM' };
       }
@@ -1119,8 +1147,33 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
         return { success: ok, details: ok ? 'HyperDeck reachable' : 'Cannot reach HyperDeck' };
       }
       case 'ptz': {
-        const ok = await tryTcpConnect(ip, port || 80, 2000);
-        return { success: ok, details: ok ? 'Camera reachable' : 'Cannot reach camera' };
+        const protocol = String(params.protocol || 'auto').toLowerCase();
+        const explicitPort = Number(port) || 0;
+        const ptzPort = explicitPort || (
+          protocol === 'onvif' ? 80
+            : protocol === 'visca-udp' ? 1259
+              : protocol === 'sony-visca-udp' ? 52381
+                : 5678
+        );
+        if (protocol === 'onvif' || protocol === 'auto') {
+          const onvifPort = explicitPort || 80;
+          const resp = await tryHttpGet(`http://${ip}:${onvifPort}/onvif/device_service`, 3000);
+          const statusCode = Number(resp.statusCode || 0);
+          const looksOnvif = resp.success && statusCode > 0 && statusCode !== 404;
+          if (looksOnvif) return { success: true, details: `ONVIF endpoint reachable (HTTP ${statusCode})` };
+          if (protocol === 'onvif') return { success: false, details: 'Cannot reach ONVIF endpoint' };
+        }
+        if (protocol === 'visca-udp' || protocol === 'sony-visca-udp') {
+          const probe = await tryUdpSendLocal(ip, ptzPort);
+          return {
+            success: probe.success,
+            details: probe.success
+              ? `${protocol} datagram sent`
+              : `Cannot send ${protocol} datagram`,
+          };
+        }
+        const ok = await tryTcpConnect(ip, ptzPort, 2500);
+        return { success: ok, details: ok ? 'VISCA TCP reachable' : 'Cannot reach VISCA TCP camera' };
       }
       case 'propresenter': {
         const resp = await tryHttpGet(`http://${ip}:${port || 1025}/v1/version`, 3000);
@@ -1215,14 +1268,27 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
           const resp = await tryHttpGet(`http://${ip}:${port || 7070}/health`, 3000);
           return { success: resp.success, details: resp.success ? 'Tally Encoder reachable' : 'Cannot reach Tally Encoder' };
         }
+        if (et === 'ndi') {
+          return probeNdiSourceLocal(params.ip, 5000);
+        }
         if (et === 'custom') {
           const statusUrl = params.statusUrl || '/status';
           const resp = await tryHttpGet(`http://${ip}:${port || 80}${statusUrl}`, 3000);
           return { success: resp.success, details: resp.success ? 'Custom encoder reachable' : 'Cannot reach custom encoder' };
         }
-        // RTMP-push types (YoloBox, etc.) — no API, stream direct to CDN
+        // RTMP-push types (YoloBox, etc.) — no official control API.
+        // If an IP is provided, do a basic reachability probe for closer integration.
         if (['yolobox', 'custom-rtmp', 'rtmp-generic'].includes(et)) {
-          return { success: true, details: 'Device configured — streams directly to CDN (no API monitoring)' };
+          if (!ip) {
+            return { success: true, details: 'Device configured — no control API (set optional IP to enable reachability checks)' };
+          }
+          const resp = await tryHttpGet(`http://${ip}:${port || 80}/`, 3000);
+          return {
+            success: resp.success,
+            details: resp.success
+              ? 'Device reachable (RTMP device has no public control API)'
+              : 'Cannot reach device web endpoint',
+          };
         }
         return { success: false, details: 'Select an encoder type' };
       }
@@ -1286,10 +1352,9 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
 ipcMain.handle('get-equipment', () => {
   const config = loadConfig();
   return {
-    mockProduction: !!config.mockProduction,
     atemIp: config.atemIp || '',
-    companionUrl: config.companionUrl || 'http://localhost:8888',
-    obsUrl: config.obsUrl || 'ws://localhost:4455',
+    companionUrl: config.companionUrl || '',
+    obsUrl: config.obsUrl || '',
     obsPassword: config.obsPassword || '',
     hyperdecks: config.hyperdecks || [],
     ptz: config.ptz || [],
@@ -1336,6 +1401,22 @@ function setupAutoUpdate() {
   autoUpdater.checkForUpdatesAndNotify().catch(() => {});
 }
 
+// ─── SINGLE INSTANCE LOCK ─────────────────────────────────────────────────────
+
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // Someone tried to launch a second instance — focus our window
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 // ─── APP LIFECYCLE ────────────────────────────────────────────────────────────
 
 process.on('uncaughtException', (err) => {
@@ -1348,31 +1429,17 @@ process.on('unhandledRejection', (reason) => {
 
 app.whenReady().then(() => {
   appendAppLog('SYSTEM', `App ready (version=${app.getVersion()}, platform=${process.platform}/${process.arch})`);
-  if (STANDALONE_MOCK_LAB) {
-    createMockLabWindow();
-  } else {
-    createWindow();
-  }
+  createWindow();
   createTray();
   setupAutoUpdate();
-
-  if (STANDALONE_MOCK_LAB) {
-    setTimeout(() => startMockLab({ withAgent: false }).catch((e) => appendAppLog('MOCK', `Autostart failed: ${e.message}`)), 250);
-  } else {
-    // Agent start is now controlled by the renderer after auth validation
-  }
+  // Agent start is controlled by the renderer after auth validation.
 });
 
 app.on('window-all-closed', (e) => {
-  if (STANDALONE_MOCK_LAB) {
-    app.quit();
-    return;
-  }
   e.preventDefault();
 });
 
 app.on('before-quit', () => {
   appendAppLog('SYSTEM', 'App before-quit');
   stopAgent();
-  try { mockLabManager?.stop?.(); } catch {}
 });

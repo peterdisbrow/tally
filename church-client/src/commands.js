@@ -3,11 +3,55 @@
  * Each handler receives (agent, params) and returns a result string or object.
  */
 
+function toInt(value, name) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) throw new Error(`${name} must be an integer`);
+  return parsed;
+}
+
+function normalizeTransitionStyle(style) {
+  const raw = String(style || '').trim().toLowerCase();
+  const table = {
+    mix: 0,
+    dip: 1,
+    wipe: 2,
+    dve: 3,
+    stinger: 4,
+    sting: 4,
+  };
+  if (!(raw in table)) {
+    throw new Error('transition style must be one of: mix, dip, wipe, dve, stinger');
+  }
+  return { code: table[raw], name: raw === 'sting' ? 'stinger' : raw };
+}
+
+function isFakeAtem(agent) {
+  return !!agent._fakeAtemMode;
+}
+
+function resolvePtzRef(params = {}) {
+  if (params.cameraName) return String(params.cameraName);
+  return Number.parseInt(params.camera || 1, 10) || 1;
+}
+
+function hasNetworkPtz(agent) {
+  return !!agent.ptzManager?.hasCameras?.();
+}
+
 // ─── ATEM COMMANDS ──────────────────────────────────────────────────────────
 
 async function atemCut(agent, params) {
-  await agent.atemCommand(() => agent.atem?.cut(params.me || 0));
-  return 'Cut executed';
+  const me = toInt(params.me ?? 0, 'me');
+  const input = params.input != null ? toInt(params.input, 'input') : null;
+  await agent.atemCommand(async () => {
+    if (input != null) {
+      if (isFakeAtem(agent)) await agent.atem?.changeProgramInput(me, input);
+      else await agent.atem?.changeProgramInput(input, me);
+      return;
+    }
+    await agent.atem?.cut(me);
+  });
+  return input != null ? `Cut to input ${input}` : 'Cut executed';
 }
 
 async function atemAuto(agent, params) {
@@ -16,37 +60,174 @@ async function atemAuto(agent, params) {
 }
 
 async function atemSetProgram(agent, params) {
-  await agent.atemCommand(() => agent.atem?.changeProgramInput(params.me || 0, params.input));
-  return `Program input set to ${params.input}`;
+  const input = toInt(params.input, 'input');
+  const me = toInt(params.me ?? 0, 'me');
+  await agent.atemCommand(() => {
+    if (isFakeAtem(agent)) return agent.atem?.changeProgramInput(me, input);
+    return agent.atem?.changeProgramInput(input, me);
+  });
+  return `Program input set to ${input}`;
 }
 
 async function atemSetPreview(agent, params) {
-  await agent.atemCommand(() => agent.atem?.changePreviewInput(params.me || 0, params.input));
-  return `Preview input set to ${params.input}`;
+  const input = toInt(params.input, 'input');
+  const me = toInt(params.me ?? 0, 'me');
+  await agent.atemCommand(() => {
+    if (isFakeAtem(agent)) return agent.atem?.changePreviewInput(me, input);
+    return agent.atem?.changePreviewInput(input, me);
+  });
+  return `Preview input set to ${input}`;
 }
 
 async function atemStartRecording(agent) {
-  await agent.atemCommand(() => agent.atem?.setRecordingAction({ action: 1 }));
+  await agent.atemCommand(async () => {
+    if (typeof agent.atem?.startRecording === 'function') return agent.atem.startRecording();
+    if (typeof agent.atem?.setRecordingAction === 'function') return agent.atem.setRecordingAction({ action: 1 });
+    throw new Error('ATEM recording start is not supported by this switcher');
+  });
   return 'Recording started';
 }
 
 async function atemStopRecording(agent) {
-  await agent.atemCommand(() => agent.atem?.setRecordingAction({ action: 0 }));
+  await agent.atemCommand(async () => {
+    if (typeof agent.atem?.stopRecording === 'function') return agent.atem.stopRecording();
+    if (typeof agent.atem?.setRecordingAction === 'function') return agent.atem.setRecordingAction({ action: 0 });
+    throw new Error('ATEM recording stop is not supported by this switcher');
+  });
   return 'Recording stopped';
 }
 
 async function atemFadeToBlack(agent, params) {
-  await agent.atemCommand(() => agent.atem?.setFadeToBlackState(params.me || 0, { isFullyBlack: params.black !== false }));
+  const me = toInt(params.me ?? 0, 'me');
+  await agent.atemCommand(async () => {
+    if (typeof agent.atem?.fadeToBlack === 'function') return agent.atem.fadeToBlack(me);
+    if (typeof agent.atem?.setFadeToBlackState === 'function') {
+      return agent.atem.setFadeToBlackState(me, { isFullyBlack: params.black !== false });
+    }
+    throw new Error('ATEM fade-to-black is not supported by this switcher');
+  });
   return 'Fade to black toggled';
 }
 
 async function atemSetInputLabel(agent, params) {
+  const input = toInt(params.input, 'input');
+  if (!params.longName) throw new Error('longName is required');
   const shortName = params.shortName || params.longName.substring(0, 4).toUpperCase();
-  await agent.atemCommand(() => agent.atem?.setInputSettings(params.input, {
-    longName: params.longName,
-    shortName: shortName,
-  }));
-  return `Input ${params.input} labeled "${params.longName}"`;
+  await agent.atemCommand(() => {
+    if (isFakeAtem(agent)) {
+      return agent.atem?.setInputSettings(input, {
+        longName: params.longName,
+        shortName,
+      });
+    }
+    return agent.atem?.setInputSettings(
+      { longName: params.longName, shortName },
+      input
+    );
+  });
+  return `Input ${input} labeled "${params.longName}"`;
+}
+
+async function atemRunMacro(agent, params) {
+  const macroIndex = toInt(params.macroIndex ?? params.index ?? 0, 'macroIndex');
+  await agent.atemCommand(async () => {
+    if (typeof agent.atem?.macroRun === 'function') return agent.atem.macroRun(macroIndex);
+    if (typeof agent.atem?.runMacro === 'function') return agent.atem.runMacro(macroIndex);
+    throw new Error('ATEM macro run is not supported by this switcher');
+  });
+  return `Macro ${macroIndex} started`;
+}
+
+async function atemStopMacro(agent) {
+  await agent.atemCommand(async () => {
+    if (typeof agent.atem?.macroStop === 'function') return agent.atem.macroStop();
+    if (typeof agent.atem?.stopMacro === 'function') return agent.atem.stopMacro();
+    throw new Error('ATEM macro stop is not supported by this switcher');
+  });
+  return 'Macro stopped';
+}
+
+async function atemSetAux(agent, params) {
+  const sourceInput = toInt(params.input, 'input');
+  const auxOneBased = toInt(params.aux ?? params.bus ?? 1, 'aux');
+  await agent.atemCommand(() => {
+    if (isFakeAtem(agent)) return agent.atem?.setAuxSource(auxOneBased, sourceInput);
+    const busZeroBased = Math.max(0, auxOneBased - 1);
+    return agent.atem?.setAuxSource(sourceInput, busZeroBased);
+  });
+  return `Aux ${auxOneBased} set to input ${sourceInput}`;
+}
+
+async function atemSetTransitionStyle(agent, params) {
+  const me = toInt(params.me ?? 0, 'me');
+  const { code, name } = normalizeTransitionStyle(params.style);
+  await agent.atemCommand(() => {
+    if (isFakeAtem(agent)) return agent.atem?.setTransitionStyle(me, name);
+    return agent.atem?.setTransitionStyle({ nextStyle: code }, me);
+  });
+  return `Transition style set to ${name}`;
+}
+
+async function atemSetTransitionRate(agent, params) {
+  const me = toInt(params.me ?? 0, 'me');
+  const rate = toInt(params.rate, 'rate');
+  await agent.atemCommand(() => {
+    if (isFakeAtem(agent) && typeof agent.atem?.setTransitionRate === 'function') {
+      return agent.atem.setTransitionRate(me, rate);
+    }
+    return agent.atem?.setMixTransitionSettings({ rate }, me);
+  });
+  return `Transition rate set to ${rate}`;
+}
+
+async function atemSetDskOnAir(agent, params) {
+  const keyer = toInt(params.keyer ?? params.key ?? 0, 'keyer');
+  const onAir = params.onAir !== false;
+  await agent.atemCommand(() => {
+    if (isFakeAtem(agent) && typeof agent.atem?.setDownstreamKeyerOnAir === 'function') {
+      return agent.atem.setDownstreamKeyerOnAir(keyer, onAir);
+    }
+    return agent.atem?.setDownstreamKeyOnAir(onAir, keyer);
+  });
+  return `DSK ${keyer + 1} ${onAir ? 'on-air' : 'off-air'}`;
+}
+
+async function atemSetDskTie(agent, params) {
+  const keyer = toInt(params.keyer ?? params.key ?? 0, 'keyer');
+  const tie = params.tie !== false;
+  await agent.atemCommand(() => {
+    if (isFakeAtem(agent) && typeof agent.atem?.setDownstreamKeyerTie === 'function') {
+      return agent.atem.setDownstreamKeyerTie(keyer, tie);
+    }
+    return agent.atem?.setDownstreamKeyTie(tie, keyer);
+  });
+  return `DSK ${keyer + 1} tie ${tie ? 'enabled' : 'disabled'}`;
+}
+
+async function atemSetDskRate(agent, params) {
+  const keyer = toInt(params.keyer ?? params.key ?? 0, 'keyer');
+  const rate = toInt(params.rate, 'rate');
+  await agent.atemCommand(() => {
+    if (isFakeAtem(agent) && typeof agent.atem?.setDownstreamKeyerRate === 'function') {
+      return agent.atem.setDownstreamKeyerRate(keyer, rate);
+    }
+    return agent.atem?.setDownstreamKeyRate(rate, keyer);
+  });
+  return `DSK ${keyer + 1} rate set to ${rate}`;
+}
+
+async function atemSetDskSource(agent, params) {
+  const keyer = toInt(params.keyer ?? params.key ?? 0, 'keyer');
+  const fillSource = toInt(params.fillSource, 'fillSource');
+  const keySource = toInt(params.keySource, 'keySource');
+  await agent.atemCommand(async () => {
+    if (isFakeAtem(agent) && typeof agent.atem?.setDownstreamKeyerSource === 'function') {
+      return agent.atem.setDownstreamKeyerSource(keyer, fillSource, keySource);
+    }
+    await agent.atem?.setDownstreamKeyFillSource(fillSource, keyer);
+    await agent.atem?.setDownstreamKeyCutSource(keySource, keyer);
+  });
+  return `DSK ${keyer + 1} source set (fill ${fillSource}, key ${keySource})`;
 }
 
 // ─── VIDEOHUB COMMANDS ──────────────────────────────────────────────────────
@@ -82,37 +263,67 @@ async function videohubSetOutputLabel(agent, params) {
 
 async function hyperdeckPlay(agent, params) {
   const hd = params.hyperdeck || 0;
-  await agent.atemCommand(() => agent.atem?.setHyperDeckPlay(hd));
+  await agent.atemCommand(() => {
+    if (typeof agent.atem?.setHyperDeckPlay !== 'function') {
+      throw new Error('HyperDeck transport via ATEM is not supported by this switcher');
+    }
+    return agent.atem.setHyperDeckPlay(hd);
+  });
   return `HyperDeck ${hd} playing`;
 }
 
 async function hyperdeckStop(agent, params) {
   const hd = params.hyperdeck || 0;
-  await agent.atemCommand(() => agent.atem?.setHyperDeckStop(hd));
+  await agent.atemCommand(() => {
+    if (typeof agent.atem?.setHyperDeckStop !== 'function') {
+      throw new Error('HyperDeck transport via ATEM is not supported by this switcher');
+    }
+    return agent.atem.setHyperDeckStop(hd);
+  });
   return `HyperDeck ${hd} stopped`;
 }
 
 async function hyperdeckRecord(agent, params) {
   const hd = params.hyperdeck || 0;
-  await agent.atemCommand(() => agent.atem?.setHyperDeckRecord(hd));
+  await agent.atemCommand(() => {
+    if (typeof agent.atem?.setHyperDeckRecord !== 'function') {
+      throw new Error('HyperDeck transport via ATEM is not supported by this switcher');
+    }
+    return agent.atem.setHyperDeckRecord(hd);
+  });
   return `HyperDeck ${hd} recording`;
 }
 
 async function hyperdeckStopRecord(agent, params) {
   const hd = params.hyperdeck || 0;
-  await agent.atemCommand(() => agent.atem?.setHyperDeckStop(hd));
+  await agent.atemCommand(() => {
+    if (typeof agent.atem?.setHyperDeckStop !== 'function') {
+      throw new Error('HyperDeck transport via ATEM is not supported by this switcher');
+    }
+    return agent.atem.setHyperDeckStop(hd);
+  });
   return `HyperDeck ${hd} recording stopped`;
 }
 
 async function hyperdeckNextClip(agent, params) {
   const hd = params.hyperdeck || 0;
-  await agent.atemCommand(() => agent.atem?.setHyperDeckNextClip(hd));
+  await agent.atemCommand(() => {
+    if (typeof agent.atem?.setHyperDeckNextClip !== 'function') {
+      throw new Error('HyperDeck transport via ATEM is not supported by this switcher');
+    }
+    return agent.atem.setHyperDeckNextClip(hd);
+  });
   return `HyperDeck ${hd} next clip`;
 }
 
 async function hyperdeckPrevClip(agent, params) {
   const hd = params.hyperdeck || 0;
-  await agent.atemCommand(() => agent.atem?.setHyperDeckPrevClip(hd));
+  await agent.atemCommand(() => {
+    if (typeof agent.atem?.setHyperDeckPrevClip !== 'function') {
+      throw new Error('HyperDeck transport via ATEM is not supported by this switcher');
+    }
+    return agent.atem.setHyperDeckPrevClip(hd);
+  });
   return `HyperDeck ${hd} previous clip`;
 }
 
@@ -120,31 +331,104 @@ async function hyperdeckPrevClip(agent, params) {
 
 async function ptzPan(agent, params) {
   const speed = params.speed || 0; // -1.0 to 1.0 (negative=left, positive=right)
-  const camera = params.camera || 1;
-  await agent.atemCommand(() => agent.atem?.setCameraControlPanTilt(camera, speed, 0));
+  const camera = resolvePtzRef(params);
+  if (hasNetworkPtz(agent)) {
+    await agent.ptzManager.panTilt(camera, speed, 0, { durationMs: params.durationMs || 350 });
+    return `PTZ camera ${camera} pan speed ${speed}`;
+  }
+  await agent.atemCommand(() => {
+    if (typeof agent.atem?.setCameraControlPanTilt !== 'function') {
+      throw new Error('ATEM PTZ pan/tilt control is not supported in this runtime');
+    }
+    return agent.atem.setCameraControlPanTilt(camera, speed, 0);
+  });
   return `PTZ camera ${camera} pan speed ${speed}`;
 }
 
 async function ptzTilt(agent, params) {
   const speed = params.speed || 0;
-  const camera = params.camera || 1;
-  await agent.atemCommand(() => agent.atem?.setCameraControlPanTilt(camera, 0, speed));
+  const camera = resolvePtzRef(params);
+  if (hasNetworkPtz(agent)) {
+    await agent.ptzManager.panTilt(camera, 0, speed, { durationMs: params.durationMs || 350 });
+    return `PTZ camera ${camera} tilt speed ${speed}`;
+  }
+  await agent.atemCommand(() => {
+    if (typeof agent.atem?.setCameraControlPanTilt !== 'function') {
+      throw new Error('ATEM PTZ pan/tilt control is not supported in this runtime');
+    }
+    return agent.atem.setCameraControlPanTilt(camera, 0, speed);
+  });
   return `PTZ camera ${camera} tilt speed ${speed}`;
 }
 
 async function ptzZoom(agent, params) {
   const speed = params.speed || 0; // negative=out, positive=in
-  const camera = params.camera || 1;
-  await agent.atemCommand(() => agent.atem?.setCameraControlZoom(camera, speed));
+  const camera = resolvePtzRef(params);
+  if (hasNetworkPtz(agent)) {
+    await agent.ptzManager.zoom(camera, speed, { durationMs: params.durationMs || 250 });
+    return `PTZ camera ${camera} zoom speed ${speed}`;
+  }
+  await agent.atemCommand(() => {
+    if (typeof agent.atem?.setCameraControlZoom !== 'function') {
+      throw new Error('ATEM PTZ zoom control is not supported in this runtime');
+    }
+    return agent.atem.setCameraControlZoom(camera, speed);
+  });
   return `PTZ camera ${camera} zoom speed ${speed}`;
 }
 
 async function ptzPreset(agent, params) {
   const preset = params.preset || 1;
-  const camera = params.camera || 1;
+  const camera = resolvePtzRef(params);
+  if (hasNetworkPtz(agent)) {
+    await agent.ptzManager.recallPreset(camera, preset, { zeroBasedPreset: !!params.zeroBasedPreset });
+    return `PTZ camera ${camera} recalled preset ${preset}`;
+  }
   // ATEM camera control — recall preset via macro or camera control protocol
-  await agent.atemCommand(() => agent.atem?.setCameraControlPreset(camera, preset));
+  await agent.atemCommand(() => {
+    if (typeof agent.atem?.setCameraControlPreset !== 'function') {
+      throw new Error('ATEM PTZ preset recall is not supported in this runtime');
+    }
+    return agent.atem.setCameraControlPreset(camera, preset);
+  });
   return `PTZ camera ${camera} recalled preset ${preset}`;
+}
+
+async function ptzStop(agent, params) {
+  const camera = resolvePtzRef(params);
+  if (hasNetworkPtz(agent)) {
+    await agent.ptzManager.stop(camera, {
+      panTilt: params.panTilt !== false,
+      zoom: params.zoom !== false,
+    });
+    return `PTZ camera ${camera} stopped`;
+  }
+  const speed = 0;
+  await ptzPan(agent, { ...params, camera, speed });
+  await ptzTilt(agent, { ...params, camera, speed });
+  await ptzZoom(agent, { ...params, camera, speed });
+  return `PTZ camera ${camera} stopped`;
+}
+
+async function ptzHome(agent, params) {
+  const camera = resolvePtzRef(params);
+  if (hasNetworkPtz(agent)) {
+    await agent.ptzManager.home(camera);
+    return `PTZ camera ${camera} moved to home`;
+  }
+  throw new Error('PTZ home is only available for network PTZ cameras (ONVIF/VISCA)');
+}
+
+async function ptzSetPreset(agent, params) {
+  const camera = resolvePtzRef(params);
+  const preset = params.preset || 1;
+  if (hasNetworkPtz(agent)) {
+    const token = await agent.ptzManager.setPreset(camera, preset, params.name || '', {
+      zeroBasedPreset: !!params.zeroBasedPreset,
+    });
+    return `PTZ camera ${camera} saved preset ${preset} (${token})`;
+  }
+  throw new Error('PTZ set preset is only available for network PTZ cameras (ONVIF/VISCA)');
 }
 
 // ─── OBS COMMANDS ───────────────────────────────────────────────────────────
@@ -324,7 +608,7 @@ async function vmixCut(agent) {
 
 async function vmixFade(agent, params) {
   if (!agent.vmix) throw new Error('vMix not configured');
-  const ms = params.duration || 2000;
+  const ms = params.ms || params.duration || 2000;
   await agent.vmix.fade(ms);
   return `vMix: fade to preview (${ms}ms)`;
 }
@@ -377,6 +661,21 @@ async function vmixIsRunning(agent) {
   if (!agent.vmix) throw new Error('vMix not configured');
   const running = await agent.vmix.isRunning();
   return running ? 'vMix is running' : 'vMix is not reachable';
+}
+
+async function vmixFunction(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const functionName = String(params.function || '').trim();
+  if (!functionName) throw new Error('function parameter required');
+  if (typeof agent.vmix._call !== 'function') {
+    throw new Error('vMix low-level function API unavailable');
+  }
+  const callParams = {};
+  if (params.input != null) callParams.Input = params.input;
+  if (params.value != null) callParams.Value = params.value;
+  const result = await agent.vmix._call(functionName, callParams);
+  if (result === null) throw new Error(`Could not execute vMix function "${functionName}"`);
+  return `vMix function "${functionName}" executed`;
 }
 
 // ─── RESOLUME COMMANDS ────────────────────────────────────────────────────────
@@ -924,6 +1223,15 @@ const commandHandlers = {
   'atem.stopRecording': atemStopRecording,
   'atem.fadeToBlack': atemFadeToBlack,
   'atem.setInputLabel': atemSetInputLabel,
+  'atem.runMacro': atemRunMacro,
+  'atem.stopMacro': atemStopMacro,
+  'atem.setAux': atemSetAux,
+  'atem.setTransitionStyle': atemSetTransitionStyle,
+  'atem.setTransitionRate': atemSetTransitionRate,
+  'atem.setDskOnAir': atemSetDskOnAir,
+  'atem.setDskTie': atemSetDskTie,
+  'atem.setDskRate': atemSetDskRate,
+  'atem.setDskSource': atemSetDskSource,
 
   'hyperdeck.play': hyperdeckPlay,
   'hyperdeck.stop': hyperdeckStop,
@@ -936,6 +1244,9 @@ const commandHandlers = {
   'ptz.tilt': ptzTilt,
   'ptz.zoom': ptzZoom,
   'ptz.preset': ptzPreset,
+  'ptz.stop': ptzStop,
+  'ptz.home': ptzHome,
+  'ptz.setPreset': ptzSetPreset,
 
   'obs.startStream': obsStartStream,
   'obs.stopStream': obsStopStream,
@@ -991,6 +1302,7 @@ const commandHandlers = {
   'vmix.unmute': vmixUnmute,
   'vmix.preview': vmixPreview,
   'vmix.isRunning': vmixIsRunning,
+  'vmix.function': vmixFunction,
 
   'resolume.status': resolumeStatus,
   'resolume.playClip': resolumePlayClip,

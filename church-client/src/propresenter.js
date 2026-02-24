@@ -54,6 +54,13 @@ class ProPresenter extends EventEmitter {
     }
   }
 
+  async getVersion() {
+    const data = await this._fetch('/v1/version');
+    if (!data) return null;
+    if (typeof data === 'string') return data;
+    return data.version || data.appVersion || data.product || null;
+  }
+
   async getCurrentSlide() {
     const data = await this._fetch('/v1/presentation/active');
     if (!data) return null;

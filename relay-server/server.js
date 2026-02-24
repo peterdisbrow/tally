@@ -12,6 +12,7 @@
  */
 
 const express = require('express');
+const helmet = require('helmet');
 const { WebSocketServer, WebSocket } = require('ws');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
@@ -24,18 +25,35 @@ const Database = require('better-sqlite3');
 const cookieParser = require('cookie-parser');
 
 const app = express();
-// Capture raw body for Stripe webhook signature verification
-app.use((req, res, next) => {
-  if (req.path === '/api/billing/webhook') {
-    let data = '';
-    req.setEncoding('utf8');
-    req.on('data', chunk => { data += chunk; });
-    req.on('end', () => { req.rawBody = data; next(); });
-  } else {
-    next();
-  }
-});
-app.use(express.json({ limit: '1mb' }));
+
+// ─── SECURITY HEADERS ────────────────────────────────────────────────────────
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],  // portal uses inline scripts
+      styleSrc: ["'self'", "'unsafe-inline'"],    // portal uses inline styles
+      imgSrc: ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'", 'wss:', 'ws:'],
+      fontSrc: ["'self'"],
+      frameSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+    },
+  },
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+}));
+// Capture raw JSON body for Stripe webhook signature verification without
+// consuming the stream before body-parser.
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, _res, buf) => {
+    const url = req.originalUrl || req.url || '';
+    if (url.startsWith('/api/billing/webhook')) {
+      req.rawBody = buf.toString('utf8');
+    }
+  },
+}));
 app.use(cookieParser());
 
 const server = http.createServer(app);
@@ -58,14 +76,16 @@ const { EventMode } = require('./src/eventMode');
 const { ResellerSystem } = require('./src/reseller');
 const { AutoPilot } = require('./src/autoPilot');
 const { ChatEngine } = require('./src/chatEngine');
+const { LifecycleEmails } = require('./src/lifecycleEmails');
 
-const { BillingSystem, TRIAL_PERIOD_DAYS } = require('./src/billing');
+const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS } = require('./src/billing');
 const { buildDashboardHtml, buildResellerPortalHtml } = require('./src/dashboard');
 const { setupSyncMonitor } = require('./src/syncMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
 const { setupResellerPortal } = require('./src/resellerPortal');
 const { setupStatusPage } = require('./src/statusPage');
 const { createBackupSnapshot } = require('./src/dbBackup');
+const { createRateLimit } = require('./src/rateLimit');
 const relayPackage = require('./package.json');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
@@ -78,6 +98,11 @@ const RELAY_VERSION = process.env.RELAY_VERSION || relayPackage.version;
 const RELAY_BUILD = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.VERCEL_GIT_COMMIT_SHA || null;
 const SUPPORT_TRIAGE_WINDOW_HOURS = Number(process.env.SUPPORT_TRIAGE_WINDOW_HOURS || 24);
 const PORT = Number(process.env.PORT || 3000);
+
+// Onboarding email configuration
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const FROM_EMAIL = process.env.FROM_EMAIL || 'Tally by ATEM School <noreply@atemschool.com>';
+const APP_URL = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://tallyconnect.app';
 
 if (process.env.NODE_ENV === 'production') {
   if (process.env.ADMIN_API_KEY === undefined || process.env.JWT_SECRET === undefined) {
@@ -96,14 +121,14 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
 
 app.use((req, res, next) => {
   const origin = req.headers.origin || '';
-  const isAdminRoute = req.path.startsWith('/api/') || req.path.startsWith('/dashboard');
+  const isAdminRoute = (req.path.startsWith('/api/') && !req.path.startsWith('/api/public/')) || req.path.startsWith('/dashboard');
 
   if (isAdminRoute) {
-    // Admin routes: allow explicitly configured origins, localhost for local development, or same-origin flows (no Origin header).
+    // Admin routes: allow explicitly configured origins, localhost for dev, or same-origin flows (no Origin header).
+    const isProduction = process.env.NODE_ENV === 'production';
     const allowAdminOrigin =
       !origin ||
-      origin.startsWith('http://localhost') ||
-      origin.startsWith('https://localhost') ||
+      (!isProduction && (origin.startsWith('http://localhost') || origin.startsWith('https://localhost'))) ||
       ALLOWED_ORIGINS.includes(origin);
 
     if (allowAdminOrigin) {
@@ -128,6 +153,126 @@ app.use((req, res, next) => {
 function log(msg) {
   const ts = new Date().toISOString().replace('T', ' ').substring(0, 19);
   console.log(`[${ts}] ${msg}`);
+}
+
+// ─── ONBOARDING EMAILS (via Resend) ─────────────────────────────────────────
+
+async function sendOnboardingEmail({ to, subject, html, text, tag }) {
+  if (!RESEND_API_KEY) {
+    log(`[onboarding-email] No RESEND_API_KEY — would send "${subject}" to ${to}`);
+    return { sent: false, reason: 'no-api-key' };
+  }
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: FROM_EMAIL,
+        to: [to],
+        subject,
+        html,
+        text,
+        tags: [{ name: 'category', value: tag || 'onboarding' }],
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      log(`[onboarding-email] Resend failed (${res.status}): ${err}`);
+      return { sent: false, reason: 'resend-error' };
+    }
+    const data = await res.json();
+    log(`[onboarding-email] Sent "${subject}" to ${to}, id: ${data.id}`);
+    return { sent: true, id: data.id };
+  } catch (e) {
+    log(`[onboarding-email] Send failed: ${e.message}`);
+    return { sent: false, reason: 'network-error' };
+  }
+}
+
+function buildConnectionEmailHtml({ churchName, registrationCode, portalUrl }) {
+  return `
+    <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 0;">
+      <div style="margin-bottom: 24px;">
+        <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #22c55e; margin-right: 8px;"></span>
+        <strong style="font-size: 16px; color: #111;">Tally</strong>
+      </div>
+
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Tally is live at ${churchName}!</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 24px;">
+        Your booth computer just connected to Tally. You're now being monitored in real-time.
+      </p>
+
+      <div style="margin-bottom: 20px; padding: 16px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 8px;">What Tally is doing for you right now:</div>
+        <ul style="font-size: 14px; color: #333; margin: 0; padding-left: 20px; line-height: 1.8;">
+          <li>Monitoring your ATEM, OBS, and connected devices</li>
+          <li>Watching for stream drops, disconnects, and audio issues</li>
+          <li>Ready to auto-recover if anything goes wrong</li>
+          <li>Pre-service checks will run 30 minutes before your scheduled services</li>
+        </ul>
+      </div>
+
+      <div style="margin-bottom: 20px; padding: 16px; background: #f8faf9; border-radius: 10px; border: 1px solid #e5e7eb;">
+        <div style="font-size: 14px; font-weight: 700; color: #111; margin-bottom: 8px;">Tips for your first Sunday:</div>
+        <ol style="font-size: 14px; color: #555; margin: 0; padding-left: 20px; line-height: 1.8;">
+          <li>Make sure the booth computer stays on and connected to the internet</li>
+          <li>Check the dashboard before service to confirm all devices are green</li>
+          <li>If something auto-recovers during service, you'll get a Telegram alert</li>
+        </ol>
+      </div>
+
+      ${registrationCode ? `
+      <div style="margin-bottom: 20px; padding: 16px; background: #fffbeb; border-radius: 10px; border: 1px solid #fde68a;">
+        <div style="font-size: 13px; font-weight: 700; color: #b45309; margin-bottom: 6px;">SET UP TELEGRAM ALERTS</div>
+        <p style="font-size: 14px; color: #555; margin: 0 0 8px; line-height: 1.5;">
+          Have your tech directors send this command to <strong>@tallybot</strong> on Telegram:
+        </p>
+        <div style="font-family: ui-monospace, monospace; font-size: 18px; font-weight: 700; color: #111; letter-spacing: 0.08em; padding: 6px 0;">
+          /register ${registrationCode}
+        </div>
+      </div>
+      ` : ''}
+
+      <p style="margin: 24px 0;">
+        <a href="${portalUrl}" style="
+          display: inline-block; padding: 12px 28px; font-size: 15px; font-weight: 700;
+          background: #22c55e; color: #000; text-decoration: none; border-radius: 8px;
+        ">Open Church Portal</a>
+      </p>
+
+      <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />
+      <p style="font-size: 12px; color: #999;">
+        Tally by ATEM School &mdash; <a href="https://tallyconnect.app" style="color: #999;">tallyconnect.app</a>
+      </p>
+    </div>
+  `;
+}
+
+function buildConnectionEmailText({ churchName, registrationCode, portalUrl }) {
+  return `Tally is live at ${churchName}!
+
+Your booth computer just connected to Tally. You're now being monitored in real-time.
+
+What Tally is doing for you right now:
+- Monitoring your ATEM, OBS, and connected devices
+- Watching for stream drops, disconnects, and audio issues
+- Ready to auto-recover if anything goes wrong
+- Pre-service checks will run 30 min before scheduled services
+
+Tips for your first Sunday:
+1. Make sure the booth computer stays on and connected to the internet
+2. Check the dashboard before service to confirm all devices are green
+3. If something auto-recovers during service, you'll get a Telegram alert
+${registrationCode ? `
+Set up Telegram alerts — have your TDs send this to @tallybot:
+/register ${registrationCode}
+` : ''}
+Church Portal: ${portalUrl}
+
+Tally by ATEM School — tallyconnect.app`;
 }
 
 // ─── SQLITE PERSISTENCE ──────────────────────────────────────────────────────
@@ -161,6 +306,17 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN portal_email TEXT",
   "ALTER TABLE churches ADD COLUMN portal_password_hash TEXT",
   "ALTER TABLE churches ADD COLUMN tos_accepted_at TEXT",
+  "ALTER TABLE churches ADD COLUMN billing_interval TEXT",
+  // Onboarding milestone tracking
+  "ALTER TABLE churches ADD COLUMN onboarding_app_connected_at TEXT",
+  "ALTER TABLE churches ADD COLUMN onboarding_atem_connected_at TEXT",
+  "ALTER TABLE churches ADD COLUMN onboarding_first_session_at TEXT",
+  "ALTER TABLE churches ADD COLUMN onboarding_telegram_registered_at TEXT",
+  "ALTER TABLE churches ADD COLUMN onboarding_dismissed INTEGER DEFAULT 0",
+  // Email verification
+  "ALTER TABLE churches ADD COLUMN email_verified INTEGER DEFAULT 0",
+  "ALTER TABLE churches ADD COLUMN email_verify_token TEXT",
+  "ALTER TABLE churches ADD COLUMN email_verify_sent_at TEXT",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -496,6 +652,12 @@ function checkExpiredTrials() {
 
       log(`[TrialExpiry] Trial expired for "${church.name}" (${church.churchId}) — trial ended ${church.billing_trial_ends}`);
 
+      // Send trial-expired email (non-blocking)
+      if (lifecycleEmails) {
+        const fullChurch = db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(church.churchId);
+        if (fullChurch) lifecycleEmails.sendTrialExpired(fullChurch).catch(() => {});
+      }
+
       // Disconnect the church if it's currently connected
       const runtime = churches.get(church.churchId);
       if (runtime?.ws?.readyState === 1) {
@@ -512,9 +674,70 @@ function checkExpiredTrials() {
   }
 }
 
+// ─── GRACE PERIOD ENFORCEMENT ─────────────────────────────────────────────
+// Deactivate churches whose payment grace period has expired.
+function enforceGracePeriods() {
+  try {
+    const now = new Date().toISOString();
+    const expired = db.prepare(`
+      SELECT bc.church_id, bc.grace_ends_at, c.name
+      FROM billing_customers bc
+      LEFT JOIN churches c ON c.churchId = bc.church_id
+      WHERE bc.status = 'past_due'
+        AND bc.grace_ends_at IS NOT NULL
+        AND bc.grace_ends_at < ?
+    `).all(now);
+
+    for (const row of expired) {
+      db.prepare("UPDATE billing_customers SET status = 'inactive', updated_at = ? WHERE church_id = ?").run(now, row.church_id);
+      db.prepare("UPDATE churches SET billing_status = 'inactive' WHERE churchId = ?").run(row.church_id);
+
+      // Disconnect client
+      const runtime = churches.get(row.church_id);
+      if (runtime?.ws?.readyState === 1) {
+        runtime.ws.close(1008, 'billing_grace_expired');
+      }
+
+      log(`[GracePeriod] ⏰ Grace period expired for "${row.name}" (${row.church_id}) — deactivated`);
+
+      // Send grace-expired email
+      if (lifecycleEmails) {
+        const church = db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(row.church_id);
+        if (church) lifecycleEmails.sendGraceExpired(church).catch(() => {});
+      }
+    }
+
+    if (expired.length > 0) {
+      log(`[GracePeriod] Deactivated ${expired.length} church(es) with expired grace periods`);
+    }
+  } catch (e) {
+    console.error('[GracePeriod] Error:', e.message);
+  }
+}
+
 // Run immediately on startup, then every hour
 checkExpiredTrials();
+enforceGracePeriods();
 setInterval(checkExpiredTrials, 60 * 60 * 1000);
+setInterval(enforceGracePeriods, 60 * 60 * 1000);
+
+// ─── LIFECYCLE EMAILS ────────────────────────────────────────────────────────
+// Automated email sequences: setup nudge, first-sunday prep, check-in,
+// trial warnings, trial expired, payment failed, weekly digest.
+
+const lifecycleEmails = new LifecycleEmails(db, {
+  resendApiKey: RESEND_API_KEY,
+  fromEmail: FROM_EMAIL,
+  appUrl: APP_URL,
+});
+billing.setLifecycleEmails(lifecycleEmails);
+
+// Run lifecycle email checks every hour
+setInterval(() => {
+  lifecycleEmails.runCheck().catch(e =>
+    console.error('[LifecycleEmails] Check failed:', e.message)
+  );
+}, 60 * 60 * 1000);
 
 // ─── RESELLER SYSTEM (needed early for TallyBot) ────────────────────────────
 
@@ -630,7 +853,7 @@ const { setupAdminPanel } = require('./src/adminPanel');
 setupAdminPanel(app, db, churches, resellerSystem);
 
 // Church Portal — self-service login for individual churches
-setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin);
+setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails });
 console.log('[Server] ✓ Church Portal routes registered');
 
 // Reseller Portal — self-service login for integrators/resellers
@@ -721,68 +944,47 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Shared auth utilities (single source of truth — also used by churchPortal.js)
+const { hashPassword, verifyPassword, generateRegistrationCode: _genRegCode } = require('./src/auth');
 function generateRegistrationCode() {
-  // 6-char hex, uppercase. Keep retrying if it collides (very unlikely).
-  let code;
-  do {
-    code = crypto.randomBytes(3).toString('hex').toUpperCase();
-  } while (stmtFindByRegistrationCode.get(code));
-  return code;
-}
-
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-  return `${salt}:${hash}`;
-}
-
-function verifyPassword(password, stored) {
-  try {
-    const [salt, hash] = String(stored || '').split(':');
-    if (!salt || !hash) return false;
-    const check = crypto.scryptSync(password, salt, 64).toString('hex');
-    return crypto.timingSafeEqual(Buffer.from(check, 'hex'), Buffer.from(hash, 'hex'));
-  } catch {
-    return false;
-  }
+  return _genRegCode(db);
 }
 
 function issueChurchAppToken(churchId, name) {
   return jwt.sign({ type: 'church_app', churchId, name }, JWT_SECRET, { expiresIn: CHURCH_APP_TOKEN_TTL });
 }
 
-// ─── Rate limiter (in-memory, per-IP) ────────────────────────────────────────
-const rateLimitStore = new Map();
-const RATE_LIMIT_CLEANUP_INTERVAL = 10 * 60 * 1000; // 10 min
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of rateLimitStore) {
-    if (now - entry.windowStart > 15 * 60 * 1000) rateLimitStore.delete(key);
-  }
-}, RATE_LIMIT_CLEANUP_INTERVAL);
-
 function rateLimit(maxAttempts = 10, windowMs = 15 * 60 * 1000) {
-  return (req, res, next) => {
-    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    const key = `${req.path}:${ip}`;
-    const now = Date.now();
-    let entry = rateLimitStore.get(key);
-    if (!entry || now - entry.windowStart > windowMs) {
-      entry = { windowStart: now, count: 0 };
-      rateLimitStore.set(key, entry);
-    }
-    entry.count++;
-    if (entry.count > maxAttempts) {
-      const retryAfter = Math.ceil((entry.windowStart + windowMs - now) / 1000);
-      res.set('Retry-After', String(retryAfter));
-      return res.status(429).json({ error: 'Too many attempts. Please try again later.', retryAfter });
-    }
-    next();
-  };
+  return createRateLimit({
+    scope: 'api',
+    maxAttempts,
+    windowMs,
+  });
 }
 
 const BILLING_TIERS = new Set(['connect', 'plus', 'pro', 'managed', 'event']);
 const BILLING_STATUSES = new Set(['active', 'trialing', 'inactive', 'pending', 'past_due', 'canceled', 'trial_expired']);
+const BILLING_INTERVAL_ALIASES = new Map([
+  ['monthly', 'monthly'],
+  ['month', 'monthly'],
+  ['annual', 'annual'],
+  ['annually', 'annual'],
+  ['yearly', 'annual'],
+  ['year', 'annual'],
+  ['one_time', 'one_time'],
+  ['one-time', 'one_time'],
+  ['event', 'one_time'],
+]);
+
+function normalizeBillingInterval(raw, tier, fallback) {
+  const normalizedTier = String(tier || '').toLowerCase();
+  if (normalizedTier === 'event') return 'one_time';
+  if (raw === undefined || raw === null || String(raw).trim() === '') return fallback;
+  const key = String(raw).trim().toLowerCase();
+  const normalized = BILLING_INTERVAL_ALIASES.get(key) || BILLING_INTERVAL_ALIASES.get(key.replace(/\s+/g, '_')) || null;
+  if (!normalized || normalized === 'one_time') return null;
+  return BILLING_INTERVALS.has(normalized) ? normalized : null;
+}
 
 function getChurchBillingSnapshot(churchId) {
   const church = stmtGet.get(churchId);
@@ -791,16 +993,22 @@ function getChurchBillingSnapshot(churchId) {
   }
 
   const billingRow = db.prepare(`
-    SELECT tier, status, trial_ends_at, grace_ends_at
+    SELECT tier, status, trial_ends_at, grace_ends_at, billing_interval
     FROM billing_customers
     WHERE church_id = ?
     ORDER BY datetime(updated_at) DESC
     LIMIT 1
   `).get(churchId);
 
+  const resolvedTier = church.billing_tier || billingRow?.tier || null;
+  const resolvedInterval =
+    normalizeBillingInterval(church.billing_interval || billingRow?.billing_interval, resolvedTier, resolvedTier === 'event' ? 'one_time' : 'monthly') ||
+    (resolvedTier === 'event' ? 'one_time' : 'monthly');
+
   return {
     exists: true,
-    tier: church.billing_tier || billingRow?.tier || null,
+    tier: resolvedTier,
+    billingInterval: resolvedInterval,
     status: String(church.billing_status || billingRow?.status || 'inactive').toLowerCase(),
     trialEndsAt: church.billing_trial_ends || billingRow?.trial_ends_at || null,
     graceEndsAt: billingRow?.grace_ends_at || null,
@@ -828,7 +1036,7 @@ function checkChurchPaidAccess(churchId) {
         allowed: false,
         ...snapshot,
         status: 'trial_expired',
-        message: 'Your free trial has ended. Subscribe at tally.atemschool.com to continue.',
+        message: 'Your free trial has ended. Subscribe at tallyconnect.app to continue.',
       };
     }
     return { allowed: true, ...snapshot };
@@ -842,7 +1050,7 @@ function checkChurchPaidAccess(churchId) {
     return {
       allowed: false,
       ...snapshot,
-      message: 'Payment is overdue and grace period has ended. Update payment at tally.atemschool.com to restore access.',
+      message: 'Payment is overdue and grace period has ended. Update payment at tallyconnect.app to restore access.',
     };
   }
 
@@ -1083,7 +1291,47 @@ async function runStatusChecks() {
   if (statusCheckInFlight) return;
   statusCheckInFlight = true;
   try {
-    const appUrl = String(process.env.APP_URL || '').replace(/\/$/, '');
+    const normalizeUrl = (value) => {
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      try {
+        const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+        if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+        parsed.hash = '';
+        parsed.search = '';
+        return parsed.toString().replace(/\/$/, '');
+      } catch {
+        return '';
+      }
+    };
+
+    const adminProxyTargets = [];
+    const addAdminProxyTarget = (value) => {
+      const normalized = normalizeUrl(value);
+      if (!normalized) return;
+      if (!adminProxyTargets.includes(normalized)) adminProxyTargets.push(normalized);
+    };
+
+    addAdminProxyTarget(process.env.ADMIN_PROXY_URL || process.env.ADMIN_API_PROXY_URL || '');
+    addAdminProxyTarget(process.env.APP_URL || '');
+
+    // Auto-fallback: if APP_URL is a web app domain, also try api.<domain>.
+    const appUrl = normalizeUrl(process.env.APP_URL || '');
+    if (appUrl) {
+      try {
+        const parsed = new URL(appUrl);
+        const host = parsed.hostname || '';
+        const isIp = /^\d+\.\d+\.\d+\.\d+$/.test(host);
+        const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
+        if (host && !host.startsWith('api.') && !isIp && !isLocal) {
+          parsed.hostname = `api.${host}`;
+          addAdminProxyTarget(parsed.toString());
+        }
+      } catch {
+        // noop
+      }
+    }
+
     const checks = [];
 
     checks.push({
@@ -1109,31 +1357,49 @@ async function runStatusChecks() {
       });
     }
 
-    if (appUrl) {
-      try {
-        const resp = await timedFetch(`${appUrl}/api/admin/me`, {
-          timeoutMs: 7000,
-          headers: { 'x-api-key': ADMIN_API_KEY },
-        });
-        checks.push({
-          componentId: 'admin_api_proxy',
-          name: 'Admin API Proxy',
-          result: resp.ok
-            ? { state: 'operational', latencyMs: resp.latencyMs, detail: `HTTP ${resp.status}` }
-            : { state: 'outage', latencyMs: resp.latencyMs, detail: `HTTP ${resp.status}` },
-        });
-      } catch (error) {
-        checks.push({
-          componentId: 'admin_api_proxy',
-          name: 'Admin API Proxy',
-          result: { state: 'outage', detail: error.message },
-        });
+    if (adminProxyTargets.length > 0) {
+      let resolved = null;
+      let lastFailure = null;
+
+      for (const target of adminProxyTargets) {
+        try {
+          const resp = await timedFetch(`${target}/api/admin/me`, {
+            timeoutMs: 7000,
+            headers: { 'x-api-key': ADMIN_API_KEY },
+          });
+          if (resp.ok) {
+            resolved = {
+              state: 'operational',
+              latencyMs: resp.latencyMs,
+              detail: `HTTP ${resp.status} via ${target}`,
+            };
+            break;
+          }
+
+          lastFailure = {
+            state: 'outage',
+            latencyMs: resp.latencyMs,
+            detail: `HTTP ${resp.status} via ${target}`,
+          };
+
+          // Try next candidate if this host simply doesn't expose the proxy path.
+          if (resp.status === 404) continue;
+          break;
+        } catch (error) {
+          lastFailure = { state: 'outage', detail: `${error.message} via ${target}` };
+        }
       }
+
+      checks.push({
+        componentId: 'admin_api_proxy',
+        name: 'Admin API Proxy',
+        result: resolved || lastFailure || { state: 'degraded', detail: 'No reachable admin proxy target' },
+      });
     } else {
       checks.push({
         componentId: 'admin_api_proxy',
         name: 'Admin API Proxy',
-        result: { state: 'degraded', detail: 'APP_URL not configured for synthetic check' },
+        result: { state: 'degraded', detail: 'APP_URL/ADMIN_PROXY_URL not configured for synthetic check' },
       });
     }
 
@@ -1255,7 +1521,7 @@ function requireFeature(featureName) {
 }
 
 // Register a new church and get a connection token
-app.post('/api/churches/register', requireAdmin, (req, res) => {
+app.post('/api/churches/register', requireAdmin, rateLimit(10, 60_000), (req, res) => {
   const { name, email, portalEmail, password, tier, billingStatus } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
   if (password && !portalEmail) return res.status(400).json({ error: 'portalEmail is required when password is provided' });
@@ -1275,6 +1541,16 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
   const normalizedTier = tier ? String(tier).toLowerCase() : null;
   if (normalizedTier && !BILLING_TIERS.has(normalizedTier)) {
     return res.status(400).json({ error: 'invalid tier' });
+  }
+  const intervalInput = req.body?.billingInterval ?? req.body?.billingCycle;
+  const resolvedTier = normalizedTier || 'connect';
+  const normalizedInterval = normalizeBillingInterval(
+    intervalInput,
+    resolvedTier,
+    resolvedTier === 'event' ? 'one_time' : 'monthly',
+  );
+  if (intervalInput !== undefined && intervalInput !== null && !normalizedInterval) {
+    return res.status(400).json({ error: 'invalid billingInterval' });
   }
 
   const normalizedStatus = billingStatus ? String(billingStatus).toLowerCase() : null;
@@ -1298,14 +1574,15 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
   stmtUpdateRegistrationCode.run(registrationCode, churchId);
   db.prepare(`
     UPDATE churches
-    SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?, billing_trial_ends = ?
+    SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?, billing_trial_ends = ?, billing_interval = ?
     WHERE churchId = ?
   `).run(
     cleanPortalEmail || null,
     password ? hashPassword(password) : null,
-    normalizedTier || 'connect',
+    resolvedTier,
     finalStatus,
     trialEndsAt,
+    normalizedInterval,
     churchId
   );
 
@@ -1324,7 +1601,8 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
     token,
     portalEmail: cleanPortalEmail || null,
     billing: {
-      tier: normalizedTier || 'connect',
+      tier: resolvedTier,
+      billingInterval: normalizedInterval,
       status: finalStatus,
       trialEndsAt,
     },
@@ -1334,11 +1612,17 @@ app.post('/api/churches/register', requireAdmin, (req, res) => {
 });
 
 // Self-serve onboarding from website signup flow
-app.post('/api/church/app/onboard', async (req, res) => {
-  const { name, email, password, tier, successUrl, cancelUrl, tosAcceptedAt } = req.body || {};
+app.post('/api/church/app/onboard', rateLimit(5, 60_000), async (req, res) => {
+  const { name, email, password, tier, successUrl, cancelUrl, tosAcceptedAt, referralCode } = req.body || {};
   const cleanName = String(name || '').trim();
   const cleanEmail = String(email || '').trim().toLowerCase();
+  const cleanReferralCode = String(referralCode || '').trim().toUpperCase();
   const planTier = String(tier || 'connect').toLowerCase();
+  const planInterval = normalizeBillingInterval(
+    req.body?.billingInterval ?? req.body?.billingCycle,
+    planTier,
+    planTier === 'event' ? 'one_time' : 'monthly',
+  );
 
   if (!cleanName) return res.status(400).json({ error: 'name required' });
   if (!cleanEmail) return res.status(400).json({ error: 'email required' });
@@ -1348,12 +1632,39 @@ app.post('/api/church/app/onboard', async (req, res) => {
   if (!['connect', 'plus', 'pro', 'managed', 'event'].includes(planTier)) {
     return res.status(400).json({ error: 'invalid tier' });
   }
+  if (!planInterval) {
+    return res.status(400).json({ error: 'invalid billingInterval' });
+  }
 
   const existingByName = stmtFindByName.get(cleanName);
-  if (existingByName) return res.status(409).json({ error: `A church named "${cleanName}" already exists` });
+  if (existingByName) {
+    // Allow re-onboarding if church was abandoned (pending checkout never completed)
+    const isPending = existingByName.billing_status === 'pending' || existingByName.billing_status === 'inactive';
+    if (!isPending) return res.status(409).json({ error: `A church named "${cleanName}" already exists` });
+  }
 
-  const existingByEmail = db.prepare('SELECT churchId FROM churches WHERE portal_email = ?').get(cleanEmail);
-  if (existingByEmail) return res.status(409).json({ error: 'An account with this email already exists' });
+  const existingByEmail = db.prepare('SELECT churchId, billing_status FROM churches WHERE portal_email = ?').get(cleanEmail);
+  if (existingByEmail) {
+    // Allow re-onboarding if previous signup was abandoned (pending/inactive = never completed checkout)
+    const isPending = existingByEmail.billing_status === 'pending' || existingByEmail.billing_status === 'inactive';
+    if (!isPending) return res.status(409).json({ error: 'An account with this email already exists' });
+
+    // Clean up the abandoned record so we can create a fresh one
+    const oldChurchId = existingByEmail.churchId;
+    churches.delete(oldChurchId);
+    db.prepare('DELETE FROM billing_customers WHERE church_id = ?').run(oldChurchId);
+    db.prepare('DELETE FROM churches WHERE churchId = ?').run(oldChurchId);
+    log(`[Onboarding] Cleaned up abandoned signup for ${cleanEmail} (old churchId: ${oldChurchId})`);
+  }
+
+  // Also clean up abandoned name match (different email, same name)
+  if (existingByName) {
+    const oldChurchId = existingByName.churchId;
+    churches.delete(oldChurchId);
+    db.prepare('DELETE FROM billing_customers WHERE church_id = ?').run(oldChurchId);
+    db.prepare('DELETE FROM churches WHERE churchId = ?').run(oldChurchId);
+    log(`[Onboarding] Cleaned up abandoned signup for "${cleanName}" (old churchId: ${oldChurchId})`);
+  }
 
   const churchId = uuidv4();
   const connectionToken = jwt.sign({ churchId, name: cleanName }, JWT_SECRET, { expiresIn: '365d' });
@@ -1368,11 +1679,36 @@ app.post('/api/church/app/onboard', async (req, res) => {
 
   stmtInsert.run(churchId, cleanName, cleanEmail, connectionToken, registeredAt);
   stmtUpdateRegistrationCode.run(registrationCode, churchId);
+
+  // Generate a referral code for the new church
+  const newReferralCode = generateRegistrationCode().toUpperCase();
+
+  // Generate email verification token
+  const emailVerifyToken = crypto.randomBytes(32).toString('hex');
+
   db.prepare(`
     UPDATE churches
-    SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?, billing_trial_ends = ?, tos_accepted_at = ?
+    SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?, billing_trial_ends = ?, billing_interval = ?, tos_accepted_at = ?, referral_code = ?,
+        email_verify_token = ?, email_verify_sent_at = ?
     WHERE churchId = ?
-  `).run(cleanEmail, hashPassword(password), planTier, onboardStatus, trialEndsAt, tosAcceptedAt || null, churchId);
+  `).run(cleanEmail, hashPassword(password), planTier, onboardStatus, trialEndsAt, planInterval, tosAcceptedAt || null, newReferralCode, emailVerifyToken, new Date().toISOString(), churchId);
+
+  // Track referral if a valid referral code was provided
+  let referrerId = null;
+  if (cleanReferralCode) {
+    const referrer = db.prepare('SELECT churchId, name FROM churches WHERE referral_code = ? AND churchId != ?').get(cleanReferralCode, churchId);
+    if (referrer) {
+      referrerId = referrer.churchId;
+      db.prepare('UPDATE churches SET referred_by = ? WHERE churchId = ?').run(referrer.churchId, churchId);
+      try {
+        db.prepare(`
+          INSERT INTO referrals (id, referrer_id, referred_id, referred_name, status, created_at)
+          VALUES (?, ?, ?, ?, 'pending', ?)
+        `).run(require('crypto').randomUUID(), referrer.churchId, churchId, cleanName, registeredAt);
+        log(`[Referral] ${cleanName} referred by ${referrer.name} (code: ${cleanReferralCode})`);
+      } catch (e) { log(`[Referral] Failed to record: ${e.message}`); }
+    }
+  }
 
   churches.set(churchId, {
     churchId,
@@ -1401,6 +1737,7 @@ app.post('/api/church/app/onboard', async (req, res) => {
     try {
       const checkout = await billing.createCheckout({
         tier: planTier,
+        billingInterval: planInterval,
         churchId,
         email: cleanEmail,
         successUrl,
@@ -1414,6 +1751,29 @@ app.post('/api/church/app/onboard', async (req, res) => {
       log(`[Onboarding] Checkout setup failed for ${churchId}: ${e.message}`);
     }
   }
+
+  // Send email verification (non-blocking)
+  const verifyUrl = `${process.env.RELAY_URL || 'https://tally-production-cde2.up.railway.app'}/api/church/verify-email?token=${emailVerifyToken}`;
+  sendOnboardingEmail({
+    to: cleanEmail,
+    subject: 'Verify your Tally email',
+    tag: 'email-verification',
+    html: `<div style="font-family: system-ui, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 0;">
+      <div style="margin-bottom: 24px;">
+        <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #22c55e; margin-right: 8px;"></span>
+        <strong style="font-size: 16px; color: #111;">Tally</strong>
+      </div>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Verify your email</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">Click below to verify the email address for <strong>${cleanName}</strong>:</p>
+      <p style="margin: 28px 0;">
+        <a href="${verifyUrl}" style="display: inline-block; padding: 12px 28px; font-size: 15px; font-weight: 700; background: #22c55e; color: #000; text-decoration: none; border-radius: 8px;">Verify Email</a>
+      </p>
+      <p style="font-size: 13px; color: #666;">If you didn't sign up for Tally, ignore this email.</p>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />
+      <p style="font-size: 12px; color: #999;">Tally by ATEM School</p>
+    </div>`,
+    text: `Verify your Tally email\n\nClick this link to verify: ${verifyUrl}\n\nIf you didn't sign up for Tally, ignore this email.`,
+  }).catch(() => {});
 
   const appToken = issueChurchAppToken(churchId, cleanName);
   const access = checkChurchPaidAccess(churchId);
@@ -1430,12 +1790,75 @@ app.post('/api/church/app/onboard', async (req, res) => {
       required: REQUIRE_ACTIVE_BILLING && billing.isEnabled(),
       status: access.status,
       tier: planTier,
+      billingInterval: planInterval,
       trialEndsAt,
     },
     checkoutUrl,
     checkoutSessionId,
     checkoutError,
   });
+});
+
+// Email verification endpoint
+app.get('/api/church/verify-email', (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).json({ error: 'Verification token required' });
+
+  const church = db.prepare('SELECT churchId, name, email_verified FROM churches WHERE email_verify_token = ?').get(token);
+  if (!church) return res.status(404).json({ error: 'Invalid or expired verification link' });
+
+  if (church.email_verified) {
+    return res.redirect(`${APP_URL}/portal?verified=already`);
+  }
+
+  db.prepare('UPDATE churches SET email_verified = 1, email_verify_token = NULL WHERE churchId = ?').run(church.churchId);
+  log(`[EmailVerify] ✅ Email verified for "${church.name}" (${church.churchId})`);
+
+  res.redirect(`${APP_URL}/portal?verified=true`);
+});
+
+// Resend verification email
+app.post('/api/church/resend-verification', rateLimit(3, 60_000), (req, res) => {
+  const { email } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!cleanEmail) return res.status(400).json({ error: 'email required' });
+
+  const church = db.prepare('SELECT churchId, name, portal_email, email_verified, email_verify_token FROM churches WHERE portal_email = ?').get(cleanEmail);
+  if (!church) return res.json({ sent: true }); // Don't reveal if account exists
+  if (church.email_verified) return res.json({ sent: true, alreadyVerified: true });
+
+  // Generate a new token if needed
+  let verifyToken = church.email_verify_token;
+  if (!verifyToken) {
+    verifyToken = crypto.randomBytes(32).toString('hex');
+    db.prepare('UPDATE churches SET email_verify_token = ?, email_verify_sent_at = ? WHERE churchId = ?')
+      .run(verifyToken, new Date().toISOString(), church.churchId);
+  }
+
+  // Send verification email (non-blocking)
+  const verifyUrl = `${APP_URL.replace('https://tallyconnect.app', process.env.RELAY_URL || 'https://tally-production-cde2.up.railway.app')}/api/church/verify-email?token=${verifyToken}`;
+  sendOnboardingEmail({
+    to: cleanEmail,
+    subject: 'Verify your Tally email',
+    tag: 'email-verification',
+    html: `<div style="font-family: system-ui, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 0;">
+      <div style="margin-bottom: 24px;">
+        <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #22c55e; margin-right: 8px;"></span>
+        <strong style="font-size: 16px; color: #111;">Tally</strong>
+      </div>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Verify your email</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">Click below to verify the email address for <strong>${church.name}</strong>:</p>
+      <p style="margin: 28px 0;">
+        <a href="${verifyUrl}" style="display: inline-block; padding: 12px 28px; font-size: 15px; font-weight: 700; background: #22c55e; color: #000; text-decoration: none; border-radius: 8px;">Verify Email</a>
+      </p>
+      <p style="font-size: 13px; color: #666;">If you didn't sign up for Tally, ignore this email.</p>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />
+      <p style="font-size: 12px; color: #999;">Tally by ATEM School</p>
+    </div>`,
+    text: `Verify your Tally email\n\nClick this link to verify: ${verifyUrl}\n\nIf you didn't sign up for Tally, ignore this email.`,
+  }).catch(() => {});
+
+  res.json({ sent: true });
 });
 
 // Credential-based app login (used by Electron setup flow)
@@ -1458,6 +1881,7 @@ app.post('/api/church/app/login', rateLimit(10, 15 * 60 * 1000), (req, res) => {
       billing: {
         status: access.status,
         tier: access.tier,
+        billingInterval: access.billingInterval,
       },
     });
   }
@@ -1475,6 +1899,7 @@ app.post('/api/church/app/login', rateLimit(10, 15 * 60 * 1000), (req, res) => {
     billing: {
       status: access.status,
       tier: access.tier,
+      billingInterval: access.billingInterval,
       bypassed: !!access.bypassed,
     },
   });
@@ -1482,7 +1907,7 @@ app.post('/api/church/app/login', rateLimit(10, 15 * 60 * 1000), (req, res) => {
 
 // ─── CHURCH APP API (Bearer token auth) ──────────────────────────────────────
 // These routes mirror /api/church/me but use JWT Bearer tokens instead of cookies.
-// Used by the tally.atemschool.com landing-site portal.
+// Used by the tallyconnect.app landing-site portal.
 
 function requireChurchAppAuth(req, res, next) {
   const auth = req.headers.authorization;
@@ -1650,7 +2075,7 @@ app.post('/api/support/triage', requireSupportAccess, (req, res) => {
   });
 });
 
-app.post('/api/support/tickets', requireSupportAccess, (req, res) => {
+app.post('/api/support/tickets', requireSupportAccess, rateLimit(5, 60_000), (req, res) => {
   const churchId = resolveSupportChurchId(req);
   if (!churchId) return res.status(400).json({ error: 'churchId required' });
 
@@ -2109,14 +2534,22 @@ app.get('/api/events', requireAdmin, (req, res) => {
 // ─── BILLING ROUTES ───────────────────────────────────────────────────────────
 
 // Create Stripe Checkout session
-app.post('/api/billing/checkout', requireAdmin, async (req, res) => {
+app.post('/api/billing/checkout', requireAdmin, rateLimit(5, 60_000), async (req, res) => {
   try {
     const { tier, churchId, email, successUrl, cancelUrl } = req.body;
     if (!tier || !['connect', 'plus', 'pro', 'managed', 'event'].includes(tier)) {
       return res.status(400).json({ error: 'Invalid tier. Must be connect, plus, pro, managed, or event.' });
     }
+    const billingInterval = normalizeBillingInterval(
+      req.body?.billingInterval ?? req.body?.billingCycle,
+      tier,
+      String(tier).toLowerCase() === 'event' ? 'one_time' : 'monthly',
+    );
+    if (!billingInterval) {
+      return res.status(400).json({ error: 'Invalid billingInterval. Must be monthly or annual.' });
+    }
     const result = await billing.createCheckout({
-      tier, churchId, email, successUrl, cancelUrl,
+      tier, churchId, email, successUrl, cancelUrl, billingInterval,
       isEvent: tier === 'event',
     });
     res.json(result);
@@ -2165,8 +2598,12 @@ app.get('/api/billing', requireAdmin, (req, res) => {
 // ─── CHURCHES ────────────────────────────────────────────────────────────────
 
 app.get('/api/churches', requireAdmin, (req, res) => {
+  // Single DB query instead of N+1 per-church lookups
+  const allRows = db.prepare('SELECT * FROM churches').all();
+  const rowMap = new Map(allRows.map(r => [r.churchId, r]));
+
   const list = Array.from(churches.values()).map(c => {
-    const row = stmtGet.get(c.churchId) || {};
+    const row = rowMap.get(c.churchId) || {};
     return {
       churchId:         c.churchId,
       name:             c.name,
@@ -2179,6 +2616,7 @@ app.get('/api/churches', requireAdmin, (req, res) => {
       reseller_id:      c.reseller_id      || null,
       portal_email:        row.portal_email || null,
       billing_tier:        row.billing_tier || null,
+      billing_interval:    row.billing_interval || null,
       billing_status:      row.billing_status || 'inactive',
       billing_trial_ends:  row.billing_trial_ends || null,
       has_slack:            !!row.slack_webhook_url,
@@ -2200,36 +2638,70 @@ app.put('/api/churches/:churchId/billing', requireAdmin, (req, res) => {
 
   const inTier = req.body?.tier;
   const inStatus = req.body?.status;
-  if (!inTier && !inStatus) return res.status(400).json({ error: 'tier or status required' });
+  const inInterval = req.body?.billingInterval ?? req.body?.billingCycle ?? req.body?.interval;
+  if (!inTier && !inStatus && inInterval === undefined) return res.status(400).json({ error: 'tier, status, or billingInterval required' });
 
   const nextTier = inTier ? String(inTier).toLowerCase() : String(row.billing_tier || 'connect').toLowerCase();
   const nextStatus = inStatus ? String(inStatus).toLowerCase() : String(row.billing_status || 'inactive').toLowerCase();
+  const currentInterval = normalizeBillingInterval(
+    row.billing_interval,
+    nextTier,
+    nextTier === 'event' ? 'one_time' : 'monthly',
+  ) || (nextTier === 'event' ? 'one_time' : 'monthly');
+  const nextInterval = inInterval === undefined
+    ? currentInterval
+    : normalizeBillingInterval(inInterval, nextTier, currentInterval);
 
   if (!BILLING_TIERS.has(nextTier)) return res.status(400).json({ error: 'invalid tier' });
   if (!BILLING_STATUSES.has(nextStatus)) return res.status(400).json({ error: 'invalid status' });
+  if (!nextInterval) return res.status(400).json({ error: 'invalid billingInterval' });
 
-  db.prepare('UPDATE churches SET billing_tier = ?, billing_status = ? WHERE churchId = ?')
-    .run(nextTier, nextStatus, churchId);
+  db.prepare('UPDATE churches SET billing_tier = ?, billing_status = ?, billing_interval = ? WHERE churchId = ?')
+    .run(nextTier, nextStatus, nextInterval, churchId);
 
   const now = new Date().toISOString();
   const billingRecord = db.prepare('SELECT id FROM billing_customers WHERE church_id = ?').get(churchId);
   if (billingRecord?.id) {
-    db.prepare('UPDATE billing_customers SET tier = ?, status = ?, updated_at = ? WHERE id = ?')
-      .run(nextTier, nextStatus, now, billingRecord.id);
+    db.prepare('UPDATE billing_customers SET tier = ?, billing_interval = ?, status = ?, updated_at = ? WHERE id = ?')
+      .run(nextTier, nextInterval, nextStatus, now, billingRecord.id);
   } else {
     db.prepare(`
       INSERT INTO billing_customers
-        (id, church_id, tier, status, email, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(`manual_${churchId}`, churchId, nextTier, nextStatus, row.portal_email || row.email || '', now, now);
+        (id, church_id, tier, billing_interval, status, email, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(`manual_${churchId}`, churchId, nextTier, nextInterval, nextStatus, row.portal_email || row.email || '', now, now);
   }
 
   res.json({
     ok: true,
     churchId,
-    billing: { tier: nextTier, status: nextStatus },
+    billing: { tier: nextTier, billingInterval: nextInterval, status: nextStatus },
   });
 });
+
+function deleteChurchCascade(churchId) {
+  const ident = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  const tables = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+  ).all();
+
+  const tx = db.transaction((id) => {
+    for (const row of tables) {
+      const table = row?.name;
+      if (!table || table === 'churches' || !ident.test(table)) continue;
+      const fks = db.prepare(`PRAGMA foreign_key_list(${table})`).all();
+      for (const fk of fks) {
+        if (fk.table !== 'churches') continue;
+        const col = fk.from;
+        if (!col || !ident.test(col)) continue;
+        db.prepare(`DELETE FROM ${table} WHERE ${col} = ?`).run(id);
+      }
+    }
+    stmtDelete.run(id);
+  });
+
+  tx(churchId);
+}
 
 // Delete a church
 app.delete('/api/churches/:churchId', requireAdmin, (req, res) => {
@@ -2242,7 +2714,12 @@ app.delete('/api/churches/:churchId', requireAdmin, (req, res) => {
     church.ws.close(1000, 'church deleted');
   }
 
-  stmtDelete.run(churchId);
+  try {
+    deleteChurchCascade(churchId);
+  } catch (e) {
+    console.error(`[DeleteChurch] Failed for ${churchId}:`, e.message);
+    return res.status(500).json({ error: 'Failed to delete church', details: e.message });
+  }
   churches.delete(churchId);
   messageQueues.delete(churchId);
   rateLimiters.delete(churchId);
@@ -3385,6 +3862,30 @@ function handleChurchConnection(ws, url, clientIp) {
   church.disconnectedAt = null;
   log(`Church "${church.name}" connected from ${clientIp}`);
 
+  // ─── Onboarding milestone: first app connection ───────────────────────
+  try {
+    const dbRow = db.prepare('SELECT onboarding_app_connected_at, portal_email, registration_code FROM churches WHERE churchId = ?').get(church.churchId);
+    if (dbRow && !dbRow.onboarding_app_connected_at) {
+      const now = new Date().toISOString();
+      db.prepare('UPDATE churches SET onboarding_app_connected_at = ? WHERE churchId = ?').run(now, church.churchId);
+      log(`[onboarding] First app connection for "${church.name}"`);
+
+      // Send "You're live!" email (non-blocking)
+      if (dbRow.portal_email) {
+        const portalUrl = `${APP_URL}/portal`;
+        sendOnboardingEmail({
+          to: dbRow.portal_email,
+          subject: `Tally is live at ${church.name}!`,
+          html: buildConnectionEmailHtml({ churchName: church.name, registrationCode: dbRow.registration_code || '', portalUrl }),
+          text: buildConnectionEmailText({ churchName: church.name, registrationCode: dbRow.registration_code || '', portalUrl }),
+          tag: 'connection-success',
+        }).catch((e) => log(`[onboarding] Connection email failed: ${e.message}`));
+      }
+    }
+  } catch (e) {
+    log(`[onboarding] Milestone tracking error: ${e.message}`);
+  }
+
   // Drain any queued messages
   drainQueue(church.churchId, ws);
 
@@ -3506,6 +4007,21 @@ function handleChurchMessage(church, msg) {
       church.status = { ...church.status, ...msg.status };
       church.lastHeartbeat = Date.now(); // track specifically for offline detection
       church._offlineAlertSent = false; // reset offline alert flag on reconnect
+
+      // ─── Onboarding milestone: first ATEM connection ─────────────────
+      if (msg.status?.atem?.connected && !church._onboardingAtemTracked) {
+        try {
+          const row = db.prepare('SELECT onboarding_atem_connected_at FROM churches WHERE churchId = ?').get(church.churchId);
+          if (row && !row.onboarding_atem_connected_at) {
+            db.prepare('UPDATE churches SET onboarding_atem_connected_at = ? WHERE churchId = ?').run(new Date().toISOString(), church.churchId);
+            log(`[onboarding] First ATEM connection for "${church.name}"`);
+          }
+          church._onboardingAtemTracked = true; // avoid repeat DB checks
+        } catch (e) {
+          log(`[onboarding] ATEM milestone error: ${e.message}`);
+        }
+      }
+
       {
         const statusEvent = {
           type: 'status_update',
@@ -4213,6 +4729,18 @@ function gracefulShutdown(signal) {
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled promise rejection:', reason);
+  log(`[FATAL] Unhandled rejection: ${reason?.message || reason}`);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception:', err);
+  log(`[FATAL] Uncaught exception: ${err.message}`);
+  // Give log a moment to flush, then exit — continuing after uncaught exception is unsafe
+  setTimeout(() => process.exit(1), 1000).unref();
+});
 
 // Export for testing
 module.exports = { app, server, wss, churches, controllers };

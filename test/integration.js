@@ -40,14 +40,18 @@ function test(name, fn) {
     .catch(err => { results.push({ name, pass: false, error: err.message }); console.log(`  ❌ ${name}: ${err.message}`); });
 }
 
-function apiRequest(method, path, body = null) {
+function apiRequest(method, path, body = null, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: 'localhost',
       port: TEST_PORT,
       path,
       method,
-      headers: { 'x-api-key': API_KEY, 'Content-Type': 'application/json' },
+      headers: {
+        'x-api-key': API_KEY,
+        'Content-Type': 'application/json',
+        ...extraHeaders,
+      },
     };
     const req = http.request(options, (res) => {
       let data = '';
@@ -61,6 +65,39 @@ function apiRequest(method, path, body = null) {
     if (body) req.write(JSON.stringify(body));
     req.end();
   });
+}
+
+function httpRequest(method, requestPath, body = null, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'localhost',
+      port: TEST_PORT,
+      path: requestPath,
+      method,
+      headers: { ...headers },
+    };
+
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        let parsed = data;
+        try { parsed = JSON.parse(data); } catch { /* non-JSON body */ }
+        resolve({ status: res.statusCode, body: parsed, headers: res.headers });
+      });
+    });
+
+    req.on('error', reject);
+    if (body !== null && body !== undefined) req.write(body);
+    req.end();
+  });
+}
+
+function getCookieHeader(setCookieHeaders, cookieName) {
+  const list = Array.isArray(setCookieHeaders) ? setCookieHeaders : [];
+  const found = list.find((entry) => String(entry).startsWith(`${cookieName}=`));
+  if (!found) return '';
+  return String(found).split(';')[0];
 }
 
 function connectWS(path) {
@@ -136,7 +173,9 @@ async function startServer() {
 async function runTests() {
   console.log(`\n🧪 Tally Integration Tests (port ${TEST_PORT})\n`);
 
-  let churchId, churchToken;
+  let churchId, churchToken, churchAppToken, supportTriageId, supportTicketId, churchPortalCookie;
+  const churchPortalEmail = 'portal-test@example.com';
+  const churchPortalPassword = 'Password123!';
 
   // 1. Health check
   await test('GET / returns service info', async () => {
@@ -170,7 +209,12 @@ async function runTests() {
 
   // 4. Register church
   await test('Register a church', async () => {
-    const { status, body } = await apiRequest('POST', '/api/churches/register', { name: 'Test Church', email: 'test@example.com' });
+    const { status, body } = await apiRequest('POST', '/api/churches/register', {
+      name: 'Test Church',
+      email: 'test@example.com',
+      portalEmail: churchPortalEmail,
+      password: churchPortalPassword,
+    });
     assert.strictEqual(status, 200);
     assert.ok(body.churchId);
     assert.ok(body.token);
@@ -194,7 +238,173 @@ async function runTests() {
     assert.strictEqual(body[0].connected, false);
   });
 
-  // 7. Connect church via WebSocket
+  // 7. Billing webhook rejects missing signature header
+  await test('Billing webhook requires stripe-signature header', async () => {
+    const { status, body } = await httpRequest(
+      'POST',
+      '/api/billing/webhook',
+      JSON.stringify({ type: 'checkout.session.completed' }),
+      { 'Content-Type': 'application/json' }
+    );
+    assert.strictEqual(status, 400);
+    assert.strictEqual(body.error, 'Missing stripe-signature header');
+  });
+
+  // 8. Billing webhook returns contract error when Stripe is not configured
+  await test('Billing webhook fails cleanly without Stripe config', async () => {
+    const { status, body } = await httpRequest(
+      'POST',
+      '/api/billing/webhook',
+      JSON.stringify({ type: 'checkout.session.completed' }),
+      {
+        'Content-Type': 'application/json',
+        'stripe-signature': 't=12345,v1=fake-signature',
+      }
+    );
+    assert.strictEqual(status, 400);
+    assert.strictEqual(typeof body.error, 'string');
+    assert.ok(body.error.length > 0);
+  });
+
+  // 9. Church portal API is protected by session cookie
+  await test('Church portal API rejects missing session cookie', async () => {
+    const { status, body } = await httpRequest('GET', '/api/church/me');
+    assert.strictEqual(status, 401);
+    assert.strictEqual(body.error, 'Not authenticated');
+  });
+
+  // 10. Church portal page redirects when unauthenticated
+  await test('Church portal page redirects to login when unauthenticated', async () => {
+    const { status, headers } = await httpRequest('GET', '/church-portal');
+    assert.strictEqual(status, 302);
+    assert.strictEqual(headers.location, '/church-login');
+  });
+
+  // 11. Invalid session cookie is rejected and cleared
+  await test('Invalid church portal session cookie is rejected', async () => {
+    const { status, body, headers } = await httpRequest('GET', '/api/church/me', null, {
+      Cookie: 'tally_church_session=invalid.jwt.token',
+    });
+    assert.strictEqual(status, 401);
+    assert.strictEqual(body.error, 'Session expired');
+    assert.ok(Array.isArray(headers['set-cookie']));
+  });
+
+  // 12. Church portal login rejects bad credentials
+  await test('Church portal login rejects invalid credentials', async () => {
+    const form = `email=${encodeURIComponent(churchPortalEmail)}&password=${encodeURIComponent('WrongPassword!')}`;
+    const { status, body } = await httpRequest('POST', '/api/church/login', form, {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    });
+    assert.strictEqual(status, 401);
+    assert.strictEqual(typeof body, 'string');
+    assert.ok(body.includes('Invalid email or password'));
+  });
+
+  // 13. Church portal login sets session cookie
+  await test('Church portal login sets session cookie and redirects', async () => {
+    const form = `email=${encodeURIComponent(churchPortalEmail)}&password=${encodeURIComponent(churchPortalPassword)}`;
+    const { status, headers } = await httpRequest('POST', '/api/church/login', form, {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    });
+    assert.strictEqual(status, 302);
+    assert.strictEqual(headers.location, '/church-portal');
+    churchPortalCookie = getCookieHeader(headers['set-cookie'], 'tally_church_session');
+    assert.ok(churchPortalCookie.startsWith('tally_church_session='));
+  });
+
+  // 14. Valid session cookie grants church portal API access
+  await test('Church portal session cookie grants /api/church/me access', async () => {
+    const { status, body } = await httpRequest('GET', '/api/church/me', null, {
+      Cookie: churchPortalCookie,
+    });
+    assert.strictEqual(status, 200);
+    assert.strictEqual(body.churchId, churchId);
+    assert.strictEqual(body.portal_email, churchPortalEmail);
+  });
+
+  // 15. Church app credential login (support bearer auth token)
+  await test('Credential login returns church app token', async () => {
+    const { status, body } = await apiRequest('POST', '/api/church/app/login', {
+      email: churchPortalEmail,
+      password: churchPortalPassword,
+    });
+
+    assert.strictEqual(status, 200);
+    assert.ok(body.token);
+    churchAppToken = body.token;
+  });
+
+  // 16. Support triage (church app auth)
+  await test('Support triage accepts church app bearer token', async () => {
+    const { status, body } = await apiRequest(
+      'POST',
+      '/api/church/support/triage',
+      {
+        issueCategory: 'stream_down',
+        severity: 'P2',
+        summary: 'Stream dropped during rehearsal',
+        appVersion: 'smoke-test',
+      },
+      { Authorization: `Bearer ${churchAppToken}` }
+    );
+
+    assert.strictEqual(status, 201);
+    assert.ok(body.triageId);
+    assert.strictEqual(body.triageResult, 'needs_escalation');
+    supportTriageId = body.triageId;
+  });
+
+  // 17. Create support ticket from triage
+  await test('Support ticket creation from triage works', async () => {
+    const { status, body } = await apiRequest(
+      'POST',
+      '/api/church/support/tickets',
+      {
+        triageId: supportTriageId,
+        title: 'Need urgent stream help',
+        description: 'Unable to keep stream online for more than 2 minutes.',
+        severity: 'P2',
+        issueCategory: 'stream_down',
+      },
+      { Authorization: `Bearer ${churchAppToken}` }
+    );
+
+    assert.strictEqual(status, 201);
+    assert.ok(body.ticketId);
+    assert.strictEqual(body.status, 'open');
+    supportTicketId = body.ticketId;
+  });
+
+  // 18. Update support ticket
+  await test('Support ticket update changes status', async () => {
+    const { status, body } = await apiRequest(
+      'POST',
+      `/api/church/support/tickets/${supportTicketId}/updates`,
+      { message: 'Issue still reproduces after reboot.', status: 'waiting_customer' },
+      { Authorization: `Bearer ${churchAppToken}` }
+    );
+
+    assert.strictEqual(status, 200);
+    assert.strictEqual(body.ok, true);
+    assert.strictEqual(body.status, 'waiting_customer');
+  });
+
+  // 19. List support tickets
+  await test('Support ticket list includes newly created ticket', async () => {
+    const { status, body } = await apiRequest(
+      'GET',
+      '/api/church/support/tickets?limit=10',
+      null,
+      { Authorization: `Bearer ${churchAppToken}` }
+    );
+
+    assert.strictEqual(status, 200);
+    assert.ok(Array.isArray(body));
+    assert.ok(body.some((t) => t.id === supportTicketId && t.status === 'waiting_customer'));
+  });
+
+  // 20. Connect church via WebSocket
   let churchWS;
   await test('Church connects via WebSocket', async () => {
     churchWS = await connectWS(`/church?token=${churchToken}`);
@@ -203,7 +413,7 @@ async function runTests() {
     assert.strictEqual(msg.churchId, churchId);
   });
 
-  // 8. Connect controller
+  // 21. Connect controller
   let controllerWS;
   await test('Controller connects via WebSocket', async () => {
     controllerWS = await connectWS(`/controller?apikey=${API_KEY}`);
@@ -212,7 +422,7 @@ async function runTests() {
     assert.ok(Array.isArray(msg.churches));
   });
 
-  // 9. Church sends status update
+  // 22. Church sends status update
   await test('Church status update reaches controller', async () => {
     const statusMsg = { type: 'status_update', status: { atem: { connected: true }, obs: { connected: false } } };
     churchWS.send(JSON.stringify(statusMsg));
@@ -222,7 +432,7 @@ async function runTests() {
     assert.strictEqual(msg.status.atem.connected, true);
   });
 
-  // 10. Send command via API
+  // 23. Send command via API
   await test('Send command to church via API', async () => {
     const waitCommand = waitForMessage(churchWS);
     const { body } = await apiRequest('POST', '/api/command', { churchId, command: 'atem.cut', params: { input: 2 } });
@@ -233,7 +443,7 @@ async function runTests() {
     assert.strictEqual(msg.params.input, 2);
   });
 
-  // 11. Command result flows back
+  // 24. Command result flows back
   await test('Command result reaches controller', async () => {
     churchWS.send(JSON.stringify({ type: 'command_result', id: 'test-123', result: 'Cut executed' }));
     const msg = await waitForMessage(controllerWS);
@@ -241,14 +451,14 @@ async function runTests() {
     assert.strictEqual(msg.result, 'Cut executed');
   });
 
-  // 12. Church status via API
+  // 25. Church status via API
   await test('GET church status returns last known state', async () => {
     const { body } = await apiRequest('GET', `/api/churches/${churchId}/status`);
     assert.strictEqual(body.name, 'Test Church');
     assert.strictEqual(body.connected, true);
   });
 
-  // 13. Preview frame forwarded
+  // 26. Preview frame forwarded
   await test('Preview frame forwarded to controller', async () => {
     const frame = { type: 'preview_frame', timestamp: new Date().toISOString(), width: 720, height: 405, format: 'jpeg', data: 'dGVzdA==' };
     churchWS.send(JSON.stringify(frame));
@@ -258,7 +468,7 @@ async function runTests() {
     assert.strictEqual(msg.data, 'dGVzdA==');
   });
 
-  // 14. Oversized preview frame rejected
+  // 27. Oversized preview frame rejected
   await test('Oversized preview frame rejected', async () => {
     const bigData = 'x'.repeat(200_000);
     churchWS.send(JSON.stringify({ type: 'preview_frame', data: bigData }));
@@ -272,7 +482,7 @@ async function runTests() {
     assert.strictEqual(received, false);
   });
 
-  // 15. Alert forwarded
+  // 28. Alert forwarded
   await test('Alert from church reaches controller', async () => {
     churchWS.send(JSON.stringify({ type: 'alert', message: 'ATEM disconnected', severity: 'warning' }));
     const msg = await waitForMessage(controllerWS);
@@ -280,7 +490,7 @@ async function runTests() {
     assert.strictEqual(msg.severity, 'warning');
   });
 
-  // 16. Broadcast
+  // 29. Broadcast
   await test('Broadcast command reaches connected church', async () => {
     const waitBroadcast = waitForMessage(churchWS);
     const { body } = await apiRequest('POST', '/api/broadcast', { command: 'atem.fadeToBlack' });
@@ -289,7 +499,7 @@ async function runTests() {
     assert.strictEqual(msg.command, 'atem.fadeToBlack');
   });
 
-  // 17. Delete church
+  // 30. Delete church
   await test('Delete church', async () => {
     // Close websockets first
     churchWS.close();
@@ -301,7 +511,7 @@ async function runTests() {
     assert.strictEqual(body.deleted, true);
   });
 
-  // 18. Deleted church gone
+  // 31. Deleted church gone
   await test('Deleted church not in list', async () => {
     const { body } = await apiRequest('GET', '/api/churches');
     assert.strictEqual(body.length, 0);

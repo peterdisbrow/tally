@@ -6,6 +6,7 @@
  *
  * Supported types:
  *   Software:  'obs', 'vmix', 'ecamm'
+ *   Monitoring: 'ndi' (receive-only monitoring via ffprobe/libndi_newtek)
  *   Hardware:  'blackmagic', 'aja', 'epiphan', 'teradek', 'tally-encoder'
  *   RTMP-push: 'yolobox', 'custom-rtmp', 'rtmp-generic' (no API, CDN-only)
  *   Custom:    'custom' (user-provided HTTP status endpoint)
@@ -25,6 +26,7 @@ const { TeradekEncoder }       = require('./encoders/teradek');
 const { TallyEncoderAdapter }  = require('./encoders/tallyEncoder');
 const { RtmpPushEncoder }      = require('./encoders/rtmpPush');
 const { CustomEncoder }        = require('./encoders/custom');
+const { NdiEncoder }           = require('./encoders/ndi');
 
 const DEFAULT_STATUS = {
   type: 'unknown', connected: false, live: false,
@@ -61,14 +63,16 @@ class EncoderBridge {
         return new TeradekEncoder({ host, port: port || 80, password });
       case 'tally-encoder':
         return new TallyEncoderAdapter({ host, port: port || 7070 });
+      case 'ndi':
+        return new NdiEncoder({ host, label });
       case 'custom':
         return new CustomEncoder({ host, port: port || 80, statusUrl, label });
       case 'yolobox':
       case 'custom-rtmp':
       case 'rtmp-generic':
-        return new RtmpPushEncoder({ type: t, label });
+        return new RtmpPushEncoder({ type: t, label, host, port: port || 80 });
       default:
-        return new RtmpPushEncoder({ type: 'rtmp-generic', label: label || type });
+        return new RtmpPushEncoder({ type: 'rtmp-generic', label: label || type, host, port: port || 80 });
     }
   }
 

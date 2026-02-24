@@ -1,6 +1,6 @@
 # Tally by ATEM School — Church Setup Guide
 
-**Version 1.0 · tally.atemschool.com**
+**Version 1.0 · tallyconnect.app**
 
 ---
 
@@ -32,7 +32,7 @@ Setup takes about 15 minutes. You'll need your connection token (sent by email w
 
 ## Step 1: Download and Install Tally
 
-1. Go to **tally.atemschool.com** and click **Download for Mac** or **Download for Windows**
+1. Go to **tallyconnect.app** and click **Download for Mac** or **Download for Windows**
 2. Run the installer
 3. On Mac: drag Tally to your Applications folder, then right-click → Open (first launch only)
 4. On Windows: run the `.exe` installer, click through the prompts
@@ -52,7 +52,7 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 1. Paste it into the **Connection Token** field
 2. Click **Next**
 
-> **Don't have a token?** Visit tally.atemschool.com or email support@atemschool.com
+> **Don't have a token?** Visit tallyconnect.app or email support@atemschool.com
 
 ---
 
@@ -258,7 +258,7 @@ Tally updates automatically in the background. When an update is ready, you'll s
 
 - **Email:** support@atemschool.com
 - **Phone (production emergencies):** Contact Andrew directly — your account includes a support number
-- **Documentation:** tally.atemschool.com/docs
+- **Documentation:** tallyconnect.app/docs
 
 ---
 
@@ -277,4 +277,4 @@ When activating a new church:
 
 ---
 
-*Tally by ATEM School · tally.atemschool.com · Built for people who care about Sunday morning.*
+*Tally by ATEM School · tallyconnect.app · Built for people who care about Sunday morning.*

@@ -8,12 +8,18 @@
     "dev": "nodemon server.js",
     "check:routes": "node scripts/check-duplicate-routes.js server.js src/churchPortal.js src/resellerPortal.js",
     "backup:db": "node scripts/backup-db.js",
-    "restore:db": "node scripts/restore-db.js"
+    "restore:db": "node scripts/restore-db.js",
+    "lint": "eslint . --ext .js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "node ../test/integration.js",
+    "test:all": "npm test && npm run test:integration"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",
     "cookie-parser": "^1.4.7",
     "express": "^4.18.2",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "node-media-server": "^2.6.2",
     "stripe": "^20.3.1",
@@ -21,7 +27,9 @@
     "ws": "^8.16.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.0"
+    "eslint": "^10.0.2",
+    "nodemon": "^3.0.0",
+    "vitest": "^4.0.18"
   },
   "engines": {
     "node": ">=18"

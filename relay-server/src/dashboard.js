@@ -273,7 +273,7 @@ function encoderTypeName(type) {
   const names = {
     obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
     aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek',
-    yolobox: 'YoloBox', 'tally-encoder': 'Tally Enc', custom: 'Custom',
+    ndi: 'NDI Decoder', yolobox: 'YoloBox', 'tally-encoder': 'Tally Enc', custom: 'Custom',
     'custom-rtmp': 'RTMP', 'rtmp-generic': 'RTMP',
   };
   return names[type] || 'Encoder';

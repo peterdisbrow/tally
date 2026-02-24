@@ -6,14 +6,11 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "start:mock-lab": "electron src/main-mock-lab.js",
-    "dev:mock-lab": "electron src/main-mock-lab.js --dev",
     "build:mac": "electron-builder --mac",
-    "build:mock-lab:mac": "electron-builder --mac --config electron-builder.mock-lab.json",
     "build:mac:dist": "mkdir -p \"$HOME/Desktop/Tally\" && rm -f \"dist/Tally by ATEM School-1.0.0-arm64.dmg\" \"dist/Tally by ATEM School-1.0.0-arm64.dmg.blockmap\" && electron-builder --mac && cp -f \"dist/Tally by ATEM School-1.0.0-arm64.dmg\" \"$HOME/Desktop/Tally/Tally-by-ATEM-School.dmg\"",
     "build:win": "electron-builder --win",
-    "build:mock-lab:win": "electron-builder --win --config electron-builder.mock-lab.json",
-    "build:all": "electron-builder --mac --win"
+    "build:all": "electron-builder --mac --win",
+    "test": "node --test test/*.test.js"
   },
   "build": {
     "appId": "com.atemschool.tally",
@@ -27,6 +24,10 @@
       "assets/**/*",
       "package.json",
       "package-lock.json",
+      "!src/main-mock-lab.js",
+      "!src/mock-lab.html",
+      "!src/mockLabManager.js",
+      "!src/preload-mock-lab.js",
       "!dist{,/**/*}",
       "!dist-mock-lab{,/**/*}",
       "!.git{,/**/*}",
@@ -55,6 +56,11 @@
       ],
       "icon": "assets/icon.ico"
     },
+    "publish": {
+      "provider": "github",
+      "owner": "atemschool",
+      "repo": "tally"
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
@@ -67,6 +73,11 @@
         "to": "church-client",
         "filter": [
           "**/*",
+          "!src/fakeAtem.js",
+          "!src/fakeAtemApi.js",
+          "!src/fakeObs.js",
+          "!src/fakeMixer.js",
+          "!src/fakeProPresenter.js",
           "!.git",
           "!.git/**"
         ]
@@ -81,8 +92,8 @@
     "ws": "^8.16.0"
   },
   "devDependencies": {
-    "electron": "^28.0.0",
-    "electron-builder": "^24.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
     "playwright": "^1.58.2"
   }
 }

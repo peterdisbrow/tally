@@ -28,24 +28,8 @@
 
 const crypto  = require('crypto');
 const jwt     = require('jsonwebtoken');
-
-// ─── password helpers ──────────────────────────────────────────────────────────
-
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-  return `${salt}:${hash}`;
-}
-
-function verifyPassword(password, stored) {
-  try {
-    const [salt, hash] = stored.split(':');
-    const check = crypto.scryptSync(password, salt, 64).toString('hex');
-    return crypto.timingSafeEqual(Buffer.from(check, 'hex'), Buffer.from(hash, 'hex'));
-  } catch {
-    return false;
-  }
-}
+const { hashPassword, verifyPassword, generateRegistrationCode: _genRegCode } = require('./auth');
+const { createRateLimit } = require('./rateLimit');
 
 // ─── JWT helpers ───────────────────────────────────────────────────────────────
 
@@ -54,11 +38,7 @@ function issueChurchToken(churchId, jwtSecret) {
 }
 
 function generateRegistrationCode(db) {
-  let code;
-  do {
-    code = crypto.randomBytes(3).toString('hex').toUpperCase();
-  } while (db.prepare('SELECT 1 FROM churches WHERE registration_code = ?').get(code));
-  return code;
+  return _genRegCode(db);
 }
 
 function requireChurchPortalAuth(db, jwtSecret) {
@@ -215,7 +195,7 @@ function buildChurchLoginHtml(error = '') {
       <input type="password" name="password" placeholder="••••••••" required autocomplete="current-password">
       <button type="submit" class="btn">Sign in</button>
     </form>
-    <div class="footer">Tally by Atem School — <a href="https://tally.atemschool.com" style="color:#22c55e;text-decoration:none">tally.atemschool.com</a></div>
+    <div class="footer">Tally by Atem School — <a href="https://tallyconnect.app" style="color:#22c55e;text-decoration:none">tallyconnect.app</a></div>
   </div>
 </body>
 </html>`;
@@ -579,6 +559,28 @@ function buildChurchPortalHtml(church) {
         <div class="page-title" id="overview-church-name">${name}</div>
         <div class="page-sub">Church monitoring portal</div>
       </div>
+
+      <!-- Onboarding Checklist -->
+      <div id="onboarding-checklist" style="display:none; margin-bottom:20px; background:#0F1613; border:1px solid #1a3a24; border-radius:12px; padding:20px 24px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+          <div>
+            <div style="font-size:15px; font-weight:700; color:#F8FAFC;">Getting Started</div>
+            <div style="font-size:12px; color:#64748B; margin-top:2px;" id="onboarding-progress-text">Complete these steps to finish setup</div>
+          </div>
+          <button onclick="dismissOnboarding()" style="background:none; border:1px solid #1a2e1f; color:#64748B; font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;">Dismiss</button>
+        </div>
+        <div id="onboarding-items"></div>
+      </div>
+
+      <!-- Upgrade Banner -->
+      <div id="upgrade-banner"></div>
+
+      <!-- Review Prompt Banner -->
+      <div id="review-prompt-banner" style="display:none"></div>
+
+      <!-- Referral Card -->
+      <div id="referral-card" style="display:none"></div>
+
       <div class="stats-row">
         <div class="stat-card">
           <div class="stat-value" id="stat-status">—</div>
@@ -941,6 +943,43 @@ function buildChurchPortalHtml(church) {
     </div>
   </div>
 
+  <!-- Review Modal -->
+  <div class="modal-backdrop" id="modal-review">
+    <div class="modal" style="max-width:480px">
+      <div id="review-form-content">
+        <div class="modal-header">
+          <div class="modal-title">Share Your Experience</div>
+          <button class="modal-close" onclick="closeReviewModal()">&times;</button>
+        </div>
+        <div style="margin:20px 0 16px;text-align:center">
+          <div style="font-size:13px;color:#94A3B8;margin-bottom:8px">How would you rate Tally?</div>
+          <div id="star-rating" style="display:flex;justify-content:center;gap:8px"></div>
+        </div>
+        <div class="field">
+          <label>Your review</label>
+          <textarea id="review-body" rows="4" maxlength="500" placeholder="What do you love about Tally? How has it helped your production team?" style="resize:vertical"></textarea>
+          <div style="font-size:11px;color:#475569;text-align:right;margin-top:4px"><span id="review-char-count">0</span>/500</div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Your name</label><input type="text" id="review-name" placeholder="Mike Johnson" maxlength="100"></div>
+          <div class="field"><label>Your role <span style="color:#475569">(optional)</span></label><input type="text" id="review-role" placeholder="Production Director" maxlength="100"></div>
+        </div>
+        <button class="btn-primary" id="btn-submit-review" onclick="submitReview()" style="width:100%;margin-top:8px">Submit Review</button>
+      </div>
+      <div id="review-thanks-content" style="display:none;text-align:center;padding:24px 20px">
+        <div style="font-size:40px;margin-bottom:12px">&#127881;</div>
+        <div style="font-size:18px;font-weight:700;color:#F8FAFC;margin-bottom:8px">Thank you!</div>
+        <div style="font-size:13px;color:#94A3B8;margin-bottom:20px;line-height:1.5">Your review has been submitted. Want to double the impact?<br>Post it on one of these platforms too:</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <a href="https://g.page/r/YOUR_GOOGLE_REVIEW_LINK" target="_blank" rel="noopener" style="display:block;padding:10px 16px;border-radius:8px;border:1px solid #1a2e1f;color:#F8FAFC;text-decoration:none;font-size:13px;font-weight:600;background:#0F1613;text-align:center;transition:border-color .2s">&#11088; Post on Google</a>
+          <a href="https://www.capterra.com/reviews/new/YOUR_CAPTERRA_ID" target="_blank" rel="noopener" style="display:block;padding:10px 16px;border-radius:8px;border:1px solid #1a2e1f;color:#F8FAFC;text-decoration:none;font-size:13px;font-weight:600;background:#0F1613;text-align:center;transition:border-color .2s">&#128221; Post on Capterra</a>
+          <a href="https://www.g2.com/products/tally-connect/reviews" target="_blank" rel="noopener" style="display:block;padding:10px 16px;border-radius:8px;border:1px solid #1a2e1f;color:#F8FAFC;text-decoration:none;font-size:13px;font-weight:600;background:#0F1613;text-align:center;transition:border-color .2s">&#128172; Post on G2</a>
+        </div>
+        <button onclick="closeReviewModal()" style="background:none;border:none;color:#475569;font-size:12px;cursor:pointer;margin-top:16px;padding:8px">Maybe later</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast"></div>
 
   <script>
@@ -1057,7 +1096,56 @@ function buildChurchPortalHtml(church) {
 
         document.getElementById('stat-status').textContent = d.connected ? 'Online' : 'Offline';
         document.getElementById('stat-status').style.color = d.connected ? '#22c55e' : '#94A3B8';
+
+        // ── Onboarding checklist ──────────────────────────────────────────────
+        renderOnboarding(d);
+
+        // ── Review prompt (after onboarding, after upgrade banner) ───────────
+        checkReviewEligibility();
+        loadReferralCard();
       } catch(e) { console.error(e); }
+    }
+
+    function renderOnboarding(d) {
+      const container = document.getElementById('onboarding-checklist');
+      const itemsEl = document.getElementById('onboarding-items');
+      if (!container || !itemsEl) return;
+
+      // Hide if dismissed or all milestones complete
+      if (d.onboarding_dismissed) { container.style.display = 'none'; return; }
+
+      const steps = [
+        { done: true, label: 'Account created', detail: 'Your Tally account is set up' },
+        { done: !!d.onboarding_app_connected_at, label: 'Desktop app connected', detail: 'Download and run the Tally app on your booth computer' },
+        { done: !!d.onboarding_atem_connected_at, label: 'ATEM connected', detail: 'The app will auto-discover your ATEM switcher on the network' },
+        { done: !!d.onboarding_telegram_registered_at, label: 'Telegram bot registered', detail: 'Have a TD send /register ' + (d.registration_code || 'CODE') + ' to @tallybot' },
+      ];
+
+      const completed = steps.filter(s => s.done).length;
+      if (completed >= steps.length) { container.style.display = 'none'; return; }
+
+      container.style.display = 'block';
+      document.getElementById('onboarding-progress-text').textContent = completed + ' of ' + steps.length + ' steps complete';
+
+      itemsEl.innerHTML = steps.map((s, i) => {
+        const icon = s.done
+          ? '<div style="width:24px;height:24px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;color:#000;font-size:13px;font-weight:700;flex-shrink:0;">✓</div>'
+          : '<div style="width:24px;height:24px;border-radius:50%;border:2px solid #334155;display:flex;align-items:center;justify-content:center;color:#64748B;font-size:12px;font-weight:700;flex-shrink:0;">' + (i + 1) + '</div>';
+        return '<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;' + (i < steps.length - 1 ? 'border-bottom:1px solid #1a2e1f;' : '') + '">'
+          + icon
+          + '<div>'
+          + '<div style="font-size:13px;font-weight:600;color:' + (s.done ? '#22c55e' : '#F8FAFC') + ';">' + s.label + '</div>'
+          + (s.done ? '' : '<div style="font-size:12px;color:#64748B;margin-top:2px;">' + s.detail + '</div>')
+          + '</div>'
+          + '</div>';
+      }).join('');
+    }
+
+    async function dismissOnboarding() {
+      try {
+        await api('POST', '/api/church/onboarding/dismiss');
+        document.getElementById('onboarding-checklist').style.display = 'none';
+      } catch(e) { console.error('Dismiss failed:', e); }
     }
 
     // ── Profile ─────────────────────────────────────────────────────────────────
@@ -1591,12 +1679,14 @@ function buildChurchPortalHtml(church) {
         const statusColors = { active: '#22c55e', trialing: '#eab308', past_due: '#ef4444', canceled: '#94A3B8', pending: '#94A3B8', trial_expired: '#ef4444', inactive: '#94A3B8' };
         const statusLabels = { active: 'Active', trialing: 'Trial', past_due: 'Past Due', canceled: 'Canceled', pending: 'Pending', trial_expired: 'Expired', inactive: 'Inactive' };
         const tierName = b.tierName || b.tier || 'Connect';
+        const intervalName = b.billingIntervalLabel || (b.billingInterval === 'annual' ? 'Annual' : (b.billingInterval === 'one_time' ? 'One-time' : 'Monthly'));
         const statusColor = statusColors[b.status] || '#94A3B8';
         const statusLabel = statusLabels[b.status] || b.status;
 
         let html = '<div class="card" style="margin-bottom:16px">';
         html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">';
         html += '<span style="font-size:20px;font-weight:800;color:#F8FAFC">' + tierName + '</span>';
+        html += '<span style="background:#111827;color:#94A3B8;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700">' + intervalName + '</span>';
         html += '<span style="background:' + statusColor + ';color:#000;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700">' + statusLabel + '</span>';
         html += '</div>';
 
@@ -1616,7 +1706,7 @@ function buildChurchPortalHtml(church) {
         html += '<h3 style="font-size:14px;color:#F8FAFC;margin:12px 0 8px">Your Plan Includes</h3>';
         html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px">';
         const features = b.features || {};
-        const featureList = [
+        const includedFeatures = [
           ['ATEM + encoder monitoring (OBS, vMix, NDI, hardware)', true],
           ['Pre-service checks', true],
           ['Slack + Telegram alerts', true],
@@ -1628,24 +1718,106 @@ function buildChurchPortalHtml(church) {
           ['Planning Center sync', features.planningCenter],
           ['Monthly reports', features.monthlyReport],
         ];
-        featureList.forEach(function(f) {
-          html += '<div style="color:' + (f[1] ? '#94A3B8' : '#475569') + '">' + (f[1] ? '\\u2713 ' : '\\u2717 ') + f[0] + '</div>';
+        includedFeatures.forEach(function(f) {
+          if (f[1]) html += '<div style="color:#94A3B8">\\u2713 ' + f[0] + '</div>';
         });
         html += '</div></div>';
+
+        // Upgrade cards for locked features
+        var currentTier = (b.tier || 'connect').toLowerCase();
+
+        if (currentTier === 'connect') {
+          // Plus upgrade card
+          html += '<div style="margin-bottom:16px;background:rgba(34,197,94,0.04);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:20px 24px">';
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">';
+          html += '<span style="background:rgba(34,197,94,0.12);color:#22c55e;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.08em;font-family:ui-monospace,monospace">PLUS</span>';
+          html += '<span style="color:#F8FAFC;font-size:14px;font-weight:700">Unlock with Plus</span>';
+          html += '</div>';
+          html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px;margin-bottom:16px">';
+          html += '<div style="color:#94A3B8">\\u2726 ProPresenter control (looks, timers, stage)</div>';
+          html += '<div style="color:#94A3B8">\\u2726 Live video preview stream</div>';
+          html += '<div style="color:#94A3B8">\\u2726 On-call TD rotation</div>';
+          html += '<div style="color:#94A3B8">\\u2726 Up to 3 rooms / campuses</div>';
+          html += '</div>';
+          html += '<button onclick="upgradePlan(\\'plus\\')" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Plus \\u2014 $99/mo \\u2192</button>';
+          html += '</div>';
+
+          // Pro upgrade card
+          html += '<div style="margin-bottom:16px;background:rgba(34,197,94,0.04);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:20px 24px">';
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">';
+          html += '<span style="background:rgba(34,197,94,0.12);color:#22c55e;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.08em;font-family:ui-monospace,monospace">PRO</span>';
+          html += '<span style="color:#F8FAFC;font-size:14px;font-weight:700">Unlock with Pro</span>';
+          html += '</div>';
+          html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px;margin-bottom:16px">';
+          html += '<div style="color:#94A3B8">\\u2726 Everything in Plus</div>';
+          html += '<div style="color:#94A3B8">\\u2726 AI Autopilot automation rules</div>';
+          html += '<div style="color:#94A3B8">\\u2726 Planning Center sync + write-back</div>';
+          html += '<div style="color:#94A3B8">\\u2726 Monthly leadership reports</div>';
+          html += '<div style="color:#94A3B8">\\u2726 Up to 10 rooms / campuses</div>';
+          html += '</div>';
+          html += '<button onclick="upgradePlan(\\'pro\\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#22c55e;border:1px solid rgba(34,197,94,0.3);cursor:pointer">Upgrade to Pro \\u2014 $149/mo \\u2192</button>';
+          html += '</div>';
+        } else if (currentTier === 'plus') {
+          // Pro upgrade card only
+          html += '<div style="margin-bottom:16px;background:rgba(34,197,94,0.04);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:20px 24px">';
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">';
+          html += '<span style="background:rgba(34,197,94,0.12);color:#22c55e;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.08em;font-family:ui-monospace,monospace">PRO</span>';
+          html += '<span style="color:#F8FAFC;font-size:14px;font-weight:700">Unlock with Pro</span>';
+          html += '</div>';
+          html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px;margin-bottom:16px">';
+          html += '<div style="color:#94A3B8">\\u2726 AI Autopilot automation rules</div>';
+          html += '<div style="color:#94A3B8">\\u2726 Planning Center sync + write-back</div>';
+          html += '<div style="color:#94A3B8">\\u2726 Monthly leadership reports</div>';
+          html += '<div style="color:#94A3B8">\\u2726 Up to 10 rooms / campuses</div>';
+          html += '</div>';
+          html += '<button onclick="upgradePlan(\\'pro\\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Pro \\u2014 $149/mo \\u2192</button>';
+          html += '</div>';
+        }
 
         if (b.portalUrl) {
           html += '<a href="' + b.portalUrl + '" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none;margin-bottom:12px">Manage Subscription \\u2192</a>';
           html += '<p style="color:#475569;font-size:12px">Update payment method, view invoices, or cancel your subscription via Stripe\\u2019s secure portal.</p>';
-        } else if (['trialing','trial_expired','canceled','inactive'].includes(b.status)) {
-          html += '<a href="https://tally.atemschool.com/signup" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none;margin-bottom:12px">Subscribe Now \\u2192</a>';
         }
 
-        html += '<div style="margin-top:20px;padding-top:16px;border-top:1px solid #1a2e1f">';
+        // Reactivation button for cancelled/expired/inactive churches
+        if (['trial_expired','canceled','inactive'].includes(b.status)) {
+          html += '<div style="margin-top:16px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:20px 24px">';
+          html += '<div style="font-size:15px;font-weight:700;color:#22c55e;margin-bottom:8px">Reactivate Your Subscription</div>';
+          html += '<div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:14px">Your settings and data are still here. Reactivate to resume monitoring immediately.</div>';
+          html += '<button onclick="reactivateSubscription()" id="btn-reactivate" class="btn-primary" style="cursor:pointer">Reactivate Now \\u2192</button>';
+          html += '</div>';
+        }
+
+        // Downgrade option (only show for tiers above connect)
+        if (['active','trialing'].includes(b.status) && currentTier !== 'connect') {
+          html += '<div style="margin-top:16px;background:#0F1613;border:1px solid #1a2e1f;border-radius:12px;padding:16px 24px">';
+          html += '<div style="font-size:13px;color:#94A3B8;margin-bottom:8px">Need fewer features?</div>';
+          if (currentTier === 'managed' || currentTier === 'pro') {
+            html += '<button onclick="downgradePlan(\\'plus\\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:8px">Downgrade to Plus ($99/mo)</button>';
+            html += '<button onclick="downgradePlan(\\'connect\\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
+          } else if (currentTier === 'plus') {
+            html += '<button onclick="downgradePlan(\\'connect\\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
+          }
+          html += '</div>';
+        }
+
+        // Data export & account management
+        html += '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #1a2e1f">';
+        html += '<div style="font-size:14px;font-weight:700;color:#F8FAFC;margin-bottom:12px">Data & Privacy</div>';
+        html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+        html += '<button onclick="exportData()" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Export All Data (JSON)</button>';
+        html += '<button onclick="deleteAccount()" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Delete Account</button>';
+        html += '</div>';
+        html += '<p style="color:#475569;font-size:11px;margin-top:8px;line-height:1.5">Export downloads a JSON file with all your church data. Deletion is permanent and cannot be undone.</p>';
+        html += '</div>';
+
+        html += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #1a2e1f">';
         html += '<p style="color:#475569;font-size:12px;line-height:1.6">Cancel anytime from the Stripe portal. Service continues through the end of your billing period. No partial-month refunds. Questions? <a href="mailto:support@atemschool.com" style="color:#22c55e">support@atemschool.com</a></p>';
         html += '</div>';
 
         document.getElementById('billing-content').innerHTML = html;
         updateBillingBanner(b);
+        renderUpgradeBanner(b);
       } catch(e) {
         document.getElementById('billing-content').innerHTML = '<div style="color:#475569;text-align:center;padding:30px">Billing info unavailable. <a href="mailto:support@atemschool.com" style="color:#22c55e">Contact support</a></div>';
       }
@@ -1655,16 +1827,329 @@ function buildChurchPortalHtml(church) {
       var el = document.getElementById('billing-banner');
       if (!el) return;
       if (b.status === 'trialing' && b.trialDaysRemaining != null && b.trialDaysRemaining <= 7) {
-        el.innerHTML = '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">Your trial ends in ' + b.trialDaysRemaining + ' day' + (b.trialDaysRemaining !== 1 ? 's' : '') + '. <a href="https://tally.atemschool.com/signup" style="color:#22c55e;font-weight:700">Subscribe now</a> to keep your service running.</div>';
+        el.innerHTML = '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">Your trial ends in ' + b.trialDaysRemaining + ' day' + (b.trialDaysRemaining !== 1 ? 's' : '') + '. <a href="https://tallyconnect.app/signup" style="color:#22c55e;font-weight:700">Subscribe now</a> to keep your service running.</div>';
       } else if (b.status === 'past_due') {
-        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">Payment failed. <a href="' + (b.portalUrl || 'https://tally.atemschool.com/signup') + '" style="color:#22c55e;font-weight:700">Update your card</a> to avoid service interruption.</div>';
+        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">Payment failed. <a href="' + (b.portalUrl || 'https://tallyconnect.app/signup') + '" style="color:#22c55e;font-weight:700">Update your card</a> to avoid service interruption.</div>';
       } else if (b.status === 'canceled' || b.status === 'trial_expired') {
-        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">Your subscription has ended. <a href="https://tally.atemschool.com/signup" style="color:#22c55e;font-weight:700">Resubscribe</a> to continue monitoring your services.</div>';
+        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">Your subscription has ended. <a href="#" onclick="showPage(\\'billing\\',document.querySelector(\\'[data-page=billing]\\'));return false" style="color:#22c55e;font-weight:700">Reactivate</a> to continue monitoring your services.</div>';
       } else if (b.status === 'inactive' || b.status === 'pending') {
-        el.innerHTML = '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">Your subscription is not yet active. <a href="https://tally.atemschool.com/signup" style="color:#22c55e;font-weight:700">Complete checkout</a> to start monitoring.</div>';
+        el.innerHTML = '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">Your subscription is not yet active. <a href="https://tallyconnect.app/signup" style="color:#22c55e;font-weight:700">Complete checkout</a> to start monitoring.</div>';
       } else {
         el.innerHTML = '';
       }
+    }
+
+    // ── Upgrade Banner (Overview page) ──────────────────────────────────────
+    function renderUpgradeBanner(b) {
+      var el = document.getElementById('upgrade-banner');
+      if (!el) return;
+      var tier = (b.tier || 'connect').toLowerCase();
+      var status = b.status || 'inactive';
+
+      // Only show for active/trialing on connect or plus
+      if (!['active', 'trialing'].includes(status)) { el.innerHTML = ''; return; }
+      if (tier !== 'connect' && tier !== 'plus') { el.innerHTML = ''; return; }
+
+      // Check localStorage dismiss
+      var dismissKey = 'tally_upgrade_dismissed_' + tier;
+      if (localStorage.getItem(dismissKey) === '1') { el.innerHTML = ''; return; }
+
+      var nextTierSlug = tier === 'connect' ? 'plus' : 'pro';
+      var nextTier = tier === 'connect' ? 'Plus' : 'Pro';
+      var nextPrice = tier === 'connect' ? '$99' : '$149';
+      var headline, body;
+
+      if (tier === 'connect') {
+        headline = 'Unlock all 17 integrations';
+        body = 'Your Connect plan supports ATEM, OBS, and vMix. Upgrade to Plus for ProPresenter control, live video preview, on-call TD rotation, and 14 more device integrations.';
+      } else {
+        headline = 'Automate your Sundays';
+        body = 'Upgrade to Pro for AI Autopilot (auto-start streaming and recording when your service window opens), Planning Center sync, and monthly leadership reports.';
+      }
+
+      el.innerHTML = '<div style="margin-bottom:20px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.25);border-radius:12px;padding:20px 24px;position:relative">' +
+        '<button onclick="dismissUpgradeBanner(\\''+dismissKey+'\\')" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#475569;font-size:16px;cursor:pointer;padding:4px" title="Dismiss">\\u2715</button>' +
+        '<div style="font-size:15px;font-weight:700;color:#22c55e;margin-bottom:6px">' + headline + '</div>' +
+        '<div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:14px;padding-right:24px">' + body + '</div>' +
+        '<button onclick="upgradePlan(\\'' + nextTierSlug + '\\')" id="btn-upgrade-' + nextTierSlug + '-banner" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to ' + nextTier + ' \\u2014 ' + nextPrice + '/mo \\u2192</button>' +
+        '</div>';
+    }
+
+    function dismissUpgradeBanner(key) {
+      localStorage.setItem(key, '1');
+      var el = document.getElementById('upgrade-banner');
+      if (el) el.innerHTML = '';
+    }
+
+    // ── Upgrade Plan ─────────────────────────────────────────────────────────
+    async function upgradePlan(tier) {
+      var tierNames = { plus: 'Plus', pro: 'Pro', managed: 'Managed' };
+      var label = tierNames[tier] || tier;
+
+      if (!confirm('Upgrade to ' + label + '? Your subscription will be updated immediately with prorated billing.')) return;
+
+      // Disable all upgrade buttons and show loading
+      var btns = document.querySelectorAll('[id^="btn-upgrade-"]');
+      btns.forEach(function(b) { b.disabled = true; b.style.opacity = '0.5'; });
+      var clickedBtn = document.getElementById('btn-upgrade-' + tier);
+      var origText = clickedBtn ? clickedBtn.textContent : '';
+      if (clickedBtn) clickedBtn.textContent = 'Upgrading…';
+
+      try {
+        var data = await api('POST', '/api/church/billing/upgrade', { tier: tier });
+
+        if (data.redirect) {
+          // No Stripe subscription yet — redirect to signup
+          window.location.href = data.redirect;
+          return;
+        }
+
+        if (data.success) {
+          toast('Plan upgraded to ' + label + '!');
+          // Reload billing data to reflect new plan
+          await loadBilling();
+          // Also update the overview plan badge
+          var planEl = document.getElementById('plan-name');
+          if (planEl) planEl.textContent = label;
+        }
+      } catch(e) {
+        toast(e.message || 'Upgrade failed', true);
+        // Restore buttons
+        btns.forEach(function(b) { b.disabled = false; b.style.opacity = '1'; });
+        if (clickedBtn) clickedBtn.textContent = origText;
+      }
+    }
+
+    // ── Reactivate subscription ───────────────────────────────────────────────
+    async function reactivateSubscription() {
+      if (!confirm('Reactivate your subscription? You\\'ll be redirected to Stripe to complete payment.')) return;
+      var btn = document.getElementById('btn-reactivate');
+      if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
+      try {
+        var data = await api('POST', '/api/church/billing/reactivate', {});
+        if (data.url) {
+          window.location.href = data.url;
+        } else {
+          toast('Reactivation started. Check your email for next steps.');
+        }
+      } catch(e) {
+        toast(e.message || 'Reactivation failed', true);
+        if (btn) { btn.disabled = false; btn.textContent = 'Reactivate Now →'; }
+      }
+    }
+
+    // ── Downgrade plan ──────────────────────────────────────────────────────
+    async function downgradePlan(tier) {
+      var tierNames = { connect: 'Connect', plus: 'Plus' };
+      var label = tierNames[tier] || tier;
+      if (!confirm('Downgrade to ' + label + '? The change will take effect at the end of your current billing period.')) return;
+      try {
+        var data = await api('POST', '/api/church/billing/downgrade', { tier: tier });
+        if (data.success) {
+          toast(data.message || 'Plan downgraded to ' + label);
+          await loadBilling();
+        }
+      } catch(e) {
+        toast(e.message || 'Downgrade failed', true);
+      }
+    }
+
+    // ── Export data ─────────────────────────────────────────────────────────
+    async function exportData() {
+      try {
+        var resp = await fetch('/api/church/data-export', { credentials: 'include' });
+        if (!resp.ok) throw new Error('Export failed');
+        var blob = await resp.blob();
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'tally-data-export.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast('Data exported successfully');
+      } catch(e) {
+        toast(e.message || 'Export failed', true);
+      }
+    }
+
+    // ── Delete account ──────────────────────────────────────────────────────
+    async function deleteAccount() {
+      var churchName = prompt('This will permanently delete your account and all data.\\n\\nTo confirm, type your church name:');
+      if (!churchName) return;
+      try {
+        var data = await api('DELETE', '/api/church/account', { confirmName: churchName });
+        if (data.deleted) {
+          alert('Your account has been deleted. You will be redirected to the homepage.');
+          window.location.href = 'https://tallyconnect.app';
+        }
+      } catch(e) {
+        toast(e.message || 'Deletion failed', true);
+      }
+    }
+
+    // ── Review system ─────────────────────────────────────────────────────────
+    var reviewRating = 0;
+
+    async function checkReviewEligibility() {
+      try {
+        var data = await api('GET', '/api/church/review');
+        var banner = document.getElementById('review-prompt-banner');
+        if (!banner) return;
+
+        if (!data.hasReview && data.eligible && localStorage.getItem('tally_review_dismissed') !== '1') {
+          banner.style.display = 'block';
+          banner.innerHTML = '<div style="margin-bottom:20px;background:#0F1613;border:1px solid #1a3a24;border-radius:12px;padding:20px 24px">' +
+            '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
+            '<div style="flex:1;min-width:200px">' +
+            '<div style="font-size:15px;font-weight:700;color:#F8FAFC">\\u2B50 Loving Tally? Share your experience</div>' +
+            '<div style="font-size:13px;color:#94A3B8;margin-top:4px;line-height:1.5">Your review helps other church production teams discover Tally. Takes 60 seconds.</div>' +
+            '</div>' +
+            '<div style="display:flex;gap:8px;flex-shrink:0;align-items:center">' +
+            '<button class="btn-primary" onclick="openReviewModal()" style="padding:8px 16px;font-size:13px">Leave a Review</button>' +
+            '<button onclick="dismissReviewBanner()" style="background:none;border:1px solid #1a2e1f;color:#64748B;font-size:11px;padding:6px 12px;border-radius:6px;cursor:pointer">Later</button>' +
+            '</div></div></div>';
+        } else {
+          banner.style.display = 'none';
+        }
+
+        // Auto-open from email link
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('action') === 'review' && !data.hasReview) {
+          openReviewModal();
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+      } catch(e) { /* not critical */ }
+    }
+
+    function openReviewModal() {
+      document.getElementById('review-form-content').style.display = 'block';
+      document.getElementById('review-thanks-content').style.display = 'none';
+      document.getElementById('modal-review').classList.add('open');
+      renderStars();
+    }
+
+    function closeReviewModal() {
+      document.getElementById('modal-review').classList.remove('open');
+    }
+
+    function renderStars() {
+      var container = document.getElementById('star-rating');
+      if (!container) return;
+      container.innerHTML = [1,2,3,4,5].map(function(n) {
+        return '<button onclick="setRating(' + n + ')" style="background:none;border:none;font-size:28px;cursor:pointer;color:' + (n <= reviewRating ? '#22c55e' : '#334155') + ';transition:color 0.15s">\\u2605</button>';
+      }).join('');
+    }
+
+    function setRating(n) {
+      reviewRating = n;
+      renderStars();
+    }
+
+    async function submitReview() {
+      var body = (document.getElementById('review-body').value || '').trim();
+      var name = (document.getElementById('review-name').value || '').trim();
+      var role = (document.getElementById('review-role').value || '').trim();
+
+      if (!reviewRating) return toast('Please select a star rating', true);
+      if (!name) return toast('Please enter your name', true);
+      if (body.length < 10) return toast('Please write at least a short review (10+ characters)', true);
+
+      var btn = document.getElementById('btn-submit-review');
+      var origText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Submitting…';
+
+      try {
+        await api('POST', '/api/church/review', {
+          rating: reviewRating,
+          body: body,
+          reviewerName: name,
+          reviewerRole: role,
+        });
+        // Show thank-you with external links
+        document.getElementById('review-form-content').style.display = 'none';
+        document.getElementById('review-thanks-content').style.display = 'block';
+        // Hide the banner
+        var banner = document.getElementById('review-prompt-banner');
+        if (banner) banner.style.display = 'none';
+        toast('Review submitted! Thank you');
+      } catch(e) {
+        toast(e.message || 'Failed to submit review', true);
+        btn.disabled = false;
+        btn.textContent = origText;
+      }
+    }
+
+    function dismissReviewBanner() {
+      localStorage.setItem('tally_review_dismissed', '1');
+      var banner = document.getElementById('review-prompt-banner');
+      if (banner) banner.style.display = 'none';
+    }
+
+    // Character counter for review textarea
+    (function() {
+      var ta = document.getElementById('review-body');
+      var counter = document.getElementById('review-char-count');
+      if (ta && counter) {
+        ta.addEventListener('input', function() {
+          counter.textContent = ta.value.length;
+        });
+      }
+    })();
+
+    // ── Referral system ──────────────────────────────────────────────────────
+    async function loadReferralCard() {
+      var card = document.getElementById('referral-card');
+      if (!card) return;
+      try {
+        var data = await api('GET', '/api/church/referrals');
+        if (!data.referralCode) { card.style.display = 'none'; return; }
+
+        var statsHtml = '';
+        if (data.totalReferred > 0) {
+          var creditDollars = data.totalCredits ? '$' + (data.totalCredits / 100).toFixed(0) : '$0';
+          statsHtml = '<div style="display:flex;gap:24px;margin-bottom:14px">' +
+            '<div><div style="font-size:20px;font-weight:800;color:#F8FAFC">' + data.totalReferred + '</div><div style="font-size:11px;color:#475569">Referred</div></div>' +
+            '<div><div style="font-size:20px;font-weight:800;color:#22c55e">' + data.totalConverted + '</div><div style="font-size:11px;color:#475569">Signed up</div></div>' +
+            '<div><div style="font-size:20px;font-weight:800;color:#22c55e">' + creditDollars + '</div><div style="font-size:11px;color:#475569">Credits earned</div></div>' +
+            '</div>';
+        }
+
+        card.style.display = 'block';
+        card.innerHTML = '<div style="margin-bottom:20px;background:#0F1613;border:1px solid #1a2e1f;border-radius:12px;padding:20px 24px">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">' +
+          '<span style="font-size:18px">&#127873;</span>' +
+          '<span style="font-size:15px;font-weight:700;color:#F8FAFC">Give a month, get a month</span>' +
+          '</div>' +
+          '<div style="font-size:13px;color:#94A3B8;line-height:1.5;margin-bottom:14px">' +
+          'Share your link with another church. When they create a new account and subscribe, you both get a free month. ' +
+          '<span style="color:#475569">Up to 5 free months. New accounts only.</span>' +
+          '</div>' +
+          statsHtml +
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<div style="flex:1;min-width:200px;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:13px;color:#F8FAFC;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="referral-link">' + data.shareUrl + '</div>' +
+          '<button onclick="copyReferralLink()" class="btn-primary" style="padding:8px 16px;font-size:13px;flex-shrink:0">Copy Link</button>' +
+          '</div>' +
+          '</div>';
+      } catch(e) { card.style.display = 'none'; }
+    }
+
+    function copyReferralLink() {
+      var link = document.getElementById('referral-link');
+      if (!link) return;
+      navigator.clipboard.writeText(link.textContent).then(function() {
+        toast('Referral link copied!');
+      }).catch(function() {
+        // Fallback
+        var range = document.createRange();
+        range.selectNodeContents(link);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        document.execCommand('copy');
+        toast('Referral link copied!');
+      });
     }
 
     // ── Alerts ────────────────────────────────────────────────────────────────
@@ -1885,38 +2370,21 @@ function buildChurchPortalHtml(church) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails } = {}) {
   const express = require('express');
   console.log('[ChurchPortal] Setup started');
 
   // ── Rate limiting for login endpoint ───────────────────────────────────────
-  const loginAttempts = new Map();
-  function loginRateLimit(req, res, next) {
-    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    const now = Date.now();
-    const windowMs = 15 * 60 * 1000; // 15 minutes
-    const maxAttempts = 10;
-    let entry = loginAttempts.get(ip);
-    if (!entry || now - entry.windowStart > windowMs) {
-      entry = { windowStart: now, count: 0 };
-      loginAttempts.set(ip, entry);
-    }
-    entry.count++;
-    if (entry.count > maxAttempts) {
-      const retryAfter = Math.ceil((entry.windowStart + windowMs - now) / 1000);
-      res.set('Retry-After', String(retryAfter));
+  const loginRateLimit = createRateLimit({
+    scope: 'church_portal_login',
+    maxAttempts: 10,
+    windowMs: 15 * 60 * 1000,
+    keyGenerator: (_req, ip) => ip,
+    onLimit: (_req, res) => {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(429).send(buildChurchLoginHtml('Too many login attempts. Please try again later.'));
-    }
-    next();
-  }
-  // Cleanup stale entries every 10 minutes
-  setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of loginAttempts) {
-      if (now - entry.windowStart > 15 * 60 * 1000) loginAttempts.delete(key);
-    }
-  }, 10 * 60 * 1000).unref();
+    },
+  });
 
   // ── Schema ──────────────────────────────────────────────────────────────────
   const migrations = [
@@ -1940,6 +2408,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
     "ALTER TABLE church_tds ADD COLUMN role TEXT DEFAULT 'td'",
     "ALTER TABLE church_tds ADD COLUMN email TEXT",
     "ALTER TABLE church_tds ADD COLUMN phone TEXT",
+    "ALTER TABLE churches ADD COLUMN referral_code TEXT",
+    "ALTER TABLE churches ADD COLUMN referred_by TEXT",
   ];
   for (const m of _portalMigrations) {
     try { db.exec(m); } catch { /* column already exists */ }
@@ -2002,6 +2472,48 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
       created_at TEXT NOT NULL
     )
   `);
+
+  // Reviews / testimonials table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS church_reviews (
+      id            TEXT PRIMARY KEY,
+      church_id     TEXT NOT NULL,
+      reviewer_name TEXT NOT NULL,
+      reviewer_role TEXT DEFAULT '',
+      rating        INTEGER NOT NULL,
+      body          TEXT NOT NULL,
+      church_name   TEXT NOT NULL,
+      approved      INTEGER DEFAULT 0,
+      featured      INTEGER DEFAULT 0,
+      submitted_at  TEXT NOT NULL,
+      approved_at   TEXT,
+      source        TEXT DEFAULT 'portal'
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_reviews_approved ON church_reviews(approved)');
+
+  // Referrals table — tracks who referred whom and credit status
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS referrals (
+      id              TEXT PRIMARY KEY,
+      referrer_id     TEXT NOT NULL,
+      referred_id     TEXT NOT NULL,
+      referred_name   TEXT DEFAULT '',
+      status          TEXT NOT NULL DEFAULT 'pending',
+      credit_amount   INTEGER DEFAULT 0,
+      created_at      TEXT NOT NULL,
+      converted_at    TEXT,
+      credited_at     TEXT
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id)');
+
+  // Backfill referral codes for existing churches that don't have one
+  const churchesMissingCode = db.prepare('SELECT churchId FROM churches WHERE referral_code IS NULL OR referral_code = ?').all('');
+  for (const c of churchesMissingCode) {
+    const code = generateRegistrationCode(db).toUpperCase();
+    db.prepare('UPDATE churches SET referral_code = ? WHERE churchId = ?').run(code, c.churchId);
+  }
 
   const authMiddleware = requireChurchPortalAuth(db, jwtSecret);
   const supportAuthMiddleware = requireChurchPortalOrAppAuth(db, jwtSecret);
@@ -2088,6 +2600,16 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
       status: runtime?.status || {},
       lastSeen: runtime?.lastSeen || null,
     });
+  });
+
+  // ── POST /api/church/onboarding/dismiss ──────────────────────────────────
+  app.post('/api/church/onboarding/dismiss', authMiddleware, (req, res) => {
+    try {
+      db.prepare('UPDATE churches SET onboarding_dismissed = 1 WHERE churchId = ?').run(req.church.churchId);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to dismiss onboarding' });
+    }
   });
 
   // ── PUT /api/church/me ────────────────────────────────────────────────────────
@@ -2347,21 +2869,27 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
     try {
       const church = req.church;
       const tier = church.billing_tier || 'connect';
+      const billingRow = db.prepare(
+        'SELECT stripe_customer_id, billing_interval FROM billing_customers WHERE church_id = ? ORDER BY datetime(updated_at) DESC LIMIT 1'
+      ).get(church.churchId);
+      const billingInterval = tier === 'event'
+        ? 'one_time'
+        : (church.billing_interval || billingRow?.billing_interval || 'monthly');
       const status = church.billing_status || 'inactive';
       const trialEnds = church.billing_trial_ends;
       const trialDaysRemaining = trialEnds ? Math.max(0, Math.ceil((new Date(trialEnds) - Date.now()) / (1000 * 60 * 60 * 24))) : null;
       const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed', event: 'Event' };
+      const INTERVAL_NAMES = { monthly: 'Monthly', annual: 'Annual', one_time: 'One-time' };
 
       let portalUrl = null;
       try {
         const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
-        const billingRow = db.prepare('SELECT stripe_customer_id FROM billing_customers WHERE church_id = ?').get(church.churchId);
         if (STRIPE_KEY && billingRow?.stripe_customer_id) {
           const Stripe = require('stripe');
           const stripe = Stripe(STRIPE_KEY);
           const session = await stripe.billingPortal.sessions.create({
             customer: billingRow.stripe_customer_id,
-            return_url: req.headers.origin || 'https://tally.atemschool.com',
+            return_url: req.headers.origin || 'https://tallyconnect.app',
           });
           portalUrl = session.url;
         }
@@ -2370,6 +2898,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
       res.json({
         tier,
         tierName: TIER_NAMES[tier] || tier,
+        billingInterval,
+        billingIntervalLabel: INTERVAL_NAMES[billingInterval] || billingInterval,
         status,
         trialEndsAt: trialEnds,
         trialDaysRemaining,
@@ -2385,6 +2915,520 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin) {
       });
     } catch (e) {
       res.status(500).json({ error: 'Billing info unavailable' });
+    }
+  });
+
+  // ── POST /api/church/billing/upgrade ──────────────────────────────────────────
+  // Upgrades the church's Stripe subscription to a new tier.
+  app.post('/api/church/billing/upgrade', authMiddleware, async (req, res) => {
+    try {
+      const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
+      if (!STRIPE_KEY) return res.status(503).json({ error: 'Stripe not configured' });
+
+      const Stripe = require('stripe');
+      const stripeClient = Stripe(STRIPE_KEY);
+
+      const { tier: newTier } = req.body;
+      const VALID_TIERS = ['connect', 'plus', 'pro', 'managed'];
+      if (!newTier || !VALID_TIERS.includes(newTier)) {
+        return res.status(400).json({ error: 'Invalid tier. Must be: connect, plus, pro, or managed.' });
+      }
+
+      const church = req.church;
+      const currentTier = church.billing_tier || 'connect';
+      if (newTier === currentTier) {
+        return res.status(400).json({ error: 'Already on this plan.' });
+      }
+
+      const billingRow = db.prepare(
+        'SELECT stripe_customer_id, stripe_subscription_id, billing_interval FROM billing_customers WHERE church_id = ? ORDER BY datetime(updated_at) DESC LIMIT 1'
+      ).get(church.churchId);
+
+      if (!billingRow?.stripe_subscription_id) {
+        // No existing subscription — redirect to signup
+        return res.json({ redirect: 'https://tallyconnect.app/signup?plan=' + newTier });
+      }
+
+      // Resolve the new price ID
+      const billingInterval = church.billing_interval || billingRow.billing_interval || 'monthly';
+      const PRICE_MAP = {
+        connect: { monthly: process.env.STRIPE_PRICE_CONNECT, annual: process.env.STRIPE_PRICE_CONNECT_ANNUAL },
+        plus: { monthly: process.env.STRIPE_PRICE_PLUS, annual: process.env.STRIPE_PRICE_PLUS_ANNUAL },
+        pro: { monthly: process.env.STRIPE_PRICE_PRO, annual: process.env.STRIPE_PRICE_PRO_ANNUAL },
+        managed: { monthly: process.env.STRIPE_PRICE_MANAGED, annual: process.env.STRIPE_PRICE_MANAGED_ANNUAL },
+      };
+      const newPriceId = PRICE_MAP[newTier]?.[billingInterval];
+      if (!newPriceId || newPriceId.includes('placeholder')) {
+        return res.status(400).json({ error: 'Price not configured for ' + newTier + ' (' + billingInterval + '). Contact support.' });
+      }
+
+      // Get current subscription to find the item to update
+      const sub = await stripeClient.subscriptions.retrieve(billingRow.stripe_subscription_id);
+      if (!sub?.items?.data?.length) {
+        return res.status(400).json({ error: 'No active subscription found. Contact support.' });
+      }
+
+      // Update the subscription item to the new price (Stripe handles proration)
+      const updated = await stripeClient.subscriptions.update(billingRow.stripe_subscription_id, {
+        items: [{
+          id: sub.items.data[0].id,
+          price: newPriceId,
+        }],
+        metadata: { ...sub.metadata, tier: newTier },
+        proration_behavior: 'create_prorations',
+      });
+
+      // Update local DB
+      const now = new Date().toISOString();
+      db.prepare('UPDATE churches SET billing_tier = ? WHERE churchId = ?').run(newTier, church.churchId);
+      db.prepare('UPDATE billing_customers SET tier = ?, updated_at = ? WHERE church_id = ?').run(newTier, now, church.churchId);
+
+      console.log('[Billing] Upgraded church ' + church.churchId + ' from ' + currentTier + ' to ' + newTier);
+
+      // Send upgrade confirmation email
+      if (lifecycleEmails) {
+        lifecycleEmails.sendUpgradeConfirmation(church, { oldTier: currentTier, newTier }).catch(() => {});
+      }
+
+      res.json({ success: true, tier: newTier, message: 'Plan upgraded to ' + newTier });
+    } catch (e) {
+      console.error('[Billing upgrade]', e.message);
+      res.status(500).json({ error: 'Upgrade failed: ' + e.message });
+    }
+  });
+
+  // ── POST /api/church/billing/reactivate ─────────────────────────────────────
+  // Reactivation path for cancelled/expired/inactive churches.
+  app.post('/api/church/billing/reactivate', authMiddleware, async (req, res) => {
+    try {
+      const church = req.church;
+      const { tier, billingInterval } = req.body || {};
+
+      const result = await billing.reactivate({
+        churchId: church.churchId,
+        tier: tier || church.billing_tier,
+        billingInterval: billingInterval || church.billing_interval,
+        successUrl: 'https://tallyconnect.app/portal?reactivated=true',
+        cancelUrl: 'https://tallyconnect.app/portal',
+      });
+
+      res.json(result);
+    } catch (e) {
+      console.error('[Billing reactivate]', e.message);
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // ── POST /api/church/billing/downgrade ─────────────────────────────────────
+  // Downgrade to a lower tier (same billing interval).
+  app.post('/api/church/billing/downgrade', authMiddleware, async (req, res) => {
+    try {
+      const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
+      if (!STRIPE_KEY) return res.status(503).json({ error: 'Stripe not configured' });
+
+      const Stripe = require('stripe');
+      const stripeClient = Stripe(STRIPE_KEY);
+
+      const { tier: newTier } = req.body;
+      const TIER_ORDER = ['connect', 'plus', 'pro', 'managed'];
+      if (!newTier || !TIER_ORDER.includes(newTier)) {
+        return res.status(400).json({ error: 'Invalid tier.' });
+      }
+
+      const church = req.church;
+      const currentTier = church.billing_tier || 'connect';
+      const currentIndex = TIER_ORDER.indexOf(currentTier);
+      const newIndex = TIER_ORDER.indexOf(newTier);
+
+      if (newIndex >= currentIndex) {
+        return res.status(400).json({ error: 'Use upgrade endpoint for higher tiers.' });
+      }
+
+      const billingRow = db.prepare(
+        'SELECT stripe_customer_id, stripe_subscription_id, billing_interval FROM billing_customers WHERE church_id = ? ORDER BY datetime(updated_at) DESC LIMIT 1'
+      ).get(church.churchId);
+
+      if (!billingRow?.stripe_subscription_id) {
+        return res.status(400).json({ error: 'No active subscription found.' });
+      }
+
+      const billingInterval = church.billing_interval || billingRow.billing_interval || 'monthly';
+      const PRICE_MAP = {
+        connect: { monthly: process.env.STRIPE_PRICE_CONNECT, annual: process.env.STRIPE_PRICE_CONNECT_ANNUAL },
+        plus: { monthly: process.env.STRIPE_PRICE_PLUS, annual: process.env.STRIPE_PRICE_PLUS_ANNUAL },
+        pro: { monthly: process.env.STRIPE_PRICE_PRO, annual: process.env.STRIPE_PRICE_PRO_ANNUAL },
+        managed: { monthly: process.env.STRIPE_PRICE_MANAGED, annual: process.env.STRIPE_PRICE_MANAGED_ANNUAL },
+      };
+      const newPriceId = PRICE_MAP[newTier]?.[billingInterval];
+      if (!newPriceId || newPriceId.includes('placeholder')) {
+        return res.status(400).json({ error: 'Price not configured for ' + newTier + ' (' + billingInterval + ').' });
+      }
+
+      const sub = await stripeClient.subscriptions.retrieve(billingRow.stripe_subscription_id);
+      if (!sub?.items?.data?.length) {
+        return res.status(400).json({ error: 'No subscription items found.' });
+      }
+
+      // Downgrade takes effect at end of current billing period (no proration credit by default)
+      const updated = await stripeClient.subscriptions.update(billingRow.stripe_subscription_id, {
+        items: [{ id: sub.items.data[0].id, price: newPriceId }],
+        metadata: { ...sub.metadata, tier: newTier },
+        proration_behavior: 'none',
+      });
+
+      const now = new Date().toISOString();
+      db.prepare('UPDATE churches SET billing_tier = ? WHERE churchId = ?').run(newTier, church.churchId);
+      db.prepare('UPDATE billing_customers SET tier = ?, updated_at = ? WHERE church_id = ?').run(newTier, now, church.churchId);
+
+      console.log('[Billing] Downgraded church ' + church.churchId + ' from ' + currentTier + ' to ' + newTier);
+      res.json({ success: true, tier: newTier, message: 'Plan downgraded to ' + newTier + '. Change takes effect at end of current billing period.' });
+    } catch (e) {
+      console.error('[Billing downgrade]', e.message);
+      res.status(500).json({ error: 'Downgrade failed: ' + e.message });
+    }
+  });
+
+  // ── GET /api/church/data-export ────────────────────────────────────────────
+  // GDPR: Export all data associated with this church account.
+  app.get('/api/church/data-export', authMiddleware, (req, res) => {
+    try {
+      const church = req.church;
+      const churchId = church.churchId;
+
+      // Gather all data associated with this church
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        church: {},
+        billing: null,
+        sessions: [],
+        events: [],
+        alerts: [],
+        tickets: [],
+        tds: [],
+        schedule: null,
+        reviews: [],
+        referrals: [],
+        emailsSent: [],
+      };
+
+      // Church profile
+      const row = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+      if (row) {
+        // Strip sensitive hashes
+        const { portal_password_hash, token, ...safeRow } = row;
+        exportData.church = safeRow;
+      }
+
+      // Billing
+      try {
+        exportData.billing = db.prepare('SELECT tier, billing_interval, status, trial_ends_at, current_period_end, cancel_at_period_end, created_at FROM billing_customers WHERE church_id = ?').get(churchId) || null;
+      } catch { /* table may not exist */ }
+
+      // Sessions
+      try {
+        exportData.sessions = db.prepare('SELECT * FROM session_recaps WHERE church_id = ? ORDER BY started_at DESC LIMIT 500').all(churchId);
+      } catch { /* table may not exist */ }
+
+      // Events
+      try {
+        exportData.events = db.prepare('SELECT * FROM service_events WHERE church_id = ? ORDER BY timestamp DESC LIMIT 1000').all(churchId);
+      } catch { /* */ }
+
+      // Alerts
+      try {
+        exportData.alerts = db.prepare('SELECT * FROM alerts WHERE church_id = ? ORDER BY created_at DESC LIMIT 500').all(churchId);
+      } catch { /* */ }
+
+      // Support tickets
+      try {
+        exportData.tickets = db.prepare('SELECT * FROM support_tickets WHERE church_id = ? ORDER BY created_at DESC').all(churchId);
+      } catch { /* */ }
+
+      // TDs
+      try {
+        exportData.tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ?').all(churchId);
+      } catch { /* */ }
+
+      // Schedule
+      try {
+        const sched = db.prepare('SELECT schedule_json FROM church_schedules WHERE church_id = ?').get(churchId);
+        if (sched) exportData.schedule = JSON.parse(sched.schedule_json);
+      } catch { /* */ }
+
+      // Reviews
+      try {
+        exportData.reviews = db.prepare('SELECT * FROM church_reviews WHERE church_id = ?').all(churchId);
+      } catch { /* */ }
+
+      // Referrals (as referrer or referred)
+      try {
+        exportData.referrals = db.prepare('SELECT * FROM referrals WHERE referrer_id = ? OR referred_id = ?').all(churchId, churchId);
+      } catch { /* */ }
+
+      // Emails sent
+      try {
+        exportData.emailsSent = db.prepare('SELECT email_type, recipient, sent_at FROM email_sends WHERE church_id = ?').all(churchId);
+      } catch { /* */ }
+
+      res.setHeader('Content-Disposition', `attachment; filename="tally-data-export-${churchId.substring(0, 8)}.json"`);
+      res.setHeader('Content-Type', 'application/json');
+      res.json(exportData);
+    } catch (e) {
+      console.error('[DataExport]', e.message);
+      res.status(500).json({ error: 'Export failed: ' + e.message });
+    }
+  });
+
+  // ── DELETE /api/church/account ─────────────────────────────────────────────
+  // GDPR: Delete church account and all associated data.
+  app.delete('/api/church/account', authMiddleware, async (req, res) => {
+    try {
+      const church = req.church;
+      const churchId = church.churchId;
+      const { confirmName } = req.body || {};
+
+      // Require confirmation: user must type their church name
+      if (!confirmName || confirmName.trim().toLowerCase() !== church.name.trim().toLowerCase()) {
+        return res.status(400).json({ error: 'To delete your account, provide confirmName matching your church name.' });
+      }
+
+      // Cancel Stripe subscription if active
+      try {
+        const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
+        if (STRIPE_KEY) {
+          const Stripe = require('stripe');
+          const stripeClient = Stripe(STRIPE_KEY);
+          const billingRow = db.prepare(
+            'SELECT stripe_subscription_id FROM billing_customers WHERE church_id = ? AND stripe_subscription_id IS NOT NULL'
+          ).get(churchId);
+          if (billingRow?.stripe_subscription_id) {
+            await stripeClient.subscriptions.cancel(billingRow.stripe_subscription_id);
+            console.log(`[GDPR] Cancelled Stripe subscription for ${churchId}`);
+          }
+        }
+      } catch (e) {
+        console.error(`[GDPR] Stripe cancellation failed for ${churchId}: ${e.message}`);
+        // Continue with deletion even if Stripe cancel fails
+      }
+
+      // Delete all data from related tables (best-effort, tables may not exist)
+      const tablesToClean = [
+        { table: 'billing_customers', column: 'church_id' },
+        { table: 'billing_disputes', column: 'church_id' },
+        { table: 'session_recaps', column: 'church_id' },
+        { table: 'service_events', column: 'church_id' },
+        { table: 'alerts', column: 'church_id' },
+        { table: 'support_tickets', column: 'church_id' },
+        { table: 'support_triage_runs', column: 'church_id' },
+        { table: 'church_tds', column: 'church_id' },
+        { table: 'church_schedules', column: 'church_id' },
+        { table: 'church_reviews', column: 'church_id' },
+        { table: 'guest_tokens', column: 'church_id' },
+        { table: 'maintenance_windows', column: 'churchId' },
+        { table: 'email_sends', column: 'church_id' },
+        { table: 'referrals', column: 'referrer_id' },
+        { table: 'referrals', column: 'referred_id' },
+      ];
+
+      for (const { table, column } of tablesToClean) {
+        try {
+          db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(churchId);
+        } catch { /* table doesn't exist — fine */ }
+      }
+
+      // Remove from runtime
+      const runtime = churches.get(churchId);
+      if (runtime?.ws?.readyState === 1) {
+        runtime.ws.close(1000, 'account_deleted');
+      }
+      churches.delete(churchId);
+
+      // Delete the church record last
+      db.prepare('DELETE FROM churches WHERE churchId = ?').run(churchId);
+
+      console.log(`[GDPR] ✅ Deleted all data for church "${church.name}" (${churchId})`);
+      res.json({ deleted: true, message: 'Your account and all associated data have been permanently deleted.' });
+    } catch (e) {
+      console.error('[GDPR delete]', e.message);
+      res.status(500).json({ error: 'Deletion failed: ' + e.message });
+    }
+  });
+
+  // ── Review eligibility helper ─────────────────────────────────────────────
+  function isReviewEligible(churchId) {
+    try {
+      const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+      if (!church) return false;
+      if (church.billing_status !== 'active') return false;
+
+      const daysSince = (Date.now() - new Date(church.registeredAt).getTime()) / 86400000;
+      if (daysSince < 30) return false;
+
+      let sessionCount = 0, cleanCount = 0;
+      try {
+        const sc = db.prepare('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ?').get(churchId);
+        sessionCount = sc?.cnt || 0;
+      } catch { return false; }
+      if (sessionCount < 4) return false;
+
+      try {
+        const cc = db.prepare("SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND grade LIKE '%Clean%'").get(churchId);
+        cleanCount = cc?.cnt || 0;
+      } catch { return false; }
+      if (cleanCount < 2) return false;
+
+      return true;
+    } catch { return false; }
+  }
+
+  // ── GET /api/church/review ────────────────────────────────────────────────
+  app.get('/api/church/review', authMiddleware, (req, res) => {
+    try {
+      const existing = db.prepare(
+        'SELECT id, rating, body, reviewer_name, reviewer_role, approved, submitted_at FROM church_reviews WHERE church_id = ? ORDER BY submitted_at DESC LIMIT 1'
+      ).get(req.church.churchId);
+
+      if (existing) {
+        return res.json({ hasReview: true, review: existing });
+      }
+      const eligible = isReviewEligible(req.church.churchId);
+      res.json({ hasReview: false, eligible });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── POST /api/church/review ───────────────────────────────────────────────
+  app.post('/api/church/review', authMiddleware, (req, res) => {
+    try {
+      const { rating, body, reviewerName, reviewerRole } = req.body;
+
+      if (!rating || !Number.isInteger(rating) || rating < 1 || rating > 5) {
+        return res.status(400).json({ error: 'Rating must be 1-5' });
+      }
+      if (!body || body.trim().length < 10) {
+        return res.status(400).json({ error: 'Review must be at least 10 characters' });
+      }
+      if (body.trim().length > 500) {
+        return res.status(400).json({ error: 'Review must be 500 characters or less' });
+      }
+      if (!reviewerName || !reviewerName.trim()) {
+        return res.status(400).json({ error: 'Name is required' });
+      }
+
+      const existing = db.prepare('SELECT 1 FROM church_reviews WHERE church_id = ?').get(req.church.churchId);
+      if (existing) {
+        return res.status(409).json({ error: 'You have already submitted a review. Thank you!' });
+      }
+
+      const id = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
+      const now = new Date().toISOString();
+
+      db.prepare(`
+        INSERT INTO church_reviews (id, church_id, reviewer_name, reviewer_role, rating, body, church_name, submitted_at, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'portal')
+      `).run(id, req.church.churchId, reviewerName.trim(), (reviewerRole || '').trim(), rating, body.trim(), req.church.name, now);
+
+      console.log('[Reviews] New review from ' + req.church.name + ' (' + rating + ' stars)');
+      res.json({ ok: true, id });
+    } catch (e) {
+      console.error('[Reviews]', e.message);
+      res.status(500).json({ error: 'Failed to submit review' });
+    }
+  });
+
+  // ── GET /api/public/reviews (NO auth — for landing page) ─────────────────
+  app.get('/api/public/reviews', (req, res) => {
+    try {
+      const reviews = db.prepare(
+        'SELECT id, reviewer_name, reviewer_role, rating, body, church_name, featured, submitted_at FROM church_reviews WHERE approved = 1 ORDER BY featured DESC, submitted_at DESC LIMIT 12'
+      ).all();
+      res.json({ reviews });
+    } catch (e) {
+      res.json({ reviews: [] });
+    }
+  });
+
+  // ── Admin review management ───────────────────────────────────────────────
+  app.get('/api/admin/reviews', requireAdmin, (req, res) => {
+    try {
+      const reviews = db.prepare(
+        'SELECT * FROM church_reviews ORDER BY approved ASC, submitted_at DESC'
+      ).all();
+      res.json({ reviews });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put('/api/admin/reviews/:id/approve', requireAdmin, (req, res) => {
+    try {
+      const now = new Date().toISOString();
+      const result = db.prepare('UPDATE church_reviews SET approved = 1, approved_at = ? WHERE id = ?').run(now, req.params.id);
+      if (result.changes === 0) return res.status(404).json({ error: 'Review not found' });
+      console.log('[Reviews] Approved review ' + req.params.id);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put('/api/admin/reviews/:id/feature', requireAdmin, (req, res) => {
+    try {
+      const review = db.prepare('SELECT featured FROM church_reviews WHERE id = ?').get(req.params.id);
+      if (!review) return res.status(404).json({ error: 'Review not found' });
+      const newVal = review.featured ? 0 : 1;
+      db.prepare('UPDATE church_reviews SET featured = ? WHERE id = ?').run(newVal, req.params.id);
+      res.json({ ok: true, featured: newVal });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/admin/reviews/:id', requireAdmin, (req, res) => {
+    try {
+      const result = db.prepare('DELETE FROM church_reviews WHERE id = ?').run(req.params.id);
+      if (result.changes === 0) return res.status(404).json({ error: 'Review not found' });
+      console.log('[Reviews] Deleted review ' + req.params.id);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── GET /api/church/referrals ────────────────────────────────────────────────
+  app.get('/api/church/referrals', authMiddleware, (req, res) => {
+    try {
+      const church = db.prepare('SELECT referral_code FROM churches WHERE churchId = ?').get(req.church.churchId);
+      const referralCode = church?.referral_code || '';
+
+      let referrals = [];
+      let totalCredits = 0;
+      try {
+        referrals = db.prepare(
+          'SELECT referred_name, status, credit_amount, created_at, converted_at FROM referrals WHERE referrer_id = ? ORDER BY created_at DESC'
+        ).all(req.church.churchId);
+        totalCredits = referrals
+          .filter(r => r.status === 'credited')
+          .reduce((sum, r) => sum + (r.credit_amount || 0), 0);
+      } catch { /* table may not exist */ }
+
+      const totalCredited = referrals.filter(r => r.status === 'credited').length;
+      const maxCredits = 5;
+
+      res.json({
+        referralCode,
+        shareUrl: `https://tallyconnect.app/signup?ref=${referralCode}`,
+        referrals,
+        totalCredits,
+        totalReferred: referrals.length,
+        totalConverted: referrals.filter(r => ['credited', 'converted'].includes(r.status)).length,
+        totalCredited,
+        maxCredits,
+        creditsRemaining: Math.max(0, maxCredits - totalCredited),
+      });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
     }
   });
 

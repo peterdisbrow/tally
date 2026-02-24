@@ -27,6 +27,27 @@ const patterns = [
   // ATEM — input label / rename
   { match: /(?:change|rename|set|label)\s+(?:cam(?:era)?|input)\s*(\d+)\s+(?:name\s+)?(?:to|as)\s+["""]?(.+?)["""]?\s*$/i, command: 'atem.setInputLabel', extract: m => ({ input: parseInt(m[1]), longName: m[2].trim() }), desc: 'rename camera N to "Name"' },
   { match: /label\s+(?:cam(?:era)?|input)\s*(\d+)\s+["""]?(.+?)["""]?\s*$/i, command: 'atem.setInputLabel', extract: m => ({ input: parseInt(m[1]), longName: m[2].trim() }), desc: null },
+  { match: /(?:run|start)\s+(?:macro)\s*(\d+)/i, command: 'atem.runMacro', extract: m => ({ macroIndex: parseInt(m[1]) }), desc: 'run macro N' },
+  { match: /(?:stop|abort)\s+macro/i, command: 'atem.stopMacro', extract: () => ({}), desc: 'stop macro' },
+  { match: /(?:set|route)\s+aux\s*(\d+)\s+(?:to\s+)?(?:cam(?:era)?|input)\s*(\d+)/i, command: 'atem.setAux', extract: m => ({ aux: parseInt(m[1]), input: parseInt(m[2]) }), desc: 'route aux N to input N' },
+  { match: /(?:set\s+)?transition\s+style\s+(mix|dip|wipe|dve|sting(?:er)?)/i, command: 'atem.setTransitionStyle', extract: m => ({ style: String(m[1]).toLowerCase() }), desc: 'set transition style' },
+  { match: /(?:set\s+)?transition\s+(?:rate|speed)\s*(\d+)/i, command: 'atem.setTransitionRate', extract: m => ({ rate: parseInt(m[1]) }), desc: 'set transition rate' },
+  { match: /(?:dsk|key)\s*(\d+)\s+(on|off|onair|offair)/i, command: 'atem.setDskOnAir', extract: m => ({ keyer: Math.max(0, parseInt(m[1]) - 1), onAir: /on/.test(String(m[2]).toLowerCase()) }), desc: 'set DSK on/off air' },
+  { match: /(?:dsk|key)\s*(\d+)\s+tie\s+(on|off)/i, command: 'atem.setDskTie', extract: m => ({ keyer: Math.max(0, parseInt(m[1]) - 1), tie: String(m[2]).toLowerCase() === 'on' }), desc: 'set DSK tie on/off' },
+  { match: /(?:dsk|key)\s*(\d+)\s+rate\s*(\d+)/i, command: 'atem.setDskRate', extract: m => ({ keyer: Math.max(0, parseInt(m[1]) - 1), rate: parseInt(m[2]) }), desc: 'set DSK rate' },
+  { match: /(?:dsk|key)\s*(\d+)\s+source\s+fill\s*(\d+)\s+key\s*(\d+)/i, command: 'atem.setDskSource', extract: m => ({ keyer: Math.max(0, parseInt(m[1]) - 1), fillSource: parseInt(m[2]), keySource: parseInt(m[3]) }), desc: 'set DSK fill/key source' },
+
+  // HyperDeck
+  { match: /hyperdeck\s*(\d+)\s+(play|stop|record|next|prev|previous)/i, command: 'hyperdeck.action', extract: m => ({ hyperdeck: parseInt(m[1]), action: String(m[2]).toLowerCase() }), desc: 'control hyperdeck transport' },
+
+  // PTZ (network camera protocols)
+  { match: /ptz\s*(\d+)\s+preset\s*(\d+)/i, command: 'ptz.preset', extract: m => ({ camera: parseInt(m[1]), preset: parseInt(m[2]) }), desc: 'PTZ camera N recall preset N' },
+  { match: /ptz\s*(\d+)\s+save\s+preset\s*(\d+)/i, command: 'ptz.setPreset', extract: m => ({ camera: parseInt(m[1]), preset: parseInt(m[2]) }), desc: 'PTZ camera N save preset N' },
+  { match: /ptz\s*(\d+)\s+home/i, command: 'ptz.home', extract: m => ({ camera: parseInt(m[1]) }), desc: 'PTZ camera N home' },
+  { match: /ptz\s*(\d+)\s+stop/i, command: 'ptz.stop', extract: m => ({ camera: parseInt(m[1]) }), desc: 'PTZ camera N stop' },
+  { match: /ptz\s*(\d+)\s+zoom\s+(in|out|stop)/i, command: 'ptz.zoom', extract: m => ({ camera: parseInt(m[1]), speed: m[2].toLowerCase() === 'in' ? 0.6 : (m[2].toLowerCase() === 'out' ? -0.6 : 0) }), desc: 'PTZ zoom' },
+  { match: /ptz\s*(\d+)\s+pan\s+(left|right|stop)/i, command: 'ptz.pan', extract: m => ({ camera: parseInt(m[1]), speed: m[2].toLowerCase() === 'left' ? -0.6 : (m[2].toLowerCase() === 'right' ? 0.6 : 0) }), desc: 'PTZ pan' },
+  { match: /ptz\s*(\d+)\s+tilt\s+(up|down|stop)/i, command: 'ptz.tilt', extract: m => ({ camera: parseInt(m[1]), speed: m[2].toLowerCase() === 'up' ? 0.6 : (m[2].toLowerCase() === 'down' ? -0.6 : 0) }), desc: 'PTZ tilt' },
 
   // OBS — stream
   { match: /(?:start|begin|go)\s+(?:the\s+)?stream(?:ing)?|go\s+live/i, command: 'obs.startStream', extract: () => ({}), desc: 'start stream / go live' },
@@ -86,6 +107,22 @@ const patterns = [
   // Dante (via Companion)
   { match: /(?:load\s+dante\s+scene|dante\s+preset)\s+["""]?(.+?)["""]?\s*$/i, command: 'dante.scene', extract: m => ({ name: m[1].trim() }), desc: 'load dante scene [name]' },
 
+  // Mixer
+  { match: /(?:mute)\s+(?:channel|ch)\s*(\d+)/i, command: 'mixer.mute', extract: m => ({ channel: parseInt(m[1]) }), desc: 'mute channel N' },
+  { match: /(?:unmute)\s+(?:channel|ch)\s*(\d+)/i, command: 'mixer.unmute', extract: m => ({ channel: parseInt(m[1]) }), desc: 'unmute channel N' },
+  { match: /(?:mute)\s+master/i, command: 'mixer.mute', extract: () => ({ channel: 'master' }), desc: 'mute master output' },
+  { match: /(?:unmute)\s+master/i, command: 'mixer.unmute', extract: () => ({ channel: 'master' }), desc: 'unmute master output' },
+  { match: /(?:set\s+)?(?:channel|ch)\s*(\d+)\s+fader\s*(?:to)?\s*(\d{1,3})%?/i, command: 'mixer.setFader', extract: m => ({ channel: parseInt(m[1]), level: Math.max(0, Math.min(1, parseInt(m[2]) / 100)) }), desc: 'set channel fader level' },
+  { match: /(?:recall|load)\s+(?:mixer\s+)?scene\s*(\d+)/i, command: 'mixer.recallScene', extract: m => ({ scene: parseInt(m[1]) }), desc: 'recall mixer scene' },
+  { match: /(?:mixer|audio)\s+status/i, command: 'mixer.status', extract: () => ({}), desc: 'audio console status' },
+
+  // Resolume
+  { match: /(?:resolume\s+)?(?:trigger|go\s+to)\s+column\s*(\d+)/i, command: 'resolume.triggerColumn', extract: m => ({ column: parseInt(m[1]) }), desc: 'trigger resolume column' },
+  { match: /(?:resolume\s+)?(?:trigger|go\s+to)\s+column\s+["""]?(.+?)["""]?\s*$/i, command: 'resolume.triggerColumn', extract: m => ({ name: m[1].trim() }), desc: 'trigger resolume column by name' },
+  { match: /(?:resolume\s+)?play\s+clip\s+["""]?(.+?)["""]?\s*$/i, command: 'resolume.playClip', extract: m => ({ name: m[1].trim() }), desc: 'play resolume clip by name' },
+  { match: /(?:clear|blackout)\s+(?:resolume|led|wall)/i, command: 'resolume.clearAll', extract: () => ({}), desc: 'clear resolume output' },
+  { match: /(?:set\s+)?(?:resolume\s+)?bpm\s*(\d+)/i, command: 'resolume.setBpm', extract: m => ({ bpm: parseInt(m[1]) }), desc: 'set resolume bpm' },
+
   // Preview
   { match: /(?:show\s+me|preview|what\s+does\s+.+\s+look\s+like|screenshot|snap(?:shot)?|what'?s?\s+(?:on\s+(?:screen|camera)|live))/i, command: 'preview.snap', extract: () => ({}), desc: 'show me what\'s on screen' },
 
@@ -99,7 +136,23 @@ function parseCommand(text) {
   if (!trimmed) return null;
   for (const pattern of patterns) {
     const match = trimmed.match(pattern.match);
-    if (match) return { command: pattern.command, params: pattern.extract(match) };
+    if (match) {
+      const params = pattern.extract(match);
+      if (pattern.command === 'hyperdeck.action') {
+        const action = String(params.action || '').toLowerCase();
+        const actionMap = {
+          play: 'hyperdeck.play',
+          stop: 'hyperdeck.stop',
+          record: 'hyperdeck.record',
+          next: 'hyperdeck.nextClip',
+          prev: 'hyperdeck.prevClip',
+          previous: 'hyperdeck.prevClip',
+        };
+        const mapped = actionMap[action];
+        if (mapped) return { command: mapped, params: { hyperdeck: params.hyperdeck || 0 } };
+      }
+      return { command: pattern.command, params };
+    }
   }
   return null;
 }
@@ -116,10 +169,26 @@ function getHelpText(brandName = 'Tally') {
 • start / stop recording
 • rename camera 4 to "Fog GFX"
 • auto transition
+• run macro 3
+• set aux 1 to camera 4
+• dsk 1 on
 
 *OBS*
 • start / stop stream
 • switch to scene \\[name\\]
+
+*HyperDeck*
+• hyperdeck 1 play
+• hyperdeck 1 record
+• hyperdeck 1 next
+
+*PTZ*
+• ptz 1 preset 3
+• ptz 1 home
+• ptz 1 pan left
+• ptz 1 tilt up
+• ptz 1 zoom in
+• ptz 1 stop
 
 *Companion*
 • press "button name"
@@ -130,6 +199,12 @@ function getHelpText(brandName = 'Tally') {
 • show routing
 • what's on monitor 1?
 • rename input 3 to "Stage Cam"
+
+*Mixer*
+• mute channel 4
+• unmute master
+• channel 1 fader to 70%
+• recall scene 2
 
 *ProPresenter*
 • next slide / advance
@@ -151,6 +226,11 @@ function getHelpText(brandName = 'Tally') {
 
 *Chat*
 • msg \\[text\\] — send message to your team
+
+*Support*
+• /diagnose \\[category\\] — run quick diagnostics
+• /support — list your latest support tickets
+• /support \\[summary\\] — open support ticket
 
 *Status*
 • status — system overview
@@ -382,6 +462,18 @@ class TallyBot {
     }
 
     console.log(`[TallyBot] TD registered: ${name} → ${church.name}`);
+
+    // Onboarding milestone: first Telegram TD registration
+    try {
+      const onbRow = this.db.prepare('SELECT onboarding_telegram_registered_at FROM churches WHERE churchId = ?').get(church.churchId);
+      if (onbRow && !onbRow.onboarding_telegram_registered_at) {
+        this.db.prepare('UPDATE churches SET onboarding_telegram_registered_at = ? WHERE churchId = ?').run(new Date().toISOString(), church.churchId);
+        console.log(`[onboarding] First Telegram TD registered for "${church.name}"`);
+      }
+    } catch (e) {
+      console.error(`[onboarding] Telegram milestone error: ${e.message}`);
+    }
+
     const brandName = this._getBrandName(church.churchId);
     const poweredBy = brandName !== 'Tally' ? ` — _Powered by Tally_` : '';
     return this.sendMessage(chatId,
@@ -549,6 +641,19 @@ class TallyBot {
         `🤖 *Autopilot — ${church.name}*\n\nStatus: ${paused ? '⏸️ Paused' : '▶️ Active'}\nRules: ${enabled} enabled / ${rules.length} total\n\nCommands:\n• \`pause autopilot\`\n• \`resume autopilot\``,
         { parse_mode: 'Markdown' }
       );
+    }
+
+    // ── Support commands ───────────────────────────────────────────────────
+    if (ltext === '/support' || ltext === 'support') {
+      return this._handleSupportOverview(church, chatId);
+    }
+    const supportCreateMatch = text.match(/^\/support\s+(.+)$/i) || text.match(/^support\s+(.+)$/i);
+    if (supportCreateMatch) {
+      return this._handleSupportCreate(church, chatId, supportCreateMatch[1].trim());
+    }
+    const diagnoseMatch = text.match(/^\/diagnose(?:\s+(.+))?$/i) || text.match(/^diagnose(?:\s+(.+))?$/i);
+    if (diagnoseMatch) {
+      return this._handleDiagnose(church, chatId, diagnoseMatch[1] || 'other');
     }
 
     // ── Fast path: regex parser ──────────────────────────────────────────────
@@ -1005,6 +1110,170 @@ class TallyBot {
     }
   }
 
+  // ─── SUPPORT HANDLERS ───────────────────────────────────────────────────
+
+  _buildSupportDiagnostics(church, issueCategory, severity, summary) {
+    const runtime = this.relay.churches.get(church.churchId);
+    const sinceIso = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const recentAlerts = this.db.prepare(`
+      SELECT id, alert_type, severity, created_at
+      FROM alerts
+      WHERE church_id = ? AND created_at >= ?
+      ORDER BY datetime(created_at) DESC
+      LIMIT 12
+    `).all(church.churchId, sinceIso);
+
+    return {
+      churchId: church.churchId,
+      issueCategory,
+      severity,
+      summary,
+      generatedAt: new Date().toISOString(),
+      connection: {
+        churchClientConnected: runtime?.ws?.readyState === 1,
+        lastSeen: runtime?.lastSeen || null,
+        lastHeartbeat: runtime?.lastHeartbeat || null,
+      },
+      deviceHealth: runtime?.status || {},
+      recentAlerts,
+    };
+  }
+
+  _computeSupportChecks(issueCategory, diagnostics) {
+    const checks = [];
+    checks.push({
+      key: 'church_client_connection',
+      ok: diagnostics.connection.churchClientConnected === true,
+      note: diagnostics.connection.churchClientConnected ? 'Church client connected' : 'Church client offline',
+    });
+
+    const s = diagnostics.deviceHealth || {};
+    if (issueCategory === 'stream_down') {
+      const ok = s.obs?.streaming === true || s.encoder?.streaming === true;
+      checks.push({ key: 'stream_state', ok, note: ok ? 'Stream appears active' : 'Stream appears inactive' });
+    }
+    if (issueCategory === 'atem_connectivity') {
+      const ok = s.atem?.connected === true;
+      checks.push({ key: 'atem_link', ok, note: ok ? 'ATEM connected' : 'ATEM disconnected' });
+    }
+    if (issueCategory === 'recording_issue') {
+      const ok = s.atem?.recording === true || s.obs?.recording === true || s.hyperDeck?.recording === true;
+      checks.push({ key: 'recording_state', ok, note: ok ? 'Recording active' : 'Recording inactive' });
+    }
+    return checks;
+  }
+
+  _normalizeSupportCategory(input) {
+    const normalized = String(input || 'other').trim().toLowerCase().replace(/\s+/g, '_');
+    const allowed = new Set(['stream_down', 'no_audio_stream', 'slides_issue', 'atem_connectivity', 'recording_issue', 'other']);
+    return allowed.has(normalized) ? normalized : 'other';
+  }
+
+  async _handleDiagnose(church, chatId, categoryInput) {
+    const issueCategory = this._normalizeSupportCategory(categoryInput);
+    const diagnostics = this._buildSupportDiagnostics(church, issueCategory, 'P3', '');
+    const checks = this._computeSupportChecks(issueCategory, diagnostics);
+    const triageResult = checks.some(c => !c.ok) ? 'needs_escalation' : 'monitoring';
+
+    const lines = checks.map(c => `${c.ok ? '✅' : '❌'} ${c.note}`).join('\n');
+    const recent = (diagnostics.recentAlerts || []).slice(0, 3).map(a => `• ${a.alert_type} (${a.severity})`).join('\n');
+    return this.sendMessage(chatId,
+      `🩺 *Diagnostics — ${church.name}*\nCategory: *${issueCategory}*\nResult: *${triageResult}*\n\n${lines}\n\nRecent alerts:\n${recent || '• none'}\n\nUse \`/support [summary]\` to open a ticket.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  async _handleSupportOverview(church, chatId) {
+    const tickets = this.db.prepare(`
+      SELECT id, title, status, severity, created_at
+      FROM support_tickets
+      WHERE church_id = ?
+      ORDER BY datetime(updated_at) DESC
+      LIMIT 5
+    `).all(church.churchId);
+
+    if (!tickets.length) {
+      return this.sendMessage(chatId,
+        `📨 *Support — ${church.name}*\n\nNo open tickets right now.\n\nCommands:\n• \`/diagnose stream_down\`\n• \`/support Stream dropped before service\``,
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    const lines = tickets.map(t =>
+      `• *${t.severity}* [${t.status}] ${t.title}\n  ${new Date(t.created_at).toLocaleString()}`
+    ).join('\n');
+    return this.sendMessage(chatId,
+      `📨 *Latest Support Tickets — ${church.name}*\n\n${lines}\n\nOpen a new ticket with:\n\`/support [summary]\``,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  async _handleSupportCreate(church, chatId, summaryInput) {
+    const summary = String(summaryInput || '').trim();
+    if (!summary) {
+      return this.sendMessage(chatId, 'Usage: `/support [brief summary of the issue]`', { parse_mode: 'Markdown' });
+    }
+
+    const issueCategory = 'other';
+    const severity = 'P2';
+    const diagnostics = this._buildSupportDiagnostics(church, issueCategory, severity, summary);
+    const checks = this._computeSupportChecks(issueCategory, diagnostics);
+    const triageResult = checks.some(c => !c.ok) ? 'needs_escalation' : 'monitoring';
+
+    const triageId = crypto.randomUUID();
+    const ticketId = crypto.randomUUID();
+    const nowIso = new Date().toISOString();
+
+    this.db.prepare(`
+      INSERT INTO support_triage_runs (
+        id, church_id, issue_category, severity, summary, triage_result,
+        diagnostics_json, autofix_attempts_json, timezone, app_version, created_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      triageId,
+      church.churchId,
+      issueCategory,
+      severity,
+      summary,
+      triageResult,
+      JSON.stringify({ ...diagnostics, checks }),
+      JSON.stringify([]),
+      null,
+      null,
+      `telegram:${chatId}`,
+      nowIso
+    );
+
+    this.db.prepare(`
+      INSERT INTO support_tickets (
+        id, church_id, triage_id, issue_category, severity, title, description,
+        status, forced_bypass, diagnostics_json, created_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', 0, ?, ?, ?, ?)
+    `).run(
+      ticketId,
+      church.churchId,
+      triageId,
+      issueCategory,
+      severity,
+      summary.slice(0, 140),
+      summary,
+      JSON.stringify({ ...diagnostics, checks }),
+      `telegram:${chatId}`,
+      nowIso,
+      nowIso
+    );
+
+    this.db.prepare(`
+      INSERT INTO support_ticket_updates (ticket_id, message, actor_type, actor_id, created_at)
+      VALUES (?, ?, 'church', ?, ?)
+    `).run(ticketId, summary, String(chatId), nowIso);
+
+    return this.sendMessage(chatId,
+      `✅ Support ticket opened.\n\nTicket ID: \`${ticketId.slice(0, 8)}\`\nTriage: *${triageResult}*\n\nYou can view updates in the Church Portal support tab.`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
   // ─── DISPATCH HELPERS ────────────────────────────────────────────────
 
   /** Route a parsed command to the right handler and reply to chatId. */
@@ -1103,6 +1372,14 @@ class TallyBot {
         return `📋 *Playlist*\n${result}`;
       case 'dante.scene':
         return `✅ Dante scene "${params.name}" triggered`;
+      case 'ptz.pan':
+      case 'ptz.tilt':
+      case 'ptz.zoom':
+      case 'ptz.preset':
+      case 'ptz.setPreset':
+      case 'ptz.home':
+      case 'ptz.stop':
+        return `✅ ${typeof result === 'string' ? result : 'PTZ command executed'}`;
       case 'system.preServiceCheck':
         if (result && result.checks) {
           const lines = result.checks.map(c => `${c.pass ? '✅' : '❌'} ${c.name}: ${c.detail}`);

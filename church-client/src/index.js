@@ -9,7 +9,7 @@
  */
 
 const WebSocket = require('ws');
-const { Atem } = require('atem-connection');
+const { Atem, Enums } = require('atem-connection');
 const OBSWebSocket = require('obs-websocket-js').default;
 const { program } = require('commander');
 const fs = require('fs');
@@ -26,11 +26,7 @@ const { AudioMonitor } = require('./audioMonitor');
 const { StreamHealthMonitor } = require('./streamHealthMonitor');
 const { encryptConfig, decryptConfig, findUnencryptedFields } = require('./secureStorage');
 const { MixerBridge } = require('./mixerBridge');
-const { FakeAtem } = require('./fakeAtem');
-const { FakeAtemApiServer } = require('./fakeAtemApi');
-const { FakeOBS } = require('./fakeObs');
-const { FakeMixerBridge } = require('./fakeMixer');
-const { FakeProPresenter } = require('./fakeProPresenter');
+const { PTZManager, normalizeProtocol } = require('./ptz');
 
 // ─── CLI CONFIG ───────────────────────────────────────────────────────────────
 
@@ -41,13 +37,11 @@ program
 program
   .option('-t, --token <token>', 'Your church connection token (from ATEM School)')
   .option('-r, --relay <url>', 'Relay server URL', 'wss://tally-production-cde2.up.railway.app')
-  .option('-a, --atem <ip>', 'ATEM switcher IP (use "mock" for built-in simulator)')
-  .option('--mock-production', 'Run full mock production stack (ATEM + OBS + X32 + HyperDeck + ProPresenter)')
-  .option('--fake-atem-api-port <port>', 'Fake ATEM control API port (default: 9911)')
-  .option('-o, --obs <url>', 'OBS WebSocket URL', 'ws://localhost:4455')
+  .option('-a, --atem <ip>', 'ATEM switcher IP address')
+  .option('-o, --obs <url>', 'OBS WebSocket URL')
   .option('-p, --obs-password <password>', 'OBS WebSocket password')
   .option('-n, --name <name>', 'Label for this system (e.g., "Main Sanctuary")')
-  .option('-c, --companion <url>', 'Companion HTTP API URL', 'http://localhost:8888')
+  .option('-c, --companion <url>', 'Companion HTTP API URL')
   .option('--preview-source <name>', 'OBS source name for preview screenshots', '')
   .option('--config <path>', 'Path to config file', path.join(os.homedir(), '.church-av', 'config.json'))
   .option('--watchdog', 'Enable watchdog monitoring (default: true)', true)
@@ -62,20 +56,95 @@ if (process.argv[2] === 'setup') {
 }
 
 const opts = program.opts();
+const LEGACY_DEFAULT_OBS_URLS = new Set(['ws://localhost:4455', 'ws://127.0.0.1:4455']);
 
-function isFakeAtemMode(value) {
-  const v = String(value || '').trim().toLowerCase();
-  return v === 'mock' || v === 'fake' || v === 'sim' || v === 'simulate' || v.startsWith('mock://');
+const ATEM_MODEL_LABELS = {
+  Unknown: 'ATEM',
+  TVS: 'ATEM Television Studio',
+  OneME: 'ATEM 1 M/E Production Studio',
+  TwoME: 'ATEM 2 M/E Production Studio',
+  PS4K: 'ATEM Production Studio 4K',
+  OneME4K: 'ATEM 1 M/E Production Studio 4K',
+  TwoME4K: 'ATEM 2 M/E Production Studio 4K',
+  TwoMEBS4K: 'ATEM 2 M/E Broadcast Studio 4K',
+  TVSHD: 'ATEM Television Studio HD',
+  TVSProHD: 'ATEM Television Studio Pro HD',
+  TVSPro4K: 'ATEM Television Studio Pro 4K',
+  Constellation: 'ATEM Constellation',
+  Constellation8K: 'ATEM Constellation 8K',
+  Mini: 'ATEM Mini',
+  MiniPro: 'ATEM Mini Pro',
+  MiniProISO: 'ATEM Mini Pro ISO',
+  MiniExtreme: 'ATEM Mini Extreme',
+  MiniExtremeISO: 'ATEM Mini Extreme ISO',
+  ConstellationHD1ME: 'ATEM 1 M/E Constellation HD',
+  ConstellationHD2ME: 'ATEM 2 M/E Constellation HD',
+  ConstellationHD4ME: 'ATEM 4 M/E Constellation HD',
+  SDI: 'ATEM SDI',
+  SDIProISO: 'ATEM SDI Pro ISO',
+  SDIExtremeISO: 'ATEM SDI Extreme ISO',
+  TelevisionStudioHD8: 'ATEM Television Studio HD8',
+  TelevisionStudioHD8ISO: 'ATEM Television Studio HD8 ISO',
+  Constellation4K1ME: 'ATEM 1 M/E Constellation 4K',
+  Constellation4K2ME: 'ATEM 2 M/E Constellation 4K',
+  Constellation4K4ME: 'ATEM 4 M/E Constellation 4K',
+  Constellation4K4MEPlus: 'ATEM 4 M/E Constellation 4K Plus',
+  TelevisionStudio4K8: 'ATEM Television Studio 4K8',
+  MiniExtremeISOG2: 'ATEM Mini Extreme ISO G2',
+};
+
+const ATEM_MODEL_ENUM = (Enums && Enums.Model) || {};
+
+function prettifyAtemModelEnumName(rawName) {
+  if (!rawName || typeof rawName !== 'string') return null;
+  if (ATEM_MODEL_LABELS[rawName]) return ATEM_MODEL_LABELS[rawName];
+
+  return rawName
+    .replace(/([a-z])([A-Z0-9])/g, '$1 $2')
+    .replace(/([0-9])([A-Z])/g, '$1 $2')
+    .replace(/\bTVS\b/g, 'Television Studio')
+    .replace(/\bME\b/g, 'M/E')
+    .trim();
 }
 
-function isFakeObsMode(value) {
-  const v = String(value || '').trim().toLowerCase();
-  return v === 'mock' || v === 'fake' || v.startsWith('mock://');
+function extractAtemIdentity(state) {
+  const info = state && typeof state.info === 'object' ? state.info : {};
+  const productIdentifier = typeof info.productIdentifier === 'string' ? info.productIdentifier.trim() : '';
+
+  const parsedModelCode = Number(info.model);
+  const modelCode = Number.isFinite(parsedModelCode) ? parsedModelCode : null;
+
+  const modelEnumName = modelCode !== null ? ATEM_MODEL_ENUM[modelCode] : null;
+  const modelName = productIdentifier || prettifyAtemModelEnumName(modelEnumName);
+
+  return {
+    modelName: modelName || null,
+    modelCode,
+    productIdentifier: productIdentifier || null,
+  };
 }
 
-function isFakeHostMode(value) {
+function isMockValue(value) {
   const v = String(value || '').trim().toLowerCase();
-  return v === 'mock' || v === 'fake' || v === 'sim';
+  return v === 'mock' || v === 'fake' || v === 'sim' || v === 'simulate' || v.startsWith('mock://') || v.includes('mock-hyperdeck');
+}
+
+function stripMockConfig(config = {}) {
+  const cleaned = { ...(config || {}) };
+  if (isMockValue(cleaned.atemIp)) cleaned.atemIp = '';
+  if (isMockValue(cleaned.obsUrl)) {
+    cleaned.obsUrl = '';
+    cleaned.obsPassword = '';
+  }
+  if (cleaned.proPresenter && isMockValue(cleaned.proPresenter.host)) cleaned.proPresenter = null;
+  if (cleaned.mixer && isMockValue(cleaned.mixer.host)) cleaned.mixer = null;
+  if (Array.isArray(cleaned.hyperdecks)) {
+    cleaned.hyperdecks = cleaned.hyperdecks.filter((entry) => !isMockValue(entry));
+  }
+  delete cleaned.mockProduction;
+  delete cleaned.fakeAtemApiPort;
+  delete cleaned._preMock;
+  return cleaned;
 }
 
 function loadConfig() {
@@ -88,7 +157,7 @@ function loadConfig() {
   if (fs.existsSync(configPath)) {
     try {
       const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      config = decryptConfig(raw); // decrypt sensitive fields on load
+      config = stripMockConfig(decryptConfig(raw)); // decrypt sensitive fields on load
     }
     catch { config = {}; }
   }
@@ -96,33 +165,51 @@ function loadConfig() {
   if (opts.token) config.token = opts.token;
   if (opts.relay) config.relay = opts.relay;
   if (opts.atem) config.atemIp = opts.atem;
-  if (opts.obs) config.obsUrl = opts.obs;
+  if (opts.obs !== undefined) config.obsUrl = opts.obs;
   if (opts.obsPassword) config.obsPassword = opts.obsPassword;
   if (opts.name) config.name = opts.name;
-  if (opts.companion) config.companionUrl = opts.companion;
+  if (opts.companion !== undefined) config.companionUrl = opts.companion;
   if (opts.previewSource) config.previewSource = opts.previewSource;
   if (opts.watchdog !== undefined) config.watchdog = opts.watchdog;
-  if (opts.fakeAtemApiPort !== undefined) config.fakeAtemApiPort = Number(opts.fakeAtemApiPort);
-  if (opts.mockProduction) config.mockProduction = true;
 
   // Preserve array fields from config file (hyperdecks, ptz)
   // These are set via the Equipment UI, not CLI args
   if (!config.hyperdecks) config.hyperdecks = [];
   if (!config.ptz) config.ptz = [];
   if (!config.videoHubs) config.videoHubs = [];
-  if (!config.proPresenter) config.proPresenter = { host: 'localhost', port: 1025 };
+  if (!config.proPresenter) config.proPresenter = null;
   if (!config.resolume) config.resolume = null; // null = not configured
   if (!config.vmix) config.vmix = null; // null = not configured (Windows only)
   if (!config.mixer) config.mixer = null; // null = not configured
 
-  if (config.mockProduction) {
-    config.atemIp = 'mock';
-    config.obsUrl = 'mock://obs';
-    config.proPresenter = { host: 'mock', port: 1025 };
-    config.mixer = { type: 'x32', host: 'mock', port: 10023 };
-    if (!Array.isArray(config.hyperdecks) || config.hyperdecks.length === 0) {
-      config.hyperdecks = ['mock-hyperdeck-1'];
-    }
+  // Legacy cleanup: older builds defaulted OBS to localhost even when not configured.
+  // If encoder is not OBS, treat those legacy defaults as "not configured".
+  const encoderType = String(config.encoder?.type || '').toLowerCase();
+  const normalizedObs = String(config.obsUrl || '').trim().toLowerCase();
+  if (encoderType !== 'obs' && LEGACY_DEFAULT_OBS_URLS.has(normalizedObs)) {
+    config.obsUrl = '';
+    config.obsPassword = '';
+  }
+
+  config = stripMockConfig(config);
+
+  // Normalize PTZ entries to object form.
+  if (Array.isArray(config.ptz)) {
+    config.ptz = config.ptz.map((entry, i) => {
+      if (typeof entry === 'string') {
+        return { ip: entry, name: `PTZ ${i + 1}`, protocol: 'auto' };
+      }
+      const protocol = normalizeProtocol(entry?.protocol || 'auto');
+      return {
+        ip: String(entry?.ip || '').trim(),
+        name: String(entry?.name || `PTZ ${i + 1}`),
+        protocol,
+        port: entry?.port ? Number(entry.port) : '',
+        username: String(entry?.username || ''),
+        password: String(entry?.password || ''),
+        profileToken: String(entry?.profileToken || ''),
+      };
+    }).filter((cam) => cam.ip);
   }
 
   // Stream platform API keys (optional, for Feature 9)
@@ -139,7 +226,7 @@ function loadConfig() {
     process.exit(1);
   }
 
-  fs.writeFileSync(configPath, JSON.stringify(encryptConfig(config), null, 2));
+  fs.writeFileSync(configPath, JSON.stringify(encryptConfig(stripMockConfig(config)), null, 2));
   return config;
 }
 
@@ -148,7 +235,6 @@ function loadConfig() {
 class ChurchAVAgent {
   constructor(config) {
     this.config = config;
-    this.mockProduction = !!config.mockProduction;
     this.relay = null;
     this.atem = null;
 
@@ -177,55 +263,140 @@ class ChurchAVAgent {
     this.resolume = null;
     this.vmix = null;
     this.mixer = null;
+    this.ptzManager = null;
     this.encoderBridge = null;
     this._encoderManaged = false;  // true when EncoderBridge owns status.encoder
-    this.fakeAtemApi = null;
     this._stopping = false;
     this._fakeAtemMode = false;
-    this._fakeObsMode = false;
-    this._fakeMixerMode = false;
-    this._fakeProPresenterMode = false;
     this.audioMonitor = new AudioMonitor();
     this.streamHealthMonitor = new StreamHealthMonitor();
+    this._identityCache = new Map();
     this.reconnectDelay = 3000;
     this.atemReconnectDelay = 2000;
     this.atemReconnecting = false;
     this._previewTimer = null;
     this._previewSource = config.previewSource || '';
     this.status = {
-      atem: { connected: false, ip: null, programInput: null, previewInput: null, recording: false, audioDelays: {} },
-      obs: { connected: false, streaming: false, recording: false, bitrate: null, fps: null },
-      encoder: { connected: false, live: false, bitrateKbps: null, congestion: null, fps: null, cpuUsage: null },
-      companion: { connected: false, connectionCount: 0, connections: [] },
+      atem: {
+        connected: false,
+        ip: null,
+        model: null,
+        modelCode: null,
+        productIdentifier: null,
+        programInput: null,
+        previewInput: null,
+        recording: false,
+        audioDelays: {},
+      },
+      obs: {
+        connected: false,
+        app: null,
+        version: null,
+        websocketVersion: null,
+        streaming: false,
+        recording: false,
+        bitrate: null,
+        fps: null,
+      },
+      encoder: {
+        connected: false,
+        live: false,
+        bitrateKbps: null,
+        congestion: null,
+        fps: null,
+        cpuUsage: null,
+        details: null,
+      },
+      companion: { connected: false, endpoint: null, connectionCount: 0, connections: [] },
       videoHubs: [],
-      proPresenter: { connected: false, running: false, currentSlide: null, slideIndex: null, slideTotal: null },
-      resolume: { connected: false, host: null, port: null },
-      vmix: { connected: false, streaming: false, recording: false },
-      mixer: { connected: false, type: null, mainMuted: false },
+      proPresenter: { connected: false, running: false, version: null, currentSlide: null, slideIndex: null, slideTotal: null },
+      resolume: { connected: false, host: null, port: null, version: null },
+      vmix: { connected: false, streaming: false, recording: false, edition: null, version: null },
+      mixer: { connected: false, type: null, model: null, mainMuted: false },
+      ptz: [],
       audio: { monitoring: false, lastLevel: null, silenceDetected: false },
       system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null },
     };
+  }
+
+  updateAtemIdentity(state) {
+    const source = (state && typeof state === 'object') ? state : this.atem?.state;
+    if (!source || typeof source !== 'object') return;
+
+    const detected = extractAtemIdentity(source);
+    const previousModel = this.status.atem.model;
+    if (detected.modelName) this.status.atem.model = detected.modelName;
+    if (detected.modelCode !== null) this.status.atem.modelCode = detected.modelCode;
+    if (detected.productIdentifier) this.status.atem.productIdentifier = detected.productIdentifier;
+
+    if (this.status.atem.model && this.status.atem.model !== previousModel) {
+      console.log(`ATEM model detected: ${this.status.atem.model}`);
+    }
+  }
+
+  logIdentity(key, prefix, value) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return;
+    const cacheKey = String(key || '').trim() || prefix;
+    const previous = this._identityCache.get(cacheKey);
+    if (previous === normalized) return;
+    this._identityCache.set(cacheKey, normalized);
+    console.log(`${prefix} ${normalized}`);
+  }
+
+  isObsMonitoringEnabled() {
+    const encoderType = String(this.config.encoder?.type || '').trim().toLowerCase();
+    if (encoderType === 'obs') return true;
+    const obsUrl = String(this.config.obsUrl || '').trim();
+    if (!obsUrl) return false;
+    return !LEGACY_DEFAULT_OBS_URLS.has(obsUrl.toLowerCase());
+  }
+
+  getObsUrlForConnection() {
+    const configuredUrl = String(this.config.obsUrl || '').trim();
+    if (configuredUrl) return configuredUrl;
+
+    // If OBS is selected as the encoder, derive the URL from encoder host/port.
+    const encoderType = String(this.config.encoder?.type || '').trim().toLowerCase();
+    if (encoderType === 'obs') {
+      const host = String(this.config.encoder?.host || '').trim() || 'localhost';
+      const port = Number(this.config.encoder?.port) || 4455;
+      return `ws://${host}:${port}`;
+    }
+
+    return '';
+  }
+
+  isCompanionMonitoringEnabled() {
+    return !!String(this.config.companionUrl || '').trim();
   }
 
   async start() {
     console.log('\n🎥 Tally starting...');
     if (this.config.name) console.log(`   Name: ${this.config.name}`);
     console.log(`   Relay: ${this.config.relay}`);
-    if (this.mockProduction) console.log('   Mode: Mock Production Lab');
 
     await this.connectRelay();
     await this.connectATEM();
-    await this.connectOBS();
+    if (this.isObsMonitoringEnabled()) {
+      await this.connectOBS();
+    } else {
+      console.log('🎬 OBS not configured (set via Equipment tab)');
+    }
     this.audioMonitor.start(this);
     this.streamHealthMonitor.start(this);
-    await this.connectCompanion();
+    if (this.isCompanionMonitoringEnabled()) {
+      await this.connectCompanion();
+    } else {
+      console.log('🎛️  Companion not configured (set via Equipment tab)');
+    }
     await this.connectVideoHubs();
     await this.connectProPresenter();
     await this.connectResolume();
     await this.connectVMix();
     await this.connectMixer();
+    await this.connectPTZ();
     await this.connectEncoder();
-    await this.startMockControlApi();
 
     setInterval(() => this.sendStatus(), 10_000);
     setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000);
@@ -244,15 +415,16 @@ class ChurchAVAgent {
   async watchdogTick() {
     if (!this.watchdogActive) return;
     const issues = [];
+    const obsMonitoringEnabled = this.isObsMonitoringEnabled();
 
     // FPS check
-    if (this.status.obs.streaming && this.status.obs.fps && this.status.obs.fps < 24) {
+    if (obsMonitoringEnabled && this.status.obs.streaming && this.status.obs.fps && this.status.obs.fps < 24) {
       issues.push('fps_low');
       this._sendWatchdogAlert('fps_low', `Low FPS: ${this.status.obs.fps}`);
     }
 
     // Bitrate check
-    if (this.status.obs.streaming && this.status.obs.bitrate && this.status.obs.bitrate < 1000) {
+    if (obsMonitoringEnabled && this.status.obs.streaming && this.status.obs.bitrate && this.status.obs.bitrate < 1000) {
       issues.push('bitrate_low');
       this._sendWatchdogAlert('bitrate_low', `Low bitrate: ${this.status.obs.bitrate}kbps`);
     }
@@ -264,7 +436,7 @@ class ChurchAVAgent {
     }
 
     // OBS disconnected
-    if (!this.status.obs.connected) {
+    if (obsMonitoringEnabled && !this.status.obs.connected) {
       issues.push('obs_disconnected');
       this._sendWatchdogAlert('obs_disconnected', 'OBS disconnected');
     }
@@ -406,32 +578,32 @@ class ChurchAVAgent {
 
   async connectATEM() {
     const atemIp = this.config.atemIp;
-    const fakeMode = this.mockProduction || isFakeAtemMode(atemIp);
-    this._fakeAtemMode = fakeMode;
-    this.atem = fakeMode ? new FakeAtem() : new Atem();
+    this._fakeAtemMode = false;
+    this.atem = new Atem();
 
     this.atem.on('connected', () => {
-      const label = fakeMode ? 'ATEM simulator' : 'ATEM';
-      console.log(`✅ ${label} connected${atemIp ? ` (${atemIp})` : ''}`);
+      console.log(`✅ ATEM connected${atemIp ? ` (${atemIp})` : ''}`);
       this.status.atem.connected = true;
-      this.status.atem.ip = fakeMode ? (atemIp || 'mock') : atemIp;
+      this.status.atem.ip = atemIp;
+      this.updateAtemIdentity(this.atem?.state);
       this.atemReconnectDelay = 2000;
       this.atemReconnecting = false;
       this.sendStatus();
-      this.sendAlert(fakeMode ? 'ATEM simulator connected' : 'ATEM connected', 'info');
+      this.sendAlert('ATEM connected', 'info');
     });
 
     this.atem.on('disconnected', () => {
       if (this._stopping) return;
-      console.warn(`⚠️  ${fakeMode ? 'ATEM simulator' : 'ATEM'} disconnected`);
+      console.warn('⚠️  ATEM disconnected');
       this.status.atem.connected = false;
       this.sendStatus();
-      this.sendAlert(fakeMode ? 'ATEM simulator disconnected' : 'ATEM disconnected', 'warning');
+      this.sendAlert('ATEM disconnected', 'warning');
       this.reconnectATEM();
     });
 
     this.atem.on('stateChanged', (state, pathToChange) => {
       if (!state) return;
+      this.updateAtemIdentity(state);
 
       const me = state.video?.mixEffects?.[0];
       if (me) {
@@ -478,17 +650,12 @@ class ChurchAVAgent {
       this.sendStatus();
     });
 
-    if (atemIp || fakeMode) {
-      if (fakeMode) {
-        console.log('📹 Starting fake ATEM simulator...');
-      } else {
-        console.log(`📹 Connecting to ATEM at ${atemIp}...`);
-      }
+    if (atemIp) {
+      console.log(`📹 Connecting to ATEM at ${atemIp}...`);
       try {
-        if (fakeMode) await this.atem.connect();
-        else await this.atem.connect(atemIp);
+        await this.atem.connect(atemIp);
       } catch (e) {
-        console.warn(`⚠️  ${fakeMode ? 'ATEM simulator' : 'ATEM'} connection failed: ${e.message}`);
+        console.warn(`⚠️  ATEM connection failed: ${e.message}`);
         this.reconnectATEM();
       }
     } else {
@@ -497,14 +664,13 @@ class ChurchAVAgent {
   }
 
   reconnectATEM() {
-    if (this._stopping || this.atemReconnecting || (!this.config.atemIp && !this.mockProduction)) return;
+    if (this._stopping || this.atemReconnecting || !this.config.atemIp) return;
     this.atemReconnecting = true;
     console.log(`   Reconnecting ATEM in ${this.atemReconnectDelay / 1000}s...`);
     setTimeout(async () => {
       this.atemReconnecting = false;
       try {
-        if (this.mockProduction || isFakeAtemMode(this.config.atemIp)) await this.atem.connect();
-        else await this.atem.connect(this.config.atemIp);
+        await this.atem.connect(this.config.atemIp);
       } catch (e) {
         console.warn(`⚠️  ATEM reconnect failed: ${e.message}`);
         this.atemReconnectDelay = Math.min(this.atemReconnectDelay * 2, 60_000);
@@ -520,13 +686,6 @@ class ChurchAVAgent {
 
   async stop() {
     this._stopping = true;
-    try {
-      if (this.fakeAtemApi) {
-        await this.fakeAtemApi.stop();
-        this.fakeAtemApi = null;
-      }
-    } catch {}
-
     try {
       if (this.obs && typeof this.obs.disconnect === 'function') {
         await this.obs.disconnect();
@@ -550,25 +709,38 @@ class ChurchAVAgent {
 
   async connectOBS() {
     if (!this._obsReconnectDelay) this._obsReconnectDelay = 5000;
-    const obsUrl = this.config.obsUrl || 'ws://localhost:4455';
-    const fakeMode = this.mockProduction || isFakeObsMode(obsUrl);
-    this._fakeObsMode = fakeMode;
-
+    const obsUrl = this.getObsUrlForConnection();
+    if (!obsUrl) {
+      console.log('🎬 OBS not configured (set via Equipment tab)');
+      return;
+    }
     // Create OBS instance and attach event listeners ONCE.
     // On reconnect we reuse the same instance — just call connect() again.
     if (!this.obs) {
-      this.obs = fakeMode ? new FakeOBS() : new OBSWebSocket();
+      this.obs = new OBSWebSocket();
 
       this.obs.on('ConnectionOpened', () => {
         console.log('✅ OBS connected');
         this.status.obs.connected = true;
+        this.status.obs.app = 'OBS Studio';
         if (!this._encoderManaged) this.status.encoder.connected = true;
         this._obsReconnectDelay = 5000; // reset backoff on success
+        void (async () => {
+          try {
+            const ver = await this.obs.call('GetVersion');
+            this.status.obs.version = ver?.obsVersion || null;
+            this.status.obs.websocketVersion = ver?.obsWebSocketVersion || null;
+            const identity = `OBS Studio${this.status.obs.version ? ` v${this.status.obs.version}` : ''}${this.status.obs.websocketVersion ? ` (WS ${this.status.obs.websocketVersion})` : ''}`;
+            this.logIdentity('obs', 'OBS identity:', identity);
+            this.sendStatus();
+          } catch { /* optional */ }
+        })();
         this.sendStatus();
       });
 
       this.obs.on('ConnectionClosed', () => {
         if (this._stopping) return;
+        if (!this.isObsMonitoringEnabled()) return;
         console.warn(`⚠️  OBS disconnected. Retrying in ${this._obsReconnectDelay / 1000}s...`);
         this.status.obs.connected = false;
         if (!this._encoderManaged) this.status.encoder.connected = false;
@@ -629,7 +801,7 @@ class ChurchAVAgent {
     }
 
     try {
-      console.log(`🎬 Connecting to ${fakeMode ? 'mock OBS' : 'OBS'} at ${obsUrl}...`);
+      console.log(`🎬 Connecting to OBS at ${obsUrl}...`);
       await this.obs.connect(obsUrl, this.config.obsPassword);
     } catch (e) {
       console.warn('⚠️  OBS not available:', e.message);
@@ -661,6 +833,7 @@ class ChurchAVAgent {
       console.log('✅ Encoder connected');
       const s = await this.encoderBridge.getStatus();
       Object.assign(this.status.encoder, s);
+      if (s?.details) this.logIdentity('encoder', 'Encoder identity:', s.details);
     } else {
       console.log('⚠️  Encoder not available (will retry)');
     }
@@ -672,6 +845,7 @@ class ChurchAVAgent {
         const wasConnected = this.status.encoder.connected;
         const s = await this.encoderBridge.getStatus();
         Object.assign(this.status.encoder, s);
+        if (s?.details) this.logIdentity('encoder', 'Encoder identity:', s.details);
 
         if (s.connected && !wasConnected) console.log('✅ Encoder connected');
         if (!s.connected && wasConnected) console.log('⚠️  Encoder disconnected');
@@ -682,14 +856,21 @@ class ChurchAVAgent {
   // ─── COMPANION CONNECTION ────────────────────────────────────────────────
 
   async connectCompanion() {
-    const url = this.config.companionUrl || 'http://localhost:8888';
+    const configuredUrl = String(this.config.companionUrl || '').trim();
+    if (!configuredUrl) {
+      console.log('🎛️  Companion not configured (set via Equipment tab)');
+      return;
+    }
+    const url = configuredUrl;
     console.log(`🎛️  Checking Companion at ${url}...`);
     this.companion = new CompanionBridge({ companionUrl: url });
+    this.status.companion.endpoint = url;
 
     const available = await this.companion.isAvailable();
     if (available) {
       console.log('✅ Companion connected');
       this.status.companion.connected = true;
+      this.logIdentity('companion', 'Companion identity:', url);
       try {
         const conns = await this.companion.getConnections();
         this.status.companion.connectionCount = conns.length;
@@ -819,17 +1000,13 @@ class ChurchAVAgent {
 
   async connectProPresenter() {
     const ppConfig = this.config.proPresenter || {};
-    const fakeMode = this.mockProduction || isFakeHostMode(ppConfig.host);
-    this._fakeProPresenterMode = fakeMode;
-    if (!fakeMode && !ppConfig.host && ppConfig.host !== 'localhost') {
+    if (!ppConfig.host && ppConfig.host !== 'localhost') {
       console.log('⛪ ProPresenter not configured (set via Equipment tab)');
       return;
     }
 
-    console.log(`⛪ Connecting to ${fakeMode ? 'mock ProPresenter' : 'ProPresenter'} at ${ppConfig.host || 'mock'}:${ppConfig.port || 1025}...`);
-    this.proPresenter = fakeMode
-      ? new FakeProPresenter()
-      : new ProPresenter({ host: ppConfig.host, port: ppConfig.port || 1025 });
+    console.log(`⛪ Connecting to ProPresenter at ${ppConfig.host}:${ppConfig.port || 1025}...`);
+    this.proPresenter = new ProPresenter({ host: ppConfig.host, port: ppConfig.port || 1025 });
 
     this.proPresenter.on('connected', () => {
       this.status.proPresenter.connected = true;
@@ -848,6 +1025,13 @@ class ChurchAVAgent {
     });
 
     await this.proPresenter.connect();
+    try {
+      const version = await this.proPresenter.getVersion?.();
+      if (version) {
+        this.status.proPresenter.version = version;
+        this.logIdentity('propresenter', 'ProPresenter version detected:', version);
+      }
+    } catch { /* optional */ }
     await this._updateProPresenterStatus();
 
     // Periodically refresh ProPresenter status
@@ -899,10 +1083,11 @@ class ChurchAVAgent {
     if (running) {
       const version = await this.resolume.getVersion();
       console.log(`✅ Resolume Arena connected (${version})`);
-      this.status.resolume = { connected: true, host: cfg.host, port: cfg.port || 8080 };
+      this.status.resolume = { connected: true, host: cfg.host, port: cfg.port || 8080, version: version || null };
+      if (version) this.logIdentity('resolume', 'Resolume version detected:', version);
     } else {
       console.log('⚠️  Resolume Arena not reachable (will skip — optional device)');
-      this.status.resolume = { connected: false, host: cfg.host, port: cfg.port || 8080 };
+      this.status.resolume = { connected: false, host: cfg.host, port: cfg.port || 8080, version: null };
     }
 
     // Periodically refresh Resolume status
@@ -936,10 +1121,18 @@ class ChurchAVAgent {
     if (running) {
       const status = await this.vmix.getStatus();
       console.log(`✅ vMix connected (${status.edition} ${status.version}) — Streaming: ${status.streaming}, Recording: ${status.recording}`);
-      this.status.vmix = { connected: true, streaming: status.streaming, recording: status.recording };
+      this.status.vmix = {
+        connected: true,
+        streaming: status.streaming,
+        recording: status.recording,
+        edition: status.edition || null,
+        version: status.version || null,
+      };
+      const vmixIdentity = `${status.edition || 'vMix'}${status.version ? ` ${status.version}` : ''}`;
+      this.logIdentity('vmix', 'vMix identity:', vmixIdentity);
     } else {
       console.log('⚠️  vMix not reachable (will retry on watchdog tick — optional device)');
-      this.status.vmix = { connected: false, streaming: false, recording: false };
+      this.status.vmix = { connected: false, streaming: false, recording: false, edition: null, version: null };
     }
 
     // Poll vMix status every 30s
@@ -949,7 +1142,15 @@ class ChurchAVAgent {
         const status = await this.vmix.getStatus();
         const wasStreaming = this.status.vmix.streaming;
         const wasRecording = this.status.vmix.recording;
-        this.status.vmix = { connected: status.running, streaming: status.streaming || false, recording: status.recording || false };
+        this.status.vmix = {
+          connected: status.running,
+          streaming: status.streaming || false,
+          recording: status.recording || false,
+          edition: status.edition || this.status.vmix.edition || null,
+          version: status.version || this.status.vmix.version || null,
+        };
+        const vmixIdentity = `${this.status.vmix.edition || 'vMix'}${this.status.vmix.version ? ` ${this.status.vmix.version}` : ''}`;
+        this.logIdentity('vmix', 'vMix identity:', vmixIdentity);
 
         if (wasStreaming && !status.streaming) {
           this.sendAlert('🔴 vMix stream stopped unexpectedly', 'critical');
@@ -969,27 +1170,27 @@ class ChurchAVAgent {
 
   async connectMixer() {
     const cfg = this.config.mixer;
-    const fakeMode = this.mockProduction || isFakeHostMode(cfg?.host);
-    this._fakeMixerMode = fakeMode;
-    if (!fakeMode && (!cfg || !cfg.host)) {
+    if (!cfg || !cfg.host) {
       console.log('🎛️  Audio console not configured (set via Equipment tab)');
       return;
     }
 
-    const mixerConfig = cfg || { type: 'x32', host: 'mock', port: 10023 };
-    console.log(`🎛️  Connecting to ${fakeMode ? 'mock' : mixerConfig.type} console at ${mixerConfig.host}:${mixerConfig.port || 'default'}...`);
-    this.mixer = fakeMode ? new FakeMixerBridge(mixerConfig) : new MixerBridge(mixerConfig);
+    const mixerConfig = cfg;
+    console.log(`🎛️  Connecting to ${mixerConfig.type} console at ${mixerConfig.host}:${mixerConfig.port || 'default'}...`);
+    this.mixer = new MixerBridge(mixerConfig);
     await this.mixer.connect();
 
     const online = await this.mixer.isOnline();
     if (online) {
       const status = await this.mixer.getStatus();
-      this.status.mixer = { connected: true, type: mixerConfig.type, mainMuted: status.mainMuted };
-      console.log(`✅ ${fakeMode ? 'mock' : mixerConfig.type} console connected`);
+      this.status.mixer = { connected: true, type: mixerConfig.type, model: status.model || null, mainMuted: status.mainMuted };
+      const mixerIdentity = `${String(mixerConfig.type || 'mixer').toUpperCase()}${status.model ? ` ${status.model}` : ''}`;
+      this.logIdentity('mixer', 'Mixer identity:', mixerIdentity);
+      console.log(`✅ ${mixerConfig.type} console connected`);
       if (status.mainMuted) this.sendAlert('⚠️ WARNING: Audio console master is MUTED', 'warning');
     } else {
       console.log(`⚠️  ${mixerConfig.type} console not reachable (will retry on poll)`);
-      this.status.mixer = { connected: false, type: mixerConfig.type, mainMuted: false };
+      this.status.mixer = { connected: false, type: mixerConfig.type, model: null, mainMuted: false };
     }
 
     // Poll every 30s — alert if master gets muted during service
@@ -998,7 +1199,14 @@ class ChurchAVAgent {
       try {
         const status = await this.mixer.getStatus();
         const wasMuted = this.status.mixer.mainMuted;
-        this.status.mixer = { connected: status.online, type: mixerConfig.type, mainMuted: status.mainMuted };
+        this.status.mixer = {
+          connected: status.online,
+          type: mixerConfig.type,
+          model: status.model || this.status.mixer.model || null,
+          mainMuted: status.mainMuted,
+        };
+        const mixerIdentity = `${String(mixerConfig.type || 'mixer').toUpperCase()}${this.status.mixer.model ? ` ${this.status.mixer.model}` : ''}`;
+        this.logIdentity('mixer', 'Mixer identity:', mixerIdentity);
         if (!wasMuted && status.mainMuted) this.sendAlert('🔇 AUDIO: Master output was MUTED on console', 'critical');
         if (wasMuted && !status.mainMuted) this.sendAlert('✅ Audio master unmuted', 'info');
         this.sendStatus();
@@ -1006,34 +1214,29 @@ class ChurchAVAgent {
     }, 30_000);
   }
 
-  async startMockControlApi() {
-    const anyMock = this._fakeAtemMode || this._fakeObsMode || this._fakeMixerMode || this._fakeProPresenterMode || this.mockProduction;
-    if (!anyMock) return;
+  // ─── PTZ CONNECTION ───────────────────────────────────────────────────────
 
-    const apiPort = Number(this.config.fakeAtemApiPort || process.env.TALLY_FAKE_ATEM_API_PORT || 9911);
-    if (!this.fakeAtemApi) {
-      this.fakeAtemApi = new FakeAtemApiServer({
-        fakeAtem: this._fakeAtemMode ? this.atem : null,
-        fakeObs: this._fakeObsMode ? this.obs : null,
-        fakeMixer: this._fakeMixerMode ? this.mixer : null,
-        fakeProPresenter: this._fakeProPresenterMode ? this.proPresenter : null,
-        port: apiPort,
-      });
-      try {
-        const baseUrl = await this.fakeAtemApi.start();
-        console.log(`🧪 Mock Production Lab: ${baseUrl}`);
-      } catch (e) {
-        console.warn(`⚠️  Mock control API failed to start: ${e.message}`);
-      }
+  async connectPTZ() {
+    const entries = Array.isArray(this.config.ptz) ? this.config.ptz.filter((c) => c?.ip) : [];
+    if (entries.length === 0) {
+      console.log('🎥 PTZ cameras not configured (set via Equipment tab)');
+      this.status.ptz = [];
       return;
     }
 
-    this.fakeAtemApi.setMocks({
-      fakeAtem: this._fakeAtemMode ? this.atem : null,
-      fakeObs: this._fakeObsMode ? this.obs : null,
-      fakeMixer: this._fakeMixerMode ? this.mixer : null,
-      fakeProPresenter: this._fakeProPresenterMode ? this.proPresenter : null,
-    });
+    this.ptzManager = new PTZManager(entries, (msg) => console.log(msg));
+    await this.ptzManager.connectAll();
+    this.status.ptz = this.ptzManager.getStatus();
+    this.sendStatus();
+
+    setInterval(async () => {
+      if (!this.ptzManager) return;
+      try {
+        await this.ptzManager.refreshStatus();
+        this.status.ptz = this.ptzManager.getStatus();
+        this.sendStatus();
+      } catch { /* ignore */ }
+    }, 30_000);
   }
 
   // ─── HELPERS ──────────────────────────────────────────────────────────────

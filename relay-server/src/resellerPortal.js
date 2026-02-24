@@ -21,6 +21,7 @@
 
 const crypto = require('crypto');
 const jwt    = require('jsonwebtoken');
+const { createRateLimit } = require('./rateLimit');
 
 // ─── password helpers ──────────────────────────────────────────────────────────
 
@@ -180,7 +181,7 @@ function buildResellerLoginHtml(error = '') {
     <div style="text-align:center;margin-top:18px;font-size:13px;color:#94A3B8">
       Don't have an account? <a href="/reseller" style="color:#22c55e;text-decoration:none;font-weight:500">Become a reseller &rarr;</a>
     </div>
-    <div class="footer">Tally by Atem School — <a href="https://tally.atemschool.com" style="color:#22c55e;text-decoration:none">tally.atemschool.com</a></div>
+    <div class="footer">Tally by Atem School — <a href="https://tallyconnect.app" style="color:#22c55e;text-decoration:none">tallyconnect.app</a></div>
   </div>
 </body>
 </html>`;
@@ -464,9 +465,9 @@ function buildResellerSalesPageHtml(error = '') {
       <div class="price-card">
         <div class="tier-name">Getting Started</div>
         <div class="tier-desc">1 – 10 active churches</div>
-        <div class="price">50%<span> commission</span></div>
+        <div class="price">25%<span> commission</span></div>
         <ul class="feature-list">
-          <li><span class="check">\u2713</span> 50% of every subscription</li>
+          <li><span class="check">\u2713</span> 25% of every subscription</li>
           <li><span class="check">\u2713</span> Reseller dashboard</li>
           <li><span class="check">\u2713</span> Church provisioning tools</li>
           <li><span class="check">\u2713</span> Monthly payouts</li>
@@ -474,7 +475,7 @@ function buildResellerSalesPageHtml(error = '') {
         </ul>
         <div style="text-align:center;padding:12px 0 4px;font-size:12px;color:#94A3B8;">
           Example: 10 churches on Connect ($49/mo)<br>
-          <strong style="color:#22c55e;">You earn $245/mo</strong>
+          <strong style="color:#22c55e;">You earn $123/mo</strong>
         </div>
       </div>
 
@@ -482,9 +483,9 @@ function buildResellerSalesPageHtml(error = '') {
         <div class="popular-badge">SWEET SPOT</div>
         <div class="tier-name">Growing</div>
         <div class="tier-desc">11 – 25 active churches</div>
-        <div class="price">55%<span> commission</span></div>
+        <div class="price">35%<span> commission</span></div>
         <ul class="feature-list">
-          <li><span class="check">\u2713</span> 55% of every subscription</li>
+          <li><span class="check">\u2713</span> 35% of every subscription</li>
           <li><span class="check">\u2713</span> Reseller dashboard</li>
           <li><span class="check">\u2713</span> Church provisioning tools</li>
           <li><span class="check">\u2713</span> Monthly payouts</li>
@@ -492,16 +493,16 @@ function buildResellerSalesPageHtml(error = '') {
         </ul>
         <div style="text-align:center;padding:12px 0 4px;font-size:12px;color:#94A3B8;">
           Example: 20 churches on Connect ($49/mo)<br>
-          <strong style="color:#22c55e;">You earn $539/mo</strong>
+          <strong style="color:#22c55e;">You earn $343/mo</strong>
         </div>
       </div>
 
       <div class="price-card">
         <div class="tier-name">Scaling</div>
         <div class="tier-desc">26+ active churches</div>
-        <div class="price">60%<span> commission</span></div>
+        <div class="price">50%<span> commission</span></div>
         <ul class="feature-list">
-          <li><span class="check">\u2713</span> 60% of every subscription</li>
+          <li><span class="check">\u2713</span> 50% of every subscription</li>
           <li><span class="check">\u2713</span> Reseller dashboard</li>
           <li><span class="check">\u2713</span> Church provisioning tools</li>
           <li><span class="check">\u2713</span> Monthly payouts</li>
@@ -509,7 +510,7 @@ function buildResellerSalesPageHtml(error = '') {
         </ul>
         <div style="text-align:center;padding:12px 0 4px;font-size:12px;color:#94A3B8;">
           Example: 40 churches on Connect ($49/mo)<br>
-          <strong style="color:#22c55e;">You earn $1,176/mo</strong>
+          <strong style="color:#22c55e;">You earn $980/mo</strong>
         </div>
       </div>
 
@@ -544,7 +545,7 @@ function buildResellerSalesPageHtml(error = '') {
 
   <!-- ── Footer ───────────────────────────────────── -->
   <div class="page-footer">
-    Tally by ATEM School &mdash; <a href="https://tally.atemschool.com">tally.atemschool.com</a>
+    Tally by ATEM School &mdash; <a href="https://tallyconnect.app">tallyconnect.app</a>
   </div>
 
   <script>
@@ -1228,60 +1229,28 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
   const authMiddleware = requireResellerPortalAuth(db, resellerSystem, jwtSecret);
 
   // ── Rate limiting for login endpoint ───────────────────────────────────────
-  const loginAttempts = new Map();
-  function loginRateLimit(req, res, next) {
-    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    const now = Date.now();
-    const windowMs = 15 * 60 * 1000;
-    const maxAttempts = 10;
-    let entry = loginAttempts.get(ip);
-    if (!entry || now - entry.windowStart > windowMs) {
-      entry = { windowStart: now, count: 0 };
-      loginAttempts.set(ip, entry);
-    }
-    entry.count++;
-    if (entry.count > maxAttempts) {
-      const retryAfter = Math.ceil((entry.windowStart + windowMs - now) / 1000);
-      res.set('Retry-After', String(retryAfter));
+  const loginRateLimit = createRateLimit({
+    scope: 'reseller_portal_login',
+    maxAttempts: 10,
+    windowMs: 15 * 60 * 1000,
+    keyGenerator: (_req, ip) => ip,
+    onLimit: (_req, res) => {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(429).send(buildResellerLoginHtml('Too many login attempts. Please try again later.'));
-    }
-    next();
-  }
-  setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of loginAttempts) {
-      if (now - entry.windowStart > 15 * 60 * 1000) loginAttempts.delete(key);
-    }
-  }, 10 * 60 * 1000).unref();
+    },
+  });
 
   // ── Signup rate limiting ─────────────────────────────────────────────────────
-  const signupAttempts = new Map();
-  function signupRateLimit(req, res, next) {
-    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    const now = Date.now();
-    const windowMs = 60 * 60 * 1000; // 1 hour
-    const maxAttempts = 5;
-    let entry = signupAttempts.get(ip);
-    if (!entry || now - entry.windowStart > windowMs) {
-      entry = { windowStart: now, count: 0 };
-      signupAttempts.set(ip, entry);
-    }
-    entry.count++;
-    if (entry.count > maxAttempts) {
-      const retryAfter = Math.ceil((entry.windowStart + windowMs - now) / 1000);
-      res.set('Retry-After', String(retryAfter));
+  const signupRateLimit = createRateLimit({
+    scope: 'reseller_portal_signup',
+    maxAttempts: 5,
+    windowMs: 60 * 60 * 1000,
+    keyGenerator: (_req, ip) => ip,
+    onLimit: (_req, res) => {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(429).send(buildResellerSalesPageHtml('Too many signup attempts. Please try again later.'));
-    }
-    next();
-  }
-  setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of signupAttempts) {
-      if (now - entry.windowStart > 60 * 60 * 1000) signupAttempts.delete(key);
-    }
-  }, 10 * 60 * 1000).unref();
+    },
+  });
 
   // ── Public sales page ──────────────────────────────────────────────────────
   app.get('/reseller', (req, res) => {

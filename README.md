@@ -2,6 +2,8 @@
 > Remote production monitoring for churches. Built on Blackmagic. Controlled from your phone.
 Remote monitoring and control of church production systems, built for [ATEM School](https://atemschool.com).
 
+Release history: see [CHANGELOG.md](./CHANGELOG.md).
+
 ## Architecture
 
 ```
@@ -18,7 +20,7 @@ Church Client App (Mac/Win)
       ├── OBS Studio (obs-websocket-js) + Screenshot preview
       ├── Bitfocus Companion (HTTP API) — 600+ device types
       ├── HyperDeck control (via ATEM)
-      ├── PTZ camera control (via ATEM)
+      ├── PTZ camera control (ONVIF / VISCA over IP, with ATEM fallback)
       ├── ProPresenter 7 (direct REST/WebSocket API)
       ├── Dante routing (via Companion buttons)
       └── Reports status + accepts commands + sends preview frames
@@ -170,6 +172,15 @@ npm run build:mock-lab:mac
 | `atem.startRecording` | Start ATEM recording |
 | `atem.stopRecording` | Stop ATEM recording |
 | `atem.fadeToBlack` | Toggle fade to black |
+| `atem.runMacro` | Run macro index (params: `macroIndex`) |
+| `atem.stopMacro` | Stop currently running macro |
+| `atem.setAux` | Route aux output (params: `aux`, `input`) |
+| `atem.setTransitionStyle` | Set style (`mix`, `dip`, `wipe`, `dve`, `stinger`) |
+| `atem.setTransitionRate` | Set mix rate (params: `rate`) |
+| `atem.setDskOnAir` | Set DSK on/off air (params: `keyer`, `onAir`) |
+| `atem.setDskTie` | Set DSK tie (params: `keyer`, `tie`) |
+| `atem.setDskRate` | Set DSK rate (params: `keyer`, `rate`) |
+| `atem.setDskSource` | Set DSK fill/key sources (params: `keyer`, `fillSource`, `keySource`) |
 
 ### HyperDeck
 | Command | Description |
@@ -181,6 +192,8 @@ npm run build:mock-lab:mac
 | `hyperdeck.nextClip` | Next clip |
 | `hyperdeck.prevClip` | Previous clip |
 
+Note: HyperDeck transport currently works in the mock runtime. Real hardware transport over ATEM depends on API support from the runtime/device path.
+
 ### PTZ Camera
 | Command | Description |
 |---------|------------|
@@ -188,6 +201,16 @@ npm run build:mock-lab:mac
 | `ptz.tilt` | Tilt (params: `camera`, `speed`) |
 | `ptz.zoom` | Zoom (params: `camera`, `speed`) |
 | `ptz.preset` | Recall preset (params: `camera`, `preset` 1-6) |
+| `ptz.stop` | Stop pan/tilt/zoom movement |
+| `ptz.home` | Return camera to home position (network PTZ) |
+| `ptz.setPreset` | Save current position to preset slot (network PTZ) |
+
+Supported network PTZ protocols:
+- `onvif` (SOAP PTZ, default port 80)
+- `visca-tcp` (raw VISCA over IP, common port 5678)
+- `visca-udp` (raw VISCA over UDP, common port 1259)
+- `sony-visca-udp` (Sony VISCA-over-IP UDP framing, common port 52381)
+- `auto` (tries ONVIF first, then VISCA TCP, then VISCA UDP)
 
 ### OBS Studio
 | Command | Description |
@@ -197,6 +220,47 @@ npm run build:mock-lab:mac
 | `obs.startRecording` | Start OBS recording |
 | `obs.stopRecording` | Stop OBS recording |
 | `obs.setScene` | Switch scene (params: `scene`) |
+
+### vMix
+| Command | Description |
+|---------|------------|
+| `vmix.startStream` | Start vMix stream |
+| `vmix.stopStream` | Stop vMix stream |
+| `vmix.startRecording` | Start vMix recording |
+| `vmix.stopRecording` | Stop vMix recording |
+| `vmix.setPreview` | Set preview input |
+| `vmix.setProgram` | Set program input |
+| `vmix.cut` | Cut to preview |
+| `vmix.fade` | Fade to preview (`ms`/`duration`) |
+| `vmix.setVolume` | Set master volume (`value`) |
+| `vmix.mute` | Mute master |
+| `vmix.unmute` | Unmute master |
+| `vmix.listInputs` | List inputs |
+| `vmix.function` | Raw vMix function call (`function`, optional `input`) |
+
+### Resolume
+| Command | Description |
+|---------|------------|
+| `resolume.playClip` | Play clip (`name` or `layer` + `clip`) |
+| `resolume.stopClip` | Stop clip (`layer`, `clip`) |
+| `resolume.triggerColumn` | Trigger column (`column` or `name`) |
+| `resolume.clearAll` | Clear all output (blackout) |
+| `resolume.setBpm` | Set BPM |
+| `resolume.setLayerOpacity` | Set layer opacity |
+| `resolume.setMasterOpacity` | Set master opacity |
+| `resolume.getLayers` | List layers |
+| `resolume.getColumns` | List columns |
+
+### Audio Mixer
+| Command | Description |
+|---------|------------|
+| `mixer.status` | Mixer status summary |
+| `mixer.mute` | Mute channel/master (`channel`) |
+| `mixer.unmute` | Unmute channel/master (`channel`) |
+| `mixer.setFader` | Set channel fader (`channel`, `level` 0-1) |
+| `mixer.channelStatus` | Channel meter/mute status (`channel`) |
+| `mixer.recallScene` | Recall scene (`scene`) |
+| `mixer.clearSolos` | Clear solos (X32/M32 path) |
 
 ### Preview Screenshots
 | Command | Description |

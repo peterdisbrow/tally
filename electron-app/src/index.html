@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: ws: https:; font-src 'self'; frame-src 'none';">
   <title>Tally by ATEM School</title>
   <style>
     /* ── Design Tokens ──────────────────────────────────────────── */
@@ -894,7 +895,7 @@
         <button class="btn-save" style="width:100%; margin-top: 8px;" id="si-btn" onclick="doSignIn()">Sign In</button>
         <div class="sign-in-message" id="si-message"></div>
         <p style="text-align:center; margin-top: 16px;">
-          <a href="#" style="color: var(--green); font-size: 12px;" class="ext-link" data-url="https://tally.atemschool.com">Create account &#8594;</a>
+          <a href="#" style="color: var(--green); font-size: 12px;" class="ext-link" data-url="https://tallyconnect.app">Create account &#8594;</a>
         </p>
       </div>
     </div>
@@ -922,7 +923,7 @@
     <div class="wizard-step active" data-step="1">
       <h2 class="wizard-headline">ATEM Switcher</h2>
       <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
-        Pick your network interface first, then scan for ATEM on that subnet. For testing with no hardware, enter <code>mock</code>.
+        Pick your network interface first, then scan for ATEM on that subnet.
       </p>
       <div class="form-group">
         <label>Network Interface</label>
@@ -930,7 +931,7 @@
       </div>
       <div class="form-group">
         <label>ATEM IP Address</label>
-        <input id="wiz-atem" type="text" placeholder="192.168.1.10 or mock">
+        <input id="wiz-atem" type="text" placeholder="192.168.1.10">
       </div>
       <button class="btn-small btn-secondary" onclick="scanForATEM()" id="btn-scan">🔍 Auto-Discover on Network</button>
       <div style="margin-top:10px;">
@@ -958,6 +959,7 @@
           <option value="aja">AJA HELO</option>
           <option value="epiphan">Epiphan Pearl</option>
           <option value="teradek">Teradek Cube / VidiU</option>
+          <option value="ndi">NDI Decoder (Monitor)</option>
           <option value="yolobox">YoloBox</option>
           <option value="tally-encoder">Tally Encoder (Raspberry Pi)</option>
           <option value="custom">Custom Encoder</option>
@@ -974,7 +976,7 @@
       </p>
       <div class="form-group">
         <label>Companion URL (optional)</label>
-        <input id="wiz-companion" type="text" placeholder="http://localhost:8888" value="http://localhost:8888">
+        <input id="wiz-companion" type="text" placeholder="http://localhost:8888">
         <div style="font-size: 10px; color: var(--dim); margin-top: 4px; font-family: var(--mono);">Leave blank if not using Bitfocus Companion</div>
       </div>
       <div class="form-group">
@@ -1039,6 +1041,10 @@
       <h2>ATEM Switcher</h2>
       <div class="info-grid">
         <div class="info-card">
+          <div class="label">Model</div>
+          <div class="value muted" id="val-atem-model">—</div>
+        </div>
+        <div class="info-card">
           <div class="label">Program</div>
           <div class="value muted" id="val-program">—</div>
         </div>
@@ -1082,6 +1088,37 @@
       </div>
     </div>
 
+    <!-- Device Identity -->
+    <div class="section">
+      <h2>Device Identity</h2>
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="label">Encoder</div>
+          <div class="value muted" id="val-id-encoder">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">ProPresenter</div>
+          <div class="value muted" id="val-id-propresenter">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">vMix</div>
+          <div class="value muted" id="val-id-vmix">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Resolume</div>
+          <div class="value muted" id="val-id-resolume">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Mixer</div>
+          <div class="value muted" id="val-id-mixer">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Companion</div>
+          <div class="value muted" id="val-id-companion">—</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Preview Thumbnail -->
     <div class="section">
       <h2>Preview</h2>
@@ -1119,15 +1156,16 @@
         <div class="equip-section">
           <h3>ATEM Switcher <div class="equip-status" id="equip-dot-atem"></div></h3>
           <div class="equip-row">
-            <input type="text" id="equip-atem-ip" placeholder="192.168.1.10 or mock">
+            <input type="text" id="equip-atem-ip" placeholder="192.168.1.10">
             <button class="btn-test" onclick="testEquip('atem')">Test</button>
           </div>
-          <div class="equip-detail" id="equip-atem-detail">Tip: use IP value <code>mock</code> to run the built-in fake ATEM simulator.</div>
+          <div class="equip-detail" id="equip-atem-detail">Enter the switcher IP address shown in ATEM Setup Utility.</div>
         </div>
         <div class="equip-section">
-          <h3>Streaming Encoder <div class="equip-status" id="equip-dot-encoder"></div></h3>
+          <h3>Default Streaming Encoder <div class="equip-status" id="equip-dot-encoder"></div></h3>
           <div class="equip-row">
             <select id="equip-encoder-type" onchange="onEncoderTypeChanged()" style="flex:1;">
+              <option value="">Not configured</option>
               <option value="blackmagic">Blackmagic Web Presenter</option>
               <option value="obs">OBS Studio</option>
               <option value="vmix">vMix</option>
@@ -1135,11 +1173,13 @@
               <option value="aja">AJA HELO</option>
               <option value="epiphan">Epiphan Pearl</option>
               <option value="teradek">Teradek Cube / VidiU</option>
+              <option value="ndi">NDI Decoder (Monitor)</option>
               <option value="yolobox">YoloBox</option>
               <option value="tally-encoder">Tally Encoder</option>
               <option value="custom">Custom Encoder</option>
             </select>
           </div>
+          <div class="equip-detail">Choose which encoder should be used as the default for monitoring and status.</div>
           <div id="encoder-config-fields"></div>
           <div class="equip-detail" id="equip-encoder-detail"></div>
         </div>
@@ -1168,6 +1208,7 @@
         </div>
         <div class="equip-section">
           <h3>PTZ Cameras</h3>
+          <div class="equip-detail">Supports ONVIF and VISCA over IP (TCP/UDP), plus Sony VISCA UDP framing.</div>
           <div id="equip-ptz-list"></div>
           <button class="btn-add" onclick="addPtz()">+ Add Camera</button>
         </div>
@@ -1535,7 +1576,7 @@ async function showDashboard() {
     const encNames = {
       obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
       aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek',
-      yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
+      ndi: 'NDI Decoder', yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
       'custom-rtmp': 'Custom RTMP', 'rtmp-generic': 'RTMP',
     };
     const label = encNames[eq.encoderType] || 'Encoder';
@@ -1645,7 +1686,7 @@ async function wizardNext() {
 
       const equipConfig = {
         atemIp: document.getElementById('wiz-atem').value.trim(),
-        companionUrl: document.getElementById('wiz-companion').value.trim() || 'http://localhost:8888',
+        companionUrl: document.getElementById('wiz-companion').value.trim(),
         name: document.getElementById('wiz-name').value.trim(),
         liveStreamUrl: document.getElementById('wiz-livestream').value.trim(),
         // Encoder config
@@ -1670,7 +1711,7 @@ async function wizardNext() {
         el.innerHTML = '● Connected to relay server!';
         el.style.color = 'var(--green)';
       } else {
-        el.innerHTML = `⚠ Could not reach relay: ${result.error}`;
+        el.textContent = `⚠ Could not reach relay: ${result.error}`;
         el.style.color = 'var(--warn)';
       }
     }
@@ -1699,6 +1740,21 @@ function onWizEncoderTypeChanged() {
   if (type === 'ecamm') {
     container.innerHTML = `<div style="margin-top:10px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px; font-size:11px; color:var(--muted); line-height:1.5;">
       Ecamm Live runs locally on your Mac. Port is auto-detected via Bonjour (fallback 65194).<br>No configuration needed — just make sure Ecamm Live is running.
+    </div>`;
+    return;
+  }
+
+  if (type === 'ndi') {
+    const saved = window._encoderConfig || {};
+    container.innerHTML = `<div style="margin-top:10px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px; font-size:11px; color:var(--muted); line-height:1.5;">
+      NDI decoder monitoring checks stream presence using <code>ffprobe</code> + <code>libndi_newtek</code>.<br>
+      Enter the exact NDI source name as it appears on your network.
+    </div>
+    <div style="display:flex; gap:8px; margin-top:8px;">
+      <input type="text" id="wiz-encoder-host" placeholder="NDI source name (e.g. Camera 1 (OBS))" value="${saved.host || ''}" style="flex:1;">
+    </div>
+    <div style="margin-top:6px;">
+      <input type="text" id="wiz-encoder-label" placeholder="Device label (optional)" value="${saved.label || ''}" style="width:100%;">
     </div>`;
     return;
   }
@@ -1742,7 +1798,15 @@ function onWizEncoderTypeChanged() {
 
   if (type === 'yolobox') {
     container.innerHTML = `<div style="margin-top:10px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px; font-size:11px; color:var(--muted); line-height:1.5;">
-      YoloBox streams directly to your CDN. No network API is available — status is reported as "configured" only.
+      YoloBox streams directly to your CDN and has no public control API.<br>
+      Optional: enter YoloBox IP/port for reachability checks (no transport control).
+    </div>
+    <div style="display:flex; gap:8px; margin-top:8px;">
+      <input type="text" id="wiz-encoder-host" placeholder="YoloBox IP (optional)" value="">
+      <input type="text" id="wiz-encoder-port" placeholder="80" value="80" style="max-width:80px;">
+    </div>
+    <div style="margin-top:6px;">
+      <input type="text" id="wiz-encoder-label" placeholder="Device label (optional)" style="width:100%;">
     </div>`;
     return;
   }
@@ -1808,6 +1872,14 @@ function updateStatusUI(status) {
 
   const liveBadge = document.getElementById('live-badge');
   liveBadge.classList.toggle('active', streaming === true);
+
+  if (atemData.model) {
+    setStatusValue('val-atem-model', atemData.model, atemConnected);
+  } else if (atemConnected) {
+    setStatusValue('val-atem-model', 'Detecting...', null);
+  } else {
+    setStatusValue('val-atem-model', '—', false);
+  }
 
   // ── ATEM program/preview input display ──────────────────────────────────
   if (atemData.programInput !== null && atemData.programInput !== undefined) {
@@ -1887,6 +1959,41 @@ function updateStatusUI(status) {
       delayEl.style.display = 'none';
     }
   }
+
+  const encoderIdentity = (status.encoder && typeof status.encoder === 'object' && status.encoder.details)
+    ? String(status.encoder.details)
+    : '';
+  if (encoderIdentity) setStatusValue('val-id-encoder', encoderIdentity, encoderConnected);
+  else if (encoderConnected) setStatusValue('val-id-encoder', encoderLabel || 'Connected', true);
+  else setStatusValue('val-id-encoder', '—', false);
+
+  const ppIdentity = (status.proPresenter && typeof status.proPresenter === 'object' && status.proPresenter.version)
+    ? `ProPresenter ${status.proPresenter.version}`
+    : '';
+  if (ppIdentity) setStatusValue('val-id-propresenter', ppIdentity, getStatusActive(status.proPresenter));
+  else setStatusValue('val-id-propresenter', '—', false);
+
+  const vmixData = status.vmix && typeof status.vmix === 'object' ? status.vmix : {};
+  const vmixIdentity = vmixData.edition ? `${vmixData.edition}${vmixData.version ? ` ${vmixData.version}` : ''}` : '';
+  if (vmixIdentity) setStatusValue('val-id-vmix', vmixIdentity, getStatusActive(vmixData));
+  else setStatusValue('val-id-vmix', '—', false);
+
+  const resolumeData = status.resolume && typeof status.resolume === 'object' ? status.resolume : {};
+  const resolumeIdentity = resolumeData.version ? String(resolumeData.version) : '';
+  if (resolumeIdentity) setStatusValue('val-id-resolume', resolumeIdentity, getStatusActive(resolumeData));
+  else setStatusValue('val-id-resolume', '—', false);
+
+  const mixerData2 = status.mixer && typeof status.mixer === 'object' ? status.mixer : {};
+  const mixerIdentity = mixerData2.model
+    ? `${String(mixerData2.type || 'Mixer').toUpperCase()} ${mixerData2.model}`
+    : '';
+  if (mixerIdentity) setStatusValue('val-id-mixer', mixerIdentity, getStatusActive(mixerData2));
+  else setStatusValue('val-id-mixer', '—', false);
+
+  const companionData = status.companion && typeof status.companion === 'object' ? status.companion : {};
+  const companionIdentity = companionData.endpoint ? String(companionData.endpoint) : '';
+  if (companionIdentity) setStatusValue('val-id-companion', companionIdentity, getStatusActive(companionData));
+  else setStatusValue('val-id-companion', '—', false);
 }
 
 function setStatusValue(id, text, active) {
@@ -2074,6 +2181,54 @@ api.onLog((text) => {
   if (progMatch) document.getElementById('val-program').textContent = `Input ${progMatch[1]}`;
   const prevMatch = t.match(/Preview: Input (\d+)/);
   if (prevMatch) document.getElementById('val-preview').textContent = `Input ${prevMatch[1]}`;
+  const atemModelMatch = t.match(/ATEM model detected:\s*(.+)$/i);
+  if (atemModelMatch) {
+    const v = atemModelMatch[1].trim();
+    const m = document.getElementById('val-atem-model');
+    if (m) m.textContent = v;
+  }
+  const obsIdentityMatch = t.match(/OBS identity:\s*(.+)$/i);
+  if (obsIdentityMatch) {
+    const v = obsIdentityMatch[1].trim();
+    const el = document.getElementById('val-id-encoder');
+    if (el) el.textContent = v;
+  }
+  const encoderIdentityMatch = t.match(/Encoder identity:\s*(.+)$/i);
+  if (encoderIdentityMatch) {
+    const v = encoderIdentityMatch[1].trim();
+    const el = document.getElementById('val-id-encoder');
+    if (el) el.textContent = v;
+  }
+  const ppVersionMatch = t.match(/ProPresenter version detected:\s*(.+)$/i);
+  if (ppVersionMatch) {
+    const v = ppVersionMatch[1].trim();
+    const el = document.getElementById('val-id-propresenter');
+    if (el) el.textContent = `ProPresenter ${v}`;
+  }
+  const vmixIdentityMatch = t.match(/vMix identity:\s*(.+)$/i);
+  if (vmixIdentityMatch) {
+    const v = vmixIdentityMatch[1].trim();
+    const el = document.getElementById('val-id-vmix');
+    if (el) el.textContent = v;
+  }
+  const resolumeVersionMatch = t.match(/Resolume version detected:\s*(.+)$/i);
+  if (resolumeVersionMatch) {
+    const v = resolumeVersionMatch[1].trim();
+    const el = document.getElementById('val-id-resolume');
+    if (el) el.textContent = v;
+  }
+  const mixerIdentityMatch = t.match(/Mixer identity:\s*(.+)$/i);
+  if (mixerIdentityMatch) {
+    const v = mixerIdentityMatch[1].trim();
+    const el = document.getElementById('val-id-mixer');
+    if (el) el.textContent = v;
+  }
+  const companionIdentityMatch = t.match(/Companion identity:\s*(.+)$/i);
+  if (companionIdentityMatch) {
+    const v = companionIdentityMatch[1].trim();
+    const el = document.getElementById('val-id-companion');
+    if (el) el.textContent = v;
+  }
 
   if (t.includes('recording STARTED')) document.getElementById('val-recording').textContent = '● Recording';
   if (t.includes('recording STOPPED')) document.getElementById('val-recording').textContent = 'Stopped';
@@ -2333,9 +2488,11 @@ function isOptionalDeviceVisible(type) {
 async function loadEquipment() {
   const eq = await api.getEquipment();
   document.getElementById('equip-atem-ip').value = eq.atemIp || '';
-  document.getElementById('equip-companion-url').value = eq.companionUrl || 'http://localhost:8888';
-  document.getElementById('equip-obs-url').value = eq.obsUrl || 'ws://localhost:4455';
-  document.getElementById('equip-obs-password').value = eq.obsPassword || '';
+  document.getElementById('equip-companion-url').value = eq.companionUrl || '';
+  const obsUrlEl = document.getElementById('equip-obs-url');
+  if (obsUrlEl) obsUrlEl.value = eq.obsUrl || '';
+  const obsPasswordEl = document.getElementById('equip-obs-password');
+  if (obsPasswordEl) obsPasswordEl.value = eq.obsPassword || '';
   document.getElementById('equip-pp-host').value = eq.proPresenterHost || '';
   document.getElementById('equip-pp-port').value = eq.proPresenterPort || '1025';
   document.getElementById('equip-dante-host').value = eq.danteNmosHost || '';
@@ -2357,12 +2514,20 @@ async function loadEquipment() {
   setOptionalDeviceVisible('vmix', vmixConfigured, { initDefaults: !vmixConfigured, clear: false });
   setOptionalDeviceVisible('resolume', resolumeConfigured, { initDefaults: !resolumeConfigured, clear: false });
   hyperdeckEntries = eq.hyperdecks || [];
-  ptzEntries = eq.ptz || [];
+  ptzEntries = (eq.ptz || []).map((cam, i) => ({
+    ip: cam.ip || '',
+    name: cam.name || `PTZ ${i + 1}`,
+    protocol: cam.protocol || 'auto',
+    port: cam.port || '',
+    username: cam.username || '',
+    password: cam.password || '',
+    profileToken: cam.profileToken || '',
+  }));
   renderHyperdecks();
   renderPtz();
 
   // Encoder
-  document.getElementById('equip-encoder-type').value = eq.encoderType || 'blackmagic';
+  document.getElementById('equip-encoder-type').value = eq.encoderType || '';
   window._encoderConfig = {
     host: eq.encoderHost || '',
     port: eq.encoderPort || '',
@@ -2379,7 +2544,7 @@ function renderHyperdecks() {
   hyperdeckEntries.forEach((ip, i) => {
     const row = document.createElement('div');
     row.className = 'equip-row';
-    row.innerHTML = `<input type="text" value="${ip}" placeholder="192.168.1.20" onchange="hyperdeckEntries[${i}]=this.value">
+    row.innerHTML = `<input type="text" value="${escapeHtml(ip)}" placeholder="192.168.1.20" onchange="hyperdeckEntries[${i}]=this.value">
       <button class="btn-test" onclick="testEquipIdx('hyperdeck',${i})">Test</button>
       <button class="btn-remove" onclick="hyperdeckEntries.splice(${i},1);renderHyperdecks()">✕</button>`;
     list.appendChild(row);
@@ -2398,8 +2563,18 @@ function renderPtz() {
   ptzEntries.forEach((cam, i) => {
     const row = document.createElement('div');
     row.className = 'equip-row';
-    row.innerHTML = `<input type="text" value="${cam.ip || ''}" placeholder="192.168.1.30" style="flex:1;" onchange="ptzEntries[${i}].ip=this.value">
-      <input type="text" value="${cam.name || ''}" placeholder="Camera name" style="flex:1;" onchange="ptzEntries[${i}].name=this.value">
+    row.innerHTML = `<input data-ptz="ip" type="text" value="${escapeHtml(cam.ip || '')}" placeholder="192.168.1.30" style="flex:1;" onchange="ptzEntries[${i}].ip=this.value.trim()">
+      <input data-ptz="name" type="text" value="${escapeHtml(cam.name || '')}" placeholder="Camera name" style="flex:1;" onchange="ptzEntries[${i}].name=this.value">
+      <select data-ptz="protocol" onchange="ptzEntries[${i}].protocol=this.value">
+        <option value="auto" ${cam.protocol === 'auto' ? 'selected' : ''}>Auto</option>
+        <option value="onvif" ${cam.protocol === 'onvif' ? 'selected' : ''}>ONVIF</option>
+        <option value="visca-tcp" ${cam.protocol === 'visca-tcp' ? 'selected' : ''}>VISCA TCP</option>
+        <option value="visca-udp" ${cam.protocol === 'visca-udp' ? 'selected' : ''}>VISCA UDP</option>
+        <option value="sony-visca-udp" ${cam.protocol === 'sony-visca-udp' ? 'selected' : ''}>Sony VISCA UDP</option>
+      </select>
+      <input data-ptz="port" type="number" min="1" max="65535" value="${cam.port || ''}" placeholder="Port" style="width:92px;" onchange="ptzEntries[${i}].port=this.value ? Number(this.value) : ''">
+      <input data-ptz="username" type="text" value="${cam.username || ''}" placeholder="User" style="width:120px;" onchange="ptzEntries[${i}].username=this.value">
+      <input data-ptz="password" type="password" value="${cam.password || ''}" placeholder="Pass" style="width:120px;" onchange="ptzEntries[${i}].password=this.value">
       <button class="btn-test" onclick="testEquipIdx('ptz',${i})">Test</button>
       <button class="btn-remove" onclick="ptzEntries.splice(${i},1);renderPtz()">✕</button>`;
     list.appendChild(row);
@@ -2408,7 +2583,7 @@ function renderPtz() {
 
 function addPtz() {
   if (ptzEntries.length >= 8) return;
-  ptzEntries.push({ ip: '', name: '' });
+  ptzEntries.push({ ip: '', name: '', protocol: 'auto', port: '', username: '', password: '', profileToken: '' });
   renderPtz();
 }
 
@@ -2433,7 +2608,7 @@ function onEncoderTypeChanged() {
 
   if (!type) {
     container.innerHTML = '';
-    detailEl.textContent = 'Blackmagic Web Presenter will be used as the default encoder.';
+    detailEl.textContent = 'No default encoder selected. The app will not monitor encoder health until one is configured.';
     return;
   }
   detailEl.textContent = '';
@@ -2444,6 +2619,22 @@ function onEncoderTypeChanged() {
     </div>
     <div class="equip-row" style="margin-top:4px;">
       <button class="btn-test" onclick="testEquip('encoder')">Test Connection</button>
+    </div>`;
+    return;
+  }
+
+  if (type === 'ndi') {
+    const source = saved.host || '';
+    container.innerHTML = `<div class="equip-detail" style="margin-top:8px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px;">
+      NDI decoder monitoring via <code>ffprobe</code> + <code>libndi_newtek</code>.<br>
+      <span style="font-size:10px; color:var(--dim);">Use the exact source name shown by your NDI sender.</span>
+    </div>
+    <div class="equip-row" style="margin-top:6px;">
+      <input type="text" id="equip-encoder-host" placeholder="NDI source name" value="${source}">
+      <button class="btn-test" onclick="testEquip('encoder')">Test</button>
+    </div>
+    <div class="equip-row" style="margin-top:4px;">
+      <input type="text" id="equip-encoder-label" placeholder="Device label (optional)" value="${saved.label || ''}">
     </div>`;
     return;
   }
@@ -2489,9 +2680,16 @@ function onEncoderTypeChanged() {
   }
 
   if (rtmpTypes.includes(type) || type === 'yolobox') {
+    const h = saved.host || '';
+    const p = saved.port || '80';
     let html = `<div class="equip-detail" style="margin-top:8px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px;">
       This device streams directly to your CDN (YouTube, Facebook, etc.).<br>
-      <span style="font-size:10px; color:var(--dim);">Configure the streaming destination on the device itself. No API monitoring is available for this encoder type — status will show as "configured" only.</span>
+      <span style="font-size:10px; color:var(--dim);">No public control API. Optional host/port enables network reachability checks.</span>
+    </div>
+    <div class="equip-row" style="margin-top:6px;">
+      <input type="text" id="equip-encoder-host" placeholder="Device IP (optional)" value="${h}">
+      <input type="text" id="equip-encoder-port" placeholder="80" value="${p}" style="max-width:80px;">
+      <button class="btn-test" onclick="testEquip('encoder')">Test</button>
     </div>`;
     html += `<div class="equip-row" style="margin-top:4px;">
       <input type="text" id="equip-encoder-label" placeholder="Device label (optional)" value="${saved.label || ''}">
@@ -2546,11 +2744,11 @@ async function testEquip(type) {
     if (params.encoderType === 'ecamm') {
       params.ip = '127.0.0.1';
       params.port = 65194;
-    } else if (params.encoderType === 'yolobox') {
-      detailEl.textContent = 'YoloBox has no API — status is "configured" only';
-      setEquipDot(dotId, null);
+    } else if (params.encoderType === 'ndi' && !params.ip) {
+      detailEl.textContent = 'Enter NDI source name';
+      setEquipDot(dotId, false);
       return;
-    } else if (!params.ip) {
+    } else if (!params.ip && !['yolobox', 'custom-rtmp', 'rtmp-generic'].includes(params.encoderType)) {
       detailEl.textContent = 'Enter encoder IP address';
       setEquipDot(dotId, false);
       return;
@@ -2572,7 +2770,22 @@ async function testEquip(type) {
 async function testEquipIdx(type, idx) {
   let params = { type };
   if (type === 'hyperdeck') params.ip = hyperdeckEntries[idx];
-  else if (type === 'ptz') params.ip = ptzEntries[idx]?.ip;
+  else if (type === 'ptz') {
+    const rows = document.querySelectorAll('#equip-ptz-list .equip-row');
+    const row = rows[idx];
+    const cam = row ? {
+      ip: (row.querySelector('[data-ptz="ip"]')?.value || '').trim(),
+      protocol: (row.querySelector('[data-ptz="protocol"]')?.value || 'auto').trim(),
+      port: parseInt(row.querySelector('[data-ptz="port"]')?.value || '0', 10) || 0,
+      username: row.querySelector('[data-ptz="username"]')?.value || '',
+      password: row.querySelector('[data-ptz="password"]')?.value || '',
+    } : (ptzEntries[idx] || {});
+    params.ip = cam.ip;
+    params.protocol = cam.protocol || 'auto';
+    params.port = parseInt(cam.port, 10) || 0;
+    params.username = cam.username || '';
+    params.password = cam.password || '';
+  }
   if (!params.ip) return;
   const result = await api.testEquipmentConnection(params);
   addAlert(`${type} ${params.ip}: ${result.success ? '✅' : '❌'} ${result.details}`);
@@ -2595,11 +2808,16 @@ async function saveEquipment() {
   document.querySelectorAll('#equip-hyperdecks-list input').forEach((inp, i) => {
     hyperdeckEntries[i] = inp.value.trim();
   });
-  const ptzInputs = document.querySelectorAll('#equip-ptz-list .equip-row');
-  ptzInputs.forEach((row, i) => {
-    const inputs = row.querySelectorAll('input');
-    ptzEntries[i] = { ip: inputs[0].value.trim(), name: inputs[1].value.trim() };
-  });
+  const ptzRows = document.querySelectorAll('#equip-ptz-list .equip-row');
+  ptzEntries = Array.from(ptzRows).map((row, i) => ({
+    ip: (row.querySelector('[data-ptz="ip"]')?.value || '').trim(),
+    name: (row.querySelector('[data-ptz="name"]')?.value || `PTZ ${i + 1}`).trim(),
+    protocol: (row.querySelector('[data-ptz="protocol"]')?.value || 'auto').trim(),
+    port: Number(row.querySelector('[data-ptz="port"]')?.value || 0) || '',
+    username: row.querySelector('[data-ptz="username"]')?.value || '',
+    password: row.querySelector('[data-ptz="password"]')?.value || '',
+    profileToken: ptzEntries[i]?.profileToken || '',
+  }));
 
   // Gather encoder fields
   const encType = document.getElementById('equip-encoder-type').value;
@@ -2654,7 +2872,7 @@ async function saveEquipment() {
     const encNames = {
       obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
       aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek',
-      yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
+      ndi: 'NDI Decoder', yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
     };
     const newLabel = encNames[encType] || 'Encoder';
     const dotLabel = document.getElementById('dot-encoder-label');

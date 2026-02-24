@@ -19,6 +19,27 @@ AVAILABLE COMMANDS (JSON schema):
 {"command":"atem.startRecording","params":{}}
 {"command":"atem.stopRecording","params":{}}
 {"command":"atem.setInputLabel","params":{"input":N,"longName":"X"}}
+{"command":"atem.runMacro","params":{"macroIndex":N}}
+{"command":"atem.stopMacro","params":{}}
+{"command":"atem.setAux","params":{"aux":N,"input":N}}
+{"command":"atem.setTransitionStyle","params":{"style":"mix|dip|wipe|dve|stinger"}}
+{"command":"atem.setTransitionRate","params":{"rate":N}}
+{"command":"atem.setDskOnAir","params":{"keyer":N,"onAir":true}}
+{"command":"atem.setDskTie","params":{"keyer":N,"tie":true}}
+{"command":"atem.setDskRate","params":{"keyer":N,"rate":N}}
+{"command":"atem.setDskSource","params":{"keyer":N,"fillSource":N,"keySource":N}}
+{"command":"hyperdeck.play","params":{"hyperdeck":N}}
+{"command":"hyperdeck.stop","params":{"hyperdeck":N}}
+{"command":"hyperdeck.record","params":{"hyperdeck":N}}
+{"command":"hyperdeck.nextClip","params":{"hyperdeck":N}}
+{"command":"hyperdeck.prevClip","params":{"hyperdeck":N}}
+{"command":"ptz.pan","params":{"camera":N,"speed":-1.0-1.0}}
+{"command":"ptz.tilt","params":{"camera":N,"speed":-1.0-1.0}}
+{"command":"ptz.zoom","params":{"camera":N,"speed":-1.0-1.0}}
+{"command":"ptz.preset","params":{"camera":N,"preset":N}}
+{"command":"ptz.setPreset","params":{"camera":N,"preset":N}}
+{"command":"ptz.stop","params":{"camera":N}}
+{"command":"ptz.home","params":{"camera":N}}
 {"command":"obs.startStream","params":{}}
 {"command":"obs.stopStream","params":{}}
 {"command":"obs.setScene","params":{"scene":"X"}}                           — switch to scene "X"
@@ -36,6 +57,7 @@ AVAILABLE COMMANDS (JSON schema):
 {"command":"vmix.unmute","params":{}}
 {"command":"vmix.preview","params":{}}
 {"command":"vmix.isRunning","params":{}}
+{"command":"vmix.function","params":{"function":"X","input":"Y"}}
 {"command":"videohub.route","params":{"input":N,"output":N}}
 {"command":"videohub.getRoutes","params":{}}
 {"command":"propresenter.next","params":{}}
@@ -43,6 +65,15 @@ AVAILABLE COMMANDS (JSON schema):
 {"command":"propresenter.goToSlide","params":{"index":N}}
 {"command":"propresenter.status","params":{}}
 {"command":"propresenter.playlist","params":{}}
+{"command":"resolume.playClip","params":{"name":"X"}}
+{"command":"resolume.triggerColumn","params":{"column":N}}
+{"command":"resolume.clearAll","params":{}}
+{"command":"resolume.setBpm","params":{"bpm":N}}
+{"command":"mixer.status","params":{}}
+{"command":"mixer.mute","params":{"channel":"master|N"}}
+{"command":"mixer.unmute","params":{"channel":"master|N"}}
+{"command":"mixer.recallScene","params":{"scene":N}}
+{"command":"mixer.setFader","params":{"channel":N,"level":0.0-1.0}}
 {"command":"dante.scene","params":{"name":"X"}}
 {"command":"preview.snap","params":{}}                             — send live preview photo
 {"command":"system.preServiceCheck","params":{}}

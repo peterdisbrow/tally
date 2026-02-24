@@ -94,11 +94,6 @@ function askYesNo(question, defaultYes = true) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-function isFakeAtemMode(value) {
-  const v = String(value || '').trim().toLowerCase();
-  return v === 'mock' || v === 'fake' || v === 'sim' || v === 'simulate' || v.startsWith('mock://');
-}
-
 // ─── NETWORK UTILITIES ────────────────────────────────────────────────────────
 
 function tryTcp(host, port, timeoutMs = 2000) {
@@ -184,7 +179,7 @@ async function stepToken(config) {
   let token = '';
   while (!token) {
     token = await ask('Paste your token:');
-    if (!token) printRed('Token is required. Get it from tally.atemschool.com');
+    if (!token) printRed('Token is required. Get it from tallyconnect.app');
   }
   config.token = token;
   printGreen('✓ Token saved');
@@ -206,20 +201,14 @@ async function stepATEM(config) {
   print();
 
   if (config.atemIp) {
-    if (isFakeAtemMode(config.atemIp)) {
-      printGreen('  Using fake ATEM simulator mode ✓');
-      const change = await askYesNo('Change ATEM setting?', false);
+    process.stdout.write(`  Checking existing IP (${config.atemIp})... `);
+    const ok = await tryTcp(config.atemIp, 9910, 2000);
+    if (ok) {
+      printGreen('reachable ✓');
+      const change = await askYesNo('Change ATEM IP?', false);
       if (!change) return;
     } else {
-      process.stdout.write(`  Checking existing IP (${config.atemIp})... `);
-      const ok = await tryTcp(config.atemIp, 9910, 2000);
-      if (ok) {
-        printGreen('reachable ✓');
-        const change = await askYesNo('Change ATEM IP?', false);
-        if (!change) return;
-      } else {
-        printYellow('not reachable');
-      }
+      printYellow('not reachable');
     }
   }
 
@@ -252,17 +241,13 @@ async function stepATEM(config) {
       config.atemIp = found[Math.max(0, Math.min(found.length - 1, choice))];
     }
   } else {
-    config.atemIp = await ask('ATEM IP address (or "mock" for simulator):', config.atemIp || '192.168.1.10');
+    config.atemIp = await ask('ATEM IP address:', config.atemIp || '192.168.1.10');
   }
 
   if (config.atemIp) {
-    if (isFakeAtemMode(config.atemIp)) {
-      printGreen('  ✓ Fake ATEM simulator selected');
-    } else {
-      process.stdout.write(`  Testing connection to ${config.atemIp}... `);
-      const ok = await tryTcp(config.atemIp, 9910, 3000);
-      ok ? printGreen('✓ Connected') : printYellow('⚠ Not reachable — check the IP after setup');
-    }
+    process.stdout.write(`  Testing connection to ${config.atemIp}... `);
+    const ok = await tryTcp(config.atemIp, 9910, 3000);
+    ok ? printGreen('✓ Connected') : printYellow('⚠ Not reachable — check the IP after setup');
   }
 }
 
@@ -403,7 +388,7 @@ async function stepSave(config) {
   printGray('  ⚫ Grey   = not connected');
   printGray('  🔴 Red    = issue detected');
   print();
-  printGray('For help: support@atemschool.com | tally.atemschool.com/docs');
+  printGray('For help: support@atemschool.com | tallyconnect.app/docs');
   print();
 }
 
