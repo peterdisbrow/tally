@@ -1443,13 +1443,41 @@ async function runStatusChecks() {
       process.env.SMTP_URL ||
       process.env.SENDGRID_API_KEY
     );
-    checks.push({
-      componentId: 'password_reset_email',
-      name: 'Password Reset Email',
-      result: hasEmailProvider
-        ? { state: 'operational', detail: 'Email provider configured' }
-        : { state: 'degraded', detail: 'No email provider env configured' },
-    });
+    if (hasEmailProvider) {
+      checks.push({
+        componentId: 'password_reset_email',
+        name: 'Password Reset Email',
+        result: { state: 'operational', detail: 'Email provider configured' },
+      });
+    } else {
+      const resetHost = String(APP_URL || '').replace(/\/+$/, '');
+      if (resetHost) {
+        try {
+          const resetPage = await timedFetch(`${resetHost}/forgot-password`, { timeoutMs: 8000 });
+          checks.push({
+            componentId: 'password_reset_email',
+            name: 'Password Reset Email',
+            result: statusByResult(
+              resetPage.ok,
+              `Hosted reset flow reachable (${resetHost}/forgot-password)`,
+              `Hosted reset flow unavailable (HTTP ${resetPage.status})`
+            ),
+          });
+        } catch (error) {
+          checks.push({
+            componentId: 'password_reset_email',
+            name: 'Password Reset Email',
+            result: { state: 'degraded', detail: `Hosted reset flow check failed: ${error.message}` },
+          });
+        }
+      } else {
+        checks.push({
+          componentId: 'password_reset_email',
+          name: 'Password Reset Email',
+          result: { state: 'degraded', detail: 'No email provider env configured' },
+        });
+      }
+    }
 
     const stripeConfigured = !!(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET);
     checks.push({
