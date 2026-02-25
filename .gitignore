@@ -4,3 +4,5 @@ dist/
 .env
 data/
 *.db
+.DS_Store
+electron-app/dist-mock-lab/

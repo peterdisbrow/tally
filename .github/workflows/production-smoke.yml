@@ -1,0 +1,69 @@
+name: Production Smoke
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: production-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Relay Production Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RELAY_BASE_URL: ${{ vars.RELAY_BASE_URL }}
+      RELAY_ADMIN_API_KEY: ${{ secrets.RELAY_ADMIN_API_KEY }}
+    steps:
+      - name: Resolve target URL
+        run: |
+          BASE_URL="${RELAY_BASE_URL:-https://api.tallyconnect.app}"
+          echo "BASE_URL=$BASE_URL" >> "$GITHUB_ENV"
+          echo "Target: $BASE_URL"
+
+      - name: Public endpoint checks
+        run: |
+          set -euo pipefail
+
+          curl -fsS "$BASE_URL/api/health" -o health.json
+          jq -e '.uptime >= 0 and (.churchesRegistered | type == "number")' health.json >/dev/null
+
+          curl -fsS "$BASE_URL/api/status/components" -o components.json
+          jq -e '.components | type == "array" and length > 0' components.json >/dev/null
+          jq -e '[.components[] | select((((.id // "") == "relay_api") or ((.name // "") == "Relay API")) and .state == "operational")] | length > 0' components.json >/dev/null
+
+          {
+            echo "## Public checks"
+            echo "- PASS: \`GET /api/health\`"
+            echo "- PASS: \`GET /api/status/components\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Authenticated endpoint checks
+        if: ${{ env.RELAY_ADMIN_API_KEY != '' }}
+        run: |
+          set -euo pipefail
+
+          curl -fsS "$BASE_URL/api/churches" \
+            -H "x-api-key: $RELAY_ADMIN_API_KEY" \
+            -o churches.json
+          jq -e 'type == "array"' churches.json >/dev/null
+
+          curl -fsS "$BASE_URL/api/billing" \
+            -H "x-api-key: $RELAY_ADMIN_API_KEY" \
+            -o billing.json
+          jq -e 'type == "array"' billing.json >/dev/null
+
+          {
+            echo "## Authenticated checks"
+            echo "- PASS: \`GET /api/churches\`"
+            echo "- PASS: \`GET /api/billing\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Missing secret notice
+        if: ${{ env.RELAY_ADMIN_API_KEY == '' }}
+        run: |
+          echo "## Authenticated checks" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SKIPPED: set repository secret \`RELAY_ADMIN_API_KEY\` to enable authenticated smoke checks." >> "$GITHUB_STEP_SUMMARY"
