@@ -314,6 +314,7 @@ class HyperDeck extends EventEmitter {
     return warnings;
   }
 
+
   async play() {
     await this._sendAndWait('play', [200]);
     return this.refreshStatus();

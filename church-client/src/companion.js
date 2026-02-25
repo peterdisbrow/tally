@@ -390,6 +390,7 @@ class CompanionBridge extends EventEmitter {
     }
   }
 
+
   stopPolling() {
     if (this._pollTimer) {
       clearInterval(this._pollTimer);
