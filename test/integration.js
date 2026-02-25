@@ -26,12 +26,14 @@ try {
 const TEST_PORT = 30000 + Math.floor(Math.random() * 10000);
 const API_KEY = 'test-admin-key-' + uuidv4().substring(0, 8);
 const JWT_SECRET = 'test-jwt-secret-' + uuidv4().substring(0, 8);
+const SESSION_SECRET = 'test-session-secret-' + uuidv4().substring(0, 8);
 
 let serverProcess;
 let results = [];
 let totalTests = 0;
 let passed = 0;
 let testDbPath;
+let fatalError = null;
 
 function test(name, fn) {
   totalTests++;
@@ -140,6 +142,7 @@ async function startServer() {
   process.env.PORT = TEST_PORT;
   process.env.ADMIN_API_KEY = API_KEY;
   process.env.JWT_SECRET = JWT_SECRET;
+  process.env.SESSION_SECRET = SESSION_SECRET;
   process.env.DATABASE_PATH = ':memory:';
 
   // We need to start the server in a child process to avoid module caching issues
@@ -148,23 +151,40 @@ async function startServer() {
 
   testDbPath = require('path').join(__dirname, '../relay-server/data', `test-${Date.now()}.db`);
   serverProcess = spawn('node', [serverPath], {
-    env: { ...process.env, PORT: TEST_PORT, ADMIN_API_KEY: API_KEY, JWT_SECRET: JWT_SECRET, DATABASE_PATH: testDbPath },
+    env: {
+      ...process.env,
+      PORT: TEST_PORT,
+      ADMIN_API_KEY: API_KEY,
+      JWT_SECRET: JWT_SECRET,
+      SESSION_SECRET: SESSION_SECRET,
+      DATABASE_PATH: testDbPath,
+    },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
   // Wait for server to start
   await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Server start timeout')), 10000);
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      fn(value);
+    };
+
+    const timeout = setTimeout(() => finish(reject, new Error('Server start timeout')), 10000);
     serverProcess.stdout.on('data', (data) => {
       if (data.toString().includes('running on port')) {
-        clearTimeout(timeout);
-        resolve();
+        finish(resolve);
       }
     });
     serverProcess.stderr.on('data', (data) => {
       console.error('[server stderr]', data.toString().trim());
     });
-    serverProcess.on('error', reject);
+    serverProcess.on('error', (err) => finish(reject, err));
+    serverProcess.on('exit', (code, signal) => {
+      finish(reject, new Error(`Server exited before start (code=${code}, signal=${signal || 'none'})`));
+    });
   });
 }
 
@@ -536,6 +556,7 @@ async function main() {
     await sleep(500); // Give server a moment
     await runTests();
   } catch (err) {
+    fatalError = err;
     console.error('Fatal test error:', err);
   } finally {
     if (serverProcess) {
@@ -549,7 +570,7 @@ async function main() {
       files.filter(f => f.startsWith('test-')).forEach(f => fs.unlinkSync(require('path').join(glob, f)));
     } catch { /* ignore */ }
 
-    process.exit(passed === totalTests ? 0 : 1);
+    process.exit(!fatalError && passed === totalTests ? 0 : 1);
   }
 }
 

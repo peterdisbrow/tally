@@ -13,6 +13,7 @@ const crypto = require('crypto');
 class EventMode {
   constructor(db) {
     this.db = db;
+    this._timer = null;
     this._ensureColumns();
   }
 
@@ -184,8 +185,12 @@ class EventMode {
    * @param {Map}    churchesMap - In-memory churches Map
    */
   start(tallyBot, churchesMap) {
-    setInterval(() => this.checkExpiry(tallyBot, churchesMap), 10 * 60 * 1000);
+    this._timer = setInterval(() => this.checkExpiry(tallyBot, churchesMap), 10 * 60 * 1000);
     console.log('[EventMode] Expiry check started (every 10 min)');
+  }
+
+  stop() {
+    if (this._timer) { clearInterval(this._timer); this._timer = null; }
   }
 }
 

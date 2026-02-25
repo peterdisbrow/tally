@@ -4,14 +4,21 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 const { WebSocket } = require('ws');
+const { safeCompareKey } = require('./auth');
+const { createLogger } = require('./logger');
+const adminLog = createLogger('admin');
 
+if (!process.env.SESSION_SECRET) {
+  throw new Error('SESSION_SECRET is required. Set it in environment variables.');
+}
+const SESSION_SECRET = process.env.SESSION_SECRET;
 const COOKIE_NAME = 'tally_session';
 const COOKIE_MAX_AGE = 28800; // 8 hours in seconds
 
 // ─── SESSION HELPERS ──────────────────────────────────────────────────────────
 
 function signSession(payload) {
-  const secret = process.env.SESSION_SECRET || 'fallback-secret';
+  const secret = SESSION_SECRET;
   const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64');
   const sig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64');
   return `${payloadB64}.${sig}`;
@@ -23,7 +30,7 @@ function verifySession(cookie) {
   if (lastDot === -1) return null;
   const payloadB64 = cookie.slice(0, lastDot);
   const sig = cookie.slice(lastDot + 1);
-  const secret = process.env.SESSION_SECRET || 'fallback-secret';
+  const secret = SESSION_SECRET;
   const expectedSig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64');
   try {
     const eSigBuf = Buffer.from(expectedSig);
@@ -40,7 +47,8 @@ function verifySession(cookie) {
 
 function setCookieHeader(res, payload) {
   const value = encodeURIComponent(signSession(payload));
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${COOKIE_MAX_AGE}`);
+  const securePart = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${COOKIE_MAX_AGE}${securePart}`);
 }
 
 function clearCookieHeader(res) {
@@ -49,7 +57,7 @@ function clearCookieHeader(res) {
 
 // Legacy SHA-256 hash (for verifying old stored hashes)
 function hashPortalPasswordLegacy(password) {
-  const secret = process.env.SESSION_SECRET || 'fallback-secret';
+  const secret = SESSION_SECRET;
   return crypto.createHash('sha256').update(secret + password).digest('hex');
 }
 
@@ -71,8 +79,13 @@ function verifyPortalPassword(password, stored) {
       return crypto.timingSafeEqual(Buffer.from(check, 'hex'), Buffer.from(hash, 'hex'));
     } catch { return false; }
   }
-  // Legacy SHA-256 format
-  return stored === hashPortalPasswordLegacy(password);
+  // Legacy SHA-256 format (timing-safe comparison)
+  try {
+    const expected = Buffer.from(hashPortalPasswordLegacy(password), 'hex');
+    const actual = Buffer.from(stored, 'hex');
+    if (expected.length !== actual.length) return false;
+    return crypto.timingSafeEqual(expected, actual);
+  } catch { return false; }
 }
 
 function getSession(req) {
@@ -1258,7 +1271,7 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
   function requireAdminSession(req, res, next) {
     // Allow programmatic access via x-api-key or ADMIN_API_KEY query param
     const apiKey = req.headers['x-api-key'] || req.query.apikey || req.query.key;
-    if (apiKey && apiKey === (process.env.ADMIN_API_KEY || '')) return next();
+    if (apiKey && process.env.ADMIN_API_KEY && safeCompareKey(apiKey, process.env.ADMIN_API_KEY)) return next();
 
     const payload = getSession(req);
     if (payload && payload.role === 'admin') return next();
@@ -1372,7 +1385,7 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
         event_expires_at: null, event_label: null, reseller_id: resellerId || null,
       });
       res.json({ churchId, name, token, registeredAt });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { adminLog.error('Failed to register church:', e.message); res.status(500).json({ error: 'Internal server error' }); }
   });
 
   app.put('/api/admin/churches/:id', requireAdminSession, (req, res) => {
@@ -1411,7 +1424,7 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
       const church = churches.get(id);
       if (church) church.token = token;
       res.json({ token });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { adminLog.error('Failed to rotate church token:', e.message); res.status(500).json({ error: 'Internal server error' }); }
   });
 
   app.delete('/api/admin/churches/:id', requireAdminSession, (req, res) => {
@@ -1444,7 +1457,7 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
       const vals = [...fields.map(f => patch[f]), id];
       db.prepare(`UPDATE resellers SET ${setClauses} WHERE id=?`).run(...vals);
       res.json({ updated: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { adminLog.error('Failed to update reseller:', e.message); res.status(500).json({ error: 'Internal server error' }); }
   });
 
   app.post('/api/admin/resellers/:id/password', requireAdminSession, (req, res) => {
@@ -1556,7 +1569,7 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
     try {
       const stats = resellerSystem.getResellerStats(req.reseller.id, churches);
       res.json(stats);
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { adminLog.error('Failed to fetch reseller stats:', e.message); res.status(500).json({ error: 'Internal server error' }); }
   });
 }
 
@@ -1574,4 +1587,12 @@ function express_urlencoded_middleware(req, res, next) {
   });
 }
 
-module.exports = { setupAdminPanel };
+module.exports = {
+  setupAdminPanel,
+  // Exported for unit testing only:
+  signSession,
+  verifySession,
+  hashPortalPassword,
+  verifyPortalPassword,
+  hashPortalPasswordLegacy,
+};

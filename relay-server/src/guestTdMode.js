@@ -18,6 +18,7 @@ const crypto = require('crypto');
 class GuestTdMode {
   constructor(db) {
     this.db = db;
+    this._timer = null;
     this._ensureTable();
     this._cleanupExpired();
   }
@@ -51,7 +52,11 @@ class GuestTdMode {
 
   /** Start daily cleanup */
   startCleanupTimer() {
-    setInterval(() => this._cleanupExpired(), 24 * 60 * 60 * 1000);
+    this._timer = setInterval(() => this._cleanupExpired(), 24 * 60 * 60 * 1000);
+  }
+
+  stop() {
+    if (this._timer) { clearInterval(this._timer); this._timer = null; }
   }
 
   /**

@@ -45,4 +45,25 @@ function generateRegistrationCode(db) {
   return code;
 }
 
-module.exports = { hashPassword, verifyPassword, generateRegistrationCode };
+/**
+ * Timing-safe comparison for API keys / tokens.
+ * Prevents timing-attack side-channels on secret comparisons.
+ */
+function safeCompareKey(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/**
+ * Escape HTML special characters to prevent XSS.
+ * Shared utility — imported by churchPortal, adminPanel, resellerPortal.
+ */
+function escapeHtml(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+module.exports = { hashPassword, verifyPassword, generateRegistrationCode, safeCompareKey, escapeHtml };

@@ -22,24 +22,9 @@
 const crypto = require('crypto');
 const jwt    = require('jsonwebtoken');
 const { createRateLimit } = require('./rateLimit');
-
-// ─── password helpers ──────────────────────────────────────────────────────────
-
-function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-  return `${salt}:${hash}`;
-}
-
-function verifyPassword(password, stored) {
-  try {
-    const [salt, hash] = stored.split(':');
-    const check = crypto.scryptSync(password, salt, 64).toString('hex');
-    return crypto.timingSafeEqual(Buffer.from(check, 'hex'), Buffer.from(hash, 'hex'));
-  } catch {
-    return false;
-  }
-}
+const { hashPassword, verifyPassword } = require('./auth');
+const { createLogger } = require('./logger');
+const log = createLogger('reseller');
 
 // ─── JWT helpers ───────────────────────────────────────────────────────────────
 
@@ -170,7 +155,7 @@ function buildResellerLoginHtml(error = '') {
     <div class="partner-badge">RESELLER / INTEGRATOR</div>
     <h1>Sign in</h1>
     <p class="subtitle">Manage your churches and account settings</p>
-    ${error ? `<div class="error">${error}</div>` : ''}
+    ${error ? `<div class="error">${error.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}</div>` : ''}
     <form method="POST" action="/api/reseller-portal/login">
       <label>Email address</label>
       <input type="email" name="email" placeholder="you@yourcompany.com" required autocomplete="email">
@@ -525,7 +510,7 @@ function buildResellerSalesPageHtml(error = '') {
     <div class="signup-card">
       <h2>Become a Tally Reseller</h2>
       <p class="subtitle">Free to join — start earning commissions today</p>
-      ${error ? '<div class="error">' + error + '</div>' : ''}
+      ${error ? '<div class="error">' + error.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c])) + '</div>' : ''}
       <form method="POST" action="/api/reseller-portal/signup" id="signup-form">
         <label>Company Name</label>
         <input type="text" name="name" placeholder="Your AV Company" required>
@@ -1012,6 +997,11 @@ function buildResellerPortalHtml(reseller) {
       return data;
     }
 
+    // Escape for safe interpolation inside HTML attribute values (e.g. onclick)
+    function escapeAttr(str) {
+      return String(str || '').replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
     // ── Dashboard ─────────────────────────────────────────────────────────────
     async function loadDashboard() {
       try {
@@ -1059,8 +1049,8 @@ function buildResellerPortalHtml(reseller) {
               \${c.portal_email ? \`<span class="badge badge-green">✓ \${c.portal_email}</span>\` : \`<span class="badge badge-gray">No login</span>\`}
             </td>
             <td style="display:flex;gap:8px;align-items:center">
-              <button class="btn-sm" onclick="openChurchCreds('\${c.churchId}', '\${c.name.replace(/'/g,'\\\\'')}')">Set Login</button>
-              <button class="btn-danger" onclick="removeChurch('\${c.churchId}', '\${c.name.replace(/'/g,'\\\\'')}')">Remove</button>
+              <button class="btn-sm" onclick="openChurchCreds('\${escapeAttr(c.churchId)}', '\${escapeAttr(c.name)}')">Set Login</button>
+              <button class="btn-danger" onclick="removeChurch('\${escapeAttr(c.churchId)}', '\${escapeAttr(c.name)}')">Remove</button>
             </td>
           </tr>
         \`).join('');
@@ -1215,7 +1205,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
   const express = require('express');
   const { v4: uuidv4 } = require('uuid');
   const crypto = require('crypto');
-  console.log('[ResellerPortal] Setup started');
+  log.info('Setup started');
 
   // ── Schema migration ────────────────────────────────────────────────────────
   const migrations = [
@@ -1323,10 +1313,10 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
 
-      console.log(`[ResellerPortal] Self-service signup: "${name.trim()}" (${result.resellerId}) email=${emailNorm}`);
+      log.info(`Self-service signup: "${name.trim()}" (${result.resellerId}) email=${emailNorm}`);
       res.redirect('/reseller-portal');
     } catch (e) {
-      console.error('[ResellerPortal] Signup error:', e.message);
+      log.error(`Signup error: ${e.message}`);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.status(500).send(buildResellerSalesPageHtml('Something went wrong. Please try again.'));
     }
@@ -1471,7 +1461,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
     churches.delete(churchId);
     db.prepare('DELETE FROM churches WHERE churchId = ?').run(churchId);
 
-    console.log(`[ResellerPortal] Reseller ${req.reseller.id} removed church ${churchId}`);
+    log.info(`Reseller ${req.reseller.id} removed church ${churchId}`);
     res.json({ ok: true });
   });
 
@@ -1507,11 +1497,11 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
     db.prepare('UPDATE resellers SET portal_email = ?, portal_password_hash = ? WHERE id = ?')
       .run(email.trim().toLowerCase(), hashPassword(password), req.params.resellerId);
 
-    console.log(`[ResellerPortal] Set portal credentials for reseller ${req.params.resellerId}: ${email}`);
+    log.info(`Set portal credentials for reseller ${req.params.resellerId}: ${email}`);
     res.json({ ok: true, email: email.trim().toLowerCase(), loginUrl: '/reseller-login' });
   });
 
-  console.log('[ResellerPortal] ✓ Setup complete — routes registered');
+  log.info('Setup complete — routes registered');
 }
 
 module.exports = { setupResellerPortal };

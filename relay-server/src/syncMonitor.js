@@ -154,11 +154,19 @@ function setupSyncMonitor(db, relay, telegramBot, notifyUpdate) {
     }
   }
 
-  setInterval(pollAll, POLL_INTERVAL_MS);
+  const pollTimer = setInterval(pollAll, POLL_INTERVAL_MS);
   // Initial poll after a short delay (let encoder API settle)
-  setTimeout(pollAll, 3000);
+  const initialDelay = setTimeout(pollAll, 3000);
 
   console.log('[SyncMonitor] A/V sync monitor started (poll interval: 5s)');
+
+  // Return cleanup handle
+  return {
+    stop() {
+      clearInterval(pollTimer);
+      clearTimeout(initialDelay);
+    },
+  };
 }
 
 module.exports = { setupSyncMonitor };

@@ -117,6 +117,10 @@ class ScheduleEngine {
     }
   }
 
+  stop() {
+    if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
+  }
+
   getNextService(churchId) {
     const schedule = this.getSchedule(churchId);
     if (!schedule.length) return null;

@@ -15,14 +15,17 @@
  *   3. Church portal → POST /api/billing/portal → redirect to Stripe billing portal
  */
 
+const { createLogger } = require('./logger');
+const log = createLogger('billing');
+
 function createStripeClientFromEnv() {
   try {
     return require('stripe')(process.env.STRIPE_SECRET_KEY);
   } catch (err) {
     if (/Neither apiKey/i.test(err.message)) {
-      console.warn('⚠️  Billing disabled — set STRIPE_SECRET_KEY in .env to enable Stripe features.');
+      log.warn('Billing disabled — set STRIPE_SECRET_KEY in .env to enable Stripe features.');
     } else {
-      console.warn('⚠️  stripe package or config issue: billing disabled. Run: npm install stripe');
+      log.warn('stripe package or config issue: billing disabled. Run: npm install stripe');
     }
     return null;
   }
@@ -107,9 +110,7 @@ class BillingSystem {
       }
     }
     if (missing.length > 0) {
-      console.warn(`\n⚠️  Stripe is enabled but ${missing.length} price ID(s) are missing or still placeholders:`);
-      console.warn(`   ${missing.join(', ')}`);
-      console.warn('   Set these in .env with real Stripe price IDs before accepting payments.\n');
+      log.warn(`Stripe is enabled but ${missing.length} price ID(s) are missing or still placeholders: ${missing.join(', ')}. Set these in .env with real Stripe price IDs before accepting payments.`);
     }
   }
 
@@ -298,35 +299,29 @@ class BillingSystem {
       throw new Error(`Webhook signature verification failed: ${err.message}`);
     }
 
-    console.log(`[Billing] Webhook: ${event.type}`);
+    log.info(`Webhook: ${event.type}`);
 
-    switch (event.type) {
-      case 'checkout.session.completed':
-        await this._onCheckoutCompleted(event.data.object);
-        break;
-      case 'customer.subscription.created':
-      case 'customer.subscription.updated':
-        await this._onSubscriptionUpdated(event.data.object);
-        break;
-      case 'customer.subscription.deleted':
-        await this._onSubscriptionCancelled(event.data.object);
-        break;
-      case 'invoice.payment_failed':
-        await this._onPaymentFailed(event.data.object);
-        break;
-      case 'invoice.payment_succeeded':
-        await this._onPaymentSucceeded(event.data.object);
-        break;
-      case 'charge.dispute.created':
-        await this._onDisputeCreated(event.data.object);
-        break;
-      case 'charge.dispute.closed':
-        await this._onDisputeClosed(event.data.object);
-        break;
-      case 'customer.subscription.trial_will_end':
-        // Stripe fires this 3 days before trial ends — our lifecycle emails already handle this
-        console.log(`[Billing] Trial ending soon for subscription ${event.data.object.id}`);
-        break;
+    // Each handler is individually try/caught so a non-critical failure (e.g. referral processing)
+    // doesn't block the critical path (subscription activation) and return 500 to Stripe.
+    const handler = {
+      'checkout.session.completed':           () => this._onCheckoutCompleted(event.data.object),
+      'customer.subscription.created':        () => this._onSubscriptionUpdated(event.data.object),
+      'customer.subscription.updated':        () => this._onSubscriptionUpdated(event.data.object),
+      'customer.subscription.deleted':        () => this._onSubscriptionCancelled(event.data.object),
+      'invoice.payment_failed':               () => this._onPaymentFailed(event.data.object),
+      'invoice.payment_succeeded':            () => this._onPaymentSucceeded(event.data.object),
+      'charge.dispute.created':               () => this._onDisputeCreated(event.data.object),
+      'charge.dispute.closed':                () => this._onDisputeClosed(event.data.object),
+      'customer.subscription.trial_will_end': () => { log.info(`Trial ending soon for subscription ${event.data.object.id}`); },
+    }[event.type];
+
+    if (handler) {
+      try {
+        await handler();
+      } catch (err) {
+        log.error(`Webhook handler error for ${event.type}: ${err.message}`);
+        // Log but don't throw — return 200 to Stripe so it doesn't retry indefinitely
+      }
     }
 
     return { received: true };
@@ -355,11 +350,11 @@ class BillingSystem {
       try {
         await this._processReferralCredit(churchId, tier, session.customer);
       } catch (e) {
-        console.error(`[Referral] Credit failed for ${churchId}: ${e.message}`);
+        log.error(`Referral credit failed for ${churchId}: ${e.message}`);
       }
     }
 
-    console.log(`[Billing] ✅ Checkout complete for church ${churchId} (${tier}, ${billingInterval || 'monthly'})`);
+    log.info(`Checkout complete for church ${churchId} (${tier}, ${billingInterval || 'monthly'})`);
 
     // Send reactivation email if this was a reactivation checkout
     if (session.metadata?.reactivation === 'true' && this.lifecycleEmails && churchId) {
@@ -400,7 +395,7 @@ class BillingSystem {
 
     if (churchId) {
       this._deactivateChurch(churchId, 'subscription_cancelled');
-      console.log(`[Billing] ❌ Subscription cancelled for church ${churchId}`);
+      log.info(`Subscription cancelled for church ${churchId}`);
 
       // Send cancellation confirmation email
       if (this.lifecycleEmails) {
@@ -429,7 +424,7 @@ class BillingSystem {
           .run('past_due', billingRecord.church_id);
       }
 
-      console.log(`[Billing] ⚠️ Payment failed for church ${billingRecord.church_id} — grace period until ${graceEndsAt}`);
+      log.warn(`Payment failed for church ${billingRecord.church_id} — grace period until ${graceEndsAt}`);
 
       // Send payment-failed dunning email
       if (this.lifecycleEmails && billingRecord.church_id) {
@@ -445,7 +440,7 @@ class BillingSystem {
     if (billing && billing.status === 'past_due') {
       this.db.prepare(`UPDATE billing_customers SET status = 'active', updated_at = ? WHERE stripe_subscription_id = ?`)
         .run(new Date().toISOString(), subId);
-      console.log(`[Billing] ✅ Payment recovered for church ${billing.church_id}`);
+      log.info(`Payment recovered for church ${billing.church_id}`);
     }
   }
 
@@ -460,7 +455,7 @@ class BillingSystem {
     ).get(customerId);
 
     if (!billingRecord) {
-      console.log(`[Billing] Dispute created for unknown customer ${customerId}`);
+      log.info(`Dispute created for unknown customer ${customerId}`);
       return;
     }
 
@@ -497,7 +492,7 @@ class BillingSystem {
         now
       );
     } catch (e) {
-      console.error(`[Billing] Failed to record dispute: ${e.message}`);
+      log.error(`Failed to record dispute: ${e.message}`);
     }
 
     // Immediately flag the church — disputes are serious
@@ -506,7 +501,7 @@ class BillingSystem {
     this.db.prepare('UPDATE churches SET billing_status = ? WHERE churchId = ?')
       .run('disputed', billingRecord.church_id);
 
-    console.log(`[Billing] ⚠️ Dispute opened for church ${billingRecord.church_id} — reason: ${dispute.reason}, amount: $${(dispute.amount / 100).toFixed(2)}`);
+    log.warn(`Dispute opened for church ${billingRecord.church_id} — reason: ${dispute.reason}, amount: $${(dispute.amount / 100).toFixed(2)}`);
   }
 
   async _onDisputeClosed(dispute) {
@@ -535,13 +530,13 @@ class BillingSystem {
       if (billingRecord.church_id) {
         this._activateChurch(billingRecord.church_id, billingRecord.tier, 'active', billingRecord.billing_interval);
       }
-      console.log(`[Billing] ✅ Dispute WON for church ${billingRecord.church_id} — restored to active`);
+      log.info(`Dispute WON for church ${billingRecord.church_id} — restored to active`);
     } else {
       // Lost or other outcome — deactivate
       if (billingRecord.church_id) {
         this._deactivateChurch(billingRecord.church_id, `dispute_${dispute.status}`);
       }
-      console.log(`[Billing] ❌ Dispute ${dispute.status} for church ${billingRecord.church_id} — deactivated`);
+      log.info(`Dispute ${dispute.status} for church ${billingRecord.church_id} — deactivated`);
     }
   }
 
@@ -614,7 +609,7 @@ class BillingSystem {
     this.db.prepare('UPDATE churches SET billing_tier = ?, billing_status = ? WHERE churchId = ?')
       .run(effectiveTier, 'pending', churchId);
 
-    console.log(`[Billing] Reactivation checkout created for church ${churchId} (${effectiveTier}, ${effectiveInterval})`);
+    log.info(`Reactivation checkout created for church ${churchId} (${effectiveTier}, ${effectiveInterval})`);
     return { url: session.url, sessionId: session.id };
   }
 
@@ -632,7 +627,7 @@ class BillingSystem {
     this.db.prepare(`
       UPDATE churches SET billing_status = 'inactive' WHERE churchId = ?
     `).run(churchId);
-    console.log(`[Billing] Church ${churchId} deactivated: ${reason}`);
+    log.info(`Church ${churchId} deactivated: ${reason}`);
   }
 
   _getChurchTier(churchId) {
@@ -783,7 +778,7 @@ class BillingSystem {
         if (daysSinceCreated > 60) {
           const now = new Date().toISOString();
           this.db.prepare("UPDATE referrals SET status = 'expired', converted_at = ? WHERE id = ?").run(now, referral.id);
-          console.log(`[Referral] Referred church ${referredChurchId} is ${Math.round(daysSinceCreated)} days old — not a new account. Skipping credit.`);
+          log.info(`Referred church ${referredChurchId} is ${Math.round(daysSinceCreated)} days old — not a new account. Skipping credit.`);
           return;
         }
       }
@@ -804,7 +799,7 @@ class BillingSystem {
       this.db.prepare(`
         UPDATE referrals SET status = 'converted', converted_at = ? WHERE id = ?
       `).run(now, referral.id);
-      console.log(`[Referral] Referrer ${referral.referrer_id} has reached the ${MAX_REFERRAL_CREDITS}-credit cap. Marked as converted (no credit).`);
+      log.info(`Referrer ${referral.referrer_id} has reached the ${MAX_REFERRAL_CREDITS}-credit cap. Marked as converted (no credit).`);
       return;
     }
 
@@ -817,7 +812,7 @@ class BillingSystem {
     ).get(referral.referrer_id);
 
     if (!referrerBilling?.stripe_customer_id) {
-      console.log(`[Referral] Referrer ${referral.referrer_id} has no Stripe customer — skipping credit`);
+      log.info(`Referrer ${referral.referrer_id} has no Stripe customer — skipping credit`);
       return;
     }
 
@@ -837,13 +832,13 @@ class BillingSystem {
         UPDATE referrals SET status = 'credited', credit_amount = ?, converted_at = ?, credited_at = ? WHERE id = ?
       `).run(creditAmountCents, now, now, referral.id);
 
-      console.log(`[Referral] ✅ Credited ${creditAmountCents / 100} to referrer ${referral.referrer_id} for ${referral.referred_name}`);
+      log.info(`Credited ${creditAmountCents / 100} to referrer ${referral.referrer_id} for ${referral.referred_name}`);
     } catch (e) {
       // Mark as converted but not credited (manual follow-up needed)
       this.db.prepare(`
         UPDATE referrals SET status = 'converted', credit_amount = ?, converted_at = ? WHERE id = ?
       `).run(creditAmountCents, now, referral.id);
-      console.error(`[Referral] Stripe credit failed: ${e.message}. Marked as converted for manual review.`);
+      log.error(`Stripe credit failed: ${e.message}. Marked as converted for manual review.`);
     }
   }
 }

@@ -2,12 +2,13 @@ const LOCAL_RATE_LIMIT_STORE = new Map();
 const LOCAL_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const LOCAL_STALE_WINDOW_MS = 15 * 60 * 1000;
 let cleanupTimerStarted = false;
+let cleanupTimer = null;
 let redisWarned = false;
 
 function startLocalCleanup() {
   if (cleanupTimerStarted) return;
   cleanupTimerStarted = true;
-  setInterval(() => {
+  cleanupTimer = setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of LOCAL_RATE_LIMIT_STORE.entries()) {
       const windowMs = Number(entry.windowMs || LOCAL_STALE_WINDOW_MS);
@@ -15,7 +16,12 @@ function startLocalCleanup() {
         LOCAL_RATE_LIMIT_STORE.delete(key);
       }
     }
-  }, LOCAL_CLEANUP_INTERVAL_MS).unref();
+  }, LOCAL_CLEANUP_INTERVAL_MS);
+}
+
+function stopLocalCleanup() {
+  if (cleanupTimer) { clearInterval(cleanupTimer); cleanupTimer = null; }
+  cleanupTimerStarted = false;
 }
 
 function resolveClientIp(req) {
@@ -165,4 +171,5 @@ module.exports = {
   consumeRateLimit,
   createRateLimit,
   resolveClientIp,
+  stopLocalCleanup,
 };

@@ -23,6 +23,10 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 
 const cookieParser = require('cookie-parser');
+const { logger, createLogger } = require('./src/logger');
+const wsLog = createLogger('ws');
+const sseLog = createLogger('sse');
+const serverLog = createLogger('server');
 
 const app = express();
 
@@ -74,6 +78,7 @@ const { PlanningCenter } = require('./src/planningCenter');
 const { PresetLibrary } = require('./src/presetLibrary');
 const { EventMode } = require('./src/eventMode');
 const { ResellerSystem } = require('./src/reseller');
+const { hasStreamSignal, isStreamActive, isRecordingActive } = require('./src/status-utils');
 const { AutoPilot } = require('./src/autoPilot');
 const { ChatEngine } = require('./src/chatEngine');
 const { LifecycleEmails } = require('./src/lifecycleEmails');
@@ -85,11 +90,18 @@ const { setupChurchPortal } = require('./src/churchPortal');
 const { setupResellerPortal } = require('./src/resellerPortal');
 const { setupStatusPage } = require('./src/statusPage');
 const { createBackupSnapshot } = require('./src/dbBackup');
-const { createRateLimit, consumeRateLimit } = require('./src/rateLimit');
+const { createRateLimit, consumeRateLimit, stopLocalCleanup } = require('./src/rateLimit');
 const relayPackage = require('./package.json');
+// ─── CENTRALIZED TIMER TRACKING ─────────────────────────────────────────────
+// All setInterval handles are stored here for coordinated shutdown cleanup.
+const activeTimers = [];
 
-const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
-const JWT_SECRET    = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
+// Secrets — always required, no insecure defaults
+if (!process.env.ADMIN_API_KEY || !process.env.JWT_SECRET) {
+  throw new Error('ADMIN_API_KEY and JWT_SECRET are required. Set both in environment variables (all environments).');
+}
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY;
+const JWT_SECRET    = process.env.JWT_SECRET;
 const ADMIN_SESSION_COOKIE = 'tally_admin_key';
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
 const CHURCH_APP_TOKEN_TTL = process.env.TALLY_CHURCH_APP_TOKEN_TTL || '30d';
@@ -98,20 +110,12 @@ const RELAY_VERSION = process.env.RELAY_VERSION || relayPackage.version;
 const RELAY_BUILD = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.VERCEL_GIT_COMMIT_SHA || null;
 const SUPPORT_TRIAGE_WINDOW_HOURS = Number(process.env.SUPPORT_TRIAGE_WINDOW_HOURS || 24);
 const PORT = Number(process.env.PORT || 3000);
+const ADMIN_ROLES = ['super_admin', 'admin', 'engineer', 'sales'];
 
 // Onboarding email configuration
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const FROM_EMAIL = process.env.FROM_EMAIL || 'Tally by ATEM School <noreply@atemschool.com>';
 const APP_URL = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://tallyconnect.app';
-
-if (process.env.NODE_ENV === 'production') {
-  if (process.env.ADMIN_API_KEY === undefined || process.env.JWT_SECRET === undefined) {
-    throw new Error('ADMIN_API_KEY and JWT_SECRET are required in production. Set both in environment variables.');
-  }
-}
-if (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secret-change-me') {
-  console.warn('\n⚠️  WARNING: Using default dev keys! Set ADMIN_API_KEY and JWT_SECRET env vars for production.\n');
-}
 const DB_PATH       = process.env.DATABASE_PATH || './data/churches.db';
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
@@ -150,10 +154,9 @@ app.use((req, res, next) => {
 
 // ─── LOGGING ──────────────────────────────────────────────────────────────────
 
-function log(msg) {
-  const ts = new Date().toISOString().replace('T', ' ').substring(0, 19);
-  console.log(`[${ts}] ${msg}`);
-}
+// Legacy log wrapper — delegates to structured logger.
+// TODO: Gradually replace direct log() calls with serverLog.info/warn/error
+function log(msg) { serverLog.info(msg); }
 
 // ─── ONBOARDING EMAILS (via Resend) ─────────────────────────────────────────
 
@@ -319,7 +322,11 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN email_verify_sent_at TEXT",
 ];
 for (const m of _schemaMigrations) {
-  try { db.exec(m); } catch { /* column already exists */ }
+  try { db.exec(m); } catch (err) {
+    // Only ignore "duplicate column" errors; re-throw anything else
+    if (err.message && (err.message.includes('duplicate column') || err.message.includes('already exists'))) continue;
+    throw err;
+  }
 }
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_churches_portal_email ON churches(portal_email)');
 
@@ -360,9 +367,9 @@ db.exec(`
     db.prepare(
       'INSERT INTO admin_users (id, email, password_hash, name, role, active, created_at) VALUES (?,?,?,?,?,?,?)'
     ).run(_uuid(), process.env.ADMIN_SEED_EMAIL.trim().toLowerCase(), `${_seedSalt}:${_seedHash}`, 'Admin', 'super_admin', 1, new Date().toISOString());
-    console.log(`[AdminUsers] Seeded initial super_admin: ${process.env.ADMIN_SEED_EMAIL}`);
+    serverLog.info(`Seeded initial super_admin: ${process.env.ADMIN_SEED_EMAIL}`);
   } else if (adminCount === 0) {
-    console.log('[AdminUsers] No admin users exist. Set ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD to create the first super_admin.');
+    serverLog.info('No admin users exist. Set ADMIN_SEED_EMAIL and ADMIN_SEED_PASSWORD to create the first super_admin.');
   }
 }
 
@@ -379,8 +386,21 @@ const stmtDelete = db.prepare('DELETE FROM churches WHERE churchId = ?');
 // churchId → { churchId, name, email, token, ws, status, lastSeen, lastHeartbeat, registeredAt, disconnectedAt }
 const churches = new Map();
 const controllers = new Set();
-// SSE clients for the dashboard
+// SSE clients for the dashboard (bounded with heartbeat cleanup)
 const sseClients = new Set();
+const MAX_SSE_CLIENTS = 50;
+
+// Heartbeat: ping SSE clients every 30s; remove dead connections
+activeTimers.push(setInterval(() => {
+  for (const client of sseClients) {
+    try {
+      client.write(':heartbeat\n\n');
+    } catch {
+      sseClients.delete(client);
+      try { client.end(); } catch {}
+    }
+  }
+}, 30_000));
 
 // Stats
 let totalMessagesRelayed = 0;
@@ -392,16 +412,7 @@ const QUEUE_TTL_MS = 30_000; // 30 seconds
 
 const RATE_LIMIT = 10; // commands per second
 const STATUS_STATES = ['operational', 'degraded', 'outage'];
-const supportCategories = new Set([
-  'stream_down',
-  'no_audio_stream',
-  'slides_issue',
-  'atem_connectivity',
-  'recording_issue',
-  'other',
-]);
-const supportSeverities = new Set(['P1', 'P2', 'P3', 'P4']);
-const supportTicketStates = new Set(['open', 'in_progress', 'waiting_customer', 'resolved', 'closed']);
+// supportCategories, supportSeverities, supportTicketStates moved to src/routes/supportTickets.js
 let statusCheckInFlight = false;
 let lastStatusCheckAt = null;
 
@@ -566,7 +577,7 @@ scheduleEngine.addWindowOpenCallback((churchId) => {
     const onCallTd = onCallRotation.getOnCallTD(churchId);
     sessionRecap.startSession(churchId, onCallTd?.name || null);
   } catch (e) {
-    console.error(`[SessionRecap] onWindowOpen error for ${churchId}:`, e.message);
+    serverLog.error(`SessionRecap onWindowOpen error for ${churchId}: ${e.message}`);
   }
 });
 
@@ -576,11 +587,11 @@ scheduleEngine.addWindowCloseCallback(async (churchId) => {
     // Write production notes back to Planning Center
     if (sessionData) {
       planningCenter.writeServiceNotes(churchId, sessionData).catch(e =>
-        console.warn(`[PlanningCenter] Write-back error for ${churchId}:`, e.message)
+        serverLog.warn(`PlanningCenter write-back error for ${churchId}: ${e.message}`)
       );
     }
   } catch (e) {
-    console.error(`[SessionRecap] onWindowClose error for ${churchId}:`, e.message);
+    serverLog.error(`SessionRecap onWindowClose error for ${churchId}: ${e.message}`);
   }
 });
 
@@ -604,7 +615,7 @@ scheduleEngine.addWindowOpenCallback((churchId) => {
 });
 
 // Schedule timer — check every minute for schedule_timer triggers
-setInterval(() => {
+activeTimers.push(setInterval(() => {
   for (const [churchId] of churches) {
     if (!scheduleEngine.isServiceWindow(churchId)) continue;
     // Use session start time to calculate minutes into service
@@ -612,10 +623,10 @@ setInterval(() => {
     if (!session?.startedAt) continue;
     const minutesIn = Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 60000);
     autoPilot.onScheduleTick(churchId, minutesIn).catch(e =>
-      console.error(`[AutoPilot] Schedule tick error for ${churchId}:`, e.message)
+      serverLog.error(`AutoPilot schedule tick error for ${churchId}: ${e.message}`)
     );
   }
-}, 60000);
+}, 60000));
 
 // ─── CHAT ENGINE ─────────────────────────────────────────────────────────────
 
@@ -668,7 +679,7 @@ function checkExpiredTrials() {
       log(`[TrialExpiry] Deactivated ${expired.length} expired trial(s)`);
     }
   } catch (e) {
-    console.error('[TrialExpiry] Error:', e.message);
+    serverLog.error(`TrialExpiry error: ${e.message}`);
   }
 }
 
@@ -709,15 +720,15 @@ function enforceGracePeriods() {
       log(`[GracePeriod] Deactivated ${expired.length} church(es) with expired grace periods`);
     }
   } catch (e) {
-    console.error('[GracePeriod] Error:', e.message);
+    serverLog.error(`GracePeriod error: ${e.message}`);
   }
 }
 
 // Run immediately on startup, then every hour
 checkExpiredTrials();
 enforceGracePeriods();
-setInterval(checkExpiredTrials, 60 * 60 * 1000);
-setInterval(enforceGracePeriods, 60 * 60 * 1000);
+activeTimers.push(setInterval(checkExpiredTrials, 60 * 60 * 1000));
+activeTimers.push(setInterval(enforceGracePeriods, 60 * 60 * 1000));
 
 // ─── LIFECYCLE EMAILS ────────────────────────────────────────────────────────
 // Automated email sequences: setup nudge, first-sunday prep, check-in,
@@ -731,11 +742,11 @@ const lifecycleEmails = new LifecycleEmails(db, {
 billing.setLifecycleEmails(lifecycleEmails);
 
 // Run lifecycle email checks every hour
-setInterval(() => {
+activeTimers.push(setInterval(() => {
   lifecycleEmails.runCheck().catch(e =>
-    console.error('[LifecycleEmails] Check failed:', e.message)
+    serverLog.error(`LifecycleEmails check failed: ${e.message}`)
   );
-}, 60 * 60 * 1000);
+}, 60 * 60 * 1000));
 
 // ─── RESELLER SYSTEM (needed early for TallyBot) ────────────────────────────
 
@@ -773,7 +784,7 @@ if (TALLY_BOT_TOKEN) {
       webhookPayload.secret_token = TALLY_BOT_WEBHOOK_SECRET;
     }
     setImmediate(() => {
-      tallyBot.setWebhook(webhookPayload).catch(e => console.error('[TallyBot] Webhook setup failed:', e.message));
+      tallyBot.setWebhook(webhookPayload).catch(e => serverLog.error(`TallyBot webhook setup failed: ${e.message}`));
     });
   }
 } else {
@@ -782,25 +793,25 @@ if (TALLY_BOT_TOKEN) {
 
 // ─── PLATFORM STATUS CHECKS (1-minute synthetic monitor) ────────────────────
 
-setInterval(() => {
+activeTimers.push(setInterval(() => {
   runStatusChecks().catch((e) => {
-    console.error('[StatusChecks] scheduled run failed:', e.message);
+    serverLog.error(`StatusChecks scheduled run failed: ${e.message}`);
   });
-}, 60_000);
+}, 60_000));
 
 // ─── DB BACKUP SCHEDULER ─────────────────────────────────────────────────────
 
 const DB_BACKUP_INTERVAL_MINUTES = Number(process.env.DB_BACKUP_INTERVAL_MINUTES || 0);
 if (Number.isFinite(DB_BACKUP_INTERVAL_MINUTES) && DB_BACKUP_INTERVAL_MINUTES > 0) {
   log(`[Backup] Scheduled snapshots every ${DB_BACKUP_INTERVAL_MINUTES} minute(s)`);
-  setInterval(() => {
+  activeTimers.push(setInterval(() => {
     try {
       const snapshot = runManualDbSnapshot('auto');
       log(`[Backup] Snapshot created: ${snapshot.fullPath}`);
     } catch (e) {
-      console.error('[Backup] Scheduled snapshot failed:', e.message);
+      serverLog.error(`Backup scheduled snapshot failed: ${e.message}`);
     }
-  }, DB_BACKUP_INTERVAL_MINUTES * 60 * 1000);
+  }, DB_BACKUP_INTERVAL_MINUTES * 60 * 1000));
 }
 
 // Wire chat engine broadcast functions (uses hoisted broadcastToControllers)
@@ -834,7 +845,7 @@ chatEngine.setBroadcasters({
 
 // ─── A/V SYNC MONITOR ────────────────────────────────────────────────────────
 
-setupSyncMonitor(db, { churches }, tallyBot, (churchId) => {
+const syncMonitorHandle = setupSyncMonitor(db, { churches }, tallyBot, (churchId) => {
   broadcastToSSE({ type: 'sync_update', churchId });
 });
 
@@ -850,17 +861,9 @@ alertEngine.resellerSystem = resellerSystem;
 const { setupAdminPanel } = require('./src/adminPanel');
 setupAdminPanel(app, db, churches, resellerSystem);
 
-// Church Portal — self-service login for individual churches
-setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails });
-console.log('[Server] ✓ Church Portal routes registered');
-
-// Reseller Portal — self-service login for integrators/resellers
-setupResellerPortal(app, db, churches, resellerSystem, JWT_SECRET, requireAdmin);
-console.log('[Server] ✓ Reseller Portal routes registered');
-
 // Public status page
 setupStatusPage(app);
-console.log('[Server] ✓ Status page route registered');
+serverLog.info('Status page route registered');
 
 // Pre-service check — needs tallyBot but can still send Telegram directly
 preServiceCheck = new PreServiceCheck({
@@ -913,36 +916,25 @@ function drainQueue(churchId, ws) {
 
 // ─── HTTP API ────────────────────────────────────────────────────────────────
 
-// Health check
-app.get('/', (req, res) => {
-  res.json({
-    service: 'tally-relay',
-    version: RELAY_VERSION,
-    churches: churches.size,
-    controllers: controllers.size,
-  });
-});
-
-// Detailed health/stats
-app.get('/api/health', (req, res) => {
-  const connectedCount = Array.from(churches.values()).filter(c => c.ws?.readyState === WebSocket.OPEN).length;
-  res.json({
-    service: 'tally-relay',
-    version: RELAY_VERSION,
-    build: RELAY_BUILD,
-    uptime: Math.floor(process.uptime()),
-    registeredChurches: churches.size,
-    connectedChurches: connectedCount,
-    controllers: controllers.size,
-    totalMessagesRelayed,
-  });
+// ─── HEALTH ROUTES (extracted to src/routes/health.js) ───────────────────────
+require('./src/routes/health')(app, {
+  churches,
+  controllers,
+  RELAY_VERSION,
+  RELAY_BUILD: RELAY_BUILD,
+  getTotalMessagesRelayed: () => totalMessagesRelayed,
 });
 
 // Shared auth utilities (single source of truth — also used by churchPortal.js)
-const { hashPassword, verifyPassword, generateRegistrationCode: _genRegCode } = require('./src/auth');
+const { hashPassword, verifyPassword, generateRegistrationCode: _genRegCode, safeCompareKey } = require('./src/auth');
 function generateRegistrationCode() {
   return _genRegCode(db);
 }
+
+// Shared route auth middleware (must be initialized before route registration).
+const { ROLE_PERMISSIONS, hasPermission, createAuthMiddleware } = require('./src/routes/authMiddleware');
+const _authMiddleware = createAuthMiddleware({ db, JWT_SECRET, ADMIN_API_KEY, ADMIN_SESSION_COOKIE, safeCompareKey });
+const { resolveAdminKey, requireAdminJwt, requireAdmin, requireReseller, requireChurchOrAdmin } = _authMiddleware;
 
 function issueChurchAppToken(churchId, name) {
   return jwt.sign({ type: 'church_app', churchId, name }, JWT_SECRET, { expiresIn: CHURCH_APP_TOKEN_TTL });
@@ -1055,157 +1047,10 @@ function checkChurchPaidAccess(churchId) {
   };
 }
 
-function normalizeSupportCategory(value) {
-  const normalized = String(value || 'other').trim().toLowerCase().replace(/\s+/g, '_');
-  return supportCategories.has(normalized) ? normalized : 'other';
-}
+// normalizeSupportCategory, normalizeSupportSeverity, safeJsonParse moved to src/routes/supportTickets.js
 
-function normalizeSupportSeverity(value) {
-  const normalized = String(value || 'P3').trim().toUpperCase();
-  return supportSeverities.has(normalized) ? normalized : 'P3';
-}
-
-function safeJsonParse(value, fallback) {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return fallback;
-  }
-}
-
-function buildSupportDiagnostics(churchId, options = {}) {
-  const runtime = churches.get(churchId);
-  const now = Date.now();
-  const sinceIso = new Date(now - 15 * 60 * 1000).toISOString();
-  const recentAlerts = db.prepare(`
-    SELECT id, alert_type, severity, context, created_at, acknowledged_at, resolved
-    FROM alerts
-    WHERE church_id = ? AND created_at >= ?
-    ORDER BY created_at DESC
-    LIMIT 25
-  `).all(churchId, sinceIso).map((row) => ({
-    id: row.id,
-    alertType: row.alert_type,
-    severity: row.severity,
-    context: safeJsonParse(row.context, {}),
-    createdAt: row.created_at,
-    acknowledgedAt: row.acknowledged_at,
-    resolved: !!row.resolved,
-  }));
-
-  return {
-    churchId,
-    campusId: options.campusId || null,
-    room: options.room || null,
-    timezone: options.timezone || null,
-    issueCategory: normalizeSupportCategory(options.issueCategory),
-    severity: normalizeSupportSeverity(options.severity),
-    relayVersion: RELAY_VERSION,
-    appVersion: options.appVersion || null,
-    generatedAt: new Date().toISOString(),
-    connection: {
-      churchClientConnected: runtime?.ws?.readyState === WebSocket.OPEN,
-      lastSeen: runtime?.lastSeen || null,
-      lastHeartbeat: runtime?.lastHeartbeat || null,
-      secondsSinceHeartbeat: runtime?.lastHeartbeat ? Math.floor((now - runtime.lastHeartbeat) / 1000) : null,
-    },
-    deviceHealth: runtime?.status || {},
-    recentAlerts,
-    serviceWindow: scheduleEngine.isServiceWindow(churchId),
-    autoFixAttempts: Array.isArray(options.autoFixAttempts) ? options.autoFixAttempts : [],
-  };
-}
-
-function computeTriageResult(diagnostics) {
-  const checks = [];
-  const issueCategory = diagnostics.issueCategory;
-  const status = diagnostics.deviceHealth || {};
-
-  checks.push({
-    key: 'church_client_connection',
-    ok: !!diagnostics.connection.churchClientConnected,
-    note: diagnostics.connection.churchClientConnected
-      ? 'Church client currently connected'
-      : 'Church client is offline',
-  });
-
-  if (issueCategory === 'stream_down') {
-    const streaming = status.obs?.streaming === true || status.encoder?.streaming === true;
-    checks.push({
-      key: 'stream_state',
-      ok: streaming,
-      note: streaming ? 'Stream appears active' : 'Stream appears inactive',
-    });
-  }
-
-  if (issueCategory === 'no_audio_stream') {
-    const audioOk = status.obs?.audioConnected !== false && status.audio?.muted !== true;
-    checks.push({
-      key: 'audio_path',
-      ok: audioOk,
-      note: audioOk ? 'No hard audio mute detected' : 'Audio path likely muted/disconnected',
-    });
-  }
-
-  if (issueCategory === 'atem_connectivity') {
-    checks.push({
-      key: 'atem_link',
-      ok: status.atem?.connected === true,
-      note: status.atem?.connected ? 'ATEM reports connected' : 'ATEM disconnected',
-    });
-  }
-
-  if (issueCategory === 'recording_issue') {
-    const recording = status.atem?.recording === true || status.obs?.recording === true || status.hyperDeck?.recording === true;
-    checks.push({
-      key: 'recording_state',
-      ok: recording,
-      note: recording ? 'Recording appears active' : 'Recording appears inactive',
-    });
-  }
-
-  const autoFixed = (diagnostics.autoFixAttempts || []).some((attempt) => attempt && attempt.success === true);
-  const failedChecks = checks.filter((check) => !check.ok).length;
-  const triageResult = autoFixed
-    ? 'auto_resolved'
-    : failedChecks > 0
-      ? 'needs_escalation'
-      : 'monitoring';
-
-  return { checks, triageResult };
-}
-
-function requireSupportAccess(req, res, next) {
-  const authHeader = req.headers.authorization || '';
-  if (authHeader.startsWith('Bearer ')) {
-    try {
-      const payload = jwt.verify(authHeader.slice(7), JWT_SECRET);
-      if (payload.type === 'church_app') {
-        const church = db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(payload.churchId);
-        if (!church) return res.status(404).json({ error: 'Church not found' });
-        req.supportActor = { type: 'church', churchId: church.churchId, name: church.name };
-        return next();
-      }
-    } catch {
-      // Continue to admin auth fallback
-    }
-  }
-
-  return requireAdminJwt()(req, res, () => {
-    req.supportActor = {
-      type: 'admin',
-      adminUser: req.adminUser || { id: 'unknown', role: 'super_admin' },
-    };
-    next();
-  });
-}
-
-function resolveSupportChurchId(req) {
-  if (req.supportActor?.type === 'church') {
-    return req.supportActor.churchId;
-  }
-  return req.params.churchId || req.body?.churchId || req.query?.churchId || null;
-}
+// buildSupportDiagnostics, computeTriageResult, requireSupportAccess, resolveSupportChurchId
+// moved to src/routes/supportTickets.js
 
 function statusByResult(ok, detailOk, detailFail) {
   if (ok) return { state: 'operational', detail: detailOk };
@@ -1793,66 +1638,9 @@ app.post('/api/church/app/onboard', rateLimit(5, 60_000), async (req, res) => {
   });
 });
 
-// Email verification endpoint
-app.get('/api/church/verify-email', (req, res) => {
-  const { token } = req.query;
-  if (!token) return res.status(400).json({ error: 'Verification token required' });
-
-  const church = db.prepare('SELECT churchId, name, email_verified FROM churches WHERE email_verify_token = ?').get(token);
-  if (!church) return res.status(404).json({ error: 'Invalid or expired verification link' });
-
-  if (church.email_verified) {
-    return res.redirect(`${APP_URL}/portal?verified=already`);
-  }
-
-  db.prepare('UPDATE churches SET email_verified = 1, email_verify_token = NULL WHERE churchId = ?').run(church.churchId);
-  log(`[EmailVerify] ✅ Email verified for "${church.name}" (${church.churchId})`);
-
-  res.redirect(`${APP_URL}/portal?verified=true`);
-});
-
-// Resend verification email
-app.post('/api/church/resend-verification', rateLimit(3, 60_000), (req, res) => {
-  const { email } = req.body || {};
-  const cleanEmail = String(email || '').trim().toLowerCase();
-  if (!cleanEmail) return res.status(400).json({ error: 'email required' });
-
-  const church = db.prepare('SELECT churchId, name, portal_email, email_verified, email_verify_token FROM churches WHERE portal_email = ?').get(cleanEmail);
-  if (!church) return res.json({ sent: true }); // Don't reveal if account exists
-  if (church.email_verified) return res.json({ sent: true, alreadyVerified: true });
-
-  // Generate a new token if needed
-  let verifyToken = church.email_verify_token;
-  if (!verifyToken) {
-    verifyToken = crypto.randomBytes(32).toString('hex');
-    db.prepare('UPDATE churches SET email_verify_token = ?, email_verify_sent_at = ? WHERE churchId = ?')
-      .run(verifyToken, new Date().toISOString(), church.churchId);
-  }
-
-  // Send verification email (non-blocking)
-  const verifyUrl = `${APP_URL.replace('https://tallyconnect.app', process.env.RELAY_URL || 'https://tally-production-cde2.up.railway.app')}/api/church/verify-email?token=${verifyToken}`;
-  sendOnboardingEmail({
-    to: cleanEmail,
-    subject: 'Verify your Tally email',
-    tag: 'email-verification',
-    html: `<div style="font-family: system-ui, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 0;">
-      <div style="margin-bottom: 24px;">
-        <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #22c55e; margin-right: 8px;"></span>
-        <strong style="font-size: 16px; color: #111;">Tally</strong>
-      </div>
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Verify your email</h1>
-      <p style="font-size: 15px; color: #333; line-height: 1.6;">Click below to verify the email address for <strong>${church.name}</strong>:</p>
-      <p style="margin: 28px 0;">
-        <a href="${verifyUrl}" style="display: inline-block; padding: 12px 28px; font-size: 15px; font-weight: 700; background: #22c55e; color: #000; text-decoration: none; border-radius: 8px;">Verify Email</a>
-      </p>
-      <p style="font-size: 13px; color: #666;">If you didn't sign up for Tally, ignore this email.</p>
-      <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />
-      <p style="font-size: 12px; color: #999;">Tally by ATEM School</p>
-    </div>`,
-    text: `Verify your Tally email\n\nClick this link to verify: ${verifyUrl}\n\nIf you didn't sign up for Tally, ignore this email.`,
-  }).catch(() => {});
-
-  res.json({ sent: true });
+// ─── EMAIL VERIFICATION (extracted to src/routes/emailVerification.js) ───────
+require('./src/routes/emailVerification')(app, {
+  db, APP_URL, log, rateLimit, sendOnboardingEmail,
 });
 
 // Credential-based app login (used by Electron setup flow)
@@ -1951,10 +1739,11 @@ app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
   // Password change: require current password verification
   const newPw = newPassword || password;
   if (newPw) {
-    if (currentPassword) {
-      if (!req.church.portal_password_hash || !verifyPassword(currentPassword, req.church.portal_password_hash)) {
-        return res.status(400).json({ error: 'Current password is incorrect' });
-      }
+    if (!currentPassword) {
+      return res.status(400).json({ error: 'Current password is required to change your password' });
+    }
+    if (!req.church.portal_password_hash || !verifyPassword(currentPassword, req.church.portal_password_hash)) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
     }
     if (newPw.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
     db.prepare('UPDATE churches SET portal_password_hash = ? WHERE churchId = ?')
@@ -2008,331 +1797,16 @@ app.post('/api/church/app/reset-password', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-// ─── SUPPORT TRIAGE + TICKETS ────────────────────────────────────────────────
-
-app.post('/api/support/triage', requireSupportAccess, (req, res) => {
-  const churchId = resolveSupportChurchId(req);
-  if (!churchId) {
-    return res.status(400).json({ error: 'churchId required' });
-  }
-  const church = stmtGet.get(churchId);
-  if (!church) return res.status(404).json({ error: 'Church not found' });
-
-  const issueCategory = normalizeSupportCategory(req.body?.issueCategory);
-  const severity = normalizeSupportSeverity(req.body?.severity);
-  const summary = String(req.body?.summary || req.body?.description || '').trim().slice(0, 2000);
-  const actor = req.supportActor?.type === 'church'
-    ? `church:${churchId}`
-    : `admin:${req.supportActor?.adminUser?.id || 'unknown'}`;
-  const diagnostics = buildSupportDiagnostics(churchId, {
-    issueCategory,
-    severity,
-    timezone: req.body?.timezone,
-    appVersion: req.body?.appVersion,
-    autoFixAttempts: req.body?.autoFixAttempts,
-    campusId: req.body?.campusId,
-    room: req.body?.room,
-  });
-  const triage = computeTriageResult(diagnostics);
-  diagnostics.checks = triage.checks;
-
-  const triageId = uuidv4();
-  const createdAt = new Date().toISOString();
-  db.prepare(`
-    INSERT INTO support_triage_runs (
-      id, church_id, issue_category, severity, summary, triage_result,
-      diagnostics_json, autofix_attempts_json, timezone, app_version, created_by, created_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    triageId,
-    churchId,
-    issueCategory,
-    severity,
-    summary,
-    triage.triageResult,
-    JSON.stringify(diagnostics),
-    JSON.stringify(diagnostics.autoFixAttempts || []),
-    diagnostics.timezone || null,
-    diagnostics.appVersion || null,
-    actor,
-    createdAt
-  );
-
-  res.status(201).json({
-    triageId,
-    churchId,
-    triageResult: triage.triageResult,
-    checks: triage.checks,
-    diagnostics,
-    createdAt,
-  });
+// ─── SUPPORT TRIAGE + TICKETS (extracted to src/routes/supportTickets.js) ────
+require('./src/routes/supportTickets')(app, {
+  db, churches, requireAdminJwt, stmtGet, scheduleEngine,
+  JWT_SECRET, RELAY_VERSION, SUPPORT_TRIAGE_WINDOW_HOURS, rateLimit,
 });
 
-app.post('/api/support/tickets', requireSupportAccess, rateLimit(5, 60_000), (req, res) => {
-  const churchId = resolveSupportChurchId(req);
-  if (!churchId) return res.status(400).json({ error: 'churchId required' });
-
-  const church = stmtGet.get(churchId);
-  if (!church) return res.status(404).json({ error: 'Church not found' });
-
-  let severity = normalizeSupportSeverity(req.body?.severity);
-  let issueCategory = normalizeSupportCategory(req.body?.issueCategory);
-  const triageId = String(req.body?.triageId || '').trim() || null;
-  const forceBypass = req.body?.forceBypass === true;
-
-  if (!triageId && !(forceBypass && severity === 'P1')) {
-    return res.status(400).json({ error: 'triageId required unless forceBypass=true with P1 severity' });
-  }
-  if (forceBypass && severity !== 'P1') {
-    return res.status(400).json({ error: 'forceBypass is only allowed for P1 tickets' });
-  }
-
-  let triageRow = null;
-  if (triageId) {
-    triageRow = db.prepare('SELECT * FROM support_triage_runs WHERE id = ? AND church_id = ?').get(triageId, churchId);
-    if (!triageRow) return res.status(404).json({ error: 'triageId not found for church' });
-    const triageAgeMs = Date.now() - new Date(triageRow.created_at).getTime();
-    if (triageAgeMs > SUPPORT_TRIAGE_WINDOW_HOURS * 60 * 60 * 1000) {
-      return res.status(400).json({ error: `triageId is older than ${SUPPORT_TRIAGE_WINDOW_HOURS} hours; rerun triage first` });
-    }
-    if (!req.body?.severity) severity = normalizeSupportSeverity(triageRow.severity);
-    if (!req.body?.issueCategory) issueCategory = normalizeSupportCategory(triageRow.issue_category);
-  }
-
-  const title = String(req.body?.title || triageRow?.summary || issueCategory.replace(/_/g, ' ')).trim().slice(0, 160);
-  if (!title) return res.status(400).json({ error: 'title required' });
-  const description = String(req.body?.description || '').trim().slice(0, 4000);
-  const actor = req.supportActor?.type === 'church'
-    ? `church:${churchId}`
-    : `admin:${req.supportActor?.adminUser?.id || 'unknown'}`;
-  const nowIso = new Date().toISOString();
-  const ticketId = uuidv4();
-  const diagnostics = triageRow
-    ? safeJsonParse(triageRow.diagnostics_json, {})
-    : buildSupportDiagnostics(churchId, { issueCategory, severity });
-
-  db.prepare(`
-    INSERT INTO support_tickets (
-      id, church_id, triage_id, issue_category, severity, title, description,
-      status, forced_bypass, diagnostics_json, created_by, created_at, updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    ticketId,
-    churchId,
-    triageId,
-    issueCategory,
-    severity,
-    title,
-    description,
-    'open',
-    forceBypass ? 1 : 0,
-    JSON.stringify(diagnostics),
-    actor,
-    nowIso,
-    nowIso
-  );
-
-  db.prepare(`
-    INSERT INTO support_ticket_updates (ticket_id, message, actor_type, actor_id, created_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(
-    ticketId,
-    description || 'Ticket opened',
-    req.supportActor?.type === 'church' ? 'church' : 'admin',
-    req.supportActor?.type === 'church' ? churchId : (req.supportActor?.adminUser?.id || ''),
-    nowIso
-  );
-
-  res.status(201).json({
-    ticketId,
-    churchId,
-    triageId,
-    status: 'open',
-    severity,
-    issueCategory,
-    title,
-    forceBypass,
-    createdAt: nowIso,
-  });
-});
-
-app.get('/api/support/tickets', requireSupportAccess, (req, res) => {
-  const limit = Math.max(1, Math.min(Number(req.query.limit || 50), 200));
-  const status = req.query.status ? String(req.query.status).trim().toLowerCase() : null;
-
-  if (status && !supportTicketStates.has(status)) {
-    return res.status(400).json({ error: 'invalid status filter' });
-  }
-
-  if (req.supportActor?.type === 'church') {
-    const churchId = req.supportActor.churchId;
-    const rows = status
-      ? db.prepare(`
-          SELECT * FROM support_tickets
-          WHERE church_id = ? AND status = ?
-          ORDER BY datetime(updated_at) DESC
-          LIMIT ?
-        `).all(churchId, status, limit)
-      : db.prepare(`
-          SELECT * FROM support_tickets
-          WHERE church_id = ?
-          ORDER BY datetime(updated_at) DESC
-          LIMIT ?
-        `).all(churchId, limit);
-
-    return res.json(rows.map((row) => ({
-      ...row,
-      forcedBypass: !!row.forced_bypass,
-      diagnostics: safeJsonParse(row.diagnostics_json, {}),
-    })));
-  }
-
-  const churchId = String(req.query.churchId || '').trim() || null;
-  let query = 'SELECT * FROM support_tickets WHERE 1 = 1';
-  const params = [];
-  if (churchId) {
-    query += ' AND church_id = ?';
-    params.push(churchId);
-  }
-  if (status) {
-    query += ' AND status = ?';
-    params.push(status);
-  }
-  query += ' ORDER BY datetime(updated_at) DESC LIMIT ?';
-  params.push(limit);
-
-  const rows = db.prepare(query).all(...params);
-  return res.json(rows.map((row) => ({
-    ...row,
-    forcedBypass: !!row.forced_bypass,
-    diagnostics: safeJsonParse(row.diagnostics_json, {}),
-  })));
-});
-
-app.get('/api/support/tickets/:ticketId', requireSupportAccess, (req, res) => {
-  const ticket = db.prepare('SELECT * FROM support_tickets WHERE id = ?').get(req.params.ticketId);
-  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-
-  if (req.supportActor?.type === 'church' && ticket.church_id !== req.supportActor.churchId) {
-    return res.status(403).json({ error: 'forbidden' });
-  }
-
-  const updates = db.prepare(`
-    SELECT id, message, actor_type, actor_id, created_at
-    FROM support_ticket_updates
-    WHERE ticket_id = ?
-    ORDER BY created_at ASC
-  `).all(ticket.id);
-
-  res.json({
-    ...ticket,
-    forcedBypass: !!ticket.forced_bypass,
-    diagnostics: safeJsonParse(ticket.diagnostics_json, {}),
-    updates,
-  });
-});
-
-app.post('/api/support/tickets/:ticketId/updates', requireSupportAccess, (req, res) => {
-  const ticket = db.prepare('SELECT * FROM support_tickets WHERE id = ?').get(req.params.ticketId);
-  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-  if (req.supportActor?.type === 'church' && ticket.church_id !== req.supportActor.churchId) {
-    return res.status(403).json({ error: 'forbidden' });
-  }
-
-  const message = String(req.body?.message || '').trim();
-  if (!message) return res.status(400).json({ error: 'message required' });
-  const nowIso = new Date().toISOString();
-
-  const requestedStatus = req.body?.status ? String(req.body.status).trim().toLowerCase() : null;
-  let nextStatus = ticket.status;
-  if (requestedStatus) {
-    if (!supportTicketStates.has(requestedStatus)) {
-      return res.status(400).json({ error: 'invalid status' });
-    }
-    if (req.supportActor?.type === 'church' && !['waiting_customer', 'closed'].includes(requestedStatus)) {
-      return res.status(403).json({ error: 'church users can only set waiting_customer or closed' });
-    }
-    nextStatus = requestedStatus;
-  }
-
-  db.prepare(`
-    INSERT INTO support_ticket_updates (ticket_id, message, actor_type, actor_id, created_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(
-    ticket.id,
-    message.slice(0, 4000),
-    req.supportActor?.type === 'church' ? 'church' : 'admin',
-    req.supportActor?.type === 'church' ? req.supportActor.churchId : (req.supportActor?.adminUser?.id || ''),
-    nowIso
-  );
-
-  db.prepare('UPDATE support_tickets SET status = ?, updated_at = ? WHERE id = ?').run(nextStatus, nowIso, ticket.id);
-  res.json({ ok: true, ticketId: ticket.id, status: nextStatus, updatedAt: nowIso });
-});
-
-app.put('/api/support/tickets/:ticketId', requireSupportAccess, (req, res) => {
-  const ticket = db.prepare('SELECT * FROM support_tickets WHERE id = ?').get(req.params.ticketId);
-  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
-
-  if (req.supportActor?.type === 'church') {
-    if (ticket.church_id !== req.supportActor.churchId) return res.status(403).json({ error: 'forbidden' });
-    return res.status(403).json({ error: 'church users cannot edit ticket metadata' });
-  }
-
-  const patch = {};
-  if (req.body?.status !== undefined) {
-    const status = String(req.body.status).trim().toLowerCase();
-    if (!supportTicketStates.has(status)) return res.status(400).json({ error: 'invalid status' });
-    patch.status = status;
-  }
-  if (req.body?.severity !== undefined) patch.severity = normalizeSupportSeverity(req.body.severity);
-  if (req.body?.title !== undefined) patch.title = String(req.body.title).trim().slice(0, 160);
-  if (req.body?.description !== undefined) patch.description = String(req.body.description).trim().slice(0, 4000);
-
-  if (Object.keys(patch).length === 0) return res.status(400).json({ error: 'no changes supplied' });
-
-  patch.updated_at = new Date().toISOString();
-  const columns = Object.keys(patch);
-  const sets = columns.map((key) => `${key} = ?`).join(', ');
-  db.prepare(`UPDATE support_tickets SET ${sets} WHERE id = ?`).run(...columns.map((key) => patch[key]), ticket.id);
-
-  res.json({ ok: true, ticketId: ticket.id, ...patch });
-});
-
-// ─── STATUS COMPONENTS + INCIDENTS ───────────────────────────────────────────
-
-app.get('/api/status/components', (req, res) => {
-  const rows = db.prepare(`
-    SELECT component_id, name, state, latency_ms, detail, last_checked_at, last_changed_at
-    FROM status_components
-    ORDER BY name ASC
-  `).all();
-  res.json({
-    updatedAt: lastStatusCheckAt,
-    components: rows,
-  });
-});
-
-app.get('/api/status/incidents', (req, res) => {
-  const limit = Math.max(1, Math.min(Number(req.query.limit || 50), 200));
-  const rows = db.prepare(`
-    SELECT id, component_id, previous_state, new_state, message, started_at, resolved_at
-    FROM status_incidents
-    ORDER BY id DESC
-    LIMIT ?
-  `).all(limit);
-  res.json(rows);
-});
-
-app.post('/api/status/run-checks', requireAdmin, async (req, res) => {
-  try {
-    await runStatusChecks();
-    res.json({ ok: true, checkedAt: lastStatusCheckAt });
-  } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
-  }
+// ─── STATUS COMPONENTS + INCIDENTS (extracted to src/routes/statusComponents.js) ──
+require('./src/routes/statusComponents')(app, {
+  db, requireAdmin, runStatusChecks,
+  getLastStatusCheckAt: () => lastStatusCheckAt,
 });
 
 app.post('/api/internal/backups/snapshot', requireAdmin, (req, res) => {
@@ -2573,7 +2047,7 @@ app.post('/api/billing/webhook', async (req, res) => {
     const result = await billing.handleWebhook(req.rawBody || req.body, sig);
     res.json(result);
   } catch (e) {
-    console.error('[Billing] Webhook error:', e.message);
+    serverLog.error(`Billing webhook error: ${e.message}`);
     res.status(400).json({ error: e.message });
   }
 });
@@ -2711,7 +2185,7 @@ app.delete('/api/churches/:churchId', requireAdmin, (req, res) => {
   try {
     deleteChurchCascade(churchId);
   } catch (e) {
-    console.error(`[DeleteChurch] Failed for ${churchId}:`, e.message);
+    serverLog.error(`DeleteChurch failed for ${churchId}: ${e.message}`);
     return res.status(500).json({ error: 'Failed to delete church', details: e.message });
   }
   churches.delete(churchId);
@@ -3056,7 +2530,7 @@ app.post('/api/chat', requireAdmin, async (req, res) => {
     const reply = data?.choices?.[0]?.message?.content || 'No response.';
     res.json({ reply });
   } catch (err) {
-    console.error(`[Dashboard Chat] Error: ${err.message}`);
+    serverLog.error(`Dashboard Chat error: ${err.message}`);
     res.status(503).json({ error: `AI unavailable: ${err.message}` });
   }
 });
@@ -3318,7 +2792,7 @@ app.post('/api/events/create', requireAdmin, (req, res) => {
     log(`Event church created: "${name}" (${result.churchId}), expires ${result.expiresAt}`);
     res.json({ churchId: result.churchId, token: result.token, expiresAt: result.expiresAt, name });
   } catch (e) {
-    console.error('[/api/events/create]', e.message);
+    serverLog.error(`/api/events/create: ${e.message}`);
     res.status(500).json({ error: e.message });
   }
 });
@@ -3333,7 +2807,7 @@ app.post('/api/resellers', requireAdmin, (req, res) => {
     const result = resellerSystem.createReseller({ name, brandName, supportEmail, logoUrl, webhookUrl, churchLimit });
     res.json(result);
   } catch (e) {
-    console.error('[/api/resellers POST]', e.message);
+    serverLog.error(`/api/resellers POST: ${e.message}`);
     res.status(500).json({ error: e.message });
   }
 });
@@ -3404,7 +2878,7 @@ app.post('/api/reseller/churches/register', requireReseller, (req, res) => {
       message: 'Church registered. Share this token with the church client app.',
     });
   } catch (e) {
-    console.error('[/api/reseller/churches/register]', e.message);
+    serverLog.error(`/api/reseller/churches/register: ${e.message}`);
     res.status(500).json({ error: e.message });
   }
 });
@@ -3575,9 +3049,7 @@ app.get('/api/reseller/stats', requireReseller, (req, res) => {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 
-function resolveAdminKey(req) {
-  return req.headers['x-api-key'] || req.cookies[ADMIN_SESSION_COOKIE];
-}
+// resolveAdminKey is now provided by authMiddleware (see _authMiddleware above)
 
 function setAdminSession(res, key) {
   res.cookie(ADMIN_SESSION_COOKIE, key, {
@@ -3588,21 +3060,36 @@ function setAdminSession(res, key) {
   });
 }
 
-app.get('/dashboard', (req, res) => {
-  const queryKey = req.query.key || req.query.apikey;
+function buildDashboardLoginHtml(error) {
+  const safeError = error ? error.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c])) : '';
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Tally Dashboard Login</title></head>
+<body style="background:#0d1117;color:#e6edf3;font-family:monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">
+<div style="max-width:360px;width:100%;padding:40px">
+<h1 style="margin:0 0 24px;font-size:1.5rem">Tally Dashboard</h1>
+${safeError ? `<div style="color:#f85149;margin-bottom:16px">${safeError}</div>` : ''}
+<form method="POST" action="/dashboard/login">
+<label style="display:block;margin-bottom:8px;font-size:0.9rem">Admin Key</label>
+<input type="password" name="key" required style="width:100%;padding:10px;background:#161b22;border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-family:monospace;box-sizing:border-box;margin-bottom:16px">
+<button type="submit" style="width:100%;padding:10px;background:#238636;color:#fff;border:none;border-radius:6px;cursor:pointer;font-family:monospace;font-size:1rem">Sign In</button>
+</form></div></body></html>`;
+}
 
-  if (queryKey) {
-    if (queryKey !== ADMIN_API_KEY) {
-      return res.status(401).send('<html><body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Invalid admin key.</p></body></html>');
-    }
-    setAdminSession(res, queryKey);
-    // Redirect to clean URL so the key is not left in browser history/bookmarks.
-    return res.redirect(302, '/dashboard');
+app.use(express.urlencoded({ extended: false, limit: '100kb' }));
+
+app.post('/dashboard/login', (req, res) => {
+  const key = req.body?.key;
+  if (!key || !safeCompareKey(key, ADMIN_API_KEY)) {
+    return res.status(401).send(buildDashboardLoginHtml('Invalid admin key.'));
   }
+  setAdminSession(res, key);
+  return res.redirect(302, '/dashboard');
+});
 
+app.get('/dashboard', (req, res) => {
+  // Authenticate via POST /dashboard/login only (no query param to avoid key leaking in logs)
   const key = resolveAdminKey(req);
-  if (key !== ADMIN_API_KEY) {
-    return res.status(401).send('<html><body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Missing admin authentication. Set your admin key via header or add <code>?key=YOUR_ADMIN_KEY</code> one-time to establish a session.</p></body></html>');
+  if (!safeCompareKey(key, ADMIN_API_KEY)) {
+    return res.status(401).send(buildDashboardLoginHtml());
   }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(buildDashboardHtml());
@@ -3621,7 +3108,7 @@ app.get('/api/dashboard/stream', (req, res) => {
     const reseller = resellerSystem.getReseller(resellerKey);
     if (!reseller) return res.status(403).json({ error: 'Invalid reseller key' });
     filterResellerId = reseller.id;
-  } else if (key !== ADMIN_API_KEY) {
+  } else if (!safeCompareKey(key, ADMIN_API_KEY)) {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
@@ -3659,6 +3146,12 @@ app.get('/api/dashboard/stream', (req, res) => {
     res.write(': ping\n\n');
   }, 15_000);
 
+  // Enforce max SSE connections
+  if (sseClients.size >= MAX_SSE_CLIENTS) {
+    res.status(503).end('Too many dashboard connections');
+    clearInterval(keepAlive);
+    return;
+  }
   sseClients.add(res);
   log(`Dashboard SSE client connected (total: ${sseClients.size})`);
 
@@ -3670,7 +3163,7 @@ app.get('/api/dashboard/stream', (req, res) => {
 });
 
 // Periodic snapshot broadcast every 60s — keeps all dashboards in sync
-setInterval(() => {
+activeTimers.push(setInterval(() => {
   if (sseClients.size === 0) return;
   const states = [...churches.values()].map(c => ({
     churchId:         c.churchId,
@@ -3685,7 +3178,7 @@ setInterval(() => {
     reseller_id:      c.reseller_id || null,
   }));
   broadcastToSSE({ type: 'snapshot', churches: states });
-}, 60_000);
+}, 60_000));
 
 // ─── MAINTENANCE WINDOWS API ──────────────────────────────────────────────────
 
@@ -3748,51 +3241,9 @@ app.get('/api/guest-tokens', requireAdmin, (req, res) => {
   res.json(guestTdMode.listActiveTokens());
 });
 
-// ─── TELEGRAM BOT API ─────────────────────────────────────────────────────────
-
-app.post('/api/telegram-webhook', (req, res) => {
-  const providedSecret = req.headers['x-telegram-bot-api-secret-token'] || '';
-  if (TALLY_BOT_WEBHOOK_SECRET && providedSecret !== TALLY_BOT_WEBHOOK_SECRET) {
-    return res.status(401).json({ error: 'Unauthorized webhook secret' });
-  }
-  res.sendStatus(200); // Respond immediately to Telegram
-  if (tallyBot) tallyBot.handleUpdate(req.body).catch(e => console.error('[TallyBot] webhook error:', e.message));
-  else console.warn('[TallyBot] Webhook called but bot is not initialized.');
-});
-
-app.post('/api/churches/:churchId/td-register', requireAdmin, (req, res) => {
-  const { churchId } = req.params;
-  const church = churches.get(churchId);
-  if (!church) return res.status(404).json({ error: 'Church not found' });
-  const { telegram_user_id, telegram_chat_id, name } = req.body;
-  if (!telegram_user_id || !name) return res.status(400).json({ error: 'telegram_user_id and name required' });
-  if (!tallyBot) return res.status(503).json({ error: 'Telegram bot not configured' });
-  tallyBot._stmtRegisterTD.run(churchId, telegram_user_id, telegram_chat_id || telegram_user_id, name, new Date().toISOString());
-  res.json({ registered: true, name });
-});
-
-app.get('/api/churches/:churchId/tds', requireAdmin, (req, res) => {
-  if (!tallyBot) return res.json([]);
-  const tds = tallyBot._stmtListTDs.all(req.params.churchId);
-  res.json(tds);
-});
-
-app.delete('/api/churches/:churchId/tds/:userId', requireAdmin, (req, res) => {
-  if (!tallyBot) return res.status(503).json({ error: 'Telegram bot not configured' });
-  tallyBot._stmtDeactivateTD.run(req.params.churchId, req.params.userId);
-  res.json({ removed: true });
-});
-
-app.post('/api/bot/set-webhook', requireAdmin, (req, res) => {
-  if (!tallyBot) return res.status(503).json({ error: 'Telegram bot not configured' });
-  const { url, secret_token } = req.body || {};
-  const payload = {
-    url: url || TALLY_BOT_WEBHOOK_URL
-  };
-  const webhookSecret = secret_token || TALLY_BOT_WEBHOOK_SECRET;
-  if (webhookSecret) payload.secret_token = webhookSecret;
-  if (!payload.url) return res.status(400).json({ error: 'url required (or TALLY_BOT_WEBHOOK_URL env var)'});
-  tallyBot.setWebhook(payload).then(r => res.json(r)).catch(e => res.status(500).json({ error: e.message }));
+// ─── TELEGRAM BOT API (extracted to src/routes/telegram.js) ───────────────────
+require('./src/routes/telegram')(app, {
+  churches, requireAdmin, tallyBot, TALLY_BOT_WEBHOOK_SECRET, TALLY_BOT_WEBHOOK_URL,
 });
 
 // Include registration_code in church detail
@@ -3828,9 +3279,34 @@ wss.on('connection', (ws, req) => {
 });
 
 function handleChurchConnection(ws, url, clientIp) {
-  const token = url.searchParams.get('token');
-  if (!token) return ws.close(1008, 'token required');
+  // Support both URL token (legacy) and first-message auth (preferred)
+  const urlToken = url.searchParams.get('token');
+  if (urlToken) {
+    // Legacy: token in URL query param
+    authenticateChurch(ws, urlToken, clientIp);
+  } else {
+    // Preferred: token sent as first WebSocket message
+    const authTimeout = setTimeout(() => {
+      ws.close(1008, 'auth timeout');
+    }, 5000);
 
+    ws.once('message', (data) => {
+      clearTimeout(authTimeout);
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'auth' && msg.token) {
+          authenticateChurch(ws, msg.token, clientIp);
+        } else {
+          ws.close(1008, 'first message must be auth');
+        }
+      } catch {
+        ws.close(1008, 'invalid auth message');
+      }
+    });
+  }
+}
+
+function authenticateChurch(ws, token, clientIp) {
   let payload;
   try {
     payload = jwt.verify(token, JWT_SECRET);
@@ -3895,7 +3371,7 @@ function handleChurchConnection(ws, url, clientIp) {
       }
     }
   } catch (e) {
-    console.error('[branding] lookup error:', e.message);
+    wsLog.error(`Branding lookup error: ${e.message}`);
   }
 
   // Notify controllers and SSE dashboard
@@ -3925,7 +3401,7 @@ function handleChurchConnection(ws, url, clientIp) {
       handleChurchMessage(church, msg);
       totalMessagesRelayed++;
     } catch (e) {
-      console.error('Invalid message from church:', e.message);
+      wsLog.error(`Invalid message from church: ${e.message}`);
     }
   });
 
@@ -3948,7 +3424,7 @@ function handleChurchConnection(ws, url, clientIp) {
   });
 
   ws.on('error', (err) => {
-    console.error(`WS error from church "${church.name}":`, err.message);
+    wsLog.error(`Error from church "${church.name}": ${err.message}`);
   });
 
   ws.send(JSON.stringify({ type: 'connected', churchId: church.churchId, name: church.name }));
@@ -3956,10 +3432,37 @@ function handleChurchConnection(ws, url, clientIp) {
 
 function handleControllerConnection(ws, url) {
   const apiKey = url.searchParams.get('apikey');
-  if (apiKey !== ADMIN_API_KEY) return ws.close(1008, 'invalid api key');
 
+  // Support both URL query param auth (legacy) and first-message auth (preferred).
+  // First-message auth keeps the API key out of server logs and proxy access logs.
+  if (apiKey && safeCompareKey(apiKey, ADMIN_API_KEY)) {
+    // Legacy URL query param auth — promote immediately
+    promoteController(ws);
+  } else {
+    // Wait for first-message auth: { type: 'auth', apikey: '...' }
+    const authTimeout = setTimeout(() => {
+      ws.close(1008, 'auth timeout');
+    }, 5000);
+
+    ws.once('message', (data) => {
+      clearTimeout(authTimeout);
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'auth' && safeCompareKey(msg.apikey, ADMIN_API_KEY)) {
+          promoteController(ws);
+        } else {
+          ws.close(1008, 'invalid api key');
+        }
+      } catch {
+        ws.close(1008, 'invalid auth message');
+      }
+    });
+  }
+}
+
+function promoteController(ws) {
   controllers.add(ws);
-  log(`Controller connected (total: ${controllers.size})`);
+  wsLog.info(`Controller connected (total: ${controllers.size})`);
 
   const churchList = Array.from(churches.values()).map(c => ({
     churchId: c.churchId,
@@ -3979,18 +3482,18 @@ function handleControllerConnection(ws, url) {
       const msg = JSON.parse(data.toString());
       await handleControllerMessage(ws, msg);
     } catch (e) {
-      console.error('Invalid message from controller:', e.message);
+      wsLog.error(`Invalid message from controller: ${e.message}`);
     }
   });
 
   ws.on('close', () => {
     clearInterval(wsPingInterval);
     controllers.delete(ws);
-    log(`Controller disconnected (total: ${controllers.size})`);
+    wsLog.info(`Controller disconnected (total: ${controllers.size})`);
   });
 
   ws.on('error', (err) => {
-    console.error('WS error from controller:', err.message);
+    wsLog.error(`Error from controller: ${err.message}`);
   });
 }
 
@@ -4031,13 +3534,13 @@ function handleChurchMessage(church, msg) {
       }
       // Feed session recap with live stream/recording state
       if (msg.status) {
-        if (msg.status.obs?.streaming !== undefined) {
-          sessionRecap.recordStreamStatus(church.churchId, !!msg.status.obs.streaming);
+        if (hasStreamSignal(msg.status)) {
+          sessionRecap.recordStreamStatus(church.churchId, isStreamActive(msg.status));
         }
         if (msg.status.obs?.viewers !== undefined) {
           sessionRecap.recordPeakViewers(church.churchId, msg.status.obs.viewers);
         }
-        const isRecording = !!(msg.status.atem?.recording || msg.status.obs?.recording || msg.status.hyperDeck?.recording);
+        const isRecording = isRecordingActive(msg.status);
         if (isRecording) {
           sessionRecap.recordRecordingConfirmed(church.churchId);
         }
@@ -4088,7 +3591,7 @@ function handleChurchMessage(church, msg) {
               sessionRecap.recordAlert(church.churchId, msg.alertType, false, escalated);
             }
           } catch (e) {
-            console.error(`Alert processing error for ${church.name}:`, e.message);
+            serverLog.error(`Alert processing error for ${church.name}: ${e.message}`);
           }
         })();
       }
@@ -4115,7 +3618,7 @@ function handleChurchMessage(church, msg) {
         presentationName: msg.presentationName || '',
         slideIndex: msg.slideIndex ?? 0,
         slideCount: msg.slideCount ?? 0,
-      }).catch(e => console.error(`[AutoPilot] Slide change error:`, e.message));
+      }).catch(e => serverLog.error(`AutoPilot slide change error: ${e.message}`));
       break;
     }
 
@@ -4217,122 +3720,13 @@ function broadcastToSSE(data) {
   }
 }
 
-// ─── AUTH MIDDLEWARE ──────────────────────────────────────────────────────────
+// Church Portal — self-service login for individual churches
+setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails });
+serverLog.info('Church Portal routes registered');
 
-const ADMIN_ROLES = ['super_admin', 'admin', 'engineer', 'sales'];
-
-const ROLE_PERMISSIONS = {
-  super_admin: ['*'],
-  admin:       ['churches:read', 'churches:write', 'churches:delete',
-                'billing:read', 'billing:write',
-                'resellers:read', 'resellers:write', 'resellers:delete',
-                'commands:send', 'settings:read', 'settings:write'],
-  engineer:    ['churches:read', 'commands:send',
-                'sessions:read', 'alerts:read', 'alerts:ack',
-                'settings:read'],
-  sales:       ['churches:read',
-                'billing:read',
-                'resellers:read', 'resellers:write'],
-};
-
-function hasPermission(role, permission) {
-  const perms = ROLE_PERMISSIONS[role];
-  if (!perms) return false;
-  if (perms.includes('*')) return true;
-  return perms.includes(permission);
-}
-
-/**
- * JWT-based admin auth middleware.
- * Accepts: Authorization: Bearer <jwt>, x-admin-jwt header, or legacy x-api-key.
- * @param {...string} allowedRoles - If provided, only these roles are allowed. Empty = any admin role.
- */
-function requireAdminJwt(...allowedRoles) {
-  return (req, res, next) => {
-    // 1. Try JWT from Authorization: Bearer header
-    let token = null;
-    const authHeader = req.headers['authorization'] || '';
-    if (authHeader.startsWith('Bearer ')) {
-      token = authHeader.slice(7);
-    }
-    // 2. Try x-admin-jwt header (from landing site proxy)
-    if (!token) token = req.headers['x-admin-jwt'];
-
-    if (token) {
-      try {
-        const payload = jwt.verify(token, JWT_SECRET);
-        if (payload.type !== 'admin') throw new Error('wrong token type');
-
-        // Verify user still exists and is active (catches revocations)
-        const user = db.prepare('SELECT id, email, name, role, active FROM admin_users WHERE id = ?').get(payload.userId);
-        if (!user || !user.active) {
-          return res.status(401).json({ error: 'Account deactivated or not found' });
-        }
-
-        // Check role permission
-        if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
-          return res.status(403).json({ error: 'Insufficient permissions' });
-        }
-
-        req.adminUser = { id: user.id, email: user.email, name: user.name, role: user.role };
-        return next();
-      } catch (e) {
-        if (e.name === 'TokenExpiredError') {
-          return res.status(401).json({ error: 'Token expired' });
-        }
-        return res.status(401).json({ error: 'Invalid admin token' });
-      }
-    }
-
-    // 3. Legacy fallback: x-api-key or admin cookie → treat as super_admin
-    const key = resolveAdminKey(req);
-    if (key === ADMIN_API_KEY) {
-      req.adminUser = { id: '_legacy_api_key', email: '', name: 'API Key', role: 'super_admin' };
-      if (allowedRoles.length > 0 && !allowedRoles.includes('super_admin')) {
-        return res.status(403).json({ error: 'Insufficient permissions' });
-      }
-      return next();
-    }
-
-    return res.status(401).json({ error: 'unauthorized' });
-  };
-}
-
-function requireAdmin(req, res, next) {
-  // Backward-compatible: accepts JWT or legacy API key
-  return requireAdminJwt()(req, res, next);
-}
-
-function requireReseller(req, res, next) {
-  const key = req.headers['x-reseller-key'];
-  if (!key) return res.status(401).json({ error: 'Reseller API key required' });
-  const reseller = db.prepare('SELECT * FROM resellers WHERE api_key = ?').get(key);
-  if (!reseller) return res.status(403).json({ error: 'Invalid reseller key' });
-  req.reseller = reseller;
-  next();
-}
-
-function requireChurchOrAdmin(req, res, next) {
-  const key = resolveAdminKey(req);
-  if (key === ADMIN_API_KEY) return next();
-
-  const auth = req.headers['authorization'] || '';
-  if (auth.startsWith('Bearer ')) {
-    try {
-      const payload = jwt.verify(auth.slice(7), JWT_SECRET);
-      // Church JWT can only access its own data
-      if (req.params.churchId && payload.churchId !== req.params.churchId) {
-        return res.status(403).json({ error: 'forbidden' });
-      }
-      req.churchPayload = payload;
-      return next();
-    } catch {
-      return res.status(401).json({ error: 'invalid token' });
-    }
-  }
-
-  return res.status(401).json({ error: 'unauthorized' });
-}
+// Reseller Portal — self-service login for integrators/resellers
+setupResellerPortal(app, db, churches, resellerSystem, JWT_SECRET, requireAdmin);
+serverLog.info('Reseller Portal routes registered');
 
 // ─── PRESET LIBRARY API ───────────────────────────────────────────────────────
 
@@ -4490,189 +3884,28 @@ app.get('/api/churches/:churchId/command-log', requireAdmin, requireFeature('aut
   res.json(log);
 });
 
-// ─── CHAT API ────────────────────────────────────────────────────────────────
-
-// Church-facing: TD sends a chat message from Electron app
-app.post('/api/church/chat', requireChurchAppAuth, (req, res) => {
-  const { message, senderName } = req.body;
-  if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
-  const trimmedMessage = message.trim();
-  const saved = chatEngine.saveMessage({
-    churchId: req.church.churchId,
-    senderName: senderName || req.church.td_name || 'TD',
-    senderRole: 'td',
-    source: 'app',
-    message: trimmedMessage,
-  });
-  chatEngine.broadcastChat(saved);
-  handleChatCommandMessage(req.church.churchId, trimmedMessage).catch((err) => {
-    log(`Chat command handler error (${req.church.churchId}): ${err.message}`);
-  });
-  res.json(saved);
+// ─── CHAT API (extracted to src/routes/chat.js) ──────────────────────────────
+require('./src/routes/chat')(app, {
+  db, requireChurchAppAuth, requireAdmin, chatEngine, handleChatCommandMessage, log,
 });
 
-// Church-facing: TD polls for messages
-app.get('/api/church/chat', requireChurchAppAuth, (req, res) => {
-  const messages = chatEngine.getMessages(req.church.churchId, {
-    since: req.query.since || null,
-    limit: parseInt(req.query.limit) || 50,
-  });
-  res.json({ messages });
+// ─── SLACK INTEGRATION API (extracted to src/routes/slack.js) ─────────────────
+require('./src/routes/slack')(app, {
+  db, churches, requireAdmin, stmtGet, alertEngine, log,
 });
 
-// Admin-facing: Admin sends a chat message
-app.post('/api/churches/:churchId/chat', requireAdmin, (req, res) => {
-  const churchRow = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(req.params.churchId);
-  if (!churchRow) return res.status(404).json({ error: 'Church not found' });
-  const { message, senderName } = req.body;
-  if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
-  const trimmedMessage = message.trim();
-  const saved = chatEngine.saveMessage({
-    churchId: req.params.churchId,
-    senderName: senderName || req.adminUser?.name || 'Admin',
-    senderRole: 'admin',
-    source: 'dashboard',
-    message: trimmedMessage,
-  });
-  chatEngine.broadcastChat(saved);
-  handleChatCommandMessage(req.params.churchId, trimmedMessage).catch((err) => {
-    log(`Chat command handler error (${req.params.churchId}): ${err.message}`);
-  });
-  res.json(saved);
+// ─── OFFLINE BETWEEN-SERVICE DETECTION (extracted to src/crons/offlineDetection.js) ──
+const _offlineDetection = require('./src/crons/offlineDetection')({
+  db, churches, scheduleEngine, alertEngine, eventMode, tallyBot, activeTimers,
 });
+const { isInMaintenanceWindow } = _offlineDetection;
 
-// Admin-facing: Admin polls for messages
-app.get('/api/churches/:churchId/chat', requireAdmin, (req, res) => {
-  const messages = chatEngine.getMessages(req.params.churchId, {
-    since: req.query.since || null,
-    limit: parseInt(req.query.limit) || 50,
-    sessionId: req.query.sessionId || null,
-  });
-  res.json({ messages });
+// ─── GLOBAL ERROR HANDLER ─────────────────────────────────────────────────────
+// Catch-all for unhandled route errors — must be defined after all routes.
+app.use((err, req, res, next) => {
+  serverLog.error('Unhandled route error:', err.message);
+  res.status(500).json({ error: 'Internal server error' });
 });
-
-// ─── SLACK INTEGRATION API ────────────────────────────────────────────────────
-
-// Get Slack config for a church (masked webhook for security)
-app.get('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
-  const row = stmtGet.get(req.params.churchId);
-  if (!row) return res.status(404).json({ error: 'Church not found' });
-  const url = row.slack_webhook_url || '';
-  res.json({
-    configured: !!url,
-    webhookUrl: url ? url.slice(0, 40) + '••••••' : '',
-    webhookUrlFull: url, // admin-only endpoint, safe to return full URL
-    channel: row.slack_channel || '',
-  });
-});
-
-// Set Slack config for a church
-app.put('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
-  const church = churches.get(req.params.churchId);
-  if (!church) return res.status(404).json({ error: 'Church not found' });
-  const { webhookUrl, channel } = req.body;
-  if (!webhookUrl) return res.status(400).json({ error: 'webhookUrl required' });
-  db.prepare('UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?')
-    .run(webhookUrl, channel || null, req.params.churchId);
-  log(`Slack configured for church ${church.name}`);
-  res.json({ saved: true, channel: channel || null });
-});
-
-// Remove Slack config
-app.delete('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
-  const church = churches.get(req.params.churchId);
-  if (!church) return res.status(404).json({ error: 'Church not found' });
-  db.prepare('UPDATE churches SET slack_webhook_url = NULL, slack_channel = NULL WHERE churchId = ?')
-    .run(req.params.churchId);
-  res.json({ removed: true });
-});
-
-// Test Slack integration
-app.post('/api/churches/:churchId/slack/test', requireAdmin, async (req, res) => {
-  const church = churches.get(req.params.churchId);
-  if (!church) return res.status(404).json({ error: 'Church not found' });
-  const row = stmtGet.get(req.params.churchId);
-  if (!row?.slack_webhook_url) return res.status(400).json({ error: 'Slack not configured for this church' });
-
-  try {
-    await alertEngine.sendSlackAlert(
-      { ...church, ...row },
-      'test_alert',
-      'INFO',
-      { church: church.name },
-      { likely_cause: 'This is a test message from Tally.', steps: ['Slack integration is working correctly!'] }
-    );
-    res.json({ sent: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ─── OFFLINE BETWEEN-SERVICE DETECTION (Feature 12) ──────────────────────────
-
-function isInMaintenanceWindow(churchId) {
-  const now = new Date().toISOString();
-  const row = db.prepare(
-    `SELECT id FROM maintenance_windows WHERE churchId = ? AND startTime <= ? AND endTime >= ? LIMIT 1`
-  ).get(churchId, now, now);
-  return !!row;
-}
-
-function checkOfflineChurches() {
-  const now = Date.now();
-  const hour = new Date().getHours();
-  const isNightTime = hour >= 23 || hour < 6; // 11pm–6am: don't alert
-
-  const allChurches = db.prepare('SELECT * FROM churches').all();
-  const botToken = process.env.ALERT_BOT_TOKEN;
-  const andrewChatId = process.env.ANDREW_TELEGRAM_CHAT_ID;
-
-  for (const row of allChurches) {
-    const church = churches.get(row.churchId);
-    if (!church) continue;
-    if (!church.lastHeartbeat) continue; // never connected — skip
-    if (isInMaintenanceWindow(row.churchId)) continue;
-    if (scheduleEngine.isServiceWindow(row.churchId)) continue; // in service — normal
-
-    const offlineMs = now - church.lastHeartbeat;
-    const offlineHours = offlineMs / (1000 * 60 * 60);
-
-    // Already connected — reset flag
-    if (church.ws?.readyState === WebSocket.OPEN) {
-      church._offlineAlertSent = false;
-      church._criticalOfflineAlertSent = false;
-      continue;
-    }
-
-    if (offlineHours >= 24) {
-      // Critical: offline for 24+ hours
-      if (!church._criticalOfflineAlertSent && botToken && andrewChatId) {
-        church._criticalOfflineAlertSent = true;
-        const lastSeen = new Date(church.lastHeartbeat).toLocaleString();
-        const msg = `🔴 *CRITICAL: ${row.name}* has been offline for 24+ hours\nLast seen: ${lastSeen}\n\nThis church's booth computer may need attention.`;
-        alertEngine.sendTelegramMessage(andrewChatId, botToken, msg).catch(() => {});
-        log(`[OfflineDetection] 🔴 CRITICAL: ${row.name} offline 24h+`);
-      }
-    } else if (offlineHours >= 2 && !isNightTime) {
-      // Warning: offline 2+ hours outside of nighttime
-      if (!church._offlineAlertSent && botToken && andrewChatId) {
-        church._offlineAlertSent = true;
-        const lastSeen = new Date(church.lastHeartbeat).toLocaleString();
-        const msg = `⚠️ *${row.name}* booth computer offline for 2h+\nLast seen: ${lastSeen}\nNot during service hours — may need attention.`;
-        alertEngine.sendTelegramMessage(andrewChatId, botToken, msg).catch(() => {});
-        log(`[OfflineDetection] ⚠️ ${row.name} offline 2h+ (not in service window)`);
-      }
-    }
-  }
-}
-
-// Check every 10 minutes (offline detection + event expiry)
-setInterval(() => {
-  checkOfflineChurches();
-  // Event expiry also runs on its own 10-min loop (started in eventMode.start()),
-  // but calling it here too ensures sync with the same cadence.
-  eventMode.checkExpiry(tallyBot, churches).catch(e => console.error('[EventMode] expiry error:', e.message));
-}, 10 * 60 * 1000);
 
 // ─── START ────────────────────────────────────────────────────────────────────
 
@@ -4680,7 +3913,7 @@ server.listen(PORT, () => {
   log(`Tally Relay running on port ${PORT}`);
   log(`Admin API key: configured (${ADMIN_API_KEY.length} chars)`);
   runStatusChecks().catch((e) => {
-    console.error('[StatusChecks] initial run failed:', e.message);
+    serverLog.error(`StatusChecks initial run failed: ${e.message}`);
   });
 });
 
@@ -4689,7 +3922,42 @@ server.listen(PORT, () => {
 function gracefulShutdown(signal) {
   log(`${signal} received — shutting down gracefully...`);
 
-  // Close WebSocket server (stops accepting new connections)
+  // ── 1. Clear ALL interval timers FIRST ─────────────────────────────────────
+  log(`Clearing ${activeTimers.length} active timer(s)...`);
+  for (const timer of activeTimers) {
+    clearInterval(timer);
+  }
+  activeTimers.length = 0;
+
+  // Stop module-owned timers
+  try { weeklyDigest.stop(); } catch {}
+  try { guestTdMode.stop(); } catch {}
+  try { scheduleEngine.stop(); } catch {}
+  try { preServiceCheck?.stop(); } catch {}
+  try { monthlyReport.stop(); } catch {}
+  try { planningCenter.stop(); } catch {}
+  try { eventMode.stop(); } catch {}
+  try { syncMonitorHandle?.stop(); } catch {}
+  try { stopLocalCleanup(); } catch {}
+  log('All timers cleared');
+
+  // ── 2. Drain SSE clients ───────────────────────────────────────────────────
+  const sseCount = sseClients.size;
+  for (const client of sseClients) {
+    try { client.end(); } catch {}
+  }
+  sseClients.clear();
+  log(`Closed ${sseCount} SSE client(s)`);
+
+  // ── 3. Close HTTP server (stops accepting new connections) ─────────────────
+  server.close(() => {
+    log('HTTP server closed');
+    // Close database
+    try { db.close(); } catch {}
+    process.exit(0);
+  });
+
+  // ── 4. Close WebSocket server ──────────────────────────────────────────────
   wss.close(() => {
     log('WebSocket server closed');
   });
@@ -4708,17 +3976,9 @@ function gracefulShutdown(signal) {
     }
   }
 
-  // Close HTTP server
-  server.close(() => {
-    log('HTTP server closed');
-    // Close database
-    try { db.close(); } catch {}
-    process.exit(0);
-  });
-
   // Force exit after 10s if graceful close hangs
   setTimeout(() => {
-    console.error('Forced exit after 10s timeout');
+    serverLog.error('Forced exit after 10s timeout');
     process.exit(1);
   }, 10_000).unref();
 }
@@ -4727,12 +3987,14 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('[FATAL] Unhandled promise rejection:', reason);
+  serverLog.error('FATAL: Unhandled promise rejection:', reason);
   log(`[FATAL] Unhandled rejection: ${reason?.message || reason}`);
+  // Treat unhandled rejections as fatal, same as uncaught exceptions
+  setTimeout(() => process.exit(1), 1000).unref();
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('[FATAL] Uncaught exception:', err);
+  serverLog.error('FATAL: Uncaught exception:', err);
   log(`[FATAL] Uncaught exception: ${err.message}`);
   // Give log a moment to flush, then exit — continuing after uncaught exception is unsafe
   setTimeout(() => process.exit(1), 1000).unref();

@@ -14,6 +14,9 @@
  * Duplicate prevention via `email_sends` table — each email type sent once per church.
  */
 
+const { createLogger } = require('./logger');
+const log = createLogger('lifecycle');
+
 const GITHUB_RELEASES_URL = 'https://github.com/atemschool/tally/releases/latest';
 
 class LifecycleEmails {
@@ -58,7 +61,7 @@ class LifecycleEmails {
     const now = new Date().toISOString();
 
     if (!this.resendApiKey) {
-      console.log(`[LifecycleEmails] No RESEND_API_KEY — would send "${subject}" (${emailType}) to ${to}`);
+      log.info(`No RESEND_API_KEY — would send "${subject}" (${emailType}) to ${to}`);
       // Still record it so we don't spam logs
       this._recordSend(churchId, emailType, to, now, null);
       return { sent: false, reason: 'no-api-key' };
@@ -83,16 +86,16 @@ class LifecycleEmails {
 
       if (!res.ok) {
         const err = await res.text();
-        console.error(`[LifecycleEmails] Resend failed (${res.status}): ${err}`);
+        log.error(`Resend failed (${res.status}): ${err}`);
         return { sent: false, reason: 'resend-error' };
       }
 
       const data = await res.json();
       this._recordSend(churchId, emailType, to, now, data.id);
-      console.log(`[LifecycleEmails] Sent "${subject}" (${emailType}) to ${to}, id: ${data.id}`);
+      log.info(`Sent "${subject}" (${emailType}) to ${to}, id: ${data.id}`);
       return { sent: true, id: data.id };
     } catch (e) {
-      console.error(`[LifecycleEmails] Send failed: ${e.message}`);
+      log.error(`Send failed: ${e.message}`);
       return { sent: false, reason: 'network-error' };
     }
   }
@@ -110,7 +113,7 @@ class LifecycleEmails {
         'INSERT OR IGNORE INTO email_sends (church_id, email_type, recipient, sent_at, resend_id) VALUES (?, ?, ?, ?, ?)'
       ).run(churchId, emailType, recipient, sentAt, resendId || null);
     } catch (e) {
-      console.error(`[LifecycleEmails] Failed to record send: ${e.message}`);
+      log.error(`Failed to record send: ${e.message}`);
     }
   }
 
@@ -127,7 +130,7 @@ class LifecycleEmails {
       await this._checkReviewRequest();
       await this._checkWinBack();
     } catch (e) {
-      console.error(`[LifecycleEmails] runCheck error: ${e.message}`);
+      log.error(`runCheck error: ${e.message}`);
     }
   }
 
