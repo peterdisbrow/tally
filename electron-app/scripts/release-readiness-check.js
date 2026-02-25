@@ -7,6 +7,14 @@ function hasAny(keys) {
   return keys.some((k) => String(process.env[k] || '').trim().length > 0);
 }
 
+function parseProfile() {
+  const idx = process.argv.indexOf('--profile');
+  if (idx >= 0 && process.argv[idx + 1]) {
+    return String(process.argv[idx + 1]).trim();
+  }
+  return 'full';
+}
+
 function checkFile(root, relativePath) {
   const target = path.join(root, relativePath);
   return fs.existsSync(target);
@@ -20,13 +28,13 @@ function printResult(ok, label, details = '') {
 
 function main() {
   const root = path.resolve(__dirname, '..');
+  const profile = parseProfile();
   let failures = 0;
 
-  const files = [
-    'assets/icon.icns',
-    'assets/icon.ico',
-    'assets/entitlements.mac.plist',
-  ];
+  const isMacUnsigned = profile === 'mac-unsigned';
+  const files = isMacUnsigned
+    ? ['assets/icon.icns', 'assets/entitlements.mac.plist']
+    : ['assets/icon.icns', 'assets/icon.ico', 'assets/entitlements.mac.plist'];
 
   for (const file of files) {
     const ok = checkFile(root, file);
@@ -34,30 +42,35 @@ function main() {
     if (!ok) failures++;
   }
 
-  const macSignConfigured = hasAny(['CSC_LINK', 'CSC_NAME']);
-  printResult(
-    macSignConfigured,
-    'macOS signing identity env (CSC_LINK or CSC_NAME)',
-    macSignConfigured ? '' : 'set CSC_LINK/CSC_KEY_PASSWORD (or CSC_NAME)'
-  );
-  if (!macSignConfigured) failures++;
+  if (isMacUnsigned) {
+    printResult(true, 'macOS unsigned profile selected', 'signing/notarization checks skipped');
+    printResult(true, 'Windows signing env', 'skipped for mac-only profile');
+  } else {
+    const macSignConfigured = hasAny(['CSC_LINK', 'CSC_NAME']);
+    printResult(
+      macSignConfigured,
+      'macOS signing identity env (CSC_LINK or CSC_NAME)',
+      macSignConfigured ? '' : 'set CSC_LINK/CSC_KEY_PASSWORD (or CSC_NAME)'
+    );
+    if (!macSignConfigured) failures++;
 
-  const macNotarizeConfigured = hasAny(['APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID'])
-    || hasAny(['APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER']);
-  printResult(
-    macNotarizeConfigured,
-    'macOS notarization env',
-    macNotarizeConfigured ? '' : 'set APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID or API key triple'
-  );
-  if (!macNotarizeConfigured) failures++;
+    const macNotarizeConfigured = hasAny(['APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID'])
+      || hasAny(['APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER']);
+    printResult(
+      macNotarizeConfigured,
+      'macOS notarization env',
+      macNotarizeConfigured ? '' : 'set APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID or API key triple'
+    );
+    if (!macNotarizeConfigured) failures++;
 
-  const winSignConfigured = hasAny(['WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD', 'CSC_LINK']);
-  printResult(
-    winSignConfigured,
-    'Windows signing env',
-    winSignConfigured ? '' : 'set WIN_CSC_LINK/WIN_CSC_KEY_PASSWORD (or CSC_LINK)'
-  );
-  if (!winSignConfigured) failures++;
+    const winSignConfigured = hasAny(['WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD', 'CSC_LINK']);
+    printResult(
+      winSignConfigured,
+      'Windows signing env',
+      winSignConfigured ? '' : 'set WIN_CSC_LINK/WIN_CSC_KEY_PASSWORD (or CSC_LINK)'
+    );
+    if (!winSignConfigured) failures++;
+  }
 
   if (failures > 0) {
     console.error(`\nRelease readiness check failed: ${failures} item(s) missing.`);
