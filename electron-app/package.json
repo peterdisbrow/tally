@@ -10,8 +10,10 @@
     "build:mac:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
     "build:mac:dist": "mkdir -p \"$HOME/Desktop/Tally\" && rm -f \"dist/Tally by ATEM School-1.0.0-arm64.dmg\" \"dist/Tally by ATEM School-1.0.0-arm64.dmg.blockmap\" && electron-builder --mac && cp -f \"dist/Tally by ATEM School-1.0.0-arm64.dmg\" \"$HOME/Desktop/Tally/Tally-by-ATEM-School.dmg\"",
     "build:win": "electron-builder --win",
-    "build:all": "electron-builder --mac --win",
+    "build:all": "npm run build:mac:unsigned",
     "release:check": "node scripts/release-readiness-check.js",
+    "release:check:mac": "node scripts/release-readiness-check.js --profile mac-unsigned",
+    "release:mac": "npm run release:check:mac && npm run build:mac:unsigned",
     "test": "node --test test/*.test.js"
   },
   "build": {
