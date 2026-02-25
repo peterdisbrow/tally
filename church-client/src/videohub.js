@@ -190,7 +190,7 @@ class VideoHub extends EventEmitter {
       const timer = setTimeout(() => {
         const idx = this._pendingCallbacks.findIndex(p => p === entry);
         if (idx !== -1) this._pendingCallbacks.splice(idx, 1);
-        resolve(); // Resolve anyway — we may have gotten the data via push
+        reject(new Error(`Timeout waiting for ${expectBlock}`));
       }, timeoutMs);
 
       const entry = {
