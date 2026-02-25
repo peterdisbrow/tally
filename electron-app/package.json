@@ -7,9 +7,11 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "build:mac": "electron-builder --mac",
+    "build:mac:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
     "build:mac:dist": "mkdir -p \"$HOME/Desktop/Tally\" && rm -f \"dist/Tally by ATEM School-1.0.0-arm64.dmg\" \"dist/Tally by ATEM School-1.0.0-arm64.dmg.blockmap\" && electron-builder --mac && cp -f \"dist/Tally by ATEM School-1.0.0-arm64.dmg\" \"$HOME/Desktop/Tally/Tally-by-ATEM-School.dmg\"",
     "build:win": "electron-builder --win",
     "build:all": "electron-builder --mac --win",
+    "release:check": "node scripts/release-readiness-check.js",
     "test": "node --test test/*.test.js"
   },
   "build": {
@@ -35,6 +37,10 @@
     ],
     "mac": {
       "category": "public.app-category.utilities",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist",
       "target": [
         {
           "target": "dmg",

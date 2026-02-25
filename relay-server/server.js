@@ -85,7 +85,7 @@ const { setupChurchPortal } = require('./src/churchPortal');
 const { setupResellerPortal } = require('./src/resellerPortal');
 const { setupStatusPage } = require('./src/statusPage');
 const { createBackupSnapshot } = require('./src/dbBackup');
-const { createRateLimit } = require('./src/rateLimit');
+const { createRateLimit, consumeRateLimit } = require('./src/rateLimit');
 const relayPackage = require('./package.json');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
@@ -390,8 +390,6 @@ const messageQueues = new Map();
 const MAX_QUEUE_SIZE = 10;
 const QUEUE_TTL_MS = 30_000; // 30 seconds
 
-// Rate limiting: churchId → { tokens, lastRefill }
-const rateLimiters = new Map();
 const RATE_LIMIT = 10; // commands per second
 const STATUS_STATES = ['operational', 'degraded', 'outage'];
 const supportCategories = new Set([
@@ -876,21 +874,17 @@ preServiceCheck.start();
 
 // ─── RATE LIMITER ─────────────────────────────────────────────────────────────
 
-function checkRateLimit(churchId) {
-  const now = Date.now();
-  let bucket = rateLimiters.get(churchId);
-  if (!bucket) {
-    bucket = { tokens: RATE_LIMIT, lastRefill: now };
-    rateLimiters.set(churchId, bucket);
-  }
-  // Refill tokens based on elapsed time
-  const elapsed = (now - bucket.lastRefill) / 1000;
-  bucket.tokens = Math.min(RATE_LIMIT, bucket.tokens + elapsed * RATE_LIMIT);
-  bucket.lastRefill = now;
-
-  if (bucket.tokens < 1) return false;
-  bucket.tokens -= 1;
-  return true;
+async function checkCommandRateLimit(churchId) {
+  const state = await consumeRateLimit({
+    scope: 'ws-command',
+    key: churchId,
+    maxAttempts: RATE_LIMIT,
+    windowMs: 1000,
+  });
+  return {
+    ok: !state.limited,
+    retryAfterSec: state.retryAfterSec,
+  };
 }
 
 // ─── MESSAGE QUEUE ────────────────────────────────────────────────────────────
@@ -2722,7 +2716,6 @@ app.delete('/api/churches/:churchId', requireAdmin, (req, res) => {
   }
   churches.delete(churchId);
   messageQueues.delete(churchId);
-  rateLimiters.delete(churchId);
 
   log(`Deleted church: ${church.name} (${churchId})`);
   res.json({ deleted: true, name: church.name });
@@ -2787,7 +2780,8 @@ function postSystemChatMessage(churchId, message) {
 }
 
 async function executeChurchCommandWithResult(churchId, command, params = {}) {
-  if (!checkRateLimit(churchId)) {
+  const rateLimit = await checkCommandRateLimit(churchId);
+  if (!rateLimit.ok) {
     return { ok: false, status: 429, error: 'Rate limit exceeded (max 10 commands/second)' };
   }
 
@@ -2905,11 +2899,12 @@ async function handleChatCommandMessage(churchId, rawMessage) {
 }
 
 // Send a command to a specific church
-app.post('/api/command', requireAdmin, (req, res) => {
+app.post('/api/command', requireAdmin, async (req, res) => {
   const { churchId, command, params = {} } = req.body;
   if (!churchId || !command) return res.status(400).json({ error: 'churchId and command required' });
 
-  if (!checkRateLimit(churchId)) {
+  const rateLimit = await checkCommandRateLimit(churchId);
+  if (!rateLimit.ok) {
     return res.status(429).json({ error: 'Rate limit exceeded (max 10 commands/second)' });
   }
 
@@ -3979,10 +3974,10 @@ function handleControllerConnection(ws, url) {
     if (ws.readyState === WebSocket.OPEN) ws.ping();
   }, 25_000);
 
-  ws.on('message', (data) => {
+  ws.on('message', async (data) => {
     try {
       const msg = JSON.parse(data.toString());
-      handleControllerMessage(ws, msg);
+      await handleControllerMessage(ws, msg);
     } catch (e) {
       console.error('Invalid message from controller:', e.message);
     }
@@ -4166,9 +4161,10 @@ function handleChurchMessage(church, msg) {
   }
 }
 
-function handleControllerMessage(ws, msg) {
+async function handleControllerMessage(ws, msg) {
   if (msg.type === 'command' && msg.churchId) {
-    if (!checkRateLimit(msg.churchId)) {
+    const rateLimit = await checkCommandRateLimit(msg.churchId);
+    if (!rateLimit.ok) {
       ws.send(JSON.stringify({ type: 'error', error: 'Rate limit exceeded', churchId: msg.churchId }));
       return;
     }
