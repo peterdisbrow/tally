@@ -1357,7 +1357,7 @@ async function runStatusChecks() {
 
       for (const target of adminProxyTargets) {
         try {
-          const resp = await timedFetch(`${target}/api/admin/me`, {
+          const resp = await timedFetch(`${target}/api/churches`, {
             timeoutMs: 7000,
             headers: { 'x-api-key': ADMIN_API_KEY },
           });
