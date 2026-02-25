@@ -7,6 +7,136 @@
 
 // ─── System prompt ─────────────────────────────────────────────────────────
 
+const FALLBACK_COMMANDS = [
+  'atem.auto',
+  'atem.cut',
+  'atem.fadeToBlack',
+  'atem.runMacro',
+  'atem.setAux',
+  'atem.setDskOnAir',
+  'atem.setDskRate',
+  'atem.setDskSource',
+  'atem.setDskTie',
+  'atem.setInputLabel',
+  'atem.setPreview',
+  'atem.setProgram',
+  'atem.setTransitionRate',
+  'atem.setTransitionStyle',
+  'atem.startRecording',
+  'atem.stopMacro',
+  'atem.stopRecording',
+  'companion.connections',
+  'companion.getGrid',
+  'companion.press',
+  'companion.pressNamed',
+  'dante.scene',
+  'encoder.startRecording',
+  'encoder.startStream',
+  'encoder.status',
+  'encoder.stopRecording',
+  'encoder.stopStream',
+  'hyperdeck.nextClip',
+  'hyperdeck.play',
+  'hyperdeck.prevClip',
+  'hyperdeck.record',
+  'hyperdeck.stop',
+  'hyperdeck.stopRecord',
+  'mixer.mute',
+  'mixer.recallScene',
+  'mixer.setFader',
+  'mixer.status',
+  'mixer.unmute',
+  'obs.configureMonitorStream',
+  'obs.reduceBitrate',
+  'obs.setScene',
+  'obs.startRecording',
+  'obs.startStream',
+  'obs.stopRecording',
+  'obs.stopStream',
+  'preset.delete',
+  'preset.list',
+  'preset.recall',
+  'preset.save',
+  'preview.snap',
+  'preview.start',
+  'preview.stop',
+  'propresenter.clearAll',
+  'propresenter.clearMessage',
+  'propresenter.clearSlide',
+  'propresenter.getLooks',
+  'propresenter.getTimers',
+  'propresenter.goToSlide',
+  'propresenter.isRunning',
+  'propresenter.next',
+  'propresenter.playlist',
+  'propresenter.previous',
+  'propresenter.setLook',
+  'propresenter.stageMessage',
+  'propresenter.startTimer',
+  'propresenter.status',
+  'propresenter.stopTimer',
+  'ptz.home',
+  'ptz.pan',
+  'ptz.preset',
+  'ptz.setPreset',
+  'ptz.stop',
+  'ptz.tilt',
+  'ptz.zoom',
+  'resolume.clearAll',
+  'resolume.getColumns',
+  'resolume.getLayers',
+  'resolume.isRunning',
+  'resolume.playClip',
+  'resolume.setBpm',
+  'resolume.setLayerOpacity',
+  'resolume.setMasterOpacity',
+  'resolume.status',
+  'resolume.stopClip',
+  'resolume.triggerColumn',
+  'status',
+  'system.getServiceWindow',
+  'system.preServiceCheck',
+  'system.setWatchdogMode',
+  'videohub.getRoutes',
+  'videohub.route',
+  'videohub.setInputLabel',
+  'videohub.setOutputLabel',
+  'vmix.cut',
+  'vmix.fade',
+  'vmix.function',
+  'vmix.isRunning',
+  'vmix.listInputs',
+  'vmix.mute',
+  'vmix.preview',
+  'vmix.setPreview',
+  'vmix.setProgram',
+  'vmix.setVolume',
+  'vmix.startRecording',
+  'vmix.startStream',
+  'vmix.status',
+  'vmix.stopRecording',
+  'vmix.stopStream',
+  'vmix.unmute',
+];
+
+function getAvailableCommandNames() {
+  try {
+    // Keep parser command surface aligned with the church client runtime.
+    // This path exists in monorepo and local/dev contexts.
+    // In partial deployments, we fall back to a static snapshot.
+    // eslint-disable-next-line global-require, import/no-dynamic-require
+    const { commandHandlers } = require('../../church-client/src/commands');
+    const runtimeCommands = Object.keys(commandHandlers || {}).sort();
+    if (runtimeCommands.length > 0) return runtimeCommands;
+  } catch {
+    // Fall back to static command list.
+  }
+  return FALLBACK_COMMANDS;
+}
+
+const AVAILABLE_COMMANDS = getAvailableCommandNames();
+const AVAILABLE_COMMANDS_TEXT = AVAILABLE_COMMANDS.map((cmd) => `- ${cmd}`).join('\n');
+
 const SYSTEM_PROMPT = `You are the command parser for Tally, a church AV monitoring and control system.
 A church Technical Director has sent a natural language message via Telegram.
 Your job: parse it into one or more structured commands.
@@ -42,7 +172,14 @@ AVAILABLE COMMANDS (JSON schema):
 {"command":"ptz.home","params":{"camera":N}}
 {"command":"obs.startStream","params":{}}
 {"command":"obs.stopStream","params":{}}
+{"command":"obs.startRecording","params":{}}
+{"command":"obs.stopRecording","params":{}}
 {"command":"obs.setScene","params":{"scene":"X"}}                           — switch to scene "X"
+{"command":"encoder.startStream","params":{}}
+{"command":"encoder.stopStream","params":{}}
+{"command":"encoder.startRecording","params":{}}
+{"command":"encoder.stopRecording","params":{}}
+{"command":"encoder.status","params":{}}
 {"command":"companion.pressNamed","params":{"name":"X"}}           — press a named Companion button
 {"command":"vmix.startStream","params":{}}
 {"command":"vmix.stopStream","params":{}}
@@ -78,6 +215,9 @@ AVAILABLE COMMANDS (JSON schema):
 {"command":"preview.snap","params":{}}                             — send live preview photo
 {"command":"system.preServiceCheck","params":{}}
 {"command":"status","params":{}}                                   — overall system status
+
+ADDITIONAL VALID COMMAND IDS (same params as church runtime):
+${AVAILABLE_COMMANDS_TEXT}
 
 RESPONSE FORMAT — always return valid JSON, one of these three shapes:
 
@@ -213,4 +353,4 @@ async function aiParseCommand(text, ctx = {}) {
   }
 }
 
-module.exports = { aiParseCommand };
+module.exports = { aiParseCommand, getAvailableCommandNames };

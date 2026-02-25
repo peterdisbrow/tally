@@ -6,15 +6,16 @@
 
 const crypto = require('crypto');
 const { aiParseCommand } = require('./ai-parser');
+const { isStreamActive, isRecordingActive } = require('./status-utils');
 
 // ─── COMMAND PATTERNS (ported from parse-command.js + videohub + extras) ─────
 
 const patterns = [
   // ATEM — cut/switch
-  { match: /(?:cut|switch|go)\s+(?:to\s+)?(?:cam(?:era)?|input)\s*(\d+)/i, command: 'atem.cut', extract: m => ({ input: parseInt(m[1]) }), desc: 'cut to camera N' },
-  { match: /(?:cam(?:era)?|input)\s*(\d+)\s+(?:to|on)\s+(?:program|pgm|live)/i, command: 'atem.cut', extract: m => ({ input: parseInt(m[1]) }), desc: null },
-  { match: /(?:put\s+)?(?:cam(?:era)?|input)\s*(\d+)\s+(?:to|on)\s+preview/i, command: 'atem.setPreview', extract: m => ({ input: parseInt(m[1]) }), desc: 'camera N to preview' },
-  { match: /(?:set|change)\s+preview?\s+(?:to\s+)?(?:cam(?:era)?|input)\s*(\d+)/i, command: 'atem.setPreview', extract: m => ({ input: parseInt(m[1]) }), desc: null },
+  { match: /^(?!.*\b(?:vmix|v\.?mix)\b).*?(?:cut|switch|go)\s+(?:to\s+)?(?:cam(?:era)?|input)\s*(\d+)/i, command: 'atem.cut', extract: m => ({ input: parseInt(m[1]) }), desc: 'cut to camera N' },
+  { match: /^(?!.*\b(?:vmix|v\.?mix)\b).*?(?:cam(?:era)?|input)\s*(\d+)\s+(?:to|on)\s+(?:program|pgm|live)/i, command: 'atem.cut', extract: m => ({ input: parseInt(m[1]) }), desc: null },
+  { match: /^(?!.*\b(?:vmix|v\.?mix)\b).*?(?:put\s+)?(?:cam(?:era)?|input)\s*(\d+)\s+(?:to|on)\s+preview/i, command: 'atem.setPreview', extract: m => ({ input: parseInt(m[1]) }), desc: 'camera N to preview' },
+  { match: /^(?!.*\b(?:vmix|v\.?mix)\b).*?(?:set|change)\s+preview?\s+(?:to\s+)?(?:cam(?:era)?|input)\s*(\d+)/i, command: 'atem.setPreview', extract: m => ({ input: parseInt(m[1]) }), desc: null },
 
   // ATEM — transitions
   { match: /auto\s*(?:transition|mix|trans)|^take$/i, command: 'atem.auto', extract: () => ({}), desc: 'auto transition / take' },
@@ -65,12 +66,19 @@ const patterns = [
   { match: /(?:vmix|v\.?mix)\s+volume\s*(\d{1,3})%?/i, command: 'vmix.setVolume', extract: m => ({ value: Number(m[1]) }), desc: 'set vMix master volume' },
   { match: /(?:vmix|v\.?mix)\s+to\s+(?:program|air|live|pgm|out|output)\s+(?:cam(?:era)?|camera|input)?\s*(\d+)|(?:vmix|v\.?mix)\s+(?:cam(?:era)?|camera|input)\s*(\d+)\s*(?:to\s+)?(?:program|air|live|pgm|out|output)/i, command: 'vmix.setProgram', extract: m => ({ input: parseInt(m[1] || m[2] || 1) }), desc: 'vmix cut to input N' },
   { match: /(?:vmix|v\.?mix)\s+cut/i, command: 'vmix.cut', extract: () => ({}), desc: 'vmix cut transition' },
-  { match: /(?:vmix|v\.?mix)\s+set\s+(?:preview|program)\s+(?:to\s+)?(?:input|camera|cam)?\s*(\d+)/i, command: 'vmix.setProgram', extract: m => ({ input: parseInt(m[1]) }), desc: 'vmix set input' },
-  { match: /(?:vmix|v\.?mix)\s+(?:set\s+)?preview\s*(?:to|on)?\s*(?:input|camera)?\s*(\d+)/i, command: 'vmix.setPreview', extract: m => ({ input: parseInt(m[1]) }), desc: 'vmix preview input N' },
+  { match: /(?:vmix|v\.?mix)\s+set\s+(?:program|air|live|pgm|out|output)\s+(?:to\s+)?(?:input|camera|cam)?\s*(\d+)/i, command: 'vmix.setProgram', extract: m => ({ input: parseInt(m[1]) }), desc: 'vmix set program input' },
+  { match: /(?:vmix|v\.?mix)\s+(?:set\s+)?preview\s*(?:to|on)?\s*(?:input|camera|cam)?\s*(\d+)/i, command: 'vmix.setPreview', extract: m => ({ input: parseInt(m[1]) }), desc: 'vmix preview input N' },
   { match: /(?:list|show)\s+(?:vmix|v\.?mix)\s+inputs/i, command: 'vmix.listInputs', extract: () => ({}), desc: 'list vMix inputs' },
   { match: /(?:vmix|v\.?mix)\s+fade\s*(\d+)?/i, command: 'vmix.fade', extract: m => ({ ms: Number(m[1] || 500) }), desc: 'vmix fade to preview' },
   { match: /(?:vmix|v\.?mix)\s+snapshot/i, command: 'vmix.preview', extract: () => ({}), desc: 'take vmix preview snapshot' },
   { match: /(?:is\s+)?(?:vmix|v\.?mix)\s+running|(?:vmix|v\.?mix)\s+status|(?:vmix|v\.?mix)\s+health/i, command: 'vmix.isRunning', extract: () => ({}), desc: 'check vmix running' },
+
+  // Encoder (standalone encoder bridge)
+  { match: /(?:start|begin|go)\s+(?:the\s+)?encoder\s+stream(?:ing)?|encoder\s+go\s+live/i, command: 'encoder.startStream', extract: () => ({}), desc: 'start encoder stream' },
+  { match: /(?:stop|end)\s+(?:the\s+)?encoder\s+stream(?:ing)?/i, command: 'encoder.stopStream', extract: () => ({}), desc: 'stop encoder stream' },
+  { match: /(?:start|begin)\s+encoder\s+record(?:ing)?/i, command: 'encoder.startRecording', extract: () => ({}), desc: 'start encoder recording' },
+  { match: /(?:stop|end)\s+encoder\s+record(?:ing)?/i, command: 'encoder.stopRecording', extract: () => ({}), desc: 'stop encoder recording' },
+  { match: /(?:encoder|hardware\s+encoder)\s+status/i, command: 'encoder.status', extract: () => ({}), desc: 'encoder status' },
 
 // OBS — scene
   { match: /(?:switch|go|change)\s+(?:to\s+)?scene\s+["""]?(.+?)["""]?\s*$/i, command: 'obs.setScene', extract: m => ({ scene: m[1].trim() }), desc: 'switch to scene "Name"' },
@@ -176,6 +184,11 @@ function getHelpText(brandName = 'Tally') {
 *OBS*
 • start / stop stream
 • switch to scene \\[name\\]
+
+*Encoder*
+• start / stop encoder stream
+• start / stop encoder recording
+• encoder status
 
 *HyperDeck*
 • hyperdeck 1 play
@@ -663,7 +676,7 @@ class TallyBot {
       return this._dispatchCommand(church, chatId, parsed.command, parsed.params);
     }
 
-    // ── AI fallback: Claude Haiku ────────────────────────────────────────────
+    // ── AI fallback: OpenAI parser ───────────────────────────────────────────
     const churchRuntime = this.relay.churches.get(church.churchId);
     const ctx = {
       churchName: church.name,
@@ -1149,7 +1162,7 @@ class TallyBot {
 
     const s = diagnostics.deviceHealth || {};
     if (issueCategory === 'stream_down') {
-      const ok = s.obs?.streaming === true || s.encoder?.streaming === true;
+      const ok = isStreamActive(s);
       checks.push({ key: 'stream_state', ok, note: ok ? 'Stream appears active' : 'Stream appears inactive' });
     }
     if (issueCategory === 'atem_connectivity') {
@@ -1157,7 +1170,7 @@ class TallyBot {
       checks.push({ key: 'atem_link', ok, note: ok ? 'ATEM connected' : 'ATEM disconnected' });
     }
     if (issueCategory === 'recording_issue') {
-      const ok = s.atem?.recording === true || s.obs?.recording === true || s.hyperDeck?.recording === true;
+      const ok = isRecordingActive(s);
       checks.push({ key: 'recording_state', ok, note: ok ? 'Recording active' : 'Recording inactive' });
     }
     return checks;

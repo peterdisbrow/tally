@@ -28,8 +28,11 @@
 
 const crypto  = require('crypto');
 const jwt     = require('jsonwebtoken');
+const { createLogger } = require('./logger');
+const log = createLogger('portal');
 const { hashPassword, verifyPassword, generateRegistrationCode: _genRegCode } = require('./auth');
 const { createRateLimit } = require('./rateLimit');
+const { isStreamActive, isRecordingActive } = require('./status-utils');
 
 // ─── JWT helpers ───────────────────────────────────────────────────────────────
 
@@ -187,7 +190,7 @@ function buildChurchLoginHtml(error = '') {
     </div>
     <h1>Sign in</h1>
     <p class="subtitle">Access your church's monitoring dashboard</p>
-    ${error ? `<div class="error">${error}</div>` : ''}
+    ${error ? `<div class="error">${error.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}</div>` : ''}
     <form method="POST" action="/api/church/login">
       <label>Email address</label>
       <input type="email" name="email" placeholder="td@yourchurch.org" required autocomplete="email">
@@ -2217,13 +2220,13 @@ function buildChurchPortalHtml(church) {
       return '<span style="color:#ef4444;font-weight:700">Outage</span>';
     }
 
+    // Client-side mirror of shared escapeHtml in src/auth.js
+    // (inline because this runs in the browser, not Node)
     function escapeHtml(v) {
-      return String(v || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\"/g, '&quot;')
-        .replace(/'/g, '&#39;');
+      if (typeof v !== 'string') return '';
+      return v.replace(/[<>&"']/g, function(c) {
+        return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c];
+      });
     }
 
     async function loadSupportStatus() {
@@ -2372,7 +2375,7 @@ function buildChurchPortalHtml(church) {
 
 function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails } = {}) {
   const express = require('express');
-  console.log('[ChurchPortal] Setup started');
+  log.info('Setup started');
 
   // ── Rate limiting for login endpoint ───────────────────────────────────────
   const loginRateLimit = createRateLimit({
@@ -2893,7 +2896,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           });
           portalUrl = session.url;
         }
-      } catch (e) { console.error('[billing portal session]', e.message); }
+      } catch (e) { log.error(`Billing portal session: ${e.message}`); }
 
       res.json({
         tier,
@@ -2983,7 +2986,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       db.prepare('UPDATE churches SET billing_tier = ? WHERE churchId = ?').run(newTier, church.churchId);
       db.prepare('UPDATE billing_customers SET tier = ?, updated_at = ? WHERE church_id = ?').run(newTier, now, church.churchId);
 
-      console.log('[Billing] Upgraded church ' + church.churchId + ' from ' + currentTier + ' to ' + newTier);
+      log.info('Upgraded church ' + church.churchId + ' from ' + currentTier + ' to ' + newTier);
 
       // Send upgrade confirmation email
       if (lifecycleEmails) {
@@ -2992,7 +2995,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       res.json({ success: true, tier: newTier, message: 'Plan upgraded to ' + newTier });
     } catch (e) {
-      console.error('[Billing upgrade]', e.message);
+      log.error('Billing upgrade: ' + e.message);
       res.status(500).json({ error: 'Upgrade failed: ' + e.message });
     }
   });
@@ -3014,7 +3017,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       res.json(result);
     } catch (e) {
-      console.error('[Billing reactivate]', e.message);
+      log.error('Billing reactivate: ' + e.message);
       res.status(400).json({ error: e.message });
     }
   });
@@ -3080,10 +3083,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       db.prepare('UPDATE churches SET billing_tier = ? WHERE churchId = ?').run(newTier, church.churchId);
       db.prepare('UPDATE billing_customers SET tier = ?, updated_at = ? WHERE church_id = ?').run(newTier, now, church.churchId);
 
-      console.log('[Billing] Downgraded church ' + church.churchId + ' from ' + currentTier + ' to ' + newTier);
+      log.info('Downgraded church ' + church.churchId + ' from ' + currentTier + ' to ' + newTier);
       res.json({ success: true, tier: newTier, message: 'Plan downgraded to ' + newTier + '. Change takes effect at end of current billing period.' });
     } catch (e) {
-      console.error('[Billing downgrade]', e.message);
+      log.error('Billing downgrade: ' + e.message);
       res.status(500).json({ error: 'Downgrade failed: ' + e.message });
     }
   });
@@ -3174,7 +3177,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.setHeader('Content-Type', 'application/json');
       res.json(exportData);
     } catch (e) {
-      console.error('[DataExport]', e.message);
+      log.error('DataExport: ' + e.message);
       res.status(500).json({ error: 'Export failed: ' + e.message });
     }
   });
@@ -3203,11 +3206,11 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           ).get(churchId);
           if (billingRow?.stripe_subscription_id) {
             await stripeClient.subscriptions.cancel(billingRow.stripe_subscription_id);
-            console.log(`[GDPR] Cancelled Stripe subscription for ${churchId}`);
+            log.info(`Cancelled Stripe subscription for ${churchId}`);
           }
         }
       } catch (e) {
-        console.error(`[GDPR] Stripe cancellation failed for ${churchId}: ${e.message}`);
+        log.error(`GDPR Stripe cancellation failed for ${churchId}: ${e.message}`);
         // Continue with deletion even if Stripe cancel fails
       }
 
@@ -3246,10 +3249,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       // Delete the church record last
       db.prepare('DELETE FROM churches WHERE churchId = ?').run(churchId);
 
-      console.log(`[GDPR] ✅ Deleted all data for church "${church.name}" (${churchId})`);
+      log.info(`GDPR: Deleted all data for church "${church.name}" (${churchId})`);
       res.json({ deleted: true, message: 'Your account and all associated data have been permanently deleted.' });
     } catch (e) {
-      console.error('[GDPR delete]', e.message);
+      log.error('GDPR delete: ' + e.message);
       res.status(500).json({ error: 'Deletion failed: ' + e.message });
     }
   });
@@ -3329,10 +3332,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'portal')
       `).run(id, req.church.churchId, reviewerName.trim(), (reviewerRole || '').trim(), rating, body.trim(), req.church.name, now);
 
-      console.log('[Reviews] New review from ' + req.church.name + ' (' + rating + ' stars)');
+      log.info('New review from ' + req.church.name + ' (' + rating + ' stars)');
       res.json({ ok: true, id });
     } catch (e) {
-      console.error('[Reviews]', e.message);
+      log.error('Reviews: ' + e.message);
       res.status(500).json({ error: 'Failed to submit review' });
     }
   });
@@ -3366,7 +3369,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const now = new Date().toISOString();
       const result = db.prepare('UPDATE church_reviews SET approved = 1, approved_at = ? WHERE id = ?').run(now, req.params.id);
       if (result.changes === 0) return res.status(404).json({ error: 'Review not found' });
-      console.log('[Reviews] Approved review ' + req.params.id);
+      log.info('Approved review ' + req.params.id);
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -3389,7 +3392,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       const result = db.prepare('DELETE FROM church_reviews WHERE id = ?').run(req.params.id);
       if (result.changes === 0) return res.status(404).json({ error: 'Review not found' });
-      console.log('[Reviews] Deleted review ' + req.params.id);
+      log.info('Deleted review ' + req.params.id);
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -3527,10 +3530,11 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       const s = runtime?.status || {};
       if (issueCategory === 'stream_down') {
+        const streamActive = isStreamActive(s);
         checks.push({
           key: 'stream_state',
-          ok: s.obs?.streaming === true || s.encoder?.streaming === true,
-          note: (s.obs?.streaming === true || s.encoder?.streaming === true) ? 'Stream appears active' : 'Stream appears inactive',
+          ok: streamActive,
+          note: streamActive ? 'Stream appears active' : 'Stream appears inactive',
         });
       }
       if (issueCategory === 'atem_connectivity') {
@@ -3541,10 +3545,11 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         });
       }
       if (issueCategory === 'recording_issue') {
+        const recordingActive = isRecordingActive(s);
         checks.push({
           key: 'recording_state',
-          ok: s.atem?.recording === true || s.obs?.recording === true || s.hyperDeck?.recording === true,
-          note: (s.atem?.recording === true || s.obs?.recording === true || s.hyperDeck?.recording === true) ? 'Recording appears active' : 'Recording appears inactive',
+          ok: recordingActive,
+          note: recordingActive ? 'Recording appears active' : 'Recording appears inactive',
         });
       }
 
@@ -3691,11 +3696,11 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     db.prepare('UPDATE churches SET portal_email = ?, portal_password_hash = ? WHERE churchId = ?')
       .run(email.trim().toLowerCase(), hashPassword(password), req.params.churchId);
 
-    console.log(`[ChurchPortal] Set portal credentials for church ${req.params.churchId}: ${email}`);
+    log.info(`Set portal credentials for church ${req.params.churchId}: ${email}`);
     res.json({ ok: true, email: email.trim().toLowerCase(), loginUrl: '/church-login' });
   });
 
-  console.log('[ChurchPortal] ✓ Setup complete — routes registered');
+  log.info('Setup complete — routes registered');
 }
 
 module.exports = { setupChurchPortal };

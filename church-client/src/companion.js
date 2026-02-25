@@ -75,20 +75,20 @@ class CompanionBridge extends EventEmitter {
   }
 
   async getConnections() {
-    // Companion 4.x does not expose a connections list via HTTP API.
-    // We just confirm it's reachable and report that.
     const reachable = await this.isAvailable();
     if (!reachable) throw new Error('Companion not reachable');
 
-    // Return a single synthetic entry representing the Companion instance
-    const list = [{
-      id: 'companion',
-      label: 'Companion',
-      moduleId: 'companion',
-      enabled: true,
-      status: 'ok',
-      hasError: false,
-    }];
+    const list = await this._fetchConnectionsList();
+    if (!list.length) {
+      list.push({
+        id: 'companion',
+        label: 'Companion',
+        moduleId: 'companion',
+        enabled: true,
+        status: 'ok',
+        hasError: false,
+      });
+    }
 
     this.connections = list;
     this.connectionCount = list.length;
@@ -159,14 +159,66 @@ class CompanionBridge extends EventEmitter {
         }
 
         if (available) {
-          this.connections = [{ id: 'companion', label: 'Companion', moduleId: 'companion', enabled: true, status: 'ok', hasError: false }];
-          this.connectionCount = 1;
+          try {
+            const conns = await this._fetchConnectionsList();
+            this.connections = conns.length ? conns : [{ id: 'companion', label: 'Companion', moduleId: 'companion', enabled: true, status: 'ok', hasError: false }];
+            this.connectionCount = this.connections.length;
+          } catch {
+            this.connections = [{ id: 'companion', label: 'Companion', moduleId: 'companion', enabled: true, status: 'ok', hasError: false }];
+            this.connectionCount = 1;
+          }
         } else {
           this.connections = [];
           this.connectionCount = 0;
         }
       } catch { /* ignore poll errors */ }
     }, intervalMs);
+  }
+
+  _extractConnections(body) {
+    if (!body) return [];
+    if (Array.isArray(body)) return body;
+    if (Array.isArray(body.connections)) return body.connections;
+    if (Array.isArray(body.modules)) return body.modules;
+    if (Array.isArray(body.instances)) return body.instances;
+    if (body && typeof body === 'object') {
+      return Object.entries(body)
+        .filter(([, value]) => value && typeof value === 'object')
+        .map(([id, value]) => ({ id, ...value }));
+    }
+    return [];
+  }
+
+  _normalizeConnection(raw, index) {
+    const statusValue = String(raw?.status ?? (raw?.connected === false ? 'offline' : 'ok')).trim().toLowerCase();
+    const hasError = raw?.hasError === true || !!raw?.error || /error|fail/.test(statusValue);
+    const id = String(raw?.id || raw?.connectionId || raw?.instanceId || raw?.moduleId || `conn-${index + 1}`);
+    const label = String(raw?.label || raw?.name || raw?.friendlyName || raw?.moduleName || id);
+    const moduleId = String(raw?.moduleId || raw?.type || raw?.instance_type || 'unknown');
+    return {
+      id,
+      label,
+      moduleId,
+      enabled: raw?.enabled !== false && raw?.disabled !== true,
+      status: statusValue || 'ok',
+      hasError,
+    };
+  }
+
+  async _fetchConnectionsList() {
+    const endpoints = ['/api/connections', '/api/modules', '/api/instances'];
+    for (const endpoint of endpoints) {
+      try {
+        const { status, body } = await this._request('GET', endpoint);
+        if (status < 200 || status >= 300) continue;
+        const rows = this._extractConnections(body);
+        if (!rows.length) continue;
+        return rows.map((row, index) => this._normalizeConnection(row, index));
+      } catch {
+        // try next endpoint
+      }
+    }
+    return [];
   }
 
   stopPolling() {
