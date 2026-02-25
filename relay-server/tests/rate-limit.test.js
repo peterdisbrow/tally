@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import rateLimitModule from '../src/rateLimit.js';
 
-const { createRateLimit } = rateLimitModule;
+const { createRateLimit, consumeRateLimit } = rateLimitModule;
 
 function makeReq(path = '/test', ip = '203.0.113.10') {
   return {
@@ -134,5 +134,54 @@ describe('createRateLimit', () => {
     await limiter(req, res2, next2);
     expect(next2).not.toHaveBeenCalled();
     expect(res2.statusCode).toBe(429);
+  });
+});
+
+describe('consumeRateLimit', () => {
+  beforeEach(() => {
+    delete process.env.UPSTASH_REDIS_REST_URL;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    delete process.env.KV_REST_API_URL;
+    delete process.env.KV_REST_API_TOKEN;
+    delete process.env.RATE_LIMIT_KEY_PREFIX;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('enforces limits for command-style short windows', async () => {
+    const scope = `ws-command-${Date.now()}`;
+    const key = 'church_abc';
+    const first = await consumeRateLimit({ scope, key, maxAttempts: 2, windowMs: 1_000 });
+    expect(first.limited).toBe(false);
+    expect(first.count).toBe(1);
+
+    const second = await consumeRateLimit({ scope, key, maxAttempts: 2, windowMs: 1_000 });
+    expect(second.limited).toBe(false);
+    expect(second.count).toBe(2);
+
+    const third = await consumeRateLimit({ scope, key, maxAttempts: 2, windowMs: 1_000 });
+    expect(third.limited).toBe(true);
+    expect(third.count).toBe(3);
+    expect(third.retryAfterSec).toBeGreaterThanOrEqual(1);
+  });
+
+  it('resets the command window after expiry', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-02-25T00:00:00.000Z'));
+    const scope = `ws-command-reset-${Date.now()}`;
+    const key = 'church_xyz';
+
+    const first = await consumeRateLimit({ scope, key, maxAttempts: 1, windowMs: 1_000 });
+    expect(first.limited).toBe(false);
+
+    const second = await consumeRateLimit({ scope, key, maxAttempts: 1, windowMs: 1_000 });
+    expect(second.limited).toBe(true);
+
+    vi.setSystemTime(new Date('2026-02-25T00:00:01.200Z'));
+    const third = await consumeRateLimit({ scope, key, maxAttempts: 1, windowMs: 1_000 });
+    expect(third.limited).toBe(false);
+    expect(third.count).toBe(1);
   });
 });

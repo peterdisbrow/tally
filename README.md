@@ -145,6 +145,17 @@ cd electron-app && npm install && npm run build:mac
 ```
 Church downloads → runs setup wizard → enters token and ATEM IP → done.
 
+Release signing/notarization readiness check:
+```bash
+cd electron-app
+npm run release:check
+```
+If you need an unsigned local build for QA:
+```bash
+cd electron-app
+npm run build:mac:unsigned
+```
+
 #### Option C: Standalone Mock Lab App
 Run Mock Lab as a standalone desktop app (no relay login/token required):
 ```bash

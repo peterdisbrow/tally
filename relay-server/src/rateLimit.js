@@ -100,6 +100,39 @@ function incrementWithLocalStore(scopedKey, windowMs) {
   };
 }
 
+async function consumeRateLimit({
+  scope = 'default',
+  key = 'unknown',
+  maxAttempts = 10,
+  windowMs = 15 * 60 * 1000,
+} = {}) {
+  const scopedKey = `${scope}:${String(key || 'unknown')}`;
+
+  let state;
+  if (hasRedisRateLimitConfig()) {
+    try {
+      state = await incrementWithRedis(scopedKey, windowMs);
+    } catch (error) {
+      if (!redisWarned) {
+        redisWarned = true;
+        console.warn(`[rateLimit] Redis backend unavailable, falling back to memory: ${error.message}`);
+      }
+    }
+  }
+
+  if (!state) {
+    state = incrementWithLocalStore(scopedKey, windowMs);
+  }
+
+  return {
+    ...state,
+    scopedKey,
+    maxAttempts,
+    remaining: Math.max(0, maxAttempts - state.count),
+    limited: state.count > maxAttempts,
+  };
+}
+
 function createRateLimit({
   scope = 'default',
   maxAttempts = 10,
@@ -111,25 +144,9 @@ function createRateLimit({
     const ip = resolveClientIp(req);
     const defaultKey = `${req.path || 'path'}:${ip}`;
     const key = (typeof keyGenerator === 'function' ? keyGenerator(req, ip) : defaultKey) || defaultKey;
-    const scopedKey = `${scope}:${key}`;
+    const state = await consumeRateLimit({ scope, key, maxAttempts, windowMs });
 
-    let state;
-    if (hasRedisRateLimitConfig()) {
-      try {
-        state = await incrementWithRedis(scopedKey, windowMs);
-      } catch (error) {
-        if (!redisWarned) {
-          redisWarned = true;
-          console.warn(`[rateLimit] Redis backend unavailable, falling back to memory: ${error.message}`);
-        }
-      }
-    }
-
-    if (!state) {
-      state = incrementWithLocalStore(scopedKey, windowMs);
-    }
-
-    if (state.count > maxAttempts) {
+    if (state.limited) {
       res.set('Retry-After', String(state.retryAfterSec));
       if (typeof onLimit === 'function') {
         return onLimit(req, res, state.retryAfterSec, state);
@@ -145,6 +162,7 @@ function createRateLimit({
 }
 
 module.exports = {
+  consumeRateLimit,
   createRateLimit,
   resolveClientIp,
 };
