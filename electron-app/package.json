@@ -22,10 +22,7 @@
       "output": "dist"
     },
     "files": [
-      "src/**/*",
-      "assets/**/*",
-      "package.json",
-      "package-lock.json",
+      "**/*",
       "!src/main-mock-lab.js",
       "!src/mock-lab.html",
       "!src/mockLabManager.js",
