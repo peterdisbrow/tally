@@ -38,6 +38,59 @@ function hasNetworkPtz(agent) {
   return !!agent.ptzManager?.hasCameras?.();
 }
 
+function resolveHyperDeckIndex(params = {}) {
+  const raw = Number.parseInt(params.hyperdeck ?? params.index ?? 0, 10);
+  if (!Number.isFinite(raw) || raw <= 0) return 0;
+  return raw - 1;
+}
+
+function getHyperDeckLabel(indexZeroBased) {
+  return Number(indexZeroBased) + 1;
+}
+
+function getDirectHyperDeck(agent, indexZeroBased) {
+  return Array.isArray(agent.hyperdecks) ? agent.hyperdecks[indexZeroBased] || null : null;
+}
+
+async function runHyperDeckDirectOrAtem(agent, params, options) {
+  const index = resolveHyperDeckIndex(params);
+  const direct = getDirectHyperDeck(agent, index);
+
+  if (direct) {
+    try {
+      if (!direct.connected && typeof direct.connect === 'function') {
+        await direct.connect();
+      }
+      if (direct.connected) {
+        await options.direct(direct, index);
+        if (typeof agent._updateHyperDeckStatus === 'function') agent._updateHyperDeckStatus();
+        if (typeof agent.sendStatus === 'function') agent.sendStatus();
+        return { mode: 'direct', index };
+      }
+    } catch {
+      // Keep legacy ATEM fallback when direct HyperDeck is unreachable.
+    }
+  }
+
+  await agent.atemCommand(() => {
+    if (typeof agent.atem?.[options.atemMethod] !== 'function') {
+      throw new Error('HyperDeck control is not available (configure HyperDeck IPs or use an ATEM model with HyperDeck bridge)');
+    }
+    return agent.atem[options.atemMethod](index);
+  });
+  return { mode: 'atem', index };
+}
+
+function ensureEncoderBridge(agent) {
+  if (!agent.encoderBridge) throw new Error('Encoder not configured');
+  return agent.encoderBridge;
+}
+
+function ensureObs(agent) {
+  if (!agent.obs || !agent.status.obs?.connected) throw new Error('OBS not connected');
+  return agent.obs;
+}
+
 // ─── ATEM COMMANDS ──────────────────────────────────────────────────────────
 
 async function atemCut(agent, params) {
@@ -235,7 +288,8 @@ async function atemSetDskSource(agent, params) {
 async function videohubRoute(agent, params) {
   const hub = agent.videoHubs?.[params.hubIndex || 0];
   if (!hub) throw new Error('Video Hub not configured');
-  await hub.setRoute(params.output, params.input);
+  const ok = await hub.setRoute(params.output, params.input);
+  if (!ok) throw new Error('Video Hub did not acknowledge route change');
   return `Routed input ${params.input} → output ${params.output}`;
 }
 
@@ -248,83 +302,67 @@ async function videohubGetRoutes(agent, params) {
 async function videohubSetInputLabel(agent, params) {
   const hub = agent.videoHubs?.[params.hubIndex || 0];
   if (!hub) throw new Error('Video Hub not configured');
-  await hub.setInputLabel(params.index, params.label);
+  const ok = await hub.setInputLabel(params.index, params.label);
+  if (!ok) throw new Error('Video Hub did not acknowledge input label change');
   return `Input ${params.index} labeled "${params.label}"`;
 }
 
 async function videohubSetOutputLabel(agent, params) {
   const hub = agent.videoHubs?.[params.hubIndex || 0];
   if (!hub) throw new Error('Video Hub not configured');
-  await hub.setOutputLabel(params.index, params.label);
+  const ok = await hub.setOutputLabel(params.index, params.label);
+  if (!ok) throw new Error('Video Hub did not acknowledge output label change');
   return `Output ${params.index} labeled "${params.label}"`;
 }
 
 // ─── HYPERDECK COMMANDS ─────────────────────────────────────────────────────
 
 async function hyperdeckPlay(agent, params) {
-  const hd = params.hyperdeck || 0;
-  await agent.atemCommand(() => {
-    if (typeof agent.atem?.setHyperDeckPlay !== 'function') {
-      throw new Error('HyperDeck transport via ATEM is not supported by this switcher');
-    }
-    return agent.atem.setHyperDeckPlay(hd);
+  const result = await runHyperDeckDirectOrAtem(agent, params, {
+    direct: (deck) => deck.play(),
+    atemMethod: 'setHyperDeckPlay',
   });
-  return `HyperDeck ${hd} playing`;
+  return `HyperDeck ${getHyperDeckLabel(result.index)} playing`;
 }
 
 async function hyperdeckStop(agent, params) {
-  const hd = params.hyperdeck || 0;
-  await agent.atemCommand(() => {
-    if (typeof agent.atem?.setHyperDeckStop !== 'function') {
-      throw new Error('HyperDeck transport via ATEM is not supported by this switcher');
-    }
-    return agent.atem.setHyperDeckStop(hd);
+  const result = await runHyperDeckDirectOrAtem(agent, params, {
+    direct: (deck) => deck.stop(),
+    atemMethod: 'setHyperDeckStop',
   });
-  return `HyperDeck ${hd} stopped`;
+  return `HyperDeck ${getHyperDeckLabel(result.index)} stopped`;
 }
 
 async function hyperdeckRecord(agent, params) {
-  const hd = params.hyperdeck || 0;
-  await agent.atemCommand(() => {
-    if (typeof agent.atem?.setHyperDeckRecord !== 'function') {
-      throw new Error('HyperDeck transport via ATEM is not supported by this switcher');
-    }
-    return agent.atem.setHyperDeckRecord(hd);
+  const result = await runHyperDeckDirectOrAtem(agent, params, {
+    direct: (deck) => deck.record(),
+    atemMethod: 'setHyperDeckRecord',
   });
-  return `HyperDeck ${hd} recording`;
+  return `HyperDeck ${getHyperDeckLabel(result.index)} recording`;
 }
 
 async function hyperdeckStopRecord(agent, params) {
-  const hd = params.hyperdeck || 0;
-  await agent.atemCommand(() => {
-    if (typeof agent.atem?.setHyperDeckStop !== 'function') {
-      throw new Error('HyperDeck transport via ATEM is not supported by this switcher');
-    }
-    return agent.atem.setHyperDeckStop(hd);
+  const result = await runHyperDeckDirectOrAtem(agent, params, {
+    direct: (deck) => deck.stop(),
+    atemMethod: 'setHyperDeckStop',
   });
-  return `HyperDeck ${hd} recording stopped`;
+  return `HyperDeck ${getHyperDeckLabel(result.index)} recording stopped`;
 }
 
 async function hyperdeckNextClip(agent, params) {
-  const hd = params.hyperdeck || 0;
-  await agent.atemCommand(() => {
-    if (typeof agent.atem?.setHyperDeckNextClip !== 'function') {
-      throw new Error('HyperDeck transport via ATEM is not supported by this switcher');
-    }
-    return agent.atem.setHyperDeckNextClip(hd);
+  const result = await runHyperDeckDirectOrAtem(agent, params, {
+    direct: (deck) => deck.nextClip(),
+    atemMethod: 'setHyperDeckNextClip',
   });
-  return `HyperDeck ${hd} next clip`;
+  return `HyperDeck ${getHyperDeckLabel(result.index)} next clip`;
 }
 
 async function hyperdeckPrevClip(agent, params) {
-  const hd = params.hyperdeck || 0;
-  await agent.atemCommand(() => {
-    if (typeof agent.atem?.setHyperDeckPrevClip !== 'function') {
-      throw new Error('HyperDeck transport via ATEM is not supported by this switcher');
-    }
-    return agent.atem.setHyperDeckPrevClip(hd);
+  const result = await runHyperDeckDirectOrAtem(agent, params, {
+    direct: (deck) => deck.prevClip(),
+    atemMethod: 'setHyperDeckPrevClip',
   });
-  return `HyperDeck ${hd} previous clip`;
+  return `HyperDeck ${getHyperDeckLabel(result.index)} previous clip`;
 }
 
 // ─── PTZ CAMERA COMMANDS ────────────────────────────────────────────────────
@@ -434,28 +472,74 @@ async function ptzSetPreset(agent, params) {
 // ─── OBS COMMANDS ───────────────────────────────────────────────────────────
 
 async function obsStartStream(agent) {
-  await agent.obs?.call('StartStream');
+  const obs = ensureObs(agent);
+  await obs.call('StartStream');
   return 'Stream started';
 }
 
 async function obsStopStream(agent) {
-  await agent.obs?.call('StopStream');
+  const obs = ensureObs(agent);
+  await obs.call('StopStream');
   return 'Stream stopped';
 }
 
 async function obsStartRecording(agent) {
-  await agent.obs?.call('StartRecord');
+  const obs = ensureObs(agent);
+  await obs.call('StartRecord');
   return 'OBS recording started';
 }
 
 async function obsStopRecording(agent) {
-  await agent.obs?.call('StopRecord');
+  const obs = ensureObs(agent);
+  await obs.call('StopRecord');
   return 'OBS recording stopped';
 }
 
 async function obsSetScene(agent, params) {
-  await agent.obs?.call('SetCurrentProgramScene', { sceneName: params.scene });
+  const obs = ensureObs(agent);
+  await obs.call('SetCurrentProgramScene', { sceneName: params.scene });
   return `Scene set to: ${params.scene}`;
+}
+
+// ─── ENCODER COMMANDS ────────────────────────────────────────────────────────
+
+async function encoderStartStream(agent) {
+  const bridge = ensureEncoderBridge(agent);
+  const result = await bridge.startStream();
+  if (result == null) throw new Error(`Encoder "${agent.status.encoder?.type || 'unknown'}" does not support remote stream start`);
+  return 'Encoder stream started';
+}
+
+async function encoderStopStream(agent) {
+  const bridge = ensureEncoderBridge(agent);
+  const result = await bridge.stopStream();
+  if (result == null) throw new Error(`Encoder "${agent.status.encoder?.type || 'unknown'}" does not support remote stream stop`);
+  return 'Encoder stream stopped';
+}
+
+async function encoderStartRecording(agent) {
+  const bridge = ensureEncoderBridge(agent);
+  const result = await bridge.startRecord();
+  if (result == null) throw new Error(`Encoder "${agent.status.encoder?.type || 'unknown'}" does not support remote recording start`);
+  return 'Encoder recording started';
+}
+
+async function encoderStopRecording(agent) {
+  const bridge = ensureEncoderBridge(agent);
+  const result = await bridge.stopRecord();
+  if (result == null) throw new Error(`Encoder "${agent.status.encoder?.type || 'unknown'}" does not support remote recording stop`);
+  return 'Encoder recording stopped';
+}
+
+async function encoderStatus(agent) {
+  if (!agent.encoderBridge) return agent.status.encoder;
+  try {
+    const latest = await agent.encoderBridge.getStatus();
+    Object.assign(agent.status.encoder, latest);
+  } catch {
+    // best-effort read
+  }
+  return agent.status.encoder;
 }
 
 // ─── PROPRESENTER COMMANDS ───────────────────────────────────────────────────
@@ -1254,6 +1338,11 @@ const commandHandlers = {
   'obs.stopRecording': obsStopRecording,
   'obs.setScene': obsSetScene,
   'obs.configureMonitorStream': obsConfigureMonitorStream,
+  'encoder.startStream': encoderStartStream,
+  'encoder.stopStream': encoderStopStream,
+  'encoder.startRecording': encoderStartRecording,
+  'encoder.stopRecording': encoderStopRecording,
+  'encoder.status': encoderStatus,
 
   'status': getStatus,
   'system.preServiceCheck': preServiceCheck,

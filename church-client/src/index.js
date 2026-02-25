@@ -18,6 +18,7 @@ const os = require('os');
 const { commandHandlers } = require('./commands');
 const { CompanionBridge } = require('./companion');
 const { VideoHub } = require('./videohub');
+const { HyperDeck } = require('./hyperdeck');
 const { EncoderBridge } = require('./encoderBridge');
 const { ProPresenter } = require('./propresenter');
 const { Resolume } = require('./resolume');
@@ -36,7 +37,7 @@ program
 
 program
   .option('-t, --token <token>', 'Your church connection token (from ATEM School)')
-  .option('-r, --relay <url>', 'Relay server URL', 'wss://tally-production-cde2.up.railway.app')
+  .option('-r, --relay <url>', 'Relay server URL', 'wss://api.tallyconnect.app')
   .option('-a, --atem <ip>', 'ATEM switcher IP address')
   .option('-o, --obs <url>', 'OBS WebSocket URL')
   .option('-p, --obs-password <password>', 'OBS WebSocket password')
@@ -139,7 +140,11 @@ function stripMockConfig(config = {}) {
   if (cleaned.proPresenter && isMockValue(cleaned.proPresenter.host)) cleaned.proPresenter = null;
   if (cleaned.mixer && isMockValue(cleaned.mixer.host)) cleaned.mixer = null;
   if (Array.isArray(cleaned.hyperdecks)) {
-    cleaned.hyperdecks = cleaned.hyperdecks.filter((entry) => !isMockValue(entry));
+    cleaned.hyperdecks = cleaned.hyperdecks.filter((entry) => {
+      if (typeof entry === 'string') return !isMockValue(entry);
+      const host = String(entry?.host || entry?.ip || '').trim();
+      return !!host && !isMockValue(host);
+    });
   }
   delete cleaned.mockProduction;
   delete cleaned.fakeAtemApiPort;
@@ -259,6 +264,7 @@ class ChurchAVAgent {
     this.obs = null;
     this.companion = null;
     this.videoHubs = [];
+    this.hyperdecks = [];
     this.proPresenter = null;
     this.resolume = null;
     this.vmix = null;
@@ -309,6 +315,8 @@ class ChurchAVAgent {
       },
       companion: { connected: false, endpoint: null, connectionCount: 0, connections: [] },
       videoHubs: [],
+      hyperdeck: { connected: false, recording: false, decks: [] },
+      hyperdecks: [],
       proPresenter: { connected: false, running: false, version: null, currentSlide: null, slideIndex: null, slideTotal: null },
       resolume: { connected: false, host: null, port: null, version: null },
       vmix: { connected: false, streaming: false, recording: false, edition: null, version: null },
@@ -391,6 +399,7 @@ class ChurchAVAgent {
       console.log('🎛️  Companion not configured (set via Equipment tab)');
     }
     await this.connectVideoHubs();
+    await this.connectHyperDecks();
     await this.connectProPresenter();
     await this.connectResolume();
     await this.connectVMix();
@@ -696,6 +705,9 @@ class ChurchAVAgent {
       if (this.mixer && typeof this.mixer.disconnect === 'function') {
         await this.mixer.disconnect();
       }
+      if (Array.isArray(this.hyperdecks)) {
+        await Promise.allSettled(this.hyperdecks.map((deck) => deck?.disconnect?.()));
+      }
       if (this.atem && typeof this.atem.disconnect === 'function') {
         await this.atem.disconnect();
       }
@@ -994,6 +1006,95 @@ class ChurchAVAgent {
 
   _updateVideoHubStatus() {
     this.status.videoHubs = this.videoHubs.map(h => h.toStatus());
+  }
+
+  // ─── HYPERDECK CONNECTION ────────────────────────────────────────────────
+
+  async connectHyperDecks() {
+    const rawEntries = Array.isArray(this.config.hyperdecks) ? this.config.hyperdecks : [];
+    const entries = rawEntries.map((entry, index) => {
+      if (typeof entry === 'string') {
+        return { host: entry.trim(), port: 9993, name: `HyperDeck ${index + 1}` };
+      }
+      return {
+        host: String(entry?.host || entry?.ip || '').trim(),
+        port: Number(entry?.port) || 9993,
+        name: String(entry?.name || `HyperDeck ${index + 1}`),
+      };
+    }).filter((deck) => deck.host);
+    if (entries.length === 0) {
+      console.log('🎞️  HyperDeck not configured (set via Equipment tab)');
+      this.status.hyperdeck = { connected: false, recording: false, decks: [] };
+      this.status.hyperdecks = [];
+      return;
+    }
+
+    this.hyperdecks = [];
+    for (const entry of entries) {
+      const deck = new HyperDeck({
+        host: entry.host,
+        port: entry.port || 9993,
+        name: entry.name || `HyperDeck ${this.hyperdecks.length + 1}`,
+      });
+      deck.on('connected', () => {
+        const identity = `${deck.host}:${deck.port}${deck.getStatus().model ? ` (${deck.getStatus().model})` : ''}`;
+        this.logIdentity(`hyperdeck:${deck.host}:${deck.port}`, 'HyperDeck identity:', identity);
+        this._updateHyperDeckStatus();
+        this.sendStatus();
+      });
+      deck.on('disconnected', () => {
+        this._updateHyperDeckStatus();
+        this.sendStatus();
+      });
+      deck.on('transport', () => {
+        this._updateHyperDeckStatus();
+        this.sendStatus();
+      });
+      this.hyperdecks.push(deck);
+    }
+
+    for (const deck of this.hyperdecks) {
+      try {
+        console.log(`🎞️  Connecting to HyperDeck "${deck.name}" at ${deck.host}:${deck.port}...`);
+        await deck.connect();
+        await deck.refreshStatus();
+        const st = deck.getStatus();
+        console.log(`✅ HyperDeck connected (${st.model || 'model unknown'})`);
+      } catch (e) {
+        console.warn(`⚠️  HyperDeck connection failed (${deck.host}:${deck.port}): ${e.message}`);
+      }
+    }
+
+    this._updateHyperDeckStatus();
+    this.sendStatus();
+
+    setInterval(async () => {
+      if (!Array.isArray(this.hyperdecks) || this.hyperdecks.length === 0) return;
+      await Promise.all(this.hyperdecks.map(async (deck) => {
+        try {
+          if (!deck.connected) {
+            await deck.connect();
+          }
+          if (deck.connected) {
+            await deck.refreshStatus();
+          }
+        } catch {
+          // best-effort reconnect/poll
+        }
+      }));
+      this._updateHyperDeckStatus();
+      this.sendStatus();
+    }, 15_000);
+  }
+
+  _updateHyperDeckStatus() {
+    const decks = Array.isArray(this.hyperdecks)
+      ? this.hyperdecks.map((deck, index) => ({ index, ...deck.getStatus() }))
+      : [];
+    const connected = decks.some((deck) => deck.connected);
+    const recording = decks.some((deck) => deck.recording);
+    this.status.hyperdecks = decks;
+    this.status.hyperdeck = { connected, recording, decks };
   }
 
   // ─── PROPRESENTER CONNECTION ────────────────────────────────────────────
