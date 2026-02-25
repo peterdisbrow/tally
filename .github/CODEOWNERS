@@ -1,0 +1,11 @@
+# Default ownership
+* @peterdisbrow
+
+# Core runtime ownership
+/relay-server/ @peterdisbrow
+/church-client/ @peterdisbrow
+/electron-app/ @peterdisbrow
+
+# Operational controls
+/.github/workflows/ @peterdisbrow
+/test/ @peterdisbrow
