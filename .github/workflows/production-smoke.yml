@@ -29,7 +29,12 @@ jobs:
           set -euo pipefail
 
           curl -fsS "$BASE_URL/api/health" -o health.json
-          jq -e '.uptime >= 0 and (.churchesRegistered | type == "number")' health.json >/dev/null
+          jq -e '
+            (.uptime | type == "number")
+            and (
+              ((.registeredChurches // .churchesRegistered // 0) | type == "number")
+            )
+          ' health.json >/dev/null
 
           curl -fsS "$BASE_URL/api/status/components" -o components.json
           jq -e '.components | type == "array" and length > 0' components.json >/dev/null
