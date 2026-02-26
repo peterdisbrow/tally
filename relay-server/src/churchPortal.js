@@ -356,6 +356,13 @@ function buildChurchPortalHtml(church) {
       flex-wrap: wrap;
     }
     .schedule-note { color: #64748B; font-size: 12px; }
+    /* SCHEDULE OVERVIEW (read-only) */
+    .schedule-overview-day { margin-bottom: 10px; }
+    .schedule-overview-day:last-child { margin-bottom: 0; }
+    .schedule-day-label { font-size: 12px; font-weight: 600; color: #F8FAFC; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+    .schedule-window { display: inline-flex; align-items: center; gap: 6px; background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.15); border-radius: 6px; padding: 4px 10px; font-size: 12px; color: #CBD5E1; margin-right: 6px; margin-bottom: 4px; }
+    .schedule-window .sw-time { color: #22c55e; font-weight: 500; }
+    .schedule-window .sw-label { color: #94A3B8; font-style: italic; }
     .time-select { display: inline-flex; align-items: center; gap: 2px; }
     .time-select select { background: #09090B; color: #F8FAFC; border: 1px solid #1a2e1f; border-radius: 6px; padding: 6px 4px; font-size: 13px; cursor: pointer; }
     .time-select select:focus { border-color: #22c55e; outline: none; }
@@ -614,6 +621,13 @@ function buildChurchPortalHtml(church) {
             <tr><td colspan="3" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
         </table>
+      </div>
+      <div class="card" id="schedule-overview-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Your configured service windows — alerts and automations follow this schedule">Service Schedule</span></div>
+          <button class="btn-secondary" style="padding:4px 12px;font-size:11px" onclick="showPage('schedule', document.querySelector('[data-page=schedule]'))">Edit</button>
+        </div>
+        <div id="schedule-overview-body" style="font-size:13px;color:#94A3B8">Loading schedule…</div>
       </div>
       <div class="card">
         <div class="card-title">Quick Info</div>
@@ -1136,7 +1150,52 @@ function buildChurchPortalHtml(church) {
         // ── Review prompt (after onboarding, after upgrade banner) ───────────
         checkReviewEligibility();
         loadReferralCard();
+
+        // ── Schedule summary on overview ──────────────────────────────────────
+        loadScheduleOverview();
       } catch(e) { console.error(e); }
+    }
+
+    function fmt12(hhmm) {
+      var mins = toMinutes(hhmm);
+      if (mins === null) return hhmm || '';
+      var h = Math.floor(mins / 60);
+      var m = mins % 60;
+      var ampm = h < 12 ? 'AM' : 'PM';
+      var h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+      return h12 + ':' + pad2(m) + ' ' + ampm;
+    }
+
+    async function loadScheduleOverview() {
+      var body = document.getElementById('schedule-overview-body');
+      if (!body) return;
+      try {
+        var raw = await api('GET', '/api/church/schedule');
+        var sched = normalizeSchedulePayload(raw);
+        var html = '';
+        var hasAny = false;
+        SCHEDULE_DAYS.forEach(function(day) {
+          var entries = sched[day] || [];
+          if (!entries.length) return;
+          hasAny = true;
+          html += '<div class="schedule-overview-day">';
+          html += '<div class="schedule-day-label">' + SCHEDULE_DAY_LABELS[day] + '</div>';
+          entries.forEach(function(e) {
+            html += '<span class="schedule-window">';
+            html += '<span class="sw-time">' + fmt12(e.start) + ' – ' + fmt12(e.end) + '</span>';
+            if (e.label) html += '<span class="sw-label">' + esc(e.label) + '</span>';
+            html += '</span>';
+          });
+          html += '</div>';
+        });
+        if (!hasAny) {
+          body.innerHTML = '<span style="color:#475569">No service windows configured. <a href="#" style="color:#22c55e;text-decoration:none" onclick="event.preventDefault();showPage(\'schedule\', document.querySelector(\'[data-page=schedule]\'))">Set up your schedule →</a></span>';
+        } else {
+          body.innerHTML = html;
+        }
+      } catch(e) {
+        body.innerHTML = '<span style="color:#475569">Unable to load schedule</span>';
+      }
     }
 
     function renderOnboarding(d) {
