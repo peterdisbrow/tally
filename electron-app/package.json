@@ -14,7 +14,9 @@
     "release:check": "node scripts/release-readiness-check.js",
     "release:check:mac": "node scripts/release-readiness-check.js --profile mac-unsigned",
     "release:mac": "npm run release:check:mac && npm run build:mac:unsigned",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js && npx playwright test",
+    "test:unit": "node --test test/*.test.js",
+    "test:e2e": "npx playwright test"
   },
   "build": {
     "appId": "com.atemschool.tally",
@@ -72,6 +74,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },
+    "afterPack": "./scripts/afterPack.js",
     "extraResources": [
       {
         "from": "../church-client",

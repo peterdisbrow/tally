@@ -5,7 +5,7 @@
  * encoder status shape. vMix serves as both switcher and encoder.
  */
 
-const VMix = require('../vmix');
+const { VMix } = require('../vmix');
 
 class VmixEncoder {
   constructor({ host = 'localhost', port = 8088 } = {}) {

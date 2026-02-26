@@ -150,8 +150,8 @@ function buildStatusPageHtml() {
     async function loadStatus() {
       try {
         var [componentsResp, incidentsResp] = await Promise.all([
-          fetch('/api/status/components'),
-          fetch('/api/status/incidents?limit=20'),
+          fetch('/api/status/components', { signal: AbortSignal.timeout(10000) }),
+          fetch('/api/status/incidents?limit=20', { signal: AbortSignal.timeout(10000) }),
         ]);
         var componentsJson = await componentsResp.json();
         var incidents = await incidentsResp.json();

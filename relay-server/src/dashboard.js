@@ -232,13 +232,54 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+function asObj(v) {
+  return v && typeof v === 'object' ? v : {};
+}
+
+function isConnected(v) {
+  if (v === true) return true;
+  const o = asObj(v);
+  if (!Object.keys(o).length) return false;
+  if (o.connected !== undefined) return !!o.connected;
+  if (o.online !== undefined) return !!o.online;
+  if (o.active !== undefined) return !!o.active;
+  if (typeof o.status === 'boolean') return !!o.status;
+  return false;
+}
+
+function isStreamingStatus(status) {
+  const s = status || {};
+  const obs = asObj(s.obs);
+  const enc = asObj(s.encoder);
+  return !!(s.streaming === true || obs.streaming === true || enc.live === true || enc.streaming === true);
+}
+
+function atemConfigPresent(status, church) {
+  const s = status || {};
+  const atem = asObj(s.atem);
+  return !!(church && (church.atemActive || church.atemIp) || atem.ip || s.atem === true);
+}
+
+function encoderConfigPresent(status, church) {
+  const s = status || {};
+  const enc = asObj(s.encoder);
+  return !!(
+    (church && church.encoderActive) ||
+    s.encoder === true ||
+    enc.type || enc.host || enc.port || enc.source
+  );
+}
+
 function statusDotClass(church) {
   if (!church.connected) return 'dot-gray';
   if ((church.activeAlerts || 0) > 0) return 'dot-red';
   const s = church.status || {};
-  const obsOk  = s.obs  ? s.obs.connected  : true;
-  const atemOk = s.atem ? s.atem.connected : true;
-  if (!obsOk || !atemOk) return 'dot-yellow';
+  const atemConfigured = atemConfigPresent(s, church);
+  const atemOk = !atemConfigured || isConnected(s.atem);
+  const encoderConfigured = encoderConfigPresent(s, church);
+  const encoderOk = !encoderConfigured || isConnected(s.encoder);
+
+  if (!atemOk || !encoderOk) return 'dot-yellow';
   return 'dot-green';
 }
 
@@ -272,7 +313,7 @@ function syncBadge(syncStatus) {
 function encoderTypeName(type) {
   const names = {
     obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
-    aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek',
+    aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek', tricaster: 'TriCaster', birddog: 'BirdDog',
     ndi: 'NDI Decoder', yolobox: 'YoloBox', 'tally-encoder': 'Tally Enc', custom: 'Custom',
     'custom-rtmp': 'RTMP', 'rtmp-generic': 'RTMP',
   };
@@ -306,11 +347,11 @@ function patchCard(church) {
   if (!card) return false;
 
   const s = church.status || {};
-  const atemConnected = s.atem && s.atem.connected;
-  const obsConnected  = s.obs  && s.obs.connected;
-  const obsStreaming   = s.obs  && s.obs.streaming;
-  const encoderActive  = church.encoderActive || (s.encoder && s.encoder.connected) || false;
-  const encoderData    = s.encoder || {};
+  const atemConnected = isConnected(s.atem);
+  const obsConnected  = isConnected(s.obs);
+  const obsStreaming  = isStreamingStatus({ obs: s.obs, encoder: {}, streaming: s.streaming });
+  const encoderActive = church.encoderActive || isConnected(s.encoder);
+  const encoderData   = asObj(s.encoder);
   const encoderName    = encoderTypeName(encoderData.type);
   const encoderLive    = encoderData.live || obsStreaming || false;
   const audioData      = s.audio || {};
@@ -812,11 +853,11 @@ function renderCard(church) {
   const dotCls = statusDotClass(church);
   const alerts = church.activeAlerts || 0;
   const s = church.status || {};
-  const atemConnected = s.atem && s.atem.connected;
-  const obsStreaming   = s.obs  && s.obs.streaming;
-  const obsConnected   = s.obs  && s.obs.connected;
-  const encoderActive  = church.encoderActive || (s.encoder && s.encoder.connected) || false;
-  const encoderData    = s.encoder || {};
+  const atemConnected = isConnected(s.atem);
+  const obsStreaming  = isStreamingStatus({ obs: s.obs, encoder: {}, streaming: s.streaming });
+  const obsConnected  = isConnected(s.obs);
+  const encoderActive = church.encoderActive || isConnected(s.encoder);
+  const encoderData   = asObj(s.encoder);
   const encoderName    = encoderTypeName(encoderData.type);
   const encoderLive    = encoderData.live || obsStreaming || false;
   const audioData      = s.audio || {};
@@ -1272,17 +1313,18 @@ async function loadDrawerTab(tab) {
   if (tab === 'overview') {
     const church = _churchStates[id] || {};
     const s = church.status || {};
+    const atemObj = asObj(s.atem);
     body.innerHTML = \`
       <div class="drawer-section-title">Connection</div>
       <div class="drawer-item"><span class="drawer-item-label">Status</span><span class="drawer-item-value">\${church.connected ? '<span class="tag tag-on">Online</span>' : '<span class="tag tag-off">Offline</span>'}</span></div>
       <div class="drawer-item"><span class="drawer-item-label">Last Seen</span><span class="drawer-item-value" style="color:var(--muted);">\${fmtLastSeen(church.lastSeen)}</span></div>
       <div class="drawer-section-title">Equipment</div>
-      <div class="drawer-item"><span class="drawer-item-label">ATEM</span><span class="drawer-item-value">\${tag(s.atem && s.atem.connected,'Connected','Disconnected')}\${s.atem && s.atem.programInput != null ? ' <small style="color:var(--muted);">Cam '+s.atem.programInput+'</small>' : ''}</span></div>
+      <div class="drawer-item"><span class="drawer-item-label">ATEM</span><span class="drawer-item-value">\${tag(isConnected(s.atem),'Connected','Disconnected')}\${atemObj.programInput != null ? ' <small style="color:var(--muted);">Cam '+atemObj.programInput+'</small>' : ''}</span></div>
       <div class="drawer-item"><span class="drawer-item-label">Encoder</span><span class="drawer-item-value">\${(() => {
-        const enc = s.encoder || {};
+        const enc = asObj(s.encoder);
         const name = encoderTypeName(enc.type);
-        if (!enc.connected && !(s.obs && s.obs.connected)) return '<span class="tag tag-off">Offline</span>';
-        const live = enc.live || (s.obs && s.obs.streaming);
+        if (!isConnected(s.encoder) && !isConnected(s.obs)) return '<span class="tag tag-off">Offline</span>';
+        const live = enc.live || isStreamingStatus({ obs: s.obs, encoder: {}, streaming: s.streaming });
         if (live) {
           let detail = '<span class="tag tag-on">🔴 Streaming</span>';
           if (enc.bitrateKbps) detail += ' <small style="color:var(--muted);">' + (enc.bitrateKbps >= 1000 ? (enc.bitrateKbps/1000).toFixed(1)+'Mbps' : enc.bitrateKbps+'Kbps') + '</small>';
@@ -1296,11 +1338,11 @@ async function loadDrawerTab(tab) {
         const mixer = s.mixer || {};
         if (mixer.mainMuted) return '<span class="tag tag-off">🔇 Master Muted</span>';
         if (audio.silenceDetected) return '<span class="tag" style="background:rgba(245,158,11,0.15);color:var(--yellow);">⚠ Silence Detected</span>';
-        const live = (s.encoder && s.encoder.live) || (s.obs && s.obs.streaming);
+        const live = isStreamingStatus(s);
         return live ? '<span class="tag tag-on">🔊 OK</span>' : '<span class="tag tag-na">🔊 Standby</span>';
       })()}</span></div>
-      <div class="drawer-item"><span class="drawer-item-label">Companion</span><span class="drawer-item-value">\${tag(s.companion && s.companion.connected,'Online','Offline')}</span></div>
-      <div class="drawer-item"><span class="drawer-item-label">ProPresenter</span><span class="drawer-item-value">\${tag(s.proPresenter && s.proPresenter.connected,'Online','Offline')}</span></div>
+      <div class="drawer-item"><span class="drawer-item-label">Companion</span><span class="drawer-item-value">\${tag(isConnected(s.companion),'Online','Offline')}</span></div>
+      <div class="drawer-item"><span class="drawer-item-label">ProPresenter</span><span class="drawer-item-value">\${tag(isConnected(s.proPresenter),'Online','Offline')}</span></div>
       <div class="drawer-item"><span class="drawer-item-label">A/V Sync</span><span class="drawer-item-value">\${syncBadge(church.syncStatus)}</span></div>
       \${church.activeAlerts ? '<div class="drawer-item"><span class="drawer-item-label">Active Alerts</span><span class="drawer-item-value" style="color:var(--red);">'+church.activeAlerts+'</span></div>' : ''}
       <div style="margin-top:20px;display:flex;gap:8px;flex-wrap:wrap;">
@@ -1597,7 +1639,8 @@ let _churchStates = {};
 async function loadStats() {
   try {
     const resp = await fetch('/api/reseller/stats', {
-      headers: { 'x-reseller-key': RESELLER_KEY }
+      headers: { 'x-reseller-key': RESELLER_KEY },
+      signal: AbortSignal.timeout(10000),
     });
     if (!resp.ok) return;
     const data = await resp.json();
@@ -1616,10 +1659,10 @@ function renderCard(church) {
   const dotCls = statusDotClass(church);
   const alerts = church.activeAlerts || 0;
   const s = church.status || {};
-  const atemConnected = s.atem && s.atem.connected;
-  const obsStreaming   = s.obs  && s.obs.streaming;
-  const encoderActive  = church.encoderActive || (s.encoder && s.encoder.connected) || false;
-  const encoderData    = s.encoder || {};
+  const atemConnected = isConnected(s.atem);
+  const obsStreaming  = isStreamingStatus({ obs: s.obs, encoder: {}, streaming: s.streaming });
+  const encoderActive = church.encoderActive || isConnected(s.encoder);
+  const encoderData   = asObj(s.encoder);
   const encoderName    = encoderTypeName(encoderData.type);
   const encoderLive    = encoderData.live || obsStreaming || false;
   const encoderBadge = encoderActive
@@ -1763,6 +1806,7 @@ async function submitAddChurch() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-reseller-key': RESELLER_KEY },
       body: JSON.stringify({ churchName: name, contactEmail: email, portalEmail, password: portalPassword }),
+      signal: AbortSignal.timeout(10000),
     });
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || 'Registration failed');

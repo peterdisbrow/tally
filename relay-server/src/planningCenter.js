@@ -63,6 +63,7 @@ class PlanningCenter {
         Authorization: `Basic ${credentials}`,
         'Content-Type': 'application/json',
       },
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!resp.ok) {
@@ -199,13 +200,14 @@ class PlanningCenter {
    * @param {{appId?, secret?, serviceTypeId?, syncEnabled?}} opts
    */
   setCredentials(churchId, { appId, secret, serviceTypeId, syncEnabled }) {
+    const allowedColumns = ['pc_app_id', 'pc_secret', 'pc_service_type_id', 'pc_sync_enabled'];
     const updates = [];
     const params = [];
 
-    if (appId !== undefined)         { updates.push('pc_app_id = ?');          params.push(appId); }
-    if (secret !== undefined)        { updates.push('pc_secret = ?');           params.push(secret); }
-    if (serviceTypeId !== undefined) { updates.push('pc_service_type_id = ?');  params.push(serviceTypeId); }
-    if (syncEnabled !== undefined)   { updates.push('pc_sync_enabled = ?');     params.push(syncEnabled ? 1 : 0); }
+    if (appId !== undefined && allowedColumns.includes('pc_app_id'))                { updates.push('pc_app_id = ?');          params.push(appId); }
+    if (secret !== undefined && allowedColumns.includes('pc_secret'))               { updates.push('pc_secret = ?');           params.push(secret); }
+    if (serviceTypeId !== undefined && allowedColumns.includes('pc_service_type_id')) { updates.push('pc_service_type_id = ?');  params.push(serviceTypeId); }
+    if (syncEnabled !== undefined && allowedColumns.includes('pc_sync_enabled'))     { updates.push('pc_sync_enabled = ?');     params.push(syncEnabled ? 1 : 0); }
 
     if (!updates.length) return;
     params.push(churchId);

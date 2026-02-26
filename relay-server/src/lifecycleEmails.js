@@ -79,6 +79,7 @@ class LifecycleEmails {
           text,
           tags: [{ name: 'category', value: emailType }],
         }),
+        signal: AbortSignal.timeout(10000),
       });
 
       if (!res.ok) {

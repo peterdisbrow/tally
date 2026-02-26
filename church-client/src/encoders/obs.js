@@ -31,11 +31,12 @@ class ObsEncoder {
   /** Accept an external OBS instance from the agent (avoids double connection) */
   setObs(obs) {
     this._obs = obs;
-    this._connected = true;
+    // Only mark connected if the OBS instance is actually connected
+    this._connected = !!(obs && obs.identified);
   }
 
   async connect() {
-    if (this._obs) return true;
+    if (this._obs) return this._connected;
     try {
       this._obs = new OBSWebSocket();
       const url = `ws://${this.host}:${this.port}`;

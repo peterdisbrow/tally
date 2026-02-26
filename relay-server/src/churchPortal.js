@@ -1031,7 +1031,7 @@ function buildChurchPortalHtml(church) {
 
     // ── API ───────────────────────────────────────────────────────────────────
     async function api(method, path, body) {
-      const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include' };
+      const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', signal: AbortSignal.timeout(15000) };
       if (body) opts.body = JSON.stringify(body);
       const r = await fetch(path, opts);
       const data = await r.json().catch(() => ({}));
@@ -1066,20 +1066,32 @@ function buildChurchPortalHtml(church) {
 
         const tbody = document.getElementById('equipment-tbody');
         const status = d.status || {};
-        const enc = status.encoder || {};
+        const enc = (status.encoder && typeof status.encoder === 'object') ? status.encoder : {};
+        const atemConnected = status.atem === true || !!(status.atem && status.atem.connected);
+        const obsConnected = status.obs === true || !!(status.obs && status.obs.connected);
+        const obsStreaming = status.streaming === true || !!(status.obs && status.obs.streaming);
+        const encoderConnected = status.encoder === true || !!enc.connected;
+        const encoderLive = !!enc.live || obsStreaming;
         const encNames = {
           obs:'OBS', vmix:'vMix', ecamm:'Ecamm', blackmagic:'Blackmagic',
-          aja:'AJA HELO', epiphan:'Epiphan', teradek:'Teradek', ndi:'NDI Decoder',
+          aja:'AJA HELO', epiphan:'Epiphan', teradek:'Teradek', tricaster:'TriCaster', birddog:'BirdDog', ndi:'NDI Decoder',
           yolobox:'YoloBox', 'tally-encoder':'Tally Encoder', custom:'Custom',
           'custom-rtmp':'Custom RTMP', 'rtmp-generic':'RTMP Encoder',
         };
-        const encoderLabel = encNames[enc.type] || (enc.type ? ('Encoder (' + enc.type + ')') : (status.obs ? 'OBS Studio' : 'Streaming Encoder'));
-        const encoderStatus = enc.connected ? (enc.live ? 'streaming' : 'connected') : (status.obs && status.obs.connected ? (status.obs.streaming ? 'streaming' : 'connected') : 'unknown');
-        const audioStatus = (status.mixer && status.mixer.mainMuted) ? 'muted' : (status.audio && status.audio.silenceDetected) ? 'warning' : (enc.live || (status.obs && status.obs.streaming)) ? 'ok' : 'unknown';
+        const encoderLabel = encNames[enc.type] || (enc.type
+          ? ('Encoder (' + enc.type + ')')
+          : ((status.obs && (status.obs.connected || status.obs.app)) ? 'OBS Studio' : 'Streaming Encoder'));
+        const encoderStatus = encoderConnected
+          ? (encoderLive ? 'streaming' : 'connected')
+          : (obsConnected ? (obsStreaming ? 'streaming' : 'connected') : 'unknown');
+        const audioStatus = (status.mixer && status.mixer.mainMuted) ? 'muted'
+          : (status.audio && status.audio.silenceDetected) ? 'warning'
+          : (encoderLive || obsStreaming) ? 'ok'
+          : 'unknown';
         const rows = [
-          ['ATEM Switcher', status.atem ? 'connected' : 'unknown', status.atemLastSeen],
+          ['ATEM Switcher', atemConnected ? 'connected' : 'unknown', status.atemLastSeen],
           [encoderLabel, encoderStatus, null],
-          ['Stream', (enc.live || (status.obs && status.obs.streaming)) ? 'live' : 'offline', null],
+          ['Stream', (encoderLive || obsStreaming) ? 'live' : 'offline', null],
           ['Audio', audioStatus, null],
           ['A/V Sync', status.syncOk === false ? 'warning' : (status.syncOk ? 'ok' : 'unknown'), null],
         ];
@@ -1960,7 +1972,7 @@ function buildChurchPortalHtml(church) {
     // ── Export data ─────────────────────────────────────────────────────────
     async function exportData() {
       try {
-        var resp = await fetch('/api/church/data-export', { credentials: 'include' });
+        var resp = await fetch('/api/church/data-export', { credentials: 'include', signal: AbortSignal.timeout(15000) });
         if (!resp.ok) throw new Error('Export failed');
         var blob = await resp.blob();
         var url = URL.createObjectURL(blob);
@@ -2200,7 +2212,7 @@ function buildChurchPortalHtml(church) {
         html += '</div>';
         container.innerHTML = html;
       } catch(e) {
-        document.getElementById('alerts-content').innerHTML = '<p style="color:#ef4444">' + e.message + '</p>';
+        document.getElementById('alerts-content').innerHTML = '<p style="color:#ef4444">' + escapeHtml(e.message) + '</p>';
       }
     }
 
@@ -2234,7 +2246,7 @@ function buildChurchPortalHtml(church) {
       if (!wrap) return;
       wrap.innerHTML = '<div style="color:#475569">Loading status...</div>';
       try {
-        var r = await fetch('/api/status/components');
+        var r = await fetch('/api/status/components', { signal: AbortSignal.timeout(10000) });
         var payload = await r.json();
         var items = payload.components || [];
         if (!items.length) {
@@ -2632,6 +2644,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         .run(hashPassword(newPassword), churchId);
     }
 
+    const allowedColumns = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications'];
     const patch = {};
     if (email          !== undefined) patch.portal_email     = email.trim().toLowerCase();
     if (phone          !== undefined) patch.phone            = phone;
@@ -2640,9 +2653,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     if (telegramChatId !== undefined) patch.telegram_chat_id = telegramChatId;
     if (notifications  !== undefined) patch.notifications    = JSON.stringify(notifications);
 
-    if (Object.keys(patch).length) {
-      const sets = Object.keys(patch).map(k => `${k} = ?`).join(', ');
-      db.prepare(`UPDATE churches SET ${sets} WHERE churchId = ?`).run(...Object.values(patch), churchId);
+    const safePatch = Object.fromEntries(Object.entries(patch).filter(([k]) => allowedColumns.includes(k)));
+    if (Object.keys(safePatch).length) {
+      const sets = Object.keys(safePatch).map(k => `${k} = ?`).join(', ');
+      db.prepare(`UPDATE churches SET ${sets} WHERE churchId = ?`).run(...Object.values(safePatch), churchId);
     }
     res.json({ ok: true });
   });
@@ -3535,6 +3549,16 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           key: 'stream_state',
           ok: streamActive,
           note: streamActive ? 'Stream appears active' : 'Stream appears inactive',
+        });
+      }
+      if (issueCategory === 'no_audio_stream') {
+        const audioOk = s.obs?.audioConnected !== false
+          && s.mixer?.mainMuted !== true
+          && s.audio?.silenceDetected !== true;
+        checks.push({
+          key: 'audio_path',
+          ok: audioOk,
+          note: audioOk ? 'No hard audio mute detected' : 'Audio path likely muted/disconnected',
         });
       }
       if (issueCategory === 'atem_connectivity') {

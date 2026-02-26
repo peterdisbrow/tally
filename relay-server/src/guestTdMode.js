@@ -61,7 +61,7 @@ class GuestTdMode {
    * @returns {{ token, expiresAt, expiresFormatted }}
    */
   generateToken(churchId, churchName) {
-    const token = 'GUEST-' + crypto.randomBytes(4).toString('hex').toUpperCase();
+    const token = 'GUEST-' + crypto.randomBytes(12).toString('hex').toUpperCase();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
@@ -175,6 +175,7 @@ class GuestTdMode {
           chat_id: guestRow.usedByChat,
           text: `⏰ Your guest access has expired. Contact Andrew to renew if needed.`,
         }),
+        signal: AbortSignal.timeout(5000),
       });
       if (!resp.ok) console.warn(`[GuestTdMode] Notify failed: ${resp.status}`);
     } catch (e) {

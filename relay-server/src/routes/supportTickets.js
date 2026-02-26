@@ -121,7 +121,9 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     }
 
     if (issueCategory === 'no_audio_stream') {
-      const audioOk = status.obs?.audioConnected !== false && status.audio?.muted !== true;
+      const audioOk = status.obs?.audioConnected !== false
+        && status.mixer?.mainMuted !== true
+        && status.audio?.silenceDetected !== true;
       checks.push({
         key: 'audio_path',
         ok: audioOk,

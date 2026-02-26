@@ -199,6 +199,7 @@ class MonthlyReport {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: chatId, text: msg }),
+          signal: AbortSignal.timeout(5000),
         });
       } catch (e) {
         console.error('[MonthlyReport] Telegram send error:', e.message);

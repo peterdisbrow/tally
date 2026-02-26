@@ -85,6 +85,7 @@ const { setupSyncMonitor } = require('./src/syncMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
 const { setupResellerPortal } = require('./src/resellerPortal');
 const { setupStatusPage } = require('./src/statusPage');
+const { hasStreamSignal, isStreamActive, isRecordingActive } = require('./src/status-utils');
 const { createBackupSnapshot } = require('./src/dbBackup');
 const { createRateLimit, consumeRateLimit } = require('./src/rateLimit');
 const relayPackage = require('./package.json');
@@ -114,6 +115,11 @@ if (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secre
   console.warn('\n⚠️  WARNING: Using default dev keys! Set ADMIN_API_KEY and JWT_SECRET env vars for production.\n');
 }
 const DB_PATH       = process.env.DATABASE_PATH || './data/churches.db';
+
+// ─── TIMER COORDINATION ─────────────────────────────────────────────────────
+// Track all setInterval IDs so graceful shutdown can clear them, preventing
+// timer leaks and post-close errors.
+const _intervals = [];
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 
@@ -156,6 +162,34 @@ function log(msg) {
   console.log(`[${ts}] ${msg}`);
 }
 
+// ─── SECURITY: CONSTANT-TIME KEY COMPARISON ──────────────────────────────────
+// Prevents timing attacks on API key validation by always comparing in constant
+// time regardless of where the mismatch occurs.
+
+function safeCompareKey(untrusted, trusted) {
+  if (typeof untrusted !== 'string' || typeof trusted !== 'string') return false;
+  if (untrusted.length === 0 || trusted.length === 0) return false;
+  const a = Buffer.from(untrusted, 'utf8');
+  const b = Buffer.from(trusted, 'utf8');
+  // timingSafeEqual requires equal-length buffers; pad the shorter one
+  // to avoid leaking length information.
+  if (a.length !== b.length) {
+    const padded = Buffer.alloc(b.length);
+    a.copy(padded, 0, 0, Math.min(a.length, b.length));
+    return crypto.timingSafeEqual(padded, b) && a.length === b.length;
+  }
+  return crypto.timingSafeEqual(a, b);
+}
+
+// ─── ERROR DETAIL MASKING ────────────────────────────────────────────────────
+// In production, internal error details are replaced with a generic message to
+// avoid leaking stack traces or implementation details to clients.
+
+function safeErrorMessage(err, fallback = 'Internal server error') {
+  if (process.env.NODE_ENV === 'production') return fallback;
+  return err?.message || fallback;
+}
+
 // ─── ONBOARDING EMAILS (via Resend) ─────────────────────────────────────────
 
 async function sendOnboardingEmail({ to, subject, html, text, tag }) {
@@ -178,6 +212,7 @@ async function sendOnboardingEmail({ to, subject, html, text, tag }) {
         text,
         tags: [{ name: 'category', value: tag || 'onboarding' }],
       }),
+      signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) {
       const err = await res.text();
@@ -605,7 +640,7 @@ scheduleEngine.addWindowOpenCallback((churchId) => {
 });
 
 // Schedule timer — check every minute for schedule_timer triggers
-setInterval(() => {
+_intervals.push(setInterval(() => {
   for (const [churchId] of churches) {
     if (!scheduleEngine.isServiceWindow(churchId)) continue;
     // Use session start time to calculate minutes into service
@@ -616,7 +651,7 @@ setInterval(() => {
       console.error(`[AutoPilot] Schedule tick error for ${churchId}:`, e.message)
     );
   }
-}, 60000);
+}, 60000));
 
 // ─── CHAT ENGINE ─────────────────────────────────────────────────────────────
 
@@ -717,8 +752,8 @@ function enforceGracePeriods() {
 // Run immediately on startup, then every hour
 checkExpiredTrials();
 enforceGracePeriods();
-setInterval(checkExpiredTrials, 60 * 60 * 1000);
-setInterval(enforceGracePeriods, 60 * 60 * 1000);
+_intervals.push(setInterval(checkExpiredTrials, 60 * 60 * 1000));
+_intervals.push(setInterval(enforceGracePeriods, 60 * 60 * 1000));
 
 // ─── LIFECYCLE EMAILS ────────────────────────────────────────────────────────
 // Automated email sequences: setup nudge, first-sunday prep, check-in,
@@ -732,11 +767,11 @@ const lifecycleEmails = new LifecycleEmails(db, {
 billing.setLifecycleEmails(lifecycleEmails);
 
 // Run lifecycle email checks every hour
-setInterval(() => {
+_intervals.push(setInterval(() => {
   lifecycleEmails.runCheck().catch(e =>
     console.error('[LifecycleEmails] Check failed:', e.message)
   );
-}, 60 * 60 * 1000);
+}, 60 * 60 * 1000));
 
 // ─── RESELLER SYSTEM (needed early for TallyBot) ────────────────────────────
 
@@ -783,25 +818,25 @@ if (TALLY_BOT_TOKEN) {
 
 // ─── PLATFORM STATUS CHECKS (1-minute synthetic monitor) ────────────────────
 
-setInterval(() => {
+_intervals.push(setInterval(() => {
   runStatusChecks().catch((e) => {
     console.error('[StatusChecks] scheduled run failed:', e.message);
   });
-}, 60_000);
+}, 60_000));
 
 // ─── DB BACKUP SCHEDULER ─────────────────────────────────────────────────────
 
 const DB_BACKUP_INTERVAL_MINUTES = Number(process.env.DB_BACKUP_INTERVAL_MINUTES || 0);
 if (Number.isFinite(DB_BACKUP_INTERVAL_MINUTES) && DB_BACKUP_INTERVAL_MINUTES > 0) {
   log(`[Backup] Scheduled snapshots every ${DB_BACKUP_INTERVAL_MINUTES} minute(s)`);
-  setInterval(() => {
+  _intervals.push(setInterval(() => {
     try {
       const snapshot = runManualDbSnapshot('auto');
       log(`[Backup] Snapshot created: ${snapshot.fullPath}`);
     } catch (e) {
       console.error('[Backup] Scheduled snapshot failed:', e.message);
     }
-  }, DB_BACKUP_INTERVAL_MINUTES * 60 * 1000);
+  }, DB_BACKUP_INTERVAL_MINUTES * 60 * 1000));
 }
 
 // Wire chat engine broadcast functions (uses hoisted broadcastToControllers)
@@ -914,29 +949,10 @@ function drainQueue(churchId, ws) {
 
 // ─── HTTP API ────────────────────────────────────────────────────────────────
 
-// Health check
-app.get('/', (req, res) => {
-  res.json({
-    service: 'tally-relay',
-    version: RELAY_VERSION,
-    churches: churches.size,
-    controllers: controllers.size,
-  });
-});
-
-// Detailed health/stats
-app.get('/api/health', (req, res) => {
-  const connectedCount = Array.from(churches.values()).filter(c => c.ws?.readyState === WebSocket.OPEN).length;
-  res.json({
-    service: 'tally-relay',
-    version: RELAY_VERSION,
-    build: RELAY_BUILD,
-    uptime: Math.floor(process.uptime()),
-    registeredChurches: churches.size,
-    connectedChurches: connectedCount,
-    controllers: controllers.size,
-    totalMessagesRelayed,
-  });
+// Health / root endpoints (extracted)
+require('./src/routes/health')(app, {
+  churches, controllers, RELAY_VERSION, RELAY_BUILD, WebSocket,
+  get totalMessagesRelayed() { return totalMessagesRelayed; },
 });
 
 // Shared auth utilities (single source of truth — also used by churchPortal.js)
@@ -1131,7 +1147,7 @@ function computeTriageResult(diagnostics) {
   });
 
   if (issueCategory === 'stream_down') {
-    const streaming = status.obs?.streaming === true || status.encoder?.streaming === true;
+    const streaming = isStreamActive(status);
     checks.push({
       key: 'stream_state',
       ok: streaming,
@@ -1140,7 +1156,9 @@ function computeTriageResult(diagnostics) {
   }
 
   if (issueCategory === 'no_audio_stream') {
-    const audioOk = status.obs?.audioConnected !== false && status.audio?.muted !== true;
+    const audioOk = status.obs?.audioConnected !== false
+      && status.mixer?.mainMuted !== true
+      && status.audio?.silenceDetected !== true;
     checks.push({
       key: 'audio_path',
       ok: audioOk,
@@ -1157,7 +1175,7 @@ function computeTriageResult(diagnostics) {
   }
 
   if (issueCategory === 'recording_issue') {
-    const recording = status.atem?.recording === true || status.obs?.recording === true || status.hyperDeck?.recording === true;
+    const recording = isRecordingActive(status);
     checks.push({
       key: 'recording_state',
       ok: recording,
@@ -1822,67 +1840,8 @@ app.post('/api/church/app/onboard', rateLimit(5, 60_000), async (req, res) => {
   });
 });
 
-// Email verification endpoint
-app.get('/api/church/verify-email', (req, res) => {
-  const { token } = req.query;
-  if (!token) return res.status(400).json({ error: 'Verification token required' });
-
-  const church = db.prepare('SELECT churchId, name, email_verified FROM churches WHERE email_verify_token = ?').get(token);
-  if (!church) return res.status(404).json({ error: 'Invalid or expired verification link' });
-
-  if (church.email_verified) {
-    return res.redirect(`${APP_URL}/portal?verified=already`);
-  }
-
-  db.prepare('UPDATE churches SET email_verified = 1, email_verify_token = NULL WHERE churchId = ?').run(church.churchId);
-  log(`[EmailVerify] ✅ Email verified for "${church.name}" (${church.churchId})`);
-
-  res.redirect(`${APP_URL}/portal?verified=true`);
-});
-
-// Resend verification email
-app.post('/api/church/resend-verification', rateLimit(3, 60_000), (req, res) => {
-  const { email } = req.body || {};
-  const cleanEmail = String(email || '').trim().toLowerCase();
-  if (!cleanEmail) return res.status(400).json({ error: 'email required' });
-
-  const church = db.prepare('SELECT churchId, name, portal_email, email_verified, email_verify_token FROM churches WHERE portal_email = ?').get(cleanEmail);
-  if (!church) return res.json({ sent: true }); // Don't reveal if account exists
-  if (church.email_verified) return res.json({ sent: true, alreadyVerified: true });
-
-  // Generate a new token if needed
-  let verifyToken = church.email_verify_token;
-  if (!verifyToken) {
-    verifyToken = crypto.randomBytes(32).toString('hex');
-    db.prepare('UPDATE churches SET email_verify_token = ?, email_verify_sent_at = ? WHERE churchId = ?')
-      .run(verifyToken, new Date().toISOString(), church.churchId);
-  }
-
-  // Send verification email (non-blocking)
-  const verifyUrl = `${APP_URL.replace('https://tallyconnect.app', process.env.RELAY_URL || 'https://tally-production-cde2.up.railway.app')}/api/church/verify-email?token=${verifyToken}`;
-  sendOnboardingEmail({
-    to: cleanEmail,
-    subject: 'Verify your Tally email',
-    tag: 'email-verification',
-    html: `<div style="font-family: system-ui, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 0;">
-      <div style="margin-bottom: 24px;">
-        <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #22c55e; margin-right: 8px;"></span>
-        <strong style="font-size: 16px; color: #111;">Tally</strong>
-      </div>
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Verify your email</h1>
-      <p style="font-size: 15px; color: #333; line-height: 1.6;">Click below to verify the email address for <strong>${church.name}</strong>:</p>
-      <p style="margin: 28px 0;">
-        <a href="${verifyUrl}" style="display: inline-block; padding: 12px 28px; font-size: 15px; font-weight: 700; background: #22c55e; color: #000; text-decoration: none; border-radius: 8px;">Verify Email</a>
-      </p>
-      <p style="font-size: 13px; color: #666;">If you didn't sign up for Tally, ignore this email.</p>
-      <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />
-      <p style="font-size: 12px; color: #999;">Tally by ATEM School</p>
-    </div>`,
-    text: `Verify your Tally email\n\nClick this link to verify: ${verifyUrl}\n\nIf you didn't sign up for Tally, ignore this email.`,
-  }).catch(() => {});
-
-  res.json({ sent: true });
-});
+// Email verification (extracted)
+require('./src/routes/emailVerification')(app, { db, APP_URL, sendOnboardingEmail, rateLimit, log });
 
 // Credential-based app login (used by Electron setup flow)
 app.post('/api/church/app/login', rateLimit(10, 15 * 60 * 1000), (req, res) => {
@@ -2330,38 +2289,10 @@ app.put('/api/support/tickets/:ticketId', requireSupportAccess, (req, res) => {
   res.json({ ok: true, ticketId: ticket.id, ...patch });
 });
 
-// ─── STATUS COMPONENTS + INCIDENTS ───────────────────────────────────────────
-
-app.get('/api/status/components', (req, res) => {
-  const rows = db.prepare(`
-    SELECT component_id, name, state, latency_ms, detail, last_checked_at, last_changed_at
-    FROM status_components
-    ORDER BY name ASC
-  `).all();
-  res.json({
-    updatedAt: lastStatusCheckAt,
-    components: rows,
-  });
-});
-
-app.get('/api/status/incidents', (req, res) => {
-  const limit = Math.max(1, Math.min(Number(req.query.limit || 50), 200));
-  const rows = db.prepare(`
-    SELECT id, component_id, previous_state, new_state, message, started_at, resolved_at
-    FROM status_incidents
-    ORDER BY id DESC
-    LIMIT ?
-  `).all(limit);
-  res.json(rows);
-});
-
-app.post('/api/status/run-checks', requireAdmin, async (req, res) => {
-  try {
-    await runStatusChecks();
-    res.json({ ok: true, checkedAt: lastStatusCheckAt });
-  } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
-  }
+// Status components & incidents (extracted)
+require('./src/routes/statusComponents')(app, {
+  db, requireAdmin, runStatusChecks,
+  lastStatusCheckAt: () => lastStatusCheckAt,
 });
 
 app.post('/api/internal/backups/snapshot', requireAdmin, (req, res) => {
@@ -2577,7 +2508,7 @@ app.post('/api/billing/checkout', requireAdmin, rateLimit(5, 60_000), async (req
     });
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -2589,7 +2520,7 @@ app.post('/api/billing/portal', requireAdmin, async (req, res) => {
     const result = await billing.createPortalSession({ churchId, returnUrl });
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -3040,7 +2971,7 @@ app.get('/api/digest/generate', requireAdmin, async (req, res) => {
     const result = await weeklyDigest.saveDigest();
     res.json({ generated: true, filePath: result.filePath });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -3103,7 +3034,7 @@ app.get('/api/churches/:churchId/report', requireAdmin, requireFeature('monthly_
     const text = monthlyReport.formatReport(report);
     res.json({ ...report, formatted: text });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -3296,7 +3227,7 @@ app.post('/api/churches/:churchId/planning-center/sync', requireAdmin, requireFe
     const result = await planningCenter.syncChurch(req.params.churchId);
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -3308,7 +3239,7 @@ app.get('/api/churches/:churchId/planning-center/preview', requireAdmin, require
     const services = await planningCenter.getUpcomingServicesForChurch(req.params.churchId);
     res.json({ services });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -3348,7 +3279,7 @@ app.post('/api/events/create', requireAdmin, (req, res) => {
     res.json({ churchId: result.churchId, token: result.token, expiresAt: result.expiresAt, name });
   } catch (e) {
     console.error('[/api/events/create]', e.message);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -3363,7 +3294,7 @@ app.post('/api/resellers', requireAdmin, (req, res) => {
     res.json(result);
   } catch (e) {
     console.error('[/api/resellers POST]', e.message);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -3372,7 +3303,7 @@ app.get('/api/resellers', requireAdmin, (req, res) => {
   try {
     res.json(resellerSystem.listResellers());
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -3434,7 +3365,7 @@ app.post('/api/reseller/churches/register', requireReseller, (req, res) => {
     });
   } catch (e) {
     console.error('[/api/reseller/churches/register]', e.message);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -3454,7 +3385,7 @@ app.get('/api/reseller/churches', requireReseller, (req, res) => {
     });
     res.json(list);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -3505,7 +3436,7 @@ app.get('/api/reseller/me', requireReseller, (req, res) => {
     const stats = resellerSystem.getResellerStats(req.reseller.id, churches);
     const { api_key, ...safe } = req.reseller;
     res.json({ ...safe, ...stats });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
 });
 
 // PUT /api/reseller/me — update branding
@@ -3523,7 +3454,7 @@ app.put('/api/reseller/me', requireReseller, (req, res) => {
     const updated = resellerSystem.updateReseller(req.reseller.id, patch);
     const { api_key, ...safe } = updated;
     res.json(safe);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
 });
 
 // POST /api/reseller/churches/token — generate church + registration code
@@ -3599,7 +3530,7 @@ app.get('/api/reseller/stats', requireReseller, (req, res) => {
   try {
     const stats = resellerSystem.getResellerStats(req.reseller.id, churches);
     res.json(stats);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
 });
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
@@ -3621,7 +3552,7 @@ app.get('/dashboard', (req, res) => {
   const queryKey = req.query.key || req.query.apikey;
 
   if (queryKey) {
-    if (queryKey !== ADMIN_API_KEY) {
+    if (!safeCompareKey(queryKey, ADMIN_API_KEY)) {
       return res.status(401).send('<html><body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Invalid admin key.</p></body></html>');
     }
     setAdminSession(res, queryKey);
@@ -3630,7 +3561,7 @@ app.get('/dashboard', (req, res) => {
   }
 
   const key = resolveAdminKey(req);
-  if (key !== ADMIN_API_KEY) {
+  if (!safeCompareKey(key, ADMIN_API_KEY)) {
     return res.status(401).send('<html><body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Missing admin authentication. Set your admin key via header or add <code>?key=YOUR_ADMIN_KEY</code> one-time to establish a session.</p></body></html>');
   }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -3650,7 +3581,7 @@ app.get('/api/dashboard/stream', (req, res) => {
     const reseller = resellerSystem.getReseller(resellerKey);
     if (!reseller) return res.status(403).json({ error: 'Invalid reseller key' });
     filterResellerId = reseller.id;
-  } else if (key !== ADMIN_API_KEY) {
+  } else if (!safeCompareKey(key, ADMIN_API_KEY)) {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
@@ -3699,7 +3630,7 @@ app.get('/api/dashboard/stream', (req, res) => {
 });
 
 // Periodic snapshot broadcast every 60s — keeps all dashboards in sync
-setInterval(() => {
+_intervals.push(setInterval(() => {
   if (sseClients.size === 0) return;
   const states = [...churches.values()].map(c => ({
     churchId:         c.churchId,
@@ -3714,7 +3645,7 @@ setInterval(() => {
     reseller_id:      c.reseller_id || null,
   }));
   broadcastToSSE({ type: 'snapshot', churches: states });
-}, 60_000);
+}, 60_000));
 
 // ─── MAINTENANCE WINDOWS API ──────────────────────────────────────────────────
 
@@ -3777,51 +3708,10 @@ app.get('/api/guest-tokens', requireAdmin, (req, res) => {
   res.json(guestTdMode.listActiveTokens());
 });
 
-// ─── TELEGRAM BOT API ─────────────────────────────────────────────────────────
-
-app.post('/api/telegram-webhook', (req, res) => {
-  const providedSecret = req.headers['x-telegram-bot-api-secret-token'] || '';
-  if (TALLY_BOT_WEBHOOK_SECRET && providedSecret !== TALLY_BOT_WEBHOOK_SECRET) {
-    return res.status(401).json({ error: 'Unauthorized webhook secret' });
-  }
-  res.sendStatus(200); // Respond immediately to Telegram
-  if (tallyBot) tallyBot.handleUpdate(req.body).catch(e => console.error('[TallyBot] webhook error:', e.message));
-  else console.warn('[TallyBot] Webhook called but bot is not initialized.');
-});
-
-app.post('/api/churches/:churchId/td-register', requireAdmin, (req, res) => {
-  const { churchId } = req.params;
-  const church = churches.get(churchId);
-  if (!church) return res.status(404).json({ error: 'Church not found' });
-  const { telegram_user_id, telegram_chat_id, name } = req.body;
-  if (!telegram_user_id || !name) return res.status(400).json({ error: 'telegram_user_id and name required' });
-  if (!tallyBot) return res.status(503).json({ error: 'Telegram bot not configured' });
-  tallyBot._stmtRegisterTD.run(churchId, telegram_user_id, telegram_chat_id || telegram_user_id, name, new Date().toISOString());
-  res.json({ registered: true, name });
-});
-
-app.get('/api/churches/:churchId/tds', requireAdmin, (req, res) => {
-  if (!tallyBot) return res.json([]);
-  const tds = tallyBot._stmtListTDs.all(req.params.churchId);
-  res.json(tds);
-});
-
-app.delete('/api/churches/:churchId/tds/:userId', requireAdmin, (req, res) => {
-  if (!tallyBot) return res.status(503).json({ error: 'Telegram bot not configured' });
-  tallyBot._stmtDeactivateTD.run(req.params.churchId, req.params.userId);
-  res.json({ removed: true });
-});
-
-app.post('/api/bot/set-webhook', requireAdmin, (req, res) => {
-  if (!tallyBot) return res.status(503).json({ error: 'Telegram bot not configured' });
-  const { url, secret_token } = req.body || {};
-  const payload = {
-    url: url || TALLY_BOT_WEBHOOK_URL
-  };
-  const webhookSecret = secret_token || TALLY_BOT_WEBHOOK_SECRET;
-  if (webhookSecret) payload.secret_token = webhookSecret;
-  if (!payload.url) return res.status(400).json({ error: 'url required (or TALLY_BOT_WEBHOOK_URL env var)'});
-  tallyBot.setWebhook(payload).then(r => res.json(r)).catch(e => res.status(500).json({ error: e.message }));
+// Telegram bot API (extracted)
+require('./src/routes/telegram')(app, {
+  db, churches, tallyBot, requireAdmin, safeErrorMessage, log,
+  TALLY_BOT_WEBHOOK_URL, TALLY_BOT_WEBHOOK_SECRET,
 });
 
 // Include registration_code in church detail
@@ -3985,7 +3875,7 @@ function handleChurchConnection(ws, url, clientIp) {
 
 function handleControllerConnection(ws, url) {
   const apiKey = url.searchParams.get('apikey');
-  if (apiKey !== ADMIN_API_KEY) return ws.close(1008, 'invalid api key');
+  if (!safeCompareKey(apiKey, ADMIN_API_KEY)) return ws.close(1008, 'invalid api key');
 
   controllers.add(ws);
   log(`Controller connected (total: ${controllers.size})`);
@@ -4060,14 +3950,13 @@ function handleChurchMessage(church, msg) {
       }
       // Feed session recap with live stream/recording state
       if (msg.status) {
-        if (msg.status.obs?.streaming !== undefined) {
-          sessionRecap.recordStreamStatus(church.churchId, !!msg.status.obs.streaming);
+        if (hasStreamSignal(msg.status)) {
+          sessionRecap.recordStreamStatus(church.churchId, isStreamActive(msg.status));
         }
         if (msg.status.obs?.viewers !== undefined) {
           sessionRecap.recordPeakViewers(church.churchId, msg.status.obs.viewers);
         }
-        const isRecording = !!(msg.status.atem?.recording || msg.status.obs?.recording || msg.status.hyperDeck?.recording);
-        if (isRecording) {
+        if (isRecordingActive(msg.status)) {
           sessionRecap.recordRecordingConfirmed(church.churchId);
         }
       }
@@ -4315,7 +4204,7 @@ function requireAdminJwt(...allowedRoles) {
 
     // 3. Legacy fallback: x-api-key or admin cookie → treat as super_admin
     const key = resolveAdminKey(req);
-    if (key === ADMIN_API_KEY) {
+    if (safeCompareKey(key, ADMIN_API_KEY)) {
       req.adminUser = { id: '_legacy_api_key', email: '', name: 'API Key', role: 'super_admin' };
       if (allowedRoles.length > 0 && !allowedRoles.includes('super_admin')) {
         return res.status(403).json({ error: 'Insufficient permissions' });
@@ -4343,7 +4232,7 @@ function requireReseller(req, res, next) {
 
 function requireChurchOrAdmin(req, res, next) {
   const key = resolveAdminKey(req);
-  if (key === ADMIN_API_KEY) return next();
+  if (safeCompareKey(key, ADMIN_API_KEY)) return next();
 
   const auth = req.headers['authorization'] || '';
   if (auth.startsWith('Bearer ')) {
@@ -4412,7 +4301,7 @@ app.post('/api/churches/:churchId/presets', requireChurchOrAdmin, (req, res) => 
     const id = presetLibrary.save(req.params.churchId, name, type, data);
     res.json({ id, name, type, saved: true });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -4447,7 +4336,7 @@ app.post('/api/churches/:churchId/presets/:name/recall', requireChurchOrAdmin, a
     log(`PRESET recall → ${church.name}: "${preset.name}" (${preset.type})`);
     res.json({ recalled: true, preset: { name: preset.name, type: preset.type } });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: safeErrorMessage(e) });
   }
 });
 
@@ -4521,187 +4410,35 @@ app.get('/api/churches/:churchId/command-log', requireAdmin, requireFeature('aut
 
 // ─── CHAT API ────────────────────────────────────────────────────────────────
 
-// Church-facing: TD sends a chat message from Electron app
-app.post('/api/church/chat', requireChurchAppAuth, (req, res) => {
-  const { message, senderName } = req.body;
-  if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
-  const trimmedMessage = message.trim();
-  const saved = chatEngine.saveMessage({
-    churchId: req.church.churchId,
-    senderName: senderName || req.church.td_name || 'TD',
-    senderRole: 'td',
-    source: 'app',
-    message: trimmedMessage,
-  });
-  chatEngine.broadcastChat(saved);
-  handleChatCommandMessage(req.church.churchId, trimmedMessage).catch((err) => {
-    log(`Chat command handler error (${req.church.churchId}): ${err.message}`);
-  });
-  res.json(saved);
+// Chat endpoints (extracted)
+require('./src/routes/chat')(app, {
+  db, chatEngine, requireAdmin, requireChurchAppAuth, handleChatCommandMessage, log,
 });
 
-// Church-facing: TD polls for messages
-app.get('/api/church/chat', requireChurchAppAuth, (req, res) => {
-  const messages = chatEngine.getMessages(req.church.churchId, {
-    since: req.query.since || null,
-    limit: parseInt(req.query.limit) || 50,
-  });
-  res.json({ messages });
+// Slack integration API (extracted)
+require('./src/routes/slack')(app, {
+  db, churches, requireAdmin, alertEngine, stmtGet, safeErrorMessage, log,
 });
 
-// Admin-facing: Admin sends a chat message
-app.post('/api/churches/:churchId/chat', requireAdmin, (req, res) => {
-  const churchRow = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(req.params.churchId);
-  if (!churchRow) return res.status(404).json({ error: 'Church not found' });
-  const { message, senderName } = req.body;
-  if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
-  const trimmedMessage = message.trim();
-  const saved = chatEngine.saveMessage({
-    churchId: req.params.churchId,
-    senderName: senderName || req.adminUser?.name || 'Admin',
-    senderRole: 'admin',
-    source: 'dashboard',
-    message: trimmedMessage,
-  });
-  chatEngine.broadcastChat(saved);
-  handleChatCommandMessage(req.params.churchId, trimmedMessage).catch((err) => {
-    log(`Chat command handler error (${req.params.churchId}): ${err.message}`);
-  });
-  res.json(saved);
+// Offline between-service detection (extracted)
+const offlineDetection = require('./src/crons/offlineDetection')({
+  db, churches, scheduleEngine, alertEngine, eventMode, tallyBot, log, _intervals,
 });
+offlineDetection.start();
 
-// Admin-facing: Admin polls for messages
-app.get('/api/churches/:churchId/chat', requireAdmin, (req, res) => {
-  const messages = chatEngine.getMessages(req.params.churchId, {
-    since: req.query.since || null,
-    limit: parseInt(req.query.limit) || 50,
-    sessionId: req.query.sessionId || null,
-  });
-  res.json({ messages });
-});
+// ─── GLOBAL ERROR HANDLER ─────────────────────────────────────────────────────
+// Must be registered AFTER all routes. Catches unhandled synchronous errors from
+// Express route handlers and middleware, preventing stack traces from leaking to
+// clients in production.
 
-// ─── SLACK INTEGRATION API ────────────────────────────────────────────────────
-
-// Get Slack config for a church (masked webhook for security)
-app.get('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
-  const row = stmtGet.get(req.params.churchId);
-  if (!row) return res.status(404).json({ error: 'Church not found' });
-  const url = row.slack_webhook_url || '';
-  res.json({
-    configured: !!url,
-    webhookUrl: url ? url.slice(0, 40) + '••••••' : '',
-    webhookUrlFull: url, // admin-only endpoint, safe to return full URL
-    channel: row.slack_channel || '',
+app.use((err, _req, res, _next) => {
+  const status = typeof err.status === 'number' ? err.status : 500;
+  const isProd = process.env.NODE_ENV === 'production';
+  console.error(`[Express] Unhandled error (${status}):`, err);
+  res.status(status).json({
+    error: isProd && status >= 500 ? 'Internal server error' : (err.message || 'Internal server error'),
   });
 });
-
-// Set Slack config for a church
-app.put('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
-  const church = churches.get(req.params.churchId);
-  if (!church) return res.status(404).json({ error: 'Church not found' });
-  const { webhookUrl, channel } = req.body;
-  if (!webhookUrl) return res.status(400).json({ error: 'webhookUrl required' });
-  db.prepare('UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?')
-    .run(webhookUrl, channel || null, req.params.churchId);
-  log(`Slack configured for church ${church.name}`);
-  res.json({ saved: true, channel: channel || null });
-});
-
-// Remove Slack config
-app.delete('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
-  const church = churches.get(req.params.churchId);
-  if (!church) return res.status(404).json({ error: 'Church not found' });
-  db.prepare('UPDATE churches SET slack_webhook_url = NULL, slack_channel = NULL WHERE churchId = ?')
-    .run(req.params.churchId);
-  res.json({ removed: true });
-});
-
-// Test Slack integration
-app.post('/api/churches/:churchId/slack/test', requireAdmin, async (req, res) => {
-  const church = churches.get(req.params.churchId);
-  if (!church) return res.status(404).json({ error: 'Church not found' });
-  const row = stmtGet.get(req.params.churchId);
-  if (!row?.slack_webhook_url) return res.status(400).json({ error: 'Slack not configured for this church' });
-
-  try {
-    await alertEngine.sendSlackAlert(
-      { ...church, ...row },
-      'test_alert',
-      'INFO',
-      { church: church.name },
-      { likely_cause: 'This is a test message from Tally.', steps: ['Slack integration is working correctly!'] }
-    );
-    res.json({ sent: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// ─── OFFLINE BETWEEN-SERVICE DETECTION (Feature 12) ──────────────────────────
-
-function isInMaintenanceWindow(churchId) {
-  const now = new Date().toISOString();
-  const row = db.prepare(
-    `SELECT id FROM maintenance_windows WHERE churchId = ? AND startTime <= ? AND endTime >= ? LIMIT 1`
-  ).get(churchId, now, now);
-  return !!row;
-}
-
-function checkOfflineChurches() {
-  const now = Date.now();
-  const hour = new Date().getHours();
-  const isNightTime = hour >= 23 || hour < 6; // 11pm–6am: don't alert
-
-  const allChurches = db.prepare('SELECT * FROM churches').all();
-  const botToken = process.env.ALERT_BOT_TOKEN;
-  const andrewChatId = process.env.ANDREW_TELEGRAM_CHAT_ID;
-
-  for (const row of allChurches) {
-    const church = churches.get(row.churchId);
-    if (!church) continue;
-    if (!church.lastHeartbeat) continue; // never connected — skip
-    if (isInMaintenanceWindow(row.churchId)) continue;
-    if (scheduleEngine.isServiceWindow(row.churchId)) continue; // in service — normal
-
-    const offlineMs = now - church.lastHeartbeat;
-    const offlineHours = offlineMs / (1000 * 60 * 60);
-
-    // Already connected — reset flag
-    if (church.ws?.readyState === WebSocket.OPEN) {
-      church._offlineAlertSent = false;
-      church._criticalOfflineAlertSent = false;
-      continue;
-    }
-
-    if (offlineHours >= 24) {
-      // Critical: offline for 24+ hours
-      if (!church._criticalOfflineAlertSent && botToken && andrewChatId) {
-        church._criticalOfflineAlertSent = true;
-        const lastSeen = new Date(church.lastHeartbeat).toLocaleString();
-        const msg = `🔴 *CRITICAL: ${row.name}* has been offline for 24+ hours\nLast seen: ${lastSeen}\n\nThis church's booth computer may need attention.`;
-        alertEngine.sendTelegramMessage(andrewChatId, botToken, msg).catch(() => {});
-        log(`[OfflineDetection] 🔴 CRITICAL: ${row.name} offline 24h+`);
-      }
-    } else if (offlineHours >= 2 && !isNightTime) {
-      // Warning: offline 2+ hours outside of nighttime
-      if (!church._offlineAlertSent && botToken && andrewChatId) {
-        church._offlineAlertSent = true;
-        const lastSeen = new Date(church.lastHeartbeat).toLocaleString();
-        const msg = `⚠️ *${row.name}* booth computer offline for 2h+\nLast seen: ${lastSeen}\nNot during service hours — may need attention.`;
-        alertEngine.sendTelegramMessage(andrewChatId, botToken, msg).catch(() => {});
-        log(`[OfflineDetection] ⚠️ ${row.name} offline 2h+ (not in service window)`);
-      }
-    }
-  }
-}
-
-// Check every 10 minutes (offline detection + event expiry)
-setInterval(() => {
-  checkOfflineChurches();
-  // Event expiry also runs on its own 10-min loop (started in eventMode.start()),
-  // but calling it here too ensures sync with the same cadence.
-  eventMode.checkExpiry(tallyBot, churches).catch(e => console.error('[EventMode] expiry error:', e.message));
-}, 10 * 60 * 1000);
 
 // ─── START ────────────────────────────────────────────────────────────────────
 
@@ -4717,6 +4454,10 @@ server.listen(PORT, () => {
 
 function gracefulShutdown(signal) {
   log(`${signal} received — shutting down gracefully...`);
+
+  // Clear all tracked intervals to prevent timer leaks / post-close errors
+  for (const id of _intervals) clearInterval(id);
+  _intervals.length = 0;
 
   // Close WebSocket server (stops accepting new connections)
   wss.close(() => {

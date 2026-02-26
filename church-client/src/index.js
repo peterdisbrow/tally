@@ -187,6 +187,22 @@ function loadConfig() {
   if (!config.vmix) config.vmix = null; // null = not configured (Windows only)
   if (!config.mixer) config.mixer = null; // null = not configured
 
+  // Backward compatibility: older Electron setup flows may persist flat
+  // encoder fields instead of config.encoder object.
+  if (!config.encoder && config.encoderType) {
+    config.encoder = {
+      type: String(config.encoderType || '').trim(),
+      host: String(config.encoderHost || '').trim(),
+      port: Number(config.encoderPort) || null,
+      password: String(config.encoderPassword || ''),
+      label: String(config.encoderLabel || ''),
+      statusUrl: String(config.encoderStatusUrl || ''),
+      source: String(config.encoderSource || ''),
+    };
+  } else if (config.encoder && !config.encoder.source && config.encoderSource) {
+    config.encoder.source = String(config.encoderSource || '').trim();
+  }
+
   // Legacy cleanup: older builds defaulted OBS to localhost even when not configured.
   // If encoder is not OBS, treat those legacy defaults as "not configured".
   const encoderType = String(config.encoder?.type || '').toLowerCase();
@@ -587,6 +603,7 @@ class ChurchAVAgent {
 
   async connectATEM() {
     const atemIp = this.config.atemIp;
+    this.status.atem.ip = atemIp || null;
     this._fakeAtemMode = false;
     this.atem = new Atem();
 

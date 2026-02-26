@@ -5,9 +5,10 @@
  * Follows the same pattern as MixerBridge (mixerBridge.js + mixers/).
  *
  * Supported types:
- *   Software:  'obs', 'vmix', 'ecamm'
+ *   Software:  'obs', 'vmix', 'ecamm', 'tricaster'
  *   Monitoring: 'ndi' (receive-only monitoring via ffprobe/libndi_newtek)
- *   Hardware:  'blackmagic', 'aja', 'epiphan', 'teradek', 'tally-encoder'
+ *   Hardware:  'blackmagic', 'aja', 'epiphan', 'teradek', 'birddog', 'tally-encoder'
+ *   ATEM:     'atem-streaming' (ATEM Mini built-in encoder, monitored via ATEM SDK)
  *   RTMP-push: 'yolobox', 'custom-rtmp', 'rtmp-generic' (no API, CDN-only)
  *   Custom:    'custom' (user-provided HTTP status endpoint)
  *
@@ -27,6 +28,8 @@ const { TallyEncoderAdapter }  = require('./encoders/tallyEncoder');
 const { RtmpPushEncoder }      = require('./encoders/rtmpPush');
 const { CustomEncoder }        = require('./encoders/custom');
 const { NdiEncoder }           = require('./encoders/ndi');
+const { TriCasterEncoder }     = require('./encoders/tricaster');
+const { BirdDogEncoder }       = require('./encoders/birddog');
 
 const DEFAULT_STATUS = {
   type: 'unknown', connected: false, live: false,
@@ -36,7 +39,7 @@ const DEFAULT_STATUS = {
 
 class EncoderBridge {
   /**
-   * @param {{ type: string, host?: string, port?: number, password?: string, label?: string, statusUrl?: string }} config
+   * @param {{ type: string, host?: string, port?: number, password?: string, label?: string, statusUrl?: string, source?: string }} config
    */
   constructor(config) {
     this.config = config;
@@ -44,7 +47,7 @@ class EncoderBridge {
     this._encoder = this._create(config);
   }
 
-  _create({ type, host, port, password, label, statusUrl }) {
+  _create({ type, host, port, password, label, statusUrl, source }) {
     const t = (type || '').toLowerCase();
     switch (t) {
       case 'obs':
@@ -61,12 +64,20 @@ class EncoderBridge {
         return new EpiphanEncoder({ host, port: port || 80, password });
       case 'teradek':
         return new TeradekEncoder({ host, port: port || 80, password });
+      case 'tricaster':
+        return new TriCasterEncoder({ host, port: port || 5951, password, label });
+      case 'birddog':
+        return new BirdDogEncoder({ host, port: port || 8080, password, label, source: source || statusUrl || '' });
       case 'tally-encoder':
         return new TallyEncoderAdapter({ host, port: port || 7070 });
       case 'ndi':
-        return new NdiEncoder({ host, label });
+        return new NdiEncoder({ host: source || host, label });
       case 'custom':
         return new CustomEncoder({ host, port: port || 80, statusUrl, label });
+      case 'atem-streaming':
+        // ATEM Mini built-in streaming — no separate encoder to connect to.
+        // Streaming status is monitored through the ATEM SDK connection.
+        return new RtmpPushEncoder({ type: 'atem-streaming', label: 'ATEM Mini', host, port: port || 80 });
       case 'yolobox':
       case 'custom-rtmp':
       case 'rtmp-generic':

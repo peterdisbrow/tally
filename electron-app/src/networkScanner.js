@@ -98,13 +98,42 @@ function isLikelyVmixXml(xml) {
   return typeof xml === 'string' && /<edition>/.test(xml);
 }
 
+function isLikelyBirdDog(resp) {
+  const data = resp && typeof resp.data === 'object' ? resp.data : null;
+  if (data) {
+    const blob = JSON.stringify(data).toLowerCase();
+    // Require "birddog" in the response — generic "firmware" alone matches too many devices
+    if (blob.includes('birddog')) return true;
+  }
+
+  const body = String(resp?.body || '').toLowerCase();
+  return body.includes('birddog');
+}
+
+function extractBirdDogSource(resp) {
+  const data = resp && typeof resp.data === 'object' ? resp.data : null;
+  const keys = ['source', 'Source', 'sourceName', 'SourceName', 'Ch1Source', 'ch1_source'];
+  if (data) {
+    for (const key of keys) {
+      const value = data[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+  }
+  const body = String(resp?.body || '');
+  const m = body.match(/\b(?:sourceName|SourceName|source|Ch1Source)\b\s*[:=]\s*([^\r\n&<]+)/i);
+  return m ? m[1].trim() : '';
+}
+
 /**
  * Discover AV devices on the local network.
  * @param {function} onProgress - callback(percent, message)
  * @returns {Promise<Object>} discovered devices
  */
 async function discoverDevices(onProgress = () => {}, options = {}) {
-  const results = { atem: [], companion: [], obs: [], hyperdeck: [], propresenter: [], nmos: [], resolume: [], vmix: [], mixers: [], encoders: [] };
+  const results = {
+    atem: [], companion: [], obs: [], hyperdeck: [], propresenter: [], nmos: [],
+    resolume: [], vmix: [], tricaster: [], birddog: [], mixers: [], encoders: [],
+  };
   const { subnet, localIp, interfaceName } = getLocalSubnet(options.interfaceName);
 
   const ifaceLabel = interfaceName ? ` on ${interfaceName}` : '';
@@ -123,6 +152,9 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { type: 'propresenter', ip: '127.0.0.1', port: 1025 },
     { type: 'resolume', ip: '127.0.0.1', port: 8080 },
     { type: 'vmix', ip: '127.0.0.1', port: 8088 },
+    { type: 'tricaster-control', ip: '127.0.0.1', port: 5951 },
+    { type: 'tricaster-http', ip: '127.0.0.1', port: 5952 },
+    { type: 'birddog', ip: '127.0.0.1', port: 8080 },
     { type: 'mixer-behringer', ip: '127.0.0.1', port: 10023 },
     { type: 'mixer-allenheath', ip: '127.0.0.1', port: 51326 },
     { type: 'mixer-yamaha', ip: '127.0.0.1', port: 8765 },
@@ -167,6 +199,33 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
           results.resolume.push({ ip: '127.0.0.1', port: check.port, version });
           onProgress(5, `Found ${version} on localhost ✅`);
         }
+      } else if (check.type === 'tricaster-control' || check.type === 'tricaster-http') {
+        const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/v1/version`, 2000);
+        const raw = String(resp.body || '');
+        const version = (resp.data && (resp.data.version || resp.data.softwareVersion))
+          || (raw.match(/<version[^>]*>([^<]+)<\/version>/i)?.[1] || '');
+        const existing = results.tricaster.find((d) => d.ip === '127.0.0.1');
+        if (existing) {
+          if (!existing.version && version) existing.version = version;
+          if (check.type === 'tricaster-http') existing.port = check.port;
+        } else {
+          const entry = {
+            ip: '127.0.0.1',
+            port: check.port,
+            version: version || null,
+            mode: resp.success ? 'http' : 'control',
+          };
+          results.tricaster.push(entry);
+        }
+        onProgress(6, `Found TriCaster endpoint on localhost:${check.port} ✅`);
+      } else if (check.type === 'birddog') {
+        const decodeResp = await tryHttpGet(`http://127.0.0.1:${check.port}/decodestatus?ChNum=1`, 2000);
+        const aboutResp = decodeResp.success ? decodeResp : await tryHttpGet(`http://127.0.0.1:${check.port}/about`, 2000);
+        if (decodeResp.success || isLikelyBirdDog(aboutResp)) {
+          const source = extractBirdDogSource(decodeResp.success ? decodeResp : aboutResp);
+          results.birddog.push({ ip: '127.0.0.1', port: check.port, source: source || null });
+          onProgress(6, 'Found BirdDog endpoint on localhost ✅');
+        }
       } else if (check.type === 'hyperdeck') {
         results.hyperdeck.push({ ip: '127.0.0.1' });
         onProgress(5, 'Found HyperDeck on localhost ✅');
@@ -198,7 +257,10 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { port: 9993,  type: 'hyperdeck' },
     { port: 1025,  type: 'propresenter' },
     { port: 8080,  type: 'resolume' },
+    { port: 8080,  type: 'birddog' },
     { port: 8088,  type: 'vmix' },
+    { port: 5951,  type: 'tricaster-control' },
+    { port: 5952,  type: 'tricaster-http' },
     // Audio consoles — TCP probe on OSC/control ports
     { port: 10023, type: 'mixer-behringer' },  // Behringer X32 / Midas M32
     { port: 51326, type: 'mixer-allenheath' }, // Allen & Heath SQ
@@ -261,6 +323,43 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
                 results.resolume.push({ ip, port, version });
                 onProgress(null, `Found ${version} at ${ip} ✅`);
               }
+            } else if (type === 'birddog' && !results.birddog.find((d) => d.ip === ip)) {
+              const decodeResp = await tryHttpGet(`http://${ip}:${port}/decodestatus?ChNum=1`, 2000);
+              const aboutResp = decodeResp.success ? decodeResp : await tryHttpGet(`http://${ip}:${port}/about`, 2000);
+              const versionResp = (!decodeResp.success && !isLikelyBirdDog(aboutResp))
+                ? await tryHttpGet(`http://${ip}:${port}/version`, 2000)
+                : null;
+              const listResp = (!decodeResp.success && !isLikelyBirdDog(aboutResp) && !isLikelyBirdDog(versionResp))
+                ? await tryHttpGet(`http://${ip}:${port}/List`, 2000)
+                : null;
+              const matched = decodeResp.success
+                || isLikelyBirdDog(aboutResp)
+                || isLikelyBirdDog(versionResp)
+                || isLikelyBirdDog(listResp);
+              if (matched) {
+                const source = extractBirdDogSource(decodeResp.success ? decodeResp : (aboutResp || versionResp || listResp));
+                results.birddog.push({ ip, port, source: source || null });
+                onProgress(null, `Found BirdDog endpoint at ${ip}:${port} ✅`);
+              }
+            } else if ((type === 'tricaster-control' || type === 'tricaster-http') && !results.tricaster.find((d) => d.ip === ip && d.port === port)) {
+              const vResp = await tryHttpGet(`http://${ip}:${port}/v1/version`, 2000);
+              const raw = String(vResp.body || '');
+              const version = (vResp.data && (vResp.data.version || vResp.data.softwareVersion))
+                || (raw.match(/<version[^>]*>([^<]+)<\/version>/i)?.[1] || null);
+
+              const existing = results.tricaster.find((d) => d.ip === ip);
+              if (existing) {
+                if (!existing.version && version) existing.version = version;
+                if (type === 'tricaster-http') existing.port = port;
+              } else {
+                results.tricaster.push({
+                  ip,
+                  port,
+                  version: version || null,
+                  mode: vResp.success ? 'http' : 'control',
+                });
+              }
+              onProgress(null, `Found TriCaster endpoint at ${ip}:${port} ✅`);
             } else if (type === 'mixer-behringer' && !results.mixers.find((d) => d.ip === ip && d.port === port)) {
               results.mixers.push({ ip, port, type: 'behringer/midas (X32/M32)' });
               onProgress(null, `Found possible Behringer/Midas console at ${ip}:${port} ✅`);
@@ -288,7 +387,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     onProgress(pct, `Scanned ${scanned}/${totalScans} IPs...`);
   }
 
-  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.propresenter.length + results.resolume.length + results.vmix.length + results.encoders.length} devices found`);
+  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.propresenter.length + results.resolume.length + results.vmix.length + results.tricaster.length + results.birddog.length + results.encoders.length} devices found`);
   return results;
 }
 
