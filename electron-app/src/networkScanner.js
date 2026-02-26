@@ -1,11 +1,37 @@
 /**
  * Network Scanner — Auto-discovers church AV devices on the local subnet.
- * Scans for ATEM, Companion, OBS, HyperDeck, and PTZ cameras.
+ * Scans for ATEM, Companion, OBS, HyperDeck, PTZ cameras, mixers, and encoders.
+ *
+ * Protocol notes:
+ *  - ATEM: UDP port 9910 (proprietary Blackmagic protocol)
+ *  - Behringer/Midas X32/M32: OSC over UDP port 10023
+ *  - Allen & Heath SQ/dLive: OSC over UDP port 51326/51327
+ *  - Yamaha CL/QL: OSC over UDP port 8765
+ *  - OBS, HyperDeck, Companion, ProPresenter, vMix, TriCaster, BirdDog: TCP/HTTP
  */
 
 const net = require('net');
 const os = require('os');
 const http = require('http');
+const dgram = require('dgram');
+
+// ─── UDP probe packets (pre-computed) ────────────────────────────────────────
+
+// ATEM SYN handshake: flags=SYN(0x02), length=20, session=0x534B
+const ATEM_SYN_PACKET = Buffer.from(
+  '1014534B0000000000000000000000000000000000', 'hex',
+);
+
+// OSC "/info" query (Behringer X32/M32) — 12 bytes
+const OSC_INFO_PACKET = Buffer.from('2F696E666F0000002C000000', 'hex');
+
+// OSC "/sq/alive" query (Allen & Heath SQ) — 16 bytes
+const OSC_SQ_ALIVE_PACKET = Buffer.from('2F73712F616C6976650000002C000000', 'hex');
+
+// OSC "/ymhss/state" query (Yamaha CL/QL) — 20 bytes
+const OSC_YAMAHA_STATE_PACKET = Buffer.from('2F796D6873732F7374617465000000002C000000', 'hex');
+
+// ─── Network helpers ─────────────────────────────────────────────────────────
 
 function listAvailableInterfaces() {
   const ifaces = os.networkInterfaces();
@@ -64,6 +90,30 @@ function tryTcpConnect(ip, port, timeoutMs = 300) {
   });
 }
 
+/**
+ * Send a UDP packet and wait for ANY response.
+ * Returns true if a response is received within timeoutMs, false otherwise.
+ */
+function tryUdpProbe(ip, port, packet, timeoutMs = 500) {
+  return new Promise((resolve) => {
+    const socket = dgram.createSocket('udp4');
+    let done = false;
+    const finish = (success) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { socket.close(); } catch { /* ignore */ }
+      resolve(success);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    socket.on('message', () => finish(true));
+    socket.on('error', () => finish(false));
+    socket.send(packet, 0, packet.length, port, ip, (err) => {
+      if (err) finish(false);
+    });
+  });
+}
+
 function tryHttpGet(url, timeoutMs = 2000) {
   return new Promise((resolve) => {
     const req = http.get(url, { timeout: timeoutMs }, (res) => {
@@ -89,6 +139,7 @@ function tryHttpGet(url, timeoutMs = 2000) {
   });
 }
 
+// ─── Device fingerprint helpers ──────────────────────────────────────────────
 
 function isLikelyResolume(data) {
   return data && typeof data === 'object' && typeof (data.name || data.title || data.productName || data.version) === 'string';
@@ -98,15 +149,25 @@ function isLikelyVmixXml(xml) {
   return typeof xml === 'string' && /<edition>/.test(xml);
 }
 
+/**
+ * Check whether an HTTP response looks like it came from a BirdDog device.
+ * Requires "birddog" in the body OR BirdDog-specific JSON keys.
+ * A generic 200 from a random web server on :8080 will NOT match.
+ */
 function isLikelyBirdDog(resp) {
-  const data = resp && typeof resp.data === 'object' ? resp.data : null;
+  if (!resp || !resp.success) return false;
+
+  const data = resp.data && typeof resp.data === 'object' ? resp.data : null;
   if (data) {
     const blob = JSON.stringify(data).toLowerCase();
-    // Require "birddog" in the response — generic "firmware" alone matches too many devices
     if (blob.includes('birddog')) return true;
+
+    // BirdDog decode-status has keys like Ch1Source, DecodeSource, DecodeStatus
+    const keys = Object.keys(data);
+    if (keys.some((k) => /^ch\d+source$/i.test(k) || /^decode/i.test(k))) return true;
   }
 
-  const body = String(resp?.body || '').toLowerCase();
+  const body = String(resp.body || '').toLowerCase();
   return body.includes('birddog');
 }
 
@@ -122,6 +183,28 @@ function extractBirdDogSource(resp) {
   const body = String(resp?.body || '');
   const m = body.match(/\b(?:sourceName|SourceName|source|Ch1Source)\b\s*[:=]\s*([^\r\n&<]+)/i);
   return m ? m[1].trim() : '';
+}
+
+// ─── Probe dispatcher ────────────────────────────────────────────────────────
+
+/**
+ * Choose the correct network probe for a device type.
+ * UDP-based devices (ATEM, OSC mixers) get a proper UDP handshake/query;
+ * everything else uses a fast TCP connect probe.
+ */
+function probeDevice(ip, port, type, timeoutMs) {
+  switch (type) {
+    case 'atem':
+      return tryUdpProbe(ip, port, ATEM_SYN_PACKET, timeoutMs);
+    case 'mixer-behringer':
+      return tryUdpProbe(ip, port, OSC_INFO_PACKET, timeoutMs);
+    case 'mixer-allenheath':
+      return tryUdpProbe(ip, port, OSC_SQ_ALIVE_PACKET, timeoutMs);
+    case 'mixer-yamaha':
+      return tryUdpProbe(ip, port, OSC_YAMAHA_STATE_PACKET, timeoutMs);
+    default:
+      return tryTcpConnect(ip, port, timeoutMs);
+  }
 }
 
 /**
@@ -164,7 +247,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
   // Check localhost first
   onProgress(2, 'Checking localhost for common AV services...');
   for (const check of localhostChecks) {
-    const open = await tryTcpConnect(check.ip, check.port, 500);
+    const open = await probeDevice(check.ip, check.port, check.type, 500);
     if (open) {
       if (check.type === 'atem') {
         results.atem.push({ ip: '127.0.0.1', name: 'ATEM Switcher', model: 'Unknown' });
@@ -220,9 +303,9 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
         onProgress(6, `Found TriCaster endpoint on localhost:${check.port} ✅`);
       } else if (check.type === 'birddog') {
         const decodeResp = await tryHttpGet(`http://127.0.0.1:${check.port}/decodestatus?ChNum=1`, 2000);
-        const aboutResp = decodeResp.success ? decodeResp : await tryHttpGet(`http://127.0.0.1:${check.port}/about`, 2000);
-        if (decodeResp.success || isLikelyBirdDog(aboutResp)) {
-          const source = extractBirdDogSource(decodeResp.success ? decodeResp : aboutResp);
+        const aboutResp = !isLikelyBirdDog(decodeResp) ? await tryHttpGet(`http://127.0.0.1:${check.port}/about`, 2000) : null;
+        if (isLikelyBirdDog(decodeResp) || isLikelyBirdDog(aboutResp)) {
+          const source = extractBirdDogSource(isLikelyBirdDog(decodeResp) ? decodeResp : aboutResp);
           results.birddog.push({ ip: '127.0.0.1', port: check.port, source: source || null });
           onProgress(6, 'Found BirdDog endpoint on localhost ✅');
         }
@@ -251,22 +334,20 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
   // Scan subnet in batches of 50 to avoid overwhelming the network
   const BATCH_SIZE = 50;
   const ports = [
-    { port: 9910,  type: 'atem' },
-    { port: 8888,  type: 'companion' },
-    { port: 4455,  type: 'obs' },
-    { port: 9993,  type: 'hyperdeck' },
-    { port: 1025,  type: 'propresenter' },
-    { port: 8080,  type: 'resolume' },
-    { port: 8080,  type: 'birddog' },
-    { port: 8088,  type: 'vmix' },
-    { port: 5951,  type: 'tricaster-control' },
-    { port: 5952,  type: 'tricaster-http' },
-    // Audio consoles — TCP probe on OSC/control ports
-    { port: 10023, type: 'mixer-behringer' },  // Behringer X32 / Midas M32
-    { port: 51326, type: 'mixer-allenheath' }, // Allen & Heath SQ
-    { port: 8765,  type: 'mixer-yamaha' },     // Yamaha CL/QL
-    // Streaming encoders
-    { port: 7070,  type: 'tally-encoder' },    // Tally Encoder (RPi)
+    { port: 9910,  type: 'atem' },                // UDP — Blackmagic ATEM protocol
+    { port: 8888,  type: 'companion' },            // TCP — Bitfocus Companion HTTP
+    { port: 4455,  type: 'obs' },                  // TCP — OBS WebSocket
+    { port: 9993,  type: 'hyperdeck' },            // TCP — HyperDeck telnet
+    { port: 1025,  type: 'propresenter' },         // TCP — ProPresenter HTTP
+    { port: 8080,  type: 'resolume' },             // TCP — Resolume Arena REST
+    { port: 8080,  type: 'birddog' },              // TCP — BirdDog HTTP
+    { port: 8088,  type: 'vmix' },                 // TCP — vMix HTTP API
+    { port: 5951,  type: 'tricaster-control' },    // TCP — TriCaster control
+    { port: 5952,  type: 'tricaster-http' },       // TCP — TriCaster HTTP
+    { port: 10023, type: 'mixer-behringer' },      // UDP — Behringer X32 / Midas M32 OSC
+    { port: 51326, type: 'mixer-allenheath' },     // UDP — Allen & Heath SQ OSC
+    { port: 8765,  type: 'mixer-yamaha' },         // UDP — Yamaha CL/QL OSC
+    { port: 7070,  type: 'tally-encoder' },        // TCP — Tally Encoder HTTP
   ];
 
   let scanned = 0;
@@ -284,7 +365,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
         if (ip === localIp && (type === 'obs' || type === 'companion')) continue;
 
         promises.push(
-          tryTcpConnect(ip, port, 300).then(async (open) => {
+          probeDevice(ip, port, type, 500).then(async (open) => {
             if (!open) return;
 
             if (type === 'atem' && !results.atem.find((d) => d.ip === ip)) {
@@ -324,20 +405,24 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
                 onProgress(null, `Found ${version} at ${ip} ✅`);
               }
             } else if (type === 'birddog' && !results.birddog.find((d) => d.ip === ip)) {
+              // BirdDog: require positive fingerprint — port 8080 alone is too common
               const decodeResp = await tryHttpGet(`http://${ip}:${port}/decodestatus?ChNum=1`, 2000);
-              const aboutResp = decodeResp.success ? decodeResp : await tryHttpGet(`http://${ip}:${port}/about`, 2000);
-              const versionResp = (!decodeResp.success && !isLikelyBirdDog(aboutResp))
+              const aboutResp = !isLikelyBirdDog(decodeResp)
+                ? await tryHttpGet(`http://${ip}:${port}/about`, 2000)
+                : null;
+              const versionResp = (!isLikelyBirdDog(decodeResp) && !isLikelyBirdDog(aboutResp))
                 ? await tryHttpGet(`http://${ip}:${port}/version`, 2000)
                 : null;
-              const listResp = (!decodeResp.success && !isLikelyBirdDog(aboutResp) && !isLikelyBirdDog(versionResp))
+              const listResp = (!isLikelyBirdDog(decodeResp) && !isLikelyBirdDog(aboutResp) && !isLikelyBirdDog(versionResp))
                 ? await tryHttpGet(`http://${ip}:${port}/List`, 2000)
                 : null;
-              const matched = decodeResp.success
+              const matched = isLikelyBirdDog(decodeResp)
                 || isLikelyBirdDog(aboutResp)
                 || isLikelyBirdDog(versionResp)
                 || isLikelyBirdDog(listResp);
               if (matched) {
-                const source = extractBirdDogSource(decodeResp.success ? decodeResp : (aboutResp || versionResp || listResp));
+                const bestResp = isLikelyBirdDog(decodeResp) ? decodeResp : (aboutResp || versionResp || listResp);
+                const source = extractBirdDogSource(bestResp);
                 results.birddog.push({ ip, port, source: source || null });
                 onProgress(null, `Found BirdDog endpoint at ${ip}:${port} ✅`);
               }
@@ -391,4 +476,16 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
   return results;
 }
 
-module.exports = { discoverDevices, tryTcpConnect, tryHttpGet, getLocalSubnet, listAvailableInterfaces };
+module.exports = {
+  discoverDevices,
+  tryTcpConnect,
+  tryUdpProbe,
+  tryHttpGet,
+  getLocalSubnet,
+  listAvailableInterfaces,
+  // Expose packets for equipment-tester
+  ATEM_SYN_PACKET,
+  OSC_INFO_PACKET,
+  OSC_SQ_ALIVE_PACKET,
+  OSC_YAMAHA_STATE_PACKET,
+};

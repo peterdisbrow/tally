@@ -1,18 +1,38 @@
 /**
  * equipment-tester.js — Equipment connection testing (TCP, UDP, HTTP, NDI probes).
  *
- * Extracted from main.js — pure refactoring, no behaviour changes.
+ * Protocol notes:
+ *  - ATEM: UDP port 9910 (Blackmagic proprietary protocol)
+ *  - Behringer/Midas X32/M32: OSC over UDP port 10023
+ *  - Allen & Heath SQ/dLive: OSC over UDP port 51326
+ *  - Yamaha CL/QL: OSC over UDP port 8765
+ *  - OBS, HyperDeck, Companion, ProPresenter, vMix, TriCaster, BirdDog: TCP/HTTP
  */
 
 const { spawn } = require('child_process');
+const dgram = require('dgram');
 
 // Injected dependencies — set via init()
 let _tryTcpConnect = async () => false;
 let _tryHttpGet = async () => ({ success: false });
+let _tryUdpProbe = async () => false;
 
-function init({ tryTcpConnect, tryHttpGet }) {
+// Pre-computed UDP probe packets
+let ATEM_SYN_PACKET = Buffer.from('1014534B0000000000000000000000000000000000', 'hex');
+let OSC_INFO_PACKET = Buffer.from('2F696E666F0000002C000000', 'hex');
+let OSC_SQ_ALIVE_PACKET = Buffer.from('2F73712F616C6976650000002C000000', 'hex');
+let OSC_YAMAHA_STATE_PACKET = Buffer.from('2F796D6873732F7374617465000000002C000000', 'hex');
+
+function init({ tryTcpConnect, tryHttpGet, tryUdpProbe, packets }) {
   if (typeof tryTcpConnect === 'function') _tryTcpConnect = tryTcpConnect;
   if (typeof tryHttpGet === 'function') _tryHttpGet = tryHttpGet;
+  if (typeof tryUdpProbe === 'function') _tryUdpProbe = tryUdpProbe;
+  if (packets) {
+    if (packets.ATEM_SYN_PACKET) ATEM_SYN_PACKET = packets.ATEM_SYN_PACKET;
+    if (packets.OSC_INFO_PACKET) OSC_INFO_PACKET = packets.OSC_INFO_PACKET;
+    if (packets.OSC_SQ_ALIVE_PACKET) OSC_SQ_ALIVE_PACKET = packets.OSC_SQ_ALIVE_PACKET;
+    if (packets.OSC_YAMAHA_STATE_PACKET) OSC_YAMAHA_STATE_PACKET = packets.OSC_YAMAHA_STATE_PACKET;
+  }
 }
 
 // ─── Local helpers ────────────────────────────────────────────────────────────
@@ -28,9 +48,12 @@ function tryTcpConnectLocal(host, port, timeoutMs) {
   });
 }
 
+/**
+ * Send a UDP packet and wait for ANY response (fire-and-forget fallback).
+ * Used for VISCA-UDP cameras where no response is expected.
+ */
 function tryUdpSendLocal(host, port, payloadHex = '', timeoutMs = 2000) {
   return new Promise((resolve) => {
-    const dgram = require('dgram');
     const socket = dgram.createSocket('udp4');
     const payload = payloadHex ? Buffer.from(payloadHex.replace(/\s+/g, ''), 'hex') : Buffer.from([0x81, 0x09, 0x04, 0x00, 0xff]);
     let done = false;
@@ -48,6 +71,31 @@ function tryUdpSendLocal(host, port, payloadHex = '', timeoutMs = 2000) {
     socket.send(payload, port, host, (err) => {
       clearTimeout(timer);
       finish(!err);
+    });
+  });
+}
+
+/**
+ * Send a UDP packet and wait for a RESPONSE.
+ * Returns true if any UDP response arrives within timeoutMs.
+ * Used for ATEM handshake and OSC mixer queries.
+ */
+function tryUdpProbeLocal(host, port, packet, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const socket = dgram.createSocket('udp4');
+    let done = false;
+    const finish = (success) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { socket.close(); } catch { /* ignore */ }
+      resolve(success);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    socket.on('message', () => finish(true));
+    socket.on('error', () => finish(false));
+    socket.send(packet, 0, packet.length, port, host, (err) => {
+      if (err) finish(false);
     });
   });
 }
@@ -156,8 +204,9 @@ async function testEquipmentConnection(params) {
   try {
     switch (type) {
       case 'atem': {
-        const ok = await _tryTcpConnect(ip, port || 9910, 2000);
-        return { success: ok, details: ok ? 'ATEM reachable' : 'Cannot reach ATEM' };
+        // ATEM uses UDP on port 9910 — send SYN handshake and wait for response
+        const ok = await tryUdpProbeLocal(ip, port || 9910, ATEM_SYN_PACKET, 2000);
+        return { success: ok, details: ok ? 'ATEM reachable (UDP handshake OK)' : 'Cannot reach ATEM — check IP and that it is powered on' };
       }
       case 'companion': {
         const target = url || `http://${ip}:${port || 8888}`;
@@ -235,13 +284,16 @@ async function testEquipmentConnection(params) {
           : mixerType === 'yamaha' ? 8765
           : 10023; // behringer / midas
         const targetPort = port || defaultPort;
-        // Yamaha TF uses TCP on 49280 — try TCP connect; for OSC consoles, TCP probe is a good enough check
-        const resp = await tryTcpConnectLocal(ip, targetPort, 3000);
+        // All supported mixers use OSC over UDP — send the appropriate query and wait for response
+        const packet = mixerType === 'allenheath' ? OSC_SQ_ALIVE_PACKET
+          : mixerType === 'yamaha' ? OSC_YAMAHA_STATE_PACKET
+          : OSC_INFO_PACKET;
+        const ok = await tryUdpProbeLocal(ip, targetPort, packet, 3000);
         return {
-          success: resp.success,
-          details: resp.success
-            ? `${mixerType} console reachable at ${ip}:${targetPort}`
-            : `Cannot reach ${mixerType} console at ${ip}:${targetPort}`,
+          success: ok,
+          details: ok
+            ? `${mixerType} console reachable at ${ip}:${targetPort} (OSC response OK)`
+            : `Cannot reach ${mixerType} console at ${ip}:${targetPort} — check IP and power`,
         };
       }
       case 'encoder': {
@@ -379,6 +431,7 @@ module.exports = {
   testEquipmentConnection,
   tryTcpConnectLocal,
   tryUdpSendLocal,
+  tryUdpProbeLocal,
   parseProbeRate,
   runLocalCommand,
   probeNdiSourceLocal,

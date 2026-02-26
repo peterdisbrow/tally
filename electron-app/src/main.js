@@ -51,6 +51,19 @@ equipmentTester.init({
     const { tryHttpGet } = require('./networkScanner');
     return tryHttpGet(...args);
   },
+  tryUdpProbe: (...args) => {
+    const { tryUdpProbe } = require('./networkScanner');
+    return tryUdpProbe(...args);
+  },
+  packets: (() => {
+    const ns = require('./networkScanner');
+    return {
+      ATEM_SYN_PACKET: ns.ATEM_SYN_PACKET,
+      OSC_INFO_PACKET: ns.OSC_INFO_PACKET,
+      OSC_SQ_ALIVE_PACKET: ns.OSC_SQ_ALIVE_PACKET,
+      OSC_YAMAHA_STATE_PACKET: ns.OSC_YAMAHA_STATE_PACKET,
+    };
+  })(),
 });
 
 function appendAppLog(source, message) {
