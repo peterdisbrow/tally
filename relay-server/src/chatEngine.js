@@ -118,11 +118,11 @@ class ChatEngine {
    *
    * @param {string} churchId
    * @param {object} [opts]
-   * @param {number} [opts.limit=20]          - Max messages to fetch
-   * @param {number} [opts.maxAgeMinutes=60]  - Only include messages this recent
+   * @param {number} [opts.limit=10]          - Max messages to fetch
+   * @param {number} [opts.maxAgeMinutes=30]  - Only include messages this recent
    * @returns {Array<{role: string, content: string}>}
    */
-  getRecentConversation(churchId, { limit = 20, maxAgeMinutes = 60 } = {}) {
+  getRecentConversation(churchId, { limit = 10, maxAgeMinutes = 30 } = {}) {
     const cutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000).toISOString();
 
     const rows = this.db.prepare(`

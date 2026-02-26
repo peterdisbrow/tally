@@ -7,6 +7,58 @@
 
 const { isOnTopic, OFF_TOPIC_RESPONSE } = require('./chat-guard');
 
+// ─── COST CONTROLS ──────────────────────────────────────────────────────────
+
+// Simple LRU cache for AI responses (keyed on normalized message text)
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_MAX = 200;
+const responseCache = new Map();
+
+function getCachedResponse(key) {
+  const entry = responseCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL) {
+    responseCache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCachedResponse(key, value) {
+  // Evict oldest if at capacity
+  if (responseCache.size >= CACHE_MAX) {
+    const oldest = responseCache.keys().next().value;
+    responseCache.delete(oldest);
+  }
+  responseCache.set(key, { value, ts: Date.now() });
+}
+
+// Per-church AI call rate limit (tier-based)
+const AI_RATE_LIMITS = {
+  connect: 15,
+  plus: 30,
+  pro: 60,
+  managed: 100,
+  event: 30,
+  default: 30,
+};
+const AI_RATE_WINDOW = 60 * 60 * 1000; // 1 hour
+const aiCallCounts = new Map(); // churchId → { count, windowStart }
+
+function checkAiRateLimit(churchId, tier) {
+  if (!churchId) return true;
+  const limit = AI_RATE_LIMITS[tier] || AI_RATE_LIMITS.default;
+  const now = Date.now();
+  let bucket = aiCallCounts.get(churchId);
+  if (!bucket || now - bucket.windowStart > AI_RATE_WINDOW) {
+    bucket = { count: 0, windowStart: now };
+    aiCallCounts.set(churchId, bucket);
+  }
+  if (bucket.count >= limit) return false;
+  bucket.count++;
+  return true;
+}
+
 // ─── System prompt ─────────────────────────────────────────────────────────
 
 const FALLBACK_COMMANDS = [
@@ -149,139 +201,44 @@ function getAvailableCommandNames() {
 }
 
 const AVAILABLE_COMMANDS = getAvailableCommandNames();
-const AVAILABLE_COMMANDS_TEXT = AVAILABLE_COMMANDS.map((cmd) => `- ${cmd}`).join('\n');
+// Note: AVAILABLE_COMMANDS is exported via getAvailableCommandNames() for use elsewhere
 
-const SYSTEM_PROMPT = `You are the command parser for Tally, a church AV monitoring and control system.
-A church Technical Director has sent a natural language message via Telegram.
-Your job: parse it into one or more structured commands.
+const SYSTEM_PROMPT = `You parse natural language into JSON commands for Tally, a church AV control system.
 
-AVAILABLE COMMANDS (JSON schema):
-{"command":"atem.cut","params":{"input":N}}                        — switch program to camera N
-{"command":"atem.setPreview","params":{"input":N}}                 — put camera N on preview
-{"command":"atem.auto","params":{}}                                — execute auto transition / take
-{"command":"atem.fadeToBlack","params":{}}                         — toggle fade to black
-{"command":"atem.startRecording","params":{}}
-{"command":"atem.stopRecording","params":{}}
-{"command":"atem.setInputLabel","params":{"input":N,"longName":"X"}}
-{"command":"atem.runMacro","params":{"macroIndex":N}}
-{"command":"atem.stopMacro","params":{}}
-{"command":"atem.setAux","params":{"aux":N,"input":N}}
-{"command":"atem.setTransitionStyle","params":{"style":"mix|dip|wipe|dve|stinger"}}
-{"command":"atem.setTransitionRate","params":{"rate":N}}
-{"command":"atem.setDskOnAir","params":{"keyer":N,"onAir":true}}
-{"command":"atem.setDskTie","params":{"keyer":N,"tie":true}}
-{"command":"atem.setDskRate","params":{"keyer":N,"rate":N}}
-{"command":"atem.setDskSource","params":{"keyer":N,"fillSource":N,"keySource":N}}
-{"command":"hyperdeck.play","params":{"hyperdeck":N}}
-{"command":"hyperdeck.stop","params":{"hyperdeck":N}}
-{"command":"hyperdeck.record","params":{"hyperdeck":N}}
-{"command":"hyperdeck.nextClip","params":{"hyperdeck":N}}
-{"command":"hyperdeck.prevClip","params":{"hyperdeck":N}}
-{"command":"ptz.pan","params":{"camera":N,"speed":-1.0-1.0}}
-{"command":"ptz.tilt","params":{"camera":N,"speed":-1.0-1.0}}
-{"command":"ptz.zoom","params":{"camera":N,"speed":-1.0-1.0}}
-{"command":"ptz.preset","params":{"camera":N,"preset":N}}
-{"command":"ptz.setPreset","params":{"camera":N,"preset":N}}
-{"command":"ptz.stop","params":{"camera":N}}
-{"command":"ptz.home","params":{"camera":N}}
-{"command":"obs.startStream","params":{}}
-{"command":"obs.stopStream","params":{}}
-{"command":"obs.startRecording","params":{}}
-{"command":"obs.stopRecording","params":{}}
-{"command":"obs.setScene","params":{"scene":"X"}}                           — switch to scene "X"
-{"command":"encoder.startStream","params":{}}
-{"command":"encoder.stopStream","params":{}}
-{"command":"encoder.startRecording","params":{}}
-{"command":"encoder.stopRecording","params":{}}
-{"command":"encoder.status","params":{}}
-{"command":"companion.pressNamed","params":{"name":"X"}}           — press a named Companion button
-{"command":"vmix.startStream","params":{}}
-{"command":"vmix.stopStream","params":{}}
-{"command":"vmix.startRecording","params":{}}
-{"command":"vmix.stopRecording","params":{}}
-{"command":"vmix.cut","params":{}}
-{"command":"vmix.fade","params":{"ms":300}}
-{"command":"vmix.setPreview","params":{"input":1}}
-{"command":"vmix.setProgram","params":{"input":1}}
-{"command":"vmix.setVolume","params":{"value":80}}
-{"command":"vmix.mute","params":{}}
-{"command":"vmix.unmute","params":{}}
-{"command":"vmix.preview","params":{}}
-{"command":"vmix.isRunning","params":{}}
-{"command":"vmix.function","params":{"function":"X","input":"Y"}}
-{"command":"videohub.route","params":{"input":N,"output":N}}
-{"command":"videohub.getRoutes","params":{}}
-{"command":"propresenter.next","params":{}}
-{"command":"propresenter.previous","params":{}}
-{"command":"propresenter.goToSlide","params":{"index":N}}
-{"command":"propresenter.status","params":{}}
-{"command":"propresenter.playlist","params":{}}
-{"command":"resolume.playClip","params":{"name":"X"}}
-{"command":"resolume.triggerColumn","params":{"column":N}}
-{"command":"resolume.clearAll","params":{}}
-{"command":"resolume.setBpm","params":{"bpm":N}}
-{"command":"mixer.status","params":{}}
-{"command":"mixer.mute","params":{"channel":"master|N"}}
-{"command":"mixer.unmute","params":{"channel":"master|N"}}
-{"command":"mixer.recallScene","params":{"scene":N}}
-{"command":"mixer.saveScene","params":{"scene":N,"name":"X"}}
-{"command":"mixer.setFader","params":{"channel":N,"level":0.0-1.0}}
-{"command":"mixer.setChannelName","params":{"channel":N,"name":"X"}}
-{"command":"mixer.setHpf","params":{"channel":N,"enabled":true,"frequency":80}}
-{"command":"mixer.setEq","params":{"channel":N,"enabled":true,"bands":[{"band":1,"type":2,"frequency":1000,"gain":0,"q":2}]}}
-{"command":"mixer.setCompressor","params":{"channel":N,"enabled":true,"threshold":-20,"ratio":4,"attack":10,"release":100,"knee":2}}
-{"command":"mixer.setGate","params":{"channel":N,"enabled":true,"threshold":-40,"range":40,"attack":1,"hold":5,"release":150}}
-{"command":"atem.uploadStill","params":{"index":0,"data":"base64...","name":"X"}} — upload image to ATEM media pool
-{"command":"atem.setMediaPlayer","params":{"player":0,"sourceType":"still","stillIndex":0}}
-{"command":"atem.captureStill","params":{}} — capture program output to media pool
-{"command":"atem.clearStill","params":{"index":0}}
-{"command":"dante.scene","params":{"name":"X"}}
-{"command":"preview.snap","params":{}}                             — send live preview photo
-{"command":"system.preServiceCheck","params":{}}
-{"command":"status","params":{}}                                   — overall system status
+COMMANDS (N=number, X=string):
+atem: cut(input:N), setPreview(input:N), auto(), fadeToBlack(), startRecording(), stopRecording(), setInputLabel(input:N,longName:X), runMacro(macroIndex:N), stopMacro(), setAux(aux:N,input:N), setTransitionStyle(style:mix|dip|wipe|dve|stinger), setTransitionRate(rate:N), setDskOnAir(keyer:N,onAir:bool), setDskTie(keyer:N,tie:bool), setDskRate(keyer:N,rate:N), setDskSource(keyer:N,fillSource:N,keySource:N), setProgram(input:N), uploadStill(index:N,data:X,name:X), setMediaPlayer(player:N,sourceType:X,stillIndex:N), captureStill(), clearStill(index:N)
+hyperdeck: play(hyperdeck:N), stop(hyperdeck:N), record(hyperdeck:N), nextClip(hyperdeck:N), prevClip(hyperdeck:N)
+ptz: pan(camera:N,speed:-1to1), tilt(camera:N,speed:-1to1), zoom(camera:N,speed:-1to1), preset(camera:N,preset:N), setPreset(camera:N,preset:N), stop(camera:N), home(camera:N)
+obs: startStream(), stopStream(), startRecording(), stopRecording(), setScene(scene:X)
+encoder: startStream(), stopStream(), startRecording(), stopRecording(), status()
+companion: pressNamed(name:X)
+vmix: startStream(), stopStream(), startRecording(), stopRecording(), cut(), fade(ms:N), setPreview(input:N), setProgram(input:N), setVolume(value:N), mute(), unmute(), function(function:X,input:X)
+videohub: route(input:N,output:N), getRoutes()
+propresenter: next(), previous(), goToSlide(index:N), status(), playlist()
+resolume: playClip(name:X), triggerColumn(column:N), clearAll(), setBpm(bpm:N)
+mixer: status(), mute(channel:master|N), unmute(channel:master|N), recallScene(scene:N), saveScene(scene:N,name:X), setFader(channel:N,level:0-1), setChannelName(channel:N,name:X), setHpf(channel:N,enabled:bool,frequency:N), setEq(channel:N,enabled:bool,bands:[...]), setCompressor(channel:N,enabled:bool,threshold:N,ratio:N,attack:N,release:N,knee:N), setGate(channel:N,enabled:bool,threshold:N,range:N,attack:N,hold:N,release:N)
+dante: scene(name:X)
+other: preview.snap(), system.preServiceCheck(), status()
 
-ADDITIONAL VALID COMMAND IDS (same params as church runtime):
-${AVAILABLE_COMMANDS_TEXT}
-
-RESPONSE FORMAT — always return valid JSON, one of these three shapes:
-
-1. Single command:
+JSON FORMAT — return one of:
 {"type":"command","command":"atem.cut","params":{"input":2}}
+{"type":"commands","steps":[{"command":"atem.cut","params":{"input":2}},{"command":"obs.startStream","params":{}}]}
+{"type":"chat","text":"Reply here."}
 
-2. Multiple sequential commands:
-{"type":"commands","steps":[
-  {"command":"atem.cut","params":{"input":2}},
-  {"command":"obs.startStream","params":{}}
-]}
-
-3. Conversational reply (questions, unknown intent, out-of-scope):
-{"type":"chat","text":"Short helpful reply here."}
-
-MULTI-COMMAND EXAMPLES (use type:commands with steps[] for ALL of these):
-- "Go live and record" → obs.startStream + atem.startRecording
-- "Cut to cam 2 and start streaming" → atem.cut(input:2) + obs.startStream
-- "Mute the band and fade to black" → companion.pressNamed("Mute Band") + atem.fadeToBlack
-- "Preview cam 3 then take it" → atem.setPreview(input:3) + atem.auto
-- "Stop everything" → obs.stopStream + obs.stopRecording (+ encoder.stopStream + encoder.stopRecording if both configured)
-- "Get ready for service: cut to cam 1, start recording, go live, and put cam 2 on preview" → atem.cut(input:1) + atem.startRecording + obs.startStream + atem.setPreview(input:2) — 4 steps
-- "We're done — stop the stream, stop recording, and fade to black" → obs.stopStream + obs.stopRecording + atem.fadeToBlack — 3 steps
-- "Set transition to dissolve at 30 frames, preview cam 4, then take it" → atem.setTransitionStyle(style:"mix") + atem.setTransitionRate(rate:30) + atem.setPreview(input:4) + atem.auto — 4 steps
-- "Label cam 1 as Wide, cam 2 as Pastor, cam 3 as Band" → 3x atem.setInputLabel
-- "Start the service: recall mixer scene 1, cut to the wide shot, start streaming, and start recording" → mixer.recallScene(scene:1) + atem.cut(input:1) + obs.startStream + atem.startRecording — 4 steps
-- "Pan camera 2 left and zoom in" → ptz.pan(camera:2, speed:-0.5) + ptz.zoom(camera:2, speed:0.5) — 2 steps
-- "End service: fade to black, stop recording, stop streaming, mute all" → atem.fadeToBlack + atem.stopRecording + obs.stopStream + mixer.mute(channel:"master") — 4 steps
-You can return up to 6 steps in a single response. Any time the user asks for two or more actions, use type:commands with steps[].
+MULTI-STEP EXAMPLES:
+"Go live and record" → obs.startStream + atem.startRecording
+"Cut to cam 2 and start streaming" → atem.cut(2) + obs.startStream
+"Preview cam 3 then take it" → atem.setPreview(3) + atem.auto
+"End service: fade to black, stop recording, stop streaming, mute all" → 4 steps
+"Start service: recall scene 1, cut cam 1, go live, record" → 4 steps
+Multiple actions ("and"/"then"/commas) → ALWAYS use type:commands with steps[]. Up to 6 steps.
 
 RULES:
-- Be liberal with inference. "wide angle" likely means camera 1. "pastor" likely means camera 2. "center" or "main" likely means camera 1 or the current program input.
-- If the message contains multiple actions (connected by "and", "then", commas, or semicolons), ALWAYS return type:commands with a steps[] array — never collapse to a single command.
-- If the message references lowering/muting audio: map to companion.pressNamed with a descriptive name like "Mute Audience Mics" or "Lower Music".
-- If the message is production-related but you cannot map it to a command with confidence, return type:chat with a brief clarifying question.
-- If the message is NOT related to church AV production (weather, sports, general chat, jokes, etc.), return type:chat with exactly: "I'm only here for production. Try 'help' for what I can do."
-- Never return anything outside of the three JSON shapes above.
-- No markdown, no explanation, just the JSON.
-- You have conversation history. Use it to resolve references like "do that again", "same for cam 3", "now mute it", "the other one", "undo that", etc.
-- If someone says "again" or "repeat", look at the previous command you returned and repeat it.`;
+- Be liberal: "wide"→cam1, "pastor"→cam2, "take it"→atem.auto
+- Muting audio → companion.pressNamed with descriptive name
+- Off-topic (not AV) → {"type":"chat","text":"I'm only here for production. Try 'help' for what I can do."}
+- Use conversation history to resolve "again", "same for cam 3", "undo that", etc.
+- Return ONLY valid JSON. No markdown.`;
 
 // ─── Anthropic API call ───────────────────────────────────────────────────
 
@@ -361,30 +318,49 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     return { type: 'chat', text: OFF_TOPIC_RESPONSE };
   }
 
+  // ── Rate limit: tier-based AI calls per church per hour ──
+  const churchId = ctx.churchId || ctx.churchName || '_default';
+  const tier = ctx.tier || 'default';
+  if (!checkAiRateLimit(churchId, tier)) {
+    const limit = AI_RATE_LIMITS[tier] || AI_RATE_LIMITS.default;
+    console.warn(`[ai-parser] Rate limit hit for ${churchId} (${limit}/hr, tier: ${tier})`);
+    return { type: 'chat', text: `AI rate limit reached (${limit}/hr). Try direct commands like "cam 2" or "status".` };
+  }
+
+  // ── Cache check: skip API call for repeated single messages (no history context) ──
+  const cacheKey = text.trim().toLowerCase();
+  if (conversationHistory.length === 0) {
+    const cached = getCachedResponse(cacheKey);
+    if (cached) {
+      console.log(`[ai-parser] Cache hit: "${cacheKey.slice(0, 40)}"`);
+      return cached;
+    }
+  }
+
   // Build context hint if we have live status
   let contextHint = '';
   if (ctx.churchName) contextHint += `Church: ${ctx.churchName}. `;
   if (ctx.status?.atem?.connected) {
     const s = ctx.status.atem;
-    contextHint += `ATEM: program=cam${s.programInput || '?'}, preview=cam${s.previewInput || '?'}. `;
+    contextHint += `ATEM: pgm=cam${s.programInput || '?'}, pvw=cam${s.previewInput || '?'}. `;
     if (s.inputLabels && Object.keys(s.inputLabels).length) {
-      const labels = Object.entries(s.inputLabels).map(([k, v]) => `cam${k}=${v}`).join(', ');
-      contextHint += `Camera labels: ${labels}. `;
+      const labels = Object.entries(s.inputLabels).map(([k, v]) => `${k}=${v}`).join(', ');
+      contextHint += `Labels: ${labels}. `;
     }
   }
   if (ctx.status?.obs?.connected) {
-    contextHint += `OBS: ${ctx.status.obs.streaming ? 'streaming' : 'not streaming'}. `;
+    contextHint += `OBS: ${ctx.status.obs.streaming ? 'live' : 'idle'}. `;
   }
 
   const userContent = contextHint
-    ? `[Context: ${contextHint.trim()}]\n\n${text}`
+    ? `[${contextHint.trim()}]\n${text}`
     : text;
 
   // Build messages array: conversation history + current message
   const messages = [...conversationHistory, { role: 'user', content: userContent }];
 
   try {
-    console.log(`[ai-parser] Parsing with Claude Haiku (${messages.length} messages)...`);
+    console.log(`[ai-parser] Calling Haiku (${messages.length} msg)...`);
     const raw = await callAnthropic(messages);
     const parsed = parseJSON(raw);
 
@@ -392,7 +368,12 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
       throw new Error(`Invalid response type: ${parsed.type}`);
     }
 
-    console.log(`[ai-parser] ✓ Success — type: ${parsed.type}`);
+    // Cache the result (only for single-turn requests without history)
+    if (conversationHistory.length === 0) {
+      setCachedResponse(cacheKey, parsed);
+    }
+
+    console.log(`[ai-parser] ✓ type: ${parsed.type}`);
     return parsed;
 
   } catch (err) {

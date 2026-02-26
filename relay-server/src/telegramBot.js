@@ -679,8 +679,10 @@ class TallyBot {
     // ── AI fallback: Anthropic parser ──────────────────────────────────────────
     const churchRuntime = this.relay.churches.get(church.churchId);
     const ctx = {
+      churchId: church.churchId,
       churchName: church.name,
       status: churchRuntime?.status || {},
+      tier: church.billing_tier || 'connect',
     };
     const conversationHistory = this.chatEngine?.getRecentConversation(church.churchId) || [];
 

@@ -2979,9 +2979,12 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
 
   const church = churches.get(churchId);
   const conversationHistory = chatEngine.getRecentConversation(churchId);
+  const churchRow = stmtGet.get(churchId);
   const aiResult = await aiParseCommand(intent.prompt, {
+    churchId,
     churchName: church?.name || '',
     status: church?.status || {},
+    tier: churchRow?.billing_tier || 'connect',
   }, conversationHistory);
 
   if (aiResult.type === 'error') {
