@@ -339,7 +339,7 @@ function buildChurchPortalHtml(church) {
     .schedule-rows { display: flex; flex-direction: column; gap: 10px; }
     .schedule-row {
       display: grid;
-      grid-template-columns: 150px 120px 120px 1fr auto;
+      grid-template-columns: 150px auto auto 1fr auto;
       gap: 8px;
       align-items: center;
       background: #09090B;
@@ -356,6 +356,10 @@ function buildChurchPortalHtml(church) {
       flex-wrap: wrap;
     }
     .schedule-note { color: #64748B; font-size: 12px; }
+    .time-select { display: inline-flex; align-items: center; gap: 2px; }
+    .time-select select { background: #09090B; color: #F8FAFC; border: 1px solid #1a2e1f; border-radius: 6px; padding: 6px 4px; font-size: 13px; cursor: pointer; }
+    .time-select select:focus { border-color: #22c55e; outline: none; }
+    .time-select span { color: #64748B; font-size: 14px; padding: 0 1px; }
     .btn-primary {
       background: #22c55e;
       color: #09090B;
@@ -496,6 +500,10 @@ function buildChurchPortalHtml(church) {
     .modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
     .help-box { background: rgba(34,197,94,0.06); border: 1px solid rgba(34,197,94,0.15); border-radius: 8px; padding: 12px 16px; color: #94A3B8; font-size: 13px; line-height: 1.6; margin-bottom: 16px; }
     .help-box strong { color: #F8FAFC; }
+    /* Tooltips */
+    .tip { position: relative; cursor: help; border-bottom: 1px dotted #475569; }
+    .tip::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #1E293B; color: #CBD5E1; font-size: 12px; line-height: 1.5; padding: 6px 10px; border-radius: 6px; border: 1px solid #334155; white-space: normal; width: max-content; max-width: 260px; opacity: 0; pointer-events: none; transition: opacity 0.15s; z-index: 100; }
+    .tip:hover::after { opacity: 1; }
     @media (max-width: 640px) {
       .sidebar { display: none; }
       .main { margin-left: 0; padding: 20px; }
@@ -587,11 +595,11 @@ function buildChurchPortalHtml(church) {
       <div class="stats-row">
         <div class="stat-card">
           <div class="stat-value" id="stat-status">—</div>
-          <div class="stat-label">Connection</div>
+          <div class="stat-label"><span class="tip" data-tip="Whether the Tally desktop app is currently connected to the relay server">Connection</span></div>
         </div>
         <div class="stat-card">
           <div class="stat-value" id="stat-sessions">—</div>
-          <div class="stat-label">Sessions (30d)</div>
+          <div class="stat-label"><span class="tip" data-tip="Number of live service sessions detected in the last 30 days">Sessions (30d)</span></div>
         </div>
         <div class="stat-card">
           <div class="stat-value" id="stat-tds">—</div>
@@ -599,7 +607,7 @@ function buildChurchPortalHtml(church) {
         </div>
       </div>
       <div class="card">
-        <div class="card-title">Equipment Status</div>
+        <div class="card-title"><span class="tip" data-tip="Real-time status of each AV device Tally monitors (ATEM, OBS, HyperDeck, etc.)">Equipment Status</span></div>
         <table>
           <thead><tr><th>System</th><th>Status</th><th>Last Seen</th></tr></thead>
           <tbody id="equipment-tbody">
@@ -630,7 +638,7 @@ function buildChurchPortalHtml(church) {
         <div class="card-title">Contact Information</div>
         <div class="field-row">
           <div class="field">
-            <label>Church Name</label>
+            <label><span class="tip" data-tip="Contact support to change your church name">Church Name</span></label>
             <input type="text" id="profile-name" disabled style="opacity:0.5">
           </div>
           <div class="field">
@@ -649,7 +657,7 @@ function buildChurchPortalHtml(church) {
           </div>
         </div>
         <div class="field">
-          <label>Notes for Support Team</label>
+          <label><span class="tip" data-tip="Visible to ATEM School support when handling your tickets">Notes for Support Team</span></label>
           <textarea id="profile-notes" placeholder="Any special setup notes, known issues, contact preferences..."></textarea>
         </div>
         <button class="btn-primary" onclick="saveProfile()">Save Changes</button>
@@ -721,7 +729,7 @@ function buildChurchPortalHtml(church) {
           <button class="btn-primary" onclick="document.getElementById('modal-add-td').classList.add('open')">+ Add TD</button>
         </div>
         <table>
-          <thead><tr><th>Name</th><th>Role</th><th>Contact</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th><span class="tip" data-tip="Primary TD gets escalations. On-call TD receives first alerts.">Role</span></th><th>Contact</th><th></th></tr></thead>
           <tbody id="tds-tbody">
             <tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
@@ -735,6 +743,7 @@ function buildChurchPortalHtml(church) {
         <div class="page-title">Service Schedule</div>
         <div class="page-sub">Define your recurring service windows for smart alerts</div>
       </div>
+      <p class="help-box"><strong>Why set service windows?</strong> Tally uses these time windows to know when your services are live. Alerts only fire during (and around) these windows — so your TDs won't get notified at 3 AM for a test stream. Autopilot features (Pro plan) also use them to auto-start streaming and recording.</p>
       <div class="card">
         <div class="card-title">Weekly Service Windows</div>
         <p style="font-size:12px;color:#94A3B8;margin-bottom:14px">Add each recurring service window below. Alerts and automation use these time windows.</p>
@@ -805,12 +814,13 @@ function buildChurchPortalHtml(church) {
         <div class="page-title">Guest Access</div>
         <div class="page-sub">Temporary tokens for visiting TDs, contractors, or trainers</div>
       </div>
+      <p class="help-box"><strong>What are guest tokens?</strong> Generate a temporary access token for visiting tech directors, contractors, or trainers. Share the token — the guest enters it in the Tally app or Telegram bot to get temporary monitoring access. Tokens auto-expire after the time you set (default 7 days). Revoke any token early from the table below.</p>
       <div class="card">
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
           <button class="btn-primary" onclick="generateGuestToken()">+ Generate Token</button>
         </div>
         <table>
-          <thead><tr><th>Token</th><th>Label</th><th>Created</th><th>Expires</th><th></th></tr></thead>
+          <thead><tr><th><span class="tip" data-tip="Share this code with the guest — they enter it in the Tally app or Telegram bot">Token</span></th><th>Label</th><th>Created</th><th><span class="tip" data-tip="Token stops working after this date. Revoke early if needed.">Expires</span></th><th></th></tr></thead>
           <tbody id="guests-tbody">
             <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
@@ -824,6 +834,7 @@ function buildChurchPortalHtml(church) {
         <div class="page-title">Service Sessions</div>
         <div class="page-sub">History of recent live service sessions</div>
       </div>
+      <p class="help-box"><strong>What counts as a session?</strong> A session is recorded each time Tally detects your live stream or recording starting during a service window. Duration, peak viewer count, and any alerts that fired are logged here.</p>
       <div class="card">
         <table>
           <thead><tr><th>Date</th><th>Duration</th><th>Peak Viewers</th><th>Status</th></tr></thead>
@@ -850,6 +861,7 @@ function buildChurchPortalHtml(church) {
         <div class="page-title">Billing & Subscription</div>
         <div class="page-sub">Manage your plan, payment method, and invoices</div>
       </div>
+      <p class="help-box"><strong>Plan tiers:</strong> <strong style="color:#22c55e">Connect</strong> (free — monitoring + alerts), <strong style="color:#22c55e">Plus</strong> (faster response + Telegram bot), <strong style="color:#22c55e">Pro</strong> (AI Autopilot + Planning Center sync), <strong style="color:#22c55e">Managed</strong> (dedicated support with 15-min response SLA).</p>
       <div id="billing-content">
         <div style="color:#475569;text-align:center;padding:30px">Loading billing info...</div>
       </div>
@@ -1498,6 +1510,45 @@ function buildChurchPortalHtml(church) {
       }).join('');
     }
 
+    function buildTimeSelectHtml(fieldName, value24) {
+      var mins = toMinutes(value24);
+      if (mins === null) mins = 9 * 60; // default 9:00 AM
+      var h24 = Math.floor(mins / 60);
+      var m = mins % 60;
+      var h12 = h24 === 0 ? 12 : (h24 > 12 ? h24 - 12 : h24);
+      var ampm = h24 < 12 ? 'AM' : 'PM';
+      // Snap minutes to nearest 15
+      var snapped = Math.round(m / 15) * 15;
+      if (snapped === 60) { snapped = 0; h24++; h12 = h24 === 0 ? 12 : (h24 > 12 ? h24 - 12 : h24); ampm = h24 < 12 ? 'AM' : 'PM'; }
+
+      var hourOpts = '';
+      for (var i = 1; i <= 12; i++) {
+        hourOpts += '<option value="' + i + '"' + (i === h12 ? ' selected' : '') + '>' + i + '</option>';
+      }
+      var minOpts = '';
+      [0, 15, 30, 45].forEach(function(v) {
+        minOpts += '<option value="' + v + '"' + (v === snapped ? ' selected' : '') + '>' + pad2(v) + '</option>';
+      });
+      var ampmOpts = '<option value="AM"' + (ampm === 'AM' ? ' selected' : '') + '>AM</option>' +
+                     '<option value="PM"' + (ampm === 'PM' ? ' selected' : '') + '>PM</option>';
+
+      return '<div class="time-select" data-schedule-field="' + fieldName + '">' +
+        '<select class="time-hour">' + hourOpts + '</select>' +
+        '<span>:</span>' +
+        '<select class="time-min">' + minOpts + '</select>' +
+        '<select class="time-ampm">' + ampmOpts + '</select>' +
+        '</div>';
+    }
+
+    function readTimeSelect(container) {
+      var h = parseInt(container.querySelector('.time-hour').value, 10);
+      var m = parseInt(container.querySelector('.time-min').value, 10);
+      var ampm = container.querySelector('.time-ampm').value;
+      if (ampm === 'AM' && h === 12) h = 0;
+      else if (ampm === 'PM' && h !== 12) h += 12;
+      return pad2(h) + ':' + pad2(m);
+    }
+
     function addScheduleRow(prefill) {
       const rowsEl = document.getElementById('schedule-rows');
       if (!rowsEl) return;
@@ -1511,8 +1562,8 @@ function buildChurchPortalHtml(church) {
       row.className = 'schedule-row';
       row.innerHTML =
         '<select data-schedule-field="day">' + buildDayOptionsHtml(day) + '</select>' +
-        '<input data-schedule-field="start" type="time" value="' + start + '">' +
-        '<input data-schedule-field="end" type="time" value="' + end + '">' +
+        buildTimeSelectHtml('start', start) +
+        buildTimeSelectHtml('end', end) +
         '<input data-schedule-field="label" type="text" placeholder="Service label (optional)" value="' + label.replace(/"/g, '&quot;') + '">' +
         '<button class="btn-danger" type="button">Remove</button>';
 
@@ -1551,8 +1602,10 @@ function buildChurchPortalHtml(church) {
 
       for (const row of rows) {
         const day = String(row.querySelector('[data-schedule-field="day"]')?.value || '').toLowerCase();
-        const start = normalizeTime(row.querySelector('[data-schedule-field="start"]')?.value || '');
-        const end = normalizeTime(row.querySelector('[data-schedule-field="end"]')?.value || '');
+        const startEl = row.querySelector('.time-select[data-schedule-field="start"]');
+        const endEl = row.querySelector('.time-select[data-schedule-field="end"]');
+        const start = startEl ? normalizeTime(readTimeSelect(startEl)) : '';
+        const end = endEl ? normalizeTime(readTimeSelect(endEl)) : '';
         const label = String(row.querySelector('[data-schedule-field="label"]')?.value || '').trim();
 
         if (!day || !SCHEDULE_DAYS.includes(day)) continue;
