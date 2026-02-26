@@ -2794,7 +2794,14 @@ function parseChatCommandIntent(rawMessage) {
     return { type: 'ai', prompt };
   }
 
-  return null;
+  // All other messages: try pattern parsing first, then AI as fallback.
+  // This lets TDs type naturally ("switch to camera 2", "start recording")
+  // without needing a prefix.
+  const parsed = parseCommand(text);
+  if (parsed) return { type: 'command', parsed };
+
+  // Fall through to AI for conversational commands
+  return { type: 'ai', prompt: text };
 }
 
 async function handleChatCommandMessage(churchId, rawMessage) {

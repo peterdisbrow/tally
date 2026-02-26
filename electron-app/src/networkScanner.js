@@ -215,7 +215,7 @@ function probeDevice(ip, port, type, timeoutMs) {
 async function discoverDevices(onProgress = () => {}, options = {}) {
   const results = {
     atem: [], companion: [], obs: [], hyperdeck: [], propresenter: [], nmos: [],
-    resolume: [], vmix: [], tricaster: [], birddog: [], mixers: [], encoders: [],
+    resolume: [], vmix: [], tricaster: [], birddog: [], videohub: [], mixers: [], encoders: [],
   };
   const { subnet, localIp, interfaceName } = getLocalSubnet(options.interfaceName);
 
@@ -241,6 +241,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { type: 'mixer-behringer', ip: '127.0.0.1', port: 10023 },
     { type: 'mixer-allenheath', ip: '127.0.0.1', port: 51326 },
     { type: 'mixer-yamaha', ip: '127.0.0.1', port: 8765 },
+    { type: 'videohub', ip: '127.0.0.1', port: 9990 },
     { type: 'tally-encoder', ip: '127.0.0.1', port: 7070 },
   ];
 
@@ -321,6 +322,9 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
       } else if (check.type === 'mixer-yamaha') {
         results.mixers.push({ ip: '127.0.0.1', port: check.port, type: 'yamaha (CL/QL)' });
         onProgress(5, 'Found possible Yamaha console on localhost ✅');
+      } else if (check.type === 'videohub') {
+        results.videohub.push({ ip: '127.0.0.1', port: check.port });
+        onProgress(5, 'Found Blackmagic Videohub on localhost ✅');
       } else if (check.type === 'tally-encoder') {
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/health`, 2000);
         if (resp.success) {
@@ -347,6 +351,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { port: 10023, type: 'mixer-behringer' },      // UDP — Behringer X32 / Midas M32 OSC
     { port: 51326, type: 'mixer-allenheath' },     // UDP — Allen & Heath SQ OSC
     { port: 8765,  type: 'mixer-yamaha' },         // UDP — Yamaha CL/QL OSC
+    { port: 9990,  type: 'videohub' },              // TCP — Blackmagic Videohub protocol
     { port: 7070,  type: 'tally-encoder' },        // TCP — Tally Encoder HTTP
   ];
 
@@ -454,6 +459,9 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
             } else if (type === 'mixer-yamaha' && !results.mixers.find((d) => d.ip === ip && d.port === port)) {
               results.mixers.push({ ip, port, type: 'yamaha (CL/QL)' });
               onProgress(null, `Found possible Yamaha console at ${ip}:${port} ✅`);
+            } else if (type === 'videohub' && !results.videohub.find((d) => d.ip === ip)) {
+              results.videohub.push({ ip, port });
+              onProgress(null, `Found Blackmagic Videohub at ${ip} ✅`);
             } else if (type === 'tally-encoder' && !results.encoders.find((d) => d.ip === ip)) {
               const eResp = await tryHttpGet(`http://${ip}:${port}/health`, 2000);
               if (eResp.success) {
@@ -472,7 +480,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     onProgress(pct, `Scanned ${scanned}/${totalScans} IPs...`);
   }
 
-  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.propresenter.length + results.resolume.length + results.vmix.length + results.tricaster.length + results.birddog.length + results.encoders.length} devices found`);
+  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.propresenter.length + results.resolume.length + results.vmix.length + results.tricaster.length + results.birddog.length + results.videohub.length + results.encoders.length} devices found`);
   return results;
 }
 
