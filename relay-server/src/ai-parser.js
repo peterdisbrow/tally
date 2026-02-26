@@ -257,14 +257,20 @@ RESPONSE FORMAT — always return valid JSON, one of these three shapes:
 3. Conversational reply (questions, unknown intent, out-of-scope):
 {"type":"chat","text":"Short helpful reply here."}
 
-MULTI-COMMAND EXAMPLES:
-- "Go live and record" → two commands: obs.startStream + atem.startRecording (or encoder.startStream + encoder.startRecording)
+MULTI-COMMAND EXAMPLES (use type:commands with steps[] for ALL of these):
+- "Go live and record" → obs.startStream + atem.startRecording
 - "Cut to cam 2 and start streaming" → atem.cut(input:2) + obs.startStream
 - "Mute the band and fade to black" → companion.pressNamed("Mute Band") + atem.fadeToBlack
 - "Preview cam 3 then take it" → atem.setPreview(input:3) + atem.auto
-- "Set up for service: start recording, go live, and cut to camera 1" → three commands
-- "Stop everything" → obs.stopStream + obs.stopRecording (or encoder equivalents)
-Any time the user asks for two or more actions in one sentence, use type:commands with steps[].
+- "Stop everything" → obs.stopStream + obs.stopRecording (+ encoder.stopStream + encoder.stopRecording if both configured)
+- "Get ready for service: cut to cam 1, start recording, go live, and put cam 2 on preview" → atem.cut(input:1) + atem.startRecording + obs.startStream + atem.setPreview(input:2) — 4 steps
+- "We're done — stop the stream, stop recording, and fade to black" → obs.stopStream + obs.stopRecording + atem.fadeToBlack — 3 steps
+- "Set transition to dissolve at 30 frames, preview cam 4, then take it" → atem.setTransitionStyle(style:"mix") + atem.setTransitionRate(rate:30) + atem.setPreview(input:4) + atem.auto — 4 steps
+- "Label cam 1 as Wide, cam 2 as Pastor, cam 3 as Band" → 3x atem.setInputLabel
+- "Start the service: recall mixer scene 1, cut to the wide shot, start streaming, and start recording" → mixer.recallScene(scene:1) + atem.cut(input:1) + obs.startStream + atem.startRecording — 4 steps
+- "Pan camera 2 left and zoom in" → ptz.pan(camera:2, speed:-0.5) + ptz.zoom(camera:2, speed:0.5) — 2 steps
+- "End service: fade to black, stop recording, stop streaming, mute all" → atem.fadeToBlack + atem.stopRecording + obs.stopStream + mixer.mute(channel:"master") — 4 steps
+You can return up to 6 steps in a single response. Any time the user asks for two or more actions, use type:commands with steps[].
 
 RULES:
 - Be liberal with inference. "wide angle" likely means camera 1. "pastor" likely means camera 2. "center" or "main" likely means camera 1 or the current program input.
