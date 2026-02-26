@@ -259,7 +259,7 @@ RULES:
 - Muting audio → companion.pressNamed with descriptive name
 - Off-topic → {"type":"chat","text":"I'm only here for production. Try 'help' for what I can do."}
 - Use conversation history to resolve "again", "same for cam 3", "undo that", etc.
-- Up to 20 steps allowed.`;
+- Up to 50 steps allowed (audio consoles may need 32+ channel operations).`;
 
 // ─── Anthropic API call ───────────────────────────────────────────────────
 
