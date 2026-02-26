@@ -204,8 +204,9 @@ const AVAILABLE_COMMANDS = getAvailableCommandNames();
 // Note: AVAILABLE_COMMANDS is exported via getAvailableCommandNames() for use elsewhere
 
 const SYSTEM_PROMPT = `You parse natural language into JSON commands for Tally, a church AV control system.
+Return ONLY valid JSON. No markdown, no explanation.
 
-COMMANDS (N=number, X=string):
+AVAILABLE COMMANDS (N=number, X=string):
 atem: cut(input:N), setPreview(input:N), auto(), fadeToBlack(), startRecording(), stopRecording(), setInputLabel(input:N,longName:X), runMacro(macroIndex:N), stopMacro(), setAux(aux:N,input:N), setTransitionStyle(style:mix|dip|wipe|dve|stinger), setTransitionRate(rate:N), setDskOnAir(keyer:N,onAir:bool), setDskTie(keyer:N,tie:bool), setDskRate(keyer:N,rate:N), setDskSource(keyer:N,fillSource:N,keySource:N), setProgram(input:N), uploadStill(index:N,data:X,name:X), setMediaPlayer(player:N,sourceType:X,stillIndex:N), captureStill(), clearStill(index:N)
 hyperdeck: play(hyperdeck:N), stop(hyperdeck:N), record(hyperdeck:N), nextClip(hyperdeck:N), prevClip(hyperdeck:N)
 ptz: pan(camera:N,speed:-1to1), tilt(camera:N,speed:-1to1), zoom(camera:N,speed:-1to1), preset(camera:N,preset:N), setPreset(camera:N,preset:N), stop(camera:N), home(camera:N)
@@ -219,30 +220,46 @@ resolume: playClip(name:X), triggerColumn(column:N), clearAll(), setBpm(bpm:N)
 mixer: status(), mute(channel:master|N), unmute(channel:master|N), recallScene(scene:N), saveScene(scene:N,name:X), setFader(channel:N,level:0-1), setChannelName(channel:N,name:X), setHpf(channel:N,enabled:bool,frequency:N), setEq(channel:N,enabled:bool,bands:[...]), setCompressor(channel:N,enabled:bool,threshold:N,ratio:N,attack:N,release:N,knee:N), setGate(channel:N,enabled:bool,threshold:N,range:N,attack:N,hold:N,release:N)
 dante: scene(name:X)
 other: preview.snap(), system.preServiceCheck(), status()
-system: wait(seconds:N) — pause N seconds between steps (max 30)
+system: wait(seconds:N) — pause between steps (max 30s)
 
-JSON FORMAT — return one of:
+OUTPUT FORMAT — return exactly one of these JSON shapes:
+
+Single action:
 {"type":"command","command":"atem.cut","params":{"input":2}}
-{"type":"commands","steps":[{"command":"atem.cut","params":{"input":2}},{"command":"obs.startStream","params":{}}]}
-{"type":"chat","text":"Reply here."}
 
-MULTI-STEP EXAMPLES:
-"Go live and record" → obs.startStream + atem.startRecording
-"Cut to cam 2 and start streaming" → atem.cut(2) + obs.startStream
-"Preview cam 3 then take it" → atem.setPreview(3) + atem.auto
-"End service: fade to black, stop recording, stop streaming, mute all" → 4 steps
-"Start service: recall scene 1, cut cam 1, go live, record" → 4 steps
-"Cut to 1 then 2 then 3" → 3x atem.cut with inputs 1,2,3
-"Cut to cam 1, wait 5 seconds, then cut to cam 2" → atem.cut(1) + system.wait(5) + atem.cut(2)
-When user says "then" between each item, return ALL items as separate steps.
-Multiple actions ("and"/"then"/commas) → ALWAYS use type:commands with steps[]. Up to 20 steps.
+Multiple actions (MUST use when message contains "then", "and", commas, or lists):
+{"type":"commands","steps":[{"command":"...","params":{...}},{"command":"...","params":{...}}]}
+
+Conversation reply:
+{"type":"chat","text":"..."}
+
+CRITICAL MULTI-STEP RULES:
+If the user asks for MORE THAN ONE action, you MUST return type "commands" with a "steps" array.
+Words like "then", "and", "after that", commas, or numbered lists ALWAYS mean multiple steps.
+
+MULTI-STEP EXAMPLES WITH FULL JSON OUTPUT:
+
+User: "cut to cam 1 then cut to cam 2"
+{"type":"commands","steps":[{"command":"atem.cut","params":{"input":1}},{"command":"atem.cut","params":{"input":2}}]}
+
+User: "cut to 1 then wait 5 seconds then cut to 2"
+{"type":"commands","steps":[{"command":"atem.cut","params":{"input":1}},{"command":"system.wait","params":{"seconds":5}},{"command":"atem.cut","params":{"input":2}}]}
+
+User: "cut to 1 then 2 then 3 then 4"
+{"type":"commands","steps":[{"command":"atem.cut","params":{"input":1}},{"command":"atem.cut","params":{"input":2}},{"command":"atem.cut","params":{"input":3}},{"command":"atem.cut","params":{"input":4}}]}
+
+User: "preview cam 3 then take it"
+{"type":"commands","steps":[{"command":"atem.setPreview","params":{"input":3}},{"command":"atem.auto","params":{}}]}
+
+User: "fade to black, stop recording, and stop streaming"
+{"type":"commands","steps":[{"command":"atem.fadeToBlack","params":{}},{"command":"atem.stopRecording","params":{}},{"command":"obs.stopStream","params":{}}]}
 
 RULES:
-- Be liberal: "wide"→cam1, "pastor"→cam2, "take it"→atem.auto
+- "wide"→cam1, "pastor"→cam2, "take it"→atem.auto
 - Muting audio → companion.pressNamed with descriptive name
-- Off-topic (not AV) → {"type":"chat","text":"I'm only here for production. Try 'help' for what I can do."}
+- Off-topic → {"type":"chat","text":"I'm only here for production. Try 'help' for what I can do."}
 - Use conversation history to resolve "again", "same for cam 3", "undo that", etc.
-- Return ONLY valid JSON. No markdown.`;
+- Up to 20 steps allowed.`;
 
 // ─── Anthropic API call ───────────────────────────────────────────────────
 
@@ -364,8 +381,9 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   const messages = [...conversationHistory, { role: 'user', content: userContent }];
 
   try {
-    console.log(`[ai-parser] Calling Haiku (${messages.length} msg)...`);
+    console.log(`[ai-parser] Calling Haiku (${messages.length} msg) for: "${text.slice(0, 60)}"`);
     const raw = await callAnthropic(messages);
+    console.log(`[ai-parser] Raw response: ${raw.slice(0, 300)}`);
     const parsed = parseJSON(raw);
 
     if (!parsed.type || !['command', 'commands', 'chat'].includes(parsed.type)) {
@@ -377,7 +395,8 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
       setCachedResponse(cacheKey, parsed);
     }
 
-    console.log(`[ai-parser] ✓ type: ${parsed.type}`);
+    const stepCount = parsed.type === 'commands' ? (parsed.steps?.length || 0) : (parsed.type === 'command' ? 1 : 0);
+    console.log(`[ai-parser] ✓ type: ${parsed.type}, steps: ${stepCount}`);
     return parsed;
 
   } catch (err) {
