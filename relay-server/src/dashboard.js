@@ -1880,7 +1880,7 @@ function setupDashboard(app, db, getChurchStates) {
 
   app.post('/api/chat', async (req, res) => {
     if (!checkKey(req, res)) return;
-    const { message, churchStates } = req.body || {};
+    const { message, churchStates, history = [] } = req.body || {};
     if (!message || typeof message !== 'string') return res.status(400).json({ error: 'message (string) required' });
 
     // Pre-filter: block off-topic messages before calling AI
@@ -1912,6 +1912,9 @@ function setupDashboard(app, db, getChurchStates) {
           model: 'claude-haiku-4-5-20251001',
           system: systemPrompt,
           messages: [
+            ...(Array.isArray(history) ? history : []).filter(
+              (m) => m?.role && ['user', 'assistant'].includes(m.role) && m.content
+            ).slice(-20),
             { role: 'user', content: message },
           ],
           temperature: 0.7,

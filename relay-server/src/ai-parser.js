@@ -279,11 +279,13 @@ RULES:
 - If the message is production-related but you cannot map it to a command with confidence, return type:chat with a brief clarifying question.
 - If the message is NOT related to church AV production (weather, sports, general chat, jokes, etc.), return type:chat with exactly: "I'm only here for production. Try 'help' for what I can do."
 - Never return anything outside of the three JSON shapes above.
-- No markdown, no explanation, just the JSON.`;
+- No markdown, no explanation, just the JSON.
+- You have conversation history. Use it to resolve references like "do that again", "same for cam 3", "now mute it", "the other one", "undo that", etc.
+- If someone says "again" or "repeat", look at the previous command you returned and repeat it.`;
 
 // ─── Anthropic API call ───────────────────────────────────────────────────
 
-async function callAnthropic(userContent, timeout = 8000) {
+async function callAnthropic(messages, timeout = 8000) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
@@ -301,9 +303,7 @@ async function callAnthropic(userContent, timeout = 8000) {
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         system: SYSTEM_PROMPT,
-        messages: [
-          { role: 'user', content: userContent },
-        ],
+        messages,
         temperature: 0.2,
         max_tokens: 1024,
       }),
@@ -345,6 +345,7 @@ function parseJSON(raw) {
  * @param {object} [ctx] — optional church context
  * @param {string} [ctx.churchName]
  * @param {object} [ctx.status] — current device status (atem, obs, companion, etc.)
+ * @param {Array<{role: string, content: string}>} [conversationHistory=[]] — recent chat history
  * @returns {Promise<ParseResult>}
  *
  * ParseResult shapes:
@@ -353,7 +354,7 @@ function parseJSON(raw) {
  *   { type: 'chat', text }
  *   { type: 'error', message }   — if API call fails
  */
-async function aiParseCommand(text, ctx = {}) {
+async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   // ── Pre-filter: reject obviously off-topic messages before calling AI ──
   if (!isOnTopic(text)) {
     console.log('[ai-parser] Blocked off-topic message (pre-filter)');
@@ -379,9 +380,12 @@ async function aiParseCommand(text, ctx = {}) {
     ? `[Context: ${contextHint.trim()}]\n\n${text}`
     : text;
 
+  // Build messages array: conversation history + current message
+  const messages = [...conversationHistory, { role: 'user', content: userContent }];
+
   try {
-    console.log('[ai-parser] Parsing with Claude Haiku...');
-    const raw = await callAnthropic(userContent);
+    console.log(`[ai-parser] Parsing with Claude Haiku (${messages.length} messages)...`);
+    const raw = await callAnthropic(messages);
     const parsed = parseJSON(raw);
 
     if (!parsed.type || !['command', 'commands', 'chat'].includes(parsed.type)) {

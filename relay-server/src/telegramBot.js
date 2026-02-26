@@ -682,8 +682,9 @@ class TallyBot {
       churchName: church.name,
       status: churchRuntime?.status || {},
     };
+    const conversationHistory = this.chatEngine?.getRecentConversation(church.churchId) || [];
 
-    const aiResult = await aiParseCommand(text, ctx);
+    const aiResult = await aiParseCommand(text, ctx, conversationHistory);
 
     // Single command
     if (aiResult.type === 'command') {

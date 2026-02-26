@@ -110,6 +110,77 @@ class ChatEngine {
     ).all(...params);
   }
 
+  // ─── CONVERSATION HISTORY (for AI memory) ──────────────────────────────────
+
+  /**
+   * Get recent conversation formatted for the Anthropic Messages API.
+   * Returns alternating user/assistant turns suitable for the `messages[]` param.
+   *
+   * @param {string} churchId
+   * @param {object} [opts]
+   * @param {number} [opts.limit=20]          - Max messages to fetch
+   * @param {number} [opts.maxAgeMinutes=60]  - Only include messages this recent
+   * @returns {Array<{role: string, content: string}>}
+   */
+  getRecentConversation(churchId, { limit = 20, maxAgeMinutes = 60 } = {}) {
+    const cutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000).toISOString();
+
+    const rows = this.db.prepare(`
+      SELECT sender_role, message FROM chat_messages
+      WHERE church_id = ? AND timestamp > ?
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `).all(churchId, cutoff, limit);
+
+    if (!rows.length) return [];
+
+    // Reverse to chronological order (query was DESC for LIMIT efficiency)
+    rows.reverse();
+
+    // Map sender_role to Anthropic role and filter noise
+    const mapped = [];
+    for (const row of rows) {
+      // Skip noisy command confirmations — keep only conversational messages
+      if (row.sender_role === 'system') {
+        const msg = row.message.trim();
+        // Skip status lines (✅ ❌ ⚠️ 📤 🎛️ 🎥 📺) — these are command feedback, not conversation
+        if (/^[✅❌⚠️📤🎛️🎥📺🔄]/.test(msg)) continue;
+        // Skip progress messages
+        if (msg.startsWith('Uploading') || msg.startsWith('Parsing') || msg.startsWith('Applying')) continue;
+        mapped.push({ role: 'assistant', content: msg });
+      } else {
+        // td, admin → user
+        mapped.push({ role: 'user', content: row.message });
+      }
+    }
+
+    if (!mapped.length) return [];
+
+    // Merge consecutive same-role messages (Anthropic requires strict alternation)
+    const merged = [mapped[0]];
+    for (let i = 1; i < mapped.length; i++) {
+      const prev = merged[merged.length - 1];
+      if (mapped[i].role === prev.role) {
+        prev.content += '\n' + mapped[i].content;
+      } else {
+        merged.push(mapped[i]);
+      }
+    }
+
+    // Ensure conversation starts with 'user' (Anthropic requirement)
+    while (merged.length && merged[0].role !== 'user') {
+      merged.shift();
+    }
+
+    // Don't include the very last user message — that's the current message
+    // which will be appended by the caller
+    if (merged.length && merged[merged.length - 1].role === 'user') {
+      merged.pop();
+    }
+
+    return merged;
+  }
+
   // ─── BROADCAST ──────────────────────────────────────────────────────────────
 
   /**

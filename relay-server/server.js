@@ -2978,10 +2978,11 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
   }
 
   const church = churches.get(churchId);
+  const conversationHistory = chatEngine.getRecentConversation(churchId);
   const aiResult = await aiParseCommand(intent.prompt, {
     churchName: church?.name || '',
     status: church?.status || {},
-  });
+  }, conversationHistory);
 
   if (aiResult.type === 'error') {
     postSystemChatMessage(churchId, `❌ ${aiResult.message || 'AI parser failed.'}`);
@@ -3133,7 +3134,7 @@ app.get('/api/digest/generate', requireAdmin, async (req, res) => {
 // ─── AI CHAT (Dashboard panel) ───────────────────────────────────────────────
 
 app.post('/api/chat', requireAdmin, async (req, res) => {
-  const { message, churchStates } = req.body || {};
+  const { message, churchStates, history = [] } = req.body || {};
   if (!message || typeof message !== 'string') return res.status(400).json({ error: 'message (string) required' });
 
   // Pre-filter: block off-topic messages before calling AI
@@ -3164,6 +3165,10 @@ app.post('/api/chat', requireAdmin, async (req, res) => {
         model: 'claude-haiku-4-5-20251001',
         system: systemPrompt,
         messages: [
+          // Include conversation history from the frontend (validated to user/assistant roles)
+          ...(Array.isArray(history) ? history : []).filter(
+            (m) => m?.role && ['user', 'assistant'].includes(m.role) && m.content
+          ).slice(-20),
           { role: 'user', content: message },
         ],
         temperature: 0.7,
