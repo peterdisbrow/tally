@@ -3892,4 +3892,4 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   log.info('Setup complete — routes registered');
 }
 
-module.exports = { setupChurchPortal };
+module.exports = { setupChurchPortal, _buildChurchPortalHtml: buildChurchPortalHtml };

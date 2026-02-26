@@ -2009,4 +2009,4 @@ function express_urlencoded_middleware(req, res, next) {
   });
 }
 
-module.exports = { setupAdminPanel };
+module.exports = { setupAdminPanel, _buildAdminDashboardHtml: buildAdminDashboardHtml, _buildAdminLoginHtml: buildAdminLoginHtml };
