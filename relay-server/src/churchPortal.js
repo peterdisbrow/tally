@@ -745,7 +745,13 @@ function buildChurchPortalHtml(church) {
       </div>
       <p class="help-box"><strong>Why set service windows?</strong> Tally uses these time windows to know when your services are live. Alerts only fire during (and around) these windows — so your TDs won't get notified at 3 AM for a test stream. Autopilot features (Pro plan) also use them to auto-start streaming and recording.</p>
       <div class="card">
-        <div class="card-title">Weekly Service Windows</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <div class="card-title" style="margin:0">Weekly Service Windows</div>
+          <div id="schedule-campus-picker" style="display:none">
+            <label style="font-size:12px;color:#94A3B8;margin-right:6px">Campus:</label>
+            <select id="schedule-campus-select" onchange="loadSchedule()" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:5px 8px;font-size:13px;cursor:pointer"></select>
+          </div>
+        </div>
         <p style="font-size:12px;color:#94A3B8;margin-bottom:14px">Add each recurring service window below. Alerts and automation use these time windows.</p>
         <div id="schedule-empty" class="schedule-empty">No service windows yet. Add your first one.</div>
         <div id="schedule-rows" class="schedule-rows"></div>
@@ -1630,9 +1636,34 @@ function buildChurchPortalHtml(church) {
       return compactSchedule(out);
     }
 
+    function getSelectedScheduleCampusId() {
+      var sel = document.getElementById('schedule-campus-select');
+      return (sel && sel.value) ? sel.value : '';
+    }
+
+    async function populateScheduleCampusPicker() {
+      var picker = document.getElementById('schedule-campus-picker');
+      var sel = document.getElementById('schedule-campus-select');
+      if (!picker || !sel) return;
+      try {
+        var payload = await api('GET', '/api/church/campuses');
+        var list = Array.isArray(payload) ? payload : (Array.isArray(payload.campuses) ? payload.campuses : []);
+        if (!list.length) { picker.style.display = 'none'; return; }
+        var prev = sel.value;
+        sel.innerHTML = '<option value="">Main Campus</option>' + list.map(function(c) {
+          return '<option value="' + c.churchId + '">' + c.name + '</option>';
+        }).join('');
+        if (prev) sel.value = prev;
+        picker.style.display = '';
+      } catch { picker.style.display = 'none'; }
+    }
+
     async function loadSchedule() {
       try {
-        const raw = await api('GET', '/api/church/schedule');
+        await populateScheduleCampusPicker();
+        var campusId = getSelectedScheduleCampusId();
+        var url = '/api/church/schedule' + (campusId ? '?campusId=' + encodeURIComponent(campusId) : '');
+        const raw = await api('GET', url);
         const normalized = normalizeSchedulePayload(raw);
         renderScheduleRows(normalized);
       } catch(e) { toast('Failed to load schedule', true); }
@@ -1641,7 +1672,9 @@ function buildChurchPortalHtml(church) {
     async function saveSchedule() {
       try {
         const schedule = collectScheduleFromRows();
-        await api('PUT', '/api/church/schedule', schedule);
+        var campusId = getSelectedScheduleCampusId();
+        var url = '/api/church/schedule' + (campusId ? '?campusId=' + encodeURIComponent(campusId) : '');
+        await api('PUT', url, schedule);
         toast('Schedule saved');
       } catch(e) { toast(e.message || 'Unable to save schedule', true); }
     }
@@ -2465,6 +2498,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     "ALTER TABLE churches ADD COLUMN telegram_chat_id TEXT",
     "ALTER TABLE churches ADD COLUMN parent_church_id TEXT",
     "ALTER TABLE churches ADD COLUMN campus_name TEXT",
+    "ALTER TABLE churches ADD COLUMN schedule TEXT DEFAULT '{}'",
   ];
   for (const m of migrations) {
     try { db.exec(m); } catch { /* already exists */ }
@@ -2856,21 +2890,40 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── GET /api/church/schedule ──────────────────────────────────────────────────
+  // Accepts optional ?campusId=xxx to load a specific campus schedule
   app.get('/api/church/schedule', authMiddleware, (req, res) => {
-    const c = req.church;
     try {
-      const sched = c.schedule ? JSON.parse(c.schedule) : {};
+      let targetId = req.church.churchId;
+      const campusId = req.query.campusId;
+      if (campusId && campusId !== req.church.churchId) {
+        // Verify campus belongs to this parent church
+        const campus = db.prepare('SELECT churchId FROM churches WHERE churchId = ? AND parent_church_id = ?')
+          .get(campusId, req.church.churchId);
+        if (!campus) return res.status(404).json({ error: 'Campus not found' });
+        targetId = campusId;
+      }
+      const row = db.prepare('SELECT schedule FROM churches WHERE churchId = ?').get(targetId);
+      const sched = (row && row.schedule) ? JSON.parse(row.schedule) : {};
       res.json(sched);
     } catch { res.json({}); }
   });
 
   // ── PUT /api/church/schedule ──────────────────────────────────────────────────
+  // Accepts optional ?campusId=xxx to save a specific campus schedule
   app.put('/api/church/schedule', authMiddleware, (req, res) => {
     try {
+      let targetId = req.church.churchId;
+      const campusId = req.query.campusId;
+      if (campusId && campusId !== req.church.churchId) {
+        const campus = db.prepare('SELECT churchId FROM churches WHERE churchId = ? AND parent_church_id = ?')
+          .get(campusId, req.church.churchId);
+        if (!campus) return res.status(404).json({ error: 'Campus not found' });
+        targetId = campusId;
+      }
       db.prepare('UPDATE churches SET schedule = ? WHERE churchId = ?')
-        .run(JSON.stringify(req.body), req.church.churchId);
+        .run(JSON.stringify(req.body), targetId);
       // Update in-memory map
-      const runtime = churches.get(req.church.churchId);
+      const runtime = churches.get(targetId);
       if (runtime) runtime.schedule = req.body;
       res.json({ ok: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
