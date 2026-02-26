@@ -16,6 +16,12 @@ const ALERT_CLASSIFICATIONS = {
   'recording_failed': 'CRITICAL',
   'obs_disconnected': 'WARNING',
   'companion_disconnected': 'WARNING',
+  'vmix_disconnected': 'WARNING',
+  'encoder_disconnected': 'WARNING',
+  'hyperdeck_disconnected': 'WARNING',
+  'mixer_disconnected': 'WARNING',
+  'ptz_disconnected': 'WARNING',
+  'propresenter_disconnected': 'INFO',
   'multiple_systems_down': 'EMERGENCY',
   'no_td_response': 'EMERGENCY',
 };
@@ -80,6 +86,31 @@ const DIAGNOSIS_TEMPLATES = {
     likely_cause: 'Recording was not started before service',
     steps: ['Start recording via Tally', 'Check ATEM recording settings'],
     canAutoFix: true,
+  },
+  'encoder_disconnected': {
+    likely_cause: 'Hardware encoder lost network connection or powered off',
+    steps: ['Check encoder power and network cables', 'Verify encoder IP address is correct', 'Try power-cycling the encoder'],
+    canAutoFix: false,
+  },
+  'hyperdeck_disconnected': {
+    likely_cause: 'HyperDeck lost network connection or powered off',
+    steps: ['Check HyperDeck network cable connection', 'Verify HyperDeck IP address on front panel', 'Power cycle HyperDeck if needed'],
+    canAutoFix: false,
+  },
+  'mixer_disconnected': {
+    likely_cause: 'Audio console lost network connection',
+    steps: ['Check network cable on mixer', 'Verify mixer IP address and port', 'Check if another application has taken the OSC port'],
+    canAutoFix: false,
+  },
+  'ptz_disconnected': {
+    likely_cause: 'PTZ camera lost network connection',
+    steps: ['Check PTZ camera network cable', 'Verify camera IP address', 'Power cycle camera if needed'],
+    canAutoFix: false,
+  },
+  'propresenter_disconnected': {
+    likely_cause: 'ProPresenter closed or network API disabled',
+    steps: ['Check if ProPresenter is running', 'Verify Network API is enabled in ProPresenter preferences', 'Check network connectivity to presentation computer'],
+    canAutoFix: false,
   },
 };
 

@@ -466,6 +466,53 @@ class ChurchAVAgent {
       this._sendWatchdogAlert('obs_disconnected', 'OBS disconnected');
     }
 
+    // vMix disconnected
+    if (this.vmix && !this.status.vmix?.connected) {
+      issues.push('vmix_disconnected');
+      this._sendWatchdogAlert('vmix_disconnected', 'vMix disconnected');
+    }
+
+    // Companion disconnected
+    if (this.companion && !this.status.companion?.connected) {
+      issues.push('companion_disconnected');
+      this._sendWatchdogAlert('companion_disconnected', 'Companion disconnected');
+    }
+
+    // Encoder disconnected (hardware encoder managed by EncoderBridge)
+    if (this._encoderManaged && this.encoderBridge && !this.status.encoder?.connected) {
+      issues.push('encoder_disconnected');
+      const encoderType = this.status.encoder?.type || this.config.encoder?.type || 'encoder';
+      this._sendWatchdogAlert('encoder_disconnected', `${encoderType} encoder disconnected`);
+    }
+
+    // HyperDeck disconnected
+    if (this.hyperdecks && this.hyperdecks.length > 0 && this.status.hyperdeck && !this.status.hyperdeck.connected) {
+      issues.push('hyperdeck_disconnected');
+      this._sendWatchdogAlert('hyperdeck_disconnected', 'HyperDeck disconnected');
+    }
+
+    // Mixer disconnected
+    if (this.mixer && !this.status.mixer?.connected) {
+      issues.push('mixer_disconnected');
+      const mixerType = this.status.mixer?.type || this.config.mixer?.type || 'mixer';
+      this._sendWatchdogAlert('mixer_disconnected', `${mixerType} audio console disconnected`);
+    }
+
+    // PTZ camera disconnected
+    if (this.ptzManager && this.ptzManager.hasCameras()) {
+      const allDown = this.status.ptz?.length > 0 && this.status.ptz.every(c => !c.connected);
+      if (allDown) {
+        issues.push('ptz_disconnected');
+        this._sendWatchdogAlert('ptz_disconnected', 'All PTZ cameras disconnected');
+      }
+    }
+
+    // ProPresenter disconnected
+    if (this.proPresenter && !this.status.proPresenter?.connected && !this.status.proPresenter?.running) {
+      issues.push('propresenter_disconnected');
+      this._sendWatchdogAlert('propresenter_disconnected', 'ProPresenter disconnected');
+    }
+
     // Multiple systems down
     if (issues.length >= 3) {
       this._sendWatchdogAlert('multiple_systems_down', `${issues.length} issues: ${issues.join(', ')}`);

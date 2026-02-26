@@ -51,6 +51,54 @@ const RECOVERY_PLAYBOOK = {
     onSuccess: null,
     onFail: 'alert_td_companion',
   },
+  'vmix_disconnected': {
+    waitMs: 10000,
+    command: 'status', // request fresh status — client will retry vMix connection
+    params: {},
+    maxAttempts: 1,
+    onSuccess: 'vmix_reconnected',
+    onFail: 'alert_td_vmix',
+  },
+  'encoder_disconnected': {
+    waitMs: 10000,
+    command: 'status', // request fresh status — client will retry encoder connection
+    params: {},
+    maxAttempts: 2,
+    onSuccess: 'encoder_reconnected',
+    onFail: 'alert_td_encoder',
+  },
+  'hyperdeck_disconnected': {
+    waitMs: 10000,
+    command: 'status', // request fresh status — client will retry HyperDeck connection
+    params: {},
+    maxAttempts: 1,
+    onSuccess: 'hyperdeck_reconnected',
+    onFail: 'alert_td_hyperdeck',
+  },
+  'mixer_disconnected': {
+    waitMs: 0,
+    command: null, // cannot auto-fix hardware mixer — log only
+    params: {},
+    maxAttempts: 0,
+    onSuccess: null,
+    onFail: 'alert_td_mixer',
+  },
+  'ptz_disconnected': {
+    waitMs: 0,
+    command: null, // cannot auto-fix PTZ cameras — log only
+    params: {},
+    maxAttempts: 0,
+    onSuccess: null,
+    onFail: 'alert_td_ptz',
+  },
+  'propresenter_disconnected': {
+    waitMs: 0,
+    command: null, // cannot auto-fix ProPresenter — log only
+    params: {},
+    maxAttempts: 0,
+    onSuccess: null,
+    onFail: 'alert_td_propresenter',
+  },
 };
 
 class AutoRecovery {
