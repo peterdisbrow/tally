@@ -2820,13 +2820,68 @@ async function handleSetupRequest(churchId, rawMessage, attachment) {
         postSystemChatMessage(churchId, '⚠️ Please attach an image to upload to the ATEM media player.');
         return;
       }
-      postSystemChatMessage(churchId, '📤 Uploading image to ATEM media player...');
-      const executed = await executeChurchCommandWithResult(churchId, 'atem.uploadStill', {
-        index: 0, data: attachment.data, name: attachment.fileName || 'Still', mimeType,
+
+      // Parse which media player slot (mp1=index 0, mp2=index 1)
+      const lower = (rawMessage || '').toLowerCase();
+      let mpIndex = 0; // default to MP1
+      if (/mp\s*2|media\s*player\s*2/.test(lower)) mpIndex = 1;
+
+      postSystemChatMessage(churchId, `📤 Uploading image to ATEM media player ${mpIndex + 1}...`);
+
+      // Step 1: Upload still to media pool
+      const uploadResult = await executeChurchCommandWithResult(churchId, 'atem.uploadStill', {
+        index: mpIndex, data: attachment.data, name: attachment.fileName || 'Still', mimeType,
       });
-      postSystemChatMessage(churchId, executed.ok
-        ? `✅ ${formatResultForChat(executed.result)}`
-        : `❌ Upload failed: ${executed.error}`);
+      if (!uploadResult.ok) {
+        postSystemChatMessage(churchId, `❌ Upload failed: ${uploadResult.error}`);
+        return;
+      }
+      postSystemChatMessage(churchId, `✅ Image uploaded to media pool slot ${mpIndex + 1}`);
+
+      // Step 2: Set media player source to the uploaded still
+      const mpResult = await executeChurchCommandWithResult(churchId, 'atem.setMediaPlayer', {
+        player: mpIndex, sourceType: 'still', stillIndex: mpIndex,
+      });
+      if (mpResult.ok) {
+        postSystemChatMessage(churchId, `✅ Media player ${mpIndex + 1} set to still ${mpIndex + 1}`);
+      }
+
+      // Step 3: Route to aux/program/preview if requested
+      // ATEM media players are typically on inputs 3010 (MP1) and 3020 (MP2)
+      const mpInputNumber = mpIndex === 0 ? 3010 : 3020;
+      const followUpCommands = [];
+
+      if (/\b(aux|aux\s*\d*)\b/.test(lower)) {
+        const auxMatch = lower.match(/aux\s*(\d+)/);
+        const auxNum = auxMatch ? parseInt(auxMatch[1], 10) - 1 : 0; // default aux 1
+        followUpCommands.push({
+          command: 'atem.setAux', params: { aux: auxNum, input: mpInputNumber },
+          label: `Aux ${auxNum + 1} → MP${mpIndex + 1}`,
+        });
+      }
+      if (/\bpgm\b|\bprogram\b/.test(lower)) {
+        followUpCommands.push({
+          command: 'atem.setProgram', params: { input: mpInputNumber },
+          label: `Program → MP${mpIndex + 1}`,
+        });
+      }
+      if (/\bpvw\b|\bpreview\b/.test(lower)) {
+        followUpCommands.push({
+          command: 'atem.setPreview', params: { input: mpInputNumber },
+          label: `Preview → MP${mpIndex + 1}`,
+        });
+      }
+
+      for (const fc of followUpCommands) {
+        const result = await executeChurchCommandWithResult(churchId, fc.command, fc.params);
+        postSystemChatMessage(churchId, result.ok
+          ? `✅ ${fc.label}`
+          : `❌ ${fc.label} failed: ${result.error}`);
+      }
+
+      if (!followUpCommands.length) {
+        postSystemChatMessage(churchId, `📺 Say "send mp${mpIndex + 1} to program" or "send mp${mpIndex + 1} to aux 1" to route it.`);
+      }
       return;
     }
 
