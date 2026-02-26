@@ -82,9 +82,19 @@ class MixerBridge {
   async muteMaster()   { return this._mixer.muteMaster(); }
   async unmuteMaster() { return this._mixer.unmuteMaster(); }
 
+  // ─── CHANNEL PROCESSING ──────────────────────────────────────────────────────
+
+  async setChannelName(ch, name)     { return this._mixer.setChannelName(ch, name); }
+  async setHpf(ch, params)           { return this._mixer.setHpf(ch, params); }
+  async setEq(ch, params)            { return this._mixer.setEq(ch, params); }
+  async setCompressor(ch, params)    { return this._mixer.setCompressor(ch, params); }
+  async setGate(ch, params)          { return this._mixer.setGate(ch, params); }
+  async setFullChannelStrip(ch, strip) { return this._mixer.setFullChannelStrip(ch, strip); }
+
   // ─── SCENES & SOLOS ──────────────────────────────────────────────────────────
 
-  async recallScene(n) { return this._mixer.recallScene(n); }
+  async recallScene(n)   { return this._mixer.recallScene(n); }
+  async saveScene(n, nm) { return this._mixer.saveScene(n, nm); }
 
   /**
    * Clear all solos. Only Behringer X32/M32 support this; no-op on others.

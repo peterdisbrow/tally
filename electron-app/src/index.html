@@ -606,9 +606,18 @@
         No messages yet. Start a conversation.
       </div>
     </div>
+    <div id="chat-attachment-badge" style="display:none; padding:4px 12px; background:var(--card); border-top:1px solid var(--border); font-size:11px; color:var(--muted);">
+      📎 <span id="chat-attachment-name"></span>
+      <a href="#" onclick="clearChatAttachment(); return false;" style="color:var(--red); margin-left:8px; text-decoration:none;">✕ Remove</a>
+    </div>
     <div style="padding:8px 12px; border-top:1px solid var(--border); display:flex; gap:8px;">
+      <button onclick="pickChatFile()" title="Attach a file (patch list, camera plot, image)"
+        style="background:var(--card); color:var(--muted); border:1px solid var(--border); border-radius:6px;
+               padding:8px 10px; font-size:14px; cursor:pointer; flex-shrink:0;">
+        📎
+      </button>
       <input type="text" id="chat-input"
-        placeholder="Type a message..."
+        placeholder="Type a message or attach a file..."
         style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:6px;
                padding:8px 12px; color:var(--white); font-size:13px; font-family:var(--font); outline:none;"
         onkeydown="if(event.key==='Enter') sendChatMessage()" />

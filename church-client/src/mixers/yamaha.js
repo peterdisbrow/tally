@@ -116,6 +116,41 @@ class YamahaCLQL {
   async clearSolos() {
     // Yamaha CL/QL does not expose solo clear via documented OSC
   }
+
+  // ─── CHANNEL PROCESSING (stubs — Yamaha OSC is very limited) ────────────────
+
+  async setChannelName(ch, name) {
+    console.warn('🎛️  Yamaha CL/QL: channel name not reliably available via OSC — set at console');
+  }
+
+  async setHpf(ch, params) {
+    console.warn('🎛️  Yamaha CL/QL: HPF not available via OSC — set at console');
+  }
+
+  async setEq(ch, params) {
+    console.warn('🎛️  Yamaha CL/QL: EQ not available via OSC — set at console');
+  }
+
+  async setCompressor(ch, params) {
+    console.warn('🎛️  Yamaha CL/QL: compressor not available via OSC — set at console');
+  }
+
+  async setGate(ch, params) {
+    console.warn('🎛️  Yamaha CL/QL: gate not available via OSC — set at console');
+  }
+
+  async setFullChannelStrip(ch, strip) {
+    const applied = [];
+    // Only fader and mute are reliable on Yamaha via OSC
+    if (strip.fader != null) { await this.setFader(ch, strip.fader); applied.push('fader'); }
+    if (strip.mute === true) { await this.muteChannel(ch); applied.push('mute'); }
+    else if (strip.mute === false) { await this.unmuteChannel(ch); applied.push('unmute'); }
+    console.warn(`🎛️  Yamaha CL/QL Ch${ch}: only [${applied.join(', ')}] applied — EQ/comp/gate/HPF/name must be set at console`);
+  }
+
+  async saveScene(n, name) {
+    console.warn('🎛️  Yamaha CL/QL: scene save not available via OSC — save at console');
+  }
 }
 
 // ─── YAMAHA TF (TCP MIDI) ────────────────────────────────────────────────────
@@ -220,6 +255,16 @@ class YamahaTF {
   async clearSolos() {
     // Not available via TCP MIDI
   }
+
+  async setChannelName() { console.warn('🎛️  Yamaha TF: channel name not available via TCP MIDI'); }
+  async setHpf()         { console.warn('🎛️  Yamaha TF: HPF not available via TCP MIDI'); }
+  async setEq()          { console.warn('🎛️  Yamaha TF: EQ not available via TCP MIDI'); }
+  async setCompressor()  { console.warn('🎛️  Yamaha TF: compressor not available via TCP MIDI'); }
+  async setGate()        { console.warn('🎛️  Yamaha TF: gate not available via TCP MIDI'); }
+  async setFullChannelStrip(ch, strip) {
+    console.warn(`🎛️  Yamaha TF Ch${ch}: channel strip settings not available via TCP MIDI — set at console`);
+  }
+  async saveScene()      { console.warn('🎛️  Yamaha TF: scene save not available via TCP MIDI'); }
 }
 
 // ─── YAMAHA MIXER FACADE ─────────────────────────────────────────────────────
@@ -251,6 +296,13 @@ class YamahaMixer {
   async unmuteMaster()              { return this._impl.unmuteMaster(); }
   async recallScene(n)              { return this._impl.recallScene(n); }
   async clearSolos()                { return this._impl.clearSolos(); }
+  async setChannelName(ch, name)    { return this._impl.setChannelName(ch, name); }
+  async setHpf(ch, params)          { return this._impl.setHpf(ch, params); }
+  async setEq(ch, params)           { return this._impl.setEq(ch, params); }
+  async setCompressor(ch, params)   { return this._impl.setCompressor(ch, params); }
+  async setGate(ch, params)         { return this._impl.setGate(ch, params); }
+  async setFullChannelStrip(ch, s)  { return this._impl.setFullChannelStrip(ch, s); }
+  async saveScene(n, name)          { return this._impl.saveScene(n, name); }
 }
 
 module.exports = { YamahaMixer };

@@ -669,6 +669,59 @@ ipcMain.handle('send-chat', async (_, { message, senderName }) => {
   }
 });
 
+// ─── FILE UPLOAD (for AI setup assistant) ─────────────────────────────────────
+
+ipcMain.handle('pick-file', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [
+      { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] },
+      { name: 'Documents', extensions: ['csv', 'txt', 'pdf'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  const filePath = result.filePaths[0];
+  const fileName = require('path').basename(filePath);
+  // Infer MIME type from extension
+  const ext = fileName.split('.').pop().toLowerCase();
+  const mimeMap = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+    csv: 'text/csv', txt: 'text/plain', pdf: 'application/pdf',
+  };
+  return { filePath, fileName, mimeType: mimeMap[ext] || 'application/octet-stream' };
+});
+
+ipcMain.handle('upload-chat-file', async (_, { message, filePath, fileName, mimeType }) => {
+  const config = loadConfig();
+  if (!config.token) return { error: 'Not configured' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+
+  try {
+    // Read file and base64-encode
+    const fileData = require('fs').readFileSync(filePath);
+    const base64Data = fileData.toString('base64');
+
+    // Check size (max ~768KB raw = ~1MB base64, within Express 1MB limit)
+    if (base64Data.length > 900000) {
+      return { error: 'File too large. Maximum size is approximately 700KB.' };
+    }
+
+    const resp = await fetch(`${relayHttp}/api/church/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+      body: JSON.stringify({
+        message: message || '',
+        senderName: config.churchName || 'TD',
+        attachment: { data: base64Data, mimeType, fileName },
+      }),
+    });
+    return await resp.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
 ipcMain.handle('get-chat', async (_, opts = {}) => {
   const config = loadConfig();
   if (!config.token) return { messages: [] };

@@ -8,6 +8,8 @@
  * setupDashboard(app, db, getChurchStates) → { notifyUpdate }
  */
 
+const { isOnTopic, OFF_TOPIC_RESPONSE } = require('./chat-guard');
+
 const ADMIN_KEY = () => process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 
 // ─── Shared card/grid CSS + JS helpers ────────────────────────────────────────
@@ -1881,23 +1883,35 @@ function setupDashboard(app, db, getChurchStates) {
     const { message, churchStates } = req.body || {};
     if (!message || typeof message !== 'string') return res.status(400).json({ error: 'message (string) required' });
 
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (!openaiKey) return res.status(503).json({ error: 'OPENAI_API_KEY not configured.' });
+    // Pre-filter: block off-topic messages before calling AI
+    if (!isOnTopic(message)) {
+      return res.json({ reply: OFF_TOPIC_RESPONSE });
+    }
 
-    const systemPrompt = 'You are Tally AI, admin assistant for a multi-church AV monitoring system. Church states: ' + JSON.stringify(churchStates || {});
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    if (!anthropicKey) return res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured.' });
+
+    const systemPrompt = 'You are Tally AI, the admin assistant for Tally — a church AV monitoring and control system. '
+      + 'You ONLY answer questions about: church AV equipment (ATEM switchers, audio mixers, cameras, encoders, video hubs, etc.), '
+      + 'production troubleshooting, equipment status, alerts, streaming/recording, and church service technical operations. '
+      + 'If a message is not about church AV production or equipment, reply with exactly: '
+      + '"I\'m only here for production and equipment. Try \'help\' to see what I can do." '
+      + 'Never discuss politics, religion (beyond service logistics), personal advice, coding, or any non-AV topic. '
+      + 'Be concise. Church states: ' + JSON.stringify(churchStates || {});
 
     try {
-      console.log('[Dashboard Chat] Processing with gpt-4o-mini...');
-      const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      console.log('[Dashboard Chat] Processing with Claude Haiku...');
+      const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${openaiKey}`,
           'Content-Type': 'application/json',
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: 'claude-3-5-haiku-20241022',
+          system: systemPrompt,
           messages: [
-            { role: 'system', content: systemPrompt },
             { role: 'user', content: message },
           ],
           temperature: 0.7,
@@ -1908,11 +1922,11 @@ function setupDashboard(app, db, getChurchStates) {
 
       if (!aiRes.ok) {
         const errBody = await aiRes.text();
-        throw new Error(`OpenAI ${aiRes.status}: ${errBody.slice(0, 100)}`);
+        throw new Error(`Anthropic ${aiRes.status}: ${errBody.slice(0, 100)}`);
       }
 
       const data = await aiRes.json();
-      const reply = data?.choices?.[0]?.message?.content || 'No response.';
+      const reply = data?.content?.[0]?.text || 'No response.';
       console.log('[Dashboard Chat] ✓ Success');
       res.json({ reply });
 

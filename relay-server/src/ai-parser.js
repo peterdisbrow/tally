@@ -1,9 +1,11 @@
 /**
  * ai-parser.js
- * OpenAI-only natural language command parser for Tally church AV system.
- * Uses gpt-4o-mini for fast, cheap parsing.
+ * Anthropic Claude natural language command parser for Tally church AV system.
+ * Uses Claude Haiku for fast, cheap parsing.
  * Returns { command, params } shape or multi-step array.
  */
+
+const { isOnTopic, OFF_TOPIC_RESPONSE } = require('./chat-guard');
 
 // ─── System prompt ─────────────────────────────────────────────────────────
 
@@ -43,9 +45,21 @@ const FALLBACK_COMMANDS = [
   'hyperdeck.stopRecord',
   'mixer.mute',
   'mixer.recallScene',
+  'mixer.saveScene',
+  'mixer.setChannelName',
+  'mixer.setCompressor',
+  'mixer.setEq',
   'mixer.setFader',
+  'mixer.setFullChannelStrip',
+  'mixer.setGate',
+  'mixer.setHpf',
+  'mixer.setupFromPatchList',
   'mixer.status',
   'mixer.unmute',
+  'atem.uploadStill',
+  'atem.setMediaPlayer',
+  'atem.captureStill',
+  'atem.clearStill',
   'obs.configureMonitorStream',
   'obs.reduceBitrate',
   'obs.setScene',
@@ -210,7 +224,17 @@ AVAILABLE COMMANDS (JSON schema):
 {"command":"mixer.mute","params":{"channel":"master|N"}}
 {"command":"mixer.unmute","params":{"channel":"master|N"}}
 {"command":"mixer.recallScene","params":{"scene":N}}
+{"command":"mixer.saveScene","params":{"scene":N,"name":"X"}}
 {"command":"mixer.setFader","params":{"channel":N,"level":0.0-1.0}}
+{"command":"mixer.setChannelName","params":{"channel":N,"name":"X"}}
+{"command":"mixer.setHpf","params":{"channel":N,"enabled":true,"frequency":80}}
+{"command":"mixer.setEq","params":{"channel":N,"enabled":true,"bands":[{"band":1,"type":2,"frequency":1000,"gain":0,"q":2}]}}
+{"command":"mixer.setCompressor","params":{"channel":N,"enabled":true,"threshold":-20,"ratio":4,"attack":10,"release":100,"knee":2}}
+{"command":"mixer.setGate","params":{"channel":N,"enabled":true,"threshold":-40,"range":40,"attack":1,"hold":5,"release":150}}
+{"command":"atem.uploadStill","params":{"index":0,"data":"base64...","name":"X"}} — upload image to ATEM media pool
+{"command":"atem.setMediaPlayer","params":{"player":0,"sourceType":"still","stillIndex":0}}
+{"command":"atem.captureStill","params":{}} — capture program output to media pool
+{"command":"atem.clearStill","params":{"index":0}}
 {"command":"dante.scene","params":{"name":"X"}}
 {"command":"preview.snap","params":{}}                             — send live preview photo
 {"command":"system.preServiceCheck","params":{}}
@@ -241,29 +265,30 @@ RULES:
 - Never return anything outside of the three JSON shapes above.
 - No markdown, no explanation, just the JSON.`;
 
-// ─── OpenAI API call ───────────────────────────────────────────────────────
+// ─── Anthropic API call ───────────────────────────────────────────────────
 
-async function callOpenAI(userContent, timeout = 8000) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error('OPENAI_API_KEY not set');
+async function callAnthropic(userContent, timeout = 8000) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'claude-3-5-haiku-20241022',
+        system: SYSTEM_PROMPT,
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: userContent },
         ],
-        temperature: 0.2,  // Deterministic
+        temperature: 0.2,
         max_tokens: 256,
       }),
       signal: controller.signal,
@@ -271,13 +296,13 @@ async function callOpenAI(userContent, timeout = 8000) {
 
     if (!resp.ok) {
       const body = await resp.text();
-      throw new Error(`OpenAI API ${resp.status}: ${body.slice(0, 100)}`);
+      throw new Error(`Anthropic API ${resp.status}: ${body.slice(0, 100)}`);
     }
 
     const data = await resp.json();
-    const raw = data?.choices?.[0]?.message?.content?.trim();
+    const raw = data?.content?.[0]?.text?.trim();
 
-    if (!raw) throw new Error('OpenAI returned empty response');
+    if (!raw) throw new Error('Anthropic returned empty response');
     return raw;
 
   } finally {
@@ -313,6 +338,12 @@ function parseJSON(raw) {
  *   { type: 'error', message }   — if API call fails
  */
 async function aiParseCommand(text, ctx = {}) {
+  // ── Pre-filter: reject obviously off-topic messages before calling AI ──
+  if (!isOnTopic(text)) {
+    console.log('[ai-parser] Blocked off-topic message (pre-filter)');
+    return { type: 'chat', text: OFF_TOPIC_RESPONSE };
+  }
+
   // Build context hint if we have live status
   let contextHint = '';
   if (ctx.churchName) contextHint += `Church: ${ctx.churchName}. `;
@@ -333,8 +364,8 @@ async function aiParseCommand(text, ctx = {}) {
     : text;
 
   try {
-    console.log('[ai-parser] Parsing with gpt-4o-mini...');
-    const raw = await callOpenAI(userContent);
+    console.log('[ai-parser] Parsing with Claude Haiku...');
+    const raw = await callAnthropic(userContent);
     const parsed = parseJSON(raw);
 
     if (!parsed.type || !['command', 'commands', 'chat'].includes(parsed.type)) {

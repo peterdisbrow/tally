@@ -37,4 +37,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendChat: (payload) => ipcRenderer.invoke('send-chat', payload),
   getChat: (opts) => ipcRenderer.invoke('get-chat', opts),
   onChatMessage: (cb) => ipcRenderer.on('chat-message', (_, data) => cb(data)),
+  // File upload (for setup assistant: patch lists, camera plots, images)
+  pickFile: () => ipcRenderer.invoke('pick-file'),
+  uploadChatFile: (payload) => ipcRenderer.invoke('upload-chat-file', payload),
 });

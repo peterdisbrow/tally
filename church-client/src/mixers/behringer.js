@@ -9,6 +9,12 @@
  */
 
 const { OSCClient } = require('../osc');
+const {
+  hpfFreqToFloat, eqFreqToFloat, eqGainToFloat, eqQToFloat,
+  compThreshToFloat, compRatioToIndex, compAttackToFloat, compReleaseToFloat, compKneeToFloat,
+  gateThreshToFloat, gateRangeToFloat, gateAttackToFloat, gateHoldToFloat, gateReleaseToFloat,
+  clamp,
+} = require('./x32-osc-map');
 
 class BehringerMixer {
   /**
@@ -171,6 +177,166 @@ class BehringerMixer {
   async clearSolos() {
     if (!this._osc) throw new Error(`${this.model} not connected`);
     this._osc.send('/-action/clearsolo');
+  }
+
+  // ─── CHANNEL NAME / SCRIBBLE STRIP ──────────────────────────────────────────
+
+  /**
+   * Set the scribble-strip label for a channel.
+   * @param {number} ch  1-based channel number
+   * @param {string} name  Up to 12 characters
+   */
+  async setChannelName(ch, name) {
+    if (!this._osc) throw new Error(`${this.model} not connected`);
+    const truncated = String(name || '').slice(0, 12);
+    this._osc.send(`/ch/${this._ch(ch)}/config/name`, [{ type: 's', value: truncated }]);
+  }
+
+  // ─── HIGH-PASS FILTER ───────────────────────────────────────────────────────
+
+  /**
+   * @param {number} ch  1-based channel number
+   * @param {{ enabled?: boolean, frequency?: number }} opts
+   */
+  async setHpf(ch, { enabled = true, frequency = 80 } = {}) {
+    if (!this._osc) throw new Error(`${this.model} not connected`);
+    const pad = this._ch(ch);
+    this._osc.send(`/ch/${pad}/preamp/hpon`, [{ type: 'i', value: enabled ? 1 : 0 }]);
+    if (frequency != null) {
+      this._osc.send(`/ch/${pad}/preamp/hpf`, [{ type: 'f', value: hpfFreqToFloat(frequency) }]);
+    }
+  }
+
+  // ─── 4-BAND PARAMETRIC EQ ───────────────────────────────────────────────────
+
+  /**
+   * @param {number} ch  1-based channel number
+   * @param {{ enabled?: boolean, bands?: Array<{band:number, type?:number, frequency?:number, gain?:number, q?:number}> }} opts
+   *   band.type: 0=LCut, 1=LShelf, 2=PEQ, 3=VEQ, 4=HShelf, 5=HCut
+   *   band.frequency: Hz (20–20000)
+   *   band.gain: dB (-15 to +15)
+   *   band.q: Q factor (0.3–10)
+   */
+  async setEq(ch, { enabled = true, bands = [] } = {}) {
+    if (!this._osc) throw new Error(`${this.model} not connected`);
+    const pad = this._ch(ch);
+
+    this._osc.send(`/ch/${pad}/eq/on`, [{ type: 'i', value: enabled ? 1 : 0 }]);
+
+    for (const b of bands) {
+      const n = clamp(b.band || 1, 1, 4);
+      if (b.type != null)
+        this._osc.send(`/ch/${pad}/eq/${n}/type`, [{ type: 'i', value: clamp(b.type, 0, 5) }]);
+      if (b.frequency != null)
+        this._osc.send(`/ch/${pad}/eq/${n}/f`, [{ type: 'f', value: eqFreqToFloat(b.frequency) }]);
+      if (b.gain != null)
+        this._osc.send(`/ch/${pad}/eq/${n}/g`, [{ type: 'f', value: eqGainToFloat(b.gain) }]);
+      if (b.q != null)
+        this._osc.send(`/ch/${pad}/eq/${n}/q`, [{ type: 'f', value: eqQToFloat(b.q) }]);
+    }
+  }
+
+  // ─── COMPRESSOR (Dynamics 1) ────────────────────────────────────────────────
+
+  /**
+   * @param {number} ch  1-based channel number
+   * @param {{ enabled?: boolean, threshold?: number, ratio?: number, attack?: number, release?: number, knee?: number }} opts
+   *   threshold: dB (-60 to 0)
+   *   ratio: e.g. 4 for 4:1 — snapped to nearest X32 preset
+   *   attack: ms (0–120)
+   *   release: ms (5–4000)
+   *   knee: 0–5
+   */
+  async setCompressor(ch, { enabled = true, threshold, ratio, attack, release, knee } = {}) {
+    if (!this._osc) throw new Error(`${this.model} not connected`);
+    const pad = this._ch(ch);
+
+    this._osc.send(`/ch/${pad}/dyn/on`, [{ type: 'i', value: enabled ? 1 : 0 }]);
+    // Ensure it's in compressor mode (not expander)
+    this._osc.send(`/ch/${pad}/dyn/mode`, [{ type: 'i', value: 0 }]); // 0 = COMP
+
+    if (threshold != null)
+      this._osc.send(`/ch/${pad}/dyn/thr`, [{ type: 'f', value: compThreshToFloat(threshold) }]);
+    if (ratio != null)
+      this._osc.send(`/ch/${pad}/dyn/ratio`, [{ type: 'i', value: compRatioToIndex(ratio) }]);
+    if (attack != null)
+      this._osc.send(`/ch/${pad}/dyn/attack`, [{ type: 'f', value: compAttackToFloat(attack) }]);
+    if (release != null)
+      this._osc.send(`/ch/${pad}/dyn/release`, [{ type: 'f', value: compReleaseToFloat(release) }]);
+    if (knee != null)
+      this._osc.send(`/ch/${pad}/dyn/knee`, [{ type: 'f', value: compKneeToFloat(knee) }]);
+  }
+
+  // ─── GATE (Dynamics 2) ──────────────────────────────────────────────────────
+
+  /**
+   * @param {number} ch  1-based channel number
+   * @param {{ enabled?: boolean, threshold?: number, range?: number, attack?: number, hold?: number, release?: number, mode?: number }} opts
+   *   threshold: dB (-80 to 0)
+   *   range: dB (3–80)
+   *   attack: ms (0.02–300)
+   *   hold: ms (0.02–2000)
+   *   release: ms (5–4000)
+   *   mode: 0=EXP2, 1=EXP3, 2=EXP4, 3=GATE, 4=DUCK
+   */
+  async setGate(ch, { enabled = false, threshold, range, attack, hold, release, mode } = {}) {
+    if (!this._osc) throw new Error(`${this.model} not connected`);
+    const pad = this._ch(ch);
+
+    this._osc.send(`/ch/${pad}/gate/on`, [{ type: 'i', value: enabled ? 1 : 0 }]);
+
+    if (mode != null)
+      this._osc.send(`/ch/${pad}/gate/mode`, [{ type: 'i', value: clamp(mode, 0, 4) }]);
+    if (threshold != null)
+      this._osc.send(`/ch/${pad}/gate/thr`, [{ type: 'f', value: gateThreshToFloat(threshold) }]);
+    if (range != null)
+      this._osc.send(`/ch/${pad}/gate/range`, [{ type: 'f', value: gateRangeToFloat(range) }]);
+    if (attack != null)
+      this._osc.send(`/ch/${pad}/gate/attack`, [{ type: 'f', value: gateAttackToFloat(attack) }]);
+    if (hold != null)
+      this._osc.send(`/ch/${pad}/gate/hold`, [{ type: 'f', value: gateHoldToFloat(hold) }]);
+    if (release != null)
+      this._osc.send(`/ch/${pad}/gate/release`, [{ type: 'f', value: gateReleaseToFloat(release) }]);
+  }
+
+  // ─── FULL CHANNEL STRIP (batch) ─────────────────────────────────────────────
+
+  /**
+   * Apply a complete channel strip in one call.
+   * @param {number} ch  1-based channel number
+   * @param {object} strip  Channel strip settings
+   */
+  async setFullChannelStrip(ch, strip) {
+    if (!this._osc) throw new Error(`${this.model} not connected`);
+
+    if (strip.name != null)       await this.setChannelName(ch, strip.name);
+    if (strip.hpf)                await this.setHpf(ch, strip.hpf);
+    if (strip.eq)                 await this.setEq(ch, strip.eq);
+    if (strip.compressor)         await this.setCompressor(ch, strip.compressor);
+    if (strip.gate)               await this.setGate(ch, strip.gate);
+    if (strip.fader != null)      await this.setFader(ch, strip.fader);
+    if (strip.mute === true)      await this.muteChannel(ch);
+    else if (strip.mute === false) await this.unmuteChannel(ch);
+  }
+
+  // ─── SCENE SAVE (best-effort) ───────────────────────────────────────────────
+
+  /**
+   * Attempt to save current console state as a scene.
+   * X32 OSC scene save is limited / firmware-dependent.
+   * @param {number} sceneNumber  0-based scene index
+   * @param {string} [name]  Optional scene name
+   */
+  async saveScene(sceneNumber, name) {
+    if (!this._osc) throw new Error(`${this.model} not connected`);
+    const idx = parseInt(sceneNumber) || 0;
+    // Try to name the scene slot first
+    if (name) {
+      this._osc.send(`/-show/showfile/scene/${String(idx).padStart(3, '0')}/name`, [{ type: 's', value: String(name).slice(0, 14) }]);
+    }
+    // Attempt to store current state into that scene slot
+    // Note: This may not work on all firmware versions
+    this._osc.send(`/-show/showfile/scene/${String(idx).padStart(3, '0')}/save`, []);
   }
 }
 

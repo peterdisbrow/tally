@@ -9,19 +9,26 @@ module.exports = function setupChatRoutes(app, ctx) {
           handleChatCommandMessage, log } = ctx;
 
   // Church-facing: TD sends a chat message from Electron app
+  // Supports optional `attachment` field: { data: "base64...", mimeType: "image/jpeg", fileName: "patch.jpg" }
   app.post('/api/church/chat', requireChurchAppAuth, (req, res) => {
-    const { message, senderName } = req.body;
-    if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
-    const trimmedMessage = message.trim();
+    const { message, senderName, attachment } = req.body;
+    // Allow empty message if there's an attachment
+    if ((!message || !message.trim()) && !attachment?.data) {
+      return res.status(400).json({ error: 'Message or attachment required' });
+    }
+    const trimmedMessage = (message || '').trim();
+    const displayMessage = attachment?.fileName
+      ? `${trimmedMessage ? trimmedMessage + ' ' : ''}📎 ${attachment.fileName}`
+      : trimmedMessage;
     const saved = chatEngine.saveMessage({
       churchId: req.church.churchId,
       senderName: senderName || req.church.td_name || 'TD',
       senderRole: 'td',
       source: 'app',
-      message: trimmedMessage,
+      message: displayMessage || '📎 File attached',
     });
     chatEngine.broadcastChat(saved);
-    handleChatCommandMessage(req.church.churchId, trimmedMessage).catch((err) => {
+    handleChatCommandMessage(req.church.churchId, trimmedMessage, attachment || null).catch((err) => {
       log(`Chat command handler error (${req.church.churchId}): ${err.message}`);
     });
     res.json(saved);

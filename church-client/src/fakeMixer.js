@@ -175,6 +175,49 @@ class FakeMixerBridge {
     // no-op in fake mixer
   }
 
+  // ─── CHANNEL PROCESSING (mock) ──────────────────────────────────────────────
+
+  async setChannelName(ch, name) {
+    const ref = this._channelRef(ch);
+    ref.name = String(name || '').slice(0, 12) || `CH ${ch}`;
+  }
+
+  async setHpf(ch, params = {}) {
+    // Store in channel state for mock purposes
+    const ref = this._channelRef(ch);
+    ref.hpf = { enabled: params.enabled !== false, frequency: params.frequency || 80 };
+  }
+
+  async setEq(ch, params = {}) {
+    const ref = this._channelRef(ch);
+    ref.eq = { enabled: params.enabled !== false, bands: params.bands || [] };
+  }
+
+  async setCompressor(ch, params = {}) {
+    const ref = this._channelRef(ch);
+    ref.compressor = { ...params, enabled: params.enabled !== false };
+  }
+
+  async setGate(ch, params = {}) {
+    const ref = this._channelRef(ch);
+    ref.gate = { ...params };
+  }
+
+  async setFullChannelStrip(ch, strip) {
+    if (strip.name != null)       await this.setChannelName(ch, strip.name);
+    if (strip.hpf)                await this.setHpf(ch, strip.hpf);
+    if (strip.eq)                 await this.setEq(ch, strip.eq);
+    if (strip.compressor)         await this.setCompressor(ch, strip.compressor);
+    if (strip.gate)               await this.setGate(ch, strip.gate);
+    if (strip.fader != null)      await this.setFader(ch, strip.fader);
+    if (strip.mute === true)      await this.muteChannel(ch);
+    else if (strip.mute === false) await this.unmuteChannel(ch);
+  }
+
+  async saveScene(n, name) {
+    this._scene = Number(n) || this._scene;
+  }
+
   setOnline(online) {
     this._online = !!online;
     if (this._online) this._startMeterTicker();

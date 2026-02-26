@@ -66,6 +66,8 @@ const { AutoRecovery } = require('./src/autoRecovery');
 const { WeeklyDigest } = require('./src/weeklyDigest');
 const { TallyBot, parseCommand } = require('./src/telegramBot');
 const { aiParseCommand } = require('./src/ai-parser');
+const { detectSetupIntent, detectIntentWithAttachment, parsePatchList, generateMixerSetup, parseCameraPlot, buildCameraCommands } = require('./src/ai-setup-assistant');
+const { isOnTopic, OFF_TOPIC_RESPONSE } = require('./src/chat-guard');
 const { PreServiceCheck } = require('./src/preServiceCheck');
 const { MonthlyReport } = require('./src/monthlyReport');
 const { OnCallRotation } = require('./src/onCallRotation');
@@ -2804,7 +2806,98 @@ function parseChatCommandIntent(rawMessage) {
   return { type: 'ai', prompt: text };
 }
 
-async function handleChatCommandMessage(churchId, rawMessage) {
+async function handleSetupRequest(churchId, rawMessage, attachment) {
+  const mimeType = attachment?.mimeType || '';
+  const intentType = detectIntentWithAttachment(rawMessage, mimeType);
+  if (!intentType) return;
+
+  const church = churches.get(churchId);
+
+  try {
+    if (intentType === 'media') {
+      // Direct image upload to ATEM media player
+      if (!attachment?.data) {
+        postSystemChatMessage(churchId, '⚠️ Please attach an image to upload to the ATEM media player.');
+        return;
+      }
+      postSystemChatMessage(churchId, '📤 Uploading image to ATEM media player...');
+      const executed = await executeChurchCommandWithResult(churchId, 'atem.uploadStill', {
+        index: 0, data: attachment.data, name: attachment.fileName || 'Still', mimeType,
+      });
+      postSystemChatMessage(churchId, executed.ok
+        ? `✅ ${formatResultForChat(executed.result)}`
+        : `❌ Upload failed: ${executed.error}`);
+      return;
+    }
+
+    if (intentType === 'camera') {
+      postSystemChatMessage(churchId, '🎥 Parsing camera plot...');
+      const cameraSetup = await parseCameraPlot(
+        rawMessage,
+        attachment?.data || null,
+        mimeType || 'image/jpeg'
+      );
+      const commands = buildCameraCommands(cameraSetup);
+      if (!commands.length) {
+        postSystemChatMessage(churchId, '⚠️ Could not identify any cameras from the input.');
+        return;
+      }
+      postSystemChatMessage(churchId, `🎥 Setting up ${commands.length} ATEM inputs...`);
+      for (const cmd of commands) {
+        const executed = await executeChurchCommandWithResult(churchId, cmd.command, cmd.params);
+        if (executed.ok) {
+          postSystemChatMessage(churchId, `✅ Input ${cmd.params.input} → "${cmd.params.longName}"`);
+        } else {
+          postSystemChatMessage(churchId, `❌ Input ${cmd.params.input} failed: ${executed.error}`);
+        }
+      }
+      postSystemChatMessage(churchId, '✅ Camera setup complete.');
+      return;
+    }
+
+    if (intentType === 'mixer') {
+      postSystemChatMessage(churchId, '🎛️ Parsing patch list...');
+      const patchList = await parsePatchList(
+        rawMessage,
+        attachment?.data || null,
+        mimeType || 'image/jpeg'
+      );
+      if (!patchList.channels || patchList.channels.length === 0) {
+        postSystemChatMessage(churchId, '⚠️ Could not identify any channels from the input.');
+        return;
+      }
+      postSystemChatMessage(churchId, `🎛️ Found ${patchList.channels.length} channels. Generating channel strip settings...`);
+
+      const mixerType = church?.status?.mixer?.type || 'behringer';
+      const setup = await generateMixerSetup(patchList, mixerType);
+      if (!setup.channels || setup.channels.length === 0) {
+        postSystemChatMessage(churchId, '⚠️ AI could not generate mixer settings.');
+        return;
+      }
+
+      postSystemChatMessage(churchId, `🎛️ Applying ${setup.channels.length} channel strips to ${mixerType} console...`);
+      const executed = await executeChurchCommandWithResult(churchId, 'mixer.setupFromPatchList', {
+        channels: setup.channels,
+        saveScene: true,
+        sceneName: `AI Setup ${new Date().toLocaleDateString()}`,
+      });
+
+      postSystemChatMessage(churchId, executed.ok
+        ? `✅ ${formatResultForChat(executed.result)}`
+        : `❌ Mixer setup failed: ${executed.error}`);
+      return;
+    }
+  } catch (err) {
+    postSystemChatMessage(churchId, `❌ Setup assistant error: ${err.message}`);
+  }
+}
+
+async function handleChatCommandMessage(churchId, rawMessage, attachment) {
+  // If there's an attachment or a setup intent, route through the setup assistant
+  if (attachment?.data || detectSetupIntent(rawMessage)) {
+    return handleSetupRequest(churchId, rawMessage, attachment);
+  }
+
   const intent = parseChatCommandIntent(rawMessage);
   if (!intent) return;
 
@@ -2824,8 +2917,8 @@ async function handleChatCommandMessage(churchId, rawMessage) {
     return;
   }
 
-  if (!process.env.OPENAI_API_KEY) {
-    postSystemChatMessage(churchId, '❌ AI command parsing is not configured (OPENAI_API_KEY missing).');
+  if (!process.env.ANTHROPIC_API_KEY) {
+    postSystemChatMessage(churchId, '❌ AI command parsing is not configured (ANTHROPIC_API_KEY missing).');
     return;
   }
 
@@ -2988,24 +3081,34 @@ app.post('/api/chat', requireAdmin, async (req, res) => {
   const { message, churchStates } = req.body || {};
   if (!message || typeof message !== 'string') return res.status(400).json({ error: 'message (string) required' });
 
-  const openaiKey = process.env.OPENAI_API_KEY;
-  if (!openaiKey) return res.status(503).json({ error: 'OPENAI_API_KEY not configured.' });
+  // Pre-filter: block off-topic messages before calling AI
+  if (!isOnTopic(message)) {
+    return res.json({ reply: OFF_TOPIC_RESPONSE });
+  }
 
-  const systemPrompt = 'You are Tally AI, admin assistant for a multi-church AV monitoring system. '
-    + 'Answer concisely about church status, equipment, alerts, and production troubleshooting. '
-    + 'Church states: ' + JSON.stringify(churchStates || {});
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) return res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured.' });
+
+  const systemPrompt = 'You are Tally AI, the admin assistant for Tally — a church AV monitoring and control system. '
+    + 'You ONLY answer questions about: church AV equipment (ATEM switchers, audio mixers, cameras, encoders, video hubs, etc.), '
+    + 'production troubleshooting, equipment status, alerts, streaming/recording, and church service technical operations. '
+    + 'If a message is not about church AV production or equipment, reply with exactly: '
+    + '"I\'m only here for production and equipment. Try \'help\' to see what I can do." '
+    + 'Never discuss politics, religion (beyond service logistics), personal advice, coding, or any non-AV topic. '
+    + 'Be concise. Church states: ' + JSON.stringify(churchStates || {});
 
   try {
-    const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openaiKey}`,
         'Content-Type': 'application/json',
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'claude-3-5-haiku-20241022',
+        system: systemPrompt,
         messages: [
-          { role: 'system', content: systemPrompt },
           { role: 'user', content: message },
         ],
         temperature: 0.7,
@@ -3016,11 +3119,11 @@ app.post('/api/chat', requireAdmin, async (req, res) => {
 
     if (!aiRes.ok) {
       const errBody = await aiRes.text();
-      throw new Error(`OpenAI ${aiRes.status}: ${errBody.slice(0, 100)}`);
+      throw new Error(`Anthropic ${aiRes.status}: ${errBody.slice(0, 100)}`);
     }
 
     const data = await aiRes.json();
-    const reply = data?.choices?.[0]?.message?.content || 'No response.';
+    const reply = data?.content?.[0]?.text || 'No response.';
     res.json({ reply });
   } catch (err) {
     console.error(`[Dashboard Chat] Error: ${err.message}`);

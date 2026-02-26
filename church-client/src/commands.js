@@ -922,6 +922,181 @@ async function mixerSetFader(agent, params) {
   return `Channel ${channel} fader set to ${Math.round(parseFloat(level) * 100)}%`;
 }
 
+async function mixerSetChannelName(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const { channel, name } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (!name) throw new Error('name parameter required');
+  await agent.mixer.setChannelName(channel, name);
+  return `Channel ${channel} renamed to "${name}"`;
+}
+
+async function mixerSetHpf(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const { channel, enabled, frequency } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  await agent.mixer.setHpf(channel, { enabled: enabled !== false, frequency: frequency || 80 });
+  return `Channel ${channel} HPF ${enabled === false ? 'disabled' : `set to ${frequency || 80} Hz`}`;
+}
+
+async function mixerSetEq(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const { channel, enabled, bands } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  await agent.mixer.setEq(channel, { enabled: enabled !== false, bands: bands || [] });
+  return `Channel ${channel} EQ ${enabled === false ? 'disabled' : 'updated'}`;
+}
+
+async function mixerSetCompressor(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const { channel, ...compParams } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  await agent.mixer.setCompressor(channel, compParams);
+  return `Channel ${channel} compressor ${compParams.enabled === false ? 'disabled' : 'updated'}`;
+}
+
+async function mixerSetGate(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const { channel, ...gateParams } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  await agent.mixer.setGate(channel, gateParams);
+  return `Channel ${channel} gate ${gateParams.enabled === false ? 'disabled' : 'updated'}`;
+}
+
+async function mixerSetFullChannelStrip(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const { channel, ...strip } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  await agent.mixer.setFullChannelStrip(channel, strip);
+  return `Channel ${channel} (${strip.name || 'unnamed'}) — full strip applied`;
+}
+
+async function mixerSaveScene(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const { scene, name } = params;
+  if (scene == null) throw new Error('scene number required');
+  await agent.mixer.saveScene(scene, name);
+  return `Scene ${scene}${name ? ` ("${name}")` : ''} save attempted`;
+}
+
+/**
+ * Batch setup: apply full channel strips to all specified channels,
+ * then optionally save a new scene.  Receives the output from the AI
+ * setup assistant.
+ */
+async function mixerSetupFromPatchList(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const { channels, saveScene: doSave, sceneName } = params;
+  if (!Array.isArray(channels) || channels.length === 0) {
+    throw new Error('No channels provided');
+  }
+
+  const results = [];
+  for (const ch of channels) {
+    try {
+      await agent.mixer.setFullChannelStrip(ch.channel, ch);
+      results.push({ channel: ch.channel, name: ch.name, ok: true });
+    } catch (e) {
+      results.push({ channel: ch.channel, name: ch.name, ok: false, error: e.message });
+    }
+    // Pace UDP sends — 30ms between channels prevents buffer overflow
+    await new Promise(r => setTimeout(r, 30));
+  }
+
+  // Optionally save as a new scene
+  if (doSave) {
+    try {
+      const sceneNum = 90; // Use scene slot 90 as "AI Setup" slot
+      const label = sceneName || `AI Setup ${new Date().toLocaleDateString()}`;
+      await agent.mixer.saveScene(sceneNum, label);
+      results.push({ scene: sceneNum, name: label, ok: true });
+    } catch (e) {
+      results.push({ scene: 'save', ok: false, error: e.message });
+    }
+  }
+
+  // Also save locally as a JSON preset for recall
+  const fs = require('fs');
+  const path = require('path');
+  const presetDir = path.join(process.env.HOME || '/tmp', '.church-av', 'mixer-presets');
+  try {
+    fs.mkdirSync(presetDir, { recursive: true });
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    fs.writeFileSync(
+      path.join(presetDir, `setup-${ts}.json`),
+      JSON.stringify({ created: new Date().toISOString(), channels }, null, 2)
+    );
+  } catch { /* non-critical — don't fail the whole setup */ }
+
+  const ok = results.filter(r => r.ok).length;
+  const fail = results.filter(r => !r.ok).length;
+  const lines = [`✅ Mixer setup complete: ${ok} channels configured`];
+  if (fail > 0) lines.push(`⚠️ ${fail} failed: ${results.filter(r => !r.ok).map(r => `Ch${r.channel}`).join(', ')}`);
+  return lines.join('\n');
+}
+
+// ─── ATEM MEDIA COMMANDS ────────────────────────────────────────────────────
+
+async function atemUploadStill(agent, params) {
+  if (!agent.atem) throw new Error('ATEM not configured');
+  const { index, data, name, description, mimeType } = params;
+  if (data == null) throw new Error('image data (base64) required');
+
+  const slotIndex = index != null ? parseInt(index) : 0;
+  const imgBuffer = Buffer.from(data, 'base64');
+
+  // Decode and resize to ATEM resolution using sharp (if available)
+  let rgbaBuffer;
+  try {
+    const sharp = require('sharp');
+    // Get ATEM video mode resolution — default to 1080p
+    const width = 1920;
+    const height = 1080;
+    rgbaBuffer = await sharp(imgBuffer)
+      .resize(width, height, { fit: 'cover' })
+      .ensureAlpha()
+      .raw()
+      .toBuffer();
+  } catch (e) {
+    throw new Error(`Image processing failed: ${e.message}. Is the 'sharp' package installed?`);
+  }
+
+  await agent.atem.uploadStill(slotIndex, rgbaBuffer, name || `Still ${slotIndex + 1}`, description || '');
+  return `✅ Image uploaded to ATEM media pool slot ${slotIndex + 1}${name ? ` ("${name}")` : ''}`;
+}
+
+async function atemSetMediaPlayer(agent, params) {
+  if (!agent.atem) throw new Error('ATEM not configured');
+  const { player, sourceType, stillIndex, clipIndex } = params;
+  const playerIdx = player != null ? parseInt(player) : 0;
+
+  const props = {};
+  if (sourceType === 'clip') {
+    props.sourceType = 1; // MediaSourceType.Clip
+    props.clipIndex = clipIndex != null ? parseInt(clipIndex) : 0;
+  } else {
+    props.sourceType = 0; // MediaSourceType.Still
+    props.stillIndex = stillIndex != null ? parseInt(stillIndex) : 0;
+  }
+
+  await agent.atem.setMediaPlayerSource(props, playerIdx);
+  return `Media player ${playerIdx + 1} set to ${sourceType || 'still'} ${sourceType === 'clip' ? clipIndex : stillIndex}`;
+}
+
+async function atemCaptureStill(agent) {
+  if (!agent.atem) throw new Error('ATEM not configured');
+  await agent.atem.captureMediaPoolStill();
+  return '✅ Still captured from program output to media pool';
+}
+
+async function atemClearStill(agent, params) {
+  if (!agent.atem) throw new Error('ATEM not configured');
+  const { index } = params;
+  if (index == null) throw new Error('still index required');
+  await agent.atem.clearMediaPoolStill(parseInt(index));
+  return `Media pool still slot ${parseInt(index) + 1} cleared`;
+}
+
 // ─── DANTE COMMANDS (via Companion) ─────────────────────────────────────────
 
 async function danteScene(agent, params) {
@@ -1413,6 +1588,19 @@ const commandHandlers = {
   'mixer.clearSolos': mixerClearSolos,
   'mixer.isOnline': mixerIsOnline,
   'mixer.setFader': mixerSetFader,
+  'mixer.setChannelName': mixerSetChannelName,
+  'mixer.setHpf': mixerSetHpf,
+  'mixer.setEq': mixerSetEq,
+  'mixer.setCompressor': mixerSetCompressor,
+  'mixer.setGate': mixerSetGate,
+  'mixer.setFullChannelStrip': mixerSetFullChannelStrip,
+  'mixer.saveScene': mixerSaveScene,
+  'mixer.setupFromPatchList': mixerSetupFromPatchList,
+
+  'atem.uploadStill': atemUploadStill,
+  'atem.setMediaPlayer': atemSetMediaPlayer,
+  'atem.captureStill': atemCaptureStill,
+  'atem.clearStill': atemClearStill,
 
   'dante.scene': danteScene,
 

@@ -676,7 +676,7 @@ class TallyBot {
       return this._dispatchCommand(church, chatId, parsed.command, parsed.params);
     }
 
-    // ── AI fallback: OpenAI parser ───────────────────────────────────────────
+    // ── AI fallback: Anthropic parser ──────────────────────────────────────────
     const churchRuntime = this.relay.churches.get(church.churchId);
     const ctx = {
       churchName: church.name,

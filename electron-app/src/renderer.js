@@ -1005,9 +1005,51 @@ function renderChat() {
   container.scrollTop = container.scrollHeight;
 }
 
+// ─── CHAT FILE ATTACHMENT ──────────────────────────────────────────────────
+
+let pendingAttachment = null; // { filePath, fileName, mimeType }
+
+async function pickChatFile() {
+  const result = await api.pickFile();
+  if (!result) return;
+  pendingAttachment = result;
+  document.getElementById('chat-attachment-badge').style.display = 'block';
+  document.getElementById('chat-attachment-name').textContent = result.fileName;
+}
+
+function clearChatAttachment() {
+  pendingAttachment = null;
+  document.getElementById('chat-attachment-badge').style.display = 'none';
+  document.getElementById('chat-attachment-name').textContent = '';
+}
+
 async function sendChatMessage() {
   const input = document.getElementById('chat-input');
   const message = input.value.trim();
+
+  // If there's an attachment, use the upload path
+  if (pendingAttachment) {
+    if (!message && !pendingAttachment.filePath) return;
+    input.value = '';
+    const attachment = pendingAttachment;
+    clearChatAttachment();
+    const resp = await api.uploadChatFile({
+      message,
+      filePath: attachment.filePath,
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+    });
+    if (resp?.id) {
+      chatMessages.push(resp);
+      chatLastTimestamp = resp.timestamp;
+      renderChat();
+    } else if (resp?.error) {
+      chatMessages.push({ id: Date.now(), senderName: 'System', senderRole: 'system', message: `❌ ${resp.error}`, timestamp: new Date().toISOString() });
+      renderChat();
+    }
+    return;
+  }
+
   if (!message) return;
   input.value = '';
   const resp = await api.sendChat({ message });
