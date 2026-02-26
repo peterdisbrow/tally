@@ -1183,13 +1183,13 @@ function buildChurchPortalHtml(church) {
           entries.forEach(function(e) {
             html += '<span class="schedule-window">';
             html += '<span class="sw-time">' + fmt12(e.start) + ' – ' + fmt12(e.end) + '</span>';
-            if (e.label) html += '<span class="sw-label">' + esc(e.label) + '</span>';
+            if (e.label) html += '<span class="sw-label">' + escapeHtml(e.label) + '</span>';
             html += '</span>';
           });
           html += '</div>';
         });
         if (!hasAny) {
-          body.innerHTML = '<span style="color:#475569">No service windows configured. <a href="#" style="color:#22c55e;text-decoration:none" onclick="event.preventDefault();showPage(\'schedule\', document.querySelector(\'[data-page=schedule]\'))">Set up your schedule →</a></span>';
+          body.innerHTML = '<span style="color:#475569">No service windows configured. <a href="#" style="color:#22c55e;text-decoration:none" onclick="event.preventDefault();showPage(\\'schedule\\', document.querySelector(\\'[data-page=schedule]\\'))">Set up your schedule \\u2192</a></span>';
         } else {
           body.innerHTML = html;
         }
