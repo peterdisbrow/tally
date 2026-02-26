@@ -275,8 +275,10 @@ function sendNotification(title, body) {
 }
 
 function checkAndNotify() {
-  // ATEM disconnect
-  if (lastNotifiedState.atem === true && agentStatus.atem === false) {
+  // ATEM disconnect (handles both boolean and object states)
+  const wasAtemConnected = lastNotifiedState.atem === true || (lastNotifiedState.atem && lastNotifiedState.atem.connected);
+  const isAtemConnected = agentStatus.atem === true || (agentStatus.atem && agentStatus.atem.connected);
+  if (wasAtemConnected && !isAtemConnected) {
     sendNotification('⚠️ ATEM Disconnected', 'The ATEM switcher has lost connection.');
   }
   // Stream drop
@@ -439,7 +441,7 @@ function startAgent() {
     appendAppLog('AGENT', text);
 
     if (text.includes('Connected to relay server'))  agentStatus.relay = true;
-    if (text.includes('ATEM connected'))             agentStatus.atem = true;
+    if (text.includes('ATEM connected'))             agentStatus.atem = { connected: true, model: (agentStatus.atem && agentStatus.atem.model) || '' };
     if (text.includes('OBS connected'))              agentStatus.obs = true;
     if (text.includes('Companion connected'))        agentStatus.companion = true;
     if (text.includes('ATEM disconnected'))          agentStatus.atem = false;
@@ -464,6 +466,26 @@ function startAgent() {
     }
     if (text.includes('Audio master unmuted')) {
       agentStatus.audio = { ...(agentStatus.audio || {}), masterMuted: false };
+    }
+
+    // Parse ATEM model, program/preview inputs, recording from status logs
+    const atemModelMatch = text.match(/ATEM model detected:\s*(.+)/i);
+    if (atemModelMatch && agentStatus.atem && typeof agentStatus.atem === 'object') {
+      agentStatus.atem.model = atemModelMatch[1].trim();
+    }
+    const progInputMatch = text.match(/Program: Input (\d+)/);
+    if (progInputMatch && agentStatus.atem && typeof agentStatus.atem === 'object') {
+      agentStatus.atem.programInput = parseInt(progInputMatch[1]);
+    }
+    const prevInputMatch = text.match(/Preview: Input (\d+)/);
+    if (prevInputMatch && agentStatus.atem && typeof agentStatus.atem === 'object') {
+      agentStatus.atem.previewInput = parseInt(prevInputMatch[1]);
+    }
+    if (text.includes('recording STARTED') && agentStatus.atem && typeof agentStatus.atem === 'object') {
+      agentStatus.atem.recording = true;
+    }
+    if (text.includes('recording STOPPED') && agentStatus.atem && typeof agentStatus.atem === 'object') {
+      agentStatus.atem.recording = false;
     }
 
     // Parse streaming/FPS from status logs
@@ -679,11 +701,10 @@ ipcMain.handle('request-preview', async (_, action) => {
 });
 ipcMain.handle('request-preview-frame', async () => sendPreviewCommand('preview.snap'));
 
-const { discoverDevices, tryTcpConnect, tryHttpGet, listAvailableInterfaces } = require('./networkScanner');
+const { discoverDevices, listAvailableInterfaces } = require('./networkScanner');
 
 // ─── EQUIPMENT TESTING (delegated to equipment-tester module) ─────────────────
-const { tryTcpConnectLocal, tryUdpSendLocal, parseProbeRate, runLocalCommand,
-        probeNdiSourceLocal } = equipmentTester;
+const { runLocalCommand, probeNdiSourceLocal } = equipmentTester;
 
 // ─── NDI MONITORING IPC ──────────────────────────────────────────────────────
 
@@ -729,183 +750,10 @@ ipcMain.handle('scan-network', async (event, options = {}) => {
 });
 
 ipcMain.handle('test-equipment-connection', async (_, params) => {
-  const { type, ip, port, password, url } = params;
-  try {
-    switch (type) {
-      case 'atem': {
-        const ok = await tryTcpConnect(ip, port || 9910, 2000);
-        return { success: ok, details: ok ? 'ATEM reachable' : 'Cannot reach ATEM' };
-      }
-      case 'companion': {
-        const target = url || `http://${ip}:${port || 8888}`;
-        // Companion 4.x: probe a location slot — any HTTP response means it's running
-        const resp = await tryHttpGet(`${target}/api/location/1/0/0`, 2000);
-        return { success: resp.success, details: resp.success ? 'Companion connected' : 'Cannot reach Companion' };
-      }
-      case 'obs': {
-        const ok = await tryTcpConnect(ip || '127.0.0.1', port || 4455, 2000);
-        return { success: ok, details: ok ? 'OBS reachable' : 'Cannot reach OBS' };
-      }
-      case 'hyperdeck': {
-        const ok = await tryTcpConnect(ip, port || 9993, 2000);
-        return { success: ok, details: ok ? 'HyperDeck reachable' : 'Cannot reach HyperDeck' };
-      }
-      case 'ptz': {
-        const protocol = String(params.protocol || 'auto').toLowerCase();
-        const explicitPort = Number(port) || 0;
-        const ptzPort = explicitPort || (
-          protocol === 'onvif' ? 80
-            : protocol === 'visca-udp' ? 1259
-              : protocol === 'sony-visca-udp' ? 52381
-                : 5678
-        );
-        if (protocol === 'onvif' || protocol === 'auto') {
-          const onvifPort = explicitPort || 80;
-          const resp = await tryHttpGet(`http://${ip}:${onvifPort}/onvif/device_service`, 3000);
-          const statusCode = Number(resp.statusCode || 0);
-          const looksOnvif = resp.success && statusCode > 0 && statusCode !== 404;
-          if (looksOnvif) return { success: true, details: `ONVIF endpoint reachable (HTTP ${statusCode})` };
-          if (protocol === 'onvif') return { success: false, details: 'Cannot reach ONVIF endpoint' };
-        }
-        if (protocol === 'visca-udp' || protocol === 'sony-visca-udp') {
-          const probe = await tryUdpSendLocal(ip, ptzPort);
-          return {
-            success: probe.success,
-            details: probe.success
-              ? `${protocol} datagram sent`
-              : `Cannot send ${protocol} datagram`,
-          };
-        }
-        const ok = await tryTcpConnect(ip, ptzPort, 2500);
-        return { success: ok, details: ok ? 'VISCA TCP reachable' : 'Cannot reach VISCA TCP camera' };
-      }
-      case 'propresenter': {
-        const resp = await tryHttpGet(`http://${ip}:${port || 1025}/v1/version`, 3000);
-        return { success: resp.success, details: resp.success ? 'ProPresenter running' : 'Cannot reach ProPresenter' };
-      }
-      case 'dante': {
-        const resp = await tryHttpGet(`http://${ip}:${port || 8080}/x-nmos/node/v1.2/self`, 3000);
-        return { success: resp.success, details: resp.success ? 'NMOS registry reachable' : 'Cannot reach NMOS registry' };
-      }
-      case 'vmix': {
-        const resp = await tryHttpGet(`http://${ip}:${port || 8088}/api/?Function=GetShortXML`, 3000);
-        if (resp.success && resp.data) {
-          const editionM = resp.data.match ? resp.data.match(/<edition>([^<]+)<\/edition>/i) : null;
-          const edition = editionM ? editionM[1] : 'vMix';
-          return { success: true, details: `${edition} is running` };
-        }
-        return { success: false, details: 'Cannot reach vMix — is HTTP API enabled?' };
-      }
-      case 'resolume': {
-        const resp = await tryHttpGet(`http://${ip}:${port || 8080}/api/v1/product`, 3000);
-        const version = resp.success && resp.data ? (resp.data.name || 'Resolume Arena') : null;
-        return { success: resp.success, details: resp.success ? `${version} is running` : 'Cannot reach Resolume Arena' };
-      }
-      case 'mixer': {
-        const mixerType = params.mixerType || 'behringer';
-        const defaultPort = mixerType === 'allenheath' ? 51326
-          : mixerType === 'yamaha' ? 8765
-          : 10023; // behringer / midas
-        const targetPort = port || defaultPort;
-        // Yamaha TF uses TCP on 49280 — try TCP connect; for OSC consoles, TCP probe is a good enough check
-        const resp = await tryTcpConnectLocal(ip, targetPort, 3000);
-        return {
-          success: resp.success,
-          details: resp.success
-            ? `${mixerType} console reachable at ${ip}:${targetPort}`
-            : `Cannot reach ${mixerType} console at ${ip}:${targetPort}`,
-        };
-      }
-      case 'encoder': {
-        const et = (params.encoderType || '').toLowerCase();
-        if (et === 'obs') {
-          const ok = await tryTcpConnect(ip || '127.0.0.1', port || 4455, 2000);
-          return { success: ok, details: ok ? 'OBS WebSocket reachable' : 'Cannot reach OBS WebSocket' };
-        }
-        if (et === 'vmix') {
-          const resp = await tryHttpGet(`http://${ip || 'localhost'}:${port || 8088}/api/?Function=GetShortXML`, 3000);
-          return { success: resp.success, details: resp.success ? 'vMix API reachable' : 'Cannot reach vMix API' };
-        }
-        if (et === 'ecamm') {
-          const resp = await tryHttpGet(`http://127.0.0.1:${port || 65194}/getInfo`, 3000);
-          return { success: resp.success, details: resp.success ? 'Ecamm Live API connected' : 'Ecamm Live not detected (port 65194)' };
-        }
-        if (et === 'blackmagic') {
-          const resp = await tryHttpGet(`http://${ip}:${port || 80}/control/api/v1/livestreams/0`, 3000);
-          if (resp.success && resp.data) {
-            const status = resp.data.status || 'Unknown';
-            return { success: true, details: `Blackmagic connected — status: ${status}` };
-          }
-          return { success: resp.success, details: resp.success ? 'Blackmagic REST API reachable' : 'Cannot reach Blackmagic REST API (requires firmware 3.4+)' };
-        }
-        if (et === 'aja') {
-          const resp = await tryHttpGet(`http://${ip}:${port || 80}/config?action=get&paramid=eParamID_ReplicatorStreamState`, 3000);
-          if (resp.success && resp.data?.value !== undefined) {
-            const states = ['Uninitialized', 'Idle', 'Streaming', 'Failing (Idle)', 'Failing (Stream)', 'Shutdown'];
-            const state = states[parseInt(resp.data.value)] || 'Unknown';
-            return { success: true, details: `AJA HELO connected — stream: ${state}` };
-          }
-          return { success: resp.success, details: resp.success ? 'AJA HELO reachable' : 'Cannot reach AJA HELO REST API' };
-        }
-        if (et === 'epiphan') {
-          const resp = await tryHttpGet(`http://${ip}:${port || 80}/api/channels`, 3000);
-          if (resp.success && resp.data?.result) {
-            const count = resp.data.result.length;
-            return { success: true, details: `Epiphan Pearl connected — ${count} channel${count !== 1 ? 's' : ''}` };
-          }
-          // Try v2 endpoint
-          const resp2 = await tryHttpGet(`http://${ip}:${port || 80}/api/v2.0/channels`, 3000);
-          if (resp2.success) return { success: true, details: 'Epiphan Pearl connected (API v2)' };
-          return { success: false, details: 'Cannot reach Epiphan Pearl API (check IP and credentials)' };
-        }
-        if (et === 'teradek') {
-          const resp = await tryHttpGet(`http://${ip}:${port || 80}/cgi-bin/system.cgi?command=status`, 3000);
-          if (resp.success && resp.data?.status) {
-            const state = resp.data.status['Broadcast-State'] || 'Unknown';
-            return { success: true, details: `Teradek connected — broadcast: ${state}` };
-          }
-          // May need login first — just check if the web UI responds
-          const resp2 = await tryHttpGet(`http://${ip}:${port || 80}/`, 3000);
-          return { success: resp2.success, details: resp2.success ? 'Teradek web UI reachable (may need password)' : 'Cannot reach Teradek' };
-        }
-        if (et === 'tally-encoder') {
-          const resp = await tryHttpGet(`http://${ip}:${port || 7070}/health`, 3000);
-          return { success: resp.success, details: resp.success ? 'Tally Encoder reachable' : 'Cannot reach Tally Encoder' };
-        }
-        if (et === 'ndi') {
-          return probeNdiSourceLocal(params.ip, 5000);
-        }
-        if (et === 'custom') {
-          const statusUrl = params.statusUrl || '/status';
-          const resp = await tryHttpGet(`http://${ip}:${port || 80}${statusUrl}`, 3000);
-          return { success: resp.success, details: resp.success ? 'Custom encoder reachable' : 'Cannot reach custom encoder' };
-        }
-        if (et === 'atem-streaming') {
-          return { success: true, details: 'ATEM Mini streaming is monitored through the ATEM connection — no separate encoder test needed' };
-        }
-        // RTMP-push types (YoloBox, etc.) — no official control API.
-        // If an IP is provided, do a basic reachability probe for closer integration.
-        if (['yolobox', 'custom-rtmp', 'rtmp-generic'].includes(et)) {
-          if (!ip) {
-            return { success: true, details: 'Device configured — no control API (set optional IP to enable reachability checks)' };
-          }
-          const resp = await tryHttpGet(`http://${ip}:${port || 80}/`, 3000);
-          return {
-            success: resp.success,
-            details: resp.success
-              ? 'Device reachable (RTMP device has no public control API)'
-              : 'Cannot reach device web endpoint',
-          };
-        }
-        return { success: false, details: 'Select an encoder type' };
-      }
-      default:
-        return { success: false, details: 'Unknown device type' };
-    }
-  } catch (e) {
-    return { success: false, details: e.message };
-  }
+  // Delegate to equipment-tester module (uses correct UDP probes for ATEM/mixers)
+  return equipmentTester.testEquipmentConnection(params);
 });
+
 
 ipcMain.handle('save-equipment', (_, equipConfig) => {
   const config = loadConfig();
