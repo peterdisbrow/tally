@@ -32,6 +32,7 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'"],  // portal uses inline scripts
+      scriptSrcAttr: ["'unsafe-inline'"],         // portal uses inline onclick handlers
       styleSrc: ["'self'", "'unsafe-inline'"],    // portal uses inline styles
       imgSrc: ["'self'", 'data:', 'https:'],
       connectSrc: ["'self'", 'wss:', 'ws:'],
