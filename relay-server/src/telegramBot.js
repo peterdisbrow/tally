@@ -697,6 +697,13 @@ class TallyBot {
     if (aiResult.type === 'commands' && Array.isArray(aiResult.steps) && aiResult.steps.length > 0) {
       const replies = [];
       for (const step of aiResult.steps) {
+        // Handle system.wait pseudo-command
+        if (step.command === 'system.wait') {
+          const seconds = Math.min(Math.max(Number(step.params?.seconds) || 1, 0.5), 30);
+          replies.push(`⏳ Waited ${seconds}s`);
+          await new Promise((r) => setTimeout(r, seconds * 1000));
+          continue;
+        }
         const reply = await this._dispatchCommandSilent(church, chatId, step.command, step.params);
         if (reply) replies.push(reply);
       }

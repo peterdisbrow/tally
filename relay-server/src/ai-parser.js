@@ -219,6 +219,7 @@ resolume: playClip(name:X), triggerColumn(column:N), clearAll(), setBpm(bpm:N)
 mixer: status(), mute(channel:master|N), unmute(channel:master|N), recallScene(scene:N), saveScene(scene:N,name:X), setFader(channel:N,level:0-1), setChannelName(channel:N,name:X), setHpf(channel:N,enabled:bool,frequency:N), setEq(channel:N,enabled:bool,bands:[...]), setCompressor(channel:N,enabled:bool,threshold:N,ratio:N,attack:N,release:N,knee:N), setGate(channel:N,enabled:bool,threshold:N,range:N,attack:N,hold:N,release:N)
 dante: scene(name:X)
 other: preview.snap(), system.preServiceCheck(), status()
+system: wait(seconds:N) — pause N seconds between steps (max 30)
 
 JSON FORMAT — return one of:
 {"type":"command","command":"atem.cut","params":{"input":2}}
@@ -231,7 +232,10 @@ MULTI-STEP EXAMPLES:
 "Preview cam 3 then take it" → atem.setPreview(3) + atem.auto
 "End service: fade to black, stop recording, stop streaming, mute all" → 4 steps
 "Start service: recall scene 1, cut cam 1, go live, record" → 4 steps
-Multiple actions ("and"/"then"/commas) → ALWAYS use type:commands with steps[]. Up to 6 steps.
+"Cut to 1 then 2 then 3" → 3x atem.cut with inputs 1,2,3
+"Cut to cam 1, wait 5 seconds, then cut to cam 2" → atem.cut(1) + system.wait(5) + atem.cut(2)
+When user says "then" between each item, return ALL items as separate steps.
+Multiple actions ("and"/"then"/commas) → ALWAYS use type:commands with steps[]. Up to 20 steps.
 
 RULES:
 - Be liberal: "wide"→cam1, "pastor"→cam2, "take it"→atem.auto
@@ -242,7 +246,7 @@ RULES:
 
 // ─── Anthropic API call ───────────────────────────────────────────────────
 
-async function callAnthropic(messages, timeout = 8000) {
+async function callAnthropic(messages, timeout = 15000) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
@@ -262,7 +266,7 @@ async function callAnthropic(messages, timeout = 8000) {
         system: SYSTEM_PROMPT,
         messages,
         temperature: 0.2,
-        max_tokens: 1024,
+        max_tokens: 2048,
       }),
       signal: controller.signal,
     });

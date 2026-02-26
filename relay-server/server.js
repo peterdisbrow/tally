@@ -3008,6 +3008,15 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
 
   for (const step of steps) {
     if (!step?.command) continue;
+
+    // Handle system.wait pseudo-command (delay between steps)
+    if (step.command === 'system.wait') {
+      const seconds = Math.min(Math.max(Number(step.params?.seconds) || 1, 0.5), 30);
+      postSystemChatMessage(churchId, `⏳ Waiting ${seconds}s...`);
+      await new Promise((r) => setTimeout(r, seconds * 1000));
+      continue;
+    }
+
     const executed = await executeChurchCommandWithResult(churchId, step.command, step.params || {});
     if (!executed.ok) {
       postSystemChatMessage(churchId, `❌ ${step.command} failed: ${executed.error}`);
