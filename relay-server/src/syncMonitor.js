@@ -42,6 +42,7 @@ function setupSyncMonitor(db, relay, telegramBot, notifyUpdate) {
             text: message,
             parse_mode: 'Markdown',
           }),
+          signal: AbortSignal.timeout(5000),
         }
       );
     } catch (e) {

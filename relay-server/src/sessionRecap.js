@@ -362,6 +362,7 @@ class SessionRecap {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+        signal: AbortSignal.timeout(5000),
       });
       if (!resp.ok) {
         const body = await resp.text();

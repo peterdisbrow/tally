@@ -1584,6 +1584,7 @@ class TallyBot {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(5000),
       });
       const data = await resp.json();
       if (!data.ok) console.warn('[TallyBot] sendMessage failed:', data.description);
@@ -1610,6 +1611,7 @@ class TallyBot {
         method: 'POST',
         headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
         body,
+        signal: AbortSignal.timeout(10000),
       });
       const data = await resp.json();
       if (!data.ok) console.warn('[TallyBot] sendPhoto failed:', data.description);
@@ -1629,6 +1631,7 @@ class TallyBot {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5000),
       });
       const data = await resp.json();
       console.log(`[TallyBot] Webhook set: ${data.ok ? '✅' : '❌'} ${data.description || ''}`);

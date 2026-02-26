@@ -140,6 +140,7 @@ class EventMode {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: tdChatId, text: msg, parse_mode: 'Markdown' }),
+          signal: AbortSignal.timeout(5000),
         }).catch(e => console.error('[EventMode] Telegram notify failed:', e.message));
       } else if (tallyBot && tdChatId) {
         await tallyBot.sendMessage(String(tdChatId), msg, { parse_mode: 'Markdown' })

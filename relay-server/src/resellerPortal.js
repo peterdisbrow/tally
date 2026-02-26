@@ -1004,7 +1004,7 @@ function buildResellerPortalHtml(reseller) {
     }
 
     async function api(method, path, body) {
-      const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include' };
+      const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', signal: AbortSignal.timeout(15000) };
       if (body) opts.body = JSON.stringify(body);
       const r = await fetch(path, opts);
       const data = await r.json().catch(() => ({}));
@@ -1393,8 +1393,9 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
       db.prepare('UPDATE resellers SET portal_password_hash = ? WHERE id = ?').run(hashPassword(newPassword), resellerId);
     }
 
-    const allowed = { brand_name, support_email, logo_url, primary_color, custom_domain, webhook_url };
-    const patch = Object.fromEntries(Object.entries(allowed).filter(([, v]) => v !== undefined));
+    const allowedColumns = ['brand_name', 'support_email', 'logo_url', 'primary_color', 'custom_domain', 'webhook_url'];
+    const fields = { brand_name, support_email, logo_url, primary_color, custom_domain, webhook_url };
+    const patch = Object.fromEntries(Object.entries(fields).filter(([k, v]) => v !== undefined && allowedColumns.includes(k)));
 
     if (Object.keys(patch).length) {
       const sets = Object.keys(patch).map(k => `${k} = ?`).join(', ');

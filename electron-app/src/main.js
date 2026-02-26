@@ -6,6 +6,11 @@ const os = require('os');
 const WebSocket = require('ws');
 const { encryptConfig, decryptConfig } = require('./secureStorage');
 
+// Extracted modules (pure refactoring — see config-manager.js, relay-client.js, equipment-tester.js)
+const configManager = require('./config-manager');
+const relayClient = require('./relay-client');
+const equipmentTester = require('./equipment-tester');
+
 // Auto-update (gracefully optional)
 let autoUpdater;
 try {
@@ -23,11 +28,30 @@ let tray = null;
 let mainWindow = null;
 let agentProcess = null;
 let agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
-let previewControllerSocket = null;
 let lastNotifiedState = {};
 const recentLogLines = [];
 let agentCrashCount = 0;
 const MAX_AGENT_CRASHES = 5;
+
+// ─── WIRE EXTRACTED MODULES ──────────────────────────────────────────────────
+// Break circular dependency: relay-client needs loadConfig, config-manager needs
+// enforceRelayPolicy. The init() pattern resolves this at startup.
+configManager.init({ enforceRelayPolicy: relayClient.enforceRelayPolicy });
+relayClient.init({
+  loadConfig: () => configManager.loadConfig(),
+  getMainWindow: () => mainWindow,
+});
+equipmentTester.init({
+  tryTcpConnect: (...args) => {
+    // Lazy import to avoid circular at require-time
+    const { tryTcpConnect } = require('./networkScanner');
+    return tryTcpConnect(...args);
+  },
+  tryHttpGet: (...args) => {
+    const { tryHttpGet } = require('./networkScanner');
+    return tryHttpGet(...args);
+  },
+});
 
 function appendAppLog(source, message) {
   const ts = new Date().toISOString();
@@ -55,28 +79,8 @@ function appendAppLog(source, message) {
   }
 }
 
-function getSanitizedConfigForExport() {
-  const config = loadConfig();
-  const sanitized = { ...config };
-  const redactFields = [
-    'token',
-    'churchToken',
-    'obsPassword',
-    'youtubeApiKey',
-    'facebookAccessToken',
-    'rtmpStreamKey',
-    'twitchStreamKey',
-    'adminApiKey',
-  ];
-
-  for (const field of redactFields) {
-    if (sanitized[field] !== undefined && sanitized[field] !== null && sanitized[field] !== '') {
-      sanitized[field] = '[redacted]';
-    }
-  }
-
-  return sanitized;
-}
+// Delegated to config-manager module
+const getSanitizedConfigForExport = configManager.getSanitizedConfigForExport;
 
 function buildExportText() {
   const header = [
@@ -181,6 +185,10 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
   mainWindow.on('close', (e) => {
+    if (app.isQuitting) {
+      mainWindow = null;
+      return; // allow the window to close for real
+    }
     e.preventDefault();
     mainWindow.hide();
   });
@@ -238,7 +246,7 @@ function updateTray() {
     { label: 'Help & Support', click: () => shell.openExternal('https://tallyconnect.app/help') },
     { label: 'ATEM School', click: () => shell.openExternal('https://atemschool.com') },
     { type: 'separator' },
-    { label: 'Quit', click: () => { stopAgent(); app.exit(0); } },
+    { label: 'Quit', click: () => { app.isQuitting = true; stopAgent(); app.exit(0); } },
   ]);
 
   tray.setContextMenu(menu);
@@ -270,6 +278,7 @@ function checkAndNotify() {
 }
 
 function resolveNodeBinary() {
+  // ── 1. Try system-installed Node.js first (preferred — lighter than Electron) ──
   const candidates = new Set();
 
   const addCandidate = (value) => {
@@ -290,23 +299,28 @@ function resolveNodeBinary() {
     addCandidate('C:/Program Files (x86)/nodejs/node.exe');
   }
 
-  // Common relative install locations in Electron-packaged apps
   if (process.resourcesPath) {
-    addCandidate(path.join(process.resourcesPath, 'node'));                    // e.g., /resources/node
-    addCandidate(path.join(process.resourcesPath, 'node', 'bin', 'node'));       // /resources/node/bin/node
-    addCandidate(path.join(process.resourcesPath, 'bin', 'node'));               // /resources/bin/node
+    addCandidate(path.join(process.resourcesPath, 'node'));
+    addCandidate(path.join(process.resourcesPath, 'node', 'bin', 'node'));
+    addCandidate(path.join(process.resourcesPath, 'bin', 'node'));
   }
 
   for (const p of candidates) {
-    if (p && fs.existsSync(p)) return p;
+    if (p && fs.existsSync(p)) return { binary: p, useElectronAsNode: false };
   }
 
-  // Fallback: check PATH with `which`/`where`
+  // Check PATH with `which`/`where`
   const cmd = process.platform === 'win32' ? 'where' : 'which';
   const result = spawnSync(cmd, ['node'], { encoding: 'utf8' });
   if (result.status === 0) {
     const located = result.stdout.split('\n')[0]?.trim();
-    if (located && fs.existsSync(located)) return located;
+    if (located && fs.existsSync(located)) return { binary: located, useElectronAsNode: false };
+  }
+
+  // ── 2. Fallback: use Electron's own Node.js via ELECTRON_RUN_AS_NODE ──
+  // This always works in packaged builds — no system Node.js required.
+  if (process.execPath) {
+    return { binary: process.execPath, useElectronAsNode: true };
   }
 
   return null;
@@ -363,9 +377,9 @@ function startAgent() {
   if (config.name)         args.push('--name', config.name);
   if (config.companionUrl) args.push('--companion', config.companionUrl);
 
-  const nodeBinary = resolveNodeBinary();
-  if (!nodeBinary) {
-    const msg = 'Node.js runtime not found on this Mac. Install Node.js (brew install node) or run in dev mode.';
+  const nodeResult = resolveNodeBinary();
+  if (!nodeResult) {
+    const msg = 'Node.js runtime not found. The app may need to be reinstalled.';
     console.log(msg);
     appendAppLog('SYSTEM', msg);
     mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
@@ -373,6 +387,7 @@ function startAgent() {
     sendNotification('Tally Agent Error', msg);
     return;
   }
+  const { binary: nodeBinary, useElectronAsNode } = nodeResult;
 
   // Set encoder type label from config so UI can adapt
   const encoderTypeNames = {
@@ -380,14 +395,20 @@ function startAgent() {
     aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek',
     yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder',
     ndi: 'NDI Decoder', custom: 'Custom', 'custom-rtmp': 'Custom RTMP', 'rtmp-generic': 'RTMP',
+    'atem-streaming': 'ATEM Mini',
   };
   agentStatus.encoderType = encoderTypeNames[config.encoder?.type] || '';
 
-  appendAppLog('SYSTEM', `Starting agent (relay=${agentRelay}, name=${config.name || 'n/a'}, script=${clientPaths.script})`);
+  const nodeLabel = useElectronAsNode ? `${nodeBinary} (ELECTRON_RUN_AS_NODE)` : nodeBinary;
+  appendAppLog('SYSTEM', `Starting agent (relay=${agentRelay}, name=${config.name || 'n/a'}, node=${nodeLabel}, script=${clientPaths.script})`);
+
+  const spawnEnv = useElectronAsNode
+    ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    : process.env;
 
   agentProcess = spawn(nodeBinary, args, {
     cwd: clientPaths.cwd,
-    env: process.env,
+    env: spawnEnv,
   });
 
   agentProcess.on('error', (err) => {
@@ -522,352 +543,16 @@ setInterval(() => {
 
 // ─── TEST CONNECTION ──────────────────────────────────────────────────────────
 
-function normalizeRelayUrl(url) {
-  const raw = String(url || DEFAULT_RELAY_URL).trim();
-  if (!raw) return DEFAULT_RELAY_URL;
+// ─── RELAY HELPERS (delegated to relay-client module) ─────────────────────────
+const { normalizeRelayUrl, isLocalRelayUrl, enforceRelayPolicy, relayHttpUrl,
+        decodeChurchIdFromToken } = relayClient;
 
-  if (/^wss?:\/\//i.test(raw)) {
-    return raw.replace(/\/+$/, '');
-  }
-
-  if (/^https?:\/\//i.test(raw)) {
-    return raw
-      .replace(/^https:\/\//i, 'wss://')
-      .replace(/^http:\/\//i, 'ws://')
-      .replace(/\/+$/, '');
-  }
-
-  return `wss://${raw.replace(/\/+$/, '')}`;
-}
-
-function isLocalRelayUrl(url) {
-  try {
-    const normalized = normalizeRelayUrl(url);
-    const httpUrl = normalized
-      .replace(/^wss:\/\//i, 'https://')
-      .replace(/^ws:\/\//i, 'http://');
-    const parsed = new URL(httpUrl);
-    const host = (parsed.hostname || '').toLowerCase();
-    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
-  } catch {
-    return false;
-  }
-}
-
-function enforceRelayPolicy(url) {
-  const normalized = normalizeRelayUrl(url || DEFAULT_RELAY_URL);
-  if (isLocalRelayUrl(normalized)) return normalized;
-  return normalizeRelayUrl(DEFAULT_RELAY_URL);
-}
-
-function relayHttpUrl(url) {
-  return enforceRelayPolicy(url).replace(/^wss?:\/\//i, (m) => (m.toLowerCase() === 'wss://' ? 'https://' : 'http://'));
-}
-
-function decodeChurchIdFromToken(token) {
-  try {
-    const parts = token?.split('.') || [];
-    if (!parts[1]) return null;
-    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-    return payload.churchId || payload.church_id || null;
-  } catch {
-    return null;
-  }
-}
-
-function checkTokenWithRelay(token, relayUrl, ms = 5000) {
-  return new Promise((resolve) => {
-    const wsUrl = normalizeRelayUrl(relayUrl).replace(/\/$/, '') + '/church';
-    const target = `${wsUrl}?token=${encodeURIComponent(token)}`;
-    const socket = new WebSocket(target);
-    const AUTH_STABILITY_MS = 1200;
-    let opened = false;
-    let authTimer = null;
-    let done = false;
-
-    const finish = (result) => {
-      if (done) return;
-      done = true;
-      if (authTimer) clearTimeout(authTimer);
-      try { socket.removeAllListeners(); } catch {}
-      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-        try { socket.close(); } catch {}
-      }
-      resolve(result);
-    };
-
-    const timer = setTimeout(() => finish({ success: false, error: 'Token validation timed out' }), ms);
-    socket.once('open', () => {
-      opened = true;
-      authTimer = setTimeout(() => {
-        clearTimeout(timer);
-        finish({ success: true, message: 'Token handshake succeeded' });
-      }, AUTH_STABILITY_MS);
-    });
-    socket.once('error', (err) => {
-      clearTimeout(timer);
-      finish({ success: false, error: err.message || 'Token validation failed' });
-    });
-    socket.once('close', (code) => {
-      clearTimeout(timer);
-      if (code === 1008) {
-        finish({ success: false, error: 'Invalid token for this relay' });
-        return;
-      }
-      if (!opened) {
-        finish({ success: false, error: `Connection closed before auth (${code})` });
-        return;
-      }
-      finish({ success: false, error: `Relay closed connection (${code})` });
-    });
-  });
-}
-
-async function postJson(url, payload, timeoutMs = 10000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload || {}),
-      signal: controller.signal,
-    });
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      return {
-        success: false,
-        error: data.error || `Request failed (${response.status})`,
-        status: response.status,
-        data,
-      };
-    }
-
-    return { success: true, status: response.status, data };
-  } catch (e) {
-    return { success: false, error: e.message || 'Network error' };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function loginChurchWithCredentials({ relay, email, password }) {
-  const relayUrl = enforceRelayPolicy(relay);
-  const endpoint = `${relayHttpUrl(relayUrl).replace(/\/+$/, '')}/api/church/app/login`;
-  return postJson(endpoint, { email, password });
-}
-
-async function testConnection({ url, token } = {}) {
-  const relayUrl = enforceRelayPolicy(url);
-
-  if (token) {
-    const tokenCheck = await checkTokenWithRelay(token, relayUrl);
-    if (!tokenCheck.success) return tokenCheck;
-  }
-
-  return new Promise((resolve) => {
-    const endpoint = relayHttpUrl(relayUrl);
-    const lib = endpoint.startsWith('https') ? require('https') : require('http');
-    const req = lib.get(endpoint, { timeout: 5000 }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => (data += chunk));
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          resolve({ success: true, service: json.service, churches: json.churches });
-        } catch {
-          resolve({ success: true, message: 'Server responded' });
-        }
-      });
-    });
-
-    req.on('error', (e) => resolve({ success: false, error: e.message }));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve({ success: false, error: 'Timeout' });
-    });
-  });
-}
-
-function sendPreviewCommand(command, params = {}) {
-  const config = loadConfig();
-  if (!config.token) throw new Error('No church token configured');
-
-  const relay = enforceRelayPolicy(config.relay || DEFAULT_RELAY_URL);
-  const churchId = decodeChurchIdFromToken(config.token);
-  const adminKey = config.adminApiKey;
-
-  if (!adminKey) {
-    throw new Error('No adminApiKey stored for preview control');
-  }
-
-  if (!churchId) {
-    throw new Error('Unable to parse churchId from token');
-  }
-
-  return new Promise((resolve, reject) => {
-    // Keep one controller socket while preview stream is active so frames can flow.
-    if (command === 'preview.start' && previewControllerSocket) {
-      try { previewControllerSocket.send(JSON.stringify({ type: 'command', churchId, command: 'preview.stop', params: {} })); } catch {}
-      try { previewControllerSocket.terminate(); } catch {}
-      previewControllerSocket = null;
-    }
-
-    const socket = new WebSocket(`${relay.replace(/\/$/, '')}/controller?apikey=${encodeURIComponent(adminKey)}`);
-    const isStart = command === 'preview.start';
-    const timeout = setTimeout(() => {
-      try { socket.terminate(); } catch {}
-      if (isStart && previewControllerSocket === socket) previewControllerSocket = null;
-      reject(new Error('Preview command timed out'));
-    }, 8000);
-
-    const done = (result) => {
-      clearTimeout(timeout);
-      resolve(result);
-      if (!isStart) {
-        try { if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close(); } catch {}
-      }
-      if (socket === previewControllerSocket) {
-        previewControllerSocket = null;
-      }
-    };
-
-    const onMessage = (raw) => {
-      try {
-        const msg = JSON.parse(raw.toString());
-
-        if (msg.type === 'preview_frame' && msg.churchId === churchId) {
-          mainWindow?.webContents.send('preview-frame', {
-            timestamp: msg.timestamp,
-            width: msg.width,
-            height: msg.height,
-            format: msg.format,
-            data: msg.data,
-          });
-          return;
-        }
-
-        if (msg.type === 'command_result' && msg.command === command && msg.churchId === churchId) {
-          if (msg.error) {
-            done({ success: false, error: msg.error });
-          } else {
-            done({ success: true, result: msg.result });
-          }
-        }
-      } catch (e) {
-        done({ success: true });
-      }
-    };
-
-    socket.once('open', () => {
-      socket.send(JSON.stringify({
-        type: 'command',
-        churchId,
-        command,
-        params,
-      }));
-
-      if (command === 'preview.stop') {
-        done({ success: true });
-      } else if (command === 'preview.start') {
-        previewControllerSocket = socket;
-        socket.on('message', onMessage);
-        mainWindow?.webContents.send('log', '[Preview] Started preview stream from relay controller');
-      } else {
-        socket.on('message', onMessage);
-      }
-    });
-
-    socket.on('message', (raw) => {
-      if (isStart) return; // handled above once open
-      try {
-        const msg = JSON.parse(raw.toString());
-        if (msg.type === 'command_result' && msg.command === command && msg.churchId === churchId) {
-          if (msg.error) {
-            done({ success: false, error: msg.error });
-          } else {
-            done({ success: true, result: msg.result });
-          }
-        }
-      } catch (e) {
-        done({ success: true });
-      }
-    });
-
-    socket.once('error', (err) => done({ success: false, error: err.message || 'Relay socket error' }));
-    socket.once('close', () => {
-      if (socket === previewControllerSocket) previewControllerSocket = null;
-      done({ success: true });
-    });
-  });
-}
+const { checkTokenWithRelay, postJson, loginChurchWithCredentials,
+        testConnection, sendPreviewCommand } = relayClient;
 
 
-// ─── CONFIG ───────────────────────────────────────────────────────────────────
-
-function isMockValue(value) {
-  const v = String(value || '').trim().toLowerCase();
-  return v === 'mock' || v === 'fake' || v === 'sim' || v === 'simulate' || v.startsWith('mock://') || v.includes('mock-hyperdeck');
-}
-
-function stripMockConfig(config = {}) {
-  const cleaned = { ...(config || {}) };
-
-  if (isMockValue(cleaned.atemIp)) cleaned.atemIp = '';
-  if (isMockValue(cleaned.obsUrl)) {
-    cleaned.obsUrl = '';
-    cleaned.obsPassword = '';
-  }
-  if (cleaned.proPresenter && isMockValue(cleaned.proPresenter.host)) cleaned.proPresenter = null;
-  if (cleaned.mixer && isMockValue(cleaned.mixer.host)) cleaned.mixer = null;
-  if (Array.isArray(cleaned.hyperdecks)) {
-    cleaned.hyperdecks = cleaned.hyperdecks.filter((entry) => !isMockValue(entry));
-  }
-  delete cleaned.mockProduction;
-  delete cleaned.fakeAtemApiPort;
-  delete cleaned._preMock;
-  return cleaned;
-}
-
-function loadConfig() {
-  if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  if (!fs.existsSync(CONFIG_PATH)) return {};
-  try {
-    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    const config = stripMockConfig(decryptConfig(raw)); // decrypt secure fields on load
-    config.relay = enforceRelayPolicy(config.relay);
-    return config;
-  }
-  catch { return {}; }
-}
-
-function saveConfig(config) {
-  if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  // Merge partial UI updates into existing config so token/relay are not lost.
-  const merged = { ...loadConfig(), ...(config || {}) };
-  // Only persist defined values; undefined means "leave existing as-is" before merge.
-  const toSave = stripMockConfig(Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined)));
-  toSave.relay = enforceRelayPolicy(toSave.relay);
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(encryptConfig(toSave), null, 2));
-}
-
-// Return config with flags instead of actual key values for the UI
-// (never send streaming keys to the renderer process)
-function loadConfigForUI() {
-  const config = loadConfig();
-  const ui = { ...config };
-  const SENSITIVE = ['youtubeApiKey', 'facebookAccessToken', 'rtmpStreamKey', 'twitchStreamKey', 'obsPassword', 'churchToken'];
-  for (const field of SENSITIVE) {
-    ui[`${field.replace(/([A-Z])/g, m => m[0].toLowerCase())}Set`] = !!(config[field]);
-    delete ui[field]; // never expose to renderer
-  }
-  // Convenience flags for the UI
-  ui.youtubeKeySet = !!(config.youtubeApiKey);
-  ui.facebookTokenSet = !!(config.facebookAccessToken);
-  ui.rtmpKeySet = !!(config.rtmpStreamKey);
-  return ui;
-}
+// ─── CONFIG (delegated to config-manager module) ─────────────────────────────
+const { loadConfig, saveConfig, loadConfigForUI, isMockValue, stripMockConfig } = configManager;
 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
 
@@ -983,139 +668,45 @@ ipcMain.handle('request-preview-frame', async () => sendPreviewCommand('preview.
 
 const { discoverDevices, tryTcpConnect, tryHttpGet, listAvailableInterfaces } = require('./networkScanner');
 
-// ─── TCP CONNECT HELPER ───────────────────────────────────────────────────────
+// ─── EQUIPMENT TESTING (delegated to equipment-tester module) ─────────────────
+const { tryTcpConnectLocal, tryUdpSendLocal, parseProbeRate, runLocalCommand,
+        probeNdiSourceLocal } = equipmentTester;
 
-function tryTcpConnectLocal(host, port, timeoutMs) {
-  return new Promise((resolve) => {
-    const net = require('net');
-    const socket = new net.Socket();
-    socket.setTimeout(timeoutMs);
-    socket.connect(port, host, () => { socket.destroy(); resolve({ success: true }); });
-    socket.on('error', () => { socket.destroy(); resolve({ success: false }); });
-    socket.on('timeout', () => { socket.destroy(); resolve({ success: false }); });
-  });
-}
+// ─── NDI MONITORING IPC ──────────────────────────────────────────────────────
 
-function tryUdpSendLocal(host, port, payloadHex = '', timeoutMs = 2000) {
-  return new Promise((resolve) => {
-    const dgram = require('dgram');
-    const socket = dgram.createSocket('udp4');
-    const payload = payloadHex ? Buffer.from(payloadHex.replace(/\s+/g, ''), 'hex') : Buffer.from([0x81, 0x09, 0x04, 0x00, 0xff]);
-    let done = false;
-    const finish = (success) => {
-      if (done) return;
-      done = true;
-      try { socket.close(); } catch { /* ignore */ }
-      resolve({ success });
-    };
-    const timer = setTimeout(() => finish(true), timeoutMs); // UDP is fire-and-forget; no error => likely routable
-    socket.once('error', () => {
-      clearTimeout(timer);
-      finish(false);
-    });
-    socket.send(payload, port, host, (err) => {
-      clearTimeout(timer);
-      finish(!err);
-    });
-  });
-}
+ipcMain.handle('probe-ndi', async (_, source) => {
+  return probeNdiSourceLocal(source, 5000);
+});
 
-function parseProbeRate(value) {
-  if (!value || typeof value !== 'string') return null;
-  const raw = value.trim();
-  if (!raw) return null;
-  if (raw.includes('/')) {
-    const [numRaw, denRaw] = raw.split('/');
-    const num = Number(numRaw);
-    const den = Number(denRaw);
-    if (Number.isFinite(num) && Number.isFinite(den) && den > 0) {
-      return Number((num / den).toFixed(2));
-    }
-    return null;
-  }
-  const asNum = Number(raw);
-  return Number.isFinite(asNum) ? Number(asNum.toFixed(2)) : null;
-}
-
-function runLocalCommand(command, args, timeoutMs = 5000) {
-  return new Promise((resolve) => {
-    let stdout = '';
-    let stderr = '';
-    let timedOut = false;
-
-    const child = spawn(command, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      try { child.kill('SIGKILL'); } catch { /* ignore */ }
-    }, timeoutMs);
-
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      resolve({ ok: false, code: null, stdout, stderr, timedOut, error });
-    });
-
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      resolve({ ok: code === 0 && !timedOut, code, stdout, stderr, timedOut, error: null });
-    });
-  });
-}
-
-async function probeNdiSourceLocal(source, timeoutMs = 5000) {
+ipcMain.handle('capture-ndi-frame', async (_, source) => {
   const ndiSource = String(source || '').trim();
-  if (!ndiSource) {
-    return { success: false, details: 'Enter NDI source name' };
-  }
+  if (!ndiSource) return { success: false, details: 'No NDI source configured' };
 
   const args = [
-    '-v', 'error',
     '-f', 'libndi_newtek',
     '-i', ndiSource,
-    '-select_streams', 'v:0',
-    '-show_entries', 'stream=width,height,avg_frame_rate,r_frame_rate',
-    '-of', 'json',
-    '-read_intervals', '%+1',
+    '-vframes', '1',
+    '-f', 'mjpeg',
+    '-q:v', '5',
+    'pipe:1',
   ];
 
-  const result = await runLocalCommand('ffprobe', args, timeoutMs);
+  const result = await runLocalCommand('ffmpeg', args, 8000);
   if (result.error && result.error.code === 'ENOENT') {
-    return { success: false, details: 'ffprobe not installed (required for NDI monitoring)' };
+    return { success: false, details: 'ffmpeg not installed (required for NDI snapshot)' };
   }
   if (result.timedOut) {
-    return { success: false, details: `NDI probe timed out for "${ndiSource}"` };
+    return { success: false, details: `NDI frame capture timed out for "${ndiSource}"` };
   }
-  if (!result.ok) {
-    const errText = `${result.stderr || ''} ${result.stdout || ''}`.toLowerCase();
-    const pluginMissing = errText.includes('unknown input format') || errText.includes('libndi_newtek');
-    if (pluginMissing) return { success: false, details: 'ffprobe lacks libndi_newtek support' };
-    return { success: false, details: `NDI source "${ndiSource}" not reachable` };
+  if (!result.ok || !result.stdoutBuf || result.stdoutBuf.length === 0) {
+    return { success: false, details: `Could not capture frame from "${ndiSource}"` };
   }
-
-  let stream = null;
-  try {
-    const parsed = JSON.parse(result.stdout || '{}');
-    stream = Array.isArray(parsed.streams) ? parsed.streams[0] : null;
-  } catch {
-    stream = null;
-  }
-
-  const width = stream && Number.isFinite(Number(stream.width)) ? Number(stream.width) : null;
-  const height = stream && Number.isFinite(Number(stream.height)) ? Number(stream.height) : null;
-  const fps = parseProbeRate(stream?.avg_frame_rate || stream?.r_frame_rate || '');
-  const resolution = width && height ? `${width}x${height}` : null;
-  const fpsText = Number.isFinite(fps) ? `${fps} fps` : null;
-
   return {
     success: true,
-    details: `NDI source reachable (${ndiSource})${resolution ? ` · ${resolution}` : ''}${fpsText ? ` @ ${fpsText}` : ''}`,
+    frame: result.stdoutBuf.toString('base64'),
+    details: 'Frame captured',
   };
-}
+});
 
 ipcMain.handle('scan-network', async (event, options = {}) => {
   const results = await discoverDevices((percent, message) => {
@@ -1276,6 +867,9 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
           const resp = await tryHttpGet(`http://${ip}:${port || 80}${statusUrl}`, 3000);
           return { success: resp.success, details: resp.success ? 'Custom encoder reachable' : 'Cannot reach custom encoder' };
         }
+        if (et === 'atem-streaming') {
+          return { success: true, details: 'ATEM Mini streaming is monitored through the ATEM connection — no separate encoder test needed' };
+        }
         // RTMP-push types (YoloBox, etc.) — no official control API.
         // If an IP is provided, do a basic reachability probe for closer integration.
         if (['yolobox', 'custom-rtmp', 'rtmp-generic'].includes(et)) {
@@ -1344,6 +938,14 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
           statusUrl: equipConfig.encoderStatusUrl || '',
         }
       : null;
+    // Clean up legacy flat encoder keys (prevent stale values overriding nested object)
+    delete config.encoderType;
+    delete config.encoderHost;
+    delete config.encoderPort;
+    delete config.encoderPassword;
+    delete config.encoderLabel;
+    delete config.encoderStatusUrl;
+    delete config.encoderSource;
   }
   saveConfig(config);
   return true;
@@ -1439,7 +1041,16 @@ app.on('window-all-closed', (e) => {
   e.preventDefault();
 });
 
+app.on('activate', () => {
+  if (mainWindow) {
+    mainWindow.show();
+  } else {
+    createWindow();
+  }
+});
+
 app.on('before-quit', () => {
+  app.isQuitting = true;
   appendAppLog('SYSTEM', 'App before-quit');
   stopAgent();
 });

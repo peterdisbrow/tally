@@ -232,7 +232,7 @@ class OnCallRotation {
       };
     }
 
-    const swapKey = crypto.randomBytes(4).toString('hex');
+    const swapKey = crypto.randomBytes(12).toString('hex');
     const weekKey = this._currentWeekKey();
 
     this._pendingSwaps.set(swapKey, {

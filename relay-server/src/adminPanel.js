@@ -1381,13 +1381,14 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
     if (!church && !db.prepare('SELECT churchId FROM churches WHERE churchId=?').get(id)) {
       return res.status(404).json({ error: 'Church not found' });
     }
+    const allowedColumns = ['name', 'email', 'church_type', 'reseller_id'];
     const { name, email, type, resellerId } = req.body;
     const updates = [];
     const vals = [];
-    if (name !== undefined) { updates.push('name=?'); vals.push(name); }
-    if (email !== undefined) { updates.push('email=?'); vals.push(email); }
-    if (type !== undefined) { updates.push('church_type=?'); vals.push(type); }
-    if (resellerId !== undefined) { updates.push('reseller_id=?'); vals.push(resellerId || null); }
+    if (name !== undefined && allowedColumns.includes('name')) { updates.push('name=?'); vals.push(name); }
+    if (email !== undefined && allowedColumns.includes('email')) { updates.push('email=?'); vals.push(email); }
+    if (type !== undefined && allowedColumns.includes('church_type')) { updates.push('church_type=?'); vals.push(type); }
+    if (resellerId !== undefined && allowedColumns.includes('reseller_id')) { updates.push('reseller_id=?'); vals.push(resellerId || null); }
     if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
     vals.push(id);
     db.prepare(`UPDATE churches SET ${updates.join(',')} WHERE churchId=?`).run(...vals);

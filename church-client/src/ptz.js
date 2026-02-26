@@ -3,6 +3,8 @@
  *
  * Supported protocols:
  * - onvif           (SOAP over HTTP, ONVIF PTZ service)
+ * - ptzoptics-onvif (ONVIF profile with PTZOptics defaults)
+ * - ptzoptics-visca (VISCA TCP profile with PTZOptics defaults)
  * - visca-tcp       (raw VISCA over TCP, common default port 5678)
  * - visca-udp       (raw VISCA over UDP, common default port 1259)
  * - sony-visca-udp  (Sony VISCA-over-IP UDP framing, common port 52381)
@@ -44,6 +46,8 @@ function normalizeProtocol(value) {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw || raw === 'auto') return 'auto';
   if (raw === 'onvif') return 'onvif';
+  if (raw === 'ptzoptics-onvif') return 'ptzoptics-onvif';
+  if (raw === 'ptzoptics' || raw === 'ptzoptics-visca' || raw === 'ptzoptics-visca-tcp') return 'ptzoptics-visca';
   if (raw === 'visca' || raw === 'visca-tcp' || raw === 'tcp') return 'visca-tcp';
   if (raw === 'visca-udp' || raw === 'udp') return 'visca-udp';
   if (raw === 'sony-visca' || raw === 'sony-visca-udp' || raw === 'visca-sony') return 'sony-visca-udp';
@@ -54,6 +58,8 @@ function normalizeProtocol(value) {
 function defaultPortForProtocol(protocol) {
   switch (normalizeProtocol(protocol)) {
     case 'onvif': return 80;
+    case 'ptzoptics-onvif': return 80;
+    case 'ptzoptics-visca': return 5678;
     case 'visca-udp': return 1259;
     case 'sony-visca-udp': return 52381;
     case 'visca-tcp':
@@ -696,9 +702,12 @@ class PTZManager {
     for (const candidate of attemptOrder) {
       try {
         const merged = { ...entry, protocol: candidate, port: entry.port || defaultPortForProtocol(candidate) };
-        const cam = candidate === 'onvif'
+        const cam = (candidate === 'onvif' || candidate === 'ptzoptics-onvif')
           ? new OnvifPtzCamera(merged)
-          : new ViscaPtzCamera(merged);
+          : new ViscaPtzCamera({
+              ...merged,
+              protocol: candidate === 'ptzoptics-visca' ? 'visca-tcp' : candidate,
+            });
         await cam.connect();
         return cam;
       } catch (err) {

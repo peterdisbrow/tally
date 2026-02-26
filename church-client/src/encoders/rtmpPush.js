@@ -22,6 +22,7 @@ class RtmpPushEncoder {
   _defaultLabel(type) {
     const labels = {
       blackmagic: 'Blackmagic Web Presenter',
+      'atem-streaming': 'ATEM Mini',
       yolobox: 'YoloBox',
       'custom-rtmp': 'Custom RTMP',
       'rtmp-generic': 'RTMP Device',

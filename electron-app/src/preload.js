@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('scan-progress', listener);
     return () => ipcRenderer.removeListener('scan-progress', listener);
   },
+  // NDI monitoring
+  probeNdi: (source) => ipcRenderer.invoke('probe-ndi', source),
+  captureNdiFrame: (source) => ipcRenderer.invoke('capture-ndi-frame', source),
   // Chat
   sendChat: (payload) => ipcRenderer.invoke('send-chat', payload),
   getChat: (opts) => ipcRenderer.invoke('get-chat', opts),

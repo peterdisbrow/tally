@@ -164,6 +164,7 @@ class PreServiceCheck {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ chat_id: String(chatId), text: msg }),
+          signal: AbortSignal.timeout(5000),
         });
       } catch (e) {
         console.error('[PreServiceCheck] Telegram send error:', e.message);
