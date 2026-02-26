@@ -947,6 +947,7 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
     delete config.encoderStatusUrl;
     delete config.encoderSource;
   }
+  if (equipConfig.rtmpUrl !== undefined) config.rtmpUrl = equipConfig.rtmpUrl;
   saveConfig(config);
   return true;
 });
@@ -980,6 +981,7 @@ ipcMain.handle('get-equipment', () => {
     encoderPassword: config.encoder?.password || '',
     encoderLabel: config.encoder?.label || '',
     encoderStatusUrl: config.encoder?.statusUrl || '',
+    rtmpUrl: config.rtmpUrl || '',
   };
 });
 

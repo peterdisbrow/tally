@@ -1104,6 +1104,7 @@ async function loadEquipment() {
   document.getElementById('equip-dante-port').value = eq.danteNmosPort || '8080';
   document.getElementById('equip-youtube-key').placeholder = eq.youtubeKeySet ? '(saved — enter new to change)' : 'AIzaSy…';
   document.getElementById('equip-facebook-token').placeholder = eq.facebookTokenSet ? '(saved — enter new to change)' : 'EAAxxxxxx…';
+  document.getElementById('equip-rtmp-url').value = eq.rtmpUrl || '';
   document.getElementById('equip-rtmp-key').placeholder = eq.rtmpKeySet ? '(saved — enter new to change)' : 'live_xxxxxxxx';
   document.getElementById('equip-vmix-host').value = eq.vmixHost || '';
   document.getElementById('equip-vmix-port').value = eq.vmixPort || '8088';
@@ -1574,6 +1575,7 @@ async function saveEquipment() {
     danteNmosPort: parseInt(document.getElementById('equip-dante-port').value) || 8080,
     youtubeApiKey: document.getElementById('equip-youtube-key').value.trim() || undefined,
     facebookAccessToken: document.getElementById('equip-facebook-token').value.trim() || undefined,
+    rtmpUrl: document.getElementById('equip-rtmp-url').value.trim() || '',
     rtmpStreamKey: document.getElementById('equip-rtmp-key').value.trim() || undefined,
     vmixHost: isOptionalDeviceVisible('vmix') ? document.getElementById('equip-vmix-host').value.trim() : '',
     vmixPort: parseInt(document.getElementById('equip-vmix-port').value) || 8088,

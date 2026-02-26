@@ -549,7 +549,16 @@
             <input type="password" id="equip-facebook-token" placeholder="EAAxxxxxx…" autocomplete="new-password">
             <button class="btn-test" onclick="showHideKey('equip-facebook-token')">👁</button>
           </div>
-          <label style="margin-top:10px;">RTMP Stream Key (generic / Twitch)</label>
+          <div class="equip-detail" style="margin-top:4px; font-size:10px; line-height:1.4;">
+            Requires a Facebook Page Access Token with <code>pages_read_engagement</code> permission.<br>
+            Get one at <a href="#" onclick="event.preventDefault(); api.openExternal('https://developers.facebook.com/tools/explorer/')">developers.facebook.com/tools/explorer</a>
+            &rarr; select your Page &rarr; add <code>pages_read_engagement</code> permission &rarr; Generate Token.
+          </div>
+          <label style="margin-top:14px;">RTMP Stream URL</label>
+          <div class="equip-row">
+            <input type="text" id="equip-rtmp-url" placeholder="rtmp://a.rtmp.youtube.com/live2" autocomplete="off">
+          </div>
+          <label style="margin-top:10px;">RTMP Stream Key</label>
           <div class="equip-row">
             <input type="password" id="equip-rtmp-key" placeholder="live_xxxxxxxx" autocomplete="new-password">
             <button class="btn-test" onclick="showHideKey('equip-rtmp-key')">👁</button>
