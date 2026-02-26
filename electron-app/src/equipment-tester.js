@@ -18,7 +18,7 @@ let _tryHttpGet = async () => ({ success: false });
 let _tryUdpProbe = async () => false;
 
 // Pre-computed UDP probe packets
-let ATEM_SYN_PACKET = Buffer.from('1014534B0000000000000000000000000000000000', 'hex');
+let ATEM_SYN_PACKET = Buffer.from('101453AB00000000003A00000100000000000000', 'hex');
 let OSC_INFO_PACKET = Buffer.from('2F696E666F0000002C000000', 'hex');
 let OSC_SQ_ALIVE_PACKET = Buffer.from('2F73712F616C6976650000002C000000', 'hex');
 let OSC_YAMAHA_STATE_PACKET = Buffer.from('2F796D6873732F7374617465000000002C000000', 'hex');

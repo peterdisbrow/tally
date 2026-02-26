@@ -19,7 +19,7 @@ const dgram = require('dgram');
 
 // ATEM SYN handshake: flags=SYN(0x02), length=20, session=0x534B
 const ATEM_SYN_PACKET = Buffer.from(
-  '1014534B0000000000000000000000000000000000', 'hex',
+  '101453AB00000000003A00000100000000000000', 'hex',
 );
 
 // OSC "/info" query (Behringer X32/M32) — 12 bytes
