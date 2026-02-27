@@ -912,7 +912,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
   async sendUpgradeConfirmation(church, { oldTier, newTier } = {}) {
     if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
 
-    const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed' };
+    const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise' };
     const portalUrl = `${this.appUrl}/portal`;
 
     const html = this._wrap(`

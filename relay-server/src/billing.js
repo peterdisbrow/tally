@@ -1,7 +1,7 @@
 /**
  * Tally Billing — Stripe Integration
  *
- * Handles subscriptions for Connect/Plus/Pro/Managed (monthly or annual)
+ * Handles subscriptions for Connect/Plus/Pro/Enterprise (monthly or annual)
  * and one-time Event mode.
  *
  * Setup:
@@ -75,7 +75,7 @@ const PRICE_ENV_KEYS = {
   event: { one_time: 'STRIPE_PRICE_EVENT' },
 };
 
-const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed', event: 'Event' };
+const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise', event: 'Event' };
 const TRIAL_PERIOD_DAYS = 30; // 30-day free trial
 const GRACE_PERIOD_DAYS = 7;  // days after payment failure before deactivation
 const TIER_LIMITS = {
@@ -669,23 +669,23 @@ class BillingSystem {
 
     // Device access
     if (feature === 'multi_church' && limits.churches === 1) {
-      return { allowed: false, reason: 'Multi-church support requires Pro or Managed plan.' };
+      return { allowed: false, reason: 'Multi-church support requires Pro or Enterprise plan.' };
     }
 
     if (feature === 'planning_center' && (tier === 'connect' || tier === 'plus')) {
-      return { allowed: false, reason: 'Planning Center sync requires Pro or Managed plan.' };
+      return { allowed: false, reason: 'Planning Center sync requires Pro or Enterprise plan.' };
     }
 
     if (feature === 'monthly_report' && (tier === 'connect' || tier === 'plus')) {
-      return { allowed: false, reason: 'Monthly reports require Pro or Managed plan.' };
+      return { allowed: false, reason: 'Monthly reports require Pro or Enterprise plan.' };
     }
 
     if (feature === 'autopilot' && (tier === 'connect' || tier === 'plus')) {
-      return { allowed: false, reason: 'AI Autopilot requires Pro or Managed plan.' };
+      return { allowed: false, reason: 'AI Autopilot requires Pro or Enterprise plan.' };
     }
 
     if (feature === 'reseller_api' && tier !== 'managed') {
-      return { allowed: false, reason: 'Reseller API requires Managed plan.' };
+      return { allowed: false, reason: 'Reseller API requires Enterprise plan.' };
     }
 
     // Plus+ features
@@ -809,7 +809,7 @@ class BillingSystem {
     }
 
     // Monthly price in cents for the referrer's plan
-    const TIER_MONTHLY_CENTS = { connect: 4900, plus: 9900, pro: 14900, managed: 29900 };
+    const TIER_MONTHLY_CENTS = { connect: 4900, plus: 9900, pro: 14900, managed: 49900 };
 
     // Get referrer's billing info
     const referrerBilling = this.db.prepare(

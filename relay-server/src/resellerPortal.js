@@ -516,7 +516,7 @@ function buildResellerSalesPageHtml(error = '') {
 
     </div>
     <div style="text-align:center; margin-top:32px; font-size:13px; color:#64748B;">
-      Tally plans: Connect $49/mo &bull; Pro $149/mo &bull; Managed $299/mo — your commission applies to all tiers
+      Tally plans: Connect $49/mo &bull; Plus $99/mo &bull; Pro $149/mo &bull; Enterprise $499/mo — your commission applies to all tiers
     </div>
   </div>
 

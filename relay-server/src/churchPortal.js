@@ -900,7 +900,7 @@ function buildChurchPortalHtml(church) {
         <div class="page-title">Billing & Subscription</div>
         <div class="page-sub">Manage your plan, payment method, and invoices</div>
       </div>
-      <p class="help-box"><strong>Plan tiers:</strong> <strong style="color:#22c55e">Connect</strong> (free — monitoring + alerts), <strong style="color:#22c55e">Plus</strong> (faster response + Telegram bot), <strong style="color:#22c55e">Pro</strong> (AI Autopilot + Planning Center sync), <strong style="color:#22c55e">Managed</strong> (dedicated support with 15-min response SLA).</p>
+      <p class="help-box"><strong>Plan tiers:</strong> <strong style="color:#22c55e">Connect</strong> (free — monitoring + alerts), <strong style="color:#22c55e">Plus</strong> (faster response + Telegram bot), <strong style="color:#22c55e">Pro</strong> (AI Autopilot + Planning Center sync), <strong style="color:#22c55e">Enterprise</strong> (dedicated support with 15-min response SLA).</p>
       <div id="billing-content">
         <div style="color:#475569;text-align:center;padding:30px">Loading billing info...</div>
       </div>
@@ -1097,7 +1097,7 @@ function buildChurchPortalHtml(church) {
         profileData = d;
         document.getElementById('stat-tds').textContent = (d.tds || []).length;
         document.getElementById('registered-date').textContent = d.registeredAt ? new Date(d.registeredAt).toLocaleDateString() : '—';
-        const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed', event: 'Event' };
+        const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise', event: 'Event' };
         document.getElementById('plan-name').textContent = tierNames[d.billing_tier] || d.billing_tier || 'Connect';
         try {
           const campusPayload = await api('GET', '/api/church/campuses');
@@ -2210,7 +2210,7 @@ function buildChurchPortalHtml(church) {
 
     // ── Upgrade Plan ─────────────────────────────────────────────────────────
     async function upgradePlan(tier) {
-      var tierNames = { plus: 'Plus', pro: 'Pro', managed: 'Managed' };
+      var tierNames = { plus: 'Plus', pro: 'Pro', managed: 'Enterprise' };
       var label = tierNames[tier] || tier;
 
       if (!confirm('Upgrade to ' + label + '? Your subscription will be updated immediately with prorated billing.')) return;
@@ -3250,7 +3250,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const status = church.billing_status || 'inactive';
       const trialEnds = church.billing_trial_ends;
       const trialDaysRemaining = trialEnds ? Math.max(0, Math.ceil((new Date(trialEnds) - Date.now()) / (1000 * 60 * 60 * 24))) : null;
-      const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed', event: 'Event' };
+      const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise', event: 'Event' };
       const INTERVAL_NAMES = { monthly: 'Monthly', annual: 'Annual', one_time: 'One-time' };
 
       let portalUrl = null;
