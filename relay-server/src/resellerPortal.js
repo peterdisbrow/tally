@@ -465,9 +465,9 @@ function buildResellerSalesPageHtml(error = '') {
       <div class="price-card">
         <div class="tier-name">Getting Started</div>
         <div class="tier-desc">1 – 10 active churches</div>
-        <div class="price">25%<span> commission</span></div>
+        <div class="price">20%<span> commission</span></div>
         <ul class="feature-list">
-          <li><span class="check">\u2713</span> 25% of every subscription</li>
+          <li><span class="check">\u2713</span> 20% of every subscription</li>
           <li><span class="check">\u2713</span> Reseller dashboard</li>
           <li><span class="check">\u2713</span> Church provisioning tools</li>
           <li><span class="check">\u2713</span> Monthly payouts</li>
@@ -475,7 +475,7 @@ function buildResellerSalesPageHtml(error = '') {
         </ul>
         <div style="text-align:center;padding:12px 0 4px;font-size:12px;color:#94A3B8;">
           Example: 10 churches on Connect ($49/mo)<br>
-          <strong style="color:#22c55e;">You earn $123/mo</strong>
+          <strong style="color:#22c55e;">You earn $98/mo</strong>
         </div>
       </div>
 
@@ -483,9 +483,9 @@ function buildResellerSalesPageHtml(error = '') {
         <div class="popular-badge">SWEET SPOT</div>
         <div class="tier-name">Growing</div>
         <div class="tier-desc">11 – 25 active churches</div>
-        <div class="price">35%<span> commission</span></div>
+        <div class="price">25%<span> commission</span></div>
         <ul class="feature-list">
-          <li><span class="check">\u2713</span> 35% of every subscription</li>
+          <li><span class="check">\u2713</span> 25% of every subscription</li>
           <li><span class="check">\u2713</span> Reseller dashboard</li>
           <li><span class="check">\u2713</span> Church provisioning tools</li>
           <li><span class="check">\u2713</span> Monthly payouts</li>
@@ -493,16 +493,16 @@ function buildResellerSalesPageHtml(error = '') {
         </ul>
         <div style="text-align:center;padding:12px 0 4px;font-size:12px;color:#94A3B8;">
           Example: 20 churches on Connect ($49/mo)<br>
-          <strong style="color:#22c55e;">You earn $343/mo</strong>
+          <strong style="color:#22c55e;">You earn $245/mo</strong>
         </div>
       </div>
 
       <div class="price-card">
         <div class="tier-name">Scaling</div>
         <div class="tier-desc">26+ active churches</div>
-        <div class="price">50%<span> commission</span></div>
+        <div class="price">30%<span> commission</span></div>
         <ul class="feature-list">
-          <li><span class="check">\u2713</span> 50% of every subscription</li>
+          <li><span class="check">\u2713</span> 30% of every subscription</li>
           <li><span class="check">\u2713</span> Reseller dashboard</li>
           <li><span class="check">\u2713</span> Church provisioning tools</li>
           <li><span class="check">\u2713</span> Monthly payouts</li>
@@ -510,7 +510,7 @@ function buildResellerSalesPageHtml(error = '') {
         </ul>
         <div style="text-align:center;padding:12px 0 4px;font-size:12px;color:#94A3B8;">
           Example: 40 churches on Connect ($49/mo)<br>
-          <strong style="color:#22c55e;">You earn $980/mo</strong>
+          <strong style="color:#22c55e;">You earn $588/mo</strong>
         </div>
       </div>
 
