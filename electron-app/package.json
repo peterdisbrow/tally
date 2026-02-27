@@ -89,6 +89,22 @@
           "!.git",
           "!.git/**"
         ]
+      },
+      {
+        "from": "/Volumes/DataDisk/UserFolders/Documents/New project/problem-finder-lab",
+        "to": "problem-finder-lab",
+        "filter": [
+          "**/*",
+          "!.git",
+          "!.git/**",
+          "!ui/**",
+          "!mockups/**",
+          "!output/**",
+          "!docs/**",
+          "!data/**",
+          "!node_modules/**",
+          "!.DS_Store"
+        ]
       }
     ]
   },
