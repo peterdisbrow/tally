@@ -560,6 +560,7 @@ ${SHARED_STYLES}
   <button class="tab-btn" data-tab="billing"  onclick="switchTab('billing')">💳 Billing</button>
   <button class="tab-btn" data-tab="digest"   onclick="switchTab('digest')">📋 Digest</button>
   <button class="tab-btn" data-tab="guests"   onclick="switchTab('guests')">👥 Guest TDs</button>
+  <button class="tab-btn" data-tab="admins"   onclick="switchTab('admins')">🛡️ Admins</button>
 </nav>
 
 <!-- ── Churches tab ── -->
@@ -610,6 +611,19 @@ ${SHARED_STYLES}
     <button class="btn btn-primary" onclick="openIssueGuestModal()">+ Issue Token</button>
   </div>
   <div id="guestsContent"><div class="section-loading">Loading…</div></div>
+</div>
+
+<!-- ── Admin users tab ── -->
+<div class="tab-panel" id="tab-admins">
+  <div class="section-header">
+    <div class="section-title">🛡️ Admin Users</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-secondary" onclick="openMyPasswordModal()">🔐 Change My Password</button>
+      <button class="btn btn-primary" id="addAdminBtn" onclick="openCreateAdminModal()" style="display:none;">+ Add Admin</button>
+    </div>
+  </div>
+  <div id="adminsNote" style="display:none;color:var(--muted);font-size:0.8rem;margin-bottom:12px;"></div>
+  <div id="adminsContent"><div class="section-loading">Loading…</div></div>
 </div>
 
 <!-- ── Church detail drawer ── -->
@@ -746,6 +760,60 @@ ${SHARED_STYLES}
   </div>
 </div>
 
+<!-- ── Modal: Create Admin User ── -->
+<div class="modal-overlay" id="createAdminModal">
+  <div class="modal">
+    <h3>🛡️ Create Admin User</h3>
+    <div class="form-group"><label>Name *</label><input type="text" id="ca_name" placeholder="Andrew"></div>
+    <div class="form-group"><label>Email *</label><input type="email" id="ca_email" placeholder="andrew@atemschool.com"></div>
+    <div class="form-group"><label>Role *</label>
+      <select id="ca_role">
+        <option value="admin">admin</option>
+        <option value="engineer">engineer</option>
+        <option value="sales">sales</option>
+        <option value="super_admin">super_admin</option>
+      </select>
+    </div>
+    <div class="form-group"><label>Temporary Password *</label><input type="password" id="ca_password" placeholder="At least 8 characters"></div>
+    <div id="ca_error" style="color:var(--red);font-size:0.82rem;display:none;margin-top:8px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('createAdminModal')">Cancel</button>
+      <button class="btn btn-primary" id="ca_submit" onclick="submitCreateAdmin()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal: Reset Admin Password ── -->
+<div class="modal-overlay" id="resetAdminPasswordModal">
+  <div class="modal">
+    <h3>🔐 Reset Admin Password</h3>
+    <div style="font-size:0.82rem;color:var(--muted);margin-bottom:14px;">User: <strong id="rap_target" style="color:var(--text)">—</strong></div>
+    <input type="hidden" id="rap_userId">
+    <div class="form-group"><label>New Password *</label><input type="password" id="rap_password" placeholder="At least 8 characters"></div>
+    <div id="rap_error" style="color:var(--red);font-size:0.82rem;display:none;margin-top:8px;"></div>
+    <div id="rap_success" style="color:var(--green);font-size:0.82rem;display:none;margin-top:8px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('resetAdminPasswordModal')">Cancel</button>
+      <button class="btn btn-primary" id="rap_submit" onclick="submitResetAdminPassword()">Reset Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal: Change My Password ── -->
+<div class="modal-overlay" id="myPasswordModal">
+  <div class="modal">
+    <h3>🔐 Change My Password</h3>
+    <div class="form-group"><label>Current Password *</label><input type="password" id="mp_current" placeholder="Current password"></div>
+    <div class="form-group"><label>New Password *</label><input type="password" id="mp_new" placeholder="At least 8 characters"></div>
+    <div id="mp_error" style="color:var(--red);font-size:0.82rem;display:none;margin-top:8px;"></div>
+    <div id="mp_success" style="color:var(--green);font-size:0.82rem;display:none;margin-top:8px;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('myPasswordModal')">Cancel</button>
+      <button class="btn btn-primary" id="mp_submit" onclick="submitMyPassword()">Update Password</button>
+    </div>
+  </div>
+</div>
+
 <script>
 ${SHARED_JS}
 let KEY = new URLSearchParams(location.search).get('key') || new URLSearchParams(location.search).get('apikey') || '';
@@ -755,6 +823,9 @@ let es = null;
 let _churchStates = {};
 let _resellersMap = {};
 let _drawerChurchId = null;
+let _adminUsers = [];
+let _adminMe = null;
+const ADMIN_USER_ROLES = ['super_admin', 'admin', 'engineer', 'sales'];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -775,6 +846,15 @@ function populateChurchSelect(selectId) {
     : '<option value="">No churches available</option>';
 }
 
+async function parseApiError(resp, fallback = 'Request failed') {
+  try {
+    const data = await resp.json();
+    return data.error || data.message || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 // ── Tab switching ─────────────────────────────────────────────────────────────
 
 function switchTab(tab) {
@@ -784,6 +864,7 @@ function switchTab(tab) {
   if (tab === 'billing') loadBilling();
   if (tab === 'digest')  loadDigest();
   if (tab === 'guests')  loadGuests();
+  if (tab === 'admins')  loadAdmins();
 }
 
 // ── Resellers ─────────────────────────────────────────────────────────────────
@@ -1283,6 +1364,294 @@ async function submitIssueGuest() {
     btn.style.display = 'none';
     loadGuests();
   } catch(e) { errEl.textContent = e.message; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Issue'; }
+}
+
+// ── Admin users tab ────────────────────────────────────────────────────────────
+
+function adminRoleLabel(role) {
+  if (role === 'super_admin') return 'super_admin';
+  if (role === 'admin') return 'admin';
+  if (role === 'engineer') return 'engineer';
+  if (role === 'sales') return 'sales';
+  return role || 'unknown';
+}
+
+function adminRoleOptions(selected) {
+  return ADMIN_USER_ROLES.map(role => \`<option value="\${role}" \${role === selected ? 'selected' : ''}>\${role}</option>\`).join('');
+}
+
+function renderAdminUsersTable(users) {
+  const el = document.getElementById('adminsContent');
+  if (!users.length) {
+    el.innerHTML = '<div class="section-empty">No admin users found.</div>';
+    return;
+  }
+  const meId = _adminMe && _adminMe.id;
+  el.innerHTML = \`<div style="overflow-x:auto"><table class="data-table">
+    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+    <tbody>\${users.map(u => {
+      const isSelf = meId && u.id === meId;
+      const statusTag = u.active ? '<span class="tag tag-on">Active</span>' : '<span class="tag tag-off">Inactive</span>';
+      const lastLogin = u.last_login_at ? new Date(u.last_login_at).toLocaleString() : 'Never';
+      const actionCell = isSelf
+        ? '<span style="color:var(--muted);font-size:0.75rem;">Current account</span>'
+        : \`
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-secondary" style="font-size:0.72rem;padding:4px 10px;" onclick="openResetAdminPasswordModal('\${esc(u.id)}')">Reset Password</button>
+            <button class="btn \${u.active ? 'btn-danger' : 'btn-secondary'}" style="font-size:0.72rem;padding:4px 10px;" onclick="toggleAdminActive('\${esc(u.id)}', \${u.active ? 0 : 1}, this)">\${u.active ? 'Deactivate' : 'Activate'}</button>
+          </div>\`;
+      return \`<tr>
+        <td style="font-weight:500;">\${esc(u.name || '—')}</td>
+        <td style="color:var(--muted);font-size:0.78rem;">\${esc(u.email || '—')}</td>
+        <td>
+          <select style="font-size:0.75rem;min-width:120px;" data-prev="\${esc(u.role || '')}" \${isSelf ? 'disabled' : ''} onchange="updateAdminRole('\${esc(u.id)}', this.value, this)">
+            \${adminRoleOptions(adminRoleLabel(u.role))}
+          </select>
+        </td>
+        <td>\${statusTag}</td>
+        <td style="color:var(--muted);font-size:0.78rem;">\${lastLogin}</td>
+        <td>\${actionCell}</td>
+      </tr>\`;
+    }).join('')}</tbody>
+  </table></div>\`;
+}
+
+function renderSelfAdminRow() {
+  const el = document.getElementById('adminsContent');
+  if (!_adminMe) {
+    el.innerHTML = '<div class="section-empty">Unable to load your admin profile.</div>';
+    return;
+  }
+  el.innerHTML = \`<div style="overflow-x:auto"><table class="data-table">
+    <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
+    <tbody><tr>
+      <td style="font-weight:500;">\${esc(_adminMe.name || '—')}</td>
+      <td style="color:var(--muted);font-size:0.78rem;">\${esc(_adminMe.email || '—')}</td>
+      <td><span class="tag tag-na">\${esc(adminRoleLabel(_adminMe.role))}</span></td>
+    </tr></tbody>
+  </table></div>\`;
+}
+
+async function loadAdmins() {
+  const contentEl = document.getElementById('adminsContent');
+  const noteEl = document.getElementById('adminsNote');
+  const addBtn = document.getElementById('addAdminBtn');
+  contentEl.innerHTML = '<div class="section-loading">Loading…</div>';
+  noteEl.style.display = 'none';
+  addBtn.style.display = 'none';
+  try {
+    const meResp = await adminFetch('/api/admin/me');
+    if (!meResp.ok) throw new Error(await parseApiError(meResp, 'Failed to load current admin user'));
+    _adminMe = await meResp.json();
+    const isSuperAdmin = _adminMe.role === 'super_admin';
+    if (isSuperAdmin) addBtn.style.display = 'inline-block';
+    if (!isSuperAdmin) {
+      noteEl.textContent = 'Only super_admin users can add, remove, or reset other admin users.';
+      noteEl.style.display = 'block';
+      renderSelfAdminRow();
+      return;
+    }
+    const usersResp = await adminFetch('/api/admin/users');
+    if (!usersResp.ok) throw new Error(await parseApiError(usersResp, 'Failed to load admin users'));
+    const users = await usersResp.json();
+    _adminUsers = Array.isArray(users) ? users : [];
+    renderAdminUsersTable(_adminUsers);
+  } catch (e) {
+    contentEl.innerHTML = \`<div class="section-empty" style="color:var(--red);">\${esc(e.message)}</div>\`;
+  }
+}
+
+function openCreateAdminModal() {
+  document.getElementById('ca_name').value = '';
+  document.getElementById('ca_email').value = '';
+  document.getElementById('ca_role').value = 'admin';
+  document.getElementById('ca_password').value = '';
+  document.getElementById('ca_error').style.display = 'none';
+  const btn = document.getElementById('ca_submit');
+  btn.disabled = false;
+  btn.textContent = 'Create';
+  openModal('createAdminModal');
+  setTimeout(() => document.getElementById('ca_name').focus(), 100);
+}
+
+async function submitCreateAdmin() {
+  const name = document.getElementById('ca_name').value.trim();
+  const email = document.getElementById('ca_email').value.trim().toLowerCase();
+  const role = document.getElementById('ca_role').value;
+  const password = document.getElementById('ca_password').value;
+  const errEl = document.getElementById('ca_error');
+  if (!name || !email || !password) {
+    errEl.textContent = 'Name, email, and password are required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (password.length < 8) {
+    errEl.textContent = 'Password must be at least 8 characters.';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+  const btn = document.getElementById('ca_submit');
+  btn.disabled = true;
+  btn.textContent = 'Creating…';
+  try {
+    const resp = await adminFetch('/api/admin/users', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, role, password }),
+    });
+    if (!resp.ok) throw new Error(await parseApiError(resp, 'Failed to create admin user'));
+    closeModal('createAdminModal');
+    loadAdmins();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create';
+  }
+}
+
+function openResetAdminPasswordModal(userId) {
+  const user = _adminUsers.find(u => u.id === userId);
+  document.getElementById('rap_userId').value = userId;
+  document.getElementById('rap_target').textContent = user ? (user.email || user.name || userId) : userId;
+  document.getElementById('rap_password').value = '';
+  document.getElementById('rap_error').style.display = 'none';
+  document.getElementById('rap_success').style.display = 'none';
+  const btn = document.getElementById('rap_submit');
+  btn.disabled = false;
+  btn.textContent = 'Reset Password';
+  openModal('resetAdminPasswordModal');
+  setTimeout(() => document.getElementById('rap_password').focus(), 100);
+}
+
+async function submitResetAdminPassword() {
+  const userId = document.getElementById('rap_userId').value;
+  const password = document.getElementById('rap_password').value;
+  const errEl = document.getElementById('rap_error');
+  const okEl = document.getElementById('rap_success');
+  if (!userId) {
+    errEl.textContent = 'Missing user id.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (!password || password.length < 8) {
+    errEl.textContent = 'Password must be at least 8 characters.';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+  okEl.style.display = 'none';
+  const btn = document.getElementById('rap_submit');
+  btn.disabled = true;
+  btn.textContent = 'Resetting…';
+  try {
+    const resp = await adminFetch('/api/admin/users/' + encodeURIComponent(userId) + '/password', {
+      method: 'PUT',
+      body: JSON.stringify({ password }),
+    });
+    if (!resp.ok) throw new Error(await parseApiError(resp, 'Failed to reset password'));
+    okEl.textContent = '✅ Password reset.';
+    okEl.style.display = 'block';
+    document.getElementById('rap_password').value = '';
+    setTimeout(() => closeModal('resetAdminPasswordModal'), 800);
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Reset Password';
+  }
+}
+
+function openMyPasswordModal() {
+  document.getElementById('mp_current').value = '';
+  document.getElementById('mp_new').value = '';
+  document.getElementById('mp_error').style.display = 'none';
+  document.getElementById('mp_success').style.display = 'none';
+  const btn = document.getElementById('mp_submit');
+  btn.disabled = false;
+  btn.textContent = 'Update Password';
+  openModal('myPasswordModal');
+  setTimeout(() => document.getElementById('mp_current').focus(), 100);
+}
+
+async function submitMyPassword() {
+  const currentPassword = document.getElementById('mp_current').value;
+  const newPassword = document.getElementById('mp_new').value;
+  const errEl = document.getElementById('mp_error');
+  const okEl = document.getElementById('mp_success');
+  if (!currentPassword || !newPassword) {
+    errEl.textContent = 'Current and new password are required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (newPassword.length < 8) {
+    errEl.textContent = 'Password must be at least 8 characters.';
+    errEl.style.display = 'block';
+    return;
+  }
+  errEl.style.display = 'none';
+  okEl.style.display = 'none';
+  const btn = document.getElementById('mp_submit');
+  btn.disabled = true;
+  btn.textContent = 'Updating…';
+  try {
+    const resp = await adminFetch('/api/admin/me/password', {
+      method: 'PUT',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    if (!resp.ok) throw new Error(await parseApiError(resp, 'Failed to update password'));
+    okEl.textContent = '✅ Password updated.';
+    okEl.style.display = 'block';
+    document.getElementById('mp_current').value = '';
+    document.getElementById('mp_new').value = '';
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Update Password';
+  }
+}
+
+async function updateAdminRole(userId, role, selectEl) {
+  if (!userId || !role || !selectEl) return;
+  const prev = selectEl.dataset.prev || role;
+  if (role === prev) return;
+  selectEl.disabled = true;
+  try {
+    const resp = await adminFetch('/api/admin/users/' + encodeURIComponent(userId), {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    });
+    if (!resp.ok) throw new Error(await parseApiError(resp, 'Failed to update role'));
+    selectEl.dataset.prev = role;
+    loadAdmins();
+  } catch (e) {
+    alert('Role update failed: ' + e.message);
+    selectEl.value = prev;
+  } finally {
+    selectEl.disabled = false;
+  }
+}
+
+async function toggleAdminActive(userId, nextActive, btn) {
+  if (!userId || !btn) return;
+  const action = nextActive ? 'activate' : 'deactivate';
+  if (!confirm('Are you sure you want to ' + action + ' this admin user?')) return;
+  btn.disabled = true;
+  try {
+    const resp = await adminFetch('/api/admin/users/' + encodeURIComponent(userId), {
+      method: 'PUT',
+      body: JSON.stringify({ active: nextActive }),
+    });
+    if (!resp.ok) throw new Error(await parseApiError(resp, 'Failed to update user status'));
+    loadAdmins();
+  } catch (e) {
+    alert('Status update failed: ' + e.message);
+    btn.disabled = false;
+  }
 }
 
 // ── Church detail drawer ──────────────────────────────────────────────────────

@@ -198,9 +198,9 @@ function computeTrayState() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 580,
+    width: 900,
     height: 820,
-    minWidth: 520,
+    minWidth: 580,
     minHeight: 720,
     resizable: true,
     webPreferences: {
