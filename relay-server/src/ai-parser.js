@@ -447,6 +447,9 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     if (ep.specialNotes) contextHint += `Notes: ${ep.specialNotes}. `;
   }
 
+  // Church memory (pre-compiled summary from past observations)
+  if (ctx.memorySummary) contextHint += ctx.memorySummary + ' ';
+
   const userContent = contextHint
     ? `[${contextHint.trim()}]\n${text}`
     : text;

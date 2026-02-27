@@ -1,5 +1,5 @@
 const api = window.electronAPI;
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 5;
 let currentStep = 1;
 let isRunning = false;
 let alertCount = 0;
@@ -273,7 +273,7 @@ async function wizardNext() {
   if (currentStep < TOTAL_STEPS) {
     goToStep(currentStep + 1);
     if (currentStep === TOTAL_STEPS) {
-      // Save equipment config + mark setup complete
+      // Step 5 (Done) — save equipment config, engineer profile, mark setup complete
       const encType = document.getElementById('wiz-encoder-type').value;
       const encHostEl = document.getElementById('wiz-encoder-host');
       const encPortEl = document.getElementById('wiz-encoder-port');
@@ -287,7 +287,6 @@ async function wizardNext() {
         companionUrl: document.getElementById('wiz-companion').value.trim(),
         name: document.getElementById('wiz-name').value.trim(),
         liveStreamUrl: document.getElementById('wiz-livestream').value.trim(),
-        // Encoder config
         encoderType: encType,
         encoderHost: encHostEl ? encHostEl.value.trim() : '',
         encoderPort: encPortEl ? parseInt(encPortEl.value) || 0 : 0,
@@ -295,11 +294,23 @@ async function wizardNext() {
         encoderLabel: encLabelEl ? encLabelEl.value.trim() : '',
         encoderStatusUrl: encStatusUrlEl ? encStatusUrlEl.value.trim() : '',
         encoderSource: encSourceEl ? encSourceEl.value.trim() : '',
-        // For OBS, also save obsPassword for switcher features
         obsPassword: encType === 'obs' && encPwEl ? encPwEl.value : '',
         setupComplete: true,
       };
       await api.saveConfig(equipConfig);
+
+      // Save engineer profile to relay server
+      const engineerProfile = {
+        streamPlatform: document.getElementById('wiz-stream-platform').value,
+        expectedViewers: document.getElementById('wiz-expected-viewers').value,
+        operatorLevel: document.getElementById('wiz-operator-level').value,
+        backupEncoder: document.getElementById('wiz-backup-encoder').value,
+        backupSwitcher: document.getElementById('wiz-backup-switcher').value,
+        specialNotes: document.getElementById('wiz-special-notes').value.trim(),
+      };
+      // Fire and forget — don't block wizard on network issues
+      api.saveEngineerProfile(engineerProfile).catch(() => {});
+
       // Test connection
       const config = await api.getConfig();
       const el = document.getElementById('test-result');

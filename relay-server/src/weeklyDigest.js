@@ -292,6 +292,15 @@ class WeeklyDigest {
         const reliability = this._computeReliability(church.churchId, events);
         const autoResolved = events.filter(e => e.auto_resolved).length;
 
+        // Write weekly memories + consolidate stale data
+        if (this.churchMemory) {
+          try {
+            this.churchMemory.writeWeeklyMemories(church.churchId, patterns, reliability);
+          } catch (e) {
+            console.error(`[WeeklyDigest] Memory write error for ${church.name}:`, e.message);
+          }
+        }
+
         // Build per-church digest
         const lines = [
           `📊 *Tally Engineer — Weekly Notes*`,

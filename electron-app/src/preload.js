@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // File upload (for setup assistant: patch lists, camera plots, images)
   pickFile: () => ipcRenderer.invoke('pick-file'),
   uploadChatFile: (payload) => ipcRenderer.invoke('upload-chat-file', payload),
+  // Engineer profile
+  saveEngineerProfile: (profile) => ipcRenderer.invoke('save-engineer-profile', profile),
   // Problem Finder
   pfAnalyze: () => ipcRenderer.invoke('pf-analyze'),
   pfGoNoGo: (opts) => ipcRenderer.invoke('pf-go-no-go', opts),

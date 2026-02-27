@@ -68,6 +68,7 @@ const { TallyBot, parseCommand } = require('./src/telegramBot');
 const { aiParseCommand, setAiUsageLogger: setParserLogger } = require('./src/ai-parser');
 const { detectSetupIntent, detectIntentWithAttachment, parsePatchList, generateMixerSetup, parseCameraPlot, buildCameraCommands, setAiUsageLogger: setSetupLogger } = require('./src/ai-setup-assistant');
 const { isOnTopic, OFF_TOPIC_RESPONSE } = require('./src/chat-guard');
+const { ChurchMemory } = require('./src/churchMemory');
 const { PreServiceCheck } = require('./src/preServiceCheck');
 const { MonthlyReport } = require('./src/monthlyReport');
 const { OnCallRotation } = require('./src/onCallRotation');
@@ -357,6 +358,8 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN email_verified INTEGER DEFAULT 0",
   "ALTER TABLE churches ADD COLUMN email_verify_token TEXT",
   "ALTER TABLE churches ADD COLUMN email_verify_sent_at TEXT",
+  // Church memory system (pre-compiled AI context)
+  "ALTER TABLE churches ADD COLUMN memory_summary TEXT DEFAULT ''",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -636,6 +639,7 @@ const alertEngine = new AlertEngine(db, scheduleEngine, { onCallRotation });
 const autoRecovery = new AutoRecovery(churches, alertEngine, db);
 const weeklyDigest = new WeeklyDigest(db);
 weeklyDigest.setNotificationConfig(process.env.ALERT_BOT_TOKEN);
+weeklyDigest.churchMemory = null; // set after churchMemory is created below
 weeklyDigest.startWeeklyTimer();
 
 const guestTdMode = new GuestTdMode(db);
@@ -650,7 +654,10 @@ monthlyReport.start();
 
 // ─── SESSION RECAP ────────────────────────────────────────────────────────────
 
+const churchMemory = new ChurchMemory(db);
+weeklyDigest.churchMemory = churchMemory;
 const sessionRecap = new SessionRecap(db);
+sessionRecap.churchMemory = churchMemory;
 sessionRecap.setNotificationConfig(
   process.env.ALERT_BOT_TOKEN,
   process.env.ANDREW_TELEGRAM_CHAT_ID
@@ -3156,6 +3163,7 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     status: church?.status || {},
     tier: churchRow?.billing_tier || 'connect',
     engineerProfile,
+    memorySummary: churchRow?.memory_summary || '',
   }, conversationHistory);
 
   if (aiResult.type === 'error') {
@@ -3189,6 +3197,7 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     }
 
     const executed = await executeChurchCommandWithResult(churchId, step.command, step.params || {});
+    churchMemory.recordCommandOutcome(churchId, step.command, executed.ok, 'user_request');
     if (!executed.ok) {
       postSystemChatMessage(churchId, `❌ ${step.command} failed: ${executed.error}`);
       return;
@@ -4345,8 +4354,10 @@ function handleChurchMessage(church, msg) {
               weeklyDigest.resolveEvent(eventId, true);
               // Record as auto-recovered in session
               sessionRecap.recordAlert(church.churchId, msg.alertType, true, false);
+              if (recovery.command) churchMemory.recordCommandOutcome(church.churchId, recovery.command, true, msg.alertType);
               log(`[AutoRecovery] ✅ ${recovery.event} for ${church.name}`);
             } else {
+              if (recovery.attempted && recovery.command) churchMemory.recordCommandOutcome(church.churchId, recovery.command, false, msg.alertType);
               // Send alert through escalation ladder (with session ID + recovery result)
               const dbChurch = stmtGet.get(church.churchId);
               const recoveryInfo = recovery.attempted ? recovery : null;

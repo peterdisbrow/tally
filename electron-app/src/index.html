@@ -141,8 +141,74 @@
       </div>
     </div>
 
-    <!-- Step 4: Done -->
+    <!-- Step 4: Train Your Tally Engineer -->
     <div class="wizard-step" data-step="4">
+      <h2 style="font-size: 14px; color: var(--white); font-weight: 700; letter-spacing: -0.01em; text-transform: none; font-family: var(--font); margin-bottom: 10px;">Train Your Tally Engineer</h2>
+      <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
+        Help Tally Engineer understand your setup so it can give smarter alerts and recommendations.
+      </p>
+      <div class="form-group">
+        <label>Stream Platform</label>
+        <select id="wiz-stream-platform">
+          <option value="">— Select —</option>
+          <option value="youtube">YouTube</option>
+          <option value="facebook">Facebook Live</option>
+          <option value="both">YouTube + Facebook</option>
+          <option value="churchonline">Church Online Platform</option>
+          <option value="resi">Resi</option>
+          <option value="boxcast">BoxCast</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Expected Viewers</label>
+        <select id="wiz-expected-viewers">
+          <option value="">— Select —</option>
+          <option value="<50">Under 50</option>
+          <option value="50-200">50–200</option>
+          <option value="200-500">200–500</option>
+          <option value="500+">500+</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Operator Experience Level</label>
+        <select id="wiz-operator-level">
+          <option value="">— Select —</option>
+          <option value="volunteer">Volunteer (minimal training)</option>
+          <option value="intermediate">Intermediate (comfortable with gear)</option>
+          <option value="pro">Pro (broadcast / production background)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Backup Encoder Available?</label>
+        <select id="wiz-backup-encoder">
+          <option value="">— Select —</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Backup Switcher Available?</label>
+        <select id="wiz-backup-switcher">
+          <option value="">— Select —</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Special Notes (optional)</label>
+        <input id="wiz-special-notes" type="text" placeholder="e.g., We use a splitter before the encoder">
+      </div>
+      <div style="margin-top:10px;">
+        <a href="#" style="color: var(--dim); font-size: 12px; text-decoration: none; font-family: var(--mono);"
+           onclick="event.preventDefault(); wizardNext();">
+          Skip — I'll do this later
+        </a>
+      </div>
+    </div>
+
+    <!-- Step 5: Done -->
+    <div class="wizard-step" data-step="5">
       <div style="text-align:center; padding: 24px 0 16px;">
         <div class="wizard-badge">Setup Complete</div>
         <div class="wizard-headline">All Set!</div>
@@ -386,7 +452,7 @@
   </div><!-- /tab-equipment -->
 
   <!-- ══════════ TALLY ENGINEER TAB ══════════ -->
-  <div class="content tab-content" id="tab-engineer" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
+  <div class="content tab-content" id="tab-engineer">
 
     <!-- Diagnostics section (scrollable) -->
     <div style="flex:1; overflow-y:auto;">

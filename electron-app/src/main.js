@@ -766,6 +766,23 @@ ipcMain.handle('export-test-logs', async () => {
   }
 });
 
+// ─── ENGINEER PROFILE IPC ─────────────────────────────────────────────────────
+ipcMain.handle('save-engineer-profile', async (_, profile) => {
+  const config = loadConfig();
+  if (!config.token) return { error: 'Not configured' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const resp = await fetch(`${relayHttp}/api/church/me`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+      body: JSON.stringify({ engineerProfile: profile }),
+    });
+    return await resp.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
 // ─── EQUIPMENT CONFIG IPC ─────────────────────────────────────────────────────
 
 ipcMain.handle('request-preview', async (_, action) => {

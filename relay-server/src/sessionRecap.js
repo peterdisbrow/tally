@@ -149,6 +149,15 @@ class SessionRecap {
       console.error(`[SessionRecap] Failed to send recap for ${churchId}:`, e.message);
     }
 
+    // Write post-service memories (non-blocking, don't fail the session)
+    try {
+      if (this.churchMemory) {
+        this.churchMemory.writePostServiceMemories(churchId, finalSession);
+      }
+    } catch (e) {
+      console.error(`[SessionRecap] Memory write error for ${churchId}:`, e.message);
+    }
+
     console.log(`[SessionRecap] Session ended — church ${churchId} (${durationMinutes} min, grade: ${grade})`);
     return finalSession;
   }
@@ -445,7 +454,7 @@ Church profile:
 - Name: ${church.name}
 - Stream platform: ${engineerProfile.streamPlatform || 'unknown'}
 - Expected viewers: ${engineerProfile.expectedViewers || 'unknown'}
-- Operator level: ${engineerProfile.operatorLevel || 'unknown'}`;
+- Operator level: ${engineerProfile.operatorLevel || 'unknown'}${this.churchMemory ? `\n\n${this.churchMemory.getRecapContext(church.churchId)}` : ''}`;
 
     try {
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
