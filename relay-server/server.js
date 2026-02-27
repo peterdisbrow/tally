@@ -945,7 +945,7 @@ alertEngine.resellerSystem = resellerSystem;
 
 // ─── ADMIN + RESELLER PORTALS ─────────────────────────────────────────────────
 const { setupAdminPanel } = require('./src/adminPanel');
-setupAdminPanel(app, db, churches, resellerSystem);
+setupAdminPanel(app, db, churches, resellerSystem, { jwt, JWT_SECRET });
 
 // Church Portal — self-service login for individual churches
 setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails });

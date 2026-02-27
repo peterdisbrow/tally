@@ -1671,7 +1671,7 @@ loadFleet();
 
 // ─── MAIN SETUP ───────────────────────────────────────────────────────────────
 
-function setupAdminPanel(app, db, churches, resellerSystem) {
+function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Session middleware ────────────────────────────────────────────────────
 
@@ -1682,6 +1682,18 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
 
     const payload = getSession(req);
     if (payload && payload.role === 'admin') return next();
+
+    // JWT Bearer token fallback (tally-landing proxy sends this)
+    const authHeader = req.headers['authorization'] || '';
+    if (authHeader.startsWith('Bearer ') && opts.jwt && opts.JWT_SECRET) {
+      try {
+        const jwtPayload = opts.jwt.verify(authHeader.slice(7), opts.JWT_SECRET);
+        if (jwtPayload.type === 'admin') {
+          req.adminUser = { id: jwtPayload.userId, email: jwtPayload.email, name: jwtPayload.name, role: jwtPayload.role };
+          return next();
+        }
+      } catch { /* fall through to 401 */ }
+    }
 
     const isApi = req.path.startsWith('/api/');
     if (isApi) return res.status(401).json({ error: 'unauthorized' });
@@ -1941,8 +1953,9 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
   app.post('/api/admin/alerts/:id/acknowledge', requireAdminSession, (req, res) => {
     try {
       const { id } = req.params;
+      const ackBy = req.adminUser?.name || req.adminUser?.email || 'admin';
       db.prepare('UPDATE alerts SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ?')
-        .run(new Date().toISOString(), 'admin', id);
+        .run(new Date().toISOString(), ackBy, id);
       res.json({ acknowledged: true });
     } catch(e) {
       res.status(500).json({ error: e.message });
