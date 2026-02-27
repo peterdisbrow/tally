@@ -15,6 +15,11 @@
 
 const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
 
+// ─── AI USAGE LOGGING ────────────────────────────────────────────────────────
+
+let _logAiUsage = null;
+function setAiUsageLogger(fn) { _logAiUsage = fn; }
+
 // ─── INTENT DETECTION ─────────────────────────────────────────────────────────
 
 const MIXER_KEYWORDS = [
@@ -290,7 +295,8 @@ async function callAnthropic(systemPrompt, userText, imageBase64 = null, mimeTyp
   }
 
   const data = await resp.json();
-  return (data.content?.[0]?.text || '').trim();
+  const text = (data.content?.[0]?.text || '').trim();
+  return { text, usage: data.usage || null };
 }
 
 /**
@@ -313,8 +319,11 @@ function parseAIJson(text) {
  * @param {string} mimeType
  * @returns {{ channels: Array<{channel, source, sourceType, micType, notes}> }}
  */
-async function parsePatchList(textInput, imageBase64 = null, mimeType = 'image/jpeg') {
-  const raw = await callAnthropic(PATCH_LIST_PARSER_PROMPT, textInput || 'Parse this patch list from the image.', imageBase64, mimeType);
+async function parsePatchList(textInput, imageBase64 = null, mimeType = 'image/jpeg', { churchId } = {}) {
+  const { text: raw, usage } = await callAnthropic(PATCH_LIST_PARSER_PROMPT, textInput || 'Parse this patch list from the image.', imageBase64, mimeType);
+  if (_logAiUsage && usage) {
+    _logAiUsage({ churchId: churchId || null, feature: 'setup_assistant', model: ANTHROPIC_MODEL, inputTokens: usage.input_tokens || 0, outputTokens: usage.output_tokens || 0 });
+  }
   return parseAIJson(raw);
 }
 
@@ -324,10 +333,13 @@ async function parsePatchList(textInput, imageBase64 = null, mimeType = 'image/j
  * @param {string} mixerType  e.g. 'behringer', 'allenheath', 'yamaha'
  * @returns {{ channels: Array<{channel, name, hpf, eq, compressor, gate, fader, mute}> }}
  */
-async function generateMixerSetup(patchList, mixerType = 'behringer') {
+async function generateMixerSetup(patchList, mixerType = 'behringer', { churchId } = {}) {
   const prompt = MIXER_SETUP_PROMPT.replace('{MIXER_TYPE}', mixerType === 'behringer' || mixerType === 'midas' ? 'Behringer X32 / Midas M32' : mixerType === 'allenheath' ? 'Allen & Heath SQ' : 'Yamaha CL/QL');
   const input = JSON.stringify(patchList, null, 2);
-  const raw = await callAnthropic(prompt, input);
+  const { text: raw, usage } = await callAnthropic(prompt, input);
+  if (_logAiUsage && usage) {
+    _logAiUsage({ churchId: churchId || null, feature: 'setup_assistant', model: ANTHROPIC_MODEL, inputTokens: usage.input_tokens || 0, outputTokens: usage.output_tokens || 0 });
+  }
   const result = parseAIJson(raw);
 
   // Clamp all values to safe ranges
@@ -376,8 +388,11 @@ async function generateMixerSetup(patchList, mixerType = 'behringer') {
  * @param {string} mimeType
  * @returns {{ cameras: Array<{input, longName, shortLabel, position, cameraType, notes}>, suggestions }}
  */
-async function parseCameraPlot(textInput, imageBase64 = null, mimeType = 'image/jpeg') {
-  const raw = await callAnthropic(CAMERA_PLOT_PROMPT, textInput || 'Parse this camera plot from the image.', imageBase64, mimeType);
+async function parseCameraPlot(textInput, imageBase64 = null, mimeType = 'image/jpeg', { churchId } = {}) {
+  const { text: raw, usage } = await callAnthropic(CAMERA_PLOT_PROMPT, textInput || 'Parse this camera plot from the image.', imageBase64, mimeType);
+  if (_logAiUsage && usage) {
+    _logAiUsage({ churchId: churchId || null, feature: 'setup_assistant', model: ANTHROPIC_MODEL, inputTokens: usage.input_tokens || 0, outputTokens: usage.output_tokens || 0 });
+  }
   return parseAIJson(raw);
 }
 
@@ -411,4 +426,5 @@ module.exports = {
   generateMixerSetup,
   parseCameraPlot,
   buildCameraCommands,
+  setAiUsageLogger,
 };

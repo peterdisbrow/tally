@@ -282,6 +282,10 @@ tr:hover td{background:rgba(34,197,94,.02)}
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 4a1 1 0 011-1h10a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1V4zm1 0v2h10V4H3zm0 4v4h10V8H3z"/><rect x="4" y="9.5" width="3" height="1.5" rx=".5"/></svg>
       Billing
     </div>
+    <div class="nav-item" onclick="showPage('aiusage')" id="nav-aiusage">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2a2 2 0 110 4 2 2 0 010-4zm-3.5 7.5c.7-1.2 2-2 3.5-2s2.8.8 3.5 2A5.97 5.97 0 018 13a5.97 5.97 0 01-3.5-2.5z"/></svg>
+      AI Usage
+    </div>
     <div style="flex:1"></div>
     <div class="nav-item" onclick="showPage('settings')" id="nav-settings">
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 10.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zm5.5-2.5a5.5 5.5 0 01-.1 1l1.4 1.1-1.5 2.6-1.7-.5A5.5 5.5 0 019 12.9V15H7v-2.1a5.5 5.5 0 01-1.6-.7l-1.7.5-1.5-2.6L3.6 9A5.5 5.5 0 013.5 8c0-.4 0-.7.1-1L2.2 5.9l1.5-2.6 1.7.5A5.5 5.5 0 017 3.1V1h2v2.1a5.5 5.5 0 011.6.7l1.7-.5 1.5 2.6L12.4 7c.1.3.1.7.1 1z"/></svg>
@@ -425,6 +429,29 @@ tr:hover td{background:rgba(34,197,94,.02)}
         </tr></thead>
         <tbody id="tickets-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
       </table>
+    </div>
+
+    <!-- AI USAGE PAGE -->
+    <div id="page-aiusage" style="display:none">
+      <div class="summary-row" id="ai-summary" style="grid-template-columns:repeat(5,1fr)">
+        <div class="summary-card"><div class="stat-num" id="ai-requests">—</div><div class="stat-label">Requests (30d)</div></div>
+        <div class="summary-card"><div class="stat-num" id="ai-input-tok">—</div><div class="stat-label">Input Tokens</div></div>
+        <div class="summary-card"><div class="stat-num" id="ai-output-tok">—</div><div class="stat-label">Output Tokens</div></div>
+        <div class="summary-card highlight"><div class="stat-num" id="ai-cost">—</div><div class="stat-label">Est. Cost (30d)</div></div>
+        <div class="summary-card"><div class="stat-num" id="ai-cache">—</div><div class="stat-label">Cache Hits</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div class="card">
+          <div class="card-title">Usage by Church</div>
+          <table><thead><tr><th>Church</th><th>Requests</th><th>Input Tok</th><th>Output Tok</th><th>Cost</th></tr></thead>
+          <tbody id="ai-by-church"><tr><td colspan="5" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody></table>
+        </div>
+        <div class="card">
+          <div class="card-title">Usage by Feature</div>
+          <table><thead><tr><th>Feature</th><th>Requests</th><th>Input Tok</th><th>Output Tok</th><th>Cost</th></tr></thead>
+          <tbody id="ai-by-feature"><tr><td colspan="5" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody></table>
+        </div>
+      </div>
     </div>
 
     <!-- BILLING PAGE -->
@@ -573,7 +600,7 @@ let ticketFilter = 'all';
 let allBilling = [];
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
-const allPages = ['overview','churches','resellers','alerts','tickets','billing','settings'];
+const allPages = ['overview','churches','resellers','alerts','tickets','billing','aiusage','settings'];
 function showPage(page) {
   allPages.forEach(p => {
     const el = document.getElementById('page-'+p);
@@ -581,7 +608,7 @@ function showPage(page) {
     const nav = document.getElementById('nav-'+p);
     if (nav) nav.classList.toggle('active', p === page);
   });
-  const titles = {overview:'Overview',churches:'Churches',resellers:'Resellers',alerts:'Alerts',tickets:'Tickets',billing:'Billing',settings:'Settings'};
+  const titles = {overview:'Overview',churches:'Churches',resellers:'Resellers',alerts:'Alerts',tickets:'Tickets',billing:'Billing',aiusage:'AI Usage',settings:'Settings'};
   document.getElementById('page-title').textContent = titles[page]||page;
   currentPage = page;
   if (page === 'overview') loadOverview();
@@ -590,6 +617,7 @@ function showPage(page) {
   else if (page === 'alerts') loadAlerts();
   else if (page === 'tickets') loadTickets();
   else if (page === 'billing') loadBilling();
+  else if (page === 'aiusage') loadAIUsage();
   else if (page === 'settings') loadSettings();
 }
 
@@ -1176,6 +1204,49 @@ function renderBilling() {
   }).join('');
 }
 
+// ─── AI Usage ────────────────────────────────────────────────────────────────
+async function loadAIUsage() {
+  try {
+    const r = await fetch('/api/admin/ai-usage');
+    if (!r.ok) throw new Error('Failed to load AI usage');
+    const { totals, byChurch, byFeature } = await r.json();
+    document.getElementById('ai-requests').textContent = (totals.total_requests||0).toLocaleString();
+    document.getElementById('ai-input-tok').textContent = (totals.total_input_tokens||0).toLocaleString();
+    document.getElementById('ai-output-tok').textContent = (totals.total_output_tokens||0).toLocaleString();
+    document.getElementById('ai-cost').textContent = '$' + (totals.total_cost||0).toFixed(4);
+    document.getElementById('ai-cache').textContent = (totals.cache_hits||0).toLocaleString();
+
+    const featureLabels = {command_parser:'Command Parser',setup_assistant:'Setup Assistant',dashboard_chat:'Dashboard Chat',church_chat:'Church Chat'};
+    const churchTbody = document.getElementById('ai-by-church');
+    const featureTbody = document.getElementById('ai-by-feature');
+
+    if (!byChurch.length) {
+      churchTbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:24px">No usage data yet</td></tr>';
+    } else {
+      churchTbody.innerHTML = byChurch.map(r => '<tr>' +
+        '<td>' + esc(r.church_name||r.church_id||'Admin / Dashboard') + '</td>' +
+        '<td>' + (r.requests||0).toLocaleString() + '</td>' +
+        '<td>' + (r.input_tokens||0).toLocaleString() + '</td>' +
+        '<td>' + (r.output_tokens||0).toLocaleString() + '</td>' +
+        '<td>$' + (r.cost||0).toFixed(4) + '</td></tr>').join('');
+    }
+
+    if (!byFeature.length) {
+      featureTbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:24px">No usage data yet</td></tr>';
+    } else {
+      featureTbody.innerHTML = byFeature.map(r => '<tr>' +
+        '<td>' + (featureLabels[r.feature]||esc(r.feature)) + '</td>' +
+        '<td>' + (r.requests||0).toLocaleString() + '</td>' +
+        '<td>' + (r.input_tokens||0).toLocaleString() + '</td>' +
+        '<td>' + (r.output_tokens||0).toLocaleString() + '</td>' +
+        '<td>$' + (r.cost||0).toFixed(4) + '</td></tr>').join('');
+    }
+  } catch(e) {
+    document.getElementById('ai-by-church').innerHTML = '<tr><td colspan="5" style="color:var(--red);text-align:center;padding:24px">Failed to load AI usage</td></tr>';
+    document.getElementById('ai-by-feature').innerHTML = '';
+  }
+}
+
 // ─── Toast ───────────────────────────────────────────────────────────────────
 function showToast(msg, isError) {
   const t = document.getElementById('toast');
@@ -1637,8 +1708,8 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
   // ── Admin Portal ──────────────────────────────────────────────────────────
 
   app.get('/admin/login', (req, res) => {
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(buildAdminLoginHtml(req.query.error));
+    // Consolidated: single admin dashboard lives at tallyconnect.app/admin
+    res.redirect(301, 'https://tallyconnect.app/admin');
   });
 
   app.post('/admin/login', express_urlencoded_middleware, (req, res) => {
@@ -1653,9 +1724,9 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
     res.redirect('/admin/login?error=1');
   });
 
-  app.get('/admin', requireAdminSession, (req, res) => {
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(buildAdminDashboardHtml());
+  app.get('/admin', (req, res) => {
+    // Consolidated: single admin dashboard lives at tallyconnect.app/admin
+    res.redirect(301, 'https://tallyconnect.app/admin');
   });
 
   app.post('/admin/logout', (req, res) => {
@@ -1911,6 +1982,8 @@ function setupAdminPanel(app, db, churches, resellerSystem) {
       res.json([]);
     }
   });
+
+  // AI usage endpoint moved to server.js (uses requireAdminJwt for tally-landing proxy compatibility)
 
   // ── Reseller Portal ───────────────────────────────────────────────────────
 

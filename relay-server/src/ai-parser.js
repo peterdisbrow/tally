@@ -7,6 +7,11 @@
 
 const { isOnTopic, OFF_TOPIC_RESPONSE } = require('./chat-guard');
 
+// ─── AI USAGE LOGGING ────────────────────────────────────────────────────────
+
+let _logAiUsage = null;
+function setAiUsageLogger(fn) { _logAiUsage = fn; }
+
 // ─── COST CONTROLS ──────────────────────────────────────────────────────────
 
 // Simple LRU cache for AI responses (keyed on normalized message text)
@@ -297,7 +302,7 @@ async function callAnthropic(messages, timeout = 15000) {
     const raw = data?.content?.[0]?.text?.trim();
 
     if (!raw) throw new Error('Anthropic returned empty response');
-    return raw;
+    return { text: raw, usage: data.usage || null };
 
   } finally {
     clearTimeout(timeoutId);
@@ -354,6 +359,14 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     const cached = getCachedResponse(cacheKey);
     if (cached) {
       console.log(`[ai-parser] Cache hit: "${cacheKey.slice(0, 40)}"`);
+      if (_logAiUsage) {
+        _logAiUsage({
+          churchId: ctx.churchId || null,
+          feature: 'command_parser',
+          model: 'claude-haiku-4-5-20251001',
+          inputTokens: 0, outputTokens: 0, cached: true,
+        });
+      }
       return cached;
     }
   }
@@ -382,8 +395,20 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
 
   try {
     console.log(`[ai-parser] Calling Haiku (${messages.length} msg) for: "${text.slice(0, 60)}"`);
-    const raw = await callAnthropic(messages);
+    const { text: raw, usage } = await callAnthropic(messages);
     console.log(`[ai-parser] Raw response: ${raw.slice(0, 300)}`);
+
+    // Log AI usage
+    if (_logAiUsage && usage) {
+      _logAiUsage({
+        churchId: ctx.churchId || null,
+        feature: 'command_parser',
+        model: 'claude-haiku-4-5-20251001',
+        inputTokens: usage.input_tokens || 0,
+        outputTokens: usage.output_tokens || 0,
+      });
+    }
+
     const parsed = parseJSON(raw);
 
     if (!parsed.type || !['command', 'commands', 'chat'].includes(parsed.type)) {
@@ -408,4 +433,4 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   }
 }
 
-module.exports = { aiParseCommand, getAvailableCommandNames };
+module.exports = { aiParseCommand, getAvailableCommandNames, setAiUsageLogger };

@@ -65,8 +65,8 @@ const { AlertEngine } = require('./src/alertEngine');
 const { AutoRecovery } = require('./src/autoRecovery');
 const { WeeklyDigest } = require('./src/weeklyDigest');
 const { TallyBot, parseCommand } = require('./src/telegramBot');
-const { aiParseCommand } = require('./src/ai-parser');
-const { detectSetupIntent, detectIntentWithAttachment, parsePatchList, generateMixerSetup, parseCameraPlot, buildCameraCommands } = require('./src/ai-setup-assistant');
+const { aiParseCommand, setAiUsageLogger: setParserLogger } = require('./src/ai-parser');
+const { detectSetupIntent, detectIntentWithAttachment, parsePatchList, generateMixerSetup, parseCameraPlot, buildCameraCommands, setAiUsageLogger: setSetupLogger } = require('./src/ai-setup-assistant');
 const { isOnTopic, OFF_TOPIC_RESPONSE } = require('./src/chat-guard');
 const { PreServiceCheck } = require('./src/preServiceCheck');
 const { MonthlyReport } = require('./src/monthlyReport');
@@ -582,6 +582,40 @@ db.exec(`
   )
 `);
 db.exec('CREATE INDEX IF NOT EXISTS idx_pf_reports_church ON problem_finder_reports(church_id, created_at DESC)');
+
+// ─── AI Usage tracking table ────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_usage_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    church_id TEXT,
+    feature TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    cost_usd REAL DEFAULT 0,
+    cached INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_church ON ai_usage_log(church_id, created_at DESC)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_date ON ai_usage_log(created_at)');
+
+/** Log an AI API call to the usage table. Fire-and-forget — never throws. */
+function logAiUsage({ churchId, feature, model, inputTokens, outputTokens, cached }) {
+  // Haiku 4.5 pricing: $0.80 / 1M input tokens, $4.00 / 1M output tokens
+  const cost = ((inputTokens || 0) * 0.0000008) + ((outputTokens || 0) * 0.000004);
+  try {
+    db.prepare(
+      'INSERT INTO ai_usage_log (church_id, feature, model, input_tokens, output_tokens, cost_usd, cached, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(churchId || null, feature, model || 'claude-haiku-4-5-20251001', inputTokens || 0, outputTokens || 0, cost, cached ? 1 : 0, new Date().toISOString());
+  } catch (err) {
+    console.error('[AI Usage] Failed to log:', err.message);
+  }
+}
+
+// Wire logAiUsage into AI modules
+setParserLogger(logAiUsage);
+setSetupLogger(logAiUsage);
 
 // Slack integration columns (safe to run multiple times)
 for (const col of ['slack_webhook_url', 'slack_channel']) {
@@ -2558,6 +2592,55 @@ app.delete('/api/admin/users/:userId', requireAdminJwt('super_admin'), (req, res
   res.json({ ok: true });
 });
 
+// GET /api/admin/ai-usage — AI usage & cost tracking (30-day window)
+app.get('/api/admin/ai-usage', requireAdminJwt(), (req, res) => {
+  try {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const totals = db.prepare(`
+      SELECT
+        COUNT(*) as total_requests,
+        COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+        COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+        COALESCE(SUM(cost_usd), 0) as total_cost,
+        COALESCE(SUM(CASE WHEN cached = 1 THEN 1 ELSE 0 END), 0) as cache_hits
+      FROM ai_usage_log WHERE created_at >= ?
+    `).get(since);
+
+    const byChurch = db.prepare(`
+      SELECT
+        u.church_id,
+        COALESCE(c.name, u.church_id, 'Admin / Dashboard') as church_name,
+        COUNT(*) as requests,
+        SUM(u.input_tokens) as input_tokens,
+        SUM(u.output_tokens) as output_tokens,
+        SUM(u.cost_usd) as cost
+      FROM ai_usage_log u
+      LEFT JOIN churches c ON c.churchId = u.church_id
+      WHERE u.created_at >= ?
+      GROUP BY u.church_id
+      ORDER BY cost DESC
+    `).all(since);
+
+    const byFeature = db.prepare(`
+      SELECT
+        feature,
+        COUNT(*) as requests,
+        SUM(input_tokens) as input_tokens,
+        SUM(output_tokens) as output_tokens,
+        SUM(cost_usd) as cost
+      FROM ai_usage_log WHERE created_at >= ?
+      GROUP BY feature
+      ORDER BY cost DESC
+    `).all(since);
+
+    res.json({ totals, byChurch, byFeature });
+  } catch (err) {
+    console.error('[AI Usage API] Error:', err.message);
+    res.status(500).json({ error: 'Failed to load AI usage data' });
+  }
+});
+
 // List all registered event churches + current expiry status
 
 app.get('/api/events', requireAdmin, (req, res) => {
@@ -2968,7 +3051,8 @@ async function handleSetupRequest(churchId, rawMessage, attachment) {
       const cameraSetup = await parseCameraPlot(
         rawMessage,
         attachment?.data || null,
-        mimeType || 'image/jpeg'
+        mimeType || 'image/jpeg',
+        { churchId }
       );
       const commands = buildCameraCommands(cameraSetup);
       if (!commands.length) {
@@ -2993,7 +3077,8 @@ async function handleSetupRequest(churchId, rawMessage, attachment) {
       const patchList = await parsePatchList(
         rawMessage,
         attachment?.data || null,
-        mimeType || 'image/jpeg'
+        mimeType || 'image/jpeg',
+        { churchId }
       );
       if (!patchList.channels || patchList.channels.length === 0) {
         postSystemChatMessage(churchId, '⚠️ Could not identify any channels from the input.');
@@ -3002,7 +3087,7 @@ async function handleSetupRequest(churchId, rawMessage, attachment) {
       postSystemChatMessage(churchId, `🎛️ Found ${patchList.channels.length} channels. Generating channel strip settings...`);
 
       const mixerType = church?.status?.mixer?.type || 'behringer';
-      const setup = await generateMixerSetup(patchList, mixerType);
+      const setup = await generateMixerSetup(patchList, mixerType, { churchId });
       if (!setup.channels || setup.channels.length === 0) {
         postSystemChatMessage(churchId, '⚠️ AI could not generate mixer settings.');
         return;
@@ -3274,6 +3359,18 @@ app.post('/api/chat', requireAdmin, async (req, res) => {
 
     const data = await aiRes.json();
     const reply = data?.content?.[0]?.text || 'No response.';
+
+    // Log AI usage
+    if (data?.usage) {
+      logAiUsage({
+        churchId: null,
+        feature: 'dashboard_chat',
+        model: 'claude-haiku-4-5-20251001',
+        inputTokens: data.usage.input_tokens || 0,
+        outputTokens: data.usage.output_tokens || 0,
+      });
+    }
+
     res.json({ reply });
   } catch (err) {
     console.error(`[Dashboard Chat] Error: ${err.message}`);
@@ -3809,23 +3906,8 @@ function setAdminSession(res, key) {
 }
 
 app.get('/dashboard', (req, res) => {
-  const queryKey = req.query.key || req.query.apikey;
-
-  if (queryKey) {
-    if (!safeCompareKey(queryKey, ADMIN_API_KEY)) {
-      return res.status(401).send('<html><body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Invalid admin key.</p></body></html>');
-    }
-    setAdminSession(res, queryKey);
-    // Redirect to clean URL so the key is not left in browser history/bookmarks.
-    return res.redirect(302, '/dashboard');
-  }
-
-  const key = resolveAdminKey(req);
-  if (!safeCompareKey(key, ADMIN_API_KEY)) {
-    return res.status(401).send('<html><body style="background:#0d1117;color:#e6edf3;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Missing admin authentication. Set your admin key via header or add <code>?key=YOUR_ADMIN_KEY</code> one-time to establish a session.</p></body></html>');
-  }
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(buildDashboardHtml());
+  // Consolidated: single admin dashboard lives at tallyconnect.app/admin
+  res.redirect(301, 'https://tallyconnect.app/admin');
 });
 
 // ─── SSE Dashboard Stream ─────────────────────────────────────────────────────

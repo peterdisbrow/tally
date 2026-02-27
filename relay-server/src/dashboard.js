@@ -2226,9 +2226,8 @@ function setupDashboard(app, db, getChurchStates) {
   }
 
   app.get('/dashboard', (req, res) => {
-    if (!checkKey(req, res)) return;
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(buildDashboardHtml());
+    // Consolidated: single admin dashboard lives at tallyconnect.app/admin
+    res.redirect(301, 'https://tallyconnect.app/admin');
   });
 
   app.get('/api/dashboard/stream', (req, res) => {
