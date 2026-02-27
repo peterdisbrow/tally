@@ -312,6 +312,45 @@ function sendPreviewCommand(command, params = {}) {
   });
 }
 
+// ─── Problem Finder report push ──────────────────────────────────────────────
+
+/**
+ * Push a Problem Finder analysis report to the relay server.
+ * Fire-and-forget: does not block on response.
+ */
+async function sendProblemFinderReport(report) {
+  try {
+    const config = _loadConfig();
+    const token = config.token;
+    const relayUrl = config.relay || DEFAULT_RELAY_URL;
+    if (!token || !relayUrl) return { success: false, error: 'No token or relay URL' };
+
+    const endpoint = `${relayHttpUrl(relayUrl).replace(/\/+$/, '')}/api/pf/report`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(report),
+        signal: controller.signal,
+      });
+      const data = await response.json().catch(() => ({}));
+      return { success: response.ok, status: response.status, data };
+    } catch (e) {
+      return { success: false, error: e.message || 'Network error' };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (e) {
+    return { success: false, error: e.message || 'sendProblemFinderReport failed' };
+  }
+}
+
 module.exports = {
   init,
   DEFAULT_RELAY_URL,
@@ -325,4 +364,5 @@ module.exports = {
   loginChurchWithCredentials,
   testConnection,
   sendPreviewCommand,
+  sendProblemFinderReport,
 };

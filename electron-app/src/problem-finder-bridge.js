@@ -223,6 +223,9 @@ async function runAnalysis(opts = {}) {
       mainWindow.webContents.send('pf-update', { report, goNoGo, runEntry });
     }
 
+    // Push results to relay server (fire-and-forget)
+    pushReportToRelay(report, goNoGo, runEntry).catch(() => {});
+
     return { report, goNoGo, runEntry };
   } catch (err) {
     _appendAppLog('SYSTEM', `Problem Finder analysis error: ${err.message}`);
@@ -394,6 +397,65 @@ function isAvailable() {
 }
 
 // ─── MODULE EXPORTS ──────────────────────────────────────────────────────────
+
+// ─── RELAY REPORT PUSH ──────────────────────────────────────────────────────
+
+/**
+ * Push analysis results to the relay server so the church portal can display them.
+ * Fire-and-forget — errors are logged but never block analysis.
+ */
+async function pushReportToRelay(report, goNoGo, runEntry) {
+  try {
+    const { sendProblemFinderReport } = require('./relay-client');
+    const issues = report?.diagnostics?.issues || [];
+    const blockers = goNoGo?.blockers || [];
+
+    // Categorise: needs attention = critical or high severity issues
+    const needsAttention = issues
+      .filter((i) => i.severity === 'critical' || i.severity === 'high')
+      .map((i) => ({
+        id: i.id,
+        title: i.title,
+        severity: i.severity,
+        symptom: i.symptom || '',
+        fixStep: Array.isArray(i.fixSteps) && i.fixSteps.length > 0 ? i.fixSteps[0] : '',
+      }));
+
+    // Auto-fixed = issues tagged with 'auto-recoverable' or matching known auto-fix patterns
+    const autoFixed = issues
+      .filter((i) => (i.tags || []).includes('auto-recoverable') || (i.tags || []).includes('auto-fixed'))
+      .map((i) => ({ id: i.id, title: i.title, severity: i.severity }));
+
+    const payload = {
+      runId: goNoGo?.runId || runEntry?.runId,
+      status: goNoGo?.status || 'NO_GO',
+      triggerType: runEntry?.triggerType || 'manual',
+      issueCount: issues.length,
+      autoFixedCount: autoFixed.length,
+      coverageScore: goNoGo?.coverageScore ?? report?.coverage?.score ?? 0,
+      blockerCount: goNoGo?.blockerCount || 0,
+      issues: issues.map((i) => ({
+        id: i.id, title: i.title, severity: i.severity,
+        symptom: i.symptom || '', probableCause: i.probableCause || '',
+        fixSteps: i.fixSteps || [],
+      })),
+      blockers,
+      autoFixed,
+      needsAttention,
+      topActions: goNoGo?.topRecommendedActions || [],
+      createdAt: runEntry?.completedAt || new Date().toISOString(),
+    };
+
+    const result = await sendProblemFinderReport(payload);
+    if (result.success) {
+      _appendAppLog('SYSTEM', `Problem Finder report pushed to relay (${goNoGo?.status})`);
+    } else {
+      _appendAppLog('SYSTEM', `Problem Finder relay push failed: ${result.error || 'unknown'}`);
+    }
+  } catch (err) {
+    _appendAppLog('SYSTEM', `Problem Finder relay push error: ${err.message}`);
+  }
+}
 
 module.exports = {
   init,

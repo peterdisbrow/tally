@@ -622,6 +622,25 @@ function buildChurchPortalHtml(church) {
           </tbody>
         </table>
       </div>
+      <!-- Campus Selector (multi-campus only) -->
+      <div id="pf-campus-picker" style="display:none; margin-bottom:16px;">
+        <label style="font-size:12px;color:#94A3B8;margin-right:8px;">Viewing:</label>
+        <select id="pf-campus-select" onchange="loadProblems(this.value)" style="background:#0F1613;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;">
+          <option value="">Main Campus</option>
+        </select>
+      </div>
+
+      <!-- Problem Finder Card -->
+      <div class="card" id="pf-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Automated diagnostics from Tally's Problem Finder — shows what was found, what was auto-fixed, and what still needs attention">Tally Diagnostics</span></div>
+          <span id="pf-badge" class="badge badge-gray">—</span>
+        </div>
+        <div id="pf-body">
+          <div style="color:#475569;text-align:center;padding:20px;font-size:13px">No diagnostics data yet — connect the Tally desktop app to see results.</div>
+        </div>
+      </div>
+
       <div class="card" id="schedule-overview-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Your configured service windows — alerts and automations follow this schedule">Service Schedule</span></div>
@@ -1153,6 +1172,10 @@ function buildChurchPortalHtml(church) {
 
         // ── Schedule summary on overview ──────────────────────────────────────
         loadScheduleOverview();
+
+        // ── Problem Finder diagnostics ──────────────────────────────────────
+        populatePfCampusPicker();
+        loadProblems('');
       } catch(e) { console.error(e); }
     }
 
@@ -1196,6 +1219,150 @@ function buildChurchPortalHtml(church) {
       } catch(e) {
         body.innerHTML = '<span style="color:#475569">Unable to load schedule</span>';
       }
+    }
+
+    // ── Problem Finder: campus picker + card rendering ──────────────────────
+
+    async function populatePfCampusPicker() {
+      var picker = document.getElementById('pf-campus-picker');
+      var sel = document.getElementById('pf-campus-select');
+      if (!picker || !sel) return;
+      try {
+        var payload = await api('GET', '/api/church/campuses');
+        var list = Array.isArray(payload) ? payload : (Array.isArray(payload.campuses) ? payload.campuses : []);
+        if (!list.length) { picker.style.display = 'none'; return; }
+        sel.innerHTML = '<option value="">Main Campus</option>' + list.map(function(c) {
+          return '<option value="' + c.churchId + '">' + escapeHtml(c.name || c.churchId) + '</option>';
+        }).join('');
+        picker.style.display = '';
+      } catch { picker.style.display = 'none'; }
+    }
+
+    async function loadProblems(campusId) {
+      var body = document.getElementById('pf-body');
+      var badge = document.getElementById('pf-badge');
+      if (!body) return;
+      try {
+        var url = '/api/church/problems';
+        if (campusId) url += '?campusId=' + encodeURIComponent(campusId);
+        var data = await api('GET', url);
+        renderProblems(data, body, badge);
+      } catch(e) {
+        body.innerHTML = '<div style="color:#475569;text-align:center;padding:20px;font-size:13px">No diagnostics data yet — connect the Tally desktop app to see results.</div>';
+        if (badge) { badge.className = 'badge badge-gray'; badge.textContent = '—'; }
+      }
+    }
+
+    function renderProblems(data, body, badge) {
+      if (!data || !data.status) {
+        body.innerHTML = '<div style="color:#475569;text-align:center;padding:20px;font-size:13px">No diagnostics data yet — connect the Tally desktop app to see results.</div>';
+        if (badge) { badge.className = 'badge badge-gray'; badge.textContent = '—'; }
+        return;
+      }
+
+      // Badge
+      if (badge) {
+        if (data.status === 'GO') {
+          badge.className = 'badge badge-green';
+          badge.textContent = 'GO';
+        } else {
+          badge.className = 'badge badge-red';
+          badge.textContent = 'NO GO';
+        }
+      }
+
+      var html = '';
+
+      // Timestamp + coverage
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;font-size:12px;color:#64748B">';
+      html += '<span>Last scan: ' + (data.created_at ? new Date(data.created_at).toLocaleString() : '—') + '</span>';
+      if (data.coverage_score !== undefined) {
+        html += '<span>Coverage: ' + Math.round(data.coverage_score * 100) + '%</span>';
+      }
+      html += '</div>';
+
+      // Section: What Tally Found
+      var issues = [];
+      try { issues = JSON.parse(data.issues_json || '[]'); } catch {}
+      html += '<div style="margin-bottom:16px">';
+      html += '<div style="font-size:12px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">What Tally Found</div>';
+      if (issues.length === 0) {
+        html += '<div style="color:#22c55e;font-size:13px">✓ No issues detected</div>';
+      } else {
+        var sevCounts = { critical: 0, high: 0, medium: 0, low: 0 };
+        issues.forEach(function(i) { if (sevCounts[i.severity] !== undefined) sevCounts[i.severity]++; });
+        html += '<div style="display:flex;gap:12px;flex-wrap:wrap">';
+        if (sevCounts.critical > 0) html += '<span class="badge badge-red">' + sevCounts.critical + ' Critical</span>';
+        if (sevCounts.high > 0) html += '<span class="badge badge-red">' + sevCounts.high + ' High</span>';
+        if (sevCounts.medium > 0) html += '<span class="badge badge-yellow">' + sevCounts.medium + ' Medium</span>';
+        if (sevCounts.low > 0) html += '<span class="badge badge-gray">' + sevCounts.low + ' Low</span>';
+        html += '</div>';
+      }
+      html += '</div>';
+
+      // Section: What Tally Fixed
+      var autoFixed = [];
+      try { autoFixed = JSON.parse(data.auto_fixed_json || '[]'); } catch {}
+      html += '<div style="margin-bottom:16px">';
+      html += '<div style="font-size:12px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">What Tally Fixed</div>';
+      if (autoFixed.length === 0 && data.auto_fixed_count === 0) {
+        html += '<div style="color:#64748B;font-size:13px">No auto-fixes applied</div>';
+      } else {
+        if (autoFixed.length > 0) {
+          autoFixed.forEach(function(f) {
+            html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:13px">';
+            html += '<span style="color:#22c55e">✓</span>';
+            html += '<span style="color:#F8FAFC">' + escapeHtml(f.title || f.id) + '</span>';
+            html += '</div>';
+          });
+        } else {
+          html += '<div style="color:#22c55e;font-size:13px">✓ ' + data.auto_fixed_count + ' item(s) auto-resolved</div>';
+        }
+      }
+      html += '</div>';
+
+      // Section: Needs TD Attention
+      var needsAttention = [];
+      try { needsAttention = JSON.parse(data.needs_attention_json || '[]'); } catch {}
+      html += '<div style="margin-bottom:16px">';
+      html += '<div style="font-size:12px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Needs TD Attention</div>';
+      if (needsAttention.length === 0 && data.blocker_count === 0) {
+        html += '<div style="color:#22c55e;font-size:13px">✓ Nothing needs attention</div>';
+      } else {
+        needsAttention.forEach(function(item) {
+          var sevCls = item.severity === 'critical' ? 'badge-red' : 'badge-yellow';
+          html += '<div style="background:rgba(15,22,19,0.5);border:1px solid #1a2e1f;border-radius:8px;padding:12px;margin-bottom:8px">';
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
+          html += '<span class="badge ' + sevCls + '">' + (item.severity || 'high') + '</span>';
+          html += '<span style="font-size:13px;font-weight:600;color:#F8FAFC">' + escapeHtml(item.title || item.id) + '</span>';
+          html += '</div>';
+          if (item.symptom) {
+            html += '<div style="font-size:12px;color:#94A3B8;margin-bottom:4px">' + escapeHtml(item.symptom) + '</div>';
+          }
+          if (item.fixStep) {
+            html += '<div style="font-size:12px;color:#22c55e">→ ' + escapeHtml(item.fixStep) + '</div>';
+          }
+          html += '</div>';
+        });
+      }
+      html += '</div>';
+
+      // Section: Recommended Actions
+      var topActions = [];
+      try { topActions = JSON.parse(data.top_actions_json || '[]'); } catch {}
+      if (topActions.length > 0) {
+        html += '<div>';
+        html += '<div style="font-size:12px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Recommended Actions</div>';
+        topActions.forEach(function(action, idx) {
+          html += '<div style="display:flex;gap:8px;margin-bottom:4px;font-size:13px;color:#F8FAFC">';
+          html += '<span style="color:#22c55e;font-weight:700">' + (idx + 1) + '.</span>';
+          html += '<span>' + escapeHtml(typeof action === 'string' ? action : (action.step || action.title || '')) + '</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+
+      body.innerHTML = html;
     }
 
     function renderOnboarding(d) {
@@ -2943,6 +3110,29 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       try { db.prepare('DELETE FROM guest_tokens WHERE churchId = ?').run(campusId); } catch {}
       db.prepare('DELETE FROM churches WHERE churchId = ?').run(campusId);
       res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── GET /api/church/problems ─────────────────────────────────────────────────
+  // Returns latest Problem Finder report. Accepts optional ?campusId=xxx.
+  app.get('/api/church/problems', authMiddleware, (req, res) => {
+    try {
+      let targetId = req.church.churchId;
+      const campusId = req.query.campusId;
+      if (campusId && campusId !== req.church.churchId) {
+        // Verify campus belongs to this parent church
+        const campus = db.prepare('SELECT churchId FROM churches WHERE churchId = ? AND parent_church_id = ?')
+          .get(campusId, req.church.churchId);
+        if (!campus) return res.status(404).json({ error: 'Campus not found' });
+        targetId = campusId;
+      }
+      const row = db.prepare(
+        'SELECT * FROM problem_finder_reports WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
+      ).get(targetId);
+      if (!row) return res.json({ status: null, message: 'No reports yet' });
+      res.json(row);
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

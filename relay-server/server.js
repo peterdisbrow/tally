@@ -562,6 +562,27 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_support_ticket_status ON support_tickets
 db.exec('CREATE INDEX IF NOT EXISTS idx_support_ticket_updates_ticket ON support_ticket_updates(ticket_id, created_at DESC)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_status_incidents_component ON status_incidents(component_id, started_at DESC)');
 
+// ─── Problem Finder reports table ────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS problem_finder_reports (
+    id TEXT PRIMARY KEY,
+    church_id TEXT NOT NULL,
+    trigger_type TEXT DEFAULT 'manual',
+    status TEXT NOT NULL,
+    issue_count INTEGER DEFAULT 0,
+    auto_fixed_count INTEGER DEFAULT 0,
+    coverage_score REAL DEFAULT 0,
+    blocker_count INTEGER DEFAULT 0,
+    issues_json TEXT DEFAULT '[]',
+    blockers_json TEXT DEFAULT '[]',
+    auto_fixed_json TEXT DEFAULT '[]',
+    needs_attention_json TEXT DEFAULT '[]',
+    top_actions_json TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_pf_reports_church ON problem_finder_reports(church_id, created_at DESC)');
+
 // Slack integration columns (safe to run multiple times)
 for (const col of ['slack_webhook_url', 'slack_channel']) {
   try { db.exec(`ALTER TABLE churches ADD COLUMN ${col} TEXT`); } catch { /* already exists */ }
@@ -1935,6 +1956,59 @@ app.get('/api/church/app/me', requireChurchAppAuth, (req, res) => {
     status: runtime?.status || {},
     lastSeen: runtime?.lastSeen || null,
   });
+});
+
+// POST /api/pf/report — Electron app pushes Problem Finder analysis results
+app.post('/api/pf/report', requireChurchAppAuth, (req, res) => {
+  try {
+    const churchId = req.church.churchId;
+    const b = req.body || {};
+    const id = b.runId || uuidv4();
+    const status = String(b.status || 'NO_GO').toUpperCase();
+    if (status !== 'GO' && status !== 'NO_GO') {
+      return res.status(400).json({ error: 'status must be GO or NO_GO' });
+    }
+
+    const issueCount = parseInt(b.issueCount, 10) || 0;
+    const autoFixedCount = parseInt(b.autoFixedCount, 10) || 0;
+    const coverageScore = parseFloat(b.coverageScore) || 0;
+    const blockerCount = parseInt(b.blockerCount, 10) || 0;
+    const triggerType = String(b.triggerType || 'manual').slice(0, 50);
+
+    const issuesJson = JSON.stringify(Array.isArray(b.issues) ? b.issues : []);
+    const blockersJson = JSON.stringify(Array.isArray(b.blockers) ? b.blockers : []);
+    const autoFixedJson = JSON.stringify(Array.isArray(b.autoFixed) ? b.autoFixed : []);
+    const needsAttentionJson = JSON.stringify(Array.isArray(b.needsAttention) ? b.needsAttention : []);
+    const topActionsJson = JSON.stringify(Array.isArray(b.topActions) ? b.topActions : []);
+    const createdAt = b.createdAt || new Date().toISOString();
+
+    db.prepare(`
+      INSERT OR REPLACE INTO problem_finder_reports
+        (id, church_id, trigger_type, status, issue_count, auto_fixed_count, coverage_score,
+         blocker_count, issues_json, blockers_json, auto_fixed_json, needs_attention_json,
+         top_actions_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, churchId, triggerType, status, issueCount, autoFixedCount, coverageScore,
+      blockerCount, issuesJson, blockersJson, autoFixedJson, needsAttentionJson,
+      topActionsJson, createdAt);
+
+    // Broadcast update to SSE clients so portal refreshes if open
+    broadcastToSSE({
+      type: 'pf_report',
+      churchId,
+      status,
+      issueCount,
+      blockerCount,
+      autoFixedCount,
+      timestamp: createdAt,
+    });
+
+    log(`[PF] Report saved for ${req.church.name}: ${status} (${issueCount} issues, ${blockerCount} blockers)`);
+    res.status(201).json({ id, status: 'saved' });
+  } catch (e) {
+    log(`[PF] Report save error: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // PUT /api/church/app/me — update profile, email, password
