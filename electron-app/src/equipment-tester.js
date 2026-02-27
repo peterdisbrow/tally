@@ -222,6 +222,10 @@ async function testEquipmentConnection(params) {
         const ok = await _tryTcpConnect(ip, port || 9993, 2000);
         return { success: ok, details: ok ? 'HyperDeck reachable' : 'Cannot reach HyperDeck' };
       }
+      case 'videohub': {
+        const ok = await _tryTcpConnect(ip, port || 9990, 3000);
+        return { success: ok, details: ok ? 'VideoHub reachable (TCP 9990)' : 'Cannot reach VideoHub — check IP and power' };
+      }
       case 'ptz': {
         const protocol = String(params.protocol || 'auto').toLowerCase();
         const normalizedProtocol = protocol === 'ptzoptics-visca'

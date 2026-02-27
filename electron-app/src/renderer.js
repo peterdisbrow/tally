@@ -1063,6 +1063,7 @@ async function sendChatMessage() {
 // ─── EQUIPMENT ─────────────────────────────────────────────────────────────
 
 let hyperdeckEntries = [];
+let videoHubEntries = []; // [{ ip, name }]
 let ptzEntries = [];
 const optionalDeviceIds = {
   propresenter: {
@@ -1162,6 +1163,7 @@ async function loadEquipment() {
   setOptionalDeviceVisible('vmix', vmixConfigured, { initDefaults: !vmixConfigured, clear: false });
   setOptionalDeviceVisible('resolume', resolumeConfigured, { initDefaults: !resolumeConfigured, clear: false });
   hyperdeckEntries = eq.hyperdecks || [];
+  videoHubEntries = (eq.videoHubs || []).map(h => ({ ip: h.ip || '', name: h.name || '' }));
   ptzEntries = (eq.ptz || []).map((cam, i) => ({
     ip: cam.ip || '',
     name: cam.name || `PTZ ${i + 1}`,
@@ -1172,6 +1174,7 @@ async function loadEquipment() {
     profileToken: cam.profileToken || '',
   }));
   renderHyperdecks();
+  renderVideoHubs();
   renderPtz();
 
   // Encoder
@@ -1218,6 +1221,27 @@ function addHyperdeck() {
   if (hyperdeckEntries.length >= 8) return;
   hyperdeckEntries.push('');
   renderHyperdecks();
+}
+
+function renderVideoHubs() {
+  const list = document.getElementById('equip-videohub-list');
+  if (!list) return;
+  list.innerHTML = '';
+  videoHubEntries.forEach((hub, i) => {
+    const row = document.createElement('div');
+    row.className = 'equip-row';
+    row.innerHTML = `<input type="text" value="${escapeHtml(hub.ip || '')}" placeholder="192.168.1.50" style="flex:1;" onchange="videoHubEntries[${i}].ip=this.value.trim()">
+      <input type="text" value="${escapeHtml(hub.name || '')}" placeholder="Name (optional)" style="flex:1;" onchange="videoHubEntries[${i}].name=this.value.trim()">
+      <button class="btn-test" onclick="testEquipIdx('videohub',${i})">Test</button>
+      <button class="btn-remove" onclick="videoHubEntries.splice(${i},1);renderVideoHubs()">✕</button>`;
+    list.appendChild(row);
+  });
+}
+
+function addVideoHub() {
+  if (videoHubEntries.length >= 4) return;
+  videoHubEntries.push({ ip: '', name: '' });
+  renderVideoHubs();
 }
 
 function renderPtz() {
@@ -1441,7 +1465,12 @@ async function testEquip(type) {
 async function testEquipIdx(type, idx) {
   let params = { type };
   if (type === 'hyperdeck') params.ip = hyperdeckEntries[idx];
-  else if (type === 'ptz') {
+  else if (type === 'videohub') {
+    const hub = videoHubEntries[idx];
+    if (!hub) return;
+    params.ip = hub.ip;
+    params.port = 9990;
+  } else if (type === 'ptz') {
     const rows = document.querySelectorAll('#equip-ptz-list .equip-row');
     const row = rows[idx];
     const cam = row ? {
@@ -1610,6 +1639,7 @@ async function saveEquipment() {
     obsUrl: encType === 'obs' && encHostEl ? `ws://${encHostEl.value.trim() || 'localhost'}:${encPortEl ? encPortEl.value || '4455' : '4455'}` : '',
     obsPassword: encType === 'obs' && encPwEl ? encPwEl.value : '',
     hyperdecks: hyperdeckEntries.filter(ip => ip),
+    videoHubs: videoHubEntries.filter(h => h.ip),
     ptz: ptzEntries.filter(c => c.ip),
     proPresenterHost: isOptionalDeviceVisible('propresenter') ? (document.getElementById('equip-pp-host').value.trim() || 'localhost') : '',
     proPresenterPort: parseInt(document.getElementById('equip-pp-port').value) || 1025,
@@ -1753,6 +1783,7 @@ async function startNetworkScan() {
       (results.companion || []).length +
       (results.obs || []).length +
       (results.hyperdeck || []).length +
+      (results.videohub || []).length +
       (results.propresenter || []).length +
       (results.vmix || []).length +
       (results.resolume || []).length +
@@ -1776,6 +1807,9 @@ async function startNetworkScan() {
     }));
     results.hyperdeck.forEach(d => addScanResult(resultsEl, `HyperDeck at ${d.ip}`, () => {
       if (!hyperdeckEntries.includes(d.ip)) { hyperdeckEntries.push(d.ip); renderHyperdecks(); }
+    }));
+    (results.videohub || []).forEach(d => addScanResult(resultsEl, `VideoHub at ${d.ip}`, () => {
+      if (!videoHubEntries.find(h => h.ip === d.ip)) { videoHubEntries.push({ ip: d.ip, name: '' }); renderVideoHubs(); }
     }));
 
     (results.propresenter || []).forEach(d => addScanResult(resultsEl, `ProPresenter at ${d.ip}:${d.port}`, () => {
