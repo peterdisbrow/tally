@@ -183,8 +183,7 @@
   <div class="tab-bar">
     <button class="tab-btn active" onclick="switchTab('status')">Status</button>
     <button class="tab-btn" onclick="switchTab('equipment')">Equipment</button>
-    <button class="tab-btn" onclick="switchTab('chat')">Chat</button>
-    <button class="tab-btn" onclick="switchTab('problems')">Problems</button>
+    <button class="tab-btn" onclick="switchTab('engineer')">Tally Engineer</button>
   </div>
 
   <!-- ══════════ STATUS TAB ══════════ -->
@@ -304,21 +303,6 @@
       </div>
     </div>
 
-    <!-- Preview Thumbnail -->
-    <div class="section">
-      <h2>Preview</h2>
-      <div class="preview-container" id="preview-container">
-        <img id="preview-img" src="" style="width:100%; height:100%; object-fit:cover; display:none;">
-        <div id="preview-placeholder" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:11px; font-family:var(--mono);">Preview unavailable</div>
-      </div>
-      <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
-        <button class="btn-small btn-secondary" onclick="requestPreview()">📸 Request Preview</button>
-        <button class="btn-small btn-secondary" onclick="stopPreview()">⏹ Stop</button>
-        <span id="preview-ts" style="font-size:10px; color:var(--dim); margin-left:auto; font-family:var(--mono);"></span>
-      </div>
-      <div style="margin-top:6px;" id="live-stream-link"></div>
-    </div>
-
     <!-- Activity Feed -->
     <div class="section">
       <h2>Activity</h2>
@@ -401,13 +385,86 @@
 
   </div><!-- /tab-equipment -->
 
-  <!-- ══════════ CHAT TAB ══════════ -->
-  <div class="content tab-content" id="tab-chat">
-    <div id="chat-messages" style="flex:1; overflow-y:auto; padding:8px 0;">
-      <div style="text-align:center; color:var(--dim); font-size:11px; padding:40px 20px;">
-        No messages yet. Start a conversation.
+  <!-- ══════════ TALLY ENGINEER TAB ══════════ -->
+  <div class="content tab-content" id="tab-engineer" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
+
+    <!-- Diagnostics section (scrollable) -->
+    <div style="flex:1; overflow-y:auto;">
+
+      <!-- Feature gate (shown when disabled) -->
+      <div id="pf-unavailable" style="display:none;">
+        <p style="color:var(--muted); text-align:center; padding:40px 20px;">
+          Tally Engineer is not available. The diagnostics engine could not be loaded.
+        </p>
       </div>
-    </div>
+
+      <div id="pf-content" style="display:none; padding:12px;">
+
+        <!-- Go/No-Go badge -->
+        <div id="pf-go-badge" class="pf-go-badge" style="display:none;"></div>
+
+        <!-- KPI row -->
+        <div class="info-grid" id="pf-kpis">
+          <div class="info-card">
+            <div class="label">Critical / High</div>
+            <div class="value" id="pf-critical-count">--</div>
+          </div>
+          <div class="info-card">
+            <div class="label">Coverage</div>
+            <div class="value" id="pf-coverage">--</div>
+          </div>
+          <div class="info-card">
+            <div class="label">Total Issues</div>
+            <div class="value" id="pf-issue-count">--</div>
+          </div>
+          <div class="info-card">
+            <div class="label">Last Run</div>
+            <div class="value" id="pf-last-run">--</div>
+          </div>
+        </div>
+
+        <!-- Quick actions -->
+        <div style="display:flex; gap:8px; margin:12px 0;">
+          <button class="btn-small btn-secondary" id="pf-run-verify" onclick="pfRunVerify()">▶ Run Verify</button>
+          <button class="btn-small btn-secondary" id="pf-run-preflight" onclick="pfRunPreflight()">🛫 Preflight Check</button>
+        </div>
+
+        <!-- Active Issues list -->
+        <div class="section">
+          <h2 style="font-size:13px; color:var(--white); margin-bottom:8px;">Active Issues</h2>
+          <div id="pf-issues-list">
+            <p style="color:var(--muted); font-size:12px;">Run a verify check to see issues.</p>
+          </div>
+        </div>
+
+        <!-- Action Plan -->
+        <div class="section" style="margin-top:12px;">
+          <h2 style="font-size:13px; color:var(--white); margin-bottom:8px;">Action Plan</h2>
+          <div id="pf-action-plan">
+            <p style="color:var(--muted); font-size:12px;">No action plan yet.</p>
+          </div>
+        </div>
+
+        <!-- Recent Runs -->
+        <div class="section" style="margin-top:12px;">
+          <h2 style="font-size:13px; color:var(--white); margin-bottom:8px;">Recent Runs</h2>
+          <div id="pf-run-history">
+            <p style="color:var(--muted); font-size:12px;">No runs yet.</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Chat messages -->
+      <div id="chat-messages" style="padding:8px 0;">
+        <div style="text-align:center; color:var(--dim); font-size:11px; padding:40px 20px;">
+          No messages yet. Start a conversation with Tally Engineer.
+        </div>
+      </div>
+
+    </div><!-- /scrollable area -->
+
+    <!-- Chat input (pinned to bottom) -->
     <div id="chat-attachment-badge" style="display:none; padding:4px 12px; background:var(--card); border-top:1px solid var(--border); font-size:11px; color:var(--muted);">
       📎 <span id="chat-attachment-name"></span>
       <a href="#" onclick="clearChatAttachment(); return false;" style="color:var(--red); margin-left:8px; text-decoration:none;">✕ Remove</a>
@@ -419,7 +476,7 @@
         📎
       </button>
       <input type="text" id="chat-input"
-        placeholder="Type a message or attach a file..."
+        placeholder="Ask Tally Engineer a question..."
         style="flex:1; background:var(--card); border:1px solid var(--border); border-radius:6px;
                padding:8px 12px; color:var(--white); font-size:13px; font-family:var(--font); outline:none;"
         onkeydown="if(event.key==='Enter') sendChatMessage()" />
@@ -429,75 +486,7 @@
         Send
       </button>
     </div>
-  </div><!-- /tab-chat -->
-
-  <!-- ══════════ PROBLEM FINDER TAB ══════════ -->
-  <div class="content tab-content" id="tab-problems" style="flex:1; overflow-y:auto;">
-
-    <!-- Feature gate (shown when disabled) -->
-    <div id="pf-unavailable" style="display:none;">
-      <p style="color:var(--muted); text-align:center; padding:40px 20px;">
-        Problem Finder is not available. The diagnostics engine could not be loaded.
-      </p>
-    </div>
-
-    <div id="pf-content" style="display:none; padding:12px;">
-
-      <!-- Go/No-Go badge -->
-      <div id="pf-go-badge" class="pf-go-badge" style="display:none;"></div>
-
-      <!-- KPI row -->
-      <div class="info-grid" id="pf-kpis">
-        <div class="info-card">
-          <div class="label">Critical / High</div>
-          <div class="value" id="pf-critical-count">--</div>
-        </div>
-        <div class="info-card">
-          <div class="label">Coverage</div>
-          <div class="value" id="pf-coverage">--</div>
-        </div>
-        <div class="info-card">
-          <div class="label">Total Issues</div>
-          <div class="value" id="pf-issue-count">--</div>
-        </div>
-        <div class="info-card">
-          <div class="label">Last Run</div>
-          <div class="value" id="pf-last-run">--</div>
-        </div>
-      </div>
-
-      <!-- Quick actions -->
-      <div style="display:flex; gap:8px; margin:12px 0;">
-        <button class="btn-small btn-secondary" id="pf-run-verify" onclick="pfRunVerify()">▶ Run Verify</button>
-        <button class="btn-small btn-secondary" id="pf-run-preflight" onclick="pfRunPreflight()">🛫 Preflight Check</button>
-      </div>
-
-      <!-- Active Issues list -->
-      <div class="section">
-        <h2 style="font-size:13px; color:var(--white); margin-bottom:8px;">Active Issues</h2>
-        <div id="pf-issues-list">
-          <p style="color:var(--muted); font-size:12px;">Run a verify check to see issues.</p>
-        </div>
-      </div>
-
-      <!-- Action Plan -->
-      <div class="section" style="margin-top:12px;">
-        <h2 style="font-size:13px; color:var(--white); margin-bottom:8px;">Action Plan</h2>
-        <div id="pf-action-plan">
-          <p style="color:var(--muted); font-size:12px;">No action plan yet.</p>
-        </div>
-      </div>
-
-      <!-- Recent Runs -->
-      <div class="section" style="margin-top:12px;">
-        <h2 style="font-size:13px; color:var(--white); margin-bottom:8px;">Recent Runs</h2>
-        <div id="pf-run-history">
-          <p style="color:var(--muted); font-size:12px;">No runs yet.</p>
-        </div>
-      </div>
-
-    </div>
-  </div><!-- /tab-problems -->
+  </div><!-- /tab-engineer -->
 
   <div class="branding">
     Powered by <a href="#" class="ext-link" data-url="https://atemschool.com">ATEM School</a>

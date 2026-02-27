@@ -421,7 +421,7 @@ button:focus-visible {
 }
 .tab-content { display: none; }
 .tab-content.active { display: block; }
-#tab-chat.active { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+#tab-engineer.active { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
 
 /* ── Setup Wizard ───────────────────────────────────────────── */
 .wizard { display: none; }

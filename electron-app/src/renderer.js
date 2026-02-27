@@ -931,8 +931,7 @@ function switchTab(name) {
   document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`)?.classList.add('active');
   document.getElementById('tab-' + name)?.classList.add('active');
   if (name === 'equipment') loadEquipment();
-  if (name === 'problems') loadProblemFinder();
-  if (name === 'chat') startChatPolling();
+  if (name === 'engineer') { loadProblemFinder(); startChatPolling(); }
   else stopChatPolling();
 }
 

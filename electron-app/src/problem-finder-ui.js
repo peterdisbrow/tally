@@ -71,8 +71,8 @@ function initProblemFinderListener() {
     if (data.report) {
       _pfLastReport = data.report;
       _pfLastGoNoGo = data.goNoGo || null;
-      // Only render if Problems tab is active
-      const tab = document.getElementById('tab-problems');
+      // Only render if Tally Engineer tab is active
+      const tab = document.getElementById('tab-engineer');
       if (tab && tab.classList.contains('active')) {
         renderPfReport(data.report, data.goNoGo);
       }
