@@ -757,6 +757,10 @@ enforceGracePeriods();
 _intervals.push(setInterval(checkExpiredTrials, 60 * 60 * 1000));
 _intervals.push(setInterval(enforceGracePeriods, 60 * 60 * 1000));
 
+// ─── CHAT LOG PRUNING (nightly, 30-day retention) ────────────────────────────
+chatEngine.pruneOldMessages(30); // run on startup
+_intervals.push(setInterval(() => chatEngine.pruneOldMessages(30), 24 * 60 * 60 * 1000));
+
 // ─── LIFECYCLE EMAILS ────────────────────────────────────────────────────────
 // Automated email sequences: setup nudge, first-sunday prep, check-in,
 // trial warnings, trial expired, payment failed, weekly digest.

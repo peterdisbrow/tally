@@ -815,6 +815,7 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
   if (equipConfig.obsUrl !== undefined) config.obsUrl = equipConfig.obsUrl;
   if (equipConfig.obsPassword !== undefined) config.obsPassword = equipConfig.obsPassword;
   if (equipConfig.hyperdecks !== undefined) config.hyperdecks = equipConfig.hyperdecks;
+  if (equipConfig.videoHubs !== undefined) config.videoHubs = equipConfig.videoHubs;
   if (equipConfig.ptz !== undefined) config.ptz = equipConfig.ptz;
   if (equipConfig.proPresenterHost !== undefined) {
     config.proPresenter = equipConfig.proPresenterHost
@@ -874,6 +875,7 @@ ipcMain.handle('get-equipment', () => {
     obsUrl: config.obsUrl || '',
     obsPassword: config.obsPassword || '',
     hyperdecks: config.hyperdecks || [],
+    videoHubs: config.videoHubs || [],
     ptz: config.ptz || [],
     proPresenterConfigured: !!config.proPresenter?.host,
     proPresenterHost: config.proPresenter?.host || '',

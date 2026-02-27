@@ -950,7 +950,9 @@ function stopChatPolling() {
 }
 
 async function loadChatHistory() {
-  const resp = await api.getChat({});
+  // Only load today's messages (24hr window) to keep the app chat clean
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const resp = await api.getChat({ since });
   if (resp?.messages) {
     chatMessages = resp.messages;
     if (chatMessages.length > 0) chatLastTimestamp = chatMessages[chatMessages.length - 1].timestamp;

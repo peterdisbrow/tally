@@ -181,6 +181,25 @@ class ChatEngine {
     return merged;
   }
 
+  // ─── RETENTION / PRUNING ────────────────────────────────────────────────────
+
+  /**
+   * Delete chat messages older than `retentionDays`.
+   * Called nightly by the server scheduler.
+   * @param {number} [retentionDays=30]
+   * @returns {{ deleted: number }}
+   */
+  pruneOldMessages(retentionDays = 30) {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const result = this.db.prepare(
+      'DELETE FROM chat_messages WHERE timestamp < ?'
+    ).run(cutoff);
+    if (result.changes > 0) {
+      console.log(`[ChatEngine] Pruned ${result.changes} messages older than ${retentionDays} days`);
+    }
+    return { deleted: result.changes };
+  }
+
   // ─── BROADCAST ──────────────────────────────────────────────────────────────
 
   /**
