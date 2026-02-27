@@ -110,7 +110,7 @@ input:focus{border-color:var(--green)}
 <h1>Sign in to your account</h1>
 ${error ? '<div class="error">Invalid email or password</div>' : ''}
 <form method="POST" action="/admin/login">
-<div class="field"><label>Email</label><input type="email" name="email" placeholder="andrew@atemschool.com" required autocomplete="email"></div>
+<div class="field"><label>Email</label><input type="email" name="email" placeholder="admin@atemschool.com" required autocomplete="email"></div>
 <div class="field"><label>Password</label><input type="password" name="password" placeholder="••••••••" required autocomplete="current-password"></div>
 <button class="btn" type="submit">Sign In</button>
 </form>

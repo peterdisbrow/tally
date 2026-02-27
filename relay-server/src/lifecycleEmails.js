@@ -469,7 +469,7 @@ class LifecycleEmails {
       ${this._cta('Download Tally', downloadUrl)}
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
-        Need help? Reply to this email or reach out at andrew@atemschool.com &mdash; happy to walk you through it.
+        Need help? Reply to this email or reach out at support@atemschool.com &mdash; happy to walk you through it.
       </p>
     `);
 
@@ -484,7 +484,7 @@ Setup takes about 10 minutes:
 
 Once connected, you'll see your gear status at ${this.appUrl}/portal
 
-Need help? Reply to this email or reach out at andrew@atemschool.com
+Need help? Reply to this email or reach out at support@atemschool.com
 
 Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
 
@@ -728,7 +728,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Subscribe \u2014 Plans from $49/mo', billingUrl)}
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
-        Questions? Reply to this email or reach out at andrew@atemschool.com.
+        Questions? Reply to this email or reach out at support@atemschool.com.
       </p>
     `);
 
@@ -744,7 +744,7 @@ What you're missing:
 
 Your data and settings are safe for 30 days. Subscribe at ${billingUrl} to pick up where you left off.
 
-Questions? Reply to this email or reach out at andrew@atemschool.com.
+Questions? Reply to this email or reach out at support@atemschool.com.
 
 Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
 

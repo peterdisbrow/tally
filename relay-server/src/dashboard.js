@@ -764,8 +764,8 @@ ${SHARED_STYLES}
 <div class="modal-overlay" id="createAdminModal">
   <div class="modal">
     <h3>🛡️ Create Admin User</h3>
-    <div class="form-group"><label>Name *</label><input type="text" id="ca_name" placeholder="Andrew"></div>
-    <div class="form-group"><label>Email *</label><input type="email" id="ca_email" placeholder="andrew@atemschool.com"></div>
+    <div class="form-group"><label>Name *</label><input type="text" id="ca_name" placeholder="Jane Smith"></div>
+    <div class="form-group"><label>Email *</label><input type="email" id="ca_email" placeholder="admin@atemschool.com"></div>
     <div class="form-group"><label>Role *</label>
       <select id="ca_role">
         <option value="admin">admin</option>
