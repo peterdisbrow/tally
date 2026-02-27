@@ -326,12 +326,14 @@ class LifecycleEmails {
     const weekId = this._getWeekId(now);
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
+    // Weekly digest is a Pro+ feature (connect/plus get monthly reports at most)
     const churches = this.db.prepare(`
-      SELECT churchId, name, portal_email
+      SELECT churchId, name, portal_email, billing_tier
       FROM churches
       WHERE billing_status IN ('active', 'trialing')
         AND portal_email IS NOT NULL
         AND onboarding_app_connected_at IS NOT NULL
+        AND billing_tier IN ('pro', 'managed')
     `).all();
 
     for (const church of churches) {

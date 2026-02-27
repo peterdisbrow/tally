@@ -40,12 +40,12 @@ function setCachedResponse(key, value) {
 
 // Per-church AI call rate limit (tier-based)
 const AI_RATE_LIMITS = {
-  connect: 15,
+  connect: 5,     // basic taste — upgrade to Plus for more
   plus: 30,
   pro: 60,
-  managed: 100,
-  event: 30,
-  default: 30,
+  managed: 120,   // Enterprise gets highest throughput
+  event: 15,
+  default: 15,
 };
 const AI_RATE_WINDOW = 60 * 60 * 1000; // 1 hour
 const aiCallCounts = new Map(); // churchId → { count, windowStart }

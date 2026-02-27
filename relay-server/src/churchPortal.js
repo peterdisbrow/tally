@@ -1480,7 +1480,7 @@ function buildChurchPortalHtml(church) {
         if (noteEl) {
           if (limits) {
             const tierLabel = String(limits.tier || 'connect').toUpperCase();
-            noteEl.innerHTML = '<strong>Campus Limits:</strong> Plan ' + tierLabel + ': up to ' + limits.maxTotal + ' total campus/room setup' + (limits.maxTotal === 1 ? '' : 's') + '. You are using ' + limits.usedTotal + '.';
+            noteEl.innerHTML = '<strong>Room Limit:</strong> ' + tierLabel + ' plan: ' + (limits.maxTotal >= 999 ? 'unlimited' : 'up to ' + limits.maxTotal) + ' room' + (limits.maxTotal === 1 ? '' : 's') + '. You are using ' + limits.usedTotal + '.';
             noteEl.style.display = 'block';
           } else {
             noteEl.style.display = 'none';
@@ -2849,10 +2849,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   function maxCampusesForTier(tierValue) {
     const tier = String(tierValue || 'connect').toLowerCase();
     const limits = {
-      connect: 1, // single room/campus total
-      plus: 3,
-      pro: 10,
-      managed: 50,
+      connect: 1,   // single room
+      plus: 3,      // up to 3 rooms
+      pro: 5,       // up to 5 rooms
+      managed: 999, // unlimited rooms (Enterprise)
       event: 1,
     };
     return limits[tier] || 1;
@@ -3021,7 +3021,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const limits = campusLimitsForChurch(req.church);
       if (!limits.canAdd) {
         return res.status(403).json({
-          error: `Your ${String(limits.tier).toUpperCase()} plan allows ${limits.maxTotal} total campus/room setup${limits.maxTotal === 1 ? '' : 's'}.`,
+          error: `Your ${String(limits.tier).toUpperCase()} plan allows ${limits.maxTotal} room${limits.maxTotal === 1 ? '' : 's'}. Upgrade for more.`,
           limits: {
             tier: limits.tier,
             maxTotal: limits.maxTotal,

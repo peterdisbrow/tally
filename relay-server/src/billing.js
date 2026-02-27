@@ -79,11 +79,11 @@ const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Ent
 const TRIAL_PERIOD_DAYS = 30; // 30-day free trial
 const GRACE_PERIOD_DAYS = 7;  // days after payment failure before deactivation
 const TIER_LIMITS = {
-  connect: { churches: 1, devices: ['atem', 'obs', 'vmix'] },
-  plus:    { churches: 1, devices: 'all' },
-  pro:     { churches: 999, devices: 'all' },
-  managed: { churches: 999, devices: 'all' },
-  event:   { churches: 1, devices: 'all' },
+  connect: { rooms: 1,        devices: ['atem', 'obs', 'vmix'] },
+  plus:    { rooms: 3,        devices: 'all' },
+  pro:     { rooms: 5,        devices: 'all' },
+  managed: { rooms: Infinity, devices: 'all' },
+  event:   { rooms: 1,        devices: 'all' },
 };
 
 class BillingSystem {
@@ -667,9 +667,9 @@ class BillingSystem {
     // Tier-based feature gating is always enforced (even without Stripe)
     const limits = TIER_LIMITS[tier] || TIER_LIMITS.connect;
 
-    // Device access
-    if (feature === 'multi_church' && limits.churches === 1) {
-      return { allowed: false, reason: 'Multi-church support requires Pro or Enterprise plan.' };
+    // Room/campus limits
+    if (feature === 'multi_church' && limits.rooms <= 1) {
+      return { allowed: false, reason: 'Multi-room support requires Plus or higher plan.' };
     }
 
     if (feature === 'planning_center' && (tier === 'connect' || tier === 'plus')) {
