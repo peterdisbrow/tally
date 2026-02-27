@@ -40,4 +40,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // File upload (for setup assistant: patch lists, camera plots, images)
   pickFile: () => ipcRenderer.invoke('pick-file'),
   uploadChatFile: (payload) => ipcRenderer.invoke('upload-chat-file', payload),
+  // Problem Finder
+  pfAnalyze: () => ipcRenderer.invoke('pf-analyze'),
+  pfGoNoGo: (opts) => ipcRenderer.invoke('pf-go-no-go', opts),
+  pfRunHistory: () => ipcRenderer.invoke('pf-run-history'),
+  pfFeedback: (fb) => ipcRenderer.invoke('pf-feedback', fb),
+  pfGetConfig: () => ipcRenderer.invoke('pf-get-config'),
+  pfSimulateFix: (simId) => ipcRenderer.invoke('pf-simulate-fix', simId),
+  pfAvailable: () => ipcRenderer.invoke('pf-available'),
+  onPfUpdate: (cb) => ipcRenderer.on('pf-update', (_, data) => cb(data)),
 });

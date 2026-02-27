@@ -184,6 +184,7 @@
     <button class="tab-btn active" onclick="switchTab('status')">Status</button>
     <button class="tab-btn" onclick="switchTab('equipment')">Equipment</button>
     <button class="tab-btn" onclick="switchTab('chat')">Chat</button>
+    <button class="tab-btn" onclick="switchTab('problems')">Problems</button>
   </div>
 
   <!-- ══════════ STATUS TAB ══════════ -->
@@ -330,213 +331,30 @@
   <!-- ══════════ EQUIPMENT TAB ══════════ -->
   <div class="content tab-content" id="tab-equipment" style="flex:1; overflow-y:auto;">
 
-    <!-- ── CORE (expanded by default) ── -->
-    <div class="equip-group" data-group="core">
-      <div class="equip-group-header open" onclick="toggleEquipGroup('core')">
-        <span class="group-title">Core</span>
-        <span class="group-chevron">&#9660;</span>
+    <!-- A. Active Devices Summary (chip bar) -->
+    <div class="equip-active-summary" id="equip-active-summary"></div>
+
+    <!-- B. Scan Network (prominent, at top) -->
+    <div class="equip-scan-bar">
+      <div class="scan-form-row">
+        <label for="scan-nic">Interface</label>
+        <select id="scan-nic"></select>
       </div>
-      <div class="equip-group-body open">
-        <div class="equip-section">
-          <h3>ATEM Switcher <div class="equip-status" id="equip-dot-atem"></div></h3>
-          <div class="equip-row">
-            <input type="text" id="equip-atem-ip" placeholder="192.168.1.10">
-            <button class="btn-test" onclick="testEquip('atem')">Test</button>
-          </div>
-          <div class="equip-detail" id="equip-atem-detail">Enter the switcher IP address shown in ATEM Setup Utility.</div>
-        </div>
-        <div class="equip-section">
-          <h3>Default Streaming Encoder <div class="equip-status" id="equip-dot-encoder"></div></h3>
-          <div class="equip-row">
-            <select id="equip-encoder-type" onchange="onEncoderTypeChanged()" style="flex:1;">
-              <option value="">Not configured</option>
-              <option value="blackmagic">Blackmagic Web Presenter / Streaming Encoder</option>
-              <option value="obs">OBS Studio</option>
-              <option value="vmix">vMix</option>
-              <option value="atem-streaming">ATEM Mini (built-in streaming)</option>
-              <option value="ecamm">Ecamm Live (Mac)</option>
-              <option value="aja">AJA HELO</option>
-              <option value="epiphan">Epiphan Pearl</option>
-              <option value="teradek">Teradek Cube / VidiU</option>
-              <option value="tricaster">TriCaster</option>
-              <option value="birddog">BirdDog</option>
-              <option value="yolobox">YoloBox</option>
-              <option value="tally-encoder">Tally Encoder</option>
-              <option value="custom">Custom Encoder</option>
-            </select>
-          </div>
-          <div class="equip-detail">Choose which encoder should be used as the default for monitoring and status.</div>
-          <div id="encoder-config-fields"></div>
-          <div class="equip-detail" id="equip-encoder-detail"></div>
-        </div>
-        <div class="equip-section">
-          <h3>Bitfocus Companion <div class="equip-status" id="equip-dot-companion"></div></h3>
-          <div class="equip-row">
-            <input type="text" id="equip-companion-url" placeholder="http://localhost:8888">
-            <button class="btn-test" onclick="testEquip('companion')">Test</button>
-          </div>
-          <div class="equip-detail" id="equip-companion-detail"></div>
-        </div>
+      <button class="scan-btn" id="scan-btn" onclick="startNetworkScan()">🔍 Scan Network</button>
+    </div>
+    <div class="equip-scan-panel" id="equip-scan-panel" style="display:none;">
+      <div class="scan-progress" id="scan-progress">
+        <div class="scan-progress-bar"><div class="scan-progress-fill" id="scan-fill"></div></div>
+        <div class="scan-status" id="scan-status">Preparing…</div>
       </div>
+      <div class="scan-results" id="scan-results"></div>
+      <button class="btn-add" style="margin-top:8px;" onclick="closeScanPanel()">Close</button>
     </div>
 
-    <!-- ── RECORDING & PLAYBACK ── -->
-    <div class="equip-group" data-group="recording">
-      <div class="equip-group-header" onclick="toggleEquipGroup('recording')">
-        <span class="group-title">Recording &amp; Playback</span>
-        <span class="group-chevron">&#9660;</span>
-      </div>
-      <div class="equip-group-body">
-        <div class="equip-section">
-          <h3>HyperDecks</h3>
-          <div id="equip-hyperdecks-list"></div>
-          <button class="btn-add" onclick="addHyperdeck()">+ Add HyperDeck</button>
-        </div>
-        <div class="equip-section">
-          <h3>PTZ Cameras</h3>
-          <div class="equip-detail">Supports ONVIF and VISCA over IP (TCP/UDP), including PTZOptics protocol presets.</div>
-          <div id="equip-ptz-list"></div>
-          <button class="btn-add" onclick="addPtz()">+ Add Camera</button>
-        </div>
-      </div>
-    </div>
+    <!-- C. Device Catalog (rendered dynamically by equipment-ui.js) -->
+    <div id="equip-catalog"></div>
 
-    <!-- ── PRESENTATION & VIDEO ── -->
-    <div class="equip-group" data-group="presentation">
-      <div class="equip-group-header" onclick="toggleEquipGroup('presentation')">
-        <span class="group-title">Presentation &amp; Video</span>
-        <span class="group-chevron">&#9660;</span>
-      </div>
-      <div class="equip-group-body">
-        <div class="equip-section">
-          <h3>ProPresenter</h3>
-          <div class="optional-device" id="equip-propresenter-card" style="display:none;">
-            <div class="optional-head">
-              <strong>ProPresenter <div class="equip-status" id="equip-dot-propresenter"></div></strong>
-              <button class="btn-remove" onclick="toggleOptionalDevice('propresenter', false)">Remove</button>
-            </div>
-            <div class="equip-row">
-              <input type="text" id="equip-pp-host" placeholder="localhost">
-              <input type="text" id="equip-pp-port" placeholder="1025" style="max-width:80px;">
-              <button class="btn-test" onclick="testEquip('propresenter')">Test</button>
-            </div>
-            <div class="equip-detail" id="equip-propresenter-detail"></div>
-          </div>
-          <button class="btn-add" id="btn-add-propresenter" onclick="toggleOptionalDevice('propresenter', true)">+ Add ProPresenter</button>
-        </div>
-        <div class="equip-section">
-          <h3>vMix</h3>
-          <div class="optional-device" id="equip-vmix-card" style="display:none;">
-            <div class="optional-head">
-              <strong>vMix <div class="equip-status" id="equip-dot-vmix"></div></strong>
-              <button class="btn-remove" onclick="toggleOptionalDevice('vmix', false)">Remove</button>
-            </div>
-            <div class="equip-detail" style="margin-bottom:8px;">Windows only. Enable HTTP API in vMix: Settings → Web Controller → Enable (port 8088).</div>
-            <div class="equip-row">
-              <input type="text" id="equip-vmix-host" placeholder="localhost or 192.168.1.x">
-              <input type="text" id="equip-vmix-port" placeholder="8088" style="max-width:80px;">
-              <button class="btn-test" onclick="testEquip('vmix')">Test</button>
-            </div>
-            <div class="equip-detail" id="equip-vmix-detail"></div>
-          </div>
-          <button class="btn-add" id="btn-add-vmix" onclick="toggleOptionalDevice('vmix', true)">+ Add vMix</button>
-        </div>
-        <div class="equip-section">
-          <h3>Resolume Arena</h3>
-          <div class="optional-device" id="equip-resolume-card" style="display:none;">
-            <div class="optional-head">
-              <strong>Resolume Arena <div class="equip-status" id="equip-dot-resolume"></div></strong>
-              <button class="btn-remove" onclick="toggleOptionalDevice('resolume', false)">Remove</button>
-            </div>
-            <div class="equip-detail" style="margin-bottom:8px;">Video wall / LED display control. Leave blank if not used.</div>
-            <div class="equip-row">
-              <input type="text" id="equip-resolume-host" placeholder="localhost or 192.168.1.x">
-              <input type="text" id="equip-resolume-port" placeholder="8080" style="max-width:80px;">
-              <button class="btn-test" onclick="testEquip('resolume')">Test</button>
-            </div>
-            <div class="equip-detail" id="equip-resolume-detail">In Resolume: Preferences → Web Server → enable, default port 8080</div>
-          </div>
-          <button class="btn-add" id="btn-add-resolume" onclick="toggleOptionalDevice('resolume', true)">+ Add Resolume</button>
-        </div>
-        <div class="equip-section">
-          <h3>Blackmagic VideoHub</h3>
-          <div class="equip-detail" style="margin-bottom:8px;">SDI/HDMI router. Connects via TCP port 9990 (Videohub protocol).</div>
-          <div id="equip-videohub-list"></div>
-          <button class="btn-add" onclick="addVideoHub()">+ Add VideoHub</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── MONITORING & DECODERS ── -->
-    <div class="equip-group" data-group="monitoring">
-      <div class="equip-group-header" onclick="toggleEquipGroup('monitoring')">
-        <span class="group-title">Monitoring &amp; Decoders</span>
-        <span class="group-chevron">&#9660;</span>
-      </div>
-      <div class="equip-group-body">
-        <div class="equip-section">
-          <h3>NDI Decoder <div class="equip-status" id="equip-dot-ndi"></div></h3>
-          <div class="equip-detail" style="margin-bottom:8px;">Receive-only NDI monitoring via <code>ffprobe</code> + <code>libndi_newtek</code>. Monitors stream presence, resolution, FPS, and codec.</div>
-          <div class="optional-device" id="equip-ndi-card" style="display:none;">
-            <div class="optional-head">
-              <strong>NDI Decoder <div class="equip-status" id="equip-dot-ndi-active"></div></strong>
-              <button class="btn-remove" onclick="toggleNdi(false)">Remove</button>
-            </div>
-            <div class="equip-row">
-              <input type="text" id="equip-ndi-source" placeholder="NDI source name (e.g. Camera 1 (OBS))">
-              <button class="btn-test" onclick="testNdi()">Test</button>
-            </div>
-            <div class="equip-row" style="margin-top:4px;">
-              <input type="text" id="equip-ndi-label" placeholder="Label (optional, e.g. Main Camera)">
-            </div>
-            <div class="equip-detail" id="equip-ndi-detail"></div>
-          </div>
-          <button class="btn-add" id="btn-add-ndi" onclick="toggleNdi(true)">+ Add NDI Decoder</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── AUDIO ── -->
-    <div class="equip-group" data-group="audio">
-      <div class="equip-group-header" onclick="toggleEquipGroup('audio')">
-        <span class="group-title">Audio</span>
-        <span class="group-chevron">&#9660;</span>
-      </div>
-      <div class="equip-group-body">
-        <div class="equip-section">
-          <h3>Audio Console <div class="equip-status" id="equip-dot-mixer"></div></h3>
-          <div class="equip-detail" style="margin-bottom:8px;">OSC-compatible consoles. Leave blank if not used.</div>
-          <div class="equip-row">
-            <select id="equip-mixer-type" style="flex:1;">
-              <option value="">— Not configured —</option>
-              <option value="x32">X32 (Behringer protocol)</option>
-              <option value="behringer">Behringer X32 / X-Air</option>
-              <option value="midas">Midas M32 / M32R</option>
-              <option value="allenheath">Allen &amp; Heath SQ / dLive</option>
-              <option value="yamaha">Yamaha CL / QL / TF</option>
-            </select>
-          </div>
-          <div class="equip-row">
-            <input type="text" id="equip-mixer-host" placeholder="Console IP address">
-            <input type="text" id="equip-mixer-port" placeholder="Auto" style="max-width:80px;">
-            <button class="btn-test" onclick="testEquip('mixer')">Test</button>
-          </div>
-          <div class="equip-detail" id="equip-mixer-detail">Default ports: X32/M32=10023, A&amp;H SQ=51326, Yamaha CL/QL=8765, TF=49280</div>
-        </div>
-        <div class="equip-section">
-          <h3>Dante — via Companion <div class="equip-status" id="equip-dot-dante"></div></h3>
-          <div class="equip-detail" style="margin-bottom:8px;">Dante routing is handled via Companion buttons named "Dante: Scene Name"</div>
-          <div class="equip-row">
-            <input type="text" id="equip-dante-host" placeholder="NMOS registry IP (optional)">
-            <input type="text" id="equip-dante-port" placeholder="8080" style="max-width:80px;">
-            <button class="btn-test" onclick="testEquip('dante')">Test</button>
-          </div>
-          <div class="equip-detail" id="equip-dante-detail"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── STREAMING KEYS ── -->
+    <!-- D. Streaming Keys (static section) -->
     <div class="equip-group" data-group="streaming">
       <div class="equip-group-header" onclick="toggleEquipGroup('streaming')">
         <span class="group-title">Streaming Keys &nbsp;<span style="font-size:9px; color:var(--green); font-weight:600; letter-spacing:0.05em; text-transform:none; font-family:var(--font);">🔒 Encrypted</span></span>
@@ -570,28 +388,6 @@
             <button class="btn-test" onclick="showHideKey('equip-rtmp-key')">👁</button>
           </div>
           <div class="equip-detail" id="equip-keys-detail" style="margin-top:8px;"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── NETWORK TOOLS ── -->
-    <div class="equip-group" data-group="network">
-      <div class="equip-group-header" onclick="toggleEquipGroup('network')">
-        <span class="group-title">Network Tools</span>
-        <span class="group-chevron">&#9660;</span>
-      </div>
-      <div class="equip-group-body">
-        <div class="scan-section" style="border:none; padding:0; margin:0; background:none;">
-          <div class="scan-form-row">
-            <label for="scan-nic">Network Interface</label>
-            <select id="scan-nic"></select>
-          </div>
-          <button class="scan-btn" id="scan-btn" onclick="startNetworkScan()">🔍 Scan Network</button>
-          <div class="scan-progress" id="scan-progress">
-            <div class="scan-progress-bar"><div class="scan-progress-fill" id="scan-fill"></div></div>
-            <div class="scan-status" id="scan-status">Preparing…</div>
-          </div>
-          <div class="scan-results" id="scan-results"></div>
         </div>
       </div>
     </div>
@@ -635,6 +431,74 @@
     </div>
   </div><!-- /tab-chat -->
 
+  <!-- ══════════ PROBLEM FINDER TAB ══════════ -->
+  <div class="content tab-content" id="tab-problems" style="flex:1; overflow-y:auto;">
+
+    <!-- Feature gate (shown when disabled) -->
+    <div id="pf-unavailable" style="display:none;">
+      <p style="color:var(--muted); text-align:center; padding:40px 20px;">
+        Problem Finder is not available. The diagnostics engine could not be loaded.
+      </p>
+    </div>
+
+    <div id="pf-content" style="display:none; padding:12px;">
+
+      <!-- Go/No-Go badge -->
+      <div id="pf-go-badge" class="pf-go-badge" style="display:none;"></div>
+
+      <!-- KPI row -->
+      <div class="info-grid" id="pf-kpis">
+        <div class="info-card">
+          <div class="label">Critical / High</div>
+          <div class="value" id="pf-critical-count">--</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Coverage</div>
+          <div class="value" id="pf-coverage">--</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Total Issues</div>
+          <div class="value" id="pf-issue-count">--</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Last Run</div>
+          <div class="value" id="pf-last-run">--</div>
+        </div>
+      </div>
+
+      <!-- Quick actions -->
+      <div style="display:flex; gap:8px; margin:12px 0;">
+        <button class="btn-small btn-secondary" id="pf-run-verify" onclick="pfRunVerify()">▶ Run Verify</button>
+        <button class="btn-small btn-secondary" id="pf-run-preflight" onclick="pfRunPreflight()">🛫 Preflight Check</button>
+      </div>
+
+      <!-- Active Issues list -->
+      <div class="section">
+        <h2 style="font-size:13px; color:var(--white); margin-bottom:8px;">Active Issues</h2>
+        <div id="pf-issues-list">
+          <p style="color:var(--muted); font-size:12px;">Run a verify check to see issues.</p>
+        </div>
+      </div>
+
+      <!-- Action Plan -->
+      <div class="section" style="margin-top:12px;">
+        <h2 style="font-size:13px; color:var(--white); margin-bottom:8px;">Action Plan</h2>
+        <div id="pf-action-plan">
+          <p style="color:var(--muted); font-size:12px;">No action plan yet.</p>
+        </div>
+      </div>
+
+      <!-- Recent Runs -->
+      <div class="section" style="margin-top:12px;">
+        <h2 style="font-size:13px; color:var(--white); margin-bottom:8px;">Recent Runs</h2>
+        <div id="pf-run-history">
+          <p style="color:var(--muted); font-size:12px;">No runs yet.</p>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /tab-problems -->
+
   <div class="branding">
     Powered by <a href="#" class="ext-link" data-url="https://atemschool.com">ATEM School</a>
   </div>
@@ -649,6 +513,9 @@
 
 </div><!-- /dashboard -->
 
+<script src="device-registry.js"></script>
+<script src="equipment-ui.js"></script>
+<script src="problem-finder-ui.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

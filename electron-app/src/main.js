@@ -10,6 +10,7 @@ const { encryptConfig, decryptConfig } = require('./secureStorage');
 const configManager = require('./config-manager');
 const relayClient = require('./relay-client');
 const equipmentTester = require('./equipment-tester');
+const problemFinderBridge = require('./problem-finder-bridge');
 
 // Auto-update (gracefully optional)
 let autoUpdater;
@@ -64,6 +65,24 @@ equipmentTester.init({
       OSC_YAMAHA_STATE_PACKET: ns.OSC_YAMAHA_STATE_PACKET,
     };
   })(),
+});
+
+problemFinderBridge.init({
+  getAgentStatus: () => agentStatus,
+  getConfig: () => configManager.loadConfig(),
+  getRecentLogs: () => recentLogLines,
+  getEquipmentResults: () => [],
+  getMainWindow: () => mainWindow,
+  appendAppLog: (src, msg) => appendAppLog(src, msg),
+  getLabRootDir: () => {
+    const devPath = path.resolve(__dirname, '..', '..', '..', '..', 'New project', 'problem-finder-lab');
+    if (fs.existsSync(path.join(devPath, 'src', 'engine.js'))) return devPath;
+    try {
+      const pkgPath = path.join(process.resourcesPath || '', 'problem-finder-lab');
+      if (fs.existsSync(path.join(pkgPath, 'src', 'engine.js'))) return pkgPath;
+    } catch { /* ignore */ }
+    return null;
+  },
 });
 
 function appendAppLog(source, message) {
@@ -504,6 +523,7 @@ function startAgent() {
     }
 
     checkAndNotify();
+    problemFinderBridge.onAgentEvent(text);
     mainWindow?.webContents.send('status', agentStatus);
     mainWindow?.webContents.send('log', text);
     updateTray();
@@ -842,7 +862,14 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
         }
       : null;
   }
-  if (equipConfig.encoderType !== undefined) {
+  // Save encoders array (new multi-encoder format)
+  if (Array.isArray(equipConfig.encoders)) {
+    config.encoders = equipConfig.encoders;
+    // Primary encoder for church-client backward compat
+    config.encoder = equipConfig.encoders[0] || null;
+  }
+  // Also accept flat primary encoder fields (legacy / wizard)
+  if (equipConfig.encoderType !== undefined && !Array.isArray(equipConfig.encoders)) {
     config.encoder = equipConfig.encoderType
       ? {
           type: equipConfig.encoderType,
@@ -853,7 +880,11 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
           statusUrl: equipConfig.encoderStatusUrl || '',
         }
       : null;
-    // Clean up legacy flat encoder keys (prevent stale values overriding nested object)
+    // Wrap single encoder into encoders array
+    config.encoders = config.encoder ? [config.encoder] : [];
+  }
+  // Clean up legacy flat encoder keys (prevent stale values overriding nested object)
+  if (equipConfig.encoderType !== undefined || Array.isArray(equipConfig.encoders)) {
     delete config.encoderType;
     delete config.encoderHost;
     delete config.encoderPort;
@@ -891,6 +922,9 @@ ipcMain.handle('get-equipment', () => {
     mixerType: config.mixer?.type || '',
     mixerHost: config.mixer?.host || '',
     mixerPort: config.mixer?.port || '',
+    // Multi-encoder array (new format)
+    encoders: config.encoders || (config.encoder ? [config.encoder] : []),
+    // Primary encoder flat fields (backward compat)
     encoderType: config.encoder?.type || '',
     encoderHost: config.encoder?.host || '',
     encoderPort: config.encoder?.port || '',
@@ -900,6 +934,16 @@ ipcMain.handle('get-equipment', () => {
     rtmpUrl: config.rtmpUrl || '',
   };
 });
+
+// ─── PROBLEM FINDER IPC ──────────────────────────────────────────────────────
+
+ipcMain.handle('pf-analyze', () => problemFinderBridge.runAnalysis());
+ipcMain.handle('pf-go-no-go', (_, opts) => problemFinderBridge.runGoNoGo(opts));
+ipcMain.handle('pf-run-history', () => problemFinderBridge.getRunHistory());
+ipcMain.handle('pf-feedback', (_, fb) => problemFinderBridge.recordFeedback(fb));
+ipcMain.handle('pf-get-config', () => problemFinderBridge.getFeatureFlags());
+ipcMain.handle('pf-simulate-fix', (_, simId) => problemFinderBridge.simulateFix(simId));
+ipcMain.handle('pf-available', () => problemFinderBridge.isAvailable());
 
 // ─── AUTO-UPDATE ──────────────────────────────────────────────────────────────
 

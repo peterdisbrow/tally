@@ -104,6 +104,8 @@ async function init() {
     updateToggleBtn();
     const status = await api.getStatus();
     updateStatusUI(status);
+    // Initialize Problem Finder real-time listener
+    if (typeof initProblemFinderListener === 'function') initProblemFinderListener();
   } catch (err) {
     console.error('Init failed:', err);
     showFatalInitError(err?.message || 'Unknown initialization error');
@@ -929,6 +931,7 @@ function switchTab(name) {
   document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`)?.classList.add('active');
   document.getElementById('tab-' + name)?.classList.add('active');
   if (name === 'equipment') loadEquipment();
+  if (name === 'problems') loadProblemFinder();
   if (name === 'chat') startChatPolling();
   else stopChatPolling();
 }
@@ -1064,219 +1067,89 @@ async function sendChatMessage() {
 
 // ─── EQUIPMENT ─────────────────────────────────────────────────────────────
 
-let hyperdeckEntries = [];
-let videoHubEntries = []; // [{ ip, name }]
-let ptzEntries = [];
-const optionalDeviceIds = {
-  propresenter: {
-    card: 'equip-propresenter-card',
-    addBtn: 'btn-add-propresenter',
-    host: 'equip-pp-host',
-    port: 'equip-pp-port',
-    detail: 'equip-propresenter-detail',
-    dot: 'equip-dot-propresenter',
-    defaultHost: 'localhost',
-    defaultPort: '1025',
-  },
-  vmix: {
-    card: 'equip-vmix-card',
-    addBtn: 'btn-add-vmix',
-    host: 'equip-vmix-host',
-    port: 'equip-vmix-port',
-    detail: 'equip-vmix-detail',
-    dot: 'equip-dot-vmix',
-    defaultHost: 'localhost',
-    defaultPort: '8088',
-  },
-  resolume: {
-    card: 'equip-resolume-card',
-    addBtn: 'btn-add-resolume',
-    host: 'equip-resolume-host',
-    port: 'equip-resolume-port',
-    detail: 'equip-resolume-detail',
-    dot: 'equip-dot-resolume',
-    defaultHost: 'localhost',
-    defaultPort: '8080',
-  },
-};
-
-function setOptionalDeviceVisible(type, visible, opts = {}) {
-  const meta = optionalDeviceIds[type];
-  if (!meta) return;
-  const card = document.getElementById(meta.card);
-  const addBtn = document.getElementById(meta.addBtn);
-  const hostInput = document.getElementById(meta.host);
-  const portInput = document.getElementById(meta.port);
-  const detail = document.getElementById(meta.detail);
-
-  if (card) card.style.display = visible ? '' : 'none';
-  if (addBtn) addBtn.style.display = visible ? 'none' : '';
-
-  if (visible && opts.initDefaults) {
-    if (hostInput && !hostInput.value.trim()) hostInput.value = meta.defaultHost;
-    if (portInput && !String(portInput.value || '').trim()) portInput.value = meta.defaultPort;
-  }
-
-  if (!visible && opts.clear !== false) {
-    if (hostInput) hostInput.value = '';
-    if (portInput) portInput.value = meta.defaultPort;
-    if (detail) detail.textContent = '';
-    if (meta.dot) setEquipDot(meta.dot, null);
-  }
-}
-
-function toggleOptionalDevice(type, visible) {
-  setOptionalDeviceVisible(type, visible, { initDefaults: visible, clear: true });
-}
-
-function isOptionalDeviceVisible(type) {
-  const meta = optionalDeviceIds[type];
-  const card = meta ? document.getElementById(meta.card) : null;
-  return !!card && card.style.display !== 'none';
-}
+// Equipment state is managed by deviceState in equipment-ui.js
 
 async function loadEquipment() {
   const eq = await api.getEquipment();
-  document.getElementById('equip-atem-ip').value = eq.atemIp || '';
-  document.getElementById('equip-companion-url').value = eq.companionUrl || '';
-  const obsUrlEl = document.getElementById('equip-obs-url');
-  if (obsUrlEl) obsUrlEl.value = eq.obsUrl || '';
-  const obsPasswordEl = document.getElementById('equip-obs-password');
-  if (obsPasswordEl) obsPasswordEl.value = eq.obsPassword || '';
-  document.getElementById('equip-pp-host').value = eq.proPresenterHost || '';
-  document.getElementById('equip-pp-port').value = eq.proPresenterPort || '1025';
-  document.getElementById('equip-dante-host').value = eq.danteNmosHost || '';
-  document.getElementById('equip-dante-port').value = eq.danteNmosPort || '8080';
-  document.getElementById('equip-youtube-key').placeholder = eq.youtubeKeySet ? '(saved — enter new to change)' : 'AIzaSy…';
-  document.getElementById('equip-facebook-token').placeholder = eq.facebookTokenSet ? '(saved — enter new to change)' : 'EAAxxxxxx…';
-  document.getElementById('equip-rtmp-url').value = eq.rtmpUrl || '';
-  document.getElementById('equip-rtmp-key').placeholder = eq.rtmpKeySet ? '(saved — enter new to change)' : 'live_xxxxxxxx';
-  document.getElementById('equip-vmix-host').value = eq.vmixHost || '';
-  document.getElementById('equip-vmix-port').value = eq.vmixPort || '8088';
-  document.getElementById('equip-resolume-host').value = eq.resolumeHost || '';
-  document.getElementById('equip-resolume-port').value = eq.resolumePort || '8080';
-  document.getElementById('equip-mixer-type').value = eq.mixerType || '';
-  document.getElementById('equip-mixer-host').value = eq.mixerHost || '';
-  document.getElementById('equip-mixer-port').value = eq.mixerPort || '';
+
+  // ── Populate deviceState from API response ──
+  deviceState.atem.ip = eq.atemIp || '';
+  deviceState.companion.url = eq.companionUrl || '';
+  // Load encoders — prefer array format, fall back to single encoder flat fields
+  if (Array.isArray(eq.encoders) && eq.encoders.length > 0) {
+    deviceState.encoder = eq.encoders.map(e => ({
+      encoderType: e.type || e.encoderType || '',
+      host: e.host || '', port: e.port ? String(e.port) : '',
+      password: e.password || '', label: e.label || '',
+      statusUrl: e.statusUrl || '', source: e.source || '',
+    }));
+  } else if (eq.encoderType) {
+    deviceState.encoder = [{
+      encoderType: eq.encoderType || '', host: eq.encoderHost || '',
+      port: eq.encoderPort ? String(eq.encoderPort) : '', password: eq.encoderPassword || '',
+      label: eq.encoderLabel || '', statusUrl: eq.encoderStatusUrl || '', source: eq.encoderSource || '',
+    }];
+  } else {
+    deviceState.encoder = [];
+  }
+  // Keep _encoderConfig for backwards compat (primary encoder)
+  const primaryEnc = deviceState.encoder[0] || {};
+  window._encoderConfig = { _type: primaryEnc.encoderType || '', ...primaryEnc };
+
   const ppConfigured = !!eq.proPresenterConfigured || !!(eq.proPresenterHost && String(eq.proPresenterHost).trim());
+  deviceState.propresenter = { host: eq.proPresenterHost || '', port: String(eq.proPresenterPort || '1025'), configured: ppConfigured };
   const vmixConfigured = !!eq.vmixConfigured || !!(eq.vmixHost && String(eq.vmixHost).trim());
+  deviceState.vmix = { host: eq.vmixHost || '', port: String(eq.vmixPort || '8088'), configured: vmixConfigured };
   const resolumeConfigured = !!eq.resolumeConfigured || !!(eq.resolumeHost && String(eq.resolumeHost).trim());
-  setOptionalDeviceVisible('propresenter', ppConfigured, { initDefaults: !ppConfigured, clear: false });
-  setOptionalDeviceVisible('vmix', vmixConfigured, { initDefaults: !vmixConfigured, clear: false });
-  setOptionalDeviceVisible('resolume', resolumeConfigured, { initDefaults: !resolumeConfigured, clear: false });
-  hyperdeckEntries = eq.hyperdecks || [];
-  videoHubEntries = (eq.videoHubs || []).map(h => ({ ip: h.ip || '', name: h.name || '' }));
-  ptzEntries = (eq.ptz || []).map((cam, i) => ({
-    ip: cam.ip || '',
-    name: cam.name || `PTZ ${i + 1}`,
-    protocol: cam.protocol || 'auto',
-    port: cam.port || '',
-    username: cam.username || '',
-    password: cam.password || '',
+  deviceState.resolume = { host: eq.resolumeHost || '', port: String(eq.resolumePort || '8080'), configured: resolumeConfigured };
+
+  const ndiConfigured = !!(eq.ndiSource && String(eq.ndiSource).trim());
+  deviceState.ndi = { source: eq.ndiSource || '', label: eq.ndiLabel || '', configured: ndiConfigured };
+
+  deviceState.mixer = { type: eq.mixerType || '', host: eq.mixerHost || '', port: eq.mixerPort ? String(eq.mixerPort) : '' };
+  deviceState.dante = { host: eq.danteNmosHost || '', port: String(eq.danteNmosPort || '8080') };
+
+  deviceState.hyperdeck = (eq.hyperdecks || []).map(ip => ({ ip: typeof ip === 'string' ? ip : (ip.ip || '') }));
+  deviceState.ptz = (eq.ptz || []).map((cam, i) => ({
+    ip: cam.ip || '', name: cam.name || `PTZ ${i + 1}`,
+    protocol: cam.protocol || 'auto', port: cam.port ? String(cam.port) : '',
+    username: cam.username || '', password: cam.password || '',
     profileToken: cam.profileToken || '',
   }));
-  renderHyperdecks();
-  renderVideoHubs();
-  renderPtz();
+  deviceState.videohub = (eq.videoHubs || []).map(h => ({ ip: h.ip || '', name: h.name || '' }));
 
-  // Encoder
-  document.getElementById('equip-encoder-type').value = eq.encoderType || '';
-  window._encoderConfig = {
-    _type: eq.encoderType || '',
-    host: eq.encoderHost || '',
-    port: eq.encoderPort || '',
-    password: eq.encoderPassword || '',
-    label: eq.encoderLabel || '',
-    statusUrl: eq.encoderStatusUrl || '',
-    source: eq.encoderSource || '',
-  };
-  onEncoderTypeChanged();
+  // ── Auto-expand configured devices ──
+  expandedDevices.clear();
+  if (deviceState.atem.ip) expandedDevices.add('atem');
+  if (deviceState.encoder.length > 0 && deviceState.encoder.some(e => e.encoderType)) expandedDevices.add('encoder');
+  if (deviceState.companion.url) expandedDevices.add('companion');
+  if (deviceState.hyperdeck.length > 0) expandedDevices.add('hyperdeck');
+  if (deviceState.ptz.length > 0) expandedDevices.add('ptz');
+  if (ppConfigured) expandedDevices.add('propresenter');
+  if (vmixConfigured) expandedDevices.add('vmix');
+  if (resolumeConfigured) expandedDevices.add('resolume');
+  if (deviceState.videohub.length > 0) expandedDevices.add('videohub');
+  if (ndiConfigured) expandedDevices.add('ndi');
+  if (deviceState.mixer.type || deviceState.mixer.host) expandedDevices.add('mixer');
+  if (deviceState.dante.host) expandedDevices.add('dante');
 
-  // NDI Monitoring (separate from encoder)
-  const ndiConfigured = !!(eq.ndiSource && String(eq.ndiSource).trim());
-  toggleNdi(ndiConfigured, false);
-  if (ndiConfigured) {
-    document.getElementById('equip-ndi-source').value = eq.ndiSource || '';
-    document.getElementById('equip-ndi-label').value = eq.ndiLabel || '';
-  }
-  // Show/hide NDI status section + dot on dashboard
+  // ── Render dynamic catalog + summary ──
+  renderDeviceCatalog();
+  renderActiveSummary();
+
+  // ── Streaming keys (static DOM — not in catalog) ──
+  document.getElementById('equip-youtube-key').placeholder = eq.youtubeKeySet ? '(saved \u2014 enter new to change)' : 'AIzaSy\u2026';
+  document.getElementById('equip-facebook-token').placeholder = eq.facebookTokenSet ? '(saved \u2014 enter new to change)' : 'EAAxxxxxx\u2026';
+  document.getElementById('equip-rtmp-url').value = eq.rtmpUrl || '';
+  document.getElementById('equip-rtmp-key').placeholder = eq.rtmpKeySet ? '(saved \u2014 enter new to change)' : 'live_xxxxxxxx';
+
+  // ── Dashboard NDI visibility ──
   const ndiSection = document.getElementById('ndi-status-section');
   const ndiChip = document.getElementById('dot-ndi-chip');
   if (ndiSection) ndiSection.style.display = ndiConfigured ? '' : 'none';
   if (ndiChip) ndiChip.style.display = ndiConfigured ? '' : 'none';
 }
 
-function renderHyperdecks() {
-  const list = document.getElementById('equip-hyperdecks-list');
-  list.innerHTML = '';
-  hyperdeckEntries.forEach((ip, i) => {
-    const row = document.createElement('div');
-    row.className = 'equip-row';
-    row.innerHTML = `<input type="text" value="${escapeHtml(ip)}" placeholder="192.168.1.20" onchange="hyperdeckEntries[${i}]=this.value">
-      <button class="btn-test" onclick="testEquipIdx('hyperdeck',${i})">Test</button>
-      <button class="btn-remove" onclick="hyperdeckEntries.splice(${i},1);renderHyperdecks()">✕</button>`;
-    list.appendChild(row);
-  });
-}
-
-function addHyperdeck() {
-  if (hyperdeckEntries.length >= 8) return;
-  hyperdeckEntries.push('');
-  renderHyperdecks();
-}
-
-function renderVideoHubs() {
-  const list = document.getElementById('equip-videohub-list');
-  if (!list) return;
-  list.innerHTML = '';
-  videoHubEntries.forEach((hub, i) => {
-    const row = document.createElement('div');
-    row.className = 'equip-row';
-    row.innerHTML = `<input type="text" value="${escapeHtml(hub.ip || '')}" placeholder="192.168.1.50" style="flex:1;" onchange="videoHubEntries[${i}].ip=this.value.trim()">
-      <input type="text" value="${escapeHtml(hub.name || '')}" placeholder="Name (optional)" style="flex:1;" onchange="videoHubEntries[${i}].name=this.value.trim()">
-      <button class="btn-test" onclick="testEquipIdx('videohub',${i})">Test</button>
-      <button class="btn-remove" onclick="videoHubEntries.splice(${i},1);renderVideoHubs()">✕</button>`;
-    list.appendChild(row);
-  });
-}
-
-function addVideoHub() {
-  if (videoHubEntries.length >= 4) return;
-  videoHubEntries.push({ ip: '', name: '' });
-  renderVideoHubs();
-}
-
-function renderPtz() {
-  const list = document.getElementById('equip-ptz-list');
-  list.innerHTML = '';
-  ptzEntries.forEach((cam, i) => {
-    const row = document.createElement('div');
-    row.className = 'equip-row';
-    row.innerHTML = `<input data-ptz="ip" type="text" value="${escapeHtml(cam.ip || '')}" placeholder="192.168.1.30" style="flex:1;" onchange="ptzEntries[${i}].ip=this.value.trim()">
-      <input data-ptz="name" type="text" value="${escapeHtml(cam.name || '')}" placeholder="Camera name" style="flex:1;" onchange="ptzEntries[${i}].name=this.value">
-      <select data-ptz="protocol" onchange="ptzEntries[${i}].protocol=this.value">
-        <option value="auto" ${cam.protocol === 'auto' ? 'selected' : ''}>Auto</option>
-        <option value="ptzoptics-visca" ${cam.protocol === 'ptzoptics-visca' ? 'selected' : ''}>PTZOptics VISCA TCP</option>
-        <option value="ptzoptics-onvif" ${cam.protocol === 'ptzoptics-onvif' ? 'selected' : ''}>PTZOptics ONVIF</option>
-        <option value="onvif" ${cam.protocol === 'onvif' ? 'selected' : ''}>ONVIF</option>
-        <option value="visca-tcp" ${cam.protocol === 'visca-tcp' ? 'selected' : ''}>VISCA TCP</option>
-        <option value="visca-udp" ${cam.protocol === 'visca-udp' ? 'selected' : ''}>VISCA UDP</option>
-        <option value="sony-visca-udp" ${cam.protocol === 'sony-visca-udp' ? 'selected' : ''}>Sony VISCA UDP</option>
-      </select>
-      <input data-ptz="port" type="number" min="1" max="65535" value="${cam.port || ''}" placeholder="Port" style="width:92px;" onchange="ptzEntries[${i}].port=this.value ? Number(this.value) : ''">
-      <input data-ptz="username" type="text" value="${cam.username || ''}" placeholder="User" style="width:120px;" onchange="ptzEntries[${i}].username=this.value">
-      <input data-ptz="password" type="password" value="${cam.password || ''}" placeholder="Pass" style="width:120px;" onchange="ptzEntries[${i}].password=this.value">
-      <button class="btn-test" onclick="testEquipIdx('ptz',${i})">Test</button>
-      <button class="btn-remove" onclick="ptzEntries.splice(${i},1);renderPtz()">✕</button>`;
-    list.appendChild(row);
-  });
-}
-
-function addPtz() {
-  if (ptzEntries.length >= 8) return;
-  ptzEntries.push({ ip: '', name: '', protocol: 'auto', port: '', username: '', password: '', profileToken: '' });
-  renderPtz();
-}
 
 function setEquipDot(id, status) {
   const dot = document.getElementById(id);
@@ -1288,209 +1161,94 @@ function showHideKey(id) {
   el.type = el.type === 'password' ? 'text' : 'password';
 }
 
-function onEncoderTypeChanged() {
-  const type = document.getElementById('equip-encoder-type').value;
-  const container = document.getElementById('encoder-config-fields');
-  const detailEl = document.getElementById('equip-encoder-detail');
-  const saved = window._encoderConfig || {};
-
-  const apiTypes = ['obs', 'vmix', 'blackmagic', 'aja', 'epiphan', 'teradek', 'tricaster', 'birddog', 'tally-encoder', 'custom'];
-  const rtmpTypes = ['yolobox', 'rtmp-generic', 'custom-rtmp'];
-
-  if (!type) {
-    container.innerHTML = '';
-    detailEl.textContent = 'No default encoder selected. The app will not monitor encoder health until one is configured.';
-    return;
-  }
-  detailEl.textContent = '';
-
-  if (type === 'atem-streaming') {
-    container.innerHTML = `<div class="equip-detail" style="margin-top:8px;">
-      The ATEM Mini handles streaming directly through its built-in encoder.<br>
-      Stream status is monitored via the ATEM connection — no separate encoder configuration needed.
-    </div>`;
-    return;
-  }
-
-  if (type === 'ecamm') {
-    container.innerHTML = `<div class="equip-detail" style="margin-top:8px;">
-      Ecamm Live runs locally on Mac. Uses HTTP remote control API (port auto-detected via Bonjour, fallback 65194).
-    </div>
-    <div class="equip-row" style="margin-top:4px;">
-      <button class="btn-test" onclick="testEquip('encoder')">Test Connection</button>
-    </div>`;
-    return;
-  }
-
-  if (apiTypes.includes(type)) {
-    const defaults = {
-      obs:              { host: 'localhost', port: '4455', pw: true, note: 'OBS WebSocket v5 — GetStats, StartStream, StopStream' },
-      vmix:             { host: 'localhost', port: '8088', note: 'vMix HTTP API — streaming, recording, status' },
-      blackmagic:       { host: '', port: '80', note: 'REST API v1 — streaming status, start/stop, platform config, bitrate' },
-      aja:              { host: '', port: '80', pw: true, note: 'REST API — start/stop stream/record, profiles, inputs, temperature' },
-      epiphan:          { host: '', port: '80', pw: true, note: 'REST API v2 — channels, publishers, recorders, layouts, system status' },
-      teradek:          { host: '', port: '80', pw: true, note: 'CGI API — broadcast start/stop, recording, bitrate, battery, video input' },
-      tricaster:        { host: '', port: '5951', pw: true, note: 'Shortcut API — stream/record transport and production state' },
-      birddog:          { host: '', port: '8080', source: true, note: 'BirdDog API + optional NDI source monitoring' },
-      'tally-encoder':  { host: '', port: '7070', note: 'Tally Encoder API — streams to relay server' },
-      custom:           { host: '', port: '80', statusUrl: true, note: 'Custom HTTP status endpoint' },
-    };
-    const d = defaults[type] || { host: '', port: '' };
-    const useSaved = (saved._type || '') === type;
-    const h = useSaved ? (saved.host || d.host) : d.host;
-    const p = useSaved ? (saved.port || d.port) : d.port;
-    let html = '';
-    if (d.note) {
-      html += `<div class="equip-detail" style="margin-top:6px; font-size:10px; color:var(--dim);">${d.note}</div>`;
-    }
-    html += `<div class="equip-row" style="margin-top:6px;">
-      <input type="text" id="equip-encoder-host" placeholder="${d.host || 'IP address'}" value="${h}">
-      <input type="text" id="equip-encoder-port" placeholder="${d.port}" value="${p}" style="max-width:80px;">
-      <button class="btn-test" onclick="testEquip('encoder')">Test</button>
-    </div>`;
-    if (d.pw) {
-      html += `<div class="equip-row" style="margin-top:4px;">
-        <input type="password" id="equip-encoder-password" placeholder="Password (optional)" value="${saved.password || ''}">
-      </div>`;
-    }
-    if (d.statusUrl) {
-      html += `<div class="equip-row" style="margin-top:4px;">
-        <input type="text" id="equip-encoder-status-url" placeholder="Status endpoint path (e.g. /status)" value="${saved.statusUrl || '/status'}" style="flex:1;">
-      </div>
-      <div class="equip-row" style="margin-top:4px;">
-        <input type="text" id="equip-encoder-label" placeholder="Device label (optional)" value="${saved.label || ''}">
-      </div>`;
-    } else if (d.source) {
-      html += `<div class="equip-row" style="margin-top:4px;">
-        <input type="text" id="equip-encoder-source" placeholder="NDI source name (optional)" value="${saved.source || ''}">
-      </div>
-      <div class="equip-row" style="margin-top:4px;">
-        <input type="text" id="equip-encoder-label" placeholder="Device label (optional)" value="${saved.label || ''}">
-      </div>`;
-    }
-    container.innerHTML = html;
-    return;
-  }
-
-  if (rtmpTypes.includes(type) || type === 'yolobox') {
-    const h = saved.host || '';
-    const p = saved.port || '80';
-    let html = `<div class="equip-detail" style="margin-top:8px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px;">
-      This device streams directly to your CDN (YouTube, Facebook, etc.).<br>
-      <span style="font-size:10px; color:var(--dim);">No public control API. Optional host/port enables network reachability checks.</span>
-    </div>
-    <div class="equip-row" style="margin-top:6px;">
-      <input type="text" id="equip-encoder-host" placeholder="Device IP (optional)" value="${h}">
-      <input type="text" id="equip-encoder-port" placeholder="80" value="${p}" style="max-width:80px;">
-      <button class="btn-test" onclick="testEquip('encoder')">Test</button>
-    </div>`;
-    html += `<div class="equip-row" style="margin-top:4px;">
-      <input type="text" id="equip-encoder-label" placeholder="Device label (optional)" value="${saved.label || ''}">
-    </div>`;
-    container.innerHTML = html;
-    return;
-  }
-
-  container.innerHTML = '';
-}
-
 async function testEquip(type) {
+  syncDomToState();
   const detailEl = document.getElementById(`equip-${type}-detail`);
   const dotId = `equip-dot-${type}`;
+  const state = deviceState[type] || {};
   let params = { type };
 
   if (type === 'atem') {
-    params.ip = document.getElementById('equip-atem-ip').value.trim();
-    if (!params.ip) { detailEl.textContent = 'Enter an IP address'; setEquipDot(dotId, false); return; }
+    params.ip = (state.ip || '').trim();
+    if (!params.ip) { if (detailEl) detailEl.textContent = 'Enter an IP address'; setEquipDot(dotId, false); return; }
   } else if (type === 'companion') {
-    params.url = document.getElementById('equip-companion-url').value.trim();
-    if (!params.url) { detailEl.textContent = 'Enter a URL'; setEquipDot(dotId, false); return; }
-  } else if (type === 'obs') {
-    const urlVal = document.getElementById('equip-obs-url').value.trim() || 'ws://localhost:4455';
-    const parsed = urlVal.replace(/^wss?:\/\//, '');
-    const [host, port] = parsed.split(':');
-    params.ip = host || '127.0.0.1';
-    params.port = parseInt(port) || 4455;
+    params.url = (state.url || '').trim();
+    if (!params.url) { if (detailEl) detailEl.textContent = 'Enter a URL'; setEquipDot(dotId, false); return; }
   } else if (type === 'propresenter') {
-    params.ip = document.getElementById('equip-pp-host').value.trim() || 'localhost';
-    params.port = parseInt(document.getElementById('equip-pp-port').value) || 1025;
-    if (!params.ip) { document.getElementById('equip-propresenter-detail').textContent = 'Enter a host'; setEquipDot('equip-dot-propresenter', false); return; }
-  } else if (type === 'dante') {
-    params.ip = document.getElementById('equip-dante-host').value.trim();
-    params.port = parseInt(document.getElementById('equip-dante-port').value) || 8080;
-    if (!params.ip) { document.getElementById('equip-dante-detail').textContent = 'Enter NMOS registry IP to test, or use Companion fallback'; setEquipDot('equip-dot-dante', false); return; }
+    params.ip = (state.host || '').trim() || 'localhost';
+    params.port = parseInt(state.port) || 1025;
   } else if (type === 'vmix') {
-    params.ip = document.getElementById('equip-vmix-host').value.trim() || 'localhost';
-    params.port = parseInt(document.getElementById('equip-vmix-port').value) || 8088;
+    params.ip = (state.host || '').trim() || 'localhost';
+    params.port = parseInt(state.port) || 8088;
   } else if (type === 'resolume') {
-    params.ip = document.getElementById('equip-resolume-host').value.trim() || 'localhost';
-    params.port = parseInt(document.getElementById('equip-resolume-port').value) || 8080;
+    params.ip = (state.host || '').trim() || 'localhost';
+    params.port = parseInt(state.port) || 8080;
+  } else if (type === 'dante') {
+    params.ip = (state.host || '').trim();
+    params.port = parseInt(state.port) || 8080;
+    if (!params.ip) { if (detailEl) detailEl.textContent = 'Enter NMOS registry IP to test'; setEquipDot(dotId, false); return; }
   } else if (type === 'encoder') {
-    params.encoderType = document.getElementById('equip-encoder-type').value;
-    const hostEl = document.getElementById('equip-encoder-host');
-    const portEl = document.getElementById('equip-encoder-port');
-    const pwEl = document.getElementById('equip-encoder-password');
-    const sourceEl = document.getElementById('equip-encoder-source');
-    params.ip = hostEl ? hostEl.value.trim() : '';
-    params.port = portEl ? parseInt(portEl.value) || 80 : 80;
-    params.password = pwEl ? pwEl.value : '';
-    params.source = sourceEl ? sourceEl.value.trim() : '';
-    if (!params.encoderType) { detailEl.textContent = 'Select encoder type first'; setEquipDot(dotId, false); return; }
-    if (params.encoderType === 'ecamm') {
-      params.ip = '127.0.0.1';
-      params.port = 65194;
-    } else if (params.encoderType === 'ndi' && !params.ip) {
-      detailEl.textContent = 'Enter NDI source name';
-      setEquipDot(dotId, false);
-      return;
-    } else if (params.encoderType === 'ndi') {
-      params.source = params.source || params.ip;
-    } else if (!params.ip && !['yolobox', 'custom-rtmp', 'rtmp-generic'].includes(params.encoderType)) {
-      detailEl.textContent = 'Enter encoder IP address';
-      setEquipDot(dotId, false);
-      return;
-    }
+    // Encoder is multi-instance — redirect to testEquipIdx for primary
+    return testEquipIdx('encoder', 0);
   } else if (type === 'mixer') {
-    params.mixerType = document.getElementById('equip-mixer-type').value;
-    params.ip = document.getElementById('equip-mixer-host').value.trim();
-    params.port = parseInt(document.getElementById('equip-mixer-port').value) || 0;
-    if (!params.ip) { detailEl.textContent = 'Enter console IP address'; setEquipDot(dotId, false); return; }
-    if (!params.mixerType) { detailEl.textContent = 'Select console type first'; setEquipDot(dotId, false); return; }
+    params.mixerType = state.type;
+    params.ip = (state.host || '').trim();
+    params.port = parseInt(state.port) || 0;
+    if (!params.ip) { if (detailEl) detailEl.textContent = 'Enter console IP address'; setEquipDot(dotId, false); return; }
+    if (!params.mixerType) { if (detailEl) detailEl.textContent = 'Select console type first'; setEquipDot(dotId, false); return; }
+  } else if (type === 'ndi') {
+    params.type = 'ndi';
+    params.source = (state.source || '').trim();
+    if (!params.source) { if (detailEl) detailEl.textContent = 'Enter NDI source name'; setEquipDot(dotId, false); return; }
   }
 
-  detailEl.textContent = 'Testing…';
+  if (detailEl) detailEl.textContent = 'Testing\u2026';
   const result = await api.testEquipmentConnection(params);
-  detailEl.textContent = result.details;
+  if (detailEl) detailEl.textContent = result.details;
   setEquipDot(dotId, result.success);
 }
 
 async function testEquipIdx(type, idx) {
+  syncDomToState();
+  const entries = deviceState[type];
+  if (!entries || !entries[idx]) return;
+  const entry = entries[idx];
   let params = { type };
-  if (type === 'hyperdeck') params.ip = hyperdeckEntries[idx];
-  else if (type === 'videohub') {
-    const hub = videoHubEntries[idx];
-    if (!hub) return;
-    params.ip = hub.ip;
+
+  if (type === 'encoder') {
+    params.type = 'encoder';
+    params.encoderType = entry.encoderType;
+    params.ip = (entry.host || '').trim();
+    params.port = parseInt(entry.port) || 80;
+    params.password = entry.password || '';
+    params.source = (entry.source || '').trim();
+    if (!params.encoderType) return;
+    if (params.encoderType === 'ecamm') { params.ip = '127.0.0.1'; params.port = 65194; }
+    else if (params.encoderType === 'ndi' && !params.ip) return;
+    else if (params.encoderType === 'ndi') { params.source = params.source || params.ip; }
+    else if (!params.ip && !['yolobox', 'custom-rtmp', 'rtmp-generic', 'atem-streaming'].includes(params.encoderType)) return;
+  } else if (type === 'hyperdeck') {
+    params.ip = (entry.ip || '').trim();
+  } else if (type === 'videohub') {
+    params.ip = (entry.ip || '').trim();
     params.port = 9990;
   } else if (type === 'ptz') {
-    const rows = document.querySelectorAll('#equip-ptz-list .equip-row');
-    const row = rows[idx];
-    const cam = row ? {
-      ip: (row.querySelector('[data-ptz="ip"]')?.value || '').trim(),
-      protocol: (row.querySelector('[data-ptz="protocol"]')?.value || 'auto').trim(),
-      port: parseInt(row.querySelector('[data-ptz="port"]')?.value || '0', 10) || 0,
-      username: row.querySelector('[data-ptz="username"]')?.value || '',
-      password: row.querySelector('[data-ptz="password"]')?.value || '',
-    } : (ptzEntries[idx] || {});
-    params.ip = cam.ip;
-    params.protocol = cam.protocol || 'auto';
-    params.port = parseInt(cam.port, 10) || 0;
-    params.username = cam.username || '';
-    params.password = cam.password || '';
+    params.ip = (entry.ip || '').trim();
+    params.protocol = entry.protocol || 'auto';
+    params.port = parseInt(entry.port) || 0;
+    params.username = entry.username || '';
+    params.password = entry.password || '';
   }
-  if (!params.ip) return;
+  if (type !== 'encoder' && !params.ip) return;
+
+  const dotId = `equip-dot-${type}-${idx}`;
+  const detailId = `equip-${type}-detail-${idx}`;
+  const detailEl = document.getElementById(detailId);
+  if (detailEl) detailEl.textContent = 'Testing\u2026';
+
   const result = await api.testEquipmentConnection(params);
-  addAlert(`${type} ${params.ip}: ${result.success ? '✅' : '❌'} ${result.details}`);
+  if (detailEl) detailEl.textContent = result.details;
+  setEquipDot(dotId, result.success);
 }
 
 // ── EQUIPMENT GROUP TOGGLE ──────────────────────────────────────────────────
@@ -1507,26 +1265,6 @@ function toggleEquipGroup(groupName) {
 }
 
 // ── NDI MONITORING ──────────────────────────────────────────────────────────
-
-function isNdiVisible() {
-  const card = document.getElementById('equip-ndi-card');
-  return !!card && card.style.display !== 'none';
-}
-
-function toggleNdi(show, clear = true) {
-  const card = document.getElementById('equip-ndi-card');
-  const addBtn = document.getElementById('btn-add-ndi');
-  if (card) card.style.display = show ? '' : 'none';
-  if (addBtn) addBtn.style.display = show ? 'none' : '';
-  if (!show && clear) {
-    const srcEl = document.getElementById('equip-ndi-source');
-    const lblEl = document.getElementById('equip-ndi-label');
-    if (srcEl) srcEl.value = '';
-    if (lblEl) lblEl.value = '';
-    const detailEl = document.getElementById('equip-ndi-detail');
-    if (detailEl) detailEl.textContent = '';
-  }
-}
 
 async function testNdi() {
   const source = (document.getElementById('equip-ndi-source')?.value || '').trim();
@@ -1603,64 +1341,60 @@ function updateNdiStatus(status) {
 // ── SAVE EQUIPMENT ─────────────────────────────────────────────────────────
 
 async function saveEquipment() {
-  document.querySelectorAll('#equip-hyperdecks-list input').forEach((inp, i) => {
-    hyperdeckEntries[i] = inp.value.trim();
-  });
-  const ptzRows = document.querySelectorAll('#equip-ptz-list .equip-row');
-  ptzEntries = Array.from(ptzRows).map((row, i) => ({
-    ip: (row.querySelector('[data-ptz="ip"]')?.value || '').trim(),
-    name: (row.querySelector('[data-ptz="name"]')?.value || `PTZ ${i + 1}`).trim(),
-    protocol: (row.querySelector('[data-ptz="protocol"]')?.value || 'auto').trim(),
-    port: Number(row.querySelector('[data-ptz="port"]')?.value || 0) || '',
-    username: row.querySelector('[data-ptz="username"]')?.value || '',
-    password: row.querySelector('[data-ptz="password"]')?.value || '',
-    profileToken: ptzEntries[i]?.profileToken || '',
-  }));
+  // Flush DOM inputs into deviceState
+  syncDomToState();
 
-  // Gather encoder fields
-  const encType = document.getElementById('equip-encoder-type').value;
-  const encHostEl = document.getElementById('equip-encoder-host');
-  const encPortEl = document.getElementById('equip-encoder-port');
-  const encPwEl = document.getElementById('equip-encoder-password');
-  const encLabelEl = document.getElementById('equip-encoder-label');
-  const encStatusUrlEl = document.getElementById('equip-encoder-status-url');
-  const encSourceEl = document.getElementById('equip-encoder-source');
+  // Build encoders array (all configured encoders)
+  const encoders = deviceState.encoder.filter(e => e.encoderType).map(e => ({
+    type: e.encoderType, host: (e.host || '').trim(),
+    port: parseInt(e.port) || null, password: e.password || '',
+    label: (e.label || '').trim(), statusUrl: (e.statusUrl || '').trim(),
+    source: (e.source || '').trim(),
+  }));
+  // Primary encoder (first in list) — backward compat with church-client
+  const enc = deviceState.encoder[0] || {};
+  const encType = enc.encoderType || '';
 
   const config = {
-    atemIp: document.getElementById('equip-atem-ip').value.trim(),
-    companionUrl: document.getElementById('equip-companion-url').value.trim(),
-    // Encoder config
+    atemIp: (deviceState.atem.ip || '').trim(),
+    companionUrl: (deviceState.companion.url || '').trim(),
+    // Encoders array (new format)
+    encoders,
+    // Primary encoder flat fields (backward compat)
     encoderType: encType,
-    encoderHost: encHostEl ? encHostEl.value.trim() : '',
-    encoderPort: encPortEl ? parseInt(encPortEl.value) || 0 : 0,
-    encoderPassword: encPwEl ? encPwEl.value : '',
-    encoderLabel: encLabelEl ? encLabelEl.value.trim() : '',
-    encoderStatusUrl: encStatusUrlEl ? encStatusUrlEl.value.trim() : '',
-    encoderSource: encSourceEl ? encSourceEl.value.trim() : '',
-    // For OBS type, also save obsUrl/obsPassword for switcher features
-    obsUrl: encType === 'obs' && encHostEl ? `ws://${encHostEl.value.trim() || 'localhost'}:${encPortEl ? encPortEl.value || '4455' : '4455'}` : '',
-    obsPassword: encType === 'obs' && encPwEl ? encPwEl.value : '',
-    hyperdecks: hyperdeckEntries.filter(ip => ip),
-    videoHubs: videoHubEntries.filter(h => h.ip),
-    ptz: ptzEntries.filter(c => c.ip),
-    proPresenterHost: isOptionalDeviceVisible('propresenter') ? (document.getElementById('equip-pp-host').value.trim() || 'localhost') : '',
-    proPresenterPort: parseInt(document.getElementById('equip-pp-port').value) || 1025,
-    danteNmosHost: document.getElementById('equip-dante-host').value.trim(),
-    danteNmosPort: parseInt(document.getElementById('equip-dante-port').value) || 8080,
+    encoderHost: (enc.host || '').trim(),
+    encoderPort: parseInt(enc.port) || 0,
+    encoderPassword: enc.password || '',
+    encoderLabel: (enc.label || '').trim(),
+    encoderStatusUrl: (enc.statusUrl || '').trim(),
+    encoderSource: (enc.source || '').trim(),
+    obsUrl: encType === 'obs' ? `ws://${(enc.host || 'localhost').trim()}:${enc.port || '4455'}` : '',
+    obsPassword: encType === 'obs' ? (enc.password || '') : '',
+    // Multi-instance
+    hyperdecks: deviceState.hyperdeck.map(h => (h.ip || '').trim()).filter(Boolean),
+    videoHubs: deviceState.videohub.filter(h => (h.ip || '').trim()),
+    ptz: deviceState.ptz.filter(c => (c.ip || '').trim()),
+    // Optional single devices
+    proPresenterHost: deviceState.propresenter.configured ? ((deviceState.propresenter.host || '').trim() || 'localhost') : '',
+    proPresenterPort: parseInt(deviceState.propresenter.port) || 1025,
+    vmixHost: deviceState.vmix.configured ? (deviceState.vmix.host || '').trim() : '',
+    vmixPort: parseInt(deviceState.vmix.port) || 8088,
+    resolumeHost: deviceState.resolume.configured ? (deviceState.resolume.host || '').trim() : '',
+    resolumePort: parseInt(deviceState.resolume.port) || 8080,
+    // Audio
+    mixerType: deviceState.mixer.type || '',
+    mixerHost: (deviceState.mixer.host || '').trim(),
+    mixerPort: parseInt(deviceState.mixer.port) || 0,
+    danteNmosHost: (deviceState.dante.host || '').trim(),
+    danteNmosPort: parseInt(deviceState.dante.port) || 8080,
+    // NDI
+    ndiSource: deviceState.ndi.configured ? (deviceState.ndi.source || '').trim() : '',
+    ndiLabel: deviceState.ndi.configured ? (deviceState.ndi.label || '').trim() : '',
+    // Streaming keys (read from static DOM section)
     youtubeApiKey: document.getElementById('equip-youtube-key').value.trim() || undefined,
     facebookAccessToken: document.getElementById('equip-facebook-token').value.trim() || undefined,
     rtmpUrl: document.getElementById('equip-rtmp-url').value.trim() || '',
     rtmpStreamKey: document.getElementById('equip-rtmp-key').value.trim() || undefined,
-    vmixHost: isOptionalDeviceVisible('vmix') ? document.getElementById('equip-vmix-host').value.trim() : '',
-    vmixPort: parseInt(document.getElementById('equip-vmix-port').value) || 8088,
-    resolumeHost: isOptionalDeviceVisible('resolume') ? document.getElementById('equip-resolume-host').value.trim() : '',
-    resolumePort: parseInt(document.getElementById('equip-resolume-port').value) || 8080,
-    mixerType: document.getElementById('equip-mixer-type').value,
-    mixerHost: document.getElementById('equip-mixer-host').value.trim(),
-    mixerPort: parseInt(document.getElementById('equip-mixer-port').value) || 0,
-    // NDI Monitoring (separate from encoder)
-    ndiSource: isNdiVisible() ? (document.getElementById('equip-ndi-source')?.value || '').trim() : '',
-    ndiLabel: isNdiVisible() ? (document.getElementById('equip-ndi-label')?.value || '').trim() : '',
   };
 
   const confirmEl = document.getElementById('save-confirm');
@@ -1673,25 +1407,22 @@ async function saveEquipment() {
       confirmEl.style.display = 'inline';
       setTimeout(() => { confirmEl.style.display = 'none'; }, 2000);
     }
-    // Update dashboard encoder label immediately after save
-    const encNames = {
-      obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
-      aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek', tricaster: 'TriCaster', birddog: 'BirdDog',
-      ndi: 'NDI Decoder', yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
-      'atem-streaming': 'ATEM Mini',
-    };
-    const newLabel = encNames[encType] || 'Encoder';
+    // Update dashboard encoder label
+    const newLabel = ENCODER_DISPLAY_NAMES[encType] || 'Encoder';
     const dotLabel = document.getElementById('dot-encoder-label');
     if (dotLabel) dotLabel.textContent = newLabel;
     const sectionTitle = document.getElementById('encoder-section-title');
     if (sectionTitle) sectionTitle.textContent = newLabel;
-    // Cache for NDI status + update visibility
+    // Cache + NDI visibility
     window._savedEquipment = config;
+    window._encoderConfig = { _type: encType, host: (enc.host || '').trim(), port: enc.port || '', password: enc.password || '', label: (enc.label || '').trim(), statusUrl: (enc.statusUrl || '').trim(), source: (enc.source || '').trim() };
     const ndiConfigured = !!(config.ndiSource && config.ndiSource.trim());
     const ndiSection = document.getElementById('ndi-status-section');
     const ndiChip = document.getElementById('dot-ndi-chip');
     if (ndiSection) ndiSection.style.display = ndiConfigured ? '' : 'none';
     if (ndiChip) ndiChip.style.display = ndiConfigured ? '' : 'none';
+    // Refresh summary chips
+    renderActiveSummary();
   } catch (e) {
     if (errorEl) {
       errorEl.textContent = 'Save failed: ' + (e.message || 'unknown error');
@@ -1749,13 +1480,15 @@ async function hydrateNetworkInterfaceSelect() {
 
 async function startNetworkScan() {
   const btn = document.getElementById('scan-btn');
+  const panel = document.getElementById('equip-scan-panel');
   const progress = document.getElementById('scan-progress');
   const fill = document.getElementById('scan-fill');
   const status = document.getElementById('scan-status');
   const resultsEl = document.getElementById('scan-results');
 
   btn.disabled = true;
-  btn.textContent = '🔍 Scanning…';
+  btn.textContent = '\u{1F50D} Scanning\u2026';
+  if (panel) panel.style.display = '';
   progress.style.display = 'block';
   resultsEl.innerHTML = '';
   fill.style.width = '0%';
@@ -1795,73 +1528,46 @@ async function startNetworkScan() {
       (results.mixers || []).length;
     status.textContent = `Scan complete: ${total} device${total !== 1 ? 's' : ''} found`;
 
-    results.atem.forEach(d => addScanResult(resultsEl, `ATEM at ${d.ip}`, () => {
-      document.getElementById('equip-atem-ip').value = d.ip;
-      testEquip('atem');
+    // Use addFromScan() to populate deviceState and re-render catalog
+    (results.atem || []).forEach(d => addScanResult(resultsEl, `ATEM at ${d.ip}`, () => {
+      addFromScan('atem', d);
     }));
-    results.companion.forEach(d => addScanResult(resultsEl, `Companion at ${d.ip} (${d.connections} connections)`, () => {
-      document.getElementById('equip-companion-url').value = `http://${d.ip}:${d.port}`;
-      testEquip('companion');
+    (results.companion || []).forEach(d => addScanResult(resultsEl, `Companion at ${d.ip} (${d.connections} connections)`, () => {
+      addFromScan('companion', { ...d, url: `http://${d.ip}:${d.port}` });
     }));
-    results.obs.forEach(d => addScanResult(resultsEl, `OBS at ${d.ip}:${d.port}`, () => {
-      document.getElementById('equip-obs-url').value = `ws://${d.ip}:${d.port}`;
-      testEquip('obs');
+    (results.obs || []).forEach(d => addScanResult(resultsEl, `OBS at ${d.ip}:${d.port}`, () => {
+      addFromScan('obs', d);
     }));
-    results.hyperdeck.forEach(d => addScanResult(resultsEl, `HyperDeck at ${d.ip}`, () => {
-      if (!hyperdeckEntries.includes(d.ip)) { hyperdeckEntries.push(d.ip); renderHyperdecks(); }
+    (results.hyperdeck || []).forEach(d => addScanResult(resultsEl, `HyperDeck at ${d.ip}`, () => {
+      addFromScan('hyperdeck', d);
     }));
     (results.videohub || []).forEach(d => addScanResult(resultsEl, `VideoHub at ${d.ip}`, () => {
-      if (!videoHubEntries.find(h => h.ip === d.ip)) { videoHubEntries.push({ ip: d.ip, name: '' }); renderVideoHubs(); }
+      addFromScan('videohub', d);
     }));
-
     (results.propresenter || []).forEach(d => addScanResult(resultsEl, `ProPresenter at ${d.ip}:${d.port}`, () => {
-      setOptionalDeviceVisible('propresenter', true, { initDefaults: false, clear: false });
-      document.getElementById('equip-pp-host').value = d.ip;
-      document.getElementById('equip-pp-port').value = d.port || '1025';
-      testEquip('propresenter');
+      addFromScan('propresenter', d);
     }));
     (results.vmix || []).forEach(d => addScanResult(resultsEl, `vMix ${d.edition || ''} at ${d.ip}:${d.port}`, () => {
-      setOptionalDeviceVisible('vmix', true, { initDefaults: false, clear: false });
-      document.getElementById('equip-vmix-host').value = d.ip;
-      document.getElementById('equip-vmix-port').value = d.port || '8088';
-      testEquip('vmix');
+      addFromScan('vmix', d);
     }));
     (results.resolume || []).forEach(d => addScanResult(resultsEl, `${d.version || 'Resolume'} at ${d.ip}:${d.port}`, () => {
-      setOptionalDeviceVisible('resolume', true, { initDefaults: false, clear: false });
-      document.getElementById('equip-resolume-host').value = d.ip;
-      document.getElementById('equip-resolume-port').value = d.port || '8080';
-      testEquip('resolume');
+      addFromScan('resolume', d);
     }));
     (results.tricaster || []).forEach(d => addScanResult(resultsEl, `TriCaster at ${d.ip}:${d.port}`, () => {
-      document.getElementById('equip-encoder-type').value = 'tricaster';
-      onEncoderTypeChanged();
-      const hostEl = document.getElementById('equip-encoder-host');
-      const portEl = document.getElementById('equip-encoder-port');
-      if (hostEl) hostEl.value = d.ip;
-      if (portEl) portEl.value = d.port || '5951';
-      testEquip('encoder');
+      addFromScan('tricaster', d);
     }));
     (results.birddog || []).forEach(d => addScanResult(resultsEl, `BirdDog at ${d.ip}:${d.port}`, () => {
-      document.getElementById('equip-encoder-type').value = 'birddog';
-      onEncoderTypeChanged();
-      const hostEl = document.getElementById('equip-encoder-host');
-      const portEl = document.getElementById('equip-encoder-port');
-      const sourceEl = document.getElementById('equip-encoder-source');
-      if (hostEl) hostEl.value = d.ip;
-      if (portEl) portEl.value = d.port || '8080';
-      if (sourceEl && d.source) sourceEl.value = d.source;
-      testEquip('encoder');
+      addFromScan('birddog', d);
     }));
     (results.mixers || []).forEach(d => addScanResult(resultsEl, `Possible audio console at ${d.ip}:${d.port} (${d.type})`, () => {
-      document.getElementById('equip-mixer-host').value = d.ip;
-      if (d.port) document.getElementById('equip-mixer-port').value = d.port;
+      addFromScan('mixers', { ...d, mixerType: d.type });
     }));
   } catch (e) {
     status.textContent = 'Scan failed: ' + e.message;
   } finally {
     if (typeof off === 'function') off();
     btn.disabled = false;
-    btn.textContent = '🔍 Scan Network';
+    btn.textContent = '\u{1F50D} Scan Network';
   }
 }
 
