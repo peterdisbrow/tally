@@ -150,6 +150,22 @@ async function atemStopRecording(agent) {
   return 'Recording stopped';
 }
 
+async function atemStartStreaming(agent) {
+  await agent.atemCommand(async () => {
+    if (typeof agent.atem?.startStreaming === 'function') return agent.atem.startStreaming();
+    throw new Error('ATEM streaming start is not supported by this switcher');
+  });
+  return 'Streaming started';
+}
+
+async function atemStopStreaming(agent) {
+  await agent.atemCommand(async () => {
+    if (typeof agent.atem?.stopStreaming === 'function') return agent.atem.stopStreaming();
+    throw new Error('ATEM streaming stop is not supported by this switcher');
+  });
+  return 'Streaming stopped';
+}
+
 async function atemFadeToBlack(agent, params) {
   const me = toInt(params.me ?? 0, 'me');
   await agent.atemCommand(async () => {
@@ -1480,6 +1496,8 @@ const commandHandlers = {
   'atem.setPreview': atemSetPreview,
   'atem.startRecording': atemStartRecording,
   'atem.stopRecording': atemStopRecording,
+  'atem.startStreaming': atemStartStreaming,
+  'atem.stopStreaming': atemStopStreaming,
   'atem.fadeToBlack': atemFadeToBlack,
   'atem.setInputLabel': atemSetInputLabel,
   'atem.runMacro': atemRunMacro,

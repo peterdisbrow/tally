@@ -29,88 +29,111 @@ const ALERT_CLASSIFICATIONS = {
 const DIAGNOSIS_TEMPLATES = {
   'stream_stopped': {
     likely_cause: 'Internet fluctuation or encoder crash',
+    confidence: 85,
     steps: ['Check OBS — is it still running?', 'Click "Start Streaming" in Tally', 'If still down, restart your router'],
     canAutoFix: true,
   },
   'atem_disconnected': {
     likely_cause: 'ATEM lost network connection',
+    confidence: 90,
     steps: ['Check ethernet cable on ATEM', 'Ping ATEM IP from production computer', 'Power cycle ATEM if needed'],
     canAutoFix: false,
   },
   'recording_failed': {
     likely_cause: 'Storage full or recording drive disconnected',
+    confidence: 70,
     steps: ['Check available disk space', 'Verify recording drive is mounted', 'Try starting recording manually'],
     canAutoFix: false,
   },
   'fps_low': {
     likely_cause: 'CPU overloaded or encoding settings too high',
+    confidence: 80,
     steps: ['Check CPU usage in OBS', 'Tally will auto-reduce bitrate', 'If persistent, lower resolution in OBS settings'],
     canAutoFix: true,
   },
   'bitrate_low': {
     likely_cause: 'Network bandwidth insufficient for current settings',
+    confidence: 75,
     steps: ['Check internet speed', 'Close other bandwidth-heavy applications', 'Consider lowering stream quality'],
     canAutoFix: true,
   },
   'cpu_high': {
     likely_cause: 'Too many OBS sources or effects active',
+    confidence: 85,
     steps: ['Close unnecessary applications', 'Disable unused OBS sources', 'Reduce output resolution'],
     canAutoFix: false,
   },
   'obs_disconnected': {
     likely_cause: 'OBS crashed or WebSocket plugin issue',
+    confidence: 80,
     steps: ['Check if OBS is still running', 'Restart OBS if needed', 'Verify WebSocket server is enabled in OBS settings'],
     canAutoFix: false,
   },
   'companion_disconnected': {
     likely_cause: 'Companion app crashed or network issue',
+    confidence: 75,
     steps: ['Check if Companion is running on the booth computer', 'Restart Companion app if needed', 'Verify Companion HTTP API is enabled on port 8000'],
     canAutoFix: false,
   },
   'vmix_disconnected': {
     likely_cause: 'vMix lost connection or Web Controller disabled',
+    confidence: 80,
     steps: ['Check if vMix is running', 'Verify Web Controller is enabled in vMix Settings', 'Check network connectivity'],
     canAutoFix: false,
   },
   'audio_silence': {
     likely_cause: 'Audio signal lost — mixer may be muted or disconnected',
+    confidence: 65,
     steps: ['Check mixer master fader and mute status', 'Verify audio routing from mixer to encoder', 'Check physical audio cable connections'],
     canAutoFix: false,
   },
   'multiple_systems_down': {
     likely_cause: 'Possible network outage or power issue at venue',
+    confidence: 90,
     steps: ['Check network switch/router', 'Verify power to production rack', 'Contact someone on-site immediately'],
     canAutoFix: false,
   },
   'recording_not_started': {
     likely_cause: 'Recording was not started before service',
+    confidence: 95,
     steps: ['Start recording via Tally', 'Check ATEM recording settings'],
     canAutoFix: true,
   },
   'encoder_disconnected': {
     likely_cause: 'Hardware encoder lost network connection or powered off',
+    confidence: 85,
     steps: ['Check encoder power and network cables', 'Verify encoder IP address is correct', 'Try power-cycling the encoder'],
     canAutoFix: false,
   },
   'hyperdeck_disconnected': {
     likely_cause: 'HyperDeck lost network connection or powered off',
+    confidence: 85,
     steps: ['Check HyperDeck network cable connection', 'Verify HyperDeck IP address on front panel', 'Power cycle HyperDeck if needed'],
     canAutoFix: false,
   },
   'mixer_disconnected': {
     likely_cause: 'Audio console lost network connection',
+    confidence: 85,
     steps: ['Check network cable on mixer', 'Verify mixer IP address and port', 'Check if another application has taken the OSC port'],
     canAutoFix: false,
   },
   'ptz_disconnected': {
     likely_cause: 'PTZ camera lost network connection',
+    confidence: 85,
     steps: ['Check PTZ camera network cable', 'Verify camera IP address', 'Power cycle camera if needed'],
     canAutoFix: false,
   },
   'propresenter_disconnected': {
     likely_cause: 'ProPresenter closed or network API disabled',
+    confidence: 80,
     steps: ['Check if ProPresenter is running', 'Verify Network API is enabled in ProPresenter preferences', 'Check network connectivity to presentation computer'],
     canAutoFix: false,
+  },
+  'atem_stream_stopped': {
+    likely_cause: 'ATEM streaming encoder stopped — network issue or service disruption',
+    confidence: 85,
+    steps: ['Check ATEM streaming settings', 'Verify streaming service key is still valid', 'Check internet connection to ATEM'],
+    canAutoFix: true,
   },
 };
 
@@ -408,4 +431,4 @@ class AlertEngine {
   }
 }
 
-module.exports = { AlertEngine, ALERT_CLASSIFICATIONS };
+module.exports = { AlertEngine, ALERT_CLASSIFICATIONS, DIAGNOSIS_TEMPLATES };

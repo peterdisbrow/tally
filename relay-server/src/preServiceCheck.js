@@ -13,18 +13,54 @@ class PreServiceCheck {
    * @param {Map} opts.churches - in-memory church runtime map from server.js
    * @param {string} [opts.defaultBotToken] - Telegram bot token for sending alerts
    * @param {string} [opts.andrewChatId] - Andrew's Telegram chat ID
+   * @param {object} [opts.sessionRecap] - SessionRecap instance for session ID linking
    */
-  constructor({ db, scheduleEngine, churches, defaultBotToken, andrewChatId } = {}) {
+  constructor({ db, scheduleEngine, churches, defaultBotToken, andrewChatId, sessionRecap } = {}) {
     this.lastPreServiceCheckAt = new Map(); // churchId → timestamp (ms)
     this._timer = null;
     this.db = db || null;
     this.scheduleEngine = scheduleEngine || null;
     this.churches = churches || null;
+    this.sessionRecap = sessionRecap || null;
     this.tallyBot = null;
     this.sendCommand = null;
     this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN;
     this.andrewChatId = andrewChatId || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this._resultListeners = [];
+    this._ensureTable();
+  }
+
+  _ensureTable() {
+    if (!this.db) return;
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS preservice_check_results (
+        id TEXT PRIMARY KEY,
+        church_id TEXT NOT NULL,
+        session_id TEXT,
+        pass INTEGER DEFAULT 0,
+        checks_json TEXT DEFAULT '[]',
+        trigger_type TEXT DEFAULT 'auto',
+        created_at TEXT NOT NULL
+      )
+    `);
+    try {
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_preservice_church ON preservice_check_results(church_id, created_at DESC)');
+    } catch { /* already exists */ }
+  }
+
+  /**
+   * Get the latest pre-service check result for a church.
+   * @param {string} churchId
+   * @returns {object|null}
+   */
+  getLatestResult(churchId) {
+    try {
+      const row = this.db.prepare(
+        'SELECT * FROM preservice_check_results WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
+      ).get(churchId);
+      if (!row) return null;
+      return { ...row, checks: JSON.parse(row.checks_json || '[]') };
+    } catch { return null; }
   }
 
   /**
@@ -130,6 +166,9 @@ class PreServiceCheck {
       console.error(`[PreServiceCheck] sendCommand error for ${church.name}:`, e.message);
     }
 
+    // Persist result to DB for portal display
+    this._persistResult(church.churchId, result, 'auto');
+
     // Send via Telegram — use tallyBot if available, or raw API
     const botToken = this.defaultBotToken;
     if (!botToken) return;
@@ -170,6 +209,70 @@ class PreServiceCheck {
         console.error('[PreServiceCheck] Telegram send error:', e.message);
       }
     }
+  }
+  /**
+   * Persist a check result to DB for portal visibility.
+   * @param {string} churchId
+   * @param {object|null} result - { pass, checks } from client
+   * @param {string} triggerType - 'auto' or 'manual'
+   */
+  _persistResult(churchId, result, triggerType = 'auto') {
+    if (!this.db || !result) return;
+    try {
+      const crypto = require('crypto');
+      const sessionId = this.sessionRecap?.getActiveSessionId(churchId) || null;
+      this.db.prepare(`
+        INSERT INTO preservice_check_results (id, church_id, session_id, pass, checks_json, trigger_type, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        crypto.randomUUID(), churchId, sessionId,
+        result.pass ? 1 : 0, JSON.stringify(result.checks || []),
+        triggerType, new Date().toISOString()
+      );
+    } catch (e) {
+      console.error('[PreServiceCheck] DB persist error:', e.message);
+    }
+  }
+
+  /**
+   * Run a manual pre-service check for a church (triggered from portal).
+   * @param {string} churchId
+   * @returns {Promise<object|null>} Check result
+   */
+  async runManualCheck(churchId) {
+    const churchRuntime = this.churches?.get(churchId);
+    if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
+      return null;
+    }
+
+    const crypto = require('crypto');
+    const msgId = crypto.randomUUID();
+
+    // Set up listener BEFORE sending command
+    const resultPromise = new Promise((resolve) => {
+      const timer = setTimeout(() => { cleanup(); resolve(null); }, 10000);
+      const handler = (msg) => {
+        if (msg.type === 'command_result' && msg.churchId === churchId && msg.messageId === msgId) {
+          cleanup();
+          resolve(msg.error ? null : msg.result);
+        }
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
+        const idx = this._resultListeners.indexOf(handler);
+        if (idx !== -1) this._resultListeners.splice(idx, 1);
+      };
+      this._resultListeners.push(handler);
+    });
+
+    // Send command to client
+    churchRuntime.ws.send(JSON.stringify({
+      type: 'command', command: 'system.preServiceCheck', params: {}, id: msgId,
+    }));
+
+    const result = await resultPromise;
+    this._persistResult(churchId, result, 'manual');
+    return result;
   }
 }
 

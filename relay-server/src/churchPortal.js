@@ -434,6 +434,7 @@ function buildChurchPortalHtml(church) {
     .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
     .status-dot.online { background: #22c55e; box-shadow: 0 0 5px #22c55e; }
     .status-dot.offline { background: #94A3B8; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
     /* STATS ROW */
     .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
     .stat-card {
@@ -547,6 +548,9 @@ function buildChurchPortalHtml(church) {
     <button class="nav-item" data-page="notifications" onclick="showPage('notifications', this)">
       <span class="icon">⊜</span> Notifications
     </button>
+    <button class="nav-item" data-page="engineer" onclick="showPage('engineer', this)">
+      <span class="icon">⊛</span> Tally Engineer
+    </button>
     <button class="nav-item" data-page="guests" onclick="showPage('guests', this)">
       <span class="icon">⊝</span> Guest Access
     </button>
@@ -613,6 +617,17 @@ function buildChurchPortalHtml(church) {
           <div class="stat-label">Tech Directors</div>
         </div>
       </div>
+
+      <!-- Live Incident Commander (shown only during active sessions) -->
+      <div class="card" id="incident-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin:0"><span id="incident-status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:8px;animation:pulse 2s infinite"></span>LIVE SESSION</div>
+          <span id="incident-duration" style="font-size:12px;color:#94A3B8"></span>
+        </div>
+        <div id="incident-meta" style="font-size:12px;color:#94A3B8;margin-bottom:12px"></div>
+        <div id="incident-body"></div>
+      </div>
+
       <div class="card">
         <div class="card-title"><span class="tip" data-tip="Real-time status of each AV device Tally monitors (ATEM, OBS, HyperDeck, etc.)">Equipment Status</span></div>
         <table>
@@ -622,6 +637,21 @@ function buildChurchPortalHtml(church) {
           </tbody>
         </table>
       </div>
+      <!-- Pre-Service Check Card -->
+      <div class="card" id="preservice-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Tally Engineer runs a systems check ~30 minutes before each service">🔧 Pre-Service Check</span></div>
+          <span id="preservice-time" style="font-size:11px;color:#64748b"></span>
+        </div>
+        <div id="preservice-body">
+          <div style="color:#475569;text-align:center;padding:12px;font-size:13px">Loading…</div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn-primary" id="preservice-fix-btn" onclick="fixAllPreServiceIssues()" style="display:none;font-size:12px;padding:6px 14px">Fix All Safe Issues</button>
+          <button class="btn-secondary" id="preservice-run-btn" onclick="runPreServiceCheck()" style="font-size:12px;padding:6px 14px">Run Check Now</button>
+        </div>
+      </div>
+
       <!-- Campus Selector (multi-campus only) -->
       <div id="pf-campus-picker" style="display:none; margin-bottom:16px;">
         <label style="font-size:12px;color:#94A3B8;margin-right:8px;">Viewing:</label>
@@ -630,10 +660,10 @@ function buildChurchPortalHtml(church) {
         </select>
       </div>
 
-      <!-- Problem Finder Card -->
+      <!-- Tally Engineer Card -->
       <div class="card" id="pf-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Automated diagnostics from Tally's Problem Finder — shows what was found, what was auto-fixed, and what still needs attention">Tally Diagnostics</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Automated diagnostics from Tally Engineer — shows what was found, what was auto-fixed, and what still needs attention">Tally Engineer</span></div>
           <span id="pf-badge" class="badge badge-gray">—</span>
         </div>
         <div id="pf-body">
@@ -837,6 +867,17 @@ function buildChurchPortalHtml(church) {
         </div>
       </div>
       <div class="card">
+        <div class="card-title">Auto-Recovery</div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Automatic issue recovery</div>
+            <div class="toggle-desc">Tally Engineer will automatically attempt to fix common issues (stream drops, recording failures, encoder reconnects) before alerting your TD. Recovery actions are always logged in session reports.</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="notif-auto-recovery"><span class="slider"></span></label>
+        </div>
+        <button class="btn-primary" onclick="saveNotifications()" style="margin-top:12px">Save Preferences</button>
+      </div>
+      <div class="card">
         <div class="card-title">Telegram Integration</div>
         <div class="field">
           <label>Your Telegram Chat ID</label>
@@ -844,6 +885,91 @@ function buildChurchPortalHtml(church) {
         </div>
         <p style="font-size:12px;color:#94A3B8;margin-bottom:16px">Message <a href="https://t.me/userinfobot" target="_blank" style="color:#22c55e">@userinfobot</a> on Telegram to get your chat ID.</p>
         <button class="btn-primary" onclick="saveNotifications()">Save Preferences</button>
+      </div>
+    </div>
+
+    <!-- TALLY ENGINEER -->
+    <div class="page" id="page-engineer">
+      <div class="page-header">
+        <div class="page-title">Train Your Tally Engineer</div>
+        <div class="page-sub">Help Tally Engineer understand your setup so it can diagnose problems faster and give better recommendations.</div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="card-title" style="margin:0">Training Status</div>
+          <span id="engineer-training-badge" class="badge badge-gray">—</span>
+        </div>
+        <p style="color:#94A3B8;font-size:13px;line-height:1.6;margin:0">
+          The more Tally Engineer knows about your setup, the better it can diagnose issues and suggest fixes.
+          Fill in as many fields as you can — you can always update them later.
+        </p>
+      </div>
+      <div class="card">
+        <div class="card-title">Setup Profile</div>
+        <div class="field-row">
+          <div class="field">
+            <label>Stream Platform</label>
+            <select id="eng-stream-platform">
+              <option value="">— Select —</option>
+              <option value="YouTube">YouTube</option>
+              <option value="Facebook">Facebook</option>
+              <option value="Vimeo">Vimeo</option>
+              <option value="Resi">Resi</option>
+              <option value="Boxcast">Boxcast</option>
+              <option value="Church Online Platform">Church Online Platform</option>
+              <option value="Custom RTMP">Custom RTMP</option>
+              <option value="None">None (record only)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Expected Viewers</label>
+            <select id="eng-expected-viewers">
+              <option value="">— Select —</option>
+              <option value="Under 50">Under 50</option>
+              <option value="50-200">50–200</option>
+              <option value="200-500">200–500</option>
+              <option value="500-1000">500–1,000</option>
+              <option value="1000+">1,000+</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Operator Experience</label>
+            <select id="eng-operator-level">
+              <option value="">— Select —</option>
+              <option value="Volunteer (new)">Volunteer (new)</option>
+              <option value="Volunteer (experienced)">Volunteer (experienced)</option>
+              <option value="Part-time staff">Part-time staff</option>
+              <option value="Full-time TD">Full-time TD</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Backup Encoder</label>
+            <input type="text" id="eng-backup-encoder" placeholder="e.g. OBS on second laptop, none">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Backup Switcher</label>
+            <input type="text" id="eng-backup-switcher" placeholder="e.g. ATEM Mini Pro as backup, none">
+          </div>
+          <div class="field" style="flex:1"></div>
+        </div>
+        <div class="field">
+          <label><span class="tip" data-tip="Anything special about your AV setup — audio routing, dual streams, unique workflows, known quirks">Special Notes</span></label>
+          <textarea id="eng-special-notes" placeholder="e.g. Audio feed comes from FOH board via USB, we run two simultaneous streams to YouTube and Facebook"></textarea>
+        </div>
+        <button class="btn-primary" onclick="saveEngineerProfile()">Save Profile</button>
+      </div>
+      <div class="card" id="coaching-card" style="display:none;margin-top:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin:0">📊 Weekly Engineer Notes</div>
+          <span id="coaching-week" style="font-size:11px;color:#64748b"></span>
+        </div>
+        <div id="coaching-body">
+          <div style="color:#475569;text-align:center;padding:16px;font-size:13px">Loading coaching data…</div>
+        </div>
       </div>
     </div>
 
@@ -1173,7 +1299,13 @@ function buildChurchPortalHtml(church) {
         // ── Schedule summary on overview ──────────────────────────────────────
         loadScheduleOverview();
 
-        // ── Problem Finder diagnostics ──────────────────────────────────────
+        // ── Live incident commander ──────────────────────────────────────────
+        loadIncidents();
+
+        // ── Pre-service check card ──────────────────────────────────────────
+        loadPreServiceCheck();
+
+        // ── Tally Engineer diagnostics ──────────────────────────────────────
         populatePfCampusPicker();
         loadProblems('');
       } catch(e) { console.error(e); }
@@ -1221,7 +1353,210 @@ function buildChurchPortalHtml(church) {
       }
     }
 
-    // ── Problem Finder: campus picker + card rendering ──────────────────────
+    // ── Live Incident Commander ──────────────────────────────────────────
+
+    async function loadIncidents() {
+      var card = document.getElementById('incident-card');
+      var body = document.getElementById('incident-body');
+      var durationEl = document.getElementById('incident-duration');
+      var metaEl = document.getElementById('incident-meta');
+      var dot = document.getElementById('incident-status-dot');
+      if (!card) return;
+
+      try {
+        var data = await api('GET', '/api/church/session/active');
+        if (!data || !data.active) {
+          card.style.display = 'none';
+          return;
+        }
+
+        card.style.display = '';
+        var session = data;
+
+        // Duration
+        var startMs = new Date(session.startedAt).getTime();
+        var durMin = Math.round((Date.now() - startMs) / 60000);
+        var durH = Math.floor(durMin / 60);
+        var durM = durMin % 60;
+        if (durationEl) durationEl.textContent = durH > 0 ? durH + 'h ' + durM + 'm' : durM + 'm';
+
+        // Meta line
+        var parts = [];
+        if (session.tdName) parts.push('TD: ' + session.tdName);
+        if (session.streaming) parts.push('🔴 Streaming');
+        if (session.peakViewers !== null) parts.push('👀 ' + session.peakViewers + ' peak viewers');
+        if (metaEl) metaEl.textContent = parts.join(' · ');
+
+        // Status dot color: green=clean, yellow=minor, red=escalated
+        if (dot) {
+          if (session.escalated > 0) { dot.style.background = '#ef4444'; }
+          else if (session.alertCount > 0) { dot.style.background = '#f59e0b'; }
+          else { dot.style.background = '#22c55e'; }
+        }
+
+        // Events for this session
+        var events = data.events || [];
+        if (!events.length && session.alertCount === 0) {
+          body.innerHTML = '<div style="color:#22c55e;font-size:13px;padding:8px 0">✅ No issues — smooth sailing</div>';
+          return;
+        }
+
+        var html = events.map(function(e) {
+          var t = new Date(e.timestamp);
+          var time = t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+          var type = (e.event_type || '').replace(/_/g, ' ');
+          var detail = e.details ? ' — ' + escapeHtml(typeof e.details === 'string' ? e.details.slice(0, 80) : '') : '';
+
+          var icon, statusLine;
+          if (e.auto_resolved) {
+            icon = '🤖';
+            statusLine = '<span style="color:#22c55e;font-size:11px;margin-left:8px">(auto-fixed)</span>';
+          } else if (e.resolved) {
+            icon = '✅';
+            statusLine = '<span style="color:#22c55e;font-size:11px;margin-left:8px">(resolved)</span>';
+          } else {
+            icon = '⚡';
+            statusLine = '<span style="color:#f59e0b;font-size:11px;margin-left:8px">(active)</span>';
+          }
+
+          // Diagnosis info if available
+          var diagHtml = '';
+          if (e.diagnosis) {
+            var confPct = e.diagnosis.confidence ? ' (' + e.diagnosis.confidence + '%)' : '';
+            diagHtml = '<div style="font-size:11px;color:#64748b;margin-top:2px;margin-left:28px">'
+              + 'Likely: ' + escapeHtml(e.diagnosis.likely_cause || '') + confPct
+              + '</div>';
+          }
+
+          return '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'
+            + '<div style="display:flex;align-items:center;gap:8px">'
+            + '<span style="font-size:11px;color:#64748b;min-width:60px">' + time + '</span>'
+            + '<span>' + icon + '</span>'
+            + '<span style="color:#F8FAFC;font-size:13px">' + escapeHtml(type) + '</span>'
+            + statusLine
+            + '</div>'
+            + (detail ? '<div style="font-size:12px;color:#94A3B8;margin-left:28px">' + detail + '</div>' : '')
+            + diagHtml
+            + '</div>';
+        }).join('');
+
+        if (!html) html = '<div style="color:#22c55e;font-size:13px;padding:8px 0">✅ No incidents recorded yet</div>';
+        body.innerHTML = html;
+      } catch(e) {
+        card.style.display = 'none';
+      }
+    }
+
+    // ── Pre-Service Check ────────────────────────────────────────────────
+
+    async function loadPreServiceCheck() {
+      var card = document.getElementById('preservice-card');
+      var body = document.getElementById('preservice-body');
+      var timeEl = document.getElementById('preservice-time');
+      if (!card || !body) return;
+
+      try {
+        var data = await api('GET', '/api/church/preservice-check');
+        if (!data || !data.checks_json) {
+          card.style.display = 'none';
+          return;
+        }
+
+        card.style.display = '';
+        var checks = [];
+        try { checks = JSON.parse(data.checks_json || '[]'); } catch {}
+        if (!checks.length) {
+          body.innerHTML = '<div style="color:#475569;text-align:center;padding:12px;font-size:13px">No check data available</div>';
+          return;
+        }
+
+        // Show relative time
+        if (data.created_at && timeEl) {
+          var ago = Math.round((Date.now() - new Date(data.created_at).getTime()) / 60000);
+          if (ago < 1) timeEl.textContent = 'just now';
+          else if (ago < 60) timeEl.textContent = ago + ' min ago';
+          else if (ago < 1440) timeEl.textContent = Math.round(ago / 60) + 'h ago';
+          else timeEl.textContent = Math.round(ago / 1440) + 'd ago';
+          if (data.trigger_type === 'manual') timeEl.textContent += ' (manual)';
+        }
+
+        // Render checks
+        var html = checks.map(function(c) {
+          var icon = c.pass ? '✅' : '⚠️';
+          var color = c.pass ? '#22c55e' : '#f59e0b';
+          var detail = c.detail ? '<span style="color:#64748b;font-size:12px;margin-left:8px">' + escapeHtml(c.detail) + '</span>' : '';
+          return '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;gap:8px">'
+            + '<span>' + icon + '</span>'
+            + '<span style="color:' + color + ';font-size:13px">' + escapeHtml(c.name || 'Check') + '</span>'
+            + detail
+            + '</div>';
+        }).join('');
+
+        var passCount = checks.filter(function(c) { return c.pass; }).length;
+        var failCount = checks.length - passCount;
+        var summaryColor = failCount === 0 ? '#22c55e' : '#f59e0b';
+        var summaryText = failCount === 0 ? 'All systems go' : failCount + ' issue' + (failCount !== 1 ? 's' : '') + ' found';
+
+        body.innerHTML = '<div style="margin-bottom:8px;font-size:13px;font-weight:600;color:' + summaryColor + '">' + summaryText + '</div>' + html;
+
+        // Show fix-all button if there are auto-fixable failures
+        var FIXABLE_CHECKS = ['Main Output'];
+        var fixableFailures = checks.filter(function(c) { return !c.pass && FIXABLE_CHECKS.indexOf(c.name) !== -1; });
+        var fixBtn = document.getElementById('preservice-fix-btn');
+        if (fixBtn) {
+          fixBtn.style.display = fixableFailures.length > 0 ? '' : 'none';
+          fixBtn.textContent = 'Fix ' + fixableFailures.length + ' Safe Issue' + (fixableFailures.length !== 1 ? 's' : '');
+        }
+      } catch(e) {
+        // No results yet — hide the card
+        card.style.display = 'none';
+      }
+    }
+
+    async function runPreServiceCheck() {
+      var btn = document.getElementById('preservice-run-btn');
+      var body = document.getElementById('preservice-body');
+      if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+
+      try {
+        var data = await api('POST', '/api/church/preservice-check/run');
+        if (data && data.result) {
+          // Reload the card to show new results
+          await loadPreServiceCheck();
+        } else {
+          if (body) body.innerHTML = '<div style="color:#f59e0b;text-align:center;padding:12px;font-size:13px">⚠️ Could not run check — is the Tally app connected?</div>';
+        }
+      } catch(e) {
+        if (body) body.innerHTML = '<div style="color:#ef4444;text-align:center;padding:12px;font-size:13px">Error running check: ' + escapeHtml(e.message || 'unknown') + '</div>';
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Run Check Now'; }
+      }
+    }
+
+    async function fixAllPreServiceIssues() {
+      var btn = document.getElementById('preservice-fix-btn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Fixing…'; }
+      try {
+        var data = await api('POST', '/api/church/preservice-check/fix-all');
+        if (data && data.results) {
+          var fixed = data.results.filter(function(r) { return r.success; }).length;
+          var failed = data.results.length - fixed;
+          toast(fixed + ' issue' + (fixed !== 1 ? 's' : '') + ' fixed' + (failed > 0 ? ', ' + failed + ' could not be fixed' : ''));
+        } else {
+          toast('No fixable issues or client offline', true);
+        }
+        // Re-run check to get fresh status
+        await new Promise(function(r) { setTimeout(r, 2000); });
+        await runPreServiceCheck();
+      } catch(e) {
+        toast('Fix error: ' + (e.message || 'unknown'), true);
+      } finally {
+        if (btn) { btn.disabled = false; }
+        await loadPreServiceCheck();
+      }
+    }
+
+    // ── Tally Engineer: campus picker + card rendering ──────────────────────
 
     async function populatePfCampusPicker() {
       var picker = document.getElementById('pf-campus-picker');
@@ -1450,9 +1785,118 @@ function buildChurchPortalHtml(church) {
       } catch(e) { toast(e.message, true); }
     }
 
+    // ── Tally Engineer profile ─────────────────────────────────────────────────
+    async function loadEngineerProfile() {
+      try {
+        const d = await api('GET', '/api/church/me');
+        var ep = {};
+        try { ep = JSON.parse(d.engineer_profile || '{}'); } catch {}
+        document.getElementById('eng-stream-platform').value = ep.streamPlatform || '';
+        document.getElementById('eng-expected-viewers').value = ep.expectedViewers || '';
+        document.getElementById('eng-operator-level').value = ep.operatorLevel || '';
+        document.getElementById('eng-backup-encoder').value = ep.backupEncoder || '';
+        document.getElementById('eng-backup-switcher').value = ep.backupSwitcher || '';
+        document.getElementById('eng-special-notes').value = ep.specialNotes || '';
+        updateTrainingBadge(ep);
+      } catch(e) { /* silent — profile may not have loaded yet */ }
+    }
+    loadEngineerProfile();
+    loadCoaching();
+
+    function updateTrainingBadge(ep) {
+      var badge = document.getElementById('engineer-training-badge');
+      if (!badge) return;
+      var fields = [ep.streamPlatform, ep.expectedViewers, ep.operatorLevel, ep.backupEncoder, ep.backupSwitcher, ep.specialNotes];
+      var filled = fields.filter(function(f) { return f && f.trim && f.trim().length > 0; }).length;
+      if (filled === 0) {
+        badge.className = 'badge badge-red'; badge.textContent = 'Not trained';
+      } else if (filled < 4) {
+        badge.className = 'badge badge-yellow'; badge.textContent = 'Partially trained (' + filled + '/6)';
+      } else {
+        badge.className = 'badge badge-green'; badge.textContent = 'Fully trained';
+      }
+    }
+
+    async function saveEngineerProfile() {
+      var ep = {
+        streamPlatform: document.getElementById('eng-stream-platform').value,
+        expectedViewers: document.getElementById('eng-expected-viewers').value,
+        operatorLevel: document.getElementById('eng-operator-level').value,
+        backupEncoder: document.getElementById('eng-backup-encoder').value.trim(),
+        backupSwitcher: document.getElementById('eng-backup-switcher').value.trim(),
+        specialNotes: document.getElementById('eng-special-notes').value.trim(),
+      };
+      try {
+        await api('PUT', '/api/church/me', { engineerProfile: ep });
+        updateTrainingBadge(ep);
+        toast('Tally Engineer profile saved');
+      } catch(e) { toast(e.message, true); }
+    }
+
     // ── Campuses ───────────────────────────────────────────────────────────────
     function getCampusById(churchId) {
       return campusData.find(function(c) { return c.churchId === churchId; }) || null;
+    }
+
+    async function loadCoaching() {
+      var card = document.getElementById('coaching-card');
+      var body = document.getElementById('coaching-body');
+      var weekEl = document.getElementById('coaching-week');
+      if (!card || !body) return;
+
+      try {
+        var data = await api('GET', '/api/church/coaching');
+        if (!data || data.totalEvents === undefined) {
+          card.style.display = 'none';
+          return;
+        }
+
+        card.style.display = '';
+        if (weekEl) weekEl.textContent = 'Week of ' + data.weekOf;
+
+        var html = '';
+
+        // Reliability score
+        if (data.reliability !== null) {
+          var relColor = data.reliability >= 98 ? '#22c55e' : (data.reliability >= 95 ? '#f59e0b' : '#ef4444');
+          html += '<div style="margin-bottom:12px;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px">'
+            + '<div style="font-size:24px;font-weight:700;color:' + relColor + '">' + data.reliability + '%</div>'
+            + '<div style="font-size:11px;color:#64748b">Uptime reliability this week</div>'
+            + '</div>';
+        }
+
+        // Session count
+        if (data.sessions > 0) {
+          html += '<div style="font-size:13px;color:#94A3B8;margin-bottom:8px">'
+            + data.sessions + ' session' + (data.sessions !== 1 ? 's' : '') + ' this week'
+            + (data.autoResolved > 0 ? ' · ' + data.autoResolved + ' auto-recovered' : '')
+            + '</div>';
+        }
+
+        // Patterns
+        if (data.patterns && data.patterns.length > 0) {
+          html += '<div style="margin-top:12px;margin-bottom:4px;font-size:12px;font-weight:600;color:#F8FAFC">Recurring Patterns</div>';
+          for (var i = 0; i < data.patterns.length; i++) {
+            var p = data.patterns[i];
+            html += '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px">'
+              + '<span style="color:#f59e0b">⚠️</span> '
+              + '<span style="color:#F8FAFC">' + escapeHtml(p.pattern) + '</span>'
+              + ' <span style="color:#64748b;font-size:11px">' + escapeHtml(p.timeWindow) + '</span>';
+            if (p.recommendation) {
+              html += '<div style="font-size:12px;color:#94A3B8;margin-top:2px;margin-left:20px">→ ' + escapeHtml(p.recommendation) + '</div>';
+            }
+            html += '</div>';
+          }
+        }
+
+        if (!html) {
+          html = '<div style="color:#22c55e;font-size:13px;padding:8px 0">✅ Clean week — no patterns detected</div>';
+        }
+
+        body.innerHTML = html;
+      } catch(e) {
+        card.style.display = 'none';
+      }
     }
 
     async function copyCampusValue(value, okMessage) {
@@ -1914,6 +2358,7 @@ function buildChurchPortalHtml(church) {
         document.getElementById('notif-telegram').checked = !!notifData.telegram;
         document.getElementById('notif-sync').checked = notifData.sync !== false;
         document.getElementById('notif-digest').checked = !!notifData.digest;
+        document.getElementById('notif-auto-recovery').checked = d.autoRecoveryEnabled !== false && d.autoRecoveryEnabled !== 0;
         document.getElementById('telegram-chat-id').value = d.telegramChatId || '';
       } catch(e) { toast('Failed to load notifications', true); }
     }
@@ -1928,6 +2373,7 @@ function buildChurchPortalHtml(church) {
             digest:   document.getElementById('notif-digest').checked,
           },
           telegramChatId: document.getElementById('telegram-chat-id').value,
+          autoRecoveryEnabled: document.getElementById('notif-auto-recovery').checked,
         });
         toast('Notification preferences saved');
       } catch(e) { toast(e.message, true); }
@@ -2697,7 +3143,7 @@ function buildChurchPortalHtml(church) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest } = {}) {
   const express = require('express');
   log.info('Setup started');
 
@@ -2725,6 +3171,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     "ALTER TABLE churches ADD COLUMN parent_church_id TEXT",
     "ALTER TABLE churches ADD COLUMN campus_name TEXT",
     "ALTER TABLE churches ADD COLUMN schedule TEXT DEFAULT '{}'",
+    "ALTER TABLE churches ADD COLUMN auto_recovery_enabled INTEGER DEFAULT 1",
   ];
   for (const m of migrations) {
     try { db.exec(m); } catch { /* already exists */ }
@@ -2927,6 +3374,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       connected: runtime?.ws?.readyState === 1,
       status: runtime?.status || {},
       lastSeen: runtime?.lastSeen || null,
+      autoRecoveryEnabled: c.auto_recovery_enabled !== 0,
     });
   });
 
@@ -2942,7 +3390,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── PUT /api/church/me ────────────────────────────────────────────────────────
   app.put('/api/church/me', authMiddleware, (req, res) => {
-    const { email, phone, location, notes, notifications, telegramChatId, currentPassword, newPassword } = req.body;
+    const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, autoRecoveryEnabled, currentPassword, newPassword } = req.body;
     const churchId = req.church.churchId;
 
     if (newPassword) {
@@ -2957,7 +3405,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         .run(hashPassword(newPassword), churchId);
     }
 
-    const allowedColumns = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications'];
+    const allowedColumns = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'auto_recovery_enabled'];
     const patch = {};
     if (email          !== undefined) patch.portal_email     = email.trim().toLowerCase();
     if (phone          !== undefined) patch.phone            = phone;
@@ -2965,6 +3413,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     if (notes          !== undefined) patch.notes            = notes;
     if (telegramChatId !== undefined) patch.telegram_chat_id = telegramChatId;
     if (notifications  !== undefined) patch.notifications    = JSON.stringify(notifications);
+    if (engineerProfile !== undefined) patch.engineer_profile = JSON.stringify(engineerProfile);
+    if (autoRecoveryEnabled !== undefined) patch.auto_recovery_enabled = autoRecoveryEnabled ? 1 : 0;
 
     const safePatch = Object.fromEntries(Object.entries(patch).filter(([k]) => allowedColumns.includes(k)));
     if (Object.keys(safePatch).length) {
@@ -3116,7 +3566,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── GET /api/church/problems ─────────────────────────────────────────────────
-  // Returns latest Problem Finder report. Accepts optional ?campusId=xxx.
+  // Returns latest Tally Engineer report. Accepts optional ?campusId=xxx.
   app.get('/api/church/problems', authMiddleware, (req, res) => {
     try {
       let targetId = req.church.churchId;
@@ -3133,6 +3583,139 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       ).get(targetId);
       if (!row) return res.json({ status: null, message: 'No reports yet' });
       res.json(row);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── GET /api/church/preservice-check ──────────────────────────────────────────
+  // Returns the latest pre-service check result for the authenticated church.
+  app.get('/api/church/preservice-check', authMiddleware, (req, res) => {
+    try {
+      const row = db.prepare(
+        'SELECT * FROM preservice_check_results WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
+      ).get(req.church.churchId);
+      if (!row) return res.json(null);
+      res.json(row);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── POST /api/church/preservice-check/run ───────────────────────────────────
+  // Triggers a manual pre-service check via WebSocket command to the church client.
+  app.post('/api/church/preservice-check/run', authMiddleware, async (req, res) => {
+    try {
+      if (!preServiceCheck) return res.status(503).json({ error: 'Pre-service check not available' });
+      const result = await preServiceCheck.runManualCheck(req.church.churchId);
+      if (!result) return res.json({ result: null, message: 'Client offline or no response' });
+      res.json({ result });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── POST /api/church/preservice-check/fix-all ────────────────────────────────
+  // Sends fix commands for all auto-fixable failures from the latest pre-service check.
+  app.post('/api/church/preservice-check/fix-all', authMiddleware, async (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const churchRuntime = churches.get(churchId);
+      if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
+        return res.json({ results: [], message: 'Client offline' });
+      }
+
+      // Get latest check results
+      const row = db.prepare(
+        'SELECT checks_json FROM preservice_check_results WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
+      ).get(churchId);
+      if (!row) return res.json({ results: [], message: 'No check results' });
+
+      let checks = [];
+      try { checks = JSON.parse(row.checks_json || '[]'); } catch {}
+
+      // Map of check names to fix commands
+      const FIX_MAP = {
+        'Main Output': { command: 'mixer.unmute', params: { channel: 'master' } },
+      };
+
+      const failures = checks.filter(c => !c.pass && FIX_MAP[c.name]);
+      if (!failures.length) return res.json({ results: [], message: 'No auto-fixable issues' });
+
+      const crypto = require('crypto');
+      const results = [];
+
+      for (const check of failures) {
+        const fix = FIX_MAP[check.name];
+        const msgId = crypto.randomUUID();
+        try {
+          const resultPromise = new Promise((resolve) => {
+            const timer = setTimeout(() => { cleanup(); resolve({ success: false, error: 'timeout' }); }, 8000);
+            const handler = (msg) => {
+              if (msg.type === 'command_result' && msg.churchId === churchId && msg.messageId === msgId) {
+                cleanup();
+                resolve(msg.error ? { success: false, error: msg.error } : { success: true });
+              }
+            };
+            const cleanup = () => {
+              clearTimeout(timer);
+              if (preServiceCheck) {
+                const idx = preServiceCheck._resultListeners.indexOf(handler);
+                if (idx !== -1) preServiceCheck._resultListeners.splice(idx, 1);
+              }
+            };
+            if (preServiceCheck) preServiceCheck._resultListeners.push(handler);
+          });
+
+          churchRuntime.ws.send(JSON.stringify({ type: 'command', command: fix.command, params: fix.params || {}, id: msgId }));
+          const result = await resultPromise;
+          results.push({ check: check.name, command: fix.command, ...result });
+        } catch (e) {
+          results.push({ check: check.name, command: fix.command, success: false, error: e.message });
+        }
+      }
+
+      res.json({ results });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── GET /api/church/coaching ──────────────────────────────────────────────────
+  // Returns weekly coaching data: patterns, reliability, auto-recovery stats.
+  app.get('/api/church/coaching', authMiddleware, (req, res) => {
+    try {
+      if (!weeklyDigest) return res.json(null);
+      const data = weeklyDigest.getChurchDigest(req.church.churchId);
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── GET /api/church/session/active ────────────────────────────────────────────
+  // Returns the active session with recent events for the live incident card.
+  app.get('/api/church/session/active', authMiddleware, (req, res) => {
+    try {
+      if (!sessionRecap) return res.json({ active: false });
+      const session = sessionRecap.getActiveSession(req.church.churchId);
+      if (!session) return res.json({ active: false });
+
+      // Get events for this session with diagnosis info
+      let events = [];
+      try {
+        const { DIAGNOSIS_TEMPLATES } = require('./alertEngine');
+        events = db.prepare(
+          'SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp DESC LIMIT 20'
+        ).all(session.sessionId).map(e => ({
+          ...e,
+          resolved: !!e.resolved,
+          auto_resolved: !!e.auto_resolved,
+          diagnosis: DIAGNOSIS_TEMPLATES[e.event_type] || null,
+        }));
+      } catch { /* service_events table may not exist */ }
+
+      res.json({ active: true, ...session, events });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

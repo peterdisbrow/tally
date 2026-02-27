@@ -27,6 +27,14 @@ const RECOVERY_PLAYBOOK = {
     onSuccess: 'recording_auto_started',
     onFail: 'alert_td_recording',
   },
+  'atem_stream_stopped': {
+    waitMs: 10000,
+    command: 'atem.startStreaming',
+    params: {},
+    maxAttempts: 2,
+    onSuccess: 'atem_stream_recovered',
+    onFail: 'escalate_to_td',
+  },
   'atem_disconnected': {
     waitMs: 15000,
     command: 'status', // request fresh status — triggers reconnect attempt on client
@@ -102,9 +110,10 @@ const RECOVERY_PLAYBOOK = {
 };
 
 class AutoRecovery {
-  constructor(churches, alertEngine) {
+  constructor(churches, alertEngine, db) {
     this.churches = churches; // Map from server.js
     this.alertEngine = alertEngine;
+    this.db = db || null;
     this.attemptCounts = new Map(); // `${churchId}:${failureType}` → count
   }
 
@@ -117,6 +126,16 @@ class AutoRecovery {
   }
 
   async attempt(church, failureType, currentStatus) {
+    // Check if auto-recovery is enabled for this church
+    if (this.db) {
+      try {
+        const row = this.db.prepare('SELECT auto_recovery_enabled FROM churches WHERE churchId = ?').get(church.churchId);
+        if (row && row.auto_recovery_enabled === 0) {
+          return { attempted: false, reason: 'auto_recovery_disabled' };
+        }
+      } catch { /* column may not exist yet — default to enabled */ }
+    }
+
     const playbook = RECOVERY_PLAYBOOK[failureType];
     if (!playbook) return { attempted: false, reason: 'no_playbook' };
 

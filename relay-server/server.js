@@ -351,6 +351,8 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN onboarding_first_session_at TEXT",
   "ALTER TABLE churches ADD COLUMN onboarding_telegram_registered_at TEXT",
   "ALTER TABLE churches ADD COLUMN onboarding_dismissed INTEGER DEFAULT 0",
+  // Tally Engineer profile (JSON object with setup context for AI)
+  "ALTER TABLE churches ADD COLUMN engineer_profile TEXT DEFAULT '{}'",
   // Email verification
   "ALTER TABLE churches ADD COLUMN email_verified INTEGER DEFAULT 0",
   "ALTER TABLE churches ADD COLUMN email_verify_token TEXT",
@@ -631,8 +633,9 @@ const scheduleEngine = new ScheduleEngine(db);
 const billing = new BillingSystem(db);
 const onCallRotation = new OnCallRotation(db);
 const alertEngine = new AlertEngine(db, scheduleEngine, { onCallRotation });
-const autoRecovery = new AutoRecovery(churches, alertEngine);
+const autoRecovery = new AutoRecovery(churches, alertEngine, db);
 const weeklyDigest = new WeeklyDigest(db);
+weeklyDigest.setNotificationConfig(process.env.ALERT_BOT_TOKEN);
 weeklyDigest.startWeeklyTimer();
 
 const guestTdMode = new GuestTdMode(db);
@@ -947,8 +950,19 @@ alertEngine.resellerSystem = resellerSystem;
 const { setupAdminPanel } = require('./src/adminPanel');
 setupAdminPanel(app, db, churches, resellerSystem, { jwt, JWT_SECRET });
 
+// Pre-service check — created before portal so portal can trigger manual checks
+preServiceCheck = new PreServiceCheck({
+  db,
+  scheduleEngine,
+  churches,
+  defaultBotToken: process.env.ALERT_BOT_TOKEN,
+  andrewChatId: ANDREW_TELEGRAM_CHAT_ID,
+  sessionRecap,
+});
+preServiceCheck.start();
+
 // Church Portal — self-service login for individual churches
-setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails });
+setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest });
 console.log('[Server] ✓ Church Portal routes registered');
 
 // Reseller Portal — self-service login for integrators/resellers
@@ -958,16 +972,6 @@ console.log('[Server] ✓ Reseller Portal routes registered');
 // Public status page
 setupStatusPage(app);
 console.log('[Server] ✓ Status page route registered');
-
-// Pre-service check — needs tallyBot but can still send Telegram directly
-preServiceCheck = new PreServiceCheck({
-  db,
-  scheduleEngine,
-  churches,
-  defaultBotToken: process.env.ALERT_BOT_TOKEN,
-  andrewChatId: ANDREW_TELEGRAM_CHAT_ID,
-});
-preServiceCheck.start();
 
 // ─── RATE LIMITER ─────────────────────────────────────────────────────────────
 
@@ -2047,7 +2051,7 @@ app.post('/api/pf/report', requireChurchAppAuth, (req, res) => {
 
 // PUT /api/church/app/me — update profile, email, password
 app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
-  const { email, phone, location, notes, notifications, telegramChatId, newPassword, currentPassword, password } = req.body;
+  const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, newPassword, currentPassword, password } = req.body;
   const churchId = req.church.churchId;
 
   // Password change: require current password verification
@@ -2064,7 +2068,7 @@ app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
   }
 
   // Whitelist of allowed columns to prevent SQL injection via dynamic column names
-  const ALLOWED_PROFILE_COLUMNS = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications'];
+  const ALLOWED_PROFILE_COLUMNS = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile'];
   const patch = {};
   if (email          !== undefined) patch.portal_email     = email.trim().toLowerCase();
   if (phone          !== undefined) patch.phone            = phone;
@@ -2072,6 +2076,7 @@ app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
   if (notes          !== undefined) patch.notes            = notes;
   if (telegramChatId !== undefined) patch.telegram_chat_id = telegramChatId;
   if (notifications  !== undefined) patch.notifications    = JSON.stringify(notifications);
+  if (engineerProfile !== undefined) patch.engineer_profile = JSON.stringify(engineerProfile);
 
   // Filter to only whitelisted column names (defense-in-depth)
   const safePatch = {};
@@ -3143,11 +3148,14 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
   const church = churches.get(churchId);
   const conversationHistory = chatEngine.getRecentConversation(churchId);
   const churchRow = stmtGet.get(churchId);
+  let engineerProfile = {};
+  try { engineerProfile = JSON.parse(churchRow?.engineer_profile || '{}'); } catch {}
   const aiResult = await aiParseCommand(intent.prompt, {
     churchId,
     churchName: church?.name || '',
     status: church?.status || {},
     tier: churchRow?.billing_tier || 'connect',
+    engineerProfile,
   }, conversationHistory);
 
   if (aiResult.type === 'error') {

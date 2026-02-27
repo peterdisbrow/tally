@@ -308,6 +308,10 @@ class ChurchAVAgent {
         programInput: null,
         previewInput: null,
         recording: false,
+        streaming: false,
+        streamingBitrate: null,
+        streamingCacheUsed: null,
+        streamingService: null,
         audioDelays: {},
       },
       obs: {
@@ -691,6 +695,30 @@ class ChurchAVAgent {
         this.status.atem.recording = recording?.status === 'Recording';
         if (wasRecording !== this.status.atem.recording) {
           this.sendAlert(`ATEM recording ${this.status.atem.recording ? 'STARTED' : 'STOPPED'}`, 'info');
+        }
+      }
+
+      // ── Streaming encoder readout ─────────────────────────────────────────
+      const streaming = state.streaming;
+      if (streaming !== undefined) {
+        const wasStreaming = this.status.atem.streaming;
+        const isStreaming = streaming?.status?.state?.toString() === 'Streaming'
+          || streaming?.status?.state === 2; // StreamingStatus.Streaming enum value
+        this.status.atem.streaming = isStreaming;
+
+        if (streaming?.stats) {
+          this.status.atem.streamingBitrate = streaming.stats.encodingBitrate || null;
+          this.status.atem.streamingCacheUsed = streaming.stats.cacheUsed || null;
+        }
+        if (streaming?.service?.serviceName) {
+          this.status.atem.streamingService = streaming.service.serviceName;
+        }
+
+        if (wasStreaming !== isStreaming) {
+          this.sendAlert(
+            `ATEM streaming ${isStreaming ? 'STARTED' : 'STOPPED'}${this.status.atem.streamingService ? ` (${this.status.atem.streamingService})` : ''}`,
+            isStreaming ? 'info' : 'warning'
+          );
         }
       }
 

@@ -303,21 +303,11 @@ class SessionRecap {
 
     const tdLine = session.tdName ? `TD: ${session.tdName}` : null;
 
-    // Auto-generate a brief note
-    let notes = '';
-    if (session.alertCount === 0 && session.audioSilenceCount === 0) {
-      notes = '\nSmooth service — no issues detected.';
-    } else if (session.autoRecovered > 0 && session.escalated === 0) {
-      const types = Object.keys(session.alertTypes).map(t => t.replace(/_/g, ' ')).join(', ');
-      notes = `\nAll alerts auto-resolved (${types}).`;
-    } else if (session.escalated > 0) {
-      notes = '\nManual intervention was required.';
-    }
-
     const grade = session.grade || this.gradeSession(session);
 
     const lines = [
-      `📋 *Service Recap — ${church.name}*`,
+      `📋 *Tally Engineer — Service Recap*`,
+      `*${church.name}*`,
       `${dayName} ${timeStr} · ${durationStr}`,
       '',
       `Stream: ${streamLine}`,
@@ -327,10 +317,65 @@ class SessionRecap {
       `Viewers: ${viewersLine}`,
       tdLine,
       `Grade: ${grade}`,
-      notes || null,
     ].filter(l => l !== null && l !== undefined);
 
+    // ── Incident Timeline ──────────────────────────────────────────────────
+    const timeline = this._buildTimeline(session);
+    if (timeline.length > 0) {
+      lines.push('');
+      lines.push('*Timeline:*');
+      for (const entry of timeline) {
+        lines.push(entry);
+      }
+    }
+
+    // ── Summary notes ──────────────────────────────────────────────────────
+    if (session.alertCount === 0 && session.audioSilenceCount === 0) {
+      lines.push('');
+      lines.push('Smooth service — no issues detected. 🎉');
+    } else {
+      lines.push('');
+      lines.push(`Auto-fixed: ${session.autoRecovered} issue${session.autoRecovered !== 1 ? 's' : ''}`);
+      lines.push(`Manual intervention: ${session.escalated}`);
+    }
+
     return lines.join('\n');
+  }
+
+  /**
+   * Build an incident timeline from service_events for this session.
+   * @param {object} session
+   * @returns {string[]} Formatted timeline entries
+   */
+  _buildTimeline(session) {
+    const sessionId = session.sessionId;
+    if (!sessionId) return [];
+
+    try {
+      const events = this.db.prepare(
+        'SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC'
+      ).all(sessionId);
+
+      if (!events.length) return [];
+
+      return events.map(e => {
+        const t = new Date(e.timestamp);
+        const time = t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        const type = (e.event_type || '').replace(/_/g, ' ');
+        const detail = e.details ? ` — ${typeof e.details === 'string' ? e.details.slice(0, 60) : ''}` : '';
+
+        if (e.auto_resolved) {
+          return `${time}  🤖 ${type}${detail} (auto-fixed)`;
+        } else if (e.resolved) {
+          return `${time}  ✅ ${type}${detail} (resolved)`;
+        } else {
+          return `${time}  ⚠️ ${type}${detail}`;
+        }
+      });
+    } catch (e) {
+      console.error('[SessionRecap] Timeline build error:', e.message);
+      return [];
+    }
   }
 
   // ─── TELEGRAM ────────────────────────────────────────────────────────────────
@@ -342,7 +387,20 @@ class SessionRecap {
       return;
     }
 
-    const text = this.formatRecap(church, session);
+    let text = this.formatRecap(church, session);
+
+    // Append AI recommendations for Pro+ tier churches
+    const tier = church.billing_tier || 'connect';
+    if (['pro_plus', 'enterprise'].includes(tier) && (session.alertCount > 0 || session.audioSilenceCount > 0)) {
+      try {
+        const recommendations = await this._generateRecommendations(church, session);
+        if (recommendations) {
+          text += '\n\n*Top 3 Actions to Reduce Risk:*\n' + recommendations;
+        }
+      } catch (e) {
+        console.error(`[SessionRecap] AI recommendation error:`, e.message);
+      }
+    }
 
     // Send to TD
     const tdChatId = church.td_telegram_chat_id;
@@ -353,6 +411,66 @@ class SessionRecap {
     // Send to Andrew (if different from TD)
     if (this._andrewChatId && this._andrewChatId !== tdChatId) {
       await this._sendTelegram(this._andrewChatId, botToken, text);
+    }
+  }
+
+  /**
+   * Generate AI-powered improvement recommendations based on session data.
+   * Uses Anthropic Haiku for fast, cost-effective generation.
+   * @param {object} church  DB row
+   * @param {object} session  Finalized session object
+   * @returns {Promise<string|null>}  Formatted recommendations or null
+   */
+  async _generateRecommendations(church, session) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) return null;
+
+    let engineerProfile = {};
+    try { engineerProfile = JSON.parse(church.engineer_profile || '{}'); } catch {}
+
+    const timeline = this._buildTimeline(session);
+
+    const prompt = `You are Tally Engineer, an AI livestream technician assistant. Given this service session data, suggest exactly 3 specific, actionable steps this church should take to reduce future risk. Be concise (1 line each, max 15 words). Focus on their specific issues, not generic advice. Number them 1-3.
+
+Session data:
+- Duration: ${session.durationMinutes} min
+- Grade: ${session.grade}
+- Alerts: ${session.alertCount} (${session.autoRecovered} auto-recovered, ${session.escalated} escalated)
+- Audio silence events: ${session.audioSilenceCount}
+- Stream runtime: ${session.streamTotalMinutes} min
+- Alert types: ${JSON.stringify(session.alertTypes)}
+- Timeline: ${timeline.join('; ')}
+
+Church profile:
+- Name: ${church.name}
+- Stream platform: ${engineerProfile.streamPlatform || 'unknown'}
+- Expected viewers: ${engineerProfile.expectedViewers || 'unknown'}
+- Operator level: ${engineerProfile.operatorLevel || 'unknown'}`;
+
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.3,
+          max_tokens: 256,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      const text = data.content?.[0]?.text;
+      return text || null;
+    } catch (e) {
+      console.error('[SessionRecap] Anthropic call failed:', e.message);
+      return null;
     }
   }
 

@@ -371,9 +371,11 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     }
   }
 
-  // Build context hint if we have live status
+  // Build context hint from live status + engineer profile
   let contextHint = '';
   if (ctx.churchName) contextHint += `Church: ${ctx.churchName}. `;
+
+  // ATEM switcher
   if (ctx.status?.atem?.connected) {
     const s = ctx.status.atem;
     contextHint += `ATEM: pgm=cam${s.programInput || '?'}, pvw=cam${s.previewInput || '?'}. `;
@@ -381,9 +383,68 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
       const labels = Object.entries(s.inputLabels).map(([k, v]) => `${k}=${v}`).join(', ');
       contextHint += `Labels: ${labels}. `;
     }
+    if (s.streaming) contextHint += `ATEM streaming${s.streamingBitrate ? ` ${s.streamingBitrate}kbps` : ''}${s.streamingService ? ` (${s.streamingService})` : ''}. `;
+    if (s.recording) contextHint += 'ATEM recording. ';
   }
+
+  // OBS
   if (ctx.status?.obs?.connected) {
-    contextHint += `OBS: ${ctx.status.obs.streaming ? 'live' : 'idle'}. `;
+    const o = ctx.status.obs;
+    let obsInfo = `OBS: ${o.streaming ? 'live' : 'idle'}`;
+    if (o.streaming && o.bitrate) obsInfo += `, ${o.bitrate}kbps`;
+    if (o.fps) obsInfo += `, ${o.fps}fps`;
+    contextHint += obsInfo + '. ';
+  }
+
+  // vMix
+  if (ctx.status?.vmix?.connected) {
+    contextHint += `vMix: ${ctx.status.vmix.streaming ? 'live' : 'idle'}. `;
+  }
+
+  // Encoder bridge
+  if (ctx.status?.encoder?.connected) {
+    const e = ctx.status.encoder;
+    let encInfo = `Encoder: ${e.live ? 'live' : 'idle'}`;
+    if (e.bitrateKbps) encInfo += `, ${e.bitrateKbps}kbps`;
+    contextHint += encInfo + '. ';
+  }
+
+  // ProPresenter
+  if (ctx.status?.proPresenter?.connected) {
+    const pp = ctx.status.proPresenter;
+    contextHint += `ProPresenter: slide ${pp.slideIndex || '?'}/${pp.slideTotal || '?'}. `;
+  }
+
+  // Audio mixer
+  if (ctx.status?.mixer?.connected) {
+    const m = ctx.status.mixer;
+    contextHint += `Audio: ${m.type || ''} ${m.model || ''}${m.mainMuted ? ', MUTED' : ''}. `;
+  }
+
+  // PTZ cameras
+  const ptzConnected = (ctx.status?.ptz || []).filter(c => c.connected);
+  if (ptzConnected.length) contextHint += `PTZ: ${ptzConnected.length} camera${ptzConnected.length > 1 ? 's' : ''} connected. `;
+
+  // HyperDecks
+  if (ctx.status?.hyperdeck?.connected) {
+    contextHint += `HyperDeck: ${ctx.status.hyperdeck.recording ? 'recording' : 'idle'}. `;
+  }
+
+  // Companion
+  if (ctx.status?.companion?.connected) {
+    const cc = ctx.status.companion.connectionCount || 0;
+    if (cc > 0) contextHint += `Companion: ${cc} module${cc > 1 ? 's' : ''}. `;
+  }
+
+  // Engineer profile (user-provided setup context)
+  const ep = ctx.engineerProfile;
+  if (ep && Object.keys(ep).length) {
+    if (ep.streamPlatform && ep.streamPlatform !== 'None') contextHint += `Streams to: ${ep.streamPlatform}. `;
+    if (ep.expectedViewers) contextHint += `Expected viewers: ${ep.expectedViewers}. `;
+    if (ep.operatorLevel) contextHint += `Operator: ${ep.operatorLevel}. `;
+    if (ep.backupEncoder) contextHint += `Backup encoder: ${ep.backupEncoder}. `;
+    if (ep.backupSwitcher) contextHint += `Backup switcher: ${ep.backupSwitcher}. `;
+    if (ep.specialNotes) contextHint += `Notes: ${ep.specialNotes}. `;
   }
 
   const userContent = contextHint
