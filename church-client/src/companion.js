@@ -17,6 +17,12 @@ class CompanionBridge extends EventEmitter {
     this.connections = [];
     this._pollTimer = null;
     this._lastButtonStates = new Map();
+
+    // Button name cache: Map<lowercaseName, { page, row, col, text }>
+    this._buttonIndex = new Map();
+    this._buttonIndexBuiltAt = 0;
+    this._buttonIndexTTL = 60 * 1000; // rebuild after 60s
+    this._buttonIndexBuilding = null;  // promise while building
   }
 
   // ─── HTTP helpers ──────────────────────────────────────────────────────────
@@ -122,17 +128,40 @@ class CompanionBridge extends EventEmitter {
     return grid;
   }
 
-  async pressNamed(name) {
-    // Search across pages for a button matching the name (fuzzy)
-    const needle = name.toLowerCase().trim();
-    // Search first 10 pages
+  /**
+   * Build (or refresh) a cached index of all button labels → locations.
+   * Scans pages 1-10 once, then reuses until TTL expires.
+   */
+  async _ensureButtonIndex(forceRefresh = false) {
+    const age = Date.now() - this._buttonIndexBuiltAt;
+    if (!forceRefresh && this._buttonIndex.size > 0 && age < this._buttonIndexTTL) {
+      return; // cache is fresh
+    }
+    // Deduplicate concurrent builds
+    if (this._buttonIndexBuilding) {
+      await this._buttonIndexBuilding;
+      return;
+    }
+    this._buttonIndexBuilding = this._buildButtonIndex();
+    try {
+      await this._buttonIndexBuilding;
+    } finally {
+      this._buttonIndexBuilding = null;
+    }
+  }
+
+  async _buildButtonIndex() {
+    const index = new Map();
     for (let page = 1; page <= 10; page++) {
       try {
         const grid = await this.getButtonGrid(page);
         for (const row of grid) {
           for (const btn of row) {
-            if (btn.text && btn.text.toLowerCase().includes(needle)) {
-              return await this.pressButton(page, btn.row, btn.col);
+            if (btn.text) {
+              const key = btn.text.toLowerCase().trim();
+              if (key && !index.has(key)) {
+                index.set(key, { page, row: btn.row, col: btn.col, text: btn.text });
+              }
             }
           }
         }
@@ -140,6 +169,40 @@ class CompanionBridge extends EventEmitter {
         continue;
       }
     }
+    this._buttonIndex = index;
+    this._buttonIndexBuiltAt = Date.now();
+    console.log(`[Companion] Button index built: ${index.size} buttons cached`);
+  }
+
+  async pressNamed(name) {
+    const needle = name.toLowerCase().trim();
+
+    // 1. Try cached index first (fast path)
+    await this._ensureButtonIndex();
+    // Exact match
+    if (this._buttonIndex.has(needle)) {
+      const { page, row, col } = this._buttonIndex.get(needle);
+      return await this.pressButton(page, row, col);
+    }
+    // Fuzzy match (substring search within cached labels)
+    for (const [key, loc] of this._buttonIndex) {
+      if (key.includes(needle)) {
+        return await this.pressButton(loc.page, loc.row, loc.col);
+      }
+    }
+
+    // 2. Cache miss — force a fresh scan in case buttons changed
+    await this._ensureButtonIndex(true);
+    if (this._buttonIndex.has(needle)) {
+      const { page, row, col } = this._buttonIndex.get(needle);
+      return await this.pressButton(page, row, col);
+    }
+    for (const [key, loc] of this._buttonIndex) {
+      if (key.includes(needle)) {
+        return await this.pressButton(loc.page, loc.row, loc.col);
+      }
+    }
+
     throw new Error(`No button found matching "${name}"`);
   }
 
