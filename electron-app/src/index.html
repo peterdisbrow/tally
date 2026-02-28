@@ -127,9 +127,13 @@
         Skip these if you don't use Bitfocus Companion.
       </p>
       <div class="form-group">
-        <label>Companion URL (optional)</label>
-        <input id="wiz-companion" type="text" placeholder="http://localhost:8888">
-        <div style="font-size: 10px; color: var(--dim); margin-top: 4px; font-family: var(--mono);">Leave blank if not using Bitfocus Companion</div>
+        <label>Companion IP / Host (optional)</label>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input id="wiz-companion-host" type="text" placeholder="localhost" style="flex:1;">
+          <span style="color:var(--dim); font-size:11px;">:</span>
+          <input id="wiz-companion-port" type="number" placeholder="8888" style="width:80px;">
+        </div>
+        <div style="font-size: 10px; color: var(--dim); margin-top: 4px; font-family: var(--mono);">Leave blank if not using Bitfocus Companion. Default port: 8888</div>
       </div>
       <div class="form-group">
         <label>System Name (optional)</label>

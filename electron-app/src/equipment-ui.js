@@ -12,7 +12,7 @@
 
 const deviceState = {
   atem:          { ip: '' },
-  companion:     { url: '' },
+  companion:     { host: '', port: '8888' },
   encoder:       [],  // [{ encoderType, host, port, password, label, statusUrl, source }]
   propresenter:  { host: '', port: '1025', configured: false },
   vmix:          { host: '', port: '8088', configured: false },
@@ -51,7 +51,7 @@ function renderActiveSummary() {
       addChip('encoder', encName + (deviceState.encoder.length > 1 ? ` ${i + 1}` : ''), enc.host || '');
     }
   });
-  if (deviceState.companion.url) addChip('companion', 'Companion', deviceState.companion.url.replace(/^https?:\/\//, ''));
+  if (deviceState.companion.host) addChip('companion', 'Companion', `${deviceState.companion.host}:${deviceState.companion.port || '8888'}`);
   deviceState.hyperdeck.forEach((h, i) => { if (h.ip) addChip('hyperdeck', `HD${i + 1}`, h.ip); });
   deviceState.ptz.forEach((c, i) => { if (c.ip) addChip('ptz', c.name || `PTZ${i + 1}`, c.ip); });
   if (deviceState.propresenter.configured) addChip('propresenter', 'ProPres', deviceState.propresenter.host || 'localhost');

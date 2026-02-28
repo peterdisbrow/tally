@@ -48,7 +48,8 @@ const DEVICE_REGISTRY = {
     description: 'Button control surface (HTTP)',
     multi: false,
     fields: [
-      { key: 'url', label: 'URL', type: 'text', placeholder: 'http://localhost:8888' },
+      { key: 'host', label: 'IP / Host', type: 'text', placeholder: 'localhost' },
+      { key: 'port', label: 'Port', type: 'number', placeholder: '8888', style: 'width:92px' },
     ],
     testType: 'companion',
   },

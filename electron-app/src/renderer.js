@@ -284,7 +284,11 @@ async function wizardNext() {
 
       const equipConfig = {
         atemIp: document.getElementById('wiz-atem').value.trim(),
-        companionUrl: document.getElementById('wiz-companion').value.trim(),
+        companionUrl: (() => {
+          const h = document.getElementById('wiz-companion-host').value.trim();
+          const p = document.getElementById('wiz-companion-port').value.trim() || '8888';
+          return h ? `http://${h}:${p}` : '';
+        })(),
         name: document.getElementById('wiz-name').value.trim(),
         liveStreamUrl: document.getElementById('wiz-livestream').value.trim(),
         encoderType: encType,
@@ -1084,7 +1088,20 @@ async function loadEquipment() {
 
   // ── Populate deviceState from API response ──
   deviceState.atem.ip = eq.atemIp || '';
-  deviceState.companion.url = eq.companionUrl || '';
+  // Parse companion URL → host + port (e.g. "http://localhost:8888" → "localhost", "8888")
+  if (eq.companionUrl) {
+    try {
+      const u = new URL(eq.companionUrl);
+      deviceState.companion.host = u.hostname || 'localhost';
+      deviceState.companion.port = u.port || '8888';
+    } catch {
+      deviceState.companion.host = eq.companionUrl.replace(/^https?:\/\//, '').replace(/:\d+$/, '') || '';
+      deviceState.companion.port = '8888';
+    }
+  } else {
+    deviceState.companion.host = '';
+    deviceState.companion.port = '8888';
+  }
   // Load encoders — prefer array format, fall back to single encoder flat fields
   if (Array.isArray(eq.encoders) && eq.encoders.length > 0) {
     deviceState.encoder = eq.encoders.map(e => ({
@@ -1132,7 +1149,7 @@ async function loadEquipment() {
   expandedDevices.clear();
   if (deviceState.atem.ip) expandedDevices.add('atem');
   if (deviceState.encoder.length > 0 && deviceState.encoder.some(e => e.encoderType)) expandedDevices.add('encoder');
-  if (deviceState.companion.url) expandedDevices.add('companion');
+  if (deviceState.companion.host) expandedDevices.add('companion');
   if (deviceState.hyperdeck.length > 0) expandedDevices.add('hyperdeck');
   if (deviceState.ptz.length > 0) expandedDevices.add('ptz');
   if (ppConfigured) expandedDevices.add('propresenter');
@@ -1511,7 +1528,7 @@ async function saveEquipment() {
 
   const config = {
     atemIp: (deviceState.atem.ip || '').trim(),
-    companionUrl: (deviceState.companion.url || '').trim(),
+    companionUrl: deviceState.companion.host ? `http://${(deviceState.companion.host || 'localhost').trim()}:${deviceState.companion.port || '8888'}` : '',
     // Encoders array (new format)
     encoders,
     // Primary encoder flat fields (backward compat)
@@ -1687,7 +1704,7 @@ async function startNetworkScan() {
       addFromScan('atem', d);
     }));
     (results.companion || []).forEach(d => addScanResult(resultsEl, `Companion at ${d.ip} (${d.connections} connections)`, () => {
-      addFromScan('companion', { ...d, url: `http://${d.ip}:${d.port}` });
+      addFromScan('companion', { ...d, host: d.ip, port: String(d.port || '8888') });
     }));
     (results.obs || []).forEach(d => addScanResult(resultsEl, `OBS at ${d.ip}:${d.port}`, () => {
       addFromScan('obs', d);
