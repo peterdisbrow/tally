@@ -5,7 +5,7 @@ let isRunning = false;
 let alertCount = 0;
 let pendingDiscoveryNic = '';
 let _audioViaAtem = false; // synced from relay — true if church routes audio directly into ATEM
-const DEFAULT_RELAY_URL = 'wss://tally-production-cde2.up.railway.app';
+const DEFAULT_RELAY_URL = 'wss://api.tallyconnect.app';
 
 function showFatalInitError(message) {
   const wizard = document.getElementById('wizard');
@@ -231,7 +231,8 @@ async function showDashboard() {
 async function doSignIn() {
   const email = document.getElementById('si-email').value.trim();
   const password = document.getElementById('si-password').value;
-  const relay = DEFAULT_RELAY_URL;
+  const config = await api.getConfig();
+  const relay = config.relay || DEFAULT_RELAY_URL;
   const btn = document.getElementById('si-btn');
 
   if (!email || !password) {

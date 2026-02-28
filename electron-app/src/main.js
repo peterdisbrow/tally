@@ -20,7 +20,7 @@ try {
 
 const CONFIG_PATH = path.join(os.homedir(), '.church-av', 'config.json');
 const CONFIG_DIR  = path.dirname(CONFIG_PATH);
-const DEFAULT_RELAY_URL = 'wss://tally-production-cde2.up.railway.app';
+const DEFAULT_RELAY_URL = process.env.TALLY_DEFAULT_RELAY_URL || 'wss://api.tallyconnect.app';
 const LOG_DIR = path.join(CONFIG_DIR, 'logs');
 const APP_LOG_PATH = path.join(LOG_DIR, 'tally-app.log');
 const MAX_RECENT_LOG_LINES = 2000;
