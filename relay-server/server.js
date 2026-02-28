@@ -364,6 +364,8 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN memory_summary TEXT DEFAULT ''",
   // Audio routing flag — set when church routes audio directly into ATEM (no external mixer)
   "ALTER TABLE churches ADD COLUMN audio_via_atem INTEGER DEFAULT 0",
+  // IANA timezone reported by the booth computer (e.g. 'America/New_York')
+  "ALTER TABLE churches ADD COLUMN timezone TEXT DEFAULT ''",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -471,6 +473,8 @@ for (const row of stmtAll.all()) {
     reseller_id:      row.reseller_id      || null,
     // Audio routing flag
     audio_via_atem:   row.audio_via_atem   || 0,
+    // IANA timezone from booth computer (e.g. 'America/New_York')
+    timezone:         row.timezone         || '',
     registrationCode,
   });
 }
@@ -3979,6 +3983,13 @@ function handleChurchMessage(church, msg) {
           try { db.prepare('UPDATE churches SET audio_via_atem = ? WHERE churchId = ?').run(newVal, church.churchId); }
           catch (e) { log(`[audio_via_atem] auto-sync DB error: ${e.message}`); }
         }
+      }
+
+      // ── Sync booth computer timezone (for offline detection nighttime check) ──
+      if (msg.status?.system?.timezone && church.timezone !== msg.status.system.timezone) {
+        church.timezone = msg.status.system.timezone;
+        try { db.prepare('UPDATE churches SET timezone = ? WHERE churchId = ?').run(church.timezone, church.churchId); }
+        catch (e) { log(`[timezone] sync DB error: ${e.message}`); }
       }
 
       {

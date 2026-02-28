@@ -20,10 +20,25 @@ module.exports = function setupOfflineDetection(ctx) {
     return !!row;
   }
 
+  /**
+   * Determine the local hour for a church using its IANA timezone.
+   * Falls back to server local time if no timezone is stored.
+   */
+  function getChurchLocalHour(churchId) {
+    const church = churches.get(churchId);
+    const tz = church?.timezone || '';
+    if (tz) {
+      try {
+        const parts = new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: tz }).formatToParts(new Date());
+        const hourPart = parts.find(p => p.type === 'hour');
+        if (hourPart) return parseInt(hourPart.value, 10);
+      } catch { /* invalid timezone — fall through */ }
+    }
+    return new Date().getHours(); // fallback: server local time
+  }
+
   function checkOfflineChurches() {
     const now = Date.now();
-    const hour = new Date().getHours();
-    const isNightTime = hour >= 23 || hour < 6; // 11pm–6am: don't alert
 
     const allChurches = db.prepare('SELECT * FROM churches').all();
     const botToken = process.env.ALERT_BOT_TOKEN;
@@ -35,6 +50,9 @@ module.exports = function setupOfflineDetection(ctx) {
       if (!church.lastHeartbeat) continue; // never connected — skip
       if (isInMaintenanceWindow(row.churchId)) continue;
       if (scheduleEngine.isServiceWindow(row.churchId)) continue; // in service — normal
+
+      const localHour = getChurchLocalHour(row.churchId);
+      const isNightTime = localHour >= 23 || localHour < 6; // 11pm–6am church local
 
       const offlineMs = now - church.lastHeartbeat;
       const offlineHours = offlineMs / (1000 * 60 * 60);
