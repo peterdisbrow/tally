@@ -4,6 +4,7 @@ let currentStep = 1;
 let isRunning = false;
 let alertCount = 0;
 let pendingDiscoveryNic = '';
+let _audioViaAtem = false; // synced from relay — true if church routes audio directly into ATEM
 const DEFAULT_RELAY_URL = 'wss://tally-production-cde2.up.railway.app';
 
 function showFatalInitError(message) {
@@ -108,6 +109,7 @@ async function init() {
 
     const config = await api.getConfig();
     isRunning = await api.isRunning();
+    _audioViaAtem = !!(config.audioViaAtem);
 
     if (config.token) {
       // Returning user — validate token silently
@@ -115,6 +117,8 @@ async function init() {
       document.body.classList.add('ready');
 
       const result = await api.validateToken();
+      // Re-read config after validation — validateToken may sync profile flags from relay
+      try { const freshConfig = await api.getConfig(); _audioViaAtem = !!(freshConfig.audioViaAtem); } catch {}
       if (result.valid) {
         // Token is good — go to dashboard
         if (config.name) document.getElementById('church-name').textContent = config.name;
@@ -653,14 +657,15 @@ function updateStatusUI(status) {
   // Audio status card
   const audio = status.audio || {};
   const mixerData = status.mixer && typeof status.mixer === 'object' ? status.mixer : {};
+  const mixerConnected = mixerData.connected || false;
   if (audio.masterMuted || mixerData.mainMuted) {
     setStatusValue('val-audio', '🔇 MUTED', false);
   } else if (audio.silenceDetected) {
     setStatusValue('val-audio', '⚠ Silence', false);
-  } else if (streaming) {
-    setStatusValue('val-audio', '● OK', true);
+  } else if (mixerConnected || _audioViaAtem) {
+    setStatusValue('val-audio', streaming ? '● OK' : 'Standby', streaming ? true : null);
   } else if (encoderConnected || atemConnected) {
-    setStatusValue('val-audio', 'Standby', null);
+    setStatusValue('val-audio', '—', false);
   } else {
     setStatusValue('val-audio', '—', false);
   }

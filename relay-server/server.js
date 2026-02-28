@@ -361,6 +361,8 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN email_verify_sent_at TEXT",
   // Church memory system (pre-compiled AI context)
   "ALTER TABLE churches ADD COLUMN memory_summary TEXT DEFAULT ''",
+  // Audio routing flag — set when church routes audio directly into ATEM (no external mixer)
+  "ALTER TABLE churches ADD COLUMN audio_via_atem INTEGER DEFAULT 0",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -475,6 +477,8 @@ for (const row of stmtAll.all()) {
     event_label:      row.event_label      || null,
     // Reseller field
     reseller_id:      row.reseller_id      || null,
+    // Audio routing flag
+    audio_via_atem:   row.audio_via_atem   || 0,
     registrationCode,
   });
 }
@@ -4060,6 +4064,7 @@ app.get('/api/dashboard/stream', (req, res) => {
     event_expires_at: c.event_expires_at || null,
     event_label:      c.event_label      || null,
     reseller_id:      c.reseller_id      || null,
+    audio_via_atem:   c.audio_via_atem   || 0,
   }));
   res.write(`data: ${JSON.stringify({ type: 'initial', churches: initialState })}\n\n`);
 
@@ -4092,6 +4097,7 @@ _intervals.push(setInterval(() => {
     syncStatus:       c.syncStatus || null,
     church_type:      c.church_type || 'recurring',
     reseller_id:      c.reseller_id || null,
+    audio_via_atem:   c.audio_via_atem || 0,
   }));
   broadcastToSSE({ type: 'snapshot', churches: states });
 }, 60_000));
@@ -4278,6 +4284,7 @@ function handleChurchConnection(ws, url, clientIp) {
     event_expires_at: church.event_expires_at || null,
     event_label:      church.event_label      || null,
     reseller_id:      church.reseller_id      || null,
+    audio_via_atem:   church.audio_via_atem   || 0,
   };
   broadcastToControllers(connectedEvent);
   broadcastToSSE(connectedEvent);

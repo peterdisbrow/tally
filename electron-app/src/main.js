@@ -680,6 +680,20 @@ ipcMain.handle('validate-token', async () => {
     const relay = enforceRelayPolicy(config.relay || DEFAULT_RELAY_URL);
     const result = await checkTokenWithRelay(config.token, relay, 8000);
     if (result.success) {
+      // Sync church profile flags from relay (e.g. audio_via_atem)
+      try {
+        const profileUrl = `${relayHttpUrl(relay).replace(/\/+$/, '')}/api/church/app/me`;
+        const resp = await fetch(profileUrl, {
+          headers: { 'Authorization': `Bearer ${config.token}` },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (resp.ok) {
+          const profile = await resp.json();
+          if (profile.audio_via_atem !== undefined) {
+            saveConfig({ audioViaAtem: profile.audio_via_atem ? 1 : 0 });
+          }
+        }
+      } catch { /* non-critical — profile sync can fail silently */ }
       return { valid: true, churchName: config.name || '' };
     }
     return { valid: false, reason: result.error || 'invalid', churchName: config.name || '' };

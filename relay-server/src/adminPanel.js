@@ -538,6 +538,7 @@ tr:hover td{background:rgba(34,197,94,.02)}
     <div class="form-field"><label>Email</label><input id="cm-email" type="email" placeholder="td@church.com"></div>
     <div class="form-field"><label>Type</label><select id="cm-type"><option value="recurring">Recurring</option><option value="event">Event</option></select></div>
     <div class="form-field"><label>Reseller</label><select id="cm-reseller"><option value="">None (Direct)</option></select></div>
+    <div class="form-field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="cm-audio-via-atem"> Audio routed directly into ATEM (no external mixer)</label></div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('modal-church')">Cancel</button>
       <button class="btn-primary" onclick="submitChurch(this)">Save</button>
@@ -776,6 +777,7 @@ function openAddChurch() {
   document.getElementById('cm-email').value = '';
   document.getElementById('cm-type').value = 'recurring';
   document.getElementById('cm-reseller').value = '';
+  document.getElementById('cm-audio-via-atem').checked = false;
   document.getElementById('church-modal-msg').innerHTML = '';
   openModal('modal-church');
 }
@@ -789,6 +791,7 @@ function openEditChurch(id) {
   document.getElementById('cm-email').value = c.email||'';
   document.getElementById('cm-type').value = c.church_type||'recurring';
   document.getElementById('cm-reseller').value = c.reseller_id||'';
+  document.getElementById('cm-audio-via-atem').checked = !!(c.audio_via_atem);
   document.getElementById('church-modal-msg').innerHTML = '';
   openModal('modal-church');
 }
@@ -800,6 +803,7 @@ async function submitChurch(btn) {
     email: document.getElementById('cm-email').value,
     type: document.getElementById('cm-type').value,
     resellerId: document.getElementById('cm-reseller').value || null,
+    audioViaAtem: document.getElementById('cm-audio-via-atem').checked ? 1 : 0,
   };
   btnLoading(btn);
   try {
@@ -1987,6 +1991,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         token:            row.token,
         church_type:      row.church_type || 'recurring',
         reseller_id:      row.reseller_id || null,
+        audio_via_atem:   row.audio_via_atem || 0,
         registeredAt:     row.registeredAt,
         connected:        runtime?.ws?.readyState === WebSocket.OPEN,
         status:           runtime?.status || { connected: false },
@@ -2028,14 +2033,15 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     if (!church && !db.prepare('SELECT churchId FROM churches WHERE churchId=?').get(id)) {
       return res.status(404).json({ error: 'Church not found' });
     }
-    const allowedColumns = ['name', 'email', 'church_type', 'reseller_id'];
-    const { name, email, type, resellerId } = req.body;
+    const allowedColumns = ['name', 'email', 'church_type', 'reseller_id', 'audio_via_atem'];
+    const { name, email, type, resellerId, audioViaAtem } = req.body;
     const updates = [];
     const vals = [];
     if (name !== undefined && allowedColumns.includes('name')) { updates.push('name=?'); vals.push(name); }
     if (email !== undefined && allowedColumns.includes('email')) { updates.push('email=?'); vals.push(email); }
     if (type !== undefined && allowedColumns.includes('church_type')) { updates.push('church_type=?'); vals.push(type); }
     if (resellerId !== undefined && allowedColumns.includes('reseller_id')) { updates.push('reseller_id=?'); vals.push(resellerId || null); }
+    if (audioViaAtem !== undefined && allowedColumns.includes('audio_via_atem')) { updates.push('audio_via_atem=?'); vals.push(audioViaAtem ? 1 : 0); }
     if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
     vals.push(id);
     db.prepare(`UPDATE churches SET ${updates.join(',')} WHERE churchId=?`).run(...vals);
@@ -2044,6 +2050,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       if (email !== undefined) church.email = email;
       if (type !== undefined) church.church_type = type;
       if (resellerId !== undefined) church.reseller_id = resellerId || null;
+      if (audioViaAtem !== undefined) church.audio_via_atem = audioViaAtem ? 1 : 0;
     }
     res.json({ updated: true });
   });

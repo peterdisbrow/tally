@@ -1301,9 +1301,12 @@ function buildChurchPortalHtml(church) {
         const encoderStatus = encoderConnected
           ? (encoderLive ? 'streaming' : 'connected')
           : (obsConnected ? (obsStreaming ? 'streaming' : 'connected') : 'unknown');
+        const mixerConnected = status.mixer && status.mixer.connected;
+        const audioViaAtem = !!(d.audio_via_atem);
         const audioStatus = (status.mixer && status.mixer.mainMuted) ? 'muted'
           : (status.audio && status.audio.silenceDetected) ? 'warning'
-          : (encoderLive || obsStreaming) ? 'ok'
+          : (mixerConnected || audioViaAtem)
+            ? ((encoderLive || obsStreaming) ? 'ok' : 'connected')
           : 'unknown';
         const rows = [
           ['ATEM Switcher', atemConnected ? 'connected' : 'unknown', status.atemLastSeen],

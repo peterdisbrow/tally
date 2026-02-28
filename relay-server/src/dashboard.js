@@ -360,6 +360,8 @@ function patchCard(church) {
   const mixerData      = s.mixer || {};
   const audioMuted     = mixerData.mainMuted || false;
   const audioSilence   = audioData.silenceDetected || false;
+  const mixerConnected = mixerData.connected || false;
+  const audioViaAtem = !!(church.audio_via_atem);
   const alerts = church.activeAlerts || 0;
 
   // 1) Status dot
@@ -413,8 +415,8 @@ function patchCard(church) {
         ? '<span class="tag tag-off">🔇 Muted</span>'
         : audioSilence
           ? '<span class="tag" style="background:rgba(245,158,11,0.15);color:var(--yellow);">⚠ Silence</span>'
-          : encoderLive
-            ? '<span class="tag tag-on">🔊 OK</span>'
+          : (mixerConnected || audioViaAtem)
+            ? (encoderLive ? '<span class="tag tag-on">🔊 OK</span>' : '<span class="tag tag-na">🔊 Standby</span>')
             : '<span class="tag tag-na">🔊 —</span>';
       if (rv.innerHTML !== audioBadge) rv.innerHTML = audioBadge;
     }
@@ -947,6 +949,8 @@ function renderCard(church) {
   const mixerData      = s.mixer || {};
   const audioMuted     = mixerData.mainMuted || false;
   const audioSilence   = audioData.silenceDetected || false;
+  const mixerConnected = mixerData.connected || false;
+  const audioViaAtem = !!(church.audio_via_atem);
   const reseller = church.reseller_id && _resellersMap[church.reseller_id];
   const resellerTag = reseller ? \`<div class="reseller-tag">🏢 \${esc(reseller.brand_name || reseller.name)}</div>\` : '';
   const encoderBadge = encoderActive
@@ -956,8 +960,8 @@ function renderCard(church) {
     ? '<span class="tag tag-off">🔇 Muted</span>'
     : audioSilence
       ? '<span class="tag" style="background:rgba(245,158,11,0.15);color:var(--yellow);">⚠ Silence</span>'
-      : encoderLive
-        ? '<span class="tag tag-on">🔊 OK</span>'
+      : (mixerConnected || audioViaAtem)
+        ? (encoderLive ? '<span class="tag tag-on">🔊 OK</span>' : '<span class="tag tag-na">🔊 Standby</span>')
         : '<span class="tag tag-na">🔊 —</span>';
   const cid   = esc(church.churchId);
   const cname = esc(church.name);
@@ -2042,12 +2046,14 @@ function renderCard(church) {
   const audioData  = s.audio || {};
   const mixerData  = s.mixer || {};
   const audioMuted = mixerData.mainMuted || false;
+  const mixerConnected = mixerData.connected || false;
+  const audioViaAtem = !!(church.audio_via_atem);
   const audioBadge = audioMuted
     ? '<span class="tag tag-off">🔇 Muted</span>'
     : audioData.silenceDetected
       ? '<span class="tag" style="background:rgba(245,158,11,0.15);color:var(--yellow);">⚠ Silence</span>'
-      : encoderLive
-        ? '<span class="tag tag-on">🔊 OK</span>'
+      : (mixerConnected || audioViaAtem)
+        ? (encoderLive ? '<span class="tag tag-on">🔊 OK</span>' : '<span class="tag tag-na">🔊 Standby</span>')
         : '<span class="tag tag-na">🔊 —</span>';
 
   return \`<div class="card" id="card-\${esc(church.churchId)}">
