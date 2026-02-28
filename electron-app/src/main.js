@@ -783,6 +783,19 @@ ipcMain.handle('save-engineer-profile', async (_, profile) => {
   }
 });
 
+// ─── STREAM PLATFORM OAUTH IPC ────────────────────────────────────────────────
+
+const oauthFlow = require('./oauthFlow');
+oauthFlow.init({ loadConfig, saveConfig, relayHttpUrl, getMainWindow: () => mainWindow, defaultRelayUrl: DEFAULT_RELAY_URL });
+
+ipcMain.handle('oauth-youtube-connect', () => oauthFlow.startYouTubeOAuth());
+ipcMain.handle('oauth-facebook-connect', () => oauthFlow.startFacebookOAuth());
+ipcMain.handle('oauth-facebook-select-page', (_, { pageId }) => oauthFlow.selectFacebookPage(pageId));
+ipcMain.handle('oauth-youtube-disconnect', () => oauthFlow.disconnectPlatform('youtube'));
+ipcMain.handle('oauth-facebook-disconnect', () => oauthFlow.disconnectPlatform('facebook'));
+ipcMain.handle('oauth-status', () => oauthFlow.getOAuthStatus());
+ipcMain.handle('oauth-stream-keys', () => oauthFlow.getStreamKeys());
+
 // ─── EQUIPMENT CONFIG IPC ─────────────────────────────────────────────────────
 
 ipcMain.handle('request-preview', async (_, action) => {

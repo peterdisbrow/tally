@@ -941,7 +941,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`)?.classList.add('active');
   document.getElementById('tab-' + name)?.classList.add('active');
-  if (name === 'equipment') loadEquipment();
+  if (name === 'equipment') { loadEquipment(); updateOAuthUI(); }
   if (name === 'engineer') { loadProblemFinder(); startChatPolling(); }
   else stopChatPolling();
 }
@@ -1170,6 +1170,150 @@ function showHideKey(id) {
   const el = document.getElementById(id);
   el.type = el.type === 'password' ? 'text' : 'password';
 }
+
+// ─── STREAM PLATFORM OAUTH UI ──────────────────────────────────────────────
+
+async function connectYouTube() {
+  const btn = document.getElementById('btn-oauth-yt');
+  const status = document.getElementById('oauth-yt-status');
+  btn.disabled = true;
+  btn.textContent = 'Connecting...';
+  status.textContent = 'Opening browser...';
+  status.style.color = 'var(--yellow)';
+  try {
+    const result = await api.oauthYouTubeConnect();
+    if (result.success) {
+      updateOAuthUI();
+    } else {
+      status.textContent = result.error || 'Connection failed';
+      status.style.color = 'var(--red, #f44)';
+      btn.textContent = 'Connect YouTube';
+    }
+  } catch (e) {
+    status.textContent = e.message;
+    status.style.color = 'var(--red, #f44)';
+    btn.textContent = 'Connect YouTube';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function connectFacebook() {
+  const btn = document.getElementById('btn-oauth-fb');
+  const status = document.getElementById('oauth-fb-status');
+  btn.disabled = true;
+  btn.textContent = 'Connecting...';
+  status.textContent = 'Opening browser...';
+  status.style.color = 'var(--yellow)';
+  try {
+    const result = await api.oauthFacebookConnect();
+    if (result.success && result.pages?.length) {
+      // Show page selector
+      const selector = document.getElementById('fb-page-selector');
+      const select = document.getElementById('fb-page-select');
+      select.innerHTML = result.pages.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      selector.style.display = 'block';
+      status.textContent = 'Select a page below';
+      status.style.color = 'var(--yellow)';
+      btn.textContent = 'Connect Facebook';
+    } else if (result.success && result.pages?.length === 0) {
+      status.textContent = 'No Facebook Pages found';
+      status.style.color = 'var(--red, #f44)';
+      btn.textContent = 'Connect Facebook';
+    } else {
+      status.textContent = result.error || 'Connection failed';
+      status.style.color = 'var(--red, #f44)';
+      btn.textContent = 'Connect Facebook';
+    }
+  } catch (e) {
+    status.textContent = e.message;
+    status.style.color = 'var(--red, #f44)';
+    btn.textContent = 'Connect Facebook';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function selectFbPage() {
+  const select = document.getElementById('fb-page-select');
+  const pageId = select.value;
+  if (!pageId) return;
+
+  const status = document.getElementById('oauth-fb-status');
+  status.textContent = 'Setting up...';
+  try {
+    const result = await api.oauthFacebookSelectPage({ pageId });
+    if (result.success) {
+      document.getElementById('fb-page-selector').style.display = 'none';
+      updateOAuthUI();
+    } else {
+      status.textContent = result.error || 'Failed to select page';
+      status.style.color = 'var(--red, #f44)';
+    }
+  } catch (e) {
+    status.textContent = e.message;
+    status.style.color = 'var(--red, #f44)';
+  }
+}
+
+async function disconnectYouTube() {
+  if (!confirm('Disconnect YouTube? Stream keys will be removed.')) return;
+  await api.oauthYouTubeDisconnect();
+  updateOAuthUI();
+}
+
+async function disconnectFacebook() {
+  if (!confirm('Disconnect Facebook? Stream keys will be removed.')) return;
+  await api.oauthFacebookDisconnect();
+  updateOAuthUI();
+}
+
+async function updateOAuthUI() {
+  try {
+    const status = await api.oauthStatus();
+
+    // YouTube
+    const ytStatus = document.getElementById('oauth-yt-status');
+    const ytBtn = document.getElementById('btn-oauth-yt');
+    if (status?.youtube?.connected) {
+      const name = status.youtube.channelName || 'Connected';
+      ytStatus.textContent = name + (status.youtube.streamKeySet ? ' — key ready' : '');
+      ytStatus.style.color = 'var(--green)';
+      ytBtn.textContent = 'Disconnect';
+      ytBtn.className = 'btn-oauth connected';
+      ytBtn.onclick = disconnectYouTube;
+    } else {
+      ytStatus.textContent = 'Not connected';
+      ytStatus.style.color = 'var(--muted)';
+      ytBtn.textContent = 'Connect YouTube';
+      ytBtn.className = 'btn-oauth';
+      ytBtn.onclick = connectYouTube;
+    }
+
+    // Facebook
+    const fbStatus = document.getElementById('oauth-fb-status');
+    const fbBtn = document.getElementById('btn-oauth-fb');
+    if (status?.facebook?.connected) {
+      const name = status.facebook.pageName || 'Connected';
+      fbStatus.textContent = name + (status.facebook.streamKeySet ? ' — key ready' : '');
+      fbStatus.style.color = 'var(--green)';
+      fbBtn.textContent = 'Disconnect';
+      fbBtn.className = 'btn-oauth connected';
+      fbBtn.onclick = disconnectFacebook;
+    } else {
+      fbStatus.textContent = 'Not connected';
+      fbStatus.style.color = 'var(--muted)';
+      fbBtn.textContent = 'Connect Facebook';
+      fbBtn.className = 'btn-oauth';
+      fbBtn.onclick = connectFacebook;
+    }
+  } catch { /* relay may be unreachable */ }
+}
+
+// Listen for OAuth updates from main process
+api.onOauthUpdate?.((data) => {
+  updateOAuthUI();
+});
 
 async function testEquip(type) {
   syncDomToState();

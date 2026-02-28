@@ -89,6 +89,18 @@ function loadConfigForUI() {
   ui.youtubeKeySet = !!(config.youtubeApiKey);
   ui.facebookTokenSet = !!(config.facebookAccessToken);
   ui.rtmpKeySet = !!(config.rtmpStreamKey);
+  // OAuth connection flags
+  ui.youtubeOAuthConnected = !!(config.youtubeOAuthAccessToken || config.youtubeStreamKey);
+  ui.facebookOAuthConnected = !!(config.facebookOAuthAccessToken || config.facebookStreamKey);
+  ui.facebookPageName = config.facebookPageName || '';
+  // Remove OAuth tokens from UI payload
+  delete ui.youtubeOAuthAccessToken;
+  delete ui.youtubeOAuthRefreshToken;
+  delete ui.facebookOAuthAccessToken;
+  delete ui.youtubeStreamKey;
+  delete ui.facebookStreamKey;
+  delete ui.youtubeStreamUrl;
+  delete ui.facebookStreamUrl;
   return ui;
 }
 

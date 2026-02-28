@@ -42,6 +42,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   uploadChatFile: (payload) => ipcRenderer.invoke('upload-chat-file', payload),
   // Engineer profile
   saveEngineerProfile: (profile) => ipcRenderer.invoke('save-engineer-profile', profile),
+  // Stream platform OAuth
+  oauthYouTubeConnect: () => ipcRenderer.invoke('oauth-youtube-connect'),
+  oauthFacebookConnect: () => ipcRenderer.invoke('oauth-facebook-connect'),
+  oauthFacebookSelectPage: (opts) => ipcRenderer.invoke('oauth-facebook-select-page', opts),
+  oauthYouTubeDisconnect: () => ipcRenderer.invoke('oauth-youtube-disconnect'),
+  oauthFacebookDisconnect: () => ipcRenderer.invoke('oauth-facebook-disconnect'),
+  oauthStatus: () => ipcRenderer.invoke('oauth-status'),
+  oauthStreamKeys: () => ipcRenderer.invoke('oauth-stream-keys'),
+  onOauthUpdate: (cb) => ipcRenderer.on('oauth-update', (_, data) => cb(data)),
   // Problem Finder
   pfAnalyze: () => ipcRenderer.invoke('pf-analyze'),
   pfGoNoGo: (opts) => ipcRenderer.invoke('pf-go-no-go', opts),

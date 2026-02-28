@@ -23,6 +23,12 @@ const SECURE_FIELDS = [
   'token',
   'churchToken',
   'adminApiKey',
+  // OAuth tokens (stored locally as backup — primary storage is relay DB)
+  'youtubeOAuthAccessToken',
+  'youtubeOAuthRefreshToken',
+  'facebookOAuthAccessToken',
+  'youtubeStreamKey',
+  'facebookStreamKey',
 ];
 
 // ─── ELECTRON safeStorage ─────────────────────────────────────────────────────

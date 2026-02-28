@@ -404,40 +404,70 @@
     <!-- C. Device Catalog (rendered dynamically by equipment-ui.js) -->
     <div id="equip-catalog"></div>
 
-    <!-- D. Streaming Keys (static section) -->
+    <!-- D. Stream Destinations -->
     <div class="equip-group" data-group="streaming">
       <div class="equip-group-header" onclick="toggleEquipGroup('streaming')">
-        <span class="group-title">Streaming Keys &nbsp;<span style="font-size:9px; color:var(--green); font-weight:600; letter-spacing:0.05em; text-transform:none; font-family:var(--font);">🔒 Encrypted</span></span>
+        <span class="group-title">Stream Destinations &nbsp;<span style="font-size:9px; color:var(--green); font-weight:600; letter-spacing:0.05em; text-transform:none; font-family:var(--font);">&#x1F512; Encrypted</span></span>
         <span class="group-chevron">&#9660;</span>
       </div>
       <div class="equip-group-body">
         <div class="equip-section">
-          <div class="equip-detail" style="margin-bottom:12px;">All keys are encrypted using your OS keychain (macOS Keychain / Windows DPAPI). Never stored in plaintext.</div>
-          <label>YouTube API Key (for stream health monitoring)</label>
-          <div class="equip-row">
-            <input type="password" id="equip-youtube-key" placeholder="AIzaSy…" autocomplete="new-password">
-            <button class="btn-test" onclick="showHideKey('equip-youtube-key')">👁</button>
+          <div class="equip-detail" style="margin-bottom:12px;">Connect your stream platforms to auto-fetch RTMP keys. All credentials encrypted via OS keychain.</div>
+
+          <!-- YouTube OAuth -->
+          <div class="oauth-row" id="oauth-youtube-row">
+            <div style="display:flex; align-items:center; gap:8px; flex:1;">
+              <span style="font-size:14px;">&#9654;</span>
+              <span style="font-size:12px; font-weight:600; color:var(--white); font-family:var(--font);">YouTube</span>
+              <span class="oauth-status" id="oauth-yt-status" style="font-size:11px; color:var(--muted); font-family:var(--mono);">Not connected</span>
+            </div>
+            <button class="btn-oauth" id="btn-oauth-yt" onclick="connectYouTube()">Connect YouTube</button>
           </div>
-          <label style="margin-top:10px;">Facebook Access Token (for stream health monitoring)</label>
-          <div class="equip-row">
-            <input type="password" id="equip-facebook-token" placeholder="EAAxxxxxx…" autocomplete="new-password">
-            <button class="btn-test" onclick="showHideKey('equip-facebook-token')">👁</button>
+
+          <!-- Facebook OAuth -->
+          <div class="oauth-row" id="oauth-facebook-row" style="margin-top:8px;">
+            <div style="display:flex; align-items:center; gap:8px; flex:1;">
+              <span style="font-size:14px;">&#9673;</span>
+              <span style="font-size:12px; font-weight:600; color:var(--white); font-family:var(--font);">Facebook</span>
+              <span class="oauth-status" id="oauth-fb-status" style="font-size:11px; color:var(--muted); font-family:var(--mono);">Not connected</span>
+            </div>
+            <button class="btn-oauth" id="btn-oauth-fb" onclick="connectFacebook()">Connect Facebook</button>
           </div>
-          <div class="equip-detail" style="margin-top:4px; font-size:10px; line-height:1.4;">
-            Requires a Facebook Page Access Token with <code>pages_read_engagement</code> permission.<br>
-            Get one at <a href="#" onclick="event.preventDefault(); api.openExternal('https://developers.facebook.com/tools/explorer/')">developers.facebook.com/tools/explorer</a>
-            &rarr; select your Page &rarr; add <code>pages_read_engagement</code> permission &rarr; Generate Token.
+
+          <!-- Facebook page selector (hidden until OAuth completes) -->
+          <div id="fb-page-selector" style="display:none; margin-top:10px; padding:10px; background:var(--card); border-radius:6px;">
+            <label style="font-size:11px; color:var(--muted);">Select your Facebook Page:</label>
+            <select id="fb-page-select" style="width:100%; margin-top:4px; padding:6px; background:var(--bg); color:var(--white); border:1px solid var(--border); border-radius:4px; font-family:var(--font); font-size:12px;"></select>
+            <button class="btn-oauth" style="margin-top:8px;" onclick="selectFbPage()">Use This Page</button>
           </div>
-          <label style="margin-top:14px;">RTMP Stream URL</label>
-          <div class="equip-row">
-            <input type="text" id="equip-rtmp-url" placeholder="rtmp://a.rtmp.youtube.com/live2" autocomplete="off">
-          </div>
-          <label style="margin-top:10px;">RTMP Stream Key</label>
-          <div class="equip-row">
-            <input type="password" id="equip-rtmp-key" placeholder="live_xxxxxxxx" autocomplete="new-password">
-            <button class="btn-test" onclick="showHideKey('equip-rtmp-key')">👁</button>
-          </div>
-          <div class="equip-detail" id="equip-keys-detail" style="margin-top:8px;"></div>
+
+          <!-- Manual entry (collapsed) -->
+          <details style="margin-top:16px;">
+            <summary style="cursor:pointer; font-size:11px; color:var(--dim); font-family:var(--mono); letter-spacing:0.02em;">Advanced: Manual Stream Keys</summary>
+            <div style="margin-top:10px;">
+              <label>YouTube API Key (for stream health monitoring)</label>
+              <div class="equip-row">
+                <input type="password" id="equip-youtube-key" placeholder="AIzaSy..." autocomplete="new-password">
+                <button class="btn-test" onclick="showHideKey('equip-youtube-key')">&#x1F441;</button>
+              </div>
+              <label style="margin-top:10px;">Facebook Access Token (for stream health monitoring)</label>
+              <div class="equip-row">
+                <input type="password" id="equip-facebook-token" placeholder="EAAxxxxxx..." autocomplete="new-password">
+                <button class="btn-test" onclick="showHideKey('equip-facebook-token')">&#x1F441;</button>
+              </div>
+              <label style="margin-top:14px;">RTMP Stream URL</label>
+              <div class="equip-row">
+                <input type="text" id="equip-rtmp-url" placeholder="rtmp://a.rtmp.youtube.com/live2" autocomplete="off">
+              </div>
+              <label style="margin-top:10px;">RTMP Stream Key</label>
+              <div class="equip-row">
+                <input type="password" id="equip-rtmp-key" placeholder="live_xxxxxxxx" autocomplete="new-password">
+                <button class="btn-test" onclick="showHideKey('equip-rtmp-key')">&#x1F441;</button>
+              </div>
+              <div class="equip-detail" id="equip-keys-detail" style="margin-top:8px;"></div>
+            </div>
+          </details>
+
         </div>
       </div>
     </div>

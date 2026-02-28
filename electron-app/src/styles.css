@@ -559,6 +559,25 @@ button:focus-visible {
   font-family: var(--font);
 }
 .btn-add:hover { border-color: var(--green); color: var(--white); }
+
+/* ── OAuth Connect Buttons ──────────────────────────────────── */
+.oauth-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--r-input);
+}
+.btn-oauth {
+  flex: none; padding: 5px 14px;
+  font-size: 11px; font-family: var(--font); font-weight: 600;
+  background: transparent; color: var(--green); border: 1px solid var(--green);
+  border-radius: var(--r-input); cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-oauth:hover { background: var(--green); color: var(--bg); }
+.btn-oauth:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-oauth.connected { border-color: var(--dim); color: var(--dim); font-weight: 400; }
+.btn-oauth.connected:hover { background: rgba(255,60,60,0.1); border-color: #f44; color: #f44; }
+
 .btn-remove {
   flex: none;
   padding: 4px 8px;
