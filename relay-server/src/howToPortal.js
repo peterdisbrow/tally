@@ -685,7 +685,7 @@ a:hover { text-decoration: underline; }
 
 // ─── HTML builders ───────────────────────────────────────────────────────────
 
-const BASE_URL = 'https://howto.tallyconnect.app';
+const BASE_URL = 'https://api.tallyconnect.app/how-to';
 
 function escAttr(s) { return String(s).replace(/"/g, '&quot;').replace(/&/g, '&amp;'); }
 
