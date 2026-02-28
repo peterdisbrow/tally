@@ -90,6 +90,7 @@ const { setupChurchPortal } = require('./src/churchPortal');
 const { setupResellerPortal } = require('./src/resellerPortal');
 const { setupStatusPage } = require('./src/statusPage');
 const { setupDocsPortal } = require('./src/docsPortal');
+const { setupHowToPortal } = require('./src/howToPortal');
 const { hasStreamSignal, isStreamActive, isRecordingActive } = require('./src/status-utils');
 const { createBackupSnapshot } = require('./src/dbBackup');
 const { createRateLimit, consumeRateLimit, logRateLimitStatus } = require('./src/rateLimit');
@@ -996,6 +997,9 @@ console.log('[Server] ✓ Status page route registered');
 // Public docs portal
 setupDocsPortal(app);
 console.log('[Server] ✓ Docs portal route registered');
+
+// Public how-to guides portal
+setupHowToPortal(app);
 
 logRateLimitStatus();
 
