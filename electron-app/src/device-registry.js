@@ -174,8 +174,9 @@ const DEVICE_REGISTRY = {
     description: 'OSC-compatible mixing console',
     multi: false,
     fields: [
-      { key: 'type', label: 'Console Type', type: 'select', options: [
+      { key: 'type', label: 'Audio Source', type: 'select', options: [
         { value: '', label: '\u2014 Not configured \u2014' },
+        { value: 'atem-direct', label: 'Audio routed directly into ATEM' },
         { value: 'x32', label: 'X32 (Behringer protocol)' },
         { value: 'behringer', label: 'Behringer X32 / X-Air' },
         { value: 'midas', label: 'Midas M32 / M32R' },

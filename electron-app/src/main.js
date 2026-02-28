@@ -986,7 +986,21 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
     delete config.encoderSource;
   }
   if (equipConfig.rtmpUrl !== undefined) config.rtmpUrl = equipConfig.rtmpUrl;
+  // Audio-via-ATEM flag
+  if (equipConfig.audioViaAtem !== undefined) config.audioViaAtem = equipConfig.audioViaAtem ? 1 : 0;
   saveConfig(config);
+
+  // Sync audioViaAtem flag to relay profile (fire and forget)
+  if (equipConfig.audioViaAtem !== undefined && config.token) {
+    const relay = enforceRelayPolicy(config.relay || DEFAULT_RELAY_URL);
+    fetch(`${relayHttpUrl(relay).replace(/\/+$/, '')}/api/church/app/me`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${config.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audioViaAtem: equipConfig.audioViaAtem ? 1 : 0 }),
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => {}); // non-critical
+  }
+
   return true;
 });
 

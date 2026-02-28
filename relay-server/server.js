@@ -2086,7 +2086,8 @@ app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
   }
 
   // Whitelist of allowed columns to prevent SQL injection via dynamic column names
-  const ALLOWED_PROFILE_COLUMNS = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile'];
+  const ALLOWED_PROFILE_COLUMNS = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'audio_via_atem'];
+  const { audioViaAtem } = req.body;
   const patch = {};
   if (email          !== undefined) patch.portal_email     = email.trim().toLowerCase();
   if (phone          !== undefined) patch.phone            = phone;
@@ -2095,6 +2096,7 @@ app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
   if (telegramChatId !== undefined) patch.telegram_chat_id = telegramChatId;
   if (notifications  !== undefined) patch.notifications    = JSON.stringify(notifications);
   if (engineerProfile !== undefined) patch.engineer_profile = JSON.stringify(engineerProfile);
+  if (audioViaAtem   !== undefined) patch.audio_via_atem   = audioViaAtem ? 1 : 0;
 
   // Filter to only whitelisted column names (defense-in-depth)
   const safePatch = {};
@@ -2105,6 +2107,11 @@ app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
   if (Object.keys(safePatch).length) {
     const sets = Object.keys(safePatch).map(k => `${k} = ?`).join(', ');
     db.prepare(`UPDATE churches SET ${sets} WHERE churchId = ?`).run(...Object.values(safePatch), churchId);
+    // Sync audio_via_atem to in-memory runtime state
+    if (safePatch.audio_via_atem !== undefined) {
+      const runtime = churches.get(churchId);
+      if (runtime) runtime.audio_via_atem = safePatch.audio_via_atem;
+    }
   }
   res.json({ ok: true });
 });

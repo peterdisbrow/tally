@@ -1399,6 +1399,13 @@ async function preServiceCheck(agent) {
         });
       }
     }
+  } else if (agent.config.audioViaAtem) {
+    // Audio routed directly into ATEM — no external mixer to check
+    checks.push({
+      name: 'Audio Source',
+      pass: true,
+      detail: 'Audio routed directly into ATEM (no external mixer)',
+    });
   }
 
   // 8. Resolume Arena check

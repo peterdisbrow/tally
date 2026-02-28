@@ -3593,7 +3593,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         .run(hashPassword(newPassword), churchId);
     }
 
-    const allowedColumns = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'auto_recovery_enabled'];
+    const { audioViaAtem } = req.body;
+    const allowedColumns = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'auto_recovery_enabled', 'audio_via_atem'];
     const patch = {};
     if (email          !== undefined) patch.portal_email     = email.trim().toLowerCase();
     if (phone          !== undefined) patch.phone            = phone;
@@ -3603,11 +3604,17 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     if (notifications  !== undefined) patch.notifications    = JSON.stringify(notifications);
     if (engineerProfile !== undefined) patch.engineer_profile = JSON.stringify(engineerProfile);
     if (autoRecoveryEnabled !== undefined) patch.auto_recovery_enabled = autoRecoveryEnabled ? 1 : 0;
+    if (audioViaAtem   !== undefined) patch.audio_via_atem   = audioViaAtem ? 1 : 0;
 
     const safePatch = Object.fromEntries(Object.entries(patch).filter(([k]) => allowedColumns.includes(k)));
     if (Object.keys(safePatch).length) {
       const sets = Object.keys(safePatch).map(k => `${k} = ?`).join(', ');
       db.prepare(`UPDATE churches SET ${sets} WHERE churchId = ?`).run(...Object.values(safePatch), churchId);
+      // Sync audio_via_atem to in-memory runtime state
+      if (safePatch.audio_via_atem !== undefined) {
+        const runtime = churches.get(churchId);
+        if (runtime) runtime.audio_via_atem = safePatch.audio_via_atem;
+      }
     }
     res.json({ ok: true });
   });

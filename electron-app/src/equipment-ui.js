@@ -156,13 +156,16 @@ function renderDeviceCard(deviceId, instanceIndex) {
         const opts = (field.options || []).map(o =>
           `<option value="${escapeHtml(o.value)}"${val === o.value ? ' selected' : ''}>${escapeHtml(o.label)}</option>`
         ).join('');
-        fieldsHtml += `<select ${dataAttrs} style="${field.style || 'flex:1'}">${opts}</select>`;
+        const onchangeAttr = (deviceId === 'mixer' && field.key === 'type') ? ' onchange="onMixerTypeChanged()"' : '';
+        fieldsHtml += `<select ${dataAttrs}${onchangeAttr} style="${field.style || 'flex:1'}">${opts}</select>`;
       } else {
-        fieldsHtml += `<input type="${field.type}" ${dataAttrs} value="${escapeHtml(val)}" placeholder="${field.placeholder || ''}" style="${field.style || ''}">`;
+        // Hide mixer IP/port fields when type is 'atem-direct'
+        const hideMixerField = deviceId === 'mixer' && (field.key === 'host' || field.key === 'port') && state.type === 'atem-direct';
+        fieldsHtml += `<input type="${field.type}" ${dataAttrs} value="${escapeHtml(val)}" placeholder="${field.placeholder || ''}" style="${field.style || ''}${hideMixerField ? ';display:none' : ''}">`;
       }
     }
-    // Test button
-    if (def.testType) {
+    // Test button (hide for atem-direct mixer)
+    if (def.testType && !(deviceId === 'mixer' && state.type === 'atem-direct')) {
       const testAction = isMulti
         ? `testEquipIdx('${deviceId}', ${instanceIndex})`
         : `testEquip('${deviceId}')`;
@@ -171,7 +174,10 @@ function renderDeviceCard(deviceId, instanceIndex) {
     fieldsHtml += '</div>';
   }
 
-  const detailHint = def.detailHint || def.description || '';
+  let detailHint = def.detailHint || def.description || '';
+  if (deviceId === 'mixer' && state.type === 'atem-direct') {
+    detailHint = 'Audio is fed directly into the ATEM \u2014 no external mixer to monitor. Audio levels will be read from the ATEM master output.';
+  }
 
   return `<div class="equip-card" id="${cardId}">
     <div class="equip-card-header">
@@ -296,6 +302,13 @@ function onEncoderTypeChanged(idx) {
   const detailEl = document.getElementById(`equip-encoder-detail-${idx}`);
   if (container) container.innerHTML = renderEncoderSubfields(type, enc, idx);
   if (detailEl) detailEl.textContent = '';
+}
+
+function onMixerTypeChanged() {
+  syncDomToState();
+  // Re-render the mixer card so IP/port fields and detail hint update
+  renderDeviceCatalog();
+  renderActiveSummary();
 }
 
 // ─── EXPAND / COLLAPSE / ADD / REMOVE ───────────────────────────────────────

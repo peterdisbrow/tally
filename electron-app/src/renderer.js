@@ -1272,7 +1272,9 @@ async function loadEquipment() {
   const ndiConfigured = !!(eq.ndiSource && String(eq.ndiSource).trim());
   deviceState.ndi = { source: eq.ndiSource || '', label: eq.ndiLabel || '', configured: ndiConfigured };
 
-  deviceState.mixer = { type: eq.mixerType || '', host: eq.mixerHost || '', port: eq.mixerPort ? String(eq.mixerPort) : '' };
+  // If audioViaAtem is set and no mixer type, restore as 'atem-direct' selection
+  const mixerType = eq.audioViaAtem ? 'atem-direct' : (eq.mixerType || '');
+  deviceState.mixer = { type: mixerType, host: eq.mixerHost || '', port: eq.mixerPort ? String(eq.mixerPort) : '' };
   deviceState.dante = { host: eq.danteNmosHost || '', port: String(eq.danteNmosPort || '8080') };
 
   deviceState.hyperdeck = (eq.hyperdecks || []).map(ip => ({ ip: typeof ip === 'string' ? ip : (ip.ip || '') }));
@@ -1704,9 +1706,10 @@ async function _doSaveEquipment() {
     resolumeHost: deviceState.resolume.configured ? (deviceState.resolume.host || '').trim() : '',
     resolumePort: parseInt(deviceState.resolume.port) || 8080,
     // Audio
-    mixerType: deviceState.mixer.type || '',
+    mixerType: deviceState.mixer.type === 'atem-direct' ? '' : (deviceState.mixer.type || ''),
     mixerHost: (deviceState.mixer.host || '').trim(),
     mixerPort: parseInt(deviceState.mixer.port) || 0,
+    audioViaAtem: deviceState.mixer.type === 'atem-direct' ? 1 : 0,
     danteNmosHost: (deviceState.dante.host || '').trim(),
     danteNmosPort: parseInt(deviceState.dante.port) || 8080,
     // NDI
@@ -1735,6 +1738,8 @@ async function _doSaveEquipment() {
     if (dotLabel) dotLabel.textContent = newLabel;
     const sectionTitle = document.getElementById('encoder-section-title');
     if (sectionTitle) sectionTitle.textContent = newLabel;
+    // Update audio-via-ATEM flag for dashboard status rendering
+    _audioViaAtem = !!(config.audioViaAtem);
     // Cache + NDI visibility
     window._savedEquipment = config;
     window._encoderConfig = { _type: encType, host: (enc.host || '').trim(), port: enc.port || '', password: enc.password || '', label: (enc.label || '').trim(), statusUrl: (enc.statusUrl || '').trim(), source: (enc.source || '').trim() };
