@@ -7,3 +7,6 @@ data/
 .DS_Store
 electron-app/dist-mock-lab/
 .vercel
+.playwright-cli/
+*/test-results/
+output/
