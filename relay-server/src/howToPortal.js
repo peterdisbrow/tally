@@ -67,6 +67,34 @@ const SECTION_LABELS = {
   generic: 'Info',
 };
 
+// ── Related-article graph (2-4 related IDs per article) ──
+const RELATED_GUIDES = {
+  H01: ['H02', 'H03', 'H04'],
+  H02: ['H01', 'H03', 'H04'],
+  H03: ['H01', 'H02', 'H04'],
+  H04: ['H03', 'H05', 'H08', 'H09'],
+  H05: ['H04', 'H12', 'H06', 'H07'],
+  H06: ['H07', 'H08', 'H10', 'H13'],
+  H07: ['H06', 'H05', 'H11'],
+  H08: ['H06', 'H04', 'H09'],
+  H09: ['H04', 'H08', 'H12'],
+  H10: ['H06', 'H11', 'H05'],
+  H11: ['H06', 'H10', 'H05'],
+  H12: ['H05', 'H14', 'H15'],
+  H13: ['H06', 'H12', 'H15'],
+  H14: ['H12', 'H15', 'H13'],
+  H15: ['H14', 'H12', 'H13'],
+};
+
+// ── Category slug lookup ──
+const CATEGORY_SLUGS = {
+  'Getting Started': 'getting-started',
+  'Equipment Integrations': 'equipment-integrations',
+  'Automation and Companion': 'automation-and-companion',
+  'Troubleshooting': 'troubleshooting',
+  'Operations': 'operations',
+};
+
 function parseArticles(lines) {
   const articles = [];
   let current = null;
@@ -152,6 +180,69 @@ function loadAndParseGuides() {
   }
 
   return { categories, articles };
+}
+
+// ─── SEO helpers ─────────────────────────────────────────────────────────────
+
+/** Extract FAQ items from troubleshooting tables (Symptom | Cause | Fix) */
+function extractFaqItems(article) {
+  const faqs = [];
+  for (const section of article.sections) {
+    if (section.type !== 'troubleshooting') continue;
+    const rowRegex = /<tr>\s*<td[^>]*>(.*?)<\/td>\s*<td[^>]*>(.*?)<\/td>\s*<td[^>]*>(.*?)<\/td>\s*<\/tr>/gs;
+    let match;
+    while ((match = rowRegex.exec(section.html)) !== null) {
+      const symptom = match[1].replace(/<[^>]+>/g, '').trim();
+      const cause = match[2].replace(/<[^>]+>/g, '').trim();
+      const fix = match[3].replace(/<[^>]+>/g, '').trim();
+      if (symptom && fix) {
+        faqs.push({ question: symptom, answer: `${cause}. ${fix}` });
+      }
+    }
+  }
+  return faqs;
+}
+
+/** Build TOC entries from article sections */
+function buildTocItems(article) {
+  return article.sections.map(s => ({
+    id: s.id,
+    icon: SECTION_ICONS[s.type] || '',
+    label: SECTION_LABELS[s.type] || s.title,
+  }));
+}
+
+/** Get previous/next articles within the same category */
+function getPrevNext(article, categories) {
+  const cat = categories.find(c => c.articles.some(a => a.id === article.id));
+  if (!cat) return { prev: null, next: null };
+  const idx = cat.articles.findIndex(a => a.id === article.id);
+  return {
+    prev: idx > 0 ? cat.articles[idx - 1] : null,
+    next: idx < cat.articles.length - 1 ? cat.articles[idx + 1] : null,
+  };
+}
+
+/** Extract HowToStep items with text from steps sections */
+function extractSteps(article) {
+  const steps = [];
+  for (const s of article.sections) {
+    if (s.type !== 'steps') continue;
+    const parts = s.html.split(/<div class="ht-step-heading">/);
+    for (let i = 1; i < parts.length; i++) {
+      const nameMatch = parts[i].match(/<span class="ht-step-label">(.+?)<\/span>/);
+      if (!nameMatch) continue;
+      const afterHeading = parts[i].replace(/.*?<\/div>/, '');
+      const textContent = afterHeading.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+      steps.push({
+        '@type': 'HowToStep',
+        position: steps.length + 1,
+        name: nameMatch[1],
+        text: textContent || nameMatch[1],
+      });
+    }
+  }
+  return steps;
 }
 
 // ─── Custom marked renderer ──────────────────────────────────────────────────
@@ -339,6 +430,8 @@ a:hover { text-decoration: underline; }
 .ht-category-card:hover { border-color: #22c55e40; }
 .ht-cat-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .ht-cat-title { font-size: 17px; font-weight: 700; color: #22c55e; }
+.ht-cat-title a { color: inherit; text-decoration: none; }
+.ht-cat-title a:hover { text-decoration: underline; }
 .ht-cat-count {
   font-size: 11px; color: #64748b; background: rgba(34,197,94,0.08);
   padding: 2px 8px; border-radius: 10px;
@@ -393,7 +486,7 @@ a:hover { text-decoration: underline; }
 .ht-section-troubleshooting { border-left-color: #ef4444; }
 .ht-section-rollback  { border-left-color: #f59e0b; }
 .ht-section-screenshots { border-left-color: #64748b; }
-.ht-section-title { font-size: 16px; font-weight: 700; color: #f8fafc; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.ht-section-title { font-size: 18px; font-weight: 700; color: #f8fafc; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
 .ht-section-icon { font-size: 18px; }
 .ht-section-body { font-size: 14px; color: #cbd5e1; line-height: 1.7; }
 .ht-section-body p { margin-bottom: 10px; }
@@ -494,6 +587,61 @@ a:hover { text-decoration: underline; }
 }
 .ht-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 90; }
 
+/* ── Table of Contents ── */
+.ht-toc {
+  background: #0F1613; border: 1px solid #1f3b28; border-radius: 10px;
+  padding: 16px 20px; margin-bottom: 24px;
+}
+.ht-toc-title { font-size: 14px; font-weight: 700; color: #94a3b8; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+.ht-toc-list { list-style: none; padding: 0; margin: 0; }
+.ht-toc-item { margin-bottom: 4px; }
+.ht-toc-link {
+  display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+  font-size: 13px; color: #94a3b8; border-radius: 6px; text-decoration: none; transition: all 0.15s;
+}
+.ht-toc-link:hover { color: #22c55e; background: rgba(34,197,94,0.06); text-decoration: none; }
+.ht-toc-icon { font-size: 14px; }
+
+/* ── Related Guides ── */
+.ht-related { margin-top: 40px; padding-top: 24px; border-top: 1px solid #1f3b28; }
+.ht-related-title { font-size: 18px; font-weight: 700; color: #f8fafc; margin-bottom: 16px; }
+.ht-related-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.ht-related-card {
+  display: block; background: #0F1613; border: 1px solid #1f3b28; border-radius: 10px;
+  padding: 16px; text-decoration: none; transition: border-color 0.15s;
+}
+.ht-related-card:hover { border-color: #22c55e40; text-decoration: none; }
+.ht-related-card-id {
+  font-size: 10px; font-weight: 700; font-family: 'SF Mono', monospace;
+  background: rgba(34,197,94,0.12); color: #22c55e; padding: 1px 5px; border-radius: 3px;
+}
+.ht-related-card-title { font-size: 14px; font-weight: 600; color: #f8fafc; margin-top: 6px; }
+.ht-related-card-summary { font-size: 12px; color: #94a3b8; margin-top: 4px; line-height: 1.4; }
+
+/* ── Prev / Next ── */
+.ht-prevnext { display: flex; justify-content: space-between; gap: 16px; margin-top: 32px; }
+.ht-prevnext-link {
+  display: block; flex: 1; padding: 14px 16px; background: #0F1613;
+  border: 1px solid #1f3b28; border-radius: 10px; text-decoration: none; transition: border-color 0.15s;
+}
+.ht-prevnext-link:hover { border-color: #22c55e40; text-decoration: none; }
+.ht-prevnext-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+.ht-prevnext-title { font-size: 14px; font-weight: 600; color: #f8fafc; margin-top: 4px; }
+.ht-prevnext-next { text-align: right; }
+
+/* ── Share buttons ── */
+.ht-share { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.ht-share-label { font-size: 12px; color: #64748b; }
+.ht-share-btn {
+  display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
+  font-size: 12px; color: #94a3b8; border: 1px solid #1f3b28; border-radius: 6px;
+  text-decoration: none; transition: all 0.15s;
+}
+.ht-share-btn:hover { color: #22c55e; border-color: #22c55e; text-decoration: none; }
+
+/* ── Category landing page ── */
+.ht-cat-landing-desc { font-size: 14px; color: #94a3b8; margin-bottom: 20px; line-height: 1.6; }
+
 /* ── Mobile ── */
 @media (max-width: 768px) {
   .ht-sidebar { display: none; }
@@ -507,6 +655,31 @@ a:hover { text-decoration: underline; }
   .ht-section { padding: 16px; }
   .ht-article-nav { gap: 4px; }
   .ht-article-nav-link { font-size: 11px; padding: 3px 7px; }
+  .ht-toc { padding: 12px 14px; }
+  .ht-related-grid { grid-template-columns: 1fr; }
+  .ht-prevnext { flex-direction: column; }
+}
+
+/* ── Print ── */
+@media print {
+  .ht-sidebar, .ht-hamburger, .ht-backdrop, .ht-progress-track,
+  .ht-share, .ht-article-nav, .ht-copy-btn, .ht-search-wrap,
+  .ht-toc, .ht-prevnext { display: none !important; }
+  .ht-main { margin-left: 0 !important; padding: 0 !important; max-width: 100% !important; }
+  body { background: #fff !important; color: #000 !important; }
+  .ht-section { background: #fff !important; border-color: #ccc !important; }
+  .ht-section-body, .ht-section-body p { color: #222 !important; }
+  .ht-article-title, .ht-section-title, .ht-page-title { color: #000 !important; }
+  .ht-breadcrumb a, a { color: #000 !important; }
+  a[href^="/"]::after, a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.85em; color: #555; }
+  .ht-related-card a::after, .ht-sidebar a::after { content: none; }
+  .ht-code-block { background: #f5f5f5 !important; border-color: #ccc !important; }
+  .ht-code-block code { color: #222 !important; }
+  .ht-table th { background: #eee !important; color: #222 !important; }
+  .ht-table td { color: #222 !important; border-color: #ccc !important; }
+  .ht-related-card { border-color: #ccc !important; background: #f9f9f9 !important; }
+  .ht-related-card-title { color: #000 !important; }
+  .ht-related-card-summary { color: #333 !important; }
 }
 `;
 
@@ -529,6 +702,14 @@ function buildSidebarHtml(categories, activeArticleId) {
   `).join('');
 }
 
+function renderJsonLd(jsonLd) {
+  if (!jsonLd) return '';
+  if (Array.isArray(jsonLd)) {
+    return jsonLd.filter(Boolean).map(ld => `<script type="application/ld+json">${JSON.stringify(ld)}</script>`).join('\n');
+  }
+  return `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>`;
+}
+
 function buildHtmlShell({ title, metaDescription, canonicalUrl, ogType, jsonLd, sidebarHtml, isHome, bodyContent, scriptContent }) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -546,7 +727,7 @@ function buildHtmlShell({ title, metaDescription, canonicalUrl, ogType, jsonLd, 
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:title" content="${escAttr(title)}" />
 <meta name="twitter:description" content="${escAttr(metaDescription)}" />
-${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script>` : ''}
+${renderJsonLd(jsonLd)}
 <style>${CSS_BLOCK}</style>
 </head>
 <body>
@@ -588,7 +769,7 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script
       var visible = cat.querySelectorAll('.ht-sidebar-link:not([style*="display: none"])');
       cat.style.display = visible.length > 0 || !q ? '' : 'none';
     });
-    ${/* Index pages also filter the home cards */ ''}
+    ${''}
     var homeCards = document.querySelectorAll('.ht-article-preview');
     if (homeCards.length) {
       homeCards.forEach(function(el) {
@@ -611,10 +792,12 @@ ${jsonLd ? `<script type="application/ld+json">${JSON.stringify(jsonLd)}</script
 function buildIndexPageHtml(categories, articles) {
   const sidebarHtml = buildSidebarHtml(categories, null);
 
-  const homeHtml = categories.map(cat => `
+  const homeHtml = categories.map(cat => {
+    const catSlug = CATEGORY_SLUGS[cat.name] || slugify(cat.name);
+    return `
     <div class="ht-category-card">
       <div class="ht-cat-header">
-        <h2 class="ht-cat-title">${cat.name}</h2>
+        <h2 class="ht-cat-title"><a href="/how-to/category/${catSlug}">${cat.name}</a></h2>
         <span class="ht-cat-count">${cat.articles.length} guide${cat.articles.length !== 1 ? 's' : ''}</span>
       </div>
       ${cat.articles.map(a => `
@@ -631,10 +814,11 @@ function buildIndexPageHtml(categories, articles) {
         </a>
       `).join('')}
     </div>
-  `).join('');
+  `;
+  }).join('');
 
-  // JSON-LD ItemList
-  const jsonLd = {
+  // JSON-LD: ItemList + BreadcrumbList
+  const itemListLd = {
     '@context': 'https://schema.org',
     '@type': 'ItemList',
     name: 'Tally How-To Guides',
@@ -646,6 +830,13 @@ function buildIndexPageHtml(categories, articles) {
       name: a.title,
       url: `${BASE_URL}/${a.slug}`,
     })),
+  };
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Guides', item: `${BASE_URL}/` },
+    ],
   };
 
   // Hash backward-compat redirect script
@@ -669,7 +860,7 @@ function buildIndexPageHtml(categories, articles) {
     metaDescription: `${articles.length} step-by-step guides for installing, configuring, and troubleshooting Tally church production software including ATEM, PTZ, audio consoles, encoders, and more.`,
     canonicalUrl: `${BASE_URL}/`,
     ogType: 'website',
-    jsonLd,
+    jsonLd: [itemListLd, breadcrumbLd],
     sidebarHtml,
     isHome: true,
     bodyContent,
@@ -677,48 +868,93 @@ function buildIndexPageHtml(categories, articles) {
   });
 }
 
-function buildArticlePageHtml(article, categories) {
+function buildArticlePageHtml(article, categories, articles) {
   const sidebarHtml = buildSidebarHtml(categories, article.id);
+  const canonicalUrl = `${BASE_URL}/${article.slug}`;
+  const catSlug = CATEGORY_SLUGS[article.category] || slugify(article.category);
+  const shareUrl = encodeURIComponent(canonicalUrl);
+  const shareTitle = encodeURIComponent(article.title);
 
+  // ── Sections HTML (h2 titles for correct hierarchy) ──
   const sectionsHtml = article.sections.map(s => `
     <section id="${s.id}" class="ht-section ht-section-${s.type}" data-section-type="${s.type}">
-      <h3 class="ht-section-title"><span class="ht-section-icon">${SECTION_ICONS[s.type] || ''}</span>${s.title}</h3>
+      <h2 class="ht-section-title"><span class="ht-section-icon">${SECTION_ICONS[s.type] || ''}</span>${s.title}</h2>
       ${s.type === 'checklist' ? '<div class="ht-check-counter">0 of 0 verified</div>' : ''}
       <div class="ht-section-body">${s.html}</div>
     </section>
   `).join('');
 
+  // ── Section tab nav ──
   const articleNavHtml = article.sections.map(s =>
     `<a href="#${s.id}" class="ht-article-nav-link ht-nav-${s.type}" onclick="htScrollTo('${s.id}');return false;">${SECTION_ICONS[s.type] || ''} ${SECTION_LABELS[s.type] || s.title}</a>`
   ).join('');
 
-  // JSON-LD HowTo schema
-  const steps = [];
-  for (const s of article.sections) {
-    if (s.type === 'steps') {
-      const matches = [...s.html.matchAll(/<span class="ht-step-label">(.+?)<\/span>/g)];
-      matches.forEach((m, i) => steps.push({ '@type': 'HowToStep', position: steps.length + 1, name: m[1] }));
-    }
-  }
-  const jsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'HowTo',
-    name: article.title,
-    description: article.summary || `Step-by-step guide: ${article.title}`,
-  };
-  if (article.readTime) {
-    const mins = parseInt(article.readTime, 10);
-    if (mins > 0) jsonLd.totalTime = `PT${mins}M`;
-  }
-  if (steps.length > 0) jsonLd.step = steps;
+  // ── Share buttons HTML ──
+  const shareHtml = `
+    <div class="ht-share">
+      <span class="ht-share-label">Share:</span>
+      <a class="ht-share-btn" href="https://twitter.com/intent/tweet?url=${shareUrl}&text=${shareTitle}" target="_blank" rel="noopener">X / Twitter</a>
+      <a class="ht-share-btn" href="https://www.linkedin.com/sharing/share-offsite/?url=${shareUrl}" target="_blank" rel="noopener">LinkedIn</a>
+      <a class="ht-share-btn ht-copy-link-btn" href="#" onclick="navigator.clipboard.writeText(decodeURIComponent('${shareUrl}'));this.textContent='Copied!';setTimeout(function(){document.querySelector('.ht-copy-link-btn').textContent='Copy Link'},2000);return false;">Copy Link</a>
+    </div>
+  `;
 
-  const canonicalUrl = `${BASE_URL}/${article.slug}`;
+  // ── Table of Contents ──
+  const tocItems = buildTocItems(article);
+  const tocHtml = `
+    <nav class="ht-toc" aria-label="Table of contents">
+      <div class="ht-toc-title">On This Page</div>
+      <ul class="ht-toc-list">
+        ${tocItems.map(t => `
+          <li class="ht-toc-item">
+            <a href="#${t.id}" class="ht-toc-link" onclick="htScrollTo('${t.id}');return false;">
+              <span class="ht-toc-icon">${t.icon}</span>${t.label}
+            </a>
+          </li>
+        `).join('')}
+      </ul>
+    </nav>
+  `;
 
+  // ── Prev / Next navigation ──
+  const { prev, next } = getPrevNext(article, categories);
+  const prevNextHtml = (prev || next) ? `
+    <div class="ht-prevnext">
+      ${prev ? `<a href="/how-to/${prev.slug}" class="ht-prevnext-link">
+        <div class="ht-prevnext-label">&#8592; Previous</div>
+        <div class="ht-prevnext-title">${prev.title}</div>
+      </a>` : '<div></div>'}
+      ${next ? `<a href="/how-to/${next.slug}" class="ht-prevnext-link ht-prevnext-next">
+        <div class="ht-prevnext-label">Next &#8594;</div>
+        <div class="ht-prevnext-title">${next.title}</div>
+      </a>` : '<div></div>'}
+    </div>
+  ` : '';
+
+  // ── Related Guides ──
+  const relatedIds = RELATED_GUIDES[article.id] || [];
+  const relatedArticles = relatedIds.map(id => articles.find(a => a.id === id)).filter(Boolean);
+  const relatedHtml = relatedArticles.length > 0 ? `
+    <div class="ht-related">
+      <h2 class="ht-related-title">Related Guides</h2>
+      <div class="ht-related-grid">
+        ${relatedArticles.map(a => `
+          <a href="/how-to/${a.slug}" class="ht-related-card">
+            <span class="ht-related-card-id">${a.id}</span>
+            <div class="ht-related-card-title">${a.title}</div>
+            ${a.summary ? `<div class="ht-related-card-summary">${a.summary}</div>` : ''}
+          </a>
+        `).join('')}
+      </div>
+    </div>
+  ` : '';
+
+  // ── Breadcrumb HTML (links to category page) ──
   const breadcrumbHtml = `
     <div class="ht-breadcrumb">
       <a href="/how-to">Guides</a>
       <span class="ht-breadcrumb-sep">&#8250;</span>
-      <span>${article.category}</span>
+      <a href="/how-to/category/${catSlug}">${article.category}</a>
       <span class="ht-breadcrumb-sep">&#8250;</span>
       <span>${article.id}: ${article.title}</span>
     </div>
@@ -737,7 +973,47 @@ function buildArticlePageHtml(article, categories) {
     <div class="ht-article-nav">${articleNavHtml}</div>
   `;
 
-  const bodyContent = breadcrumbHtml + articleHeaderHtml + sectionsHtml;
+  // ── Compose body ──
+  const bodyContent = breadcrumbHtml + shareHtml + articleHeaderHtml + tocHtml + sectionsHtml + prevNextHtml + relatedHtml + shareHtml;
+
+  // ── JSON-LD: Enhanced HowTo + BreadcrumbList + FAQPage ──
+  const steps = extractSteps(article);
+  const howToLd = {
+    '@context': 'https://schema.org',
+    '@type': 'HowTo',
+    name: article.title,
+    description: article.summary || `Step-by-step guide: ${article.title}`,
+    author: { '@type': 'Organization', name: 'Tally by ATEM School' },
+    publisher: { '@type': 'Organization', name: 'Tally by ATEM School', url: 'https://tallyconnect.app' },
+    datePublished: '2025-01-15',
+    dateModified: new Date().toISOString().split('T')[0],
+  };
+  if (article.readTime) {
+    const mins = parseInt(article.readTime, 10);
+    if (mins > 0) howToLd.totalTime = `PT${mins}M`;
+  }
+  if (steps.length > 0) howToLd.step = steps;
+
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Guides', item: `${BASE_URL}/` },
+      { '@type': 'ListItem', position: 2, name: article.category, item: `${BASE_URL}/category/${catSlug}` },
+      { '@type': 'ListItem', position: 3, name: article.title, item: canonicalUrl },
+    ],
+  };
+
+  const faqItems = extractFaqItems(article);
+  const faqLd = faqItems.length > 0 ? {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faqItems.map(f => ({
+      '@type': 'Question',
+      name: f.question,
+      acceptedAnswer: { '@type': 'Answer', text: f.answer },
+    })),
+  } : null;
 
   // Article-specific script: progress bar, checkbox counters, code copy, smooth scroll
   const scriptContent = `
@@ -794,11 +1070,77 @@ function buildArticlePageHtml(article, categories) {
     metaDescription: article.summary || `Step-by-step guide: ${article.title}`,
     canonicalUrl,
     ogType: 'article',
-    jsonLd,
+    jsonLd: [howToLd, breadcrumbLd, faqLd],
     sidebarHtml,
     isHome: false,
     bodyContent,
     scriptContent,
+  });
+}
+
+function buildCategoryPageHtml(category, categories, articles) {
+  const sidebarHtml = buildSidebarHtml(categories, null);
+  const catSlug = CATEGORY_SLUGS[category.name] || slugify(category.name);
+  const canonicalUrl = `${BASE_URL}/category/${catSlug}`;
+
+  const articlesHtml = category.articles.map(a => `
+    <a class="ht-article-preview" href="/how-to/${a.slug}">
+      <div class="ht-preview-top">
+        <span class="ht-preview-id">${a.id}</span>
+        <span class="ht-preview-title">${a.title}</span>
+      </div>
+      <div class="ht-preview-meta">
+        ${a.readTime ? `<span class="ht-preview-time">&#128337; ${a.readTime}</span>` : ''}
+        <span class="ht-preview-sections">${a.sections.length} sections</span>
+      </div>
+      ${a.summary ? `<div class="ht-preview-summary">${a.summary}</div>` : ''}
+    </a>
+  `).join('');
+
+  const breadcrumbLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Guides', item: `${BASE_URL}/` },
+      { '@type': 'ListItem', position: 2, name: category.name, item: canonicalUrl },
+    ],
+  };
+
+  const itemListLd = {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: `${category.name} — Tally How-To Guides`,
+    numberOfItems: category.articles.length,
+    itemListElement: category.articles.map((a, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: a.title,
+      url: `${BASE_URL}/${a.slug}`,
+    })),
+  };
+
+  const bodyContent = `
+    <div class="ht-breadcrumb">
+      <a href="/how-to">Guides</a>
+      <span class="ht-breadcrumb-sep">&#8250;</span>
+      <span>${category.name}</span>
+    </div>
+    <h1 class="ht-page-title">${category.name}</h1>
+    <p class="ht-cat-landing-desc">${category.articles.length} step-by-step guide${category.articles.length !== 1 ? 's' : ''} in this category.</p>
+    <div class="ht-category-card" style="border:none;padding:0;background:transparent;">
+      ${articlesHtml}
+    </div>
+  `;
+
+  return buildHtmlShell({
+    title: `${category.name} — Tally How-To Guides`,
+    metaDescription: `${category.articles.length} step-by-step guides for ${category.name.toLowerCase()} in Tally church production software.`,
+    canonicalUrl,
+    ogType: 'website',
+    jsonLd: [breadcrumbLd, itemListLd],
+    sidebarHtml,
+    isHome: false,
+    bodyContent,
   });
 }
 
@@ -819,10 +1161,15 @@ function build404Html(categories) {
   });
 }
 
-function buildSitemapXml(articles) {
+function buildSitemapXml(articles, categories) {
   const today = new Date().toISOString().split('T')[0];
   const urls = [
     { loc: `${BASE_URL}/`, priority: '1.0', changefreq: 'weekly' },
+    ...categories.map(cat => ({
+      loc: `${BASE_URL}/category/${CATEGORY_SLUGS[cat.name] || slugify(cat.name)}`,
+      priority: '0.9',
+      changefreq: 'weekly',
+    })),
     ...articles.map(a => ({ loc: `${BASE_URL}/${a.slug}`, priority: '0.8', changefreq: 'monthly' })),
   ];
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -854,15 +1201,25 @@ function setupHowToPortal(app) {
   const indexHtml = buildIndexPageHtml(categories, articles);
 
   for (const article of articles) {
-    pageMap.set(article.slug, buildArticlePageHtml(article, categories));
+    pageMap.set(article.slug, buildArticlePageHtml(article, categories, articles));
+  }
+
+  const categoryPageMap = new Map();
+  for (const cat of categories) {
+    const catSlug = CATEGORY_SLUGS[cat.name] || slugify(cat.name);
+    categoryPageMap.set(catSlug, buildCategoryPageHtml(cat, categories, articles));
   }
 
   const notFoundHtml = build404Html(categories);
-  const sitemapXml = buildSitemapXml(articles);
+  const sitemapXml = buildSitemapXml(articles, categories);
   const robotsTxt = buildRobotsTxt();
 
-  const totalKB = Math.round((indexHtml.length + [...pageMap.values()].reduce((s, h) => s + h.length, 0)) / 1024);
-  console.log(`[HowTo] Loaded ${articles.length} articles across ${categories.length} categories (${pageMap.size + 1} pages, ${totalKB} KB)`);
+  const totalKB = Math.round((
+    indexHtml.length +
+    [...pageMap.values()].reduce((s, h) => s + h.length, 0) +
+    [...categoryPageMap.values()].reduce((s, h) => s + h.length, 0)
+  ) / 1024);
+  console.log(`[HowTo] Loaded ${articles.length} articles across ${categories.length} categories (${pageMap.size + 1 + categoryPageMap.size} pages, ${totalKB} KB)`);
 
   // ── Subdomain middleware — howto.tallyconnect.app ──
   app.use((req, res, next) => {
@@ -871,6 +1228,12 @@ function setupHowToPortal(app) {
     if (req.path === '/') return res.type('html').send(indexHtml);
     if (req.path === '/sitemap.xml') return res.type('xml').send(sitemapXml);
     if (req.path === '/robots.txt') return res.type('text').send(robotsTxt);
+    // Category pages on subdomain: /category/getting-started
+    if (req.path.startsWith('/category/')) {
+      const catSlug = req.path.slice('/category/'.length);
+      const catHtml = categoryPageMap.get(catSlug);
+      if (catHtml) return res.type('html').send(catHtml);
+    }
     const slug = req.path.slice(1);
     const html = pageMap.get(slug);
     if (html) return res.type('html').send(html);
@@ -880,10 +1243,16 @@ function setupHowToPortal(app) {
     return res.status(404).type('html').send(notFoundHtml);
   });
 
-  // ── Standard path routes ──
+  // ── Standard path routes (order matters: category BEFORE :slug) ──
   app.get('/how-to', (_req, res) => res.type('html').send(indexHtml));
   app.get('/how-to/sitemap.xml', (_req, res) => res.type('xml').send(sitemapXml));
   app.get('/how-to/robots.txt', (_req, res) => res.type('text').send(robotsTxt));
+
+  app.get('/how-to/category/:catSlug', (req, res) => {
+    const html = categoryPageMap.get(req.params.catSlug);
+    if (html) return res.type('html').send(html);
+    return res.status(404).type('html').send(notFoundHtml);
+  });
 
   app.get('/how-to/:slug', (req, res) => {
     const html = pageMap.get(req.params.slug);
