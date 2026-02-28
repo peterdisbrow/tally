@@ -326,7 +326,6 @@ async function collapseDeviceCard(deviceId) {
   }
   syncDomToState();
   expandedDevices.delete(deviceId);
-  const def = DEVICE_REGISTRY[deviceId];
   // For optional single devices, mark unconfigured and clear fields
   if (!def?.multi && deviceState[deviceId] && 'configured' in deviceState[deviceId]) {
     deviceState[deviceId].configured = false;
