@@ -904,7 +904,9 @@ _intervals.push(setInterval(() => {
 
 // ─── DB BACKUP SCHEDULER ─────────────────────────────────────────────────────
 
-const DB_BACKUP_INTERVAL_MINUTES = Number(process.env.DB_BACKUP_INTERVAL_MINUTES || 0);
+const _isProduction = process.env.NODE_ENV === 'production';
+const _defaultBackupMinutes = _isProduction ? 15 : 0; // 15-min default in production, off in dev
+const DB_BACKUP_INTERVAL_MINUTES = Number(process.env.DB_BACKUP_INTERVAL_MINUTES || _defaultBackupMinutes);
 if (Number.isFinite(DB_BACKUP_INTERVAL_MINUTES) && DB_BACKUP_INTERVAL_MINUTES > 0) {
   log(`[Backup] Scheduled snapshots every ${DB_BACKUP_INTERVAL_MINUTES} minute(s)`);
   _intervals.push(setInterval(() => {
@@ -915,6 +917,10 @@ if (Number.isFinite(DB_BACKUP_INTERVAL_MINUTES) && DB_BACKUP_INTERVAL_MINUTES > 
       console.error('[Backup] Scheduled snapshot failed:', e.message);
     }
   }, DB_BACKUP_INTERVAL_MINUTES * 60 * 1000));
+} else if (_isProduction) {
+  console.warn('[Backup] ⚠️  PRODUCTION: No backup schedule configured (DB_BACKUP_INTERVAL_MINUTES=0). Set this env var for automatic DB snapshots.');
+} else {
+  log('[Backup] Backups disabled (dev mode — set DB_BACKUP_INTERVAL_MINUTES to enable)');
 }
 
 // Wire chat engine broadcast functions (uses hoisted broadcastToControllers)
