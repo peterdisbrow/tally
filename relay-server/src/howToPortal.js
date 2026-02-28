@@ -394,13 +394,6 @@ a:hover { text-decoration: underline; }
 }
 .ht-sidebar-link:hover { color: #f8fafc; background: rgba(34,197,94,0.06); text-decoration: none; }
 .ht-sidebar-link.active { color: #22c55e; background: rgba(34,197,94,0.08); }
-.ht-sidebar-id {
-  display: inline-block; font-size: 10px; font-weight: 700;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  background: rgba(34,197,94,0.12); color: #22c55e;
-  padding: 1px 5px; border-radius: 3px; margin-right: 6px;
-}
-
 /* ── Main ── */
 .ht-main { margin-left: 280px; padding: 32px 40px 60px; max-width: 1200px; }
 
@@ -442,11 +435,6 @@ a:hover { text-decoration: underline; }
 }
 .ht-article-preview:hover { padding-left: 6px; text-decoration: none; }
 .ht-preview-top { display: flex; align-items: center; gap: 8px; }
-.ht-preview-id {
-  font-size: 10px; font-weight: 700; font-family: 'SF Mono', 'Fira Code', monospace;
-  background: rgba(34,197,94,0.12); color: #22c55e;
-  padding: 1px 5px; border-radius: 3px; flex-shrink: 0;
-}
 .ht-preview-title { font-size: 14px; font-weight: 500; color: #f8fafc; }
 .ht-preview-meta { display: flex; gap: 12px; margin-top: 4px; font-size: 12px; color: #64748b; }
 .ht-preview-summary { margin-top: 4px; font-size: 12px; color: #94a3b8; line-height: 1.4; }
@@ -455,10 +443,6 @@ a:hover { text-decoration: underline; }
 .ht-article-header { margin-bottom: 24px; }
 .ht-article-title { font-size: 26px; font-weight: 800; color: #f8fafc; line-height: 1.2; margin-bottom: 10px; }
 .ht-article-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.ht-meta-badge {
-  font-size: 12px; font-weight: 700; font-family: 'SF Mono', 'Fira Code', monospace;
-  background: #22c55e; color: #09090b; padding: 3px 8px; border-radius: 4px;
-}
 .ht-meta-time { font-size: 13px; color: #94a3b8; }
 .ht-meta-cat {
   font-size: 12px; color: #94a3b8;
@@ -611,11 +595,7 @@ a:hover { text-decoration: underline; }
   padding: 16px; text-decoration: none; transition: border-color 0.15s;
 }
 .ht-related-card:hover { border-color: #22c55e40; text-decoration: none; }
-.ht-related-card-id {
-  font-size: 10px; font-weight: 700; font-family: 'SF Mono', monospace;
-  background: rgba(34,197,94,0.12); color: #22c55e; padding: 1px 5px; border-radius: 3px;
-}
-.ht-related-card-title { font-size: 14px; font-weight: 600; color: #f8fafc; margin-top: 6px; }
+.ht-related-card-title { font-size: 14px; font-weight: 600; color: #f8fafc; }
 .ht-related-card-summary { font-size: 12px; color: #94a3b8; margin-top: 4px; line-height: 1.4; }
 
 /* ── Prev / Next ── */
@@ -695,7 +675,7 @@ function buildSidebarHtml(categories, activeArticleId) {
       <div class="ht-sidebar-cat-title">${cat.name}</div>
       ${cat.articles.map(a => `
         <a href="/how-to/${a.slug}" class="ht-sidebar-link${activeArticleId === a.id ? ' active' : ''}" data-article="${a.id}">
-          <span class="ht-sidebar-id">${a.id}</span>${a.title}
+          ${a.title}
         </a>
       `).join('')}
     </div>
@@ -803,7 +783,6 @@ function buildIndexPageHtml(categories, articles) {
       ${cat.articles.map(a => `
         <a class="ht-article-preview" href="/how-to/${a.slug}">
           <div class="ht-preview-top">
-            <span class="ht-preview-id">${a.id}</span>
             <span class="ht-preview-title">${a.title}</span>
           </div>
           <div class="ht-preview-meta">
@@ -940,7 +919,6 @@ function buildArticlePageHtml(article, categories, articles) {
       <div class="ht-related-grid">
         ${relatedArticles.map(a => `
           <a href="/how-to/${a.slug}" class="ht-related-card">
-            <span class="ht-related-card-id">${a.id}</span>
             <div class="ht-related-card-title">${a.title}</div>
             ${a.summary ? `<div class="ht-related-card-summary">${a.summary}</div>` : ''}
           </a>
@@ -956,7 +934,7 @@ function buildArticlePageHtml(article, categories, articles) {
       <span class="ht-breadcrumb-sep">&#8250;</span>
       <a href="/how-to/category/${catSlug}">${article.category}</a>
       <span class="ht-breadcrumb-sep">&#8250;</span>
-      <span>${article.id}: ${article.title}</span>
+      <span>${article.title}</span>
     </div>
     <div class="ht-progress-track"><div id="htProgressFill" class="ht-progress-fill"></div></div>
   `;
@@ -965,7 +943,6 @@ function buildArticlePageHtml(article, categories, articles) {
     <div class="ht-article-header">
       <h1 class="ht-article-title">${article.title}</h1>
       <div class="ht-article-meta">
-        <span class="ht-meta-badge">${article.id}</span>
         ${article.readTime ? `<span class="ht-meta-time">&#128337; ${article.readTime}</span>` : ''}
         ${article.category ? `<span class="ht-meta-cat">${article.category}</span>` : ''}
       </div>
@@ -1086,7 +1063,6 @@ function buildCategoryPageHtml(category, categories, articles) {
   const articlesHtml = category.articles.map(a => `
     <a class="ht-article-preview" href="/how-to/${a.slug}">
       <div class="ht-preview-top">
-        <span class="ht-preview-id">${a.id}</span>
         <span class="ht-preview-title">${a.title}</span>
       </div>
       <div class="ht-preview-meta">
