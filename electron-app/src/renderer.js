@@ -14,13 +14,62 @@ function showFatalInitError(message) {
 
   const content = wizard?.querySelector('.content');
   if (!content) return;
-  content.innerHTML = `
-    <div style="max-width:460px;margin:30px auto;padding:16px;border-radius:10px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.35);color:#fca5a5;font-size:13px;line-height:1.6;">
-      <div style="font-weight:700;margin-bottom:8px;">Tally failed to initialize</div>
-      <div>${message}</div>
-      <div style="margin-top:10px;color:#94A3B8;">Try restarting the app. If it persists, open Terminal and run <code>npm run start</code> in <code>electron-app</code>.</div>
-    </div>
-  `;
+  content.innerHTML = '';
+  const box = document.createElement('div');
+  box.style.cssText = 'max-width:460px;margin:30px auto;padding:16px;border-radius:10px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.35);color:#fca5a5;font-size:13px;line-height:1.6;';
+  const title = document.createElement('div');
+  title.style.cssText = 'font-weight:700;margin-bottom:8px;';
+  title.textContent = 'Tally failed to initialize';
+  const msg = document.createElement('div');
+  msg.textContent = message;
+  const hint = document.createElement('div');
+  hint.style.cssText = 'margin-top:10px;color:#94A3B8;';
+  hint.textContent = 'Try restarting the app. If it persists, open Terminal and run ';
+  const code1 = document.createElement('code');
+  code1.textContent = 'npm run start';
+  hint.appendChild(code1);
+  hint.appendChild(document.createTextNode(' in '));
+  const code2 = document.createElement('code');
+  code2.textContent = 'electron-app';
+  hint.appendChild(code2);
+  hint.appendChild(document.createTextNode('.'));
+  box.appendChild(title);
+  box.appendChild(msg);
+  box.appendChild(hint);
+  content.appendChild(box);
+}
+
+// ─── NON-BLOCKING CONFIRM ───────────────────────────────────────────────────
+// Replaces window.confirm() which freezes the renderer (blocks status updates, chat, etc.)
+
+function asyncConfirm(message) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    const box = document.createElement('div');
+    box.style.cssText = 'background:var(--card,#1e293b);border:1px solid var(--border,#334155);border-radius:10px;padding:20px 24px;max-width:360px;color:var(--white,#f1f5f9);font-size:13px;line-height:1.5;text-align:center;';
+    const msg = document.createElement('div');
+    msg.textContent = message;
+    msg.style.marginBottom = '16px';
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:10px;justify-content:center;';
+    const btnCancel = document.createElement('button');
+    btnCancel.textContent = 'Cancel';
+    btnCancel.style.cssText = 'padding:6px 18px;border-radius:6px;border:1px solid var(--border,#334155);background:transparent;color:var(--muted,#94a3b8);cursor:pointer;font-size:12px;';
+    const btnOk = document.createElement('button');
+    btnOk.textContent = 'OK';
+    btnOk.style.cssText = 'padding:6px 18px;border-radius:6px;border:none;background:var(--danger,#ef4444);color:#fff;cursor:pointer;font-size:12px;font-weight:600;';
+    btnRow.appendChild(btnCancel);
+    btnRow.appendChild(btnOk);
+    box.appendChild(msg);
+    box.appendChild(btnRow);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    const cleanup = (val) => { overlay.remove(); resolve(val); };
+    btnOk.addEventListener('click', () => cleanup(true));
+    btnCancel.addEventListener('click', () => cleanup(false));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+  });
 }
 
 // ─── INIT ──────────────────────────────────────────────────────────────────
@@ -228,7 +277,7 @@ async function doSignIn() {
 }
 
 async function doSignOut() {
-  if (!confirm('Sign out? This will stop all monitoring.')) return;
+  if (!(await asyncConfirm('Sign out? This will stop all monitoring.'))) return;
   try {
     await api.signOut();
     isRunning = false;
@@ -776,7 +825,7 @@ async function toggleAgent() {
 
 async function testConn() {
   const config = await api.getConfig();
-  const relay = config.relay || 'wss://tally-production-cde2.up.railway.app';
+  const relay = config.relay || DEFAULT_RELAY_URL;
   const token = config.token || '';
   const result = await api.testConnection({ url: relay, token });
   addAlert(result.success ? '✅ Relay connection OK' : `❌ Relay unreachable: ${result.error}`);
@@ -853,12 +902,21 @@ api.onStatus((status) => {
 
 api.onLog((text) => {
   const t = text.trim();
-  if (t.includes('ALERT') || t.includes('✅') || t.includes('⚠️') || t.includes('❌') || t.includes('Stream') || t.includes('Recording')) {
+  // Show important operational events in the activity feed
+  if (
+    t.includes('ALERT') || t.includes('✅') || t.includes('⚠️') || t.includes('❌') ||
+    t.includes('Stream') || t.includes('Recording') ||
+    t.includes('connected') || t.includes('disconnected') || t.includes('Connected') || t.includes('Disconnected') ||
+    t.includes('MUTED') || t.includes('silence') || t.includes('Audio') ||
+    t.includes('Encoder') || t.includes('Companion') || t.includes('ATEM') ||
+    t.includes('Relay') || t.includes('error') || t.includes('failed') ||
+    t.includes('🤖') || t.includes('[AI]') || t.includes('Telegram') ||
+    t.includes('Low FPS') || t.includes('bitrate')
+  ) {
     addAlert(t);
   }
 
   // Status UI is driven by onStatus() — log handler only feeds the activity log.
-  // Removed duplicate log-regex → DOM updates that raced with structured status data.
 });
 
 // ─── PREVIEW ───────────────────────────────────────────────────────────────
@@ -940,6 +998,17 @@ api.onUpdateReady(() => {
   addAlert('🔄 Update downloaded — restart to install');
 });
 
+// Pause chat polling when window is hidden to tray
+api.onWindowVisibility?.((visible) => {
+  if (!visible) {
+    stopChatPolling();
+  } else {
+    // Resume only if engineer tab is active
+    const engineerTab = document.getElementById('tab-engineer');
+    if (engineerTab?.classList.contains('active')) startChatPolling();
+  }
+});
+
 // ─── TABS ──────────────────────────────────────────────────────────────────
 
 function switchTab(name) {
@@ -957,6 +1026,8 @@ function switchTab(name) {
 let chatMessages = [];
 let chatLastTimestamp = null;
 let chatPollInterval = null;
+const MAX_CHAT_MESSAGES = 500;
+let _chatRenderedCount = 0; // track how many messages are already in the DOM
 
 function startChatPolling() {
   loadChatHistory();
@@ -975,6 +1046,7 @@ async function loadChatHistory() {
   if (resp?.messages) {
     chatMessages = resp.messages;
     if (chatMessages.length > 0) chatLastTimestamp = chatMessages[chatMessages.length - 1].timestamp;
+    _chatRenderedCount = 0; // force full rebuild
     renderChat();
   }
 }
@@ -1004,25 +1076,52 @@ function escapeHtml(text) {
   return d.innerHTML;
 }
 
+function _buildChatEl(m) {
+  const sourceIcon = { telegram: '\u{1F4F1}', app: '\u{1F4BB}', dashboard: '\u{1F310}' };
+  const time = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const icon = sourceIcon[m.source] || '\u{1F4AC}';
+  const roleColor = m.sender_role === 'admin' ? 'var(--green)' : 'var(--white)';
+  const name = m.sender_name || m.senderName || 'Unknown';
+
+  const row = document.createElement('div');
+  row.style.cssText = 'padding:6px 12px; margin-bottom:2px;';
+  const meta = document.createElement('div');
+  meta.style.cssText = 'font-size:10px; color:var(--dim); font-family:var(--mono);';
+  const nameSpan = document.createElement('span');
+  nameSpan.style.cssText = `color:${roleColor}; font-weight:600;`;
+  nameSpan.textContent = name;
+  const timeSpan = document.createElement('span');
+  timeSpan.style.marginLeft = '6px';
+  timeSpan.textContent = time;
+  meta.appendChild(document.createTextNode(icon + ' '));
+  meta.appendChild(nameSpan);
+  meta.appendChild(timeSpan);
+  const body = document.createElement('div');
+  body.style.cssText = 'font-size:13px; color:var(--white); margin-top:2px; line-height:1.4;';
+  body.textContent = m.message;
+  row.appendChild(meta);
+  row.appendChild(body);
+  return row;
+}
+
 function renderChat() {
   const container = document.getElementById('chat-messages');
   if (!container) return;
-  const sourceIcon = { telegram: '📱', app: '💻', dashboard: '🌐' };
-  container.innerHTML = chatMessages.map(m => {
-    const time = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const icon = sourceIcon[m.source] || '💬';
-    const roleColor = m.sender_role === 'admin' ? 'var(--green)' : 'var(--white)';
-    const name = m.sender_name || m.senderName || 'Unknown';
-    return `<div style="padding:6px 12px; margin-bottom:2px;">
-      <div style="font-size:10px; color:var(--dim); font-family:var(--mono);">
-        ${icon} <span style="color:${roleColor}; font-weight:600;">${escapeHtml(name)}</span>
-        <span style="margin-left:6px;">${time}</span>
-      </div>
-      <div style="font-size:13px; color:var(--white); margin-top:2px; line-height:1.4;">
-        ${escapeHtml(m.message)}
-      </div>
-    </div>`;
-  }).join('');
+  // Cap messages to prevent unbounded memory growth
+  if (chatMessages.length > MAX_CHAT_MESSAGES) {
+    chatMessages = chatMessages.slice(-MAX_CHAT_MESSAGES);
+    _chatRenderedCount = 0; // array was sliced, need full rebuild
+  }
+  // Full rebuild when reset or first render
+  if (_chatRenderedCount === 0) {
+    container.innerHTML = '';
+    for (const m of chatMessages) container.appendChild(_buildChatEl(m));
+  } else {
+    // Incremental: only append new messages
+    const newMessages = chatMessages.slice(_chatRenderedCount);
+    for (const m of newMessages) container.appendChild(_buildChatEl(m));
+  }
+  _chatRenderedCount = chatMessages.length;
   container.scrollTop = container.scrollHeight;
 }
 
@@ -1284,13 +1383,13 @@ async function selectFbPage() {
 }
 
 async function disconnectYouTube() {
-  if (!confirm('Disconnect YouTube? Stream keys will be removed.')) return;
+  if (!(await asyncConfirm('Disconnect YouTube? Stream keys will be removed.'))) return;
   await api.oauthYouTubeDisconnect();
   updateOAuthUI();
 }
 
 async function disconnectFacebook() {
-  if (!confirm('Disconnect Facebook? Stream keys will be removed.')) return;
+  if (!(await asyncConfirm('Disconnect Facebook? Stream keys will be removed.'))) return;
   await api.oauthFacebookDisconnect();
   updateOAuthUI();
 }
@@ -1522,13 +1621,23 @@ function updateNdiStatus(status) {
 // ── SAVE EQUIPMENT ─────────────────────────────────────────────────────────
 
 async function saveEquipment() {
+  const saveBtn = document.getElementById('btn-save-equip');
+  if (saveBtn?.disabled) return; // Prevent double-click
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  try { await _doSaveEquipment(); } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Equipment Config'; }
+  }
+}
+
+async function _doSaveEquipment() {
   // Flush DOM inputs into deviceState
   syncDomToState();
 
   // Build encoders array (all configured encoders)
   const encoders = deviceState.encoder.filter(e => e.encoderType).map(e => ({
     type: e.encoderType, host: (e.host || '').trim(),
-    port: parseInt(e.port) || null, password: e.password || '',
+    port: parseInt(e.port) || null,
+    password: (e.password && e.password !== '••••••••') ? e.password : undefined,
     label: (e.label || '').trim(), statusUrl: (e.statusUrl || '').trim(),
     source: (e.source || '').trim(),
   }));
@@ -1545,12 +1654,13 @@ async function saveEquipment() {
     encoderType: encType,
     encoderHost: (enc.host || '').trim(),
     encoderPort: parseInt(enc.port) || 0,
-    encoderPassword: enc.password || '',
+    encoderPassword: (enc.password && enc.password !== '••••••••') ? enc.password : undefined,
     encoderLabel: (enc.label || '').trim(),
     encoderStatusUrl: (enc.statusUrl || '').trim(),
     encoderSource: (enc.source || '').trim(),
     obsUrl: encType === 'obs' ? `ws://${(enc.host || 'localhost').trim()}:${enc.port || '4455'}` : '',
-    obsPassword: encType === 'obs' ? (enc.password || '') : '',
+    // Don't overwrite the real password if user didn't change the masked placeholder
+    obsPassword: encType === 'obs' && enc.password && enc.password !== '••••••••' ? enc.password : undefined,
     // Multi-instance
     hyperdecks: deviceState.hyperdeck.map(h => (h.ip || '').trim()).filter(Boolean),
     videoHubs: deviceState.videohub.filter(h => (h.ip || '').trim()),
@@ -1572,10 +1682,10 @@ async function saveEquipment() {
     ndiSource: deviceState.ndi.configured ? (deviceState.ndi.source || '').trim() : '',
     ndiLabel: deviceState.ndi.configured ? (deviceState.ndi.label || '').trim() : '',
     // Streaming keys (read from static DOM section)
-    youtubeApiKey: document.getElementById('equip-youtube-key').value.trim() || undefined,
-    facebookAccessToken: document.getElementById('equip-facebook-token').value.trim() || undefined,
-    rtmpUrl: document.getElementById('equip-rtmp-url').value.trim() || '',
-    rtmpStreamKey: document.getElementById('equip-rtmp-key').value.trim() || undefined,
+    youtubeApiKey: document.getElementById('equip-youtube-key').value.trim(),
+    facebookAccessToken: document.getElementById('equip-facebook-token').value.trim(),
+    rtmpUrl: document.getElementById('equip-rtmp-url').value.trim(),
+    rtmpStreamKey: document.getElementById('equip-rtmp-key').value.trim(),
   };
 
   const confirmEl = document.getElementById('save-confirm');

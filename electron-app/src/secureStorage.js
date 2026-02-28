@@ -121,6 +121,26 @@ function encryptConfig(config) {
       out[field] = encryptValue(out[field]);
     }
   }
+  // Nested credentials: PTZ cameras
+  if (Array.isArray(out.ptz)) {
+    out.ptz = out.ptz.map(cam => {
+      const c = { ...cam };
+      if (c.password && !isEncrypted(c.password)) c.password = encryptValue(c.password);
+      if (c.username && !isEncrypted(c.username)) c.username = encryptValue(c.username);
+      return c;
+    });
+  }
+  // Nested credentials: encoders array
+  if (Array.isArray(out.encoders)) {
+    out.encoders = out.encoders.map(e => {
+      if (e && e.password && !isEncrypted(e.password)) return { ...e, password: encryptValue(e.password) };
+      return e;
+    });
+  }
+  // Nested credentials: single encoder object
+  if (out.encoder && out.encoder.password && !isEncrypted(out.encoder.password)) {
+    out.encoder = { ...out.encoder, password: encryptValue(out.encoder.password) };
+  }
   return out;
 }
 
@@ -134,6 +154,27 @@ function decryptConfig(config) {
       const val = decryptValue(out[field]);
       out[field] = val !== null ? val : '';
     }
+  }
+  // Nested credentials: PTZ cameras
+  if (Array.isArray(out.ptz)) {
+    out.ptz = out.ptz.map(cam => {
+      const c = { ...cam };
+      if (c.password && isEncrypted(c.password)) { const v = decryptValue(c.password); c.password = v !== null ? v : ''; }
+      if (c.username && isEncrypted(c.username)) { const v = decryptValue(c.username); c.username = v !== null ? v : ''; }
+      return c;
+    });
+  }
+  // Nested credentials: encoders array
+  if (Array.isArray(out.encoders)) {
+    out.encoders = out.encoders.map(e => {
+      if (e && e.password && isEncrypted(e.password)) { const v = decryptValue(e.password); return { ...e, password: v !== null ? v : '' }; }
+      return e;
+    });
+  }
+  // Nested credentials: single encoder object
+  if (out.encoder && out.encoder.password && isEncrypted(out.encoder.password)) {
+    const v = decryptValue(out.encoder.password);
+    out.encoder = { ...out.encoder, password: v !== null ? v : '' };
   }
   return out;
 }

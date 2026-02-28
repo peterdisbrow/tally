@@ -167,11 +167,11 @@ function loadConfig() {
     catch { config = {}; }
   }
 
-  if (opts.token) config.token = opts.token;
+  if (opts.token || process.env.TALLY_TOKEN) config.token = opts.token || process.env.TALLY_TOKEN;
   if (opts.relay) config.relay = opts.relay;
   if (opts.atem) config.atemIp = opts.atem;
   if (opts.obs !== undefined) config.obsUrl = opts.obs;
-  if (opts.obsPassword) config.obsPassword = opts.obsPassword;
+  if (opts.obsPassword || process.env.TALLY_OBS_PASSWORD) config.obsPassword = opts.obsPassword || process.env.TALLY_OBS_PASSWORD;
   if (opts.name) config.name = opts.name;
   if (opts.companion !== undefined) config.companionUrl = opts.companion;
   if (opts.previewSource) config.previewSource = opts.previewSource;

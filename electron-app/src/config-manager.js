@@ -152,6 +152,30 @@ function getSanitizedConfigForExport() {
     }
   }
 
+  // Also redact passwords inside nested encoder/PTZ objects
+  if (Array.isArray(sanitized.encoders)) {
+    sanitized.encoders = sanitized.encoders.map(e => {
+      if (e && e.password) return { ...e, password: '[redacted]' };
+      return e;
+    });
+  }
+  if (sanitized.encoder && sanitized.encoder.password) {
+    sanitized.encoder = { ...sanitized.encoder, password: '[redacted]' };
+  }
+  if (Array.isArray(sanitized.ptz)) {
+    sanitized.ptz = sanitized.ptz.map(p => {
+      const cleaned = { ...p };
+      if (cleaned.password) cleaned.password = '[redacted]';
+      if (cleaned.username) cleaned.username = '[redacted]';
+      return cleaned;
+    });
+  }
+  // Redact OAuth tokens
+  const oauthFields = ['youtubeOAuthAccessToken', 'youtubeOAuthRefreshToken', 'facebookOAuthAccessToken'];
+  for (const field of oauthFields) {
+    if (sanitized[field]) sanitized[field] = '[redacted]';
+  }
+
   return sanitized;
 }
 

@@ -98,14 +98,18 @@ function appendAppLog(source, message) {
 
   try {
     if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+    let batch = '';
     for (const line of lines) {
       const entry = `[${ts}] [${source}] ${line}`;
       recentLogLines.push(entry);
-      if (recentLogLines.length > MAX_RECENT_LOG_LINES) {
-        recentLogLines.splice(0, recentLogLines.length - MAX_RECENT_LOG_LINES);
-      }
-      fs.appendFileSync(APP_LOG_PATH, entry + '\n', 'utf8');
+      batch += entry + '\n';
     }
+    // Trim in-memory buffer efficiently (shift excess from front)
+    if (recentLogLines.length > MAX_RECENT_LOG_LINES) {
+      recentLogLines.splice(0, recentLogLines.length - MAX_RECENT_LOG_LINES);
+    }
+    // Non-blocking write — don't freeze the main process during live service
+    fs.appendFile(APP_LOG_PATH, batch, 'utf8', () => {});
   } catch {
     // Logging should never crash the app
   }
@@ -225,6 +229,10 @@ function createWindow() {
     mainWindow.hide();
   });
 
+  // Notify renderer when window is hidden/shown so it can pause polling
+  mainWindow.on('hide', () => mainWindow?.webContents.send('window-visibility', false));
+  mainWindow.on('show', () => mainWindow?.webContents.send('window-visibility', true));
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
@@ -237,9 +245,14 @@ function createTray() {
   updateTray();
 }
 
+let _lastTrayState = '';
 function updateTray() {
   if (!tray) return;
   const state = computeTrayState();
+  // Build a fingerprint of all values that affect the tray menu
+  const fingerprint = `${state}|${!!agentStatus.relay}|${!!agentStatus.atem}|${!!(agentStatus.encoder||agentStatus.obs)}|${!!agentStatus.companion}|${agentStatus.encoderType||''}|${agentStatus.billingTier||''}|${agentStatus.billingStatus||''}|${agentStatus.trialDaysRemaining??''}`;
+  if (fingerprint === _lastTrayState) return;
+  _lastTrayState = fingerprint;
   tray.setImage(getTrayIcon(state));
 
   const connected = agentStatus.relay;
@@ -409,15 +422,19 @@ function startAgent() {
 
   const agentRelay = enforceRelayPolicy(config.relay || DEFAULT_RELAY_URL);
   const args = [clientPaths.script,
-    '--token', config.token,
     '--relay', agentRelay,
   ];
 
   if (config.atemIp) args.push('--atem', config.atemIp);
   if (config.obsUrl)       args.push('--obs', config.obsUrl);
-  if (config.obsPassword)  args.push('--obs-password', config.obsPassword);
   if (config.name)         args.push('--name', config.name);
   if (config.companionUrl) args.push('--companion', config.companionUrl);
+
+  // Pass sensitive credentials via env vars instead of CLI args
+  // (CLI args are visible to all OS users via `ps aux`)
+  const secretEnv = {};
+  if (config.token)       secretEnv.TALLY_TOKEN = config.token;
+  if (config.obsPassword) secretEnv.TALLY_OBS_PASSWORD = config.obsPassword;
 
   const nodeResult = resolveNodeBinary();
   if (!nodeResult) {
@@ -445,8 +462,8 @@ function startAgent() {
   appendAppLog('SYSTEM', `Starting agent (relay=${agentRelay}, name=${config.name || 'n/a'}, node=${nodeLabel}, script=${clientPaths.script})`);
 
   const spawnEnv = useElectronAsNode
-    ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
-    : process.env;
+    ? { ...process.env, ...secretEnv, ELECTRON_RUN_AS_NODE: '1' }
+    : { ...process.env, ...secretEnv };
 
   agentProcess = spawn(nodeBinary, args, {
     cwd: clientPaths.cwd,
@@ -467,18 +484,21 @@ function startAgent() {
     console.log('[Agent]', text.trim());
     appendAppLog('AGENT', text);
 
-    if (text.includes('Connected to relay server'))  agentStatus.relay = true;
-    if (text.includes('ATEM connected'))             agentStatus.atem = { connected: true, model: (agentStatus.atem && agentStatus.atem.model) || '' };
-    if (text.includes('OBS connected'))              agentStatus.obs = true;
-    if (text.includes('Companion connected'))        agentStatus.companion = true;
-    if (text.includes('ATEM disconnected'))          agentStatus.atem = false;
-    if (text.includes('OBS disconnected'))           agentStatus.obs = false;
-    if (text.includes('Companion disconnected'))     agentStatus.companion = false;
-    if (text.includes('Encoder connected'))          agentStatus.encoder = true;
-    if (text.includes('Encoder disconnected'))       agentStatus.encoder = false;
+    let statusChanged = false;
+
+    if (text.includes('Connected to relay server'))  { agentStatus.relay = true; statusChanged = true; }
+    if (text.includes('ATEM connected'))             { agentStatus.atem = { connected: true, model: (agentStatus.atem && agentStatus.atem.model) || '' }; statusChanged = true; }
+    if (text.includes('OBS connected'))              { agentStatus.obs = true; statusChanged = true; }
+    if (text.includes('Companion connected'))        { agentStatus.companion = true; statusChanged = true; }
+    if (text.includes('ATEM disconnected'))          { agentStatus.atem = false; statusChanged = true; }
+    if (text.includes('OBS disconnected'))           { agentStatus.obs = false; statusChanged = true; }
+    if (text.includes('Companion disconnected'))     { agentStatus.companion = false; statusChanged = true; }
+    if (text.includes('Encoder connected'))          { agentStatus.encoder = true; statusChanged = true; }
+    if (text.includes('Encoder disconnected'))       { agentStatus.encoder = false; statusChanged = true; }
     if (text.includes('Relay disconnected')) {
       agentStatus.relay = false;
       agentStatus._relayDisconnectedAt = Date.now();
+      statusChanged = true;
     }
     if (text.includes('Connected to relay server')) {
       agentStatus._relayDisconnectedAt = null;
@@ -486,40 +506,40 @@ function startAgent() {
 
     // Parse audio silence alerts
     if (text.includes('[AudioMonitor]') && text.includes('silence detected')) {
-      agentStatus.audio = { ...(agentStatus.audio || {}), silenceDetected: true };
+      agentStatus.audio = { ...(agentStatus.audio || {}), silenceDetected: true }; statusChanged = true;
     }
     if (text.includes('AUDIO:') && text.includes('MUTED')) {
-      agentStatus.audio = { ...(agentStatus.audio || {}), masterMuted: true };
+      agentStatus.audio = { ...(agentStatus.audio || {}), masterMuted: true }; statusChanged = true;
     }
     if (text.includes('Audio master unmuted')) {
-      agentStatus.audio = { ...(agentStatus.audio || {}), masterMuted: false };
+      agentStatus.audio = { ...(agentStatus.audio || {}), masterMuted: false }; statusChanged = true;
     }
 
     // Parse ATEM model, program/preview inputs, recording from status logs
     const atemModelMatch = text.match(/ATEM model detected:\s*(.+)/i);
     if (atemModelMatch && agentStatus.atem && typeof agentStatus.atem === 'object') {
-      agentStatus.atem.model = atemModelMatch[1].trim();
+      agentStatus.atem.model = atemModelMatch[1].trim(); statusChanged = true;
     }
     const progInputMatch = text.match(/Program: Input (\d+)/);
     if (progInputMatch && agentStatus.atem && typeof agentStatus.atem === 'object') {
-      agentStatus.atem.programInput = parseInt(progInputMatch[1]);
+      agentStatus.atem.programInput = parseInt(progInputMatch[1]); statusChanged = true;
     }
     const prevInputMatch = text.match(/Preview: Input (\d+)/);
     if (prevInputMatch && agentStatus.atem && typeof agentStatus.atem === 'object') {
-      agentStatus.atem.previewInput = parseInt(prevInputMatch[1]);
+      agentStatus.atem.previewInput = parseInt(prevInputMatch[1]); statusChanged = true;
     }
     if (text.includes('recording STARTED') && agentStatus.atem && typeof agentStatus.atem === 'object') {
-      agentStatus.atem.recording = true;
+      agentStatus.atem.recording = true; statusChanged = true;
     }
     if (text.includes('recording STOPPED') && agentStatus.atem && typeof agentStatus.atem === 'object') {
-      agentStatus.atem.recording = false;
+      agentStatus.atem.recording = false; statusChanged = true;
     }
 
     // Parse streaming/FPS from status logs
-    if (text.includes('Stream STARTED'))  agentStatus.streaming = true;
-    if (text.includes('Stream STOPPED'))  agentStatus.streaming = false;
+    if (text.includes('Stream STARTED'))  { agentStatus.streaming = true; statusChanged = true; }
+    if (text.includes('Stream STOPPED'))  { agentStatus.streaming = false; statusChanged = true; }
     const fpsMatch = text.match(/Low stream FPS: (\d+)/);
-    if (fpsMatch) agentStatus.fps = parseInt(fpsMatch[1]);
+    if (fpsMatch) { agentStatus.fps = parseInt(fpsMatch[1]); statusChanged = true; }
 
     // Detect chat messages from agent WebSocket
     const chatLineMatch = text.match(/\[CHAT\]\s*(\{.+\})/);
@@ -530,11 +550,14 @@ function startAgent() {
       } catch { /* ignore parse errors */ }
     }
 
-    checkAndNotify();
+    // Only run expensive notification/UI updates when status actually changed
+    if (statusChanged) {
+      checkAndNotify();
+      mainWindow?.webContents.send('status', agentStatus);
+      updateTray();
+    }
     problemFinderBridge.onAgentEvent(text);
-    mainWindow?.webContents.send('status', agentStatus);
     mainWindow?.webContents.send('log', text);
-    updateTray();
   });
 
   agentProcess.stderr.on('data', (data) => {
@@ -959,7 +982,8 @@ ipcMain.handle('get-equipment', () => {
     atemIp: config.atemIp || '',
     companionUrl: config.companionUrl || '',
     obsUrl: config.obsUrl || '',
-    obsPassword: config.obsPassword || '',
+    obsPasswordSet: !!(config.obsPassword),
+    obsPassword: config.obsPassword ? '••••••••' : '',
     hyperdecks: config.hyperdecks || [],
     videoHubs: config.videoHubs || [],
     ptz: config.ptz || [],
@@ -983,7 +1007,7 @@ ipcMain.handle('get-equipment', () => {
     encoderType: config.encoder?.type || '',
     encoderHost: config.encoder?.host || '',
     encoderPort: config.encoder?.port || '',
-    encoderPassword: config.encoder?.password || '',
+    encoderPassword: config.encoder?.password ? '••••••••' : '',
     encoderLabel: config.encoder?.label || '',
     encoderStatusUrl: config.encoder?.statusUrl || '',
     rtmpUrl: config.rtmpUrl || '',

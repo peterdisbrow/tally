@@ -60,4 +60,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pfSimulateFix: (simId) => ipcRenderer.invoke('pf-simulate-fix', simId),
   pfAvailable: () => ipcRenderer.invoke('pf-available'),
   onPfUpdate: (cb) => ipcRenderer.on('pf-update', (_, data) => cb(data)),
+  // Window visibility (pause polling when hidden to tray)
+  onWindowVisibility: (cb) => ipcRenderer.on('window-visibility', (_, visible) => cb(visible)),
 });
