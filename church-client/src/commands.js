@@ -1399,12 +1399,17 @@ async function preServiceCheck(agent) {
         });
       }
     }
-  } else if (agent.config.audioViaAtem) {
+  } else if (agent.status.audioViaAtem || agent.config.audioViaAtem) {
     // Audio routed directly into ATEM — no external mixer to check
+    const sources = agent.status.atem?.atemAudioSources || [];
+    const sourceDetail = sources.length > 0
+      ? sources.map(s => `Input ${s.inputId}: ${s.portType} (${s.mixOption})`).join(', ')
+      : 'configured manually';
+    const tag = agent.status.audioViaAtemSource === 'manual' ? 'manual override' : 'auto-detected';
     checks.push({
       name: 'Audio Source',
       pass: true,
-      detail: 'Audio routed directly into ATEM (no external mixer)',
+      detail: `Audio via ATEM [${tag}] — ${sourceDetail}`,
     });
   }
 

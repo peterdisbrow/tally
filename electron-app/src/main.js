@@ -986,8 +986,9 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
     delete config.encoderSource;
   }
   if (equipConfig.rtmpUrl !== undefined) config.rtmpUrl = equipConfig.rtmpUrl;
-  // Audio-via-ATEM flag
+  // Audio-via-ATEM flag + override
   if (equipConfig.audioViaAtem !== undefined) config.audioViaAtem = equipConfig.audioViaAtem ? 1 : 0;
+  if (equipConfig.audioViaAtemOverride !== undefined) config.audioViaAtemOverride = equipConfig.audioViaAtemOverride || null;
   saveConfig(config);
 
   // Sync audioViaAtem flag to relay profile (fire and forget)
@@ -1029,6 +1030,8 @@ ipcMain.handle('get-equipment', () => {
     mixerType: config.mixer?.type || '',
     mixerHost: config.mixer?.host || '',
     mixerPort: config.mixer?.port || '',
+    audioViaAtem: config.audioViaAtem || 0,
+    audioViaAtemOverride: config.audioViaAtemOverride || null,
     // Multi-encoder array (new format)
     encoders: config.encoders || (config.encoder ? [config.encoder] : []),
     // Primary encoder flat fields (backward compat)

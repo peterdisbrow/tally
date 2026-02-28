@@ -2107,10 +2107,13 @@ app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
   if (Object.keys(safePatch).length) {
     const sets = Object.keys(safePatch).map(k => `${k} = ?`).join(', ');
     db.prepare(`UPDATE churches SET ${sets} WHERE churchId = ?`).run(...Object.values(safePatch), churchId);
-    // Sync audio_via_atem to in-memory runtime state
+    // Sync audio_via_atem to in-memory runtime state + mark as manual override
     if (safePatch.audio_via_atem !== undefined) {
       const runtime = churches.get(churchId);
-      if (runtime) runtime.audio_via_atem = safePatch.audio_via_atem;
+      if (runtime) {
+        runtime.audio_via_atem = safePatch.audio_via_atem;
+        runtime._audioViaAtemManualOverride = true; // prevent auto-detection from overwriting
+      }
     }
   }
   res.json({ ok: true });
@@ -4396,6 +4399,16 @@ function handleChurchMessage(church, msg) {
           church._onboardingAtemTracked = true; // avoid repeat DB checks
         } catch (e) {
           log(`[onboarding] ATEM milestone error: ${e.message}`);
+        }
+      }
+
+      // ── Auto-sync audio_via_atem from client-side detection ──────────
+      if (msg.status?.audioViaAtemSource === 'auto' && !church._audioViaAtemManualOverride) {
+        const newVal = msg.status.audioViaAtem ? 1 : 0;
+        if (church.audio_via_atem !== newVal) {
+          church.audio_via_atem = newVal;
+          try { db.prepare('UPDATE churches SET audio_via_atem = ? WHERE churchId = ?').run(newVal, church.churchId); }
+          catch (e) { log(`[audio_via_atem] auto-sync DB error: ${e.message}`); }
         }
       }
 

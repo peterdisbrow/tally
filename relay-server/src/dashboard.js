@@ -362,6 +362,8 @@ function patchCard(church) {
   const audioSilence   = audioData.silenceDetected || false;
   const mixerConnected = mixerData.connected || false;
   const audioViaAtem = !!(church.audio_via_atem);
+  const atemAudioSources = s.atem?.atemAudioSources || [];
+  const audioPortLabel = atemAudioSources.length > 0 ? ' (' + esc(atemAudioSources[0].portType) + ')' : '';
   const alerts = church.activeAlerts || 0;
 
   // 1) Status dot
@@ -416,7 +418,7 @@ function patchCard(church) {
         : audioSilence
           ? '<span class="tag" style="background:rgba(245,158,11,0.15);color:var(--yellow);">⚠ Silence</span>'
           : (mixerConnected || audioViaAtem)
-            ? (encoderLive ? '<span class="tag tag-on">🔊 OK</span>' : '<span class="tag tag-na">🔊 Standby</span>')
+            ? (encoderLive ? '<span class="tag tag-on">🔊 OK' + audioPortLabel + '</span>' : '<span class="tag tag-na">🔊 Standby</span>')
             : '<span class="tag tag-na">🔊 —</span>';
       if (rv.innerHTML !== audioBadge) rv.innerHTML = audioBadge;
     }
@@ -951,6 +953,8 @@ function renderCard(church) {
   const audioSilence   = audioData.silenceDetected || false;
   const mixerConnected = mixerData.connected || false;
   const audioViaAtem = !!(church.audio_via_atem);
+  const atemAudioSrcs2 = s.atem?.atemAudioSources || [];
+  const audioPort2 = atemAudioSrcs2.length > 0 ? ' (' + esc(atemAudioSrcs2[0].portType) + ')' : '';
   const reseller = church.reseller_id && _resellersMap[church.reseller_id];
   const resellerTag = reseller ? \`<div class="reseller-tag">🏢 \${esc(reseller.brand_name || reseller.name)}</div>\` : '';
   const encoderBadge = encoderActive
@@ -961,7 +965,7 @@ function renderCard(church) {
     : audioSilence
       ? '<span class="tag" style="background:rgba(245,158,11,0.15);color:var(--yellow);">⚠ Silence</span>'
       : (mixerConnected || audioViaAtem)
-        ? (encoderLive ? '<span class="tag tag-on">🔊 OK</span>' : '<span class="tag tag-na">🔊 Standby</span>')
+        ? (encoderLive ? '<span class="tag tag-on">🔊 OK' + audioPort2 + '</span>' : '<span class="tag tag-na">🔊 Standby</span>')
         : '<span class="tag tag-na">🔊 —</span>';
   const cid   = esc(church.churchId);
   const cname = esc(church.name);
@@ -2048,12 +2052,14 @@ function renderCard(church) {
   const audioMuted = mixerData.mainMuted || false;
   const mixerConnected = mixerData.connected || false;
   const audioViaAtem = !!(church.audio_via_atem);
+  const atemAudioSrcs3 = s.atem?.atemAudioSources || [];
+  const audioPort3 = atemAudioSrcs3.length > 0 ? ' (' + esc(atemAudioSrcs3[0].portType) + ')' : '';
   const audioBadge = audioMuted
     ? '<span class="tag tag-off">🔇 Muted</span>'
     : audioData.silenceDetected
       ? '<span class="tag" style="background:rgba(245,158,11,0.15);color:var(--yellow);">⚠ Silence</span>'
       : (mixerConnected || audioViaAtem)
-        ? (encoderLive ? '<span class="tag tag-on">🔊 OK</span>' : '<span class="tag tag-na">🔊 Standby</span>')
+        ? (encoderLive ? '<span class="tag tag-on">🔊 OK' + audioPort3 + '</span>' : '<span class="tag tag-na">🔊 Standby</span>')
         : '<span class="tag tag-na">🔊 —</span>';
 
   return \`<div class="card" id="card-\${esc(church.churchId)}">

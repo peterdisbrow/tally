@@ -29,6 +29,11 @@ const { encryptConfig, decryptConfig, findUnencryptedFields } = require('./secur
 const { MixerBridge } = require('./mixerBridge');
 const { PTZManager, normalizeProtocol } = require('./ptz');
 
+// ExternalPortType enum → human-readable label (used for audio source detection)
+const PORT_TYPE_NAMES = { 1: 'SDI', 2: 'HDMI', 4: 'Component', 8: 'Composite',
+  16: 'S-Video', 32: 'XLR', 64: 'AES/EBU', 128: 'RCA', 256: 'Internal',
+  512: 'TS Jack', 1024: 'MADI', 2048: 'TRS Jack', 4096: 'RJ45' };
+
 // ─── CLI CONFIG ───────────────────────────────────────────────────────────────
 
 program
@@ -313,7 +318,10 @@ class ChurchAVAgent {
         streamingCacheUsed: null,
         streamingService: null,
         audioDelays: {},
+        atemAudioSources: [],
       },
+      audioViaAtem: false,
+      audioViaAtemSource: 'none', // 'none' | 'auto' | 'manual'
       obs: {
         connected: false,
         app: null,
@@ -359,6 +367,72 @@ class ChurchAVAgent {
 
     if (this.status.atem.model && this.status.atem.model !== previousModel) {
       console.log(`ATEM model detected: ${this.status.atem.model}`);
+    }
+  }
+
+  /**
+   * Scan ATEM audio state for direct audio inputs (XLR, RCA, etc.) that are
+   * actively mixed in.  Returns an array of detected sources; empty = none found.
+   */
+  detectAtemAudioSources(state) {
+    const detected = [];
+    if (!state || typeof state !== 'object') return detected;
+
+    // ── Classic Audio (ATEM Mini / Pro / 2 M/E etc.) ──────────────────────
+    // AudioSourceType.ExternalAudio = 2, AudioMixOption.Off = 0
+    const classicChannels = state.audio?.classic?.channels || state.audio?.channels;
+    if (classicChannels && typeof classicChannels === 'object') {
+      for (const [channelId, ch] of Object.entries(classicChannels)) {
+        if (!ch) continue;
+        if (ch.sourceType === 2 && ch.mixOption !== 0) { // ExternalAudio & not Off
+          detected.push({
+            inputId: channelId,
+            type: 'classic',
+            sourceType: 'ExternalAudio',
+            portType: PORT_TYPE_NAMES[ch.portType] || 'Unknown',
+            mixOption: ch.mixOption === 1 ? 'On' : 'AFV',
+          });
+        }
+      }
+    }
+
+    // ── Fairlight Audio (ATEM Constellation / newer 4K) ────────────────────
+    // FairlightInputType.AudioIn = 2, FairlightAudioMixOption.Off = 1
+    const fairlightInputs = state.fairlight?.inputs;
+    if (fairlightInputs && typeof fairlightInputs === 'object') {
+      for (const [inputId, input] of Object.entries(fairlightInputs)) {
+        if (!input?.properties || input.properties.inputType !== 2) continue; // AudioIn
+        const portName = PORT_TYPE_NAMES[input.properties.externalPortType] || 'Unknown';
+        for (const [sourceId, src] of Object.entries(input.sources || {})) {
+          if (!src?.properties || src.properties.mixOption === 1) continue; // skip Off
+          detected.push({
+            inputId,
+            sourceId,
+            type: 'fairlight',
+            sourceType: 'AudioIn',
+            portType: portName,
+            mixOption: src.properties.mixOption === 2 ? 'On' : 'AFV',
+          });
+        }
+      }
+    }
+
+    return detected;
+  }
+
+  /** Update status.audioViaAtem based on auto-detection + manual override. */
+  _resolveAudioViaAtem() {
+    const override = this.config.audioViaAtemOverride; // 'on' | 'off' | undefined
+    if (override === 'on') {
+      this.status.audioViaAtem = true;
+      this.status.audioViaAtemSource = 'manual';
+    } else if (override === 'off') {
+      this.status.audioViaAtem = false;
+      this.status.audioViaAtemSource = 'manual';
+    } else {
+      const autoDetected = (this.status.atem.atemAudioSources || []).length > 0;
+      this.status.audioViaAtem = autoDetected;
+      this.status.audioViaAtemSource = autoDetected ? 'auto' : 'none';
     }
   }
 
@@ -663,6 +737,8 @@ class ChurchAVAgent {
       this.status.atem.connected = true;
       this.status.atem.ip = atemIp;
       this.updateAtemIdentity(this.atem?.state);
+      try { this.status.atem.atemAudioSources = this.detectAtemAudioSources(this.atem?.state); } catch { /* non-critical */ }
+      this._resolveAudioViaAtem();
       this.atemReconnectDelay = 2000;
       this.atemReconnecting = false;
       this.sendStatus();
@@ -747,6 +823,12 @@ class ChurchAVAgent {
         }
         this.status.atem.audioDelays = audioDelays;
       } catch { /* ignore — audio delay is non-critical */ }
+
+      // ── Direct audio input detection ──────────────────────────────────
+      try {
+        this.status.atem.atemAudioSources = this.detectAtemAudioSources(state);
+        this._resolveAudioViaAtem();
+      } catch { /* non-critical */ }
 
       this.sendStatus();
     });

@@ -1303,16 +1303,19 @@ function buildChurchPortalHtml(church) {
           : (obsConnected ? (obsStreaming ? 'streaming' : 'connected') : 'unknown');
         const mixerConnected = status.mixer && status.mixer.connected;
         const audioViaAtem = !!(d.audio_via_atem);
+        const atemAudioSrcs = status.atem?.atemAudioSources || [];
+        const audioPortLabel = atemAudioSrcs.length > 0 ? ' (' + atemAudioSrcs[0].portType + ')' : '';
         const audioStatus = (status.mixer && status.mixer.mainMuted) ? 'muted'
           : (status.audio && status.audio.silenceDetected) ? 'warning'
           : (mixerConnected || audioViaAtem)
             ? ((encoderLive || obsStreaming) ? 'ok' : 'connected')
           : 'unknown';
+        const audioLabel = 'Audio' + (audioViaAtem && audioPortLabel ? audioPortLabel : '');
         const rows = [
           ['ATEM Switcher', atemConnected ? 'connected' : 'unknown', status.atemLastSeen],
           [encoderLabel, encoderStatus, null],
           ['Stream', (encoderLive || obsStreaming) ? 'live' : 'offline', null],
-          ['Audio', audioStatus, null],
+          [audioLabel, audioStatus, null],
           ['A/V Sync', status.syncOk === false ? 'warning' : (status.syncOk ? 'ok' : 'unknown'), null],
         ];
         // Dynamic device rows — only show if the device exists in status
@@ -3610,10 +3613,13 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     if (Object.keys(safePatch).length) {
       const sets = Object.keys(safePatch).map(k => `${k} = ?`).join(', ');
       db.prepare(`UPDATE churches SET ${sets} WHERE churchId = ?`).run(...Object.values(safePatch), churchId);
-      // Sync audio_via_atem to in-memory runtime state
+      // Sync audio_via_atem to in-memory runtime state + mark as manual override
       if (safePatch.audio_via_atem !== undefined) {
         const runtime = churches.get(churchId);
-        if (runtime) runtime.audio_via_atem = safePatch.audio_via_atem;
+        if (runtime) {
+          runtime.audio_via_atem = safePatch.audio_via_atem;
+          runtime._audioViaAtemManualOverride = true;
+        }
       }
     }
     res.json({ ok: true });

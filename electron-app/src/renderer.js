@@ -663,7 +663,9 @@ function updateStatusUI(status) {
   } else if (audio.silenceDetected) {
     setStatusValue('val-audio', '⚠ Silence', false);
   } else if (mixerConnected || _audioViaAtem) {
-    setStatusValue('val-audio', streaming ? '● OK' : 'Standby', streaming ? true : null);
+    const atemSources = atemData.atemAudioSources || [];
+    const portLabel = atemSources.length > 0 ? ` (${atemSources[0].portType})` : '';
+    setStatusValue('val-audio', streaming ? `● OK${portLabel}` : 'Standby', streaming ? true : null);
   } else if (encoderConnected || atemConnected) {
     setStatusValue('val-audio', '—', false);
   } else {
@@ -1272,8 +1274,11 @@ async function loadEquipment() {
   const ndiConfigured = !!(eq.ndiSource && String(eq.ndiSource).trim());
   deviceState.ndi = { source: eq.ndiSource || '', label: eq.ndiLabel || '', configured: ndiConfigured };
 
-  // If audioViaAtem is set and no mixer type, restore as 'atem-direct' selection
-  const mixerType = eq.audioViaAtem ? 'atem-direct' : (eq.mixerType || '');
+  // Restore mixer type dropdown from audioViaAtem + override flags
+  const mixerType = eq.audioViaAtemOverride === 'on' ? 'atem-direct'
+    : eq.audioViaAtemOverride === 'off' ? 'atem-none'
+    : eq.audioViaAtem ? 'atem-auto'
+    : (eq.mixerType || '');
   deviceState.mixer = { type: mixerType, host: eq.mixerHost || '', port: eq.mixerPort ? String(eq.mixerPort) : '' };
   deviceState.dante = { host: eq.danteNmosHost || '', port: String(eq.danteNmosPort || '8080') };
 
@@ -1706,10 +1711,13 @@ async function _doSaveEquipment() {
     resolumeHost: deviceState.resolume.configured ? (deviceState.resolume.host || '').trim() : '',
     resolumePort: parseInt(deviceState.resolume.port) || 8080,
     // Audio
-    mixerType: deviceState.mixer.type === 'atem-direct' ? '' : (deviceState.mixer.type || ''),
+    mixerType: ['atem-auto', 'atem-direct', 'atem-none'].includes(deviceState.mixer.type) ? '' : (deviceState.mixer.type || ''),
     mixerHost: (deviceState.mixer.host || '').trim(),
     mixerPort: parseInt(deviceState.mixer.port) || 0,
-    audioViaAtem: deviceState.mixer.type === 'atem-direct' ? 1 : 0,
+    audioViaAtem: deviceState.mixer.type === 'atem-auto' || deviceState.mixer.type === 'atem-direct' ? 1 : 0,
+    audioViaAtemOverride: deviceState.mixer.type === 'atem-direct' ? 'on'
+      : deviceState.mixer.type === 'atem-none' ? 'off'
+      : null,
     danteNmosHost: (deviceState.dante.host || '').trim(),
     danteNmosPort: parseInt(deviceState.dante.port) || 8080,
     // NDI

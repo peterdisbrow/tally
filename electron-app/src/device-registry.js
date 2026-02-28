@@ -176,7 +176,9 @@ const DEVICE_REGISTRY = {
     fields: [
       { key: 'type', label: 'Audio Source', type: 'select', options: [
         { value: '', label: '\u2014 Not configured \u2014' },
-        { value: 'atem-direct', label: 'Audio routed directly into ATEM' },
+        { value: 'atem-auto', label: 'Auto-detect from ATEM (recommended)' },
+        { value: 'atem-direct', label: 'Force: Audio via ATEM (override)' },
+        { value: 'atem-none', label: 'Force: No ATEM audio (override)' },
         { value: 'x32', label: 'X32 (Behringer protocol)' },
         { value: 'behringer', label: 'Behringer X32 / X-Air' },
         { value: 'midas', label: 'Midas M32 / M32R' },

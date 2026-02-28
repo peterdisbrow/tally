@@ -159,13 +159,14 @@ function renderDeviceCard(deviceId, instanceIndex) {
         const onchangeAttr = (deviceId === 'mixer' && field.key === 'type') ? ' onchange="onMixerTypeChanged()"' : '';
         fieldsHtml += `<select ${dataAttrs}${onchangeAttr} style="${field.style || 'flex:1'}">${opts}</select>`;
       } else {
-        // Hide mixer IP/port fields when type is 'atem-direct'
-        const hideMixerField = deviceId === 'mixer' && (field.key === 'host' || field.key === 'port') && state.type === 'atem-direct';
+        // Hide mixer IP/port fields when type is an ATEM audio option
+        const isAtemAudioType = state.type === 'atem-direct' || state.type === 'atem-auto' || state.type === 'atem-none';
+        const hideMixerField = deviceId === 'mixer' && (field.key === 'host' || field.key === 'port') && isAtemAudioType;
         fieldsHtml += `<input type="${field.type}" ${dataAttrs} value="${escapeHtml(val)}" placeholder="${field.placeholder || ''}" style="${field.style || ''}${hideMixerField ? ';display:none' : ''}">`;
       }
     }
     // Test button (hide for atem-direct mixer)
-    if (def.testType && !(deviceId === 'mixer' && state.type === 'atem-direct')) {
+    if (def.testType && !(deviceId === 'mixer' && isAtemAudioType)) {
       const testAction = isMulti
         ? `testEquipIdx('${deviceId}', ${instanceIndex})`
         : `testEquip('${deviceId}')`;
@@ -175,8 +176,12 @@ function renderDeviceCard(deviceId, instanceIndex) {
   }
 
   let detailHint = def.detailHint || def.description || '';
-  if (deviceId === 'mixer' && state.type === 'atem-direct') {
-    detailHint = 'Audio is fed directly into the ATEM \u2014 no external mixer to monitor. Audio levels will be read from the ATEM master output.';
+  if (deviceId === 'mixer' && state.type === 'atem-auto') {
+    detailHint = 'Tally will auto-detect active audio inputs on the ATEM (XLR, RCA, etc.). If direct audio inputs are found, audio status will show OK automatically.';
+  } else if (deviceId === 'mixer' && state.type === 'atem-direct') {
+    detailHint = 'Audio via ATEM is forced ON \u2014 auto-detection is overridden. Use this if auto-detect doesn\u2019t pick up your setup.';
+  } else if (deviceId === 'mixer' && state.type === 'atem-none') {
+    detailHint = 'Audio via ATEM is forced OFF \u2014 auto-detection is overridden. Audio status will show \u201C\u2014\u201D unless an external mixer is connected.';
   }
 
   return `<div class="equip-card" id="${cardId}">
