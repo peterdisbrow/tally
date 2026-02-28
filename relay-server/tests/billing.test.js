@@ -66,7 +66,7 @@ describe('PRICES structure', () => {
   it('TIER_LIMITS maps every PRICES tier', () => {
     for (const tier of Object.keys(PRICES)) {
       expect(TIER_LIMITS).toHaveProperty(tier);
-      expect(TIER_LIMITS[tier]).toHaveProperty('churches');
+      expect(TIER_LIMITS[tier]).toHaveProperty('rooms');
       expect(TIER_LIMITS[tier]).toHaveProperty('devices');
     }
   });
