@@ -318,7 +318,12 @@ function expandDeviceCard(deviceId) {
   setTimeout(() => scrollToDevice(deviceId), 50);
 }
 
-function collapseDeviceCard(deviceId) {
+async function collapseDeviceCard(deviceId) {
+  const def = DEVICE_REGISTRY[deviceId];
+  const label = def?.name || deviceId;
+  if (typeof asyncConfirm === 'function') {
+    if (!(await asyncConfirm(`Remove ${label} from your equipment?`))) return;
+  }
   syncDomToState();
   expandedDevices.delete(deviceId);
   const def = DEVICE_REGISTRY[deviceId];
@@ -363,7 +368,14 @@ function addDeviceInstance(deviceId, silent) {
   }
 }
 
-function removeDeviceInstance(deviceId, idx) {
+async function removeDeviceInstance(deviceId, idx) {
+  const def = DEVICE_REGISTRY[deviceId];
+  const entries = deviceState[deviceId];
+  const entry = Array.isArray(entries) ? entries[idx] : null;
+  const label = (entry?.name) || (entry?.label) || (def?.name ? `${def.name} ${idx + 1}` : `device #${idx + 1}`);
+  if (typeof asyncConfirm === 'function') {
+    if (!(await asyncConfirm(`Remove ${label}? You can add it back later.`))) return;
+  }
   syncDomToState();
   if (deviceState[deviceId] && Array.isArray(deviceState[deviceId])) {
     deviceState[deviceId].splice(idx, 1);

@@ -24,15 +24,7 @@ function showFatalInitError(message) {
   msg.textContent = message;
   const hint = document.createElement('div');
   hint.style.cssText = 'margin-top:10px;color:#94A3B8;';
-  hint.textContent = 'Try restarting the app. If it persists, open Terminal and run ';
-  const code1 = document.createElement('code');
-  code1.textContent = 'npm run start';
-  hint.appendChild(code1);
-  hint.appendChild(document.createTextNode(' in '));
-  const code2 = document.createElement('code');
-  code2.textContent = 'electron-app';
-  hint.appendChild(code2);
-  hint.appendChild(document.createTextNode('.'));
+  hint.textContent = 'Please restart the app. If the problem continues, contact your tech director or visit atemschool.com/help.';
   box.appendChild(title);
   box.appendChild(msg);
   box.appendChild(hint);
@@ -119,7 +111,7 @@ async function init() {
 
     if (config.token) {
       // Returning user — validate token silently
-      showSignInLoading('Validating session...');
+      showSignInLoading('Checking your account...');
       document.body.classList.add('ready');
 
       const result = await api.validateToken();
@@ -180,7 +172,7 @@ function showSignInLoading(text) {
   hideAllViews();
   document.getElementById('sign-in').classList.add('active');
   document.getElementById('sign-in-loading').classList.add('active');
-  document.getElementById('sign-in-loading-text').textContent = text || 'Validating session...';
+  document.getElementById('sign-in-loading-text').textContent = text || 'Checking your account...';
   document.getElementById('sign-in-form').classList.add('hidden');
 }
 
@@ -245,7 +237,7 @@ async function doSignIn() {
 
   btn.disabled = true;
   btn.textContent = 'Signing in...';
-  showSignInMessage('Signing in and validating membership...', 'var(--muted)');
+  showSignInMessage('Signing in...', 'var(--muted)');
 
   try {
     const result = await api.churchAuthLogin({ relay, email, password });
@@ -327,11 +319,23 @@ function isValidIpOrHostname(value) {
   return /^[a-zA-Z0-9._-]+$/.test(value);
 }
 
+function showWizardHint(msg) {
+  // Non-blocking inline validation hint (replaces alert())
+  const existing = document.querySelector('.wizard-hint-toast');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'wizard-hint-toast';
+  toast.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;background:rgba(234,179,8,0.15);border:1px solid rgba(234,179,8,0.4);color:#fde68a;padding:8px 18px;border-radius:8px;font-size:12px;font-family:var(--font);max-width:340px;text-align:center;animation:fadeInOut 3s ease forwards;';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3200);
+}
+
 function wizardValidateStep(step) {
   if (step === 1) {
     const ip = document.getElementById('wiz-atem').value.trim();
     if (ip && !isValidIpOrHostname(ip)) {
-      alert('Please enter a valid IP address (e.g. 192.168.1.10) or leave blank to skip.');
+      showWizardHint('Please enter a valid IP address (e.g. 192.168.1.10) or leave blank to skip.');
       return false;
     }
   }
@@ -342,7 +346,7 @@ function wizardValidateStep(step) {
     if (needsHost && hostEl) {
       const host = hostEl.value.trim();
       if (host && !isValidIpOrHostname(host)) {
-        alert('Please enter a valid encoder IP or hostname.');
+        showWizardHint('Please enter a valid encoder IP or hostname.');
         return false;
       }
     }
@@ -555,10 +559,10 @@ function updateStatusUI(status) {
   const offlineBanner = document.getElementById('offline-banner');
   if (offlineBanner) {
     if (!relayOk && !navigator.onLine) {
-      offlineBanner.textContent = '⚠ No internet connection — monitoring is paused';
+      offlineBanner.textContent = '⚠ No internet — check your Wi-Fi or network cable. Monitoring is paused.';
       offlineBanner.style.display = '';
     } else if (!relayOk) {
-      offlineBanner.textContent = '⚠ Relay disconnected — monitoring is paused';
+      offlineBanner.textContent = '⚠ Can\'t reach the server — this usually resolves on its own. Monitoring is paused.';
       offlineBanner.style.display = '';
     } else {
       offlineBanner.style.display = 'none';
@@ -799,11 +803,14 @@ function setDot(name, active) {
 
 function updateToggleBtn() {
   const btn = document.getElementById('btn-toggle');
-  btn.textContent = isRunning ? 'Stop Agent' : 'Start Agent';
+  btn.textContent = isRunning ? 'Stop Monitoring' : 'Start Monitoring';
   btn.className = isRunning ? 'btn-primary' : 'btn-start';
 }
 
 async function toggleAgent() {
+  if (isRunning) {
+    if (!(await asyncConfirm('Stop monitoring? Tally will no longer track your stream or equipment until you start it again.'))) return;
+  }
   const btn = document.getElementById('btn-toggle');
   btn.disabled = true;
   btn.textContent = isRunning ? 'Stopping…' : 'Starting…';
@@ -1011,7 +1018,25 @@ api.onWindowVisibility?.((visible) => {
 
 // ─── TABS ──────────────────────────────────────────────────────────────────
 
-function switchTab(name) {
+let _equipDirty = false;
+
+function markEquipDirty() { _equipDirty = true; }
+
+// Listen for field changes inside the equipment tab
+document.addEventListener('input', (e) => {
+  if (e.target.closest('#tab-equipment')) markEquipDirty();
+});
+document.addEventListener('change', (e) => {
+  if (e.target.closest('#tab-equipment')) markEquipDirty();
+});
+
+async function switchTab(name) {
+  // Warn about unsaved equipment changes when leaving equipment tab
+  const equipTab = document.getElementById('tab-equipment');
+  if (_equipDirty && equipTab?.classList.contains('active') && name !== 'equipment') {
+    if (!(await asyncConfirm('You have unsaved equipment changes. Leave without saving?'))) return;
+    _equipDirty = false;
+  }
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`)?.classList.add('active');
@@ -1272,6 +1297,7 @@ async function loadEquipment() {
   // ── Render dynamic catalog + summary ──
   renderDeviceCatalog();
   renderActiveSummary();
+  _equipDirty = false; // fresh load from server — nothing unsaved
 
   // ── Streaming keys (static DOM — not in catalog) ──
   document.getElementById('equip-youtube-key').placeholder = eq.youtubeKeySet ? '(saved \u2014 enter new to change)' : 'AIzaSy\u2026';
@@ -1624,7 +1650,7 @@ async function saveEquipment() {
   const saveBtn = document.getElementById('btn-save-equip');
   if (saveBtn?.disabled) return; // Prevent double-click
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
-  try { await _doSaveEquipment(); } finally {
+  try { await _doSaveEquipment(); _equipDirty = false; } finally {
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Equipment Config'; }
   }
 }

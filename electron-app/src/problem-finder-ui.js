@@ -112,7 +112,7 @@ async function pfRunVerify() {
     showPfError(err.message || 'Analysis failed');
   } finally {
     _pfLoading = false;
-    if (btn) { btn.textContent = '▶ Run Verify'; btn.disabled = false; }
+    if (btn) { btn.textContent = '▶ Check System'; btn.disabled = false; }
   }
 }
 
@@ -139,7 +139,7 @@ async function pfRunPreflight() {
     showPfError(err.message || 'Preflight failed');
   } finally {
     _pfLoading = false;
-    if (btn) { btn.textContent = '🛫 Preflight Check'; btn.disabled = false; }
+    if (btn) { btn.textContent = '🛫 Pre-Service Check'; btn.disabled = false; }
   }
 }
 
@@ -309,13 +309,11 @@ async function pfSimulateFix(simId) {
       return;
     }
     const diff = result.diff;
-    alert(
-      `Simulation: ${simId}\n\n` +
-      `Issues: ${diff.issueDelta >= 0 ? '+' : ''}${diff.issueDelta}\n` +
-      `Coverage: ${diff.coverageDelta >= 0 ? '+' : ''}${diff.coverageDelta}\n` +
-      `Resolved: ${diff.resolvedIssueIds.join(', ') || 'none'}\n` +
-      `New: ${diff.newIssueIds.join(', ') || 'none'}`
-    );
+    // Show simulation result in a non-blocking dialog
+    const msg = `Simulation: ${simId}\n\nIssues: ${diff.issueDelta >= 0 ? '+' : ''}${diff.issueDelta}\nCoverage: ${diff.coverageDelta >= 0 ? '+' : ''}${diff.coverageDelta}\nResolved: ${diff.resolvedIssueIds.join(', ') || 'none'}\nNew: ${diff.newIssueIds.join(', ') || 'none'}`;
+    if (typeof asyncConfirm === 'function') {
+      await asyncConfirm(msg);
+    }
   } catch (err) {
     showPfError(err.message);
   }

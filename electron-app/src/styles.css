@@ -156,10 +156,10 @@ body.is-mac .header .header-title {
   box-shadow: 0 0 8px rgba(239,68,68,0.2);
 }
 .dot {
-  width: 0;
-  height: 0;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: transparent;
+  background: var(--dim);
   transition: all 0.3s;
   margin-right: 1px;
 }
@@ -1015,4 +1015,12 @@ body.ready { opacity: 1; }
   font-family: var(--font);
 }
 .btn-tiny:hover { background: rgba(34,197,94,0.15); }
+
+/* ── Wizard Validation Toast ─────────────────────────────────── */
+@keyframes fadeInOut {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  12%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; }
+}
 
