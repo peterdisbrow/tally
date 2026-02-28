@@ -663,6 +663,7 @@ sessionRecap.setNotificationConfig(
   process.env.ALERT_BOT_TOKEN,
   process.env.ANDREW_TELEGRAM_CHAT_ID
 );
+sessionRecap.recoverActiveSessions(); // Re-hydrate sessions that survived a restart
 
 // Hook schedule engine window transitions → session lifecycle
 scheduleEngine.addWindowOpenCallback((churchId) => {

@@ -91,7 +91,7 @@ body.is-mac .header .header-title {
   display: none;
   background: var(--danger);
   color: #fff;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
   padding: 2px 7px;
   border-radius: 4px;
@@ -167,11 +167,24 @@ body.is-mac .header .header-title {
 .dot.yellow { background: var(--warn); box-shadow: 0 0 7px var(--warn); width: 6px; height: 6px; }
 .dot.red { background: var(--danger); box-shadow: 0 0 7px var(--danger); width: 6px; height: 6px; }
 
+/* ── Offline Banner ─────────────────────────────────────────── */
+.offline-banner {
+  background: rgba(234,179,8,0.14);
+  border-bottom: 1px solid rgba(234,179,8,0.35);
+  color: #fde68a;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--mono);
+  text-align: center;
+  padding: 6px 16px;
+  letter-spacing: 0.04em;
+}
+
 /* ── Content Area ───────────────────────────────────────────── */
 .content { flex: 1; overflow-y: auto; padding: 12px 16px; }
 .section { margin-bottom: 14px; }
 .section h2 {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   color: #86efac;
   text-transform: uppercase;
@@ -195,7 +208,7 @@ body.is-mac .header .header-title {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .info-card .label {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   color: #86efac;
   text-transform: uppercase;
@@ -236,7 +249,7 @@ body.is-mac .header .header-title {
   border-radius: 0 4px 4px 0;
   margin-bottom: 2px;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
   color: var(--dim);
 }
@@ -247,7 +260,7 @@ body.is-mac .header .header-title {
 .activity-entry.ok    { border-left-color: var(--green); }
 .activity-badge {
   flex-shrink: 0;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   padding: 2px 5px;
   border-radius: 3px;
@@ -269,7 +282,7 @@ body.is-mac .header .header-title {
 .activity-entry.sys   .activity-text { color: #fde68a; }
 .activity-ts {
   flex-shrink: 0;
-  font-size: 9px;
+  font-size: 10px;
   color: var(--dim);
   margin-top: 2px;
   white-space: nowrap;
@@ -302,7 +315,7 @@ body.is-mac .header .header-title {
 .form-group { margin-bottom: 12px; }
 label {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
   margin-bottom: 4px;
   font-family: var(--mono);
@@ -490,7 +503,7 @@ button:focus-visible {
 
 /* ── Footer Branding ────────────────────────────────────────── */
 .branding {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--dim);
   text-align: center;
   padding: 5px 8px;
@@ -646,7 +659,7 @@ button:focus-visible {
 .equip-chip-dot.red { background: var(--danger); }
 .equip-chip-icon { font-size: 12px; }
 .equip-chip-name { font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
-.equip-chip-ip { color: var(--dim); font-size: 9px; }
+.equip-chip-ip { color: var(--dim); font-size: 10px; }
 
 /* ── Scan Bar (top of equipment tab) ──────────────────────────── */
 .equip-scan-bar {
@@ -668,7 +681,7 @@ button:focus-visible {
 /* ── Device Catalog ───────────────────────────────────────────── */
 .equip-catalog-category { margin-bottom: 12px; }
 .equip-catalog-category-title {
-  font-size: 9px; font-weight: 700; color: #86efac;
+  font-size: 11px; font-weight: 700; color: #86efac;
   text-transform: uppercase; letter-spacing: 0.11em;
   margin-bottom: 6px; font-family: var(--mono);
 }
@@ -684,7 +697,7 @@ button:focus-visible {
 .equip-catalog-entry-info { flex: 1; min-width: 0; }
 .equip-catalog-entry-name { font-size: 12px; font-weight: 700; color: var(--white); }
 .equip-catalog-entry-desc { font-size: 10px; color: var(--dim); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.equip-catalog-entry-badge { font-size: 9px; color: var(--green); font-weight: 700; font-family: var(--mono); flex-shrink: 0; }
+.equip-catalog-entry-badge { font-size: 10px; color: var(--green); font-weight: 700; font-family: var(--mono); flex-shrink: 0; }
 
 /* ── Unified Device Config Card ───────────────────────────────── */
 .equip-card {
@@ -967,7 +980,7 @@ body.ready { opacity: 1; }
   display: inline-block;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.06em;
   color: #000;

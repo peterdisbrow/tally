@@ -490,9 +490,21 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
 
   } catch (err) {
     console.error(`[ai-parser] Error: ${err.message}`);
+    // Return a volunteer-friendly message instead of raw API jargon
+    let friendly = 'Tally couldn\'t understand that — try a simpler command like "cam 2" or "go live".';
+    if (err.message?.includes('API') && err.message?.includes('529')) {
+      friendly = 'AI is temporarily busy — try again in a moment, or use a direct command like "cam 2".';
+    } else if (err.message?.includes('API') && err.message?.includes('rate')) {
+      friendly = 'Too many requests — wait a moment and try again.';
+    } else if (err.message?.includes('timeout') || err.name === 'AbortError' || err.message?.includes('abort')) {
+      friendly = 'Request timed out — try again or use a direct command like "status".';
+    } else if (err.message?.includes('API_KEY')) {
+      friendly = 'AI features are not configured — contact your admin.';
+    }
     return {
       type: 'error',
-      message: `AI parser failed: ${err.message}`,
+      message: friendly,
+      _debug: err.message, // preserve raw error for server logs only
     };
   }
 }

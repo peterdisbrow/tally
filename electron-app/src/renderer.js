@@ -79,8 +79,7 @@ async function init() {
         if (config.name) document.getElementById('church-name').textContent = config.name;
         if (config.setupComplete) {
           showDashboard();
-          await api.startAgent();
-          isRunning = true;
+          try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`❌ Agent start failed: ${e.message}`); }
           updateToggleBtn();
         } else {
           showEquipmentWizard();
@@ -212,8 +211,7 @@ async function doSignIn() {
 
       if (config.setupComplete) {
         showDashboard();
-        await api.startAgent();
-        isRunning = true;
+        try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`❌ Agent start failed: ${e.message}`); }
         updateToggleBtn();
       } else {
         showEquipmentWizard();
@@ -230,6 +228,7 @@ async function doSignIn() {
 }
 
 async function doSignOut() {
+  if (!confirm('Sign out? This will stop all monitoring.')) return;
   try {
     await api.signOut();
     isRunning = false;
@@ -269,8 +268,42 @@ function goToStep(n) {
   }
 }
 
+function isValidIpOrHostname(value) {
+  if (!value) return true; // empty = skipped, OK
+  const ipv4 = /^(\d{1,3}\.){3}\d{1,3}$/;
+  if (ipv4.test(value)) {
+    return value.split('.').every(n => parseInt(n) >= 0 && parseInt(n) <= 255);
+  }
+  // Accept hostnames like "localhost", "my-obs.local", etc.
+  return /^[a-zA-Z0-9._-]+$/.test(value);
+}
+
+function wizardValidateStep(step) {
+  if (step === 1) {
+    const ip = document.getElementById('wiz-atem').value.trim();
+    if (ip && !isValidIpOrHostname(ip)) {
+      alert('Please enter a valid IP address (e.g. 192.168.1.10) or leave blank to skip.');
+      return false;
+    }
+  }
+  if (step === 2) {
+    const type = document.getElementById('wiz-encoder-type').value;
+    const hostEl = document.getElementById('wiz-encoder-host');
+    const needsHost = ['obs', 'vmix', 'blackmagic', 'aja', 'epiphan', 'teradek', 'tricaster', 'birddog', 'custom'].includes(type);
+    if (needsHost && hostEl) {
+      const host = hostEl.value.trim();
+      if (host && !isValidIpOrHostname(host)) {
+        alert('Please enter a valid encoder IP or hostname.');
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 async function wizardNext() {
   if (currentStep < TOTAL_STEPS) {
+    if (!wizardValidateStep(currentStep)) return;
     goToStep(currentStep + 1);
     if (currentStep === TOTAL_STEPS) {
       // Step 5 (Done) — save equipment config, engineer profile, mark setup complete
@@ -312,8 +345,10 @@ async function wizardNext() {
         backupSwitcher: document.getElementById('wiz-backup-switcher').value,
         specialNotes: document.getElementById('wiz-special-notes').value.trim(),
       };
-      // Fire and forget — don't block wizard on network issues
-      api.saveEngineerProfile(engineerProfile).catch(() => {});
+      // Don't block wizard on network issues, but warn on failure
+      api.saveEngineerProfile(engineerProfile).catch(() => {
+        console.warn('Engineer profile save failed — will retry on next session');
+      });
 
       // Test connection
       const config = await api.getConfig();
@@ -334,8 +369,7 @@ async function wizardNext() {
     showDashboard();
     const config = await api.getConfig();
     if (config.name) document.getElementById('church-name').textContent = config.name;
-    await api.startAgent();
-    isRunning = true;
+    try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`❌ Agent start failed: ${e.message}`); }
     updateToggleBtn();
   }
 }
@@ -466,6 +500,21 @@ function updateStatusUI(status) {
   setDot('relay', status.relay);
   setDot('atem', status.atem);
   setDot('companion', status.companion);
+
+  // ── Offline / disconnection banner ──────────────────────────────────────
+  const relayOk = getStatusActive(status.relay);
+  const offlineBanner = document.getElementById('offline-banner');
+  if (offlineBanner) {
+    if (!relayOk && !navigator.onLine) {
+      offlineBanner.textContent = '⚠ No internet connection — monitoring is paused';
+      offlineBanner.style.display = '';
+    } else if (!relayOk) {
+      offlineBanner.textContent = '⚠ Relay disconnected — monitoring is paused';
+      offlineBanner.style.display = '';
+    } else {
+      offlineBanner.style.display = 'none';
+    }
+  }
 
   // ── Dynamic encoder dot + label ─────────────────────────────────────────
   const encoderLabel = status.encoderType || 'Encoder';
@@ -706,14 +755,23 @@ function updateToggleBtn() {
 }
 
 async function toggleAgent() {
-  if (isRunning) {
-    await api.stopAgent();
-    isRunning = false;
-  } else {
-    await api.startAgent();
-    isRunning = true;
+  const btn = document.getElementById('btn-toggle');
+  btn.disabled = true;
+  btn.textContent = isRunning ? 'Stopping…' : 'Starting…';
+  try {
+    if (isRunning) {
+      await api.stopAgent();
+      isRunning = false;
+    } else {
+      await api.startAgent();
+      isRunning = true;
+    }
+  } catch (e) {
+    addAlert(`❌ Agent ${isRunning ? 'stop' : 'start'} failed: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    updateToggleBtn();
   }
-  updateToggleBtn();
 }
 
 async function testConn() {
@@ -780,7 +838,7 @@ function addActivity(type, text) {
   log.appendChild(entry);
   log.scrollTop = log.scrollHeight;
   alertCount++;
-  while (log.children.length > 20) log.removeChild(log.firstChild);
+  while (log.children.length > 200) log.removeChild(log.firstChild);
 }
 
 function addAlert(text) {
@@ -799,64 +857,8 @@ api.onLog((text) => {
     addAlert(t);
   }
 
-  const progMatch = t.match(/Program: Input (\d+)/);
-  if (progMatch) document.getElementById('val-program').textContent = `Input ${progMatch[1]}`;
-  const prevMatch = t.match(/Preview: Input (\d+)/);
-  if (prevMatch) document.getElementById('val-preview').textContent = `Input ${prevMatch[1]}`;
-  const atemModelMatch = t.match(/ATEM model detected:\s*(.+)$/i);
-  if (atemModelMatch) {
-    const v = atemModelMatch[1].trim();
-    const m = document.getElementById('val-atem-model');
-    if (m) m.textContent = v;
-  }
-  const obsIdentityMatch = t.match(/OBS identity:\s*(.+)$/i);
-  if (obsIdentityMatch) {
-    const v = obsIdentityMatch[1].trim();
-    const el = document.getElementById('val-id-encoder');
-    if (el) el.textContent = v;
-  }
-  const encoderIdentityMatch = t.match(/Encoder identity:\s*(.+)$/i);
-  if (encoderIdentityMatch) {
-    const v = encoderIdentityMatch[1].trim();
-    const el = document.getElementById('val-id-encoder');
-    if (el) el.textContent = v;
-  }
-  const ppVersionMatch = t.match(/ProPresenter version detected:\s*(.+)$/i);
-  if (ppVersionMatch) {
-    const v = ppVersionMatch[1].trim();
-    const el = document.getElementById('val-id-propresenter');
-    if (el) el.textContent = `ProPresenter ${v}`;
-  }
-  const vmixIdentityMatch = t.match(/vMix identity:\s*(.+)$/i);
-  if (vmixIdentityMatch) {
-    const v = vmixIdentityMatch[1].trim();
-    const el = document.getElementById('val-id-vmix');
-    if (el) el.textContent = v;
-  }
-  const resolumeVersionMatch = t.match(/Resolume version detected:\s*(.+)$/i);
-  if (resolumeVersionMatch) {
-    const v = resolumeVersionMatch[1].trim();
-    const el = document.getElementById('val-id-resolume');
-    if (el) el.textContent = v;
-  }
-  const mixerIdentityMatch = t.match(/Mixer identity:\s*(.+)$/i);
-  if (mixerIdentityMatch) {
-    const v = mixerIdentityMatch[1].trim();
-    const el = document.getElementById('val-id-mixer');
-    if (el) el.textContent = v;
-  }
-  const companionIdentityMatch = t.match(/Companion identity:\s*(.+)$/i);
-  if (companionIdentityMatch) {
-    const v = companionIdentityMatch[1].trim();
-    const el = document.getElementById('val-id-companion');
-    if (el) el.textContent = v;
-  }
-
-  if (t.includes('recording STARTED')) document.getElementById('val-recording').textContent = '● Recording';
-  if (t.includes('recording STOPPED')) document.getElementById('val-recording').textContent = 'Stopped';
-  if (t.includes('Stream STARTED')) document.getElementById('val-stream').textContent = '● LIVE';
-  if (t.includes('Stream STOPPED')) document.getElementById('val-stream').textContent = 'Off';
-  if (t.includes('Companion connected')) document.getElementById('val-companion').textContent = 'Connected';
+  // Status UI is driven by onStatus() — log handler only feeds the activity log.
+  // Removed duplicate log-regex → DOM updates that raced with structured status data.
 });
 
 // ─── PREVIEW ───────────────────────────────────────────────────────────────
@@ -1071,11 +1073,19 @@ async function sendChatMessage() {
 
   if (!message) return;
   input.value = '';
-  const resp = await api.sendChat({ message });
-  if (resp?.id) {
-    chatMessages.push(resp);
-    chatLastTimestamp = resp.timestamp;
-    renderChat();
+  try {
+    const resp = await api.sendChat({ message });
+    if (resp?.error) {
+      input.value = message; // Restore so user can retry
+      addAlert(`❌ Message failed: ${resp.error}`);
+    } else if (resp?.id) {
+      chatMessages.push(resp);
+      chatLastTimestamp = resp.timestamp;
+      renderChat();
+    }
+  } catch (e) {
+    input.value = message; // Restore so user can retry
+    addAlert(`❌ Message failed: ${e.message}`);
   }
 }
 
@@ -1594,6 +1604,18 @@ async function saveEquipment() {
     if (ndiChip) ndiChip.style.display = ndiConfigured ? '' : 'none';
     // Refresh summary chips
     renderActiveSummary();
+    // Auto-restart agent so new equipment config takes effect immediately
+    if (isRunning) {
+      addAlert('🔄 Restarting agent with updated config…');
+      try {
+        await api.stopAgent();
+        await new Promise(r => setTimeout(r, 1000));
+        await api.startAgent();
+        addAlert('✅ Agent restarted with new config');
+      } catch (e2) {
+        addAlert(`⚠ Agent restart failed: ${e2.message}. Stop and start manually.`);
+      }
+    }
   } catch (e) {
     if (errorEl) {
       errorEl.textContent = 'Save failed: ' + (e.message || 'unknown error');

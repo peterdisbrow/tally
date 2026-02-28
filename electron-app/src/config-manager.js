@@ -51,18 +51,40 @@ function stripMockConfig(config = {}) {
   return cleaned;
 }
 
+// ─── config cache ────────────────────────────────────────────────────────────
+let _configCache = null;
+let _configMtime = 0;
+
+function _isCacheValid() {
+  try {
+    const stat = fs.statSync(CONFIG_PATH);
+    return _configCache !== null && stat.mtimeMs === _configMtime;
+  } catch { return false; }
+}
+
 // ─── public API ───────────────────────────────────────────────────────────────
 
 function loadConfig() {
   if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
   if (!fs.existsSync(CONFIG_PATH)) return {};
+  // Return cached config if file hasn't changed (skips disk read + decrypt + PBKDF2)
+  if (_isCacheValid()) return { ..._configCache };
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     const config = stripMockConfig(decryptConfig(raw)); // decrypt secure fields on load
     config.relay = _enforceRelayPolicy(config.relay);
+    // Cache the result
+    _configCache = { ...config };
+    try { _configMtime = fs.statSync(CONFIG_PATH).mtimeMs; } catch { /* ignore */ }
     return config;
+  } catch (err) {
+    // Config file is corrupted — save backup and start fresh
+    const backupPath = CONFIG_PATH + '.corrupt.' + Date.now();
+    try { fs.copyFileSync(CONFIG_PATH, backupPath); } catch { /* best effort */ }
+    console.error(`Config corrupted (backed up to ${backupPath}): ${err.message}`);
+    _configCache = null;
+    return {};
   }
-  catch { return {}; }
 }
 
 function saveConfig(config) {
@@ -72,7 +94,13 @@ function saveConfig(config) {
   // Only persist defined values; undefined means "leave existing as-is" before merge.
   const toSave = stripMockConfig(Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined)));
   toSave.relay = _enforceRelayPolicy(toSave.relay);
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(encryptConfig(toSave), null, 2));
+  // Atomic write: write to temp file then rename (crash-safe)
+  const tmpPath = CONFIG_PATH + '.tmp';
+  fs.writeFileSync(tmpPath, JSON.stringify(encryptConfig(toSave), null, 2));
+  fs.renameSync(tmpPath, CONFIG_PATH);
+  // Invalidate cache so next loadConfig() reads fresh data
+  _configCache = null;
+  _configMtime = 0;
 }
 
 // Return config with flags instead of actual key values for the UI

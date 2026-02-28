@@ -139,17 +139,18 @@ class PreServiceCheck {
 
     // Send command to church client via WS and await result
     let result = null;
+    let failReason = 'offline'; // 'offline' | 'timeout' | 'error'
     try {
       const churchRuntime = this.churches?.get(church.churchId);
       if (churchRuntime?.ws?.readyState === 1) {
         const crypto = require('crypto');
         const msgId = crypto.randomUUID();
         const resultPromise = new Promise((resolve) => {
-          const timer = setTimeout(() => { cleanup(); resolve(null); }, 10000);
+          const timer = setTimeout(() => { cleanup(); resolve({ _timeout: true }); }, 10000);
           const handler = (msg) => {
             if (msg.type === 'command_result' && msg.churchId === church.churchId && msg.messageId === msgId) {
               cleanup();
-              resolve(msg.error ? null : msg.result);
+              resolve(msg.error ? { _error: msg.error } : msg.result);
             }
           };
           const cleanup = () => {
@@ -160,9 +161,13 @@ class PreServiceCheck {
           this._resultListeners.push(handler);
         });
         churchRuntime.ws.send(JSON.stringify({ type: 'command', command: 'system.preServiceCheck', params: {}, id: msgId }));
-        result = await resultPromise;
+        const raw = await resultPromise;
+        if (raw?._timeout) { failReason = 'timeout'; }
+        else if (raw?._error) { failReason = 'error'; }
+        else { result = raw; }
       }
     } catch (e) {
+      failReason = 'error';
       console.error(`[PreServiceCheck] sendCommand error for ${church.name}:`, e.message);
     }
 
@@ -184,10 +189,15 @@ class PreServiceCheck {
     const chatIds = tds.map(td => td.telegram_chat_id).filter(Boolean);
     if (!chatIds.length) return;
 
-    // Format notification
+    // Format notification with clear reason
     let msg;
     if (!result) {
-      msg = `⚠️ ${church.name} — Could not run pre-service check (client offline or no response)`;
+      const reasonText = failReason === 'timeout'
+        ? 'Tally app is connected but took too long to respond — it may be busy'
+        : failReason === 'error'
+          ? 'Tally app returned an error during the check'
+          : 'Tally app is not connected — make sure it\'s running on the tech booth computer';
+      msg = `⚠️ ${church.name} — Pre-service check could not complete\n${reasonText}`;
     } else if (result.pass === false) {
       const issues = Array.isArray(result.checks) ? result.checks.filter(c => !c.pass) : [];
       const count = issues.length;

@@ -61,6 +61,50 @@ class SessionRecap {
     return session?.sessionId || null;
   }
 
+  /**
+   * Recover sessions that were active when the server last shut down.
+   * Called once during startup. Re-hydrates the in-memory activeSessions map
+   * from DB rows with no `ended_at`.
+   */
+  recoverActiveSessions() {
+    try {
+      const rows = this.db.prepare(
+        'SELECT * FROM service_sessions WHERE ended_at IS NULL'
+      ).all();
+      for (const row of rows) {
+        // Only recover sessions started within the last 6 hours (stale ones are abandoned)
+        const startedAt = new Date(row.started_at);
+        if (Date.now() - startedAt.getTime() > 6 * 60 * 60 * 1000) {
+          // Mark stale session as ended
+          this.db.prepare('UPDATE service_sessions SET ended_at = ?, grade = ? WHERE id = ?')
+            .run(new Date().toISOString(), '⚠️ Interrupted (server restart)', row.id);
+          console.log(`[SessionRecap] Marked stale session ${row.id} as interrupted`);
+          continue;
+        }
+        this.activeSessions.set(row.church_id, {
+          sessionId: row.id,
+          churchId: row.church_id,
+          startedAt,
+          tdName: row.td_name,
+          alertTypes: {},
+          alertCount: row.alert_count || 0,
+          autoRecovered: row.auto_recovered_count || 0,
+          escalated: row.escalated_count || 0,
+          audioSilenceCount: row.audio_silence_count || 0,
+          peakViewers: row.peak_viewers || null,
+          streamStartedAt: row.stream_ran ? new Date() : null,
+          streamTotalMinutes: row.stream_runtime_minutes || 0,
+          streaming: !!row.stream_ran,
+          recordingConfirmed: !!row.recording_confirmed,
+        });
+        console.log(`[SessionRecap] Recovered active session for ${row.church_id} (started ${startedAt.toISOString()})`);
+      }
+      if (rows.length) console.log(`[SessionRecap] Recovered ${this.activeSessions.size} active session(s)`);
+    } catch (e) {
+      console.error('[SessionRecap] Session recovery error:', e.message);
+    }
+  }
+
   // ─── SESSION LIFECYCLE ───────────────────────────────────────────────────────
 
   /**
@@ -483,17 +527,46 @@ Church profile:
     }
   }
 
+  /**
+   * Escape special characters for Telegram MarkdownV2.
+   * Must escape: _ * [ ] ( ) ~ ` > # + - = | { } . !
+   */
+  _escapeTelegramMd(text) {
+    return text.replace(/([_\[\]()~`>#+=|{}.!\\-])/g, '\\$1');
+  }
+
   async _sendTelegram(chatId, botToken, text) {
     try {
+      // Convert our Markdown (bold = *text*) to MarkdownV2 (*text* stays but specials escaped)
+      // Split text on intentional bold markers, escape the non-bold parts
+      const parts = text.split(/(\*[^*]+\*)/g);
+      const escaped = parts.map(part => {
+        if (part.startsWith('*') && part.endsWith('*') && part.length > 2) {
+          // Keep intentional bold, but escape the inner content
+          const inner = part.slice(1, -1);
+          return '*' + this._escapeTelegramMd(inner) + '*';
+        }
+        return this._escapeTelegramMd(part);
+      }).join('');
+
       const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown' }),
+        body: JSON.stringify({ chat_id: chatId, text: escaped, parse_mode: 'MarkdownV2' }),
         signal: AbortSignal.timeout(5000),
       });
       if (!resp.ok) {
         const body = await resp.text();
         console.error(`[SessionRecap] Telegram send failed: ${resp.status} ${body}`);
+        // Fallback: send without formatting if MarkdownV2 fails
+        if (resp.status === 400) {
+          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text }),
+            signal: AbortSignal.timeout(5000),
+          });
+        }
       }
     } catch (e) {
       console.error(`[SessionRecap] Telegram error: ${e.message}`);

@@ -293,20 +293,28 @@ function sendNotification(title, body) {
   }
 }
 
+const _notifCooldowns = {};
+function _notifyOnce(key, title, body, cooldownMs = 60000) {
+  const now = Date.now();
+  if (_notifCooldowns[key] && now - _notifCooldowns[key] < cooldownMs) return;
+  _notifCooldowns[key] = now;
+  sendNotification(title, body);
+}
+
 function checkAndNotify() {
   // ATEM disconnect (handles both boolean and object states)
   const wasAtemConnected = lastNotifiedState.atem === true || (lastNotifiedState.atem && lastNotifiedState.atem.connected);
   const isAtemConnected = agentStatus.atem === true || (agentStatus.atem && agentStatus.atem.connected);
   if (wasAtemConnected && !isAtemConnected) {
-    sendNotification('⚠️ ATEM Disconnected', 'The ATEM switcher has lost connection.');
+    _notifyOnce('atem-disconnect', '⚠️ ATEM Disconnected', 'The ATEM switcher has lost connection.');
   }
   // Stream drop
   if (lastNotifiedState.streaming === true && agentStatus.streaming === false) {
-    sendNotification('🔴 Stream Stopped', 'The live stream has stopped unexpectedly.');
+    _notifyOnce('stream-drop', '🔴 Stream Stopped', 'The live stream has stopped unexpectedly.');
   }
-  // Low FPS
+  // Low FPS — only notify once per minute
   if (agentStatus.fps && agentStatus.fps < 24 && agentStatus.streaming) {
-    sendNotification('⚠️ Low FPS Warning', `Stream FPS dropped to ${agentStatus.fps}`);
+    _notifyOnce('low-fps', '⚠️ Low FPS Warning', `Stream FPS dropped to ${agentStatus.fps}`, 60000);
   }
   lastNotifiedState = { ...agentStatus };
 }
@@ -544,15 +552,16 @@ function startAgent() {
   });
 
   agentProcess.on('close', (code) => {
+    const wasManualStop = agentProcess === null; // stopAgent() sets this to null before kill
     agentProcess = null;
     const savedEncoderType = agentStatus.encoderType;
     agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: savedEncoderType, audio: {} };
     mainWindow?.webContents.send('status', agentStatus);
     updateTray();
     console.log(`Agent exited with code ${code}`);
-    appendAppLog('SYSTEM', `Agent exited with code ${code}`);
-    if (code === 0) {
-      agentCrashCount = 0; // Clean exit — reset counter
+    appendAppLog('SYSTEM', `Agent exited with code ${code}${wasManualStop ? ' (manual stop)' : ''}`);
+    if (wasManualStop || code === 0) {
+      agentCrashCount = 0; // Clean or manual stop — reset counter, no auto-restart
     } else {
       agentCrashCount++;
       if (agentCrashCount >= MAX_AGENT_CRASHES) {
@@ -573,10 +582,17 @@ function startAgent() {
 function stopAgent() {
   if (agentProcess) {
     appendAppLog('SYSTEM', 'Stopping agent');
-    agentProcess.kill();
-    agentProcess = null;
+    const proc = agentProcess;
+    agentProcess = null; // Prevent auto-restart in the 'close' handler
+    proc.kill();
+    // Return a promise that resolves when the process actually exits
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} resolve(); }, 5000);
+      proc.on('close', () => { clearTimeout(timeout); resolve(); });
+    });
   } else {
     appendAppLog('SYSTEM', 'Stop agent requested but no process was running');
+    return Promise.resolve();
   }
 }
 
@@ -590,8 +606,7 @@ setInterval(() => {
       appendAppLog('SYSTEM', `Relay disconnected for ${Math.round(elapsed / 1000)}s — restarting agent`);
       mainWindow?.webContents?.send('log', '[Watchdog] Relay disconnected too long — restarting agent');
       agentStatus._relayDisconnectedAt = null; // Reset to avoid repeated kills
-      stopAgent();
-      setTimeout(() => startAgent(), 3000);
+      stopAgent().then(() => setTimeout(() => startAgent(), 2000));
     }
   }
 }, 30_000); // Check every 30 seconds
@@ -654,8 +669,18 @@ ipcMain.handle('sign-out', async () => {
   try {
     stopAgent();
     const config = loadConfig();
-    delete config.token;
-    delete config.setupComplete;
+    // Clear all sensitive credentials — not just the session token
+    const SENSITIVE_KEYS = [
+      'token', 'churchToken', 'setupComplete',
+      'obsPassword', 'youtubeApiKey', 'facebookAccessToken',
+      'rtmpStreamKey', 'twitchStreamKey', 'adminApiKey',
+      'youtubeOAuthAccessToken', 'youtubeOAuthRefreshToken',
+      'facebookOAuthAccessToken', 'youtubeStreamKey', 'facebookStreamKey',
+      'youtubeStreamUrl', 'facebookStreamUrl', 'facebookPageName',
+    ];
+    for (const key of SENSITIVE_KEYS) {
+      delete config[key];
+    }
     saveConfig(config);
     agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
     mainWindow?.webContents.send('status', agentStatus);
