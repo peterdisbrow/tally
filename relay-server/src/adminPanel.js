@@ -40,11 +40,13 @@ function verifySession(cookie) {
 
 function setCookieHeader(res, payload) {
   const value = encodeURIComponent(signSession(payload));
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${COOKIE_MAX_AGE}`);
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${COOKIE_MAX_AGE}${secure}`);
 }
 
 function clearCookieHeader(res) {
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`);
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${secure}`);
 }
 
 // Legacy SHA-256 hash (for verifying old stored hashes)
@@ -79,6 +81,22 @@ function getSession(req) {
   const raw = req.cookies && req.cookies[COOKIE_NAME];
   if (!raw) return null;
   try { return verifySession(decodeURIComponent(raw)); } catch { return null; }
+}
+
+// ─── SERVER-SIDE HELPERS ─────────────────────────────────────────────────────
+
+/** HTML-escape for server-side template interpolation (prevents XSS in rendered HTML) */
+function escHtml(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** Sanitize a CSS color value — only allow valid hex, rgb(), hsl(), or named colors */
+function sanitizeColor(c) {
+  const s = String(c || '').trim();
+  if (/^#[0-9a-fA-F]{3,8}$/.test(s)) return s;
+  if (/^(rgb|hsl)a?\(\s*[\d\s%,.\/]+\)$/.test(s)) return s;
+  if (/^[a-zA-Z]{1,30}$/.test(s)) return s;
+  return '#22c55e'; // fallback to default green
 }
 
 // ─── HTML: ADMIN LOGIN ────────────────────────────────────────────────────────
@@ -246,12 +264,25 @@ tr:hover td{background:rgba(34,197,94,.02)}
 .summary-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center}
 .summary-card .num{font-size:22px;font-weight:700;color:var(--text)}
 .summary-card .lbl{font-size:11px;color:var(--muted);margin-top:2px}
-@media(max-width:768px){.sidebar{display:none}.main{margin-left:0}.stats-grid,.summary-row{grid-template-columns:1fr 1fr}}
+/* Hamburger menu */
+.hamburger{display:none;position:fixed;top:14px;left:14px;z-index:110;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 10px;cursor:pointer;color:var(--text);font-size:20px;line-height:1}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99}
+@media(max-width:768px){
+  .sidebar{display:none;position:fixed;z-index:100;top:0;left:0;height:100vh;width:220px}
+  .sidebar.open{display:flex;flex-direction:column}
+  .sidebar-overlay.open{display:block}
+  .hamburger{display:block}
+  .main{margin-left:0;padding-top:56px}
+  .stats-grid,.summary-row{grid-template-columns:1fr 1fr}
+}
 </style></head>
 <body>
 
+<button class="hamburger" onclick="toggleMobileNav()" aria-label="Menu">☰</button>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileNav()"></div>
+
 <!-- SIDEBAR -->
-<div class="sidebar">
+<div class="sidebar" id="admin-sidebar">
   <div class="sidebar-logo">
     <div class="dot"></div>
     <span>Tally Admin</span>
@@ -373,7 +404,7 @@ tr:hover td{background:rgba(34,197,94,.02)}
         <h3>Admin Password</h3>
         <div id="pw-msg"></div>
         <div class="form-field"><label>New Password</label><input type="password" id="new-pw" placeholder="New password"></div>
-        <button class="btn-primary" onclick="changeAdminPassword()">Change Password</button>
+        <button class="btn-primary" onclick="changeAdminPassword(this)">Change Password</button>
       </div>
       <div class="settings-section">
         <h3>Admin API Key</h3>
@@ -509,7 +540,7 @@ tr:hover td{background:rgba(34,197,94,.02)}
     <div class="form-field"><label>Reseller</label><select id="cm-reseller"><option value="">None (Direct)</option></select></div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('modal-church')">Cancel</button>
-      <button class="btn-primary" onclick="submitChurch()">Save</button>
+      <button class="btn-primary" onclick="submitChurch(this)">Save</button>
     </div>
   </div>
 </div>
@@ -551,7 +582,7 @@ tr:hover td{background:rgba(34,197,94,.02)}
     <div class="form-field" id="rm-pw-field"><label>Portal Password <span style="color:var(--red)">*</span></label><input id="rm-password" type="password" placeholder="Create portal password"></div>
     <div class="modal-actions">
       <button class="btn-secondary" onclick="closeModal('modal-reseller')">Cancel</button>
-      <button class="btn-primary" onclick="submitReseller()">Save</button>
+      <button class="btn-primary" onclick="submitReseller(this)">Save</button>
     </div>
   </div>
 </div>
@@ -584,6 +615,19 @@ tr:hover td{background:rgba(34,197,94,.02)}
 
 <div id="toast"></div>
 
+<!-- Async Dialog Modal -->
+<div id="dialog-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px;width:90%;max-width:400px">
+    <div id="dialog-title" style="font-size:15px;font-weight:600;margin-bottom:12px"></div>
+    <div id="dialog-body" style="font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.5"></div>
+    <div id="dialog-input-wrap" style="display:none;margin-bottom:16px"><input id="dialog-input" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:14px;outline:none"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button id="dialog-cancel" class="btn-sm" style="display:none">Cancel</button>
+      <button id="dialog-ok" class="btn-sm" style="background:var(--green);color:#000;border:none;padding:8px 18px;font-weight:600">OK</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
 let currentPage = 'overview';
@@ -611,6 +655,11 @@ function showPage(page) {
   const titles = {overview:'Overview',churches:'Churches',resellers:'Resellers',alerts:'Alerts',tickets:'Tickets',billing:'Billing',aiusage:'AI Usage',settings:'Settings'};
   document.getElementById('page-title').textContent = titles[page]||page;
   currentPage = page;
+  // Close mobile nav on page switch
+  const sb = document.getElementById('admin-sidebar');
+  const ov = document.getElementById('sidebar-overlay');
+  if (sb) sb.classList.remove('open');
+  if (ov) ov.classList.remove('open');
   if (page === 'overview') loadOverview();
   else if (page === 'churches') loadChurches();
   else if (page === 'resellers') loadResellers();
@@ -619,6 +668,13 @@ function showPage(page) {
   else if (page === 'billing') loadBilling();
   else if (page === 'aiusage') loadAIUsage();
   else if (page === 'settings') loadSettings();
+}
+
+function toggleMobileNav() {
+  const sb = document.getElementById('admin-sidebar');
+  const ov = document.getElementById('sidebar-overlay');
+  sb.classList.toggle('open');
+  ov.classList.toggle('open');
 }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
@@ -651,7 +707,7 @@ async function loadOverview() {
         return \`<div class="activity-item">
           <div class="activity-dot" style="background:\${color}"></div>
           <div style="flex:1"><strong>\${esc(a.church_name||'Unknown')}</strong> — \${esc(a.alert_type||a.type||'Alert')}<br><span style="color:var(--muted);font-size:12px">\${time}</span></div>
-          <span class="badge badge-\${a.severity==='critical'?'red':a.severity==='warning'?'yellow':'green'}">\${a.severity||'info'}</span>
+          <span class="badge badge-\${a.severity==='critical'?'red':a.severity==='warning'?'yellow':'green'}">\${esc(a.severity||'info')}</span>
         </div>\`;
       }).join('');
     }
@@ -693,7 +749,7 @@ function renderChurches() {
       <td><a class="church-name-link" onclick="openDetail(\${JSON.stringify(c.churchId)})">\${esc(c.name)}</a></td>
       <td>\${reseller ? esc(reseller.brand_name || reseller.name) : '<span style="color:var(--muted)">Direct</span>'}</td>
       <td>\${statusHtml}</td>
-      <td>\${c.church_type||'recurring'}</td>
+      <td>\${esc(c.church_type||'recurring')}</td>
       <td>\${reg}</td>
       <td>\${lastSeen}</td>
       <td>
@@ -737,7 +793,7 @@ function openEditChurch(id) {
   openModal('modal-church');
 }
 
-async function submitChurch() {
+async function submitChurch(btn) {
   const id = document.getElementById('church-modal-id').value;
   const body = {
     name: document.getElementById('cm-name').value,
@@ -745,23 +801,25 @@ async function submitChurch() {
     type: document.getElementById('cm-type').value,
     resellerId: document.getElementById('cm-reseller').value || null,
   };
+  btnLoading(btn);
   try {
     const url = id ? \`/api/admin/churches/\${id}\` : '/api/admin/churches';
     const method = id ? 'PUT' : 'POST';
-    const r = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    const r = await fetchTimeout(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
     const d = await r.json();
     if (!r.ok) { showModalMsg('church-modal-msg', d.error||'Error', 'error'); return; }
     closeModal('modal-church');
     loadChurches();
   } catch(e) { showModalMsg('church-modal-msg', 'Request failed', 'error'); }
+  finally { btnReset(btn); }
 }
 
 async function deleteChurch(id, name) {
-  if (!confirm(\`Delete "\${name}"? This cannot be undone.\`)) return;
-  const r = await fetch(\`/api/admin/churches/\${id}\`, {method:'DELETE'});
+  if (!await modalConfirm('Delete Church', \`Delete "\${esc(name)}"? This cannot be undone.\`)) return;
+  const r = await fetchTimeout(\`/api/admin/churches/\${id}\`, {method:'DELETE'});
   const d = await r.json();
-  if (r.ok) loadChurches();
-  else alert(d.error||'Delete failed');
+  if (r.ok) { showToast('Church deleted'); loadChurches(); }
+  else await modalAlert('Error', esc(d.error||'Delete failed'));
 }
 
 function openRegenToken(id) {
@@ -784,7 +842,7 @@ async function doRegenToken() {
 
 function copyRegenToken() {
   const t = document.getElementById('regen-token-value').textContent;
-  navigator.clipboard.writeText(t).then(() => alert('Token copied!'));
+  copyToClipboard(t, 'Token');
 }
 
 // ─── Church Detail Panel ──────────────────────────────────────────────────────
@@ -804,7 +862,7 @@ async function openDetail(id) {
   document.getElementById('detail-name').textContent = c.name;
   document.getElementById('detail-content').innerHTML = \`
     <div class="info-row"><span class="info-label">Status</span><span>\${c.connected ? '<span class="status-dot status-online"></span>Online' : '<span class="status-dot status-offline"></span>Offline'}</span></div>
-    <div class="info-row"><span class="info-label">Type</span><span>\${c.church_type||'recurring'}</span></div>
+    <div class="info-row"><span class="info-label">Type</span><span>\${esc(c.church_type||'recurring')}</span></div>
     <div class="info-row"><span class="info-label">Reseller</span><span>\${reseller ? esc(reseller.brand_name||reseller.name) : 'Direct'}</span></div>
     <div class="info-row"><span class="info-label">Registered</span><span>\${c.registeredAt ? new Date(c.registeredAt).toLocaleString() : '—'}</span></div>
     <div class="info-row"><span class="info-label">Last Seen</span><span>\${c.lastSeen ? new Date(c.lastSeen).toLocaleString() : 'Never'}</span></div>
@@ -830,7 +888,7 @@ function revealToken() {
   const el = document.getElementById('detail-token');
   if (el) el.style.filter = 'none';
 }
-function copyToken(t) { navigator.clipboard.writeText(t).then(() => alert('Token copied!')); }
+function copyToken(t) { copyToClipboard(t, 'Token'); }
 function closeDetail() { document.getElementById('church-detail').classList.remove('open'); }
 
 // ─── Resellers ────────────────────────────────────────────────────────────────
@@ -859,7 +917,7 @@ function renderResellers() {
       <td><span style="font-family:monospace;font-size:12px">\${esc(r.slug||'')}</span></td>
       <td>\${esc(r.support_email||'—')}</td>
       <td>\${churches}</td>
-      <td><span class="color-swatch" style="background:\${color}"></span>\${color}</td>
+      <td><span class="color-swatch" style="background:\${sanitizeColor(color)}"></span>\${esc(color)}</td>
       <td>\${status}</td>
       <td>
         <button class="btn-sm" onclick="openEditReseller(\${JSON.stringify(r.id)})">Edit</button>
@@ -904,7 +962,7 @@ function openEditReseller(id) {
   openModal('modal-reseller');
 }
 
-async function submitReseller() {
+async function submitReseller(btn) {
   const id = document.getElementById('rm-id').value;
   const body = {
     name: document.getElementById('rm-name').value,
@@ -919,6 +977,7 @@ async function submitReseller() {
     if (!pw) { showModalMsg('reseller-modal-msg', 'Portal password is required', 'error'); return; }
     body.password = pw;
   }
+  btnLoading(btn);
   try {
     const url = id ? \`/api/admin/resellers/\${id}\` : '/api/resellers';
     const method = id ? 'PUT' : 'POST';
@@ -941,10 +1000,11 @@ async function submitReseller() {
     }
     loadResellers();
   } catch(e) { showModalMsg('reseller-modal-msg', 'Request failed', 'error'); }
+  finally { btnReset(btn); }
 }
 
 function copyNewApiKey() {
-  navigator.clipboard.writeText(currentApiKey).then(() => alert('API key copied!'));
+  copyToClipboard(currentApiKey, 'API key');
 }
 
 function openSetPassword(id) {
@@ -962,7 +1022,7 @@ async function submitSetPassword() {
     method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:pw})
   });
   const d = await r.json();
-  if (r.ok) { closeModal('modal-setpw'); alert('Password updated'); }
+  if (r.ok) { closeModal('modal-setpw'); showToast('Password updated'); }
   else showModalMsg('setpw-msg', d.error||'Error', 'error');
 }
 
@@ -975,10 +1035,10 @@ async function toggleReseller(id, active) {
 }
 
 async function deleteReseller(id, name) {
-  if (!confirm(\`Delete reseller "\${name}"?\`)) return;
-  const r = await fetch(\`/api/admin/resellers/\${id}\`, {method:'DELETE'});
-  if (r.ok) loadResellers();
-  else alert('Delete failed');
+  if (!await modalConfirm('Delete Reseller', \`Delete reseller "\${esc(name)}"? This will deactivate the account.\`)) return;
+  const r = await fetchTimeout(\`/api/admin/resellers/\${id}\`, {method:'DELETE'});
+  if (r.ok) { showToast('Reseller deactivated'); loadResellers(); }
+  else await modalAlert('Error', 'Delete failed');
 }
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
@@ -991,20 +1051,23 @@ async function loadSettings() {
   document.getElementById('set-db-path').textContent = '(configured on server)';
 }
 
-async function changeAdminPassword() {
+async function changeAdminPassword(btn) {
   const pw = document.getElementById('new-pw').value;
   if (!pw) return;
-  const r = await fetch('/api/admin/change-password', {
-    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:pw})
-  });
-  const d = await r.json();
-  const el = document.getElementById('pw-msg');
-  if (r.ok) {
-    el.innerHTML = '<div class="alert-box alert-success">Password changed successfully</div>';
-    document.getElementById('new-pw').value = '';
-  } else {
-    el.innerHTML = \`<div class="alert-box alert-error">\${esc(d.error||'Error')}</div>\`;
-  }
+  btnLoading(btn);
+  try {
+    const r = await fetchTimeout('/api/admin/change-password', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:pw})
+    });
+    const d = await r.json();
+    const el = document.getElementById('pw-msg');
+    if (r.ok) {
+      el.innerHTML = '<div class="alert-box alert-success">Password changed. <strong>Note:</strong> This only lasts until the server restarts — update your Railway environment variables to persist.</div>';
+      document.getElementById('new-pw').value = '';
+    } else {
+      el.innerHTML = \`<div class="alert-box alert-error">\${esc(d.error||'Error')}</div>\`;
+    }
+  } finally { btnReset(btn); }
 }
 
 let apiKeyRevealed = false;
@@ -1013,10 +1076,10 @@ function toggleApiKey() {
   apiKeyRevealed = !apiKeyRevealed;
   el.type = 'password';
   el.value = 'tally-admin-••••••••';
-  alert('For security, API keys are no longer displayed in the browser. Use the RBAC admin dashboard at /admin or check your Railway environment variables.');
+  modalAlert('API Key', 'For security, API keys are no longer displayed in the browser. Check your Railway environment variables.');
 }
 function copyApiKey() {
-  alert('For security, API keys are no longer exposed in the browser. Check your Railway environment variables directly.');
+  modalAlert('API Key', 'For security, API keys are no longer exposed in the browser. Check your Railway environment variables directly.');
 }
 
 // ─── Alerts ──────────────────────────────────────────────────────────────────
@@ -1050,7 +1113,7 @@ function renderAlerts() {
       <td>\${time}</td>
       <td>\${esc(a.church_name||'Unknown')}</td>
       <td>\${esc(a.alert_type||a.type||'—')}</td>
-      <td><span class="badge badge-\${sevClass}">\${a.severity||'info'}</span></td>
+      <td><span class="badge badge-\${sevClass}">\${esc(a.severity||'info')}</span></td>
       <td>\${acked}</td>
       <td>\${ackBtn}</td>
     </tr>\`;
@@ -1111,7 +1174,7 @@ function renderTickets() {
       <td><span class="badge badge-\${sevClass}">\${t.severity||'low'}</span></td>
       <td>\${esc(t.category||'—')}</td>
       <td>\${esc(t.title||'Untitled')}</td>
-      <td><span class="badge badge-\${statusClass}">\${statusLabel}</span></td>
+      <td><span class="badge badge-\${statusClass}">\${esc(statusLabel)}</span></td>
       <td><button class="btn-sm" onclick="event.stopPropagation();openTicketDetail('\${t.id}')">View</button></td>
     </tr>\`;
   }).join('');
@@ -1133,7 +1196,7 @@ function openTicketDetail(id) {
   const statusClass = t.status==='open'?'red':t.status==='in_progress'?'yellow':'green';
   const statusLabel = (t.status||'open').replace('_',' ');
   let html = \`
-    <div class="info-row"><span class="info-label">Status</span><span class="badge badge-\${statusClass}">\${statusLabel}</span></div>
+    <div class="info-row"><span class="info-label">Status</span><span class="badge badge-\${statusClass}">\${esc(statusLabel)}</span></div>
     <div class="info-row"><span class="info-label">Church</span><span>\${esc(t.church_name||'Unknown')}</span></div>
     <div class="info-row"><span class="info-label">Category</span><span>\${esc(t.category||'—')}</span></div>
     <div class="info-row"><span class="info-label">Severity</span><span>\${esc(t.severity||'low')}</span></div>
@@ -1197,9 +1260,9 @@ function renderBilling() {
       <td>\${esc(b.church_name||b.churchName||'Unknown')}</td>
       <td>\${esc(b.plan||b.tier||'—')}</td>
       <td>\${esc(b.interval||'month')}</td>
-      <td><span class="badge badge-\${statusClass}">\${status}</span></td>
+      <td><span class="badge badge-\${statusClass}">\${esc(status)}</span></td>
       <td>\${periodEnd}</td>
-      <td>\${b.stripe_customer_id ? '<button class="btn-sm" onclick="window.open(\\'https://dashboard.stripe.com/customers/'+b.stripe_customer_id+'\\',\\'_blank\\')">Stripe</button>' : '—'}</td>
+      <td>\${b.stripe_customer_id ? '<button class="btn-sm" onclick="window.open(\\'https://dashboard.stripe.com/customers/'+esc(b.stripe_customer_id)+'\\',\\'_blank\\')">Stripe</button>' : '—'}</td>
     </tr>\`;
   }).join('');
 }
@@ -1268,6 +1331,13 @@ function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function sanitizeColor(c) {
+  const s = String(c||'').trim();
+  if (/^#[0-9a-fA-F]{3,8}$/.test(s)) return s;
+  if (/^[a-zA-Z]{1,30}$/.test(s)) return s;
+  return '#22c55e';
+}
+
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 
@@ -1279,6 +1349,68 @@ function showModalMsg(id, msg, type) {
 function formatUptime(s) {
   const h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
   return h + 'h ' + m + 'm';
+}
+
+// ─── Async Dialog System ─────────────────────────────────────────────────────
+function _showDialog(title, body, {showCancel=false, showInput=false, inputVal=''}={}) {
+  return new Promise(resolve => {
+    const ov = document.getElementById('dialog-overlay');
+    const titleEl = document.getElementById('dialog-title');
+    const bodyEl = document.getElementById('dialog-body');
+    const inputWrap = document.getElementById('dialog-input-wrap');
+    const inputEl = document.getElementById('dialog-input');
+    const okBtn = document.getElementById('dialog-ok');
+    const cancelBtn = document.getElementById('dialog-cancel');
+    titleEl.textContent = title;
+    bodyEl.innerHTML = body;
+    inputWrap.style.display = showInput ? '' : 'none';
+    cancelBtn.style.display = showCancel ? '' : 'none';
+    if (showInput) { inputEl.value = inputVal; }
+    ov.style.display = 'flex';
+    if (showInput) inputEl.focus();
+    function cleanup() { ov.style.display = 'none'; okBtn.onclick = null; cancelBtn.onclick = null; }
+    okBtn.onclick = () => { cleanup(); resolve(showInput ? inputEl.value : true); };
+    cancelBtn.onclick = () => { cleanup(); resolve(showInput ? null : false); };
+  });
+}
+function modalAlert(title, body) { return _showDialog(title, body); }
+function modalConfirm(title, body) { return _showDialog(title, body, {showCancel:true}); }
+
+async function copyToClipboard(text, label) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  showToast((label||'Value') + ' copied!');
+}
+
+// ─── Fetch with timeout ──────────────────────────────────────────────────────
+function fetchTimeout(url, opts={}, ms=30000) {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, {...opts, signal: ctrl.signal}).finally(() => clearTimeout(id));
+}
+
+// ─── Button loading states ───────────────────────────────────────────────────
+function btnLoading(btn) {
+  if (!btn) return;
+  btn._origText = btn.textContent;
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  btn.textContent = btn._origText.replace(/^(Save|Submit|Create|Update|Delete|Add|Change|Deactivate|Activate)/, '$1ing').replace(/eing$/, 'ing');
+}
+function btnReset(btn) {
+  if (!btn) return;
+  btn.disabled = false;
+  btn.style.opacity = '';
+  if (btn._origText) btn.textContent = btn._origText;
 }
 
 async function signOut(e) {
@@ -1296,7 +1428,7 @@ loadOverview();
 // ─── HTML: PORTAL LOGIN ───────────────────────────────────────────────────────
 
 function buildPortalLoginHtml(error, resellerBrand) {
-  const brand = resellerBrand || 'Tally Partner Portal';
+  const brand = escHtml(resellerBrand || 'Tally Partner Portal');
   return `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1333,8 +1465,8 @@ ${error === '1' ? '<div class="error">Invalid email or password</div>' : ''}
 // ─── HTML: RESELLER PORTAL ────────────────────────────────────────────────────
 
 function buildPortalHtml(reseller) {
-  const brand = reseller.brand_name || 'Tally';
-  const color = reseller.primary_color || '#22c55e';
+  const brand = escHtml(reseller.brand_name || 'Tally');
+  const color = sanitizeColor(reseller.primary_color || '#22c55e');
   return `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1437,7 +1569,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <div class="form-field"><label>Portal Login Email (optional)</label><input id="ac-portal-email" type="email" placeholder="admin@church.com"></div>
     <div class="form-field"><label>Portal Password (optional)</label><input id="ac-portal-password" type="password" placeholder="At least 8 characters"></div>
     <div style="font-size:12px;color:var(--muted);margin-top:-6px;margin-bottom:10px;">Set both portal fields to create app login credentials now.</div>
-    <button class="btn-primary" onclick="addChurch()">Create Registration Code</button>
+    <button class="btn-primary" onclick="addChurch(this)">Create Registration Code</button>
   </div>
   <div class="success-card" id="add-success" style="display:none">
     <p style="font-size:14px;font-weight:600;margin-bottom:4px" id="add-church-name"></p>
@@ -1457,15 +1589,15 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <h3>Branding</h3>
     <div id="acct-msg"></div>
     <div class="form-field"><label>Brand Name</label><input id="acct-brand" type="text" value="${brand}"></div>
-    <div class="form-field"><label>Support Email</label><input id="acct-email" type="email" value="${reseller.support_email||''}"></div>
-    <div class="form-field"><label>Logo URL</label><input id="acct-logo" type="url" value="${reseller.logo_url||''}"></div>
+    <div class="form-field"><label>Support Email</label><input id="acct-email" type="email" value="${escHtml(reseller.support_email||'')}"></div>
+    <div class="form-field"><label>Logo URL</label><input id="acct-logo" type="url" value="${escHtml(reseller.logo_url||'')}"></div>
     <div class="form-field"><label>Primary Color</label><input id="acct-color" type="color" value="${color}"></div>
-    <button class="btn-primary" onclick="saveAccount()">Save Changes</button>
+    <button class="btn-primary" onclick="saveAccount(this)">Save Changes</button>
   </div>
   <div class="account-section">
     <h3>API Key</h3>
     <div class="copy-group">
-      <input type="password" id="portal-apikey" value="${reseller.api_key||''}" readonly>
+      <input type="password" id="portal-apikey" value="${escHtml(reseller.api_key||'')}" readonly>
       <button class="btn-sm" onclick="togglePortalApiKey()">Reveal</button>
       <button class="btn-sm" onclick="copyPortalApiKey()">Copy</button>
     </div>
@@ -1475,7 +1607,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <div id="pw-msg"></div>
     <div class="form-field"><label>Current Password</label><input id="pw-current" type="password" placeholder="Current password"></div>
     <div class="form-field"><label>New Password</label><input id="pw-new" type="password" placeholder="New password"></div>
-    <button class="btn-primary" onclick="changePortalPw()">Update Password</button>
+    <button class="btn-primary" onclick="changePortalPw(this)">Update Password</button>
   </div>
 </div>
 
@@ -1486,6 +1618,21 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <button class="panel-close" onclick="closeFleetDetail()">×</button>
   </div>
   <div id="fd-content"></div>
+</div>
+
+<!-- Toast -->
+<div id="portal-toast" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#22c55e;color:#000;padding:10px 24px;border-radius:8px;font-size:13px;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none;z-index:9999"></div>
+
+<!-- Async Dialog Modal -->
+<div id="dialog-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px;width:90%;max-width:400px">
+    <div id="dialog-title" style="font-size:15px;font-weight:600;margin-bottom:12px"></div>
+    <div id="dialog-body" style="font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.5"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button id="dialog-cancel" class="btn-sm" style="display:none">Cancel</button>
+      <button id="dialog-ok" class="btn-sm" style="background:var(--green);color:#000;border:none;padding:8px 18px;font-weight:600">OK</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -1561,7 +1708,7 @@ function openFleetDetail(id) {
 
 function closeFleetDetail() { document.getElementById('fleet-detail').classList.remove('open'); }
 
-async function addChurch() {
+async function addChurch(btn) {
   const name = document.getElementById('ac-name').value.trim();
   const email = document.getElementById('ac-email').value.trim();
   const portalEmail = document.getElementById('ac-portal-email').value.trim().toLowerCase();
@@ -1571,6 +1718,7 @@ async function addChurch() {
   if (portalPassword && !portalEmail) { showMsg('add-msg', 'Portal login email is required when password is provided', 'error'); return; }
   if (portalEmail && !portalPassword) { showMsg('add-msg', 'Portal password is required when portal login email is provided', 'error'); return; }
   if (portalPassword && portalPassword.length < 8) { showMsg('add-msg', 'Portal password must be at least 8 characters', 'error'); return; }
+  btnLoading(btn);
   try {
     const r = await fetch('/api/reseller/churches/token', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -1598,26 +1746,31 @@ async function addChurch() {
     loadStats();
     loadFleet();
   } catch(e) { showMsg('add-msg', 'Request failed', 'error'); }
+  finally { btnReset(btn); }
 }
 
 function copyRegCode() {
-  navigator.clipboard.writeText(lastRegCode).then(() => alert('Code copied!'));
+  copyToClipboard(lastRegCode, 'Registration code');
 }
 
-async function saveAccount() {
+async function saveAccount(btn) {
   const body = {
     brand_name: document.getElementById('acct-brand').value,
     support_email: document.getElementById('acct-email').value,
     logo_url: document.getElementById('acct-logo').value,
     primary_color: document.getElementById('acct-color').value,
   };
-  const r = await fetch('/api/reseller/me', {
-    method:'PUT', headers:{'Content-Type':'application/json','x-reseller-key':'${reseller.api_key}'},
-    body: JSON.stringify(body)
-  });
-  const d = await r.json();
-  if (r.ok) showMsg('acct-msg', 'Saved!', 'success');
-  else showMsg('acct-msg', d.error||'Error', 'error');
+  btnLoading(btn);
+  try {
+    const r = await fetch('/api/portal/account', {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (r.ok) showMsg('acct-msg', 'Saved!', 'success');
+    else showMsg('acct-msg', d.error||'Error', 'error');
+  } catch { showMsg('acct-msg', 'Request failed', 'error'); }
+  finally { btnReset(btn); }
 }
 
 let portalApiKeyRevealed = false;
@@ -1629,23 +1782,27 @@ function togglePortalApiKey() {
 function copyPortalApiKey() {
   const el = document.getElementById('portal-apikey');
   const v = el.value;
-  navigator.clipboard.writeText(v).then(() => alert('API key copied!'));
+  copyToClipboard(v, 'API key');
 }
 
-async function changePortalPw() {
+async function changePortalPw(btn) {
   const current = document.getElementById('pw-current').value;
   const newPw = document.getElementById('pw-new').value;
   if (!current || !newPw) { showMsg('pw-msg', 'Both fields required', 'error'); return; }
-  const r = await fetch('/portal/change-password', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({currentPassword: current, newPassword: newPw})
-  });
-  const d = await r.json();
-  if (r.ok) {
-    showMsg('pw-msg', 'Password updated', 'success');
-    document.getElementById('pw-current').value = '';
-    document.getElementById('pw-new').value = '';
-  } else showMsg('pw-msg', d.error||'Error', 'error');
+  btnLoading(btn);
+  try {
+    const r = await fetch('/portal/change-password', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({currentPassword: current, newPassword: newPw})
+    });
+    const d = await r.json();
+    if (r.ok) {
+      showMsg('pw-msg', 'Password updated', 'success');
+      document.getElementById('pw-current').value = '';
+      document.getElementById('pw-new').value = '';
+    } else showMsg('pw-msg', d.error||'Error', 'error');
+  } catch { showMsg('pw-msg', 'Request failed', 'error'); }
+  finally { btnReset(btn); }
 }
 
 function esc(s) {
@@ -1654,6 +1811,52 @@ function esc(s) {
 function showMsg(id, msg, type) {
   const el = document.getElementById(id);
   if (el) el.innerHTML = \`<div class="alert-box alert-\${type==='error'?'error':'success'}">\${esc(msg)}</div>\`;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('portal-toast');
+  t.textContent = msg;
+  t.style.opacity = '1';
+  setTimeout(() => { t.style.opacity = '0'; }, 3000);
+}
+
+function _showDialog(title, body, {showCancel=false}={}) {
+  return new Promise(resolve => {
+    const ov = document.getElementById('dialog-overlay');
+    const titleEl = document.getElementById('dialog-title');
+    const bodyEl = document.getElementById('dialog-body');
+    const okBtn = document.getElementById('dialog-ok');
+    const cancelBtn = document.getElementById('dialog-cancel');
+    titleEl.textContent = title;
+    bodyEl.innerHTML = body;
+    cancelBtn.style.display = showCancel ? '' : 'none';
+    ov.style.display = 'flex';
+    function cleanup() { ov.style.display = 'none'; okBtn.onclick = null; cancelBtn.onclick = null; }
+    okBtn.onclick = () => { cleanup(); resolve(true); };
+    cancelBtn.onclick = () => { cleanup(); resolve(false); };
+  });
+}
+function modalAlert(title, body) { return _showDialog(title, body); }
+
+async function copyToClipboard(text, label) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+  showToast((label||'Value') + ' copied!');
+}
+
+function btnLoading(btn) {
+  if (!btn) return;
+  btn._origText = btn.textContent; btn.disabled = true; btn.style.opacity = '0.6';
+}
+function btnReset(btn) {
+  if (!btn) return;
+  btn.disabled = false; btn.style.opacity = '';
+  if (btn._origText) btn.textContent = btn._origText;
 }
 
 async function signOut(e) {
@@ -2077,6 +2280,24 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     try {
       const stats = resellerSystem.getResellerStats(req.reseller.id, churches);
       res.json(stats);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Portal account update — uses cookie auth, no API key needed in client-side JS
+  app.put('/api/portal/account', requireResellerSession, (req, res) => {
+    try {
+      const { brand_name, support_email, logo_url, primary_color } = req.body;
+      const patch = {};
+      if (brand_name !== undefined) patch.brand_name = brand_name;
+      if (support_email !== undefined) patch.support_email = support_email;
+      if (logo_url !== undefined) patch.logo_url = logo_url;
+      if (primary_color !== undefined) patch.primary_color = sanitizeColor(primary_color);
+      if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update' });
+      const fields = Object.keys(patch);
+      const setClauses = fields.map(f => `${f}=?`).join(',');
+      const vals = [...fields.map(f => patch[f]), req.reseller.id];
+      db.prepare(`UPDATE resellers SET ${setClauses} WHERE id=?`).run(...vals);
+      res.json({ updated: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 }
