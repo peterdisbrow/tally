@@ -161,8 +161,24 @@ function createRateLimit({
   };
 }
 
+/**
+ * Log production guardrail warning if Redis is not configured.
+ * Called once at startup from server.js.
+ */
+function logRateLimitStatus() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (hasRedisRateLimitConfig()) {
+    console.log('[rateLimit] ✓ Redis/Upstash backend configured');
+  } else if (isProduction) {
+    console.warn('[rateLimit] ⚠️  PRODUCTION: No Redis/Upstash configured — rate limits use in-memory store (not distributed). Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for multi-instance safety.');
+  } else {
+    console.log('[rateLimit] Using in-memory store (dev mode — no Redis configured)');
+  }
+}
+
 module.exports = {
   consumeRateLimit,
   createRateLimit,
   resolveClientIp,
+  logRateLimitStatus,
 };

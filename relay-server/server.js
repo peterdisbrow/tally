@@ -92,7 +92,7 @@ const { setupStatusPage } = require('./src/statusPage');
 const { setupDocsPortal } = require('./src/docsPortal');
 const { hasStreamSignal, isStreamActive, isRecordingActive } = require('./src/status-utils');
 const { createBackupSnapshot } = require('./src/dbBackup');
-const { createRateLimit, consumeRateLimit } = require('./src/rateLimit');
+const { createRateLimit, consumeRateLimit, logRateLimitStatus } = require('./src/rateLimit');
 const relayPackage = require('./package.json');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
@@ -987,6 +987,8 @@ console.log('[Server] ✓ Status page route registered');
 setupDocsPortal(app);
 console.log('[Server] ✓ Docs portal route registered');
 
+logRateLimitStatus();
+
 // ─── RATE LIMITER ─────────────────────────────────────────────────────────────
 
 async function checkCommandRateLimit(churchId) {
@@ -1321,14 +1323,18 @@ async function runStatusChecks() {
             break;
           }
 
+          // 404 = path not exposed on this target — degraded, not outage.
+          // 401/403 = auth issue — also degraded (server is reachable).
+          // 5xx or other = actual outage.
+          const is404 = resp.status === 404;
+          const isAuthIssue = resp.status === 401 || resp.status === 403;
           lastFailure = {
-            state: 'outage',
+            state: (is404 || isAuthIssue) ? 'degraded' : 'outage',
             latencyMs: resp.latencyMs,
             detail: `HTTP ${resp.status} via ${target}`,
           };
 
-          // Try next candidate if this host simply doesn't expose the proxy path.
-          if (resp.status === 404) continue;
+          if (is404) continue; // try next candidate
           break;
         } catch (error) {
           lastFailure = { state: 'outage', detail: `${error.message} via ${target}` };

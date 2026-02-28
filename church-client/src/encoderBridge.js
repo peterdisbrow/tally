@@ -91,27 +91,37 @@ class EncoderBridge {
 
   async connect() {
     try { return await this._encoder.connect(); }
-    catch { return false; }
+    catch (err) {
+      console.warn(`[EncoderBridge] connect() failed for ${this.type}: ${err.message}`);
+      return false;
+    }
   }
 
   async disconnect() {
     try { return await this._encoder.disconnect(); }
-    catch { return true; }
+    catch (err) {
+      console.warn(`[EncoderBridge] disconnect() failed for ${this.type}: ${err.message}`);
+      return true;
+    }
   }
 
   // ─── STATUS ───────────────────────────────────────────────────────────────────
 
   async isOnline() {
     try { return await this._encoder.isOnline(); }
-    catch { return false; }
+    catch (err) {
+      console.warn(`[EncoderBridge] isOnline() failed for ${this.type}: ${err.message}`);
+      return false;
+    }
   }
 
   async getStatus() {
     try {
       const s = await this._encoder.getStatus();
       return { ...DEFAULT_STATUS, ...s, type: s.type || this.type };
-    } catch {
-      return { ...DEFAULT_STATUS, type: this.type };
+    } catch (err) {
+      console.warn(`[EncoderBridge] getStatus() failed for ${this.type}: ${err.message}`);
+      return { ...DEFAULT_STATUS, type: this.type, error: err.message };
     }
   }
 
@@ -119,36 +129,38 @@ class EncoderBridge {
 
   async startStream() {
     if (this._encoder.startStream) return this._encoder.startStream();
-    return null;
+    throw new Error(`startStream is not supported on ${this.type} encoder`);
   }
 
   async stopStream() {
     if (this._encoder.stopStream) return this._encoder.stopStream();
-    return null;
+    throw new Error(`stopStream is not supported on ${this.type} encoder`);
   }
 
   // ─── RECORD CONTROL (hardware encoders) ───────────────────────────────────────
 
   async startRecord() {
     if (this._encoder.startRecord) return this._encoder.startRecord();
-    return null;
+    throw new Error(`startRecord is not supported on ${this.type} encoder`);
   }
 
   async stopRecord() {
     if (this._encoder.stopRecord) return this._encoder.stopRecord();
-    return null;
+    throw new Error(`stopRecord is not supported on ${this.type} encoder`);
   }
 
   // ─── PASSTHROUGH ──────────────────────────────────────────────────────────────
 
   /** For RTMP-push encoders (YoloBox, etc.), relay sets live status externally */
   setLive(live) {
-    if (this._encoder.setLive) this._encoder.setLive(live);
+    if (this._encoder.setLive) return this._encoder.setLive(live);
+    // setLive is optional — not all encoders need it
   }
 
   /** Provide external OBS instance for OBS encoder (avoids double-connect) */
   setObs(obs) {
-    if (this._encoder.setObs) this._encoder.setObs(obs);
+    if (this._encoder.setObs) return this._encoder.setObs(obs);
+    // setObs is optional — only OBS encoder uses it
   }
 
   /** Access underlying adapter for device-specific methods */
