@@ -512,9 +512,14 @@ function buildChurchPortalHtml(church) {
     .tip { position: relative; cursor: help; border-bottom: 1px dotted #475569; }
     .tip::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #1E293B; color: #CBD5E1; font-size: 12px; line-height: 1.5; padding: 6px 10px; border-radius: 6px; border: 1px solid #334155; white-space: normal; width: max-content; max-width: 260px; opacity: 0; pointer-events: none; transition: opacity 0.15s; z-index: 100; }
     .tip:hover::after { opacity: 1; }
+    .hamburger { display: none; position: fixed; top: 12px; left: 12px; z-index: 1001; background: #0D1117; border: 1px solid #1a2e1f; border-radius: 8px; width: 40px; height: 40px; color: #F8FAFC; font-size: 22px; cursor: pointer; align-items: center; justify-content: center; }
+    .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999; }
     @media (max-width: 640px) {
-      .sidebar { display: none; }
-      .main { margin-left: 0; padding: 20px; }
+      .hamburger { display: flex; }
+      .sidebar { display: none; position: fixed; z-index: 1000; top: 0; left: 0; bottom: 0; width: 220px; }
+      .sidebar.open { display: flex; flex-direction: column; }
+      .sidebar-overlay.open { display: block; }
+      .main { margin-left: 0; padding: 20px; padding-top: 60px; }
       .schedule-row {
         grid-template-columns: 1fr 1fr;
       }
@@ -522,7 +527,9 @@ function buildChurchPortalHtml(church) {
   </style>
 </head>
 <body>
-  <nav class="sidebar">
+  <button class="hamburger" id="hamburger-btn" onclick="toggleMobileNav()">☰</button>
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileNav()"></div>
+  <nav class="sidebar" id="sidebar-nav">
     <div class="sidebar-logo">
       <div class="sidebar-dot"></div>
       <div>
@@ -549,7 +556,7 @@ function buildChurchPortalHtml(church) {
       <span class="icon">⊜</span> Notifications
     </button>
     <button class="nav-item" data-page="engineer" onclick="showPage('engineer', this)">
-      <span class="icon">⊛</span> Tally Engineer
+      <span class="icon">⊘</span> Tally Engineer
     </button>
     <button class="nav-item" data-page="guests" onclick="showPage('guests', this)">
       <span class="icon">⊝</span> Guest Access
@@ -558,13 +565,13 @@ function buildChurchPortalHtml(church) {
       <span class="icon">⊟</span> Sessions
     </button>
     <button class="nav-item" data-page="alerts" onclick="showPage('alerts',this)">
-      <span class="icon">⊡</span> Alerts
+      <span class="icon">⊗</span> Alerts
     </button>
     <button class="nav-item" data-page="billing" onclick="showPage('billing', this)">
       <span class="icon">⊠</span> Billing
     </button>
     <button class="nav-item" data-page="support" onclick="showPage('support',this)">
-      <span class="icon">⊜</span> Help & Support
+      <span class="icon">⊕</span> Help & Support
     </button>
     <div class="sidebar-footer">
       <button class="btn-logout" onclick="logout()">Sign out</button>
@@ -605,7 +612,7 @@ function buildChurchPortalHtml(church) {
 
       <div class="stats-row">
         <div class="stat-card">
-          <div class="stat-value" id="stat-status">—</div>
+          <div class="stat-value" id="stat-status" style="display:flex;align-items:center;gap:6px;justify-content:center"><span id="stat-status-dot" style="width:8px;height:8px;border-radius:50%;background:#475569;display:inline-block"></span> <span id="stat-status-text">—</span></div>
           <div class="stat-label"><span class="tip" data-tip="Whether the Tally desktop app is currently connected to the relay server">Connection</span></div>
         </div>
         <div class="stat-card">
@@ -629,7 +636,13 @@ function buildChurchPortalHtml(church) {
       </div>
 
       <div class="card">
-        <div class="card-title"><span class="tip" data-tip="Real-time status of each AV device Tally monitors (ATEM, OBS, HyperDeck, etc.)">Equipment Status</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time status of each AV device Tally monitors (ATEM, OBS, HyperDeck, etc.)">Equipment Status</span></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="equip-staleness" style="font-size:11px;color:#475569"></span>
+            <button class="btn-secondary" id="btn-refresh-equip" onclick="refreshEquipmentStatus()" style="padding:4px 10px;font-size:11px" title="Refresh">&#x21bb; Refresh</button>
+          </div>
+        </div>
         <table>
           <thead><tr><th>System</th><th>Status</th><th>Last Seen</th></tr></thead>
           <tbody id="equipment-tbody">
@@ -723,7 +736,7 @@ function buildChurchPortalHtml(church) {
           <label><span class="tip" data-tip="Visible to ATEM School support when handling your tickets">Notes for Support Team</span></label>
           <textarea id="profile-notes" placeholder="Any special setup notes, known issues, contact preferences..."></textarea>
         </div>
-        <button class="btn-primary" onclick="saveProfile()">Save Changes</button>
+        <button class="btn-primary" id="btn-save-profile" onclick="saveProfile()">Save Changes</button>
       </div>
       <div class="card">
         <div class="card-title">Change Password</div>
@@ -792,9 +805,9 @@ function buildChurchPortalHtml(church) {
           <button class="btn-primary" onclick="document.getElementById('modal-add-td').classList.add('open')">+ Add TD</button>
         </div>
         <table>
-          <thead><tr><th>Name</th><th><span class="tip" data-tip="Primary TD gets escalations. On-call TD receives first alerts.">Role</span></th><th>Contact</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th><span class="tip" data-tip="Primary TD gets escalations. On-call TD receives first alerts.">Role</span></th><th>Email</th><th>Phone</th><th></th></tr></thead>
           <tbody id="tds-tbody">
-            <tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
+            <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -823,7 +836,7 @@ function buildChurchPortalHtml(church) {
           <span class="schedule-note">Tip: set separate windows for Saturday rehearsal and Sunday service.</span>
         </div>
         <div style="margin-top:16px">
-          <button class="btn-primary" onclick="saveSchedule()">Save Schedule</button>
+          <button class="btn-primary" id="btn-save-schedule" onclick="saveSchedule()">Save Schedule</button>
         </div>
       </div>
     </div>
@@ -1061,10 +1074,10 @@ function buildChurchPortalHtml(church) {
         <div class="field">
           <label>Severity</label>
           <select id="support-severity">
-            <option value="P2">P2 - High (service impact)</option>
+            <option value="P1">P1 - Critical outage</option>
+            <option value="P2" selected>P2 - High (service impact)</option>
             <option value="P3">P3 - Medium</option>
             <option value="P4">P4 - Low / question</option>
-            <option value="P1">P1 - Critical outage</option>
           </select>
         </div>
         <div class="field">
@@ -1150,12 +1163,26 @@ function buildChurchPortalHtml(church) {
         <div style="font-size:40px;margin-bottom:12px">&#127881;</div>
         <div style="font-size:18px;font-weight:700;color:#F8FAFC;margin-bottom:8px">Thank you!</div>
         <div style="font-size:13px;color:#94A3B8;margin-bottom:20px;line-height:1.5">Your review has been submitted. Want to double the impact?<br>Post it on one of these platforms too:</div>
-        <div style="display:flex;flex-direction:column;gap:10px">
-          <a href="https://g.page/r/YOUR_GOOGLE_REVIEW_LINK" target="_blank" rel="noopener" style="display:block;padding:10px 16px;border-radius:8px;border:1px solid #1a2e1f;color:#F8FAFC;text-decoration:none;font-size:13px;font-weight:600;background:#0F1613;text-align:center;transition:border-color .2s">&#11088; Post on Google</a>
-          <a href="https://www.capterra.com/reviews/new/YOUR_CAPTERRA_ID" target="_blank" rel="noopener" style="display:block;padding:10px 16px;border-radius:8px;border:1px solid #1a2e1f;color:#F8FAFC;text-decoration:none;font-size:13px;font-weight:600;background:#0F1613;text-align:center;transition:border-color .2s">&#128221; Post on Capterra</a>
-          <a href="https://www.g2.com/products/tally-connect/reviews" target="_blank" rel="noopener" style="display:block;padding:10px 16px;border-radius:8px;border:1px solid #1a2e1f;color:#F8FAFC;text-decoration:none;font-size:13px;font-weight:600;background:#0F1613;text-align:center;transition:border-color .2s">&#128172; Post on G2</a>
-        </div>
+        <div style="font-size:12px;color:#475569;margin-top:4px">Your review helps other churches discover Tally.</div>
         <button onclick="closeReviewModal()" style="background:none;border:none;color:#475569;font-size:12px;cursor:pointer;margin-top:16px;padding:8px">Maybe later</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Async Confirm / Prompt / Alert Modal -->
+  <div class="modal-backdrop" id="modal-dialog">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <div class="modal-title" id="dialog-title">Confirm</div>
+        <button class="modal-close" id="dialog-close-x">&times;</button>
+      </div>
+      <div id="dialog-body" style="font-size:13px;color:#CBD5E1;line-height:1.6;padding:4px 0 12px"></div>
+      <div id="dialog-input-wrap" style="display:none">
+        <input type="text" id="dialog-input" style="width:100%;box-sizing:border-box" />
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="dialog-cancel">Cancel</button>
+        <button class="btn-primary" id="dialog-ok">OK</button>
       </div>
     </div>
   </div>
@@ -1179,12 +1206,25 @@ function buildChurchPortalHtml(church) {
       saturday: 'Saturday',
     };
 
+    // ── mobile nav ──────────────────────────────────────────────────────────────
+    function toggleMobileNav() {
+      var sidebar = document.getElementById('sidebar-nav');
+      var overlay = document.getElementById('sidebar-overlay');
+      var open = sidebar.classList.toggle('open');
+      overlay.classList.toggle('open', open);
+    }
+
     // ── navigation ──────────────────────────────────────────────────────────────
     function showPage(id, el) {
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
       document.getElementById('page-' + id).classList.add('active');
       el.classList.add('active');
+      // Close mobile nav on page switch
+      var sidebar = document.getElementById('sidebar-nav');
+      var overlay = document.getElementById('sidebar-overlay');
+      if (sidebar) sidebar.classList.remove('open');
+      if (overlay) overlay.classList.remove('open');
       if (id === 'overview') loadOverview();
       if (id === 'campuses') loadCampuses();
       if (id === 'tds') loadTds();
@@ -1208,7 +1248,7 @@ function buildChurchPortalHtml(church) {
 
     // ── API ───────────────────────────────────────────────────────────────────
     async function api(method, path, body) {
-      const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', signal: AbortSignal.timeout(15000) };
+      const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', signal: AbortSignal.timeout(30000) };
       if (body) opts.body = JSON.stringify(body);
       const r = await fetch(path, opts);
       const data = await r.json().catch(() => ({}));
@@ -1272,13 +1312,57 @@ function buildChurchPortalHtml(church) {
           ['Audio', audioStatus, null],
           ['A/V Sync', status.syncOk === false ? 'warning' : (status.syncOk ? 'ok' : 'unknown'), null],
         ];
+        // Dynamic device rows — only show if the device exists in status
+        const hd = status.hyperdeck || status.hyperDeck;
+        if (hd) {
+          const hdSt = hd.recording ? 'recording' : (hd.connected ? 'connected' : 'unknown');
+          rows.push(['HyperDeck', hdSt, hd.lastSeen || null]);
+        }
+        if (Array.isArray(status.hyperdecks || status.hyperDecks)) {
+          (status.hyperdecks || status.hyperDecks).forEach(function(deck, i) {
+            const hdSt = deck.recording ? 'recording' : (deck.connected ? 'connected' : 'unknown');
+            rows.push(['HyperDeck ' + (i + 1), hdSt, deck.lastSeen || null]);
+          });
+        }
+        const pp = status.proPresenter || status.propresenter;
+        if (pp) {
+          const ppSt = pp.connected ? 'connected' : 'unknown';
+          rows.push(['ProPresenter', ppSt, pp.lastSeen || null]);
+        }
+        if (status.ptz || status.cameras) {
+          const cams = status.cameras || (status.ptz ? [status.ptz] : []);
+          (Array.isArray(cams) ? cams : [cams]).forEach(function(cam, i) {
+            if (!cam) return;
+            const camSt = cam.connected ? 'connected' : 'unknown';
+            const camLabel = cam.name || ('PTZ Camera ' + (i + 1));
+            rows.push([camLabel, camSt, cam.lastSeen || null]);
+          });
+        }
+        if (status.mixer) {
+          const mxSt = status.mixer.connected ? 'connected' : 'unknown';
+          const mxName = status.mixer.name || 'Audio Mixer';
+          rows.push([mxName, mxSt, status.mixer.lastSeen || null]);
+        }
+
+        // Staleness indicator
+        const stalenessEl = document.getElementById('equip-staleness');
+        if (stalenessEl && d.lastSeenAt) {
+          const ago = Math.round((Date.now() - new Date(d.lastSeenAt).getTime()) / 1000);
+          if (ago < 60) stalenessEl.textContent = 'Updated just now';
+          else if (ago < 3600) stalenessEl.textContent = 'Updated ' + Math.round(ago / 60) + 'm ago';
+          else stalenessEl.textContent = 'Updated ' + Math.round(ago / 3600) + 'h ago';
+          stalenessEl.style.color = ago > 300 ? '#f59e0b' : '#475569';
+        }
+
         tbody.innerHTML = rows.map(([name, st, ts]) => {
           let badgeCls = 'badge-gray';
           let label = st;
           if (st === 'connected' || st === 'ok') badgeCls = 'badge-green';
           else if (st === 'live' || st === 'streaming') { badgeCls = 'badge-green'; label = st === 'live' ? '🔴 Live' : 'Streaming'; }
+          else if (st === 'recording') { badgeCls = 'badge-green'; label = '⏺ Recording'; }
           else if (st === 'warning') badgeCls = 'badge-yellow';
           else if (st === 'muted') { badgeCls = 'badge-yellow'; label = '🔇 Muted'; }
+          else if (st === 'offline') { badgeCls = 'badge-gray'; label = 'Offline'; }
           return \`<tr>
             <td>\${name}</td>
             <td><span class="badge \${badgeCls}">\${label}</span></td>
@@ -1286,8 +1370,10 @@ function buildChurchPortalHtml(church) {
           </tr>\`;
         }).join('');
 
-        document.getElementById('stat-status').textContent = d.connected ? 'Online' : 'Offline';
-        document.getElementById('stat-status').style.color = d.connected ? '#22c55e' : '#94A3B8';
+        var statusText = document.getElementById('stat-status-text');
+        var statusDot = document.getElementById('stat-status-dot');
+        if (statusText) { statusText.textContent = d.connected ? 'Online' : 'Offline'; statusText.style.color = d.connected ? '#22c55e' : '#94A3B8'; }
+        if (statusDot) { statusDot.style.background = d.connected ? '#22c55e' : '#ef4444'; }
 
         // ── Onboarding checklist ──────────────────────────────────────────────
         renderOnboarding(d);
@@ -1309,6 +1395,16 @@ function buildChurchPortalHtml(church) {
         populatePfCampusPicker();
         loadProblems('');
       } catch(e) { console.error(e); }
+    }
+
+    async function refreshEquipmentStatus() {
+      var btn = document.getElementById('btn-refresh-equip');
+      if (btn) { btn.disabled = true; btn.textContent = '↻ Refreshing…'; }
+      try {
+        await loadOverview();
+        toast('Equipment status refreshed');
+      } catch { toast('Refresh failed', true); }
+      finally { if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; } }
     }
 
     function fmt12(hhmm) {
@@ -1712,7 +1808,7 @@ function buildChurchPortalHtml(church) {
         { done: true, label: 'Account created', detail: 'Your Tally account is set up' },
         { done: !!d.onboarding_app_connected_at, label: 'Desktop app connected', detail: 'Download and run the Tally app on your booth computer' },
         { done: !!d.onboarding_atem_connected_at, label: 'ATEM connected', detail: 'The app will auto-discover your ATEM switcher on the network' },
-        { done: !!d.onboarding_telegram_registered_at, label: 'Telegram bot registered', detail: 'Have a TD send /register ' + (d.registration_code || 'CODE') + ' to @tallybot' },
+        { done: !!d.onboarding_telegram_registered_at, label: 'Telegram bot registered', detail: 'Have a TD send /register ' + escapeHtml(d.registration_code || 'CODE') + ' to @tallybot' },
       ];
 
       const completed = steps.filter(s => s.done).length;
@@ -1757,6 +1853,7 @@ function buildChurchPortalHtml(church) {
     loadProfile();
 
     async function saveProfile() {
+      btnLoading('btn-save-profile', 'Saving…');
       try {
         await api('PUT', '/api/church/me', {
           email: document.getElementById('profile-email').value,
@@ -1766,6 +1863,7 @@ function buildChurchPortalHtml(church) {
         });
         toast('Profile saved');
       } catch(e) { toast(e.message, true); }
+      finally { btnReset('btn-save-profile'); }
     }
 
     async function changePassword() {
@@ -1908,7 +2006,7 @@ function buildChurchPortalHtml(church) {
           return;
         }
       } catch { /* fallback below */ }
-      prompt('Copy value:', value);
+      modalCopyValue('Copy value', value);
     }
 
     async function loadCampuses() {
@@ -1950,9 +2048,9 @@ function buildChurchPortalHtml(church) {
           const statusClass = c.connected ? 'badge-green' : 'badge-gray';
           const code = c.registrationCode || '—';
           const tokenPreview = c.token ? (c.token.slice(0, 16) + '…') : '—';
-          const location = c.location ? ('<div style="color:#64748B;font-size:12px">' + c.location + '</div>') : '';
+          const location = c.location ? ('<div style="color:#64748B;font-size:12px">' + escapeHtml(c.location) + '</div>') : '';
           return '<tr>' +
-            '<td>' + c.name + location + '</td>' +
+            '<td>' + escapeHtml(c.name) + location + '</td>' +
             '<td><span class="badge ' + statusClass + '">' + status + '</span></td>' +
             '<td><code style="font-size:12px;color:#22c55e">' + code + '</code><div><button class="btn-sm campus-copy-code-btn" data-campus-id="' + c.churchId + '">Copy</button></div></td>' +
             '<td><code style="font-size:12px;color:#94A3B8">' + tokenPreview + '</code><div><button class="btn-sm campus-copy-token-btn" data-campus-id="' + c.churchId + '">Copy</button></div></td>' +
@@ -2007,7 +2105,7 @@ function buildChurchPortalHtml(church) {
         toast('Campus created');
         loadCampuses();
         if (created && created.registrationCode) {
-          prompt('Campus created. Save this registration code:', created.registrationCode);
+          modalCopyValue('Registration Code', created.registrationCode);
         }
       } catch (e) {
         toast(e.message || 'Failed to create campus', true);
@@ -2017,7 +2115,7 @@ function buildChurchPortalHtml(church) {
     async function removeCampus(churchId) {
       const campus = getCampusById(churchId);
       const label = campus ? campus.name : 'this campus';
-      if (!confirm('Remove ' + label + '? This will disconnect it and delete its campus record.')) return;
+      if (!await modalConfirm('Remove ' + label + '? This will disconnect it and delete its campus record.', { title: 'Remove Campus', okLabel: 'Remove', dangerOk: true })) return;
       try {
         await api('DELETE', '/api/church/campuses/' + churchId);
         toast('Campus removed');
@@ -2033,15 +2131,16 @@ function buildChurchPortalHtml(church) {
         const tds = await api('GET', '/api/church/tds');
         const tbody = document.getElementById('tds-tbody');
         if (!tds.length) {
-          tbody.innerHTML = '<tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">No tech directors yet.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">No tech directors yet.</td></tr>';
           return;
         }
         tbody.innerHTML = tds.map(td => \`
           <tr>
-            <td>\${td.name}</td>
-            <td><span class="badge badge-gray">\${td.role || 'td'}</span></td>
-            <td style="color:#94A3B8">\${td.email || '—'}</td>
-            <td><button class="btn-danger" onclick="removeTd('\${td.id}')">Remove</button></td>
+            <td>\${escapeHtml(td.name || '')}</td>
+            <td><span class="badge badge-gray">\${escapeHtml(td.role || 'td')}</span></td>
+            <td style="color:#94A3B8">\${escapeHtml(td.email || '—')}</td>
+            <td style="color:#94A3B8;font-size:12px">\${escapeHtml(td.phone || '—')}</td>
+            <td><button class="btn-danger" onclick="removeTd('\${escapeHtml(String(td.id || ''))}')">Remove</button></td>
           </tr>\`).join('');
         document.getElementById('stat-tds').textContent = tds.length;
       } catch(e) { toast('Failed to load TDs', true); }
@@ -2067,7 +2166,7 @@ function buildChurchPortalHtml(church) {
     }
 
     async function removeTd(id) {
-      if (!confirm('Remove this tech director?')) return;
+      if (!await modalConfirm('Remove this tech director?', { title: 'Remove TD', okLabel: 'Remove', dangerOk: true })) return;
       try {
         await api('DELETE', '/api/church/tds/' + id);
         loadTds();
@@ -2193,8 +2292,8 @@ function buildChurchPortalHtml(church) {
       var m = mins % 60;
       var h12 = h24 === 0 ? 12 : (h24 > 12 ? h24 - 12 : h24);
       var ampm = h24 < 12 ? 'AM' : 'PM';
-      // Snap minutes to nearest 15
-      var snapped = Math.round(m / 15) * 15;
+      // Snap minutes to nearest 5
+      var snapped = Math.round(m / 5) * 5;
       if (snapped === 60) { snapped = 0; h24++; h12 = h24 === 0 ? 12 : (h24 > 12 ? h24 - 12 : h24); ampm = h24 < 12 ? 'AM' : 'PM'; }
 
       var hourOpts = '';
@@ -2202,9 +2301,9 @@ function buildChurchPortalHtml(church) {
         hourOpts += '<option value="' + i + '"' + (i === h12 ? ' selected' : '') + '>' + i + '</option>';
       }
       var minOpts = '';
-      [0, 15, 30, 45].forEach(function(v) {
+      for (var v = 0; v < 60; v += 5) {
         minOpts += '<option value="' + v + '"' + (v === snapped ? ' selected' : '') + '>' + pad2(v) + '</option>';
-      });
+      }
       var ampmOpts = '<option value="AM"' + (ampm === 'AM' ? ' selected' : '') + '>AM</option>' +
                      '<option value="PM"' + (ampm === 'PM' ? ' selected' : '') + '>PM</option>';
 
@@ -2290,8 +2389,18 @@ function buildChurchPortalHtml(church) {
 
         const startMin = toMinutes(start);
         const endMin = toMinutes(end);
-        if (startMin === null || endMin === null || endMin <= startMin) {
-          throw new Error('End time must be after start time');
+        if (startMin === null || endMin === null) {
+          throw new Error('Invalid time format');
+        }
+        // Allow midnight crossing (e.g. 11:00 PM to 1:00 AM)
+        if (endMin <= startMin && endMin !== 0) {
+          // endMin=0 means midnight, which is valid for crossing
+          // Otherwise endMin < startMin means a midnight-crossing service (e.g. 23:00→01:00)
+          if (endMin > startMin) throw new Error('End time must be after start time');
+          // midnight crossing is OK — duration = (1440 - startMin) + endMin
+        }
+        if (endMin === startMin) {
+          throw new Error('Start and end time cannot be the same');
         }
 
         out[day].push({ start: start, end: end, label: label });
@@ -2321,7 +2430,7 @@ function buildChurchPortalHtml(church) {
         if (!list.length) { picker.style.display = 'none'; return; }
         var prev = sel.value;
         sel.innerHTML = '<option value="">Main Campus</option>' + list.map(function(c) {
-          return '<option value="' + c.churchId + '">' + c.name + '</option>';
+          return '<option value="' + c.churchId + '">' + escapeHtml(c.name || c.churchId) + '</option>';
         }).join('');
         if (prev) sel.value = prev;
         picker.style.display = '';
@@ -2340,6 +2449,7 @@ function buildChurchPortalHtml(church) {
     }
 
     async function saveSchedule() {
+      btnLoading('btn-save-schedule', 'Saving…');
       try {
         const schedule = collectScheduleFromRows();
         var campusId = getSelectedScheduleCampusId();
@@ -2347,6 +2457,7 @@ function buildChurchPortalHtml(church) {
         await api('PUT', url, schedule);
         toast('Schedule saved');
       } catch(e) { toast(e.message || 'Unable to save schedule', true); }
+      finally { btnReset('btn-save-schedule'); }
     }
 
     // ── Notifications ─────────────────────────────────────────────────────────
@@ -2400,18 +2511,18 @@ function buildChurchPortalHtml(church) {
     }
 
     async function generateGuestToken() {
-      const label = prompt('Label for this token (e.g. "Visiting TD — March 9")');
+      const label = await modalPrompt('Label for this token (e.g. "Visiting TD — March 9")', '', { title: 'New Guest Token' });
       if (label === null) return;
       try {
         const t = await api('POST', '/api/church/guest-tokens', { label });
         toast('Token created');
         loadGuests();
-        prompt('Copy this token (shown once):', t.token);
+        modalCopyValue('Guest Token (shown once)', t.token);
       } catch(e) { toast(e.message, true); }
     }
 
     async function revokeToken(token) {
-      if (!confirm('Revoke this guest token?')) return;
+      if (!await modalConfirm('Revoke this guest token? Connected guests will lose access immediately.', { title: 'Revoke Token', okLabel: 'Revoke', dangerOk: true })) return;
       try {
         await api('DELETE', '/api/church/guest-tokens/' + encodeURIComponent(token));
         loadGuests();
@@ -2659,7 +2770,7 @@ function buildChurchPortalHtml(church) {
       var tierNames = { plus: 'Plus', pro: 'Pro', managed: 'Enterprise' };
       var label = tierNames[tier] || tier;
 
-      if (!confirm('Upgrade to ' + label + '? Your subscription will be updated immediately with prorated billing.')) return;
+      if (!await modalConfirm('Upgrade to ' + label + '? Your subscription will be updated immediately with prorated billing.', { title: 'Upgrade Plan', okLabel: 'Upgrade' })) return;
 
       // Disable all upgrade buttons and show loading
       var btns = document.querySelectorAll('[id^="btn-upgrade-"]');
@@ -2695,7 +2806,7 @@ function buildChurchPortalHtml(church) {
 
     // ── Reactivate subscription ───────────────────────────────────────────────
     async function reactivateSubscription() {
-      if (!confirm('Reactivate your subscription? You\\'ll be redirected to Stripe to complete payment.')) return;
+      if (!await modalConfirm('Reactivate your subscription? You will be redirected to Stripe to complete payment.', { title: 'Reactivate Subscription', okLabel: 'Reactivate' })) return;
       var btn = document.getElementById('btn-reactivate');
       if (btn) { btn.disabled = true; btn.textContent = 'Redirecting…'; }
       try {
@@ -2715,7 +2826,7 @@ function buildChurchPortalHtml(church) {
     async function downgradePlan(tier) {
       var tierNames = { connect: 'Connect', plus: 'Plus' };
       var label = tierNames[tier] || tier;
-      if (!confirm('Downgrade to ' + label + '? The change will take effect at the end of your current billing period.')) return;
+      if (!await modalConfirm('Downgrade to ' + label + '? The change takes effect at the end of your current billing period.', { title: 'Downgrade Plan', okLabel: 'Downgrade', dangerOk: true })) return;
       try {
         var data = await api('POST', '/api/church/billing/downgrade', { tier: tier });
         if (data.success) {
@@ -2730,7 +2841,7 @@ function buildChurchPortalHtml(church) {
     // ── Export data ─────────────────────────────────────────────────────────
     async function exportData() {
       try {
-        var resp = await fetch('/api/church/data-export', { credentials: 'include', signal: AbortSignal.timeout(15000) });
+        var resp = await fetch('/api/church/data-export', { credentials: 'include', signal: AbortSignal.timeout(30000) });
         if (!resp.ok) throw new Error('Export failed');
         var blob = await resp.blob();
         var url = URL.createObjectURL(blob);
@@ -2749,12 +2860,12 @@ function buildChurchPortalHtml(church) {
 
     // ── Delete account ──────────────────────────────────────────────────────
     async function deleteAccount() {
-      var churchName = prompt('This will permanently delete your account and all data.\\n\\nTo confirm, type your church name:');
+      var churchName = await modalPrompt('This will permanently delete your account and all data. To confirm, type your church name:', '', { title: '⚠️ Delete Account' });
       if (!churchName) return;
       try {
         var data = await api('DELETE', '/api/church/account', { confirmName: churchName });
         if (data.deleted) {
-          alert('Your account has been deleted. You will be redirected to the homepage.');
+          await modalAlert('Your account has been deleted. You will be redirected to the homepage.', { title: 'Account Deleted' });
           window.location.href = 'https://tallyconnect.app';
         }
       } catch(e) {
@@ -2902,7 +3013,7 @@ function buildChurchPortalHtml(church) {
           '</div>' +
           statsHtml +
           '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-          '<div style="flex:1;min-width:200px;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:13px;color:#F8FAFC;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="referral-link">' + data.shareUrl + '</div>' +
+          '<div style="flex:1;min-width:200px;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:13px;color:#F8FAFC;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="referral-link">' + escapeHtml(data.shareUrl || '') + '</div>' +
           '<button onclick="copyReferralLink()" class="btn-primary" style="padding:8px 16px;font-size:13px;flex-shrink:0">Copy Link</button>' +
           '</div>' +
           '</div>';
@@ -2940,7 +3051,7 @@ function buildChurchPortalHtml(church) {
           var color = sevColors[a.severity] || '#94A3B8';
           var time = new Date(a.created_at).toLocaleString();
           var type = (a.alert_type || '').replace(/_/g, ' ');
-          var acked = a.acknowledged_at ? '<span style="color:#22c55e;font-size:11px">\\u2713 Acknowledged' + (a.acknowledged_by ? ' by ' + a.acknowledged_by : '') + '</span>' : '<span style="color:#475569;font-size:11px">Not acknowledged</span>';
+          var acked = a.acknowledged_at ? '<span style="color:#22c55e;font-size:11px">\\u2713 Acknowledged' + (a.acknowledged_by ? ' by ' + escapeHtml(a.acknowledged_by) : '') + '</span>' : '<span style="color:#475569;font-size:11px">Not acknowledged</span>';
           var ctx = a.context || {};
           var diag = ctx.diagnosis || ctx;
 
@@ -2956,10 +3067,10 @@ function buildChurchPortalHtml(church) {
 
           if (diag.likely_cause || (diag.steps && diag.steps.length)) {
             html += '<div style="margin-top:8px;background:#09090B;border-radius:6px;padding:8px 12px;font-size:12px">';
-            if (diag.likely_cause) html += '<div style="color:#94A3B8;margin-bottom:4px"><strong style="color:#F8FAFC">Likely cause:</strong> ' + diag.likely_cause + '</div>';
+            if (diag.likely_cause) html += '<div style="color:#94A3B8;margin-bottom:4px"><strong style="color:#F8FAFC">Likely cause:</strong> ' + escapeHtml(diag.likely_cause) + '</div>';
             if (diag.steps && diag.steps.length) {
               html += '<div style="color:#94A3B8"><strong style="color:#F8FAFC">Steps:</strong></div><ol style="margin:4px 0 0;padding-left:20px;color:#94A3B8">';
-              diag.steps.forEach(function(s) { html += '<li>' + s + '</li>'; });
+              diag.steps.forEach(function(s) { html += '<li>' + escapeHtml(s) + '</li>'; });
               html += '</ol>';
             }
             if (diag.canAutoFix) html += '<div style="color:#22c55e;font-size:11px;margin-top:4px">Tally can attempt auto-recovery for this issue.</div>';
@@ -2997,6 +3108,80 @@ function buildChurchPortalHtml(church) {
       return v.replace(/[<>&"']/g, function(c) {
         return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c];
       });
+    }
+
+    // ── Async modal dialogs (replaces confirm/prompt/alert) ─────────────
+    function _showDialog(title, message, { input = false, defaultVal = '', cancelable = true, okLabel = 'OK', dangerOk = false } = {}) {
+      return new Promise(resolve => {
+        const backdrop = document.getElementById('modal-dialog');
+        const bodyEl = document.getElementById('dialog-body');
+        const inputWrap = document.getElementById('dialog-input-wrap');
+        const inputEl = document.getElementById('dialog-input');
+        const cancelBtn = document.getElementById('dialog-cancel');
+        const okBtn = document.getElementById('dialog-ok');
+        const closeX = document.getElementById('dialog-close-x');
+        document.getElementById('dialog-title').textContent = title;
+        bodyEl.textContent = message;
+        inputWrap.style.display = input ? '' : 'none';
+        inputEl.value = defaultVal;
+        cancelBtn.style.display = cancelable ? '' : 'none';
+        okBtn.textContent = okLabel;
+        if (dangerOk) { okBtn.className = 'btn-danger'; } else { okBtn.className = 'btn-primary'; }
+
+        function cleanup(val) {
+          backdrop.classList.remove('open');
+          okBtn.removeEventListener('click', onOk);
+          cancelBtn.removeEventListener('click', onCancel);
+          closeX.removeEventListener('click', onCancel);
+          backdrop.removeEventListener('click', onBackdrop);
+          resolve(val);
+        }
+        function onOk() { cleanup(input ? inputEl.value : true); }
+        function onCancel() { cleanup(input ? null : false); }
+        function onBackdrop(e) { if (e.target === backdrop) onCancel(); }
+
+        okBtn.addEventListener('click', onOk);
+        cancelBtn.addEventListener('click', onCancel);
+        closeX.addEventListener('click', onCancel);
+        backdrop.addEventListener('click', onBackdrop);
+        backdrop.classList.add('open');
+        if (input) { setTimeout(() => { inputEl.focus(); inputEl.select(); }, 100); }
+        else { setTimeout(() => okBtn.focus(), 100); }
+      });
+    }
+
+    function modalConfirm(message, { title = 'Confirm', okLabel = 'Confirm', dangerOk = false } = {}) {
+      return _showDialog(title, message, { cancelable: true, okLabel, dangerOk });
+    }
+    function modalPrompt(message, defaultVal, { title = 'Input' } = {}) {
+      return _showDialog(title, message, { input: true, defaultVal: defaultVal || '', cancelable: true });
+    }
+    function modalAlert(message, { title = 'Notice' } = {}) {
+      return _showDialog(title, message, { cancelable: false, okLabel: 'OK' });
+    }
+    // ── Button loading state helper ───────────────────────────────────────
+    function btnLoading(id, loadingText) {
+      var btn = document.getElementById(id);
+      if (!btn) return;
+      btn._origText = btn.textContent;
+      btn.disabled = true;
+      btn.style.opacity = '0.7';
+      btn.textContent = loadingText || 'Saving…';
+    }
+    function btnReset(id) {
+      var btn = document.getElementById(id);
+      if (!btn) return;
+      btn.disabled = false;
+      btn.style.opacity = '';
+      btn.textContent = btn._origText || 'Save';
+    }
+
+    function modalCopyValue(label, value) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(value).then(() => toast('Copied to clipboard'));
+      } else {
+        return _showDialog(label, value, { cancelable: false, okLabel: 'Close' });
+      }
     }
 
     async function loadSupportStatus() {
@@ -3087,7 +3272,7 @@ function buildChurchPortalHtml(church) {
     }
 
     async function addSupportUpdate(ticketId) {
-      var note = prompt('Add an update to this ticket:');
+      var note = await modalPrompt('Add an update to this ticket:', '', { title: 'Ticket Update' });
       if (!note) return;
       try {
         await api('POST', '/api/church/support/tickets/' + ticketId + '/updates', { message: note, status: 'waiting_customer' });
