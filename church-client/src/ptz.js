@@ -695,7 +695,7 @@ class PTZManager {
   async _buildConnectedCamera(entry) {
     const protocol = normalizeProtocol(entry.protocol);
     const attemptOrder = protocol === 'auto'
-      ? ['onvif', 'visca-tcp', 'visca-udp']
+      ? ['onvif', 'ptzoptics-onvif', 'visca-tcp', 'ptzoptics-visca', 'visca-udp', 'sony-visca-udp']
       : [protocol];
     let lastErr = null;
 

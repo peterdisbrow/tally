@@ -331,6 +331,22 @@ async function videohubSetOutputLabel(agent, params) {
   return `Output ${params.index} labeled "${params.label}"`;
 }
 
+async function videohubGetInputLabels(agent, params) {
+  const hub = agent.videoHubs?.[params.hubIndex || 0];
+  if (!hub) throw new Error('Video Hub not configured');
+  const labels = await hub.getInputLabels();
+  if (!labels.length) return 'No input labels found';
+  return labels.map(l => `${l.index}: ${l.label}`).join('\n');
+}
+
+async function videohubGetOutputLabels(agent, params) {
+  const hub = agent.videoHubs?.[params.hubIndex || 0];
+  if (!hub) throw new Error('Video Hub not configured');
+  const labels = await hub.getOutputLabels();
+  if (!labels.length) return 'No output labels found';
+  return labels.map(l => `${l.index}: ${l.label}`).join('\n');
+}
+
 // ─── HYPERDECK COMMANDS ─────────────────────────────────────────────────────
 
 async function hyperdeckPlay(agent, params) {
@@ -379,6 +395,22 @@ async function hyperdeckPrevClip(agent, params) {
     atemMethod: 'setHyperDeckPrevClip',
   });
   return `HyperDeck ${getHyperDeckLabel(result.index)} previous clip`;
+}
+
+async function hyperdeckStatus(agent, params) {
+  const index = resolveHyperDeckIndex(params);
+  const direct = getDirectHyperDeck(agent, index);
+  if (!direct) throw new Error(`HyperDeck ${getHyperDeckLabel(index)} not configured`);
+  const status = await direct.refreshStatus();
+  const lines = [
+    `HyperDeck ${getHyperDeckLabel(index)}: ${status.name || 'Unknown'}`,
+    `Model: ${status.model || 'N/A'} | Protocol: ${status.protocolVersion || 'N/A'}`,
+    `Connected: ${status.connected ? '✅' : '❌'}`,
+    `Transport: ${status.transport || 'unknown'}`,
+    `Recording: ${status.recording ? '🔴 Yes' : 'No'}`,
+    status.clipId != null ? `Clip: ${status.clipId} | Slot: ${status.slotId}` : null,
+  ].filter(Boolean);
+  return lines.join('\n');
 }
 
 // ─── PTZ CAMERA COMMANDS ────────────────────────────────────────────────────
@@ -558,6 +590,281 @@ async function encoderStatus(agent) {
   return agent.status.encoder;
 }
 
+function ensureEncoderAdapter(agent, expectedType) {
+  const bridge = ensureEncoderBridge(agent);
+  const type = (bridge.type || '').toLowerCase();
+  if (type !== expectedType) {
+    throw new Error(`Encoder is "${type}", not "${expectedType}" — this command is ${expectedType}-specific`);
+  }
+  const adapter = bridge.adapter;
+  if (!adapter) throw new Error(`${expectedType} adapter not available`);
+  return adapter;
+}
+
+// ─── BLACKMAGIC WEB PRESENTER COMMANDS ──────────────────────────────────────
+
+async function blackmagicGetActivePlatform(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'blackmagic');
+  const platform = await adapter.getActivePlatform();
+  if (!platform) return 'Active platform data not available';
+  return platform;
+}
+
+async function blackmagicSetActivePlatform(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'blackmagic');
+  if (!params.config) throw new Error('config object required');
+  const result = await adapter.setActivePlatform(params.config);
+  if (!result.ok) throw new Error(`Failed to set active platform (HTTP ${result.status})`);
+  return 'Active platform updated';
+}
+
+async function blackmagicGetPlatforms(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'blackmagic');
+  const platforms = await adapter.getPlatforms();
+  if (!platforms.length) return 'No platforms found';
+  return platforms;
+}
+
+async function blackmagicGetPlatformConfig(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'blackmagic');
+  if (!params.name) throw new Error('platform name required');
+  const config = await adapter.getPlatformConfig(params.name);
+  if (!config) return `Platform "${params.name}" not found`;
+  return config;
+}
+
+async function blackmagicGetVideoFormat(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'blackmagic');
+  const format = await adapter.getVideoFormat();
+  if (!format) return 'Video format data not available';
+  return format;
+}
+
+async function blackmagicSetVideoFormat(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'blackmagic');
+  if (!params.format) throw new Error('format object required');
+  const result = await adapter.setVideoFormat(params.format);
+  if (!result.ok) throw new Error(`Failed to set video format (HTTP ${result.status})`);
+  return 'Video format updated';
+}
+
+async function blackmagicGetSupportedVideoFormats(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'blackmagic');
+  const formats = await adapter.getSupportedVideoFormats();
+  if (!formats.length) return 'No supported video formats found';
+  return formats;
+}
+
+async function blackmagicGetAudioSources(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'blackmagic');
+  const sources = await adapter.getAudioSources();
+  if (!sources.length) return 'No audio sources found';
+  return sources;
+}
+
+async function blackmagicSetAudioSource(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'blackmagic');
+  if (params.source == null) throw new Error('source parameter required');
+  const result = await adapter.setAudioSource(params.source);
+  if (!result.ok) throw new Error(`Failed to set audio source (HTTP ${result.status})`);
+  return 'Audio source updated';
+}
+
+// ─── AJA HELO COMMANDS ─────────────────────────────────────────────────────
+
+async function ajaSetVideoInput(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'aja');
+  const src = toInt(params.source ?? params.src ?? 0, 'source');
+  const result = await adapter.setVideoInput(src);
+  if (!result.ok) throw new Error('Failed to set AJA video input');
+  const labels = { 0: 'SDI', 1: 'HDMI', 2: 'Test' };
+  return `Video input set to ${labels[src] || src}`;
+}
+
+async function ajaSetAudioInput(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'aja');
+  const src = toInt(params.source ?? params.src ?? 0, 'source');
+  const result = await adapter.setAudioInput(src);
+  if (!result.ok) throw new Error('Failed to set AJA audio input');
+  const labels = { 0: 'SDI', 1: 'HDMI', 2: 'Analog', 4: 'None' };
+  return `Audio input set to ${labels[src] || src}`;
+}
+
+async function ajaSetStreamProfile(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'aja');
+  const n = toInt(params.profile, 'profile');
+  const result = await adapter.setStreamProfile(n);
+  if (!result.ok) throw new Error('Failed to set AJA stream profile');
+  return `Stream profile set to ${n}`;
+}
+
+async function ajaSetRecordProfile(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'aja');
+  const n = toInt(params.profile, 'profile');
+  const result = await adapter.setRecordProfile(n);
+  if (!result.ok) throw new Error('Failed to set AJA record profile');
+  return `Record profile set to ${n}`;
+}
+
+async function ajaSetMute(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'aja');
+  const mute = params.mute !== false && params.mute !== 'false' && params.mute !== 0;
+  const result = await adapter.setMute(mute);
+  if (!result.ok) throw new Error('Failed to set AJA mute');
+  return mute ? 'AJA audio muted' : 'AJA audio unmuted';
+}
+
+async function ajaRecallPreset(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'aja');
+  const n = toInt(params.preset, 'preset');
+  const result = await adapter.recallPreset(n);
+  if (!result.ok) throw new Error('Failed to recall AJA preset');
+  return `Preset ${n} recalled`;
+}
+
+// ─── EPIPHAN PEARL COMMANDS ─────────────────────────────────────────────────
+
+async function epiphanStartPublisher(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'epiphan');
+  if (!params.channel) throw new Error('channel parameter required');
+  if (!params.publisher) throw new Error('publisher parameter required');
+  const result = await adapter.startPublisher(params.channel, params.publisher);
+  if (!result.ok) throw new Error(`Failed to start publisher (HTTP ${result.status})`);
+  return `Publisher ${params.publisher} started on channel ${params.channel}`;
+}
+
+async function epiphanStopPublisher(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'epiphan');
+  if (!params.channel) throw new Error('channel parameter required');
+  if (!params.publisher) throw new Error('publisher parameter required');
+  const result = await adapter.stopPublisher(params.channel, params.publisher);
+  if (!result.ok) throw new Error(`Failed to stop publisher (HTTP ${result.status})`);
+  return `Publisher ${params.publisher} stopped on channel ${params.channel}`;
+}
+
+async function epiphanGetLayouts(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'epiphan');
+  if (!params.channel) throw new Error('channel parameter required');
+  const layouts = await adapter.getLayouts(params.channel);
+  if (!layouts.length) return 'No layouts found';
+  return layouts;
+}
+
+async function epiphanSetActiveLayout(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'epiphan');
+  if (!params.channel) throw new Error('channel parameter required');
+  if (!params.layout) throw new Error('layout parameter required');
+  const result = await adapter.setActiveLayout(params.channel, params.layout);
+  if (!result.ok) throw new Error(`Failed to set layout (HTTP ${result.status})`);
+  return `Active layout set to ${params.layout} on channel ${params.channel}`;
+}
+
+async function epiphanGetStreamingParams(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'epiphan');
+  if (!params.channel) throw new Error('channel parameter required');
+  const result = await adapter.getStreamingParams(params.channel, params.keys);
+  if (!result.ok) throw new Error(`Failed to get streaming params (HTTP ${result.status})`);
+  return result.data;
+}
+
+async function epiphanSetStreamingParams(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'epiphan');
+  if (!params.channel) throw new Error('channel parameter required');
+  if (!params.params || typeof params.params !== 'object') throw new Error('params object required');
+  const result = await adapter.setStreamingParams(params.channel, params.params);
+  if (!result.ok) throw new Error(`Failed to set streaming params (HTTP ${result.status})`);
+  return 'Streaming parameters updated';
+}
+
+// ─── ECAMM LIVE COMMANDS ────────────────────────────────────────────────────
+
+async function ecammTogglePause(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'ecamm');
+  const result = await adapter.togglePause();
+  if (!result.ok) throw new Error('Failed to toggle Ecamm pause');
+  return 'Pause toggled';
+}
+
+async function ecammGetScenes(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'ecamm');
+  const scenes = await adapter.getScenes();
+  if (!scenes.length) return 'No scenes found';
+  return scenes;
+}
+
+async function ecammSetScene(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'ecamm');
+  if (!params.id) throw new Error('scene id (uuid) required');
+  const result = await adapter.setScene(params.id);
+  if (!result.ok) throw new Error('Failed to set Ecamm scene');
+  return `Scene set to ${params.id}`;
+}
+
+async function ecammNextScene(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'ecamm');
+  const result = await adapter.nextScene();
+  if (!result.ok) throw new Error('Failed to advance Ecamm scene');
+  return 'Next scene';
+}
+
+async function ecammPrevScene(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'ecamm');
+  const result = await adapter.prevScene();
+  if (!result.ok) throw new Error('Failed to go to previous Ecamm scene');
+  return 'Previous scene';
+}
+
+async function ecammToggleMute(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'ecamm');
+  const result = await adapter.toggleMute();
+  if (!result.ok) throw new Error('Failed to toggle Ecamm mute');
+  return 'Mute toggled';
+}
+
+async function ecammGetInputs(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'ecamm');
+  const inputs = await adapter.getInputs();
+  if (!inputs.length) return 'No inputs found';
+  return inputs;
+}
+
+async function ecammSetInput(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'ecamm');
+  if (!params.id) throw new Error('input id (uuid) required');
+  const result = await adapter.setInput(params.id);
+  if (!result.ok) throw new Error('Failed to set Ecamm input');
+  return `Input set to ${params.id}`;
+}
+
+async function ecammTogglePIP(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'ecamm');
+  const result = await adapter.togglePIP();
+  if (!result.ok) throw new Error('Failed to toggle Ecamm PIP');
+  return 'PIP toggled';
+}
+
+async function ecammGetOverlays(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'ecamm');
+  const overlays = await adapter.getOverlays();
+  if (!overlays.length) return 'No overlays found';
+  return overlays;
+}
+
+// ─── NDI ENCODER COMMANDS ───────────────────────────────────────────────────
+
+function ndiGetSource(agent) {
+  const adapter = ensureEncoderAdapter(agent, 'ndi');
+  const source = adapter.getSource();
+  return source || 'No NDI source configured';
+}
+
+function ndiSetSource(agent, params) {
+  const adapter = ensureEncoderAdapter(agent, 'ndi');
+  if (!params.source) throw new Error('source parameter required');
+  adapter.setSource(params.source);
+  return `NDI source set to "${params.source}"`;
+}
+
 // ─── PROPRESENTER COMMANDS ───────────────────────────────────────────────────
 
 async function propresenterNext(agent) {
@@ -656,6 +963,20 @@ async function propresenterStopTimer(agent, params) {
   if (!params.name) throw new Error('Timer name required');
   const name = await agent.proPresenter.stopTimer(params.name);
   return `Timer "${name}" stopped`;
+}
+
+async function propresenterVersion(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const version = await agent.proPresenter.getVersion();
+  if (!version) return 'ProPresenter version not available (not reachable)';
+  return `ProPresenter ${version}`;
+}
+
+async function propresenterMessages(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const messages = await agent.proPresenter.getMessages();
+  if (!messages.length) return 'No messages found';
+  return messages.map(m => `${m.name} (${m.id})`).join('\n');
 }
 
 // ─── VMIX COMMANDS ────────────────────────────────────────────────────────────
@@ -778,6 +1099,25 @@ async function vmixFunction(agent, params) {
   return `vMix function "${functionName}" executed`;
 }
 
+async function vmixStartPlaylist(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.startPlaylist();
+  return 'vMix playlist started';
+}
+
+async function vmixStopPlaylist(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.stopPlaylist();
+  return 'vMix playlist stopped';
+}
+
+async function vmixAudioLevels(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const audio = await agent.vmix.getAudioLevels();
+  if (!audio) return 'Audio level data not available';
+  return `Master: ${audio.volume}% ${audio.muted ? '🔇 MUTED' : '🔊'} | L: ${audio.meterL} R: ${audio.meterR}`;
+}
+
 // ─── RESOLUME COMMANDS ────────────────────────────────────────────────────────
 
 async function resolumeStatus(agent) {
@@ -861,7 +1201,53 @@ async function resolumeIsRunning(agent) {
   return running ? 'Resolume Arena is running' : 'Resolume Arena is not reachable';
 }
 
+async function resolumeVersion(agent) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const version = await agent.resolume.getVersion();
+  if (!version) return 'Resolume version not available (not reachable)';
+  return version;
+}
+
+async function resolumeGetBpm(agent) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const bpm = await agent.resolume.getBpm();
+  if (bpm == null) return 'BPM data not available';
+  return `Current BPM: ${bpm}`;
+}
+
 // ─── MIXER COMMANDS ──────────────────────────────────────────────────────────
+
+/**
+ * Capability map per mixer model.  Keys are features, values indicate
+ * 'full', 'partial' (works but may warn), or false (unsupported / no-op).
+ * The default fallback assumes all features are available so that unknown
+ * mixer types aren't blocked.
+ */
+const MIXER_CAPABILITIES = {
+  X32:    { compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full' },
+  M32:    { compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full' },
+  SQ:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: 'partial', channelStrip: 'partial' },
+  dLive:  { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: 'partial', channelStrip: 'partial' },
+  CL:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
+  QL:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
+  TF:     { compressor: false, gate: false, hpf: false, eq: false, fader: false, channelName: false, muteMaster: false, clearSolos: false, saveScene: false, channelStrip: false },
+};
+
+function mixerCan(agent, feature) {
+  const model = (agent.mixer?.model || '').toUpperCase();
+  const caps = MIXER_CAPABILITIES[model];
+  if (!caps) return 'full'; // unknown model — don't block
+  return caps[feature] || false;
+}
+
+function requireMixerCapability(agent, feature, friendlyName) {
+  const cap = mixerCan(agent, feature);
+  if (cap === false) {
+    const model = agent.mixer?.model || 'this mixer';
+    throw new Error(`${friendlyName} is not supported on ${model} via its remote protocol — set this at the console directly`);
+  }
+  return cap; // 'full' or 'partial'
+}
 
 async function mixerStatus(agent) {
   if (!agent.mixer) throw new Error('Audio console not configured');
@@ -919,6 +1305,7 @@ async function mixerRecallScene(agent, params) {
 
 async function mixerClearSolos(agent) {
   if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'clearSolos', 'Solo clear');
   await agent.mixer.clearSolos();
   return 'All solos cleared';
 }
@@ -929,8 +1316,23 @@ async function mixerIsOnline(agent) {
   return online ? '✅ Audio console is reachable' : '❌ Audio console not reachable';
 }
 
+function mixerCapabilities(agent) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  const model = (agent.mixer.model || 'unknown').toUpperCase();
+  const caps = MIXER_CAPABILITIES[model];
+  if (!caps) return { model, note: 'Unknown mixer model — all features assumed available' };
+  const lines = [`🎛️ ${model} — remote capabilities:`];
+  for (const [feature, level] of Object.entries(caps)) {
+    const icon = level === 'full' ? '✅' : level === 'partial' ? '⚠️' : '❌';
+    const label = level === 'full' ? 'Supported' : level === 'partial' ? 'Partial (may warn)' : 'Not available';
+    lines.push(`  ${icon} ${feature}: ${label}`);
+  }
+  return lines.join('\n');
+}
+
 async function mixerSetFader(agent, params) {
   if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'fader', 'Fader control');
   const { channel, level } = params;
   if (channel == null) throw new Error('channel parameter required');
   if (level == null) throw new Error('level parameter required (0.0–1.0)');
@@ -940,6 +1342,7 @@ async function mixerSetFader(agent, params) {
 
 async function mixerSetChannelName(agent, params) {
   if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'channelName', 'Channel name');
   const { channel, name } = params;
   if (channel == null) throw new Error('channel parameter required');
   if (!name) throw new Error('name parameter required');
@@ -949,6 +1352,7 @@ async function mixerSetChannelName(agent, params) {
 
 async function mixerSetHpf(agent, params) {
   if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'hpf', 'HPF');
   const { channel, enabled, frequency } = params;
   if (channel == null) throw new Error('channel parameter required');
   await agent.mixer.setHpf(channel, { enabled: enabled !== false, frequency: frequency || 80 });
@@ -957,6 +1361,7 @@ async function mixerSetHpf(agent, params) {
 
 async function mixerSetEq(agent, params) {
   if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'eq', 'EQ');
   const { channel, enabled, bands } = params;
   if (channel == null) throw new Error('channel parameter required');
   await agent.mixer.setEq(channel, { enabled: enabled !== false, bands: bands || [] });
@@ -965,6 +1370,7 @@ async function mixerSetEq(agent, params) {
 
 async function mixerSetCompressor(agent, params) {
   if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'compressor', 'Compressor');
   const { channel, ...compParams } = params;
   if (channel == null) throw new Error('channel parameter required');
   await agent.mixer.setCompressor(channel, compParams);
@@ -973,6 +1379,7 @@ async function mixerSetCompressor(agent, params) {
 
 async function mixerSetGate(agent, params) {
   if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'gate', 'Gate');
   const { channel, ...gateParams } = params;
   if (channel == null) throw new Error('channel parameter required');
   await agent.mixer.setGate(channel, gateParams);
@@ -981,6 +1388,7 @@ async function mixerSetGate(agent, params) {
 
 async function mixerSetFullChannelStrip(agent, params) {
   if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'channelStrip', 'Channel strip');
   const { channel, ...strip } = params;
   if (channel == null) throw new Error('channel parameter required');
   await agent.mixer.setFullChannelStrip(channel, strip);
@@ -989,6 +1397,7 @@ async function mixerSetFullChannelStrip(agent, params) {
 
 async function mixerSaveScene(agent, params) {
   if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'saveScene', 'Scene save');
   const { scene, name } = params;
   if (scene == null) throw new Error('scene number required');
   await agent.mixer.saveScene(scene, name);
@@ -1007,9 +1416,21 @@ async function mixerSetupFromPatchList(agent, params) {
     throw new Error('No channels provided');
   }
 
+  // Pre-calculate which features are gated so we can report skipped ops
+  const stripCap = mixerCan(agent, 'channelStrip');
+  const skippedFeatures = [];
+  if (mixerCan(agent, 'compressor') === false) skippedFeatures.push('compressor');
+  if (mixerCan(agent, 'gate') === false) skippedFeatures.push('gate');
+  if (mixerCan(agent, 'hpf') === false) skippedFeatures.push('HPF');
+  if (mixerCan(agent, 'eq') === false) skippedFeatures.push('EQ');
+  if (mixerCan(agent, 'channelName') === false) skippedFeatures.push('name');
+
   const results = [];
   for (const ch of channels) {
     try {
+      if (stripCap === false) {
+        throw new Error('Channel strip not supported on this mixer');
+      }
       await agent.mixer.setFullChannelStrip(ch.channel, ch);
       results.push({ channel: ch.channel, name: ch.name, ok: true });
     } catch (e) {
@@ -1021,13 +1442,18 @@ async function mixerSetupFromPatchList(agent, params) {
 
   // Optionally save as a new scene
   if (doSave) {
-    try {
-      const sceneNum = 90; // Use scene slot 90 as "AI Setup" slot
-      const label = sceneName || `AI Setup ${new Date().toLocaleDateString()}`;
-      await agent.mixer.saveScene(sceneNum, label);
-      results.push({ scene: sceneNum, name: label, ok: true });
-    } catch (e) {
-      results.push({ scene: 'save', ok: false, error: e.message });
+    const sceneCap = mixerCan(agent, 'saveScene');
+    if (sceneCap === false) {
+      results.push({ scene: 'save', ok: false, error: 'Scene save not supported on this mixer' });
+    } else {
+      try {
+        const sceneNum = 90; // Use scene slot 90 as "AI Setup" slot
+        const label = sceneName || `AI Setup ${new Date().toLocaleDateString()}`;
+        await agent.mixer.saveScene(sceneNum, label);
+        results.push({ scene: sceneNum, name: label, ok: true });
+      } catch (e) {
+        results.push({ scene: 'save', ok: false, error: e.message });
+      }
     }
   }
 
@@ -1046,8 +1472,11 @@ async function mixerSetupFromPatchList(agent, params) {
 
   const ok = results.filter(r => r.ok).length;
   const fail = results.filter(r => !r.ok).length;
-  const lines = [`✅ Mixer setup complete: ${ok} channels configured`];
-  if (fail > 0) lines.push(`⚠️ ${fail} failed: ${results.filter(r => !r.ok).map(r => `Ch${r.channel}`).join(', ')}`);
+  const lines = [`✅ Mixer setup complete: ${ok} applied, ${fail} failed`];
+  if (fail > 0) lines.push(`⚠️ Failed: ${results.filter(r => !r.ok).map(r => r.channel != null ? `Ch${r.channel}` : r.scene).join(', ')}`);
+  if (skippedFeatures.length > 0) {
+    lines.push(`ℹ️ Skipped on ${agent.mixer.model || 'this mixer'}: ${skippedFeatures.join(', ')} — set these at the console`);
+  }
   return lines.join('\n');
 }
 
@@ -2437,6 +2866,7 @@ const commandHandlers = {
   'hyperdeck.stopRecord': hyperdeckStopRecord,
   'hyperdeck.nextClip': hyperdeckNextClip,
   'hyperdeck.prevClip': hyperdeckPrevClip,
+  'hyperdeck.status': hyperdeckStatus,
 
   'ptz.pan': ptzPan,
   'ptz.tilt': ptzTilt,
@@ -2458,6 +2888,49 @@ const commandHandlers = {
   'encoder.stopRecording': encoderStopRecording,
   'encoder.status': encoderStatus,
 
+  // Blackmagic Web Presenter
+  'blackmagic.getActivePlatform': blackmagicGetActivePlatform,
+  'blackmagic.setActivePlatform': blackmagicSetActivePlatform,
+  'blackmagic.getPlatforms': blackmagicGetPlatforms,
+  'blackmagic.getPlatformConfig': blackmagicGetPlatformConfig,
+  'blackmagic.getVideoFormat': blackmagicGetVideoFormat,
+  'blackmagic.setVideoFormat': blackmagicSetVideoFormat,
+  'blackmagic.getSupportedVideoFormats': blackmagicGetSupportedVideoFormats,
+  'blackmagic.getAudioSources': blackmagicGetAudioSources,
+  'blackmagic.setAudioSource': blackmagicSetAudioSource,
+
+  // AJA HELO
+  'aja.setVideoInput': ajaSetVideoInput,
+  'aja.setAudioInput': ajaSetAudioInput,
+  'aja.setStreamProfile': ajaSetStreamProfile,
+  'aja.setRecordProfile': ajaSetRecordProfile,
+  'aja.setMute': ajaSetMute,
+  'aja.recallPreset': ajaRecallPreset,
+
+  // Epiphan Pearl
+  'epiphan.startPublisher': epiphanStartPublisher,
+  'epiphan.stopPublisher': epiphanStopPublisher,
+  'epiphan.getLayouts': epiphanGetLayouts,
+  'epiphan.setActiveLayout': epiphanSetActiveLayout,
+  'epiphan.getStreamingParams': epiphanGetStreamingParams,
+  'epiphan.setStreamingParams': epiphanSetStreamingParams,
+
+  // Ecamm Live
+  'ecamm.togglePause': ecammTogglePause,
+  'ecamm.getScenes': ecammGetScenes,
+  'ecamm.setScene': ecammSetScene,
+  'ecamm.nextScene': ecammNextScene,
+  'ecamm.prevScene': ecammPrevScene,
+  'ecamm.toggleMute': ecammToggleMute,
+  'ecamm.getInputs': ecammGetInputs,
+  'ecamm.setInput': ecammSetInput,
+  'ecamm.togglePIP': ecammTogglePIP,
+  'ecamm.getOverlays': ecammGetOverlays,
+
+  // NDI
+  'ndi.getSource': ndiGetSource,
+  'ndi.setSource': ndiSetSource,
+
   'status': getStatus,
   'system.preServiceCheck': preServiceCheck,
 
@@ -2473,6 +2946,8 @@ const commandHandlers = {
   'videohub.getRoutes': videohubGetRoutes,
   'videohub.setInputLabel': videohubSetInputLabel,
   'videohub.setOutputLabel': videohubSetOutputLabel,
+  'videohub.getInputLabels': videohubGetInputLabels,
+  'videohub.getOutputLabels': videohubGetOutputLabels,
 
   'propresenter.next': propresenterNext,
   'propresenter.previous': propresenterPrevious,
@@ -2489,6 +2964,8 @@ const commandHandlers = {
   'propresenter.getTimers': propresenterGetTimers,
   'propresenter.startTimer': propresenterStartTimer,
   'propresenter.stopTimer': propresenterStopTimer,
+  'propresenter.version': propresenterVersion,
+  'propresenter.messages': propresenterMessages,
 
   'vmix.status': vmixStatus,
   'vmix.startStream': vmixStartStream,
@@ -2506,6 +2983,9 @@ const commandHandlers = {
   'vmix.preview': vmixPreview,
   'vmix.isRunning': vmixIsRunning,
   'vmix.function': vmixFunction,
+  'vmix.startPlaylist': vmixStartPlaylist,
+  'vmix.stopPlaylist': vmixStopPlaylist,
+  'vmix.audioLevels': vmixAudioLevels,
 
   'resolume.status': resolumeStatus,
   'resolume.playClip': resolumePlayClip,
@@ -2518,6 +2998,8 @@ const commandHandlers = {
   'resolume.getLayers': resolumeGetLayers,
   'resolume.getColumns': resolumeGetColumns,
   'resolume.isRunning': resolumeIsRunning,
+  'resolume.version': resolumeVersion,
+  'resolume.getBpm': resolumeGetBpm,
 
   'mixer.status': mixerStatus,
   'mixer.mute': mixerMute,
@@ -2535,6 +3017,7 @@ const commandHandlers = {
   'mixer.setFullChannelStrip': mixerSetFullChannelStrip,
   'mixer.saveScene': mixerSaveScene,
   'mixer.setupFromPatchList': mixerSetupFromPatchList,
+  'mixer.capabilities': mixerCapabilities,
 
   'atem.uploadStill': atemUploadStill,
   'atem.setMediaPlayer': atemSetMediaPlayer,
