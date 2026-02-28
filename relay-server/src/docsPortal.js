@@ -5,7 +5,7 @@ const { marked } = require('marked');
 // ─── Markdown loader & section parser ────────────────────────────────────────
 
 function loadAndParseDocs() {
-  const mdPath = path.resolve(__dirname, '../../docs/integration-knowledge-base.md');
+  const mdPath = path.resolve(__dirname, '../docs/integration-knowledge-base.md');
   const raw = fs.readFileSync(mdPath, 'utf-8');
 
   // Strip the YAML-style title line and ToC section (everything before first ## heading that isn't ToC)
