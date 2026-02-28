@@ -17,8 +17,8 @@ module.exports = function setupHealthRoutes(app, ctx) {
     });
   });
 
-  // Detailed health/stats
-  app.get('/api/health', (_req, res) => {
+  // Detailed health/stats (+ /health alias for load-balancers / uptime monitors)
+  function detailedHealth(_req, res) {
     const connectedCount = Array.from(churches.values()).filter(c => c.ws?.readyState === WebSocket.OPEN).length;
     res.json({
       service: 'tally-relay',
@@ -30,5 +30,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
       controllers: controllers.size,
       totalMessagesRelayed: ctx.totalMessagesRelayed,
     });
-  });
+  }
+  app.get('/api/health', detailedHealth);
+  app.get('/health', detailedHealth);
 };

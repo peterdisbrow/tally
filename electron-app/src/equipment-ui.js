@@ -143,6 +143,8 @@ function renderDeviceCard(deviceId, instanceIndex) {
 
   // Build fields HTML
   let fieldsHtml = '';
+  const isAtemAudioType = deviceId === 'mixer'
+    && (state.type === 'atem-direct' || state.type === 'atem-auto' || state.type === 'atem-none');
 
   if (def.subtype && deviceId === 'encoder') {
     fieldsHtml += renderEncoderCard(state, instanceIndex);
@@ -160,7 +162,6 @@ function renderDeviceCard(deviceId, instanceIndex) {
         fieldsHtml += `<select ${dataAttrs}${onchangeAttr} style="${field.style || 'flex:1'}">${opts}</select>`;
       } else {
         // Hide mixer IP/port fields when type is an ATEM audio option
-        const isAtemAudioType = state.type === 'atem-direct' || state.type === 'atem-auto' || state.type === 'atem-none';
         const hideMixerField = deviceId === 'mixer' && (field.key === 'host' || field.key === 'port') && isAtemAudioType;
         fieldsHtml += `<input type="${field.type}" ${dataAttrs} value="${escapeHtml(val)}" placeholder="${field.placeholder || ''}" style="${field.style || ''}${hideMixerField ? ';display:none' : ''}">`;
       }

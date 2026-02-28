@@ -245,8 +245,77 @@ function probeDevice(ip, port, type, timeoutMs) {
 }
 
 /**
+ * Build the full list of IPs to scan, supporting multi-subnet discovery.
+ * Scans all available non-internal interfaces plus any extra subnets/IPs.
+ *
+ * @param {object} options
+ * @param {string}   [options.interfaceName] - scan only this interface (single-subnet mode)
+ * @param {string[]} [options.extraSubnets]  - additional /24 subnets, e.g. ['10.0.2', '172.16.5']
+ * @param {string[]} [options.extraIps]      - individual IPs to probe (any range)
+ * @returns {{ ips: string[], localIps: Set<string>, label: string }}
+ */
+function buildScanTargets(options = {}) {
+  const localIps = new Set();
+  const subnetSet = new Set();
+
+  if (options.interfaceName) {
+    // Single-interface mode (legacy behavior)
+    const { subnet, localIp } = getLocalSubnet(options.interfaceName);
+    localIps.add(localIp);
+    subnetSet.add(subnet);
+  } else {
+    // Scan all interfaces
+    for (const iface of listAvailableInterfaces()) {
+      localIps.add(iface.ip);
+      const parts = iface.ip.split('.');
+      subnetSet.add(`${parts[0]}.${parts[1]}.${parts[2]}`);
+    }
+    // Fallback if no interfaces found
+    if (subnetSet.size === 0) {
+      subnetSet.add('192.168.1');
+      localIps.add('127.0.0.1');
+    }
+  }
+
+  // Add extra subnets from config
+  if (Array.isArray(options.extraSubnets)) {
+    for (const s of options.extraSubnets) {
+      const trimmed = String(s).trim().replace(/\.+$/, '');
+      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(trimmed)) subnetSet.add(trimmed);
+    }
+  }
+
+  // Build IP list from all subnets
+  const ipSet = new Set();
+  for (const subnet of subnetSet) {
+    for (let i = 1; i <= 254; i++) ipSet.add(`${subnet}.${i}`);
+  }
+
+  // Add extra individual IPs
+  if (Array.isArray(options.extraIps)) {
+    for (const ip of options.extraIps) {
+      const trimmed = String(ip).trim();
+      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(trimmed)) ipSet.add(trimmed);
+    }
+  }
+
+  const subnets = Array.from(subnetSet);
+  const label = subnets.length === 1
+    ? `${subnets[0]}.x`
+    : `${subnets.length} subnets (${subnets.join(', ')})`;
+
+  return { ips: Array.from(ipSet), localIps, label };
+}
+
+/**
  * Discover AV devices on the local network.
+ * By default scans all non-internal interfaces (multi-subnet).
+ *
  * @param {function} onProgress - callback(percent, message)
+ * @param {object}  [options]
+ * @param {string}  [options.interfaceName] - limit to a single interface
+ * @param {string[]} [options.extraSubnets] - additional /24 subnets to scan
+ * @param {string[]} [options.extraIps]     - individual IPs to probe
  * @returns {Promise<Object>} discovered devices
  */
 async function discoverDevices(onProgress = () => {}, options = {}) {
@@ -254,14 +323,9 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     atem: [], companion: [], obs: [], hyperdeck: [], propresenter: [], nmos: [],
     resolume: [], vmix: [], tricaster: [], birddog: [], videohub: [], mixers: [], encoders: [],
   };
-  const { subnet, localIp, interfaceName } = getLocalSubnet(options.interfaceName);
+  const { ips, localIps, label } = buildScanTargets(options);
 
-  const ifaceLabel = interfaceName ? ` on ${interfaceName}` : '';
-  onProgress(0, `Scanning ${subnet}.x for AV devices${ifaceLabel}...`);
-
-  // Build IP list (1-254)
-  const ips = [];
-  for (let i = 1; i <= 254; i++) ips.push(`${subnet}.${i}`);
+  onProgress(0, `Scanning ${label} for AV devices...`);
 
   // Also check localhost for common services (important for local mock/testing setups)
   const localhostChecks = [
@@ -408,7 +472,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
       for (const { port, type } of ports) {
         // Skip if already found on localhost
         if (ip === '127.0.0.1') continue;
-        if (ip === localIp && (type === 'obs' || type === 'companion')) continue;
+        if (localIps.has(ip) && (type === 'obs' || type === 'companion')) continue;
 
         promises.push(
           probeDevice(ip, port, type, 500).then(async (open) => {
@@ -531,6 +595,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
 
 module.exports = {
   discoverDevices,
+  buildScanTargets,
   tryTcpConnect,
   tryUdpProbe,
   tryHttpGet,

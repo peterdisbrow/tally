@@ -5,7 +5,7 @@ let isRunning = false;
 let alertCount = 0;
 let pendingDiscoveryNic = '';
 let _audioViaAtem = false; // synced from relay — true if church routes audio directly into ATEM
-const DEFAULT_RELAY_URL = 'wss://tally-production-cde2.up.railway.app';
+const DEFAULT_RELAY_URL = 'wss://api.tallyconnect.app';
 
 function showFatalInitError(message) {
   const wizard = document.getElementById('wizard');
@@ -228,10 +228,31 @@ async function showDashboard() {
   } catch { /* ignore — status updates will set it later */ }
 }
 
+function shouldRetryLoginOnDefaultRelay(result) {
+  if (!result || typeof result !== 'object') return true;
+  if (result.success && result.data?.token) return false;
+  const errorText = String(result.error || result.data?.error || '').toLowerCase();
+  if (!errorText) return true;
+  return [
+    'timeout',
+    'timed out',
+    'network',
+    'fetch',
+    'econnrefused',
+    'enotfound',
+    'connection',
+    'unreachable',
+    'closed',
+    'failed',
+    'invalid email or password',
+  ].some((needle) => errorText.includes(needle));
+}
+
 async function doSignIn() {
   const email = document.getElementById('si-email').value.trim();
   const password = document.getElementById('si-password').value;
-  const relay = DEFAULT_RELAY_URL;
+  const savedConfig = await api.getConfig();
+  const preferredRelay = savedConfig.relay || DEFAULT_RELAY_URL;
   const btn = document.getElementById('si-btn');
 
   if (!email || !password) {
@@ -244,7 +265,17 @@ async function doSignIn() {
   showSignInMessage('Signing in...', 'var(--muted)');
 
   try {
-    const result = await api.churchAuthLogin({ relay, email, password });
+    let relay = preferredRelay;
+    let result = await api.churchAuthLogin({ relay, email, password });
+
+    const canFallbackToDefault = preferredRelay !== DEFAULT_RELAY_URL;
+    const needsFallback = canFallbackToDefault && shouldRetryLoginOnDefaultRelay(result);
+    if (needsFallback) {
+      showSignInMessage('Retrying on primary relay...', 'var(--muted)');
+      relay = DEFAULT_RELAY_URL;
+      result = await api.churchAuthLogin({ relay, email, password });
+    }
+
     if (result.success && result.data?.token) {
       const token = result.data.token;
       const churchName = result.data?.church?.name || '';

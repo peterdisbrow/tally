@@ -351,7 +351,7 @@ class ChurchAVAgent {
       mixer: { connected: false, type: null, model: null, mainMuted: false },
       ptz: [],
       audio: { monitoring: false, lastLevel: null, silenceDetected: false },
-      system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null },
+      system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '' },
     };
   }
 
