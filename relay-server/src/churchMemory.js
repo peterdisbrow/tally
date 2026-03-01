@@ -114,6 +114,55 @@ class ChurchMemory {
     return true; // new row created
   }
 
+  // ─── WRITE: USER NOTES ──────────────────────────────────────────────────────
+
+  /**
+   * Save a TD-provided note as a persistent memory.
+   * "Remember the pastor likes a tight shot during prayer"
+   * @param {string} churchId
+   * @param {string} note  Free-text note from the TD
+   * @param {string} [senderName='TD']
+   */
+  saveUserNote(churchId, note, senderName = 'TD') {
+    try {
+      const matchKey = `note:${note.slice(0, 50).toLowerCase().replace(/\s+/g, '_')}`;
+      const now = new Date().toISOString();
+      const details = { _matchKey: matchKey, fullNote: note, setBy: senderName };
+
+      const existing = this._findExisting(churchId, 'user_note', matchKey);
+
+      if (existing) {
+        // Update existing note
+        this.db.prepare(`
+          UPDATE church_memory SET
+            summary = ?, details = ?, confidence = ?, last_seen = ?
+          WHERE id = ?
+        `).run(note.slice(0, 120), JSON.stringify(details), Math.min(100, existing.confidence + 5), now, existing.id);
+      } else {
+        // New note — starts at confidence 80 (higher than auto-detected memories)
+        this.db.prepare(`
+          INSERT INTO church_memory (church_id, category, summary, details, confidence, observation_count, first_seen, last_seen, source, active)
+          VALUES (?, ?, ?, ?, 80, 1, ?, ?, ?, 1)
+        `).run(churchId, 'user_note', note.slice(0, 120), JSON.stringify(details), now, now, 'user_note');
+      }
+
+      this._rebuildSummary(churchId);
+    } catch (e) {
+      console.error(`[ChurchMemory] User note error:`, e.message);
+    }
+  }
+
+  /**
+   * Get all active user notes for a church.
+   * @param {string} churchId
+   * @returns {object[]}
+   */
+  getUserNotes(churchId) {
+    return this.db.prepare(
+      `SELECT * FROM church_memory WHERE church_id = ? AND category = 'user_note' AND active = 1 ORDER BY last_seen DESC`
+    ).all(churchId);
+  }
+
   // ─── WRITE: POST-SERVICE ────────────────────────────────────────────────────
 
   /**
@@ -347,6 +396,76 @@ class ChurchMemory {
     }
   }
 
+  // ─── READ: PRE-SERVICE BRIEFING ─────────────────────────────────────────
+
+  /**
+   * Get structured data for a pre-service intelligence briefing.
+   * Zero AI calls — just database queries.
+   * @param {string} churchId
+   * @returns {{ userNotes: object[], recurringIssues: object[], equipmentQuirks: object[], reliabilityTrend: object|null }}
+   */
+  getPreServiceBriefing(churchId) {
+    try {
+      const userNotes = this.db.prepare(
+        `SELECT summary FROM church_memory WHERE church_id = ? AND category = 'user_note' AND active = 1 ORDER BY confidence DESC LIMIT 5`
+      ).all(churchId);
+      const recurringIssues = this.db.prepare(
+        `SELECT summary, details FROM church_memory WHERE church_id = ? AND category = 'recurring_issue' AND active = 1 ORDER BY confidence DESC LIMIT 3`
+      ).all(churchId);
+      const equipmentQuirks = this.db.prepare(
+        `SELECT summary FROM church_memory WHERE church_id = ? AND category = 'equipment_quirk' AND active = 1 ORDER BY confidence DESC LIMIT 3`
+      ).all(churchId);
+      const reliabilityTrend = this.db.prepare(
+        `SELECT summary, details FROM church_memory WHERE church_id = ? AND category = 'reliability_trend' AND active = 1 LIMIT 1`
+      ).get(churchId) || null;
+      return { userNotes, recurringIssues, equipmentQuirks, reliabilityTrend };
+    } catch (e) {
+      console.error(`[ChurchMemory] Briefing query error for ${churchId}:`, e.message);
+      return { userNotes: [], recurringIssues: [], equipmentQuirks: [], reliabilityTrend: null };
+    }
+  }
+
+  // ─── READ: TIMED WARNINGS ─────────────────────────────────────────────────
+
+  /**
+   * Get recurring issues that have a known time-of-day pattern.
+   * Used for proactive warnings during a live service.
+   * @param {string} churchId
+   * @returns {Array<{ summary: string, eventType: string, windowMinuteOfDay: number }>}
+   */
+  getTimedWarnings(churchId) {
+    try {
+      const rows = this.db.prepare(
+        `SELECT summary, details FROM church_memory
+         WHERE church_id = ? AND category = 'recurring_issue' AND active = 1 AND confidence >= 30`
+      ).all(churchId);
+
+      const warnings = [];
+      for (const row of rows) {
+        try {
+          const details = JSON.parse(row.details || '{}');
+          const tw = details.timeWindow;
+          if (!tw || tw === 'varied times') continue;
+          const match = tw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+          if (!match) continue;
+          let h = parseInt(match[1]);
+          const m = parseInt(match[2]);
+          if (match[3].toUpperCase() === 'PM' && h < 12) h += 12;
+          if (match[3].toUpperCase() === 'AM' && h === 12) h = 0;
+          warnings.push({
+            summary: row.summary,
+            eventType: details.eventType || '',
+            windowMinuteOfDay: h * 60 + m,
+          });
+        } catch { /* skip malformed */ }
+      }
+      return warnings;
+    } catch (e) {
+      console.error(`[ChurchMemory] Timed warnings error for ${churchId}:`, e.message);
+      return [];
+    }
+  }
+
   // ─── CONSOLIDATION ────────────────────────────────────────────────────────
 
   /**
@@ -357,16 +476,18 @@ class ChurchMemory {
     const now = new Date();
 
     // 1. Decay confidence on memories not seen in 4+ weeks
+    //    User notes decay at half speed (explicit user intent should persist longer)
     const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000).toISOString();
     const stale = this.db.prepare(`
-      SELECT id, confidence, last_seen FROM church_memory
+      SELECT id, confidence, last_seen, category FROM church_memory
       WHERE church_id = ? AND active = 1 AND last_seen < ?
     `).all(churchId, fourWeeksAgo);
 
     for (const mem of stale) {
       const weeksSinceLastSeen = Math.floor((now - new Date(mem.last_seen)) / (7 * 24 * 60 * 60 * 1000));
       const weeksOverThreshold = weeksSinceLastSeen - 4;
-      const decay = weeksOverThreshold * CONFIDENCE_DECAY_PER_WEEK;
+      const decayRate = mem.category === 'user_note' ? CONFIDENCE_DECAY_PER_WEEK * 0.5 : CONFIDENCE_DECAY_PER_WEEK;
+      const decay = weeksOverThreshold * decayRate;
       const newConfidence = Math.max(0, mem.confidence - decay);
 
       if (newConfidence < ARCHIVE_THRESHOLD) {
@@ -407,7 +528,7 @@ class ChurchMemory {
       const rows = this.db.prepare(`
         SELECT summary FROM church_memory
         WHERE church_id = ? AND active = 1
-        ORDER BY confidence DESC, last_seen DESC
+        ORDER BY CASE WHEN category = 'user_note' THEN 0 ELSE 1 END, confidence DESC, last_seen DESC
         LIMIT 8
       `).all(churchId);
 

@@ -1416,11 +1416,15 @@ async function resolumeGetBpm(agent) {
  * mixer types aren't blocked.
  */
 const MIXER_CAPABILITIES = {
-  X32:    { compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full' },
-  M32:    { compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full' },
-  SQ:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: 'partial', channelStrip: 'partial' },
-  dLive:  { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: 'partial', channelStrip: 'partial' },
-  CL:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
+  X32:    { compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full', preampGain: 'full', phantom: 'full', pan: 'full', channelColor: 'full', channelIcon: 'full', sendLevel: 'full', busAssign: 'full', dcaAssign: 'full', metering: 'full', sceneSaveVerify: 'full' },
+  M32:    { compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full', preampGain: 'full', phantom: 'full', pan: 'full', channelColor: 'full', channelIcon: 'full', sendLevel: 'full', busAssign: 'full', dcaAssign: 'full', metering: 'full', sceneSaveVerify: 'full' },
+  SQ:      { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
+  SQ5:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
+  SQ6:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
+  SQ7:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
+  DLIVE:   { compressor: false, gate: false, hpf: 'full', eq: false, fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: false, pan: 'full', softKey: false },
+  AVANTIS: { compressor: false, gate: false, hpf: 'full', eq: false, fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: false, pan: 'full', softKey: false },
+  CL:      { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
   QL:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
   TF:     { compressor: false, gate: false, hpf: false, eq: false, fader: false, channelName: false, muteMaster: false, clearSolos: false, saveScene: false, channelStrip: false },
 };
@@ -1594,6 +1598,123 @@ async function mixerSaveScene(agent, params) {
   if (scene == null) throw new Error('scene number required');
   await agent.mixer.saveScene(scene, name);
   return `Scene ${scene}${name ? ` ("${name}")` : ''} save attempted`;
+}
+
+// ─── NEW X32/M32 MIXER COMMANDS ──────────────────────────────────────────────
+
+async function mixerSetPreampGain(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'preampGain', 'Preamp gain');
+  const { channel, gain } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (gain == null) throw new Error('gain parameter required (dB, -18 to +18)');
+  const gainDb = parseFloat(gain);
+  if (isNaN(gainDb)) throw new Error('gain must be a number in dB');
+  await agent.mixer.setPreampGain(channel, gainDb);
+  return `Channel ${channel} preamp trim set to ${gainDb > 0 ? '+' : ''}${gainDb} dB`;
+}
+
+async function mixerSetPhantom(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'phantom', 'Phantom power');
+  const { channel, enabled } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  const on = enabled !== false && enabled !== 0 && enabled !== 'false';
+  await agent.mixer.setPhantom(channel, on);
+  return `Channel ${channel} phantom power ${on ? '⚡ ON' : 'OFF'}`;
+}
+
+async function mixerSetPan(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'pan', 'Pan');
+  const { channel, pan } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (pan == null) throw new Error('pan parameter required (-1.0 left to +1.0 right, 0 = center)');
+  const panVal = parseFloat(pan);
+  if (isNaN(panVal)) throw new Error('pan must be a number (-1.0 to +1.0)');
+  await agent.mixer.setPan(channel, panVal);
+  const label = panVal < -0.01 ? `${Math.round(panVal * 100)}% L` :
+                panVal > 0.01  ? `${Math.round(panVal * 100)}% R` : 'Center';
+  return `Channel ${channel} pan set to ${label}`;
+}
+
+async function mixerSetChannelColor(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'channelColor', 'Channel color');
+  const { channel, color } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (color == null) throw new Error('color parameter required (name like "red" or index 0–15)');
+  await agent.mixer.setChannelColor(channel, color);
+  return `Channel ${channel} color set to ${color}`;
+}
+
+async function mixerSetChannelIcon(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'channelIcon', 'Channel icon');
+  const { channel, icon } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (icon == null) throw new Error('icon parameter required (name like "mic" or index 1–74)');
+  await agent.mixer.setChannelIcon(channel, icon);
+  return `Channel ${channel} icon set to ${icon}`;
+}
+
+async function mixerSetSendLevel(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'sendLevel', 'Send level');
+  const { channel, bus, level } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (bus == null) throw new Error('bus parameter required (1–16)');
+  if (level == null) throw new Error('level parameter required (0.0–1.0)');
+  await agent.mixer.setSendLevel(channel, parseInt(bus), parseFloat(level));
+  return `Channel ${channel} → Bus ${bus} send level set to ${Math.round(parseFloat(level) * 100)}%`;
+}
+
+async function mixerAssignToBus(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'busAssign', 'Bus assignment');
+  const { channel, bus, enabled } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (bus == null) throw new Error('bus parameter required (1–16)');
+  const on = enabled !== false && enabled !== 0 && enabled !== 'false';
+  await agent.mixer.assignToBus(channel, parseInt(bus), on);
+  return `Channel ${channel} → Bus ${bus}: ${on ? '✅ assigned' : '❌ removed'}`;
+}
+
+async function mixerAssignToDca(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'dcaAssign', 'DCA assignment');
+  const { channel, dca, enabled } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (dca == null) throw new Error('dca parameter required (1–8)');
+  const on = enabled !== false && enabled !== 0 && enabled !== 'false';
+  await agent.mixer.assignToDca(channel, parseInt(dca), on);
+  return `Channel ${channel} → DCA ${dca}: ${on ? '✅ assigned' : '❌ removed'}`;
+}
+
+async function mixerGetMeters(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'metering', 'Metering');
+  const channels = params.channels ? (Array.isArray(params.channels) ? params.channels.map(Number) : [parseInt(params.channels)]) : undefined;
+  const meters = await agent.mixer.getMeters(channels);
+  const lines = ['📊 Channel meters:'];
+  for (const m of meters) {
+    const pct = Math.round((m.fader ?? 0) * 100);
+    const bar = '█'.repeat(Math.round(pct / 5)) + '░'.repeat(20 - Math.round(pct / 5));
+    lines.push(`  Ch ${String(m.channel).padStart(2)}: ${bar} ${pct}% ${m.muted ? '🔇' : '🔊'}`);
+  }
+  return lines.join('\n');
+}
+
+async function mixerVerifySceneSave(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'sceneSaveVerify', 'Scene verification');
+  const { scene } = params;
+  if (scene == null) throw new Error('scene number required');
+  const result = await agent.mixer.verifySceneSave(parseInt(scene));
+  if (result.exists) {
+    return `✅ Scene ${result.sceneNumber} verified: "${result.name}"`;
+  }
+  return `⚠️ Scene ${result.sceneNumber}: no name found (may not exist or save may have failed)`;
 }
 
 /**
@@ -3225,6 +3346,16 @@ const commandHandlers = {
   'mixer.setGate': mixerSetGate,
   'mixer.setFullChannelStrip': mixerSetFullChannelStrip,
   'mixer.saveScene': mixerSaveScene,
+  'mixer.setPreampGain': mixerSetPreampGain,
+  'mixer.setPhantom': mixerSetPhantom,
+  'mixer.setPan': mixerSetPan,
+  'mixer.setChannelColor': mixerSetChannelColor,
+  'mixer.setChannelIcon': mixerSetChannelIcon,
+  'mixer.setSendLevel': mixerSetSendLevel,
+  'mixer.assignToBus': mixerAssignToBus,
+  'mixer.assignToDca': mixerAssignToDca,
+  'mixer.getMeters': mixerGetMeters,
+  'mixer.verifySceneSave': mixerVerifySceneSave,
   'mixer.setupFromPatchList': mixerSetupFromPatchList,
   'mixer.capabilities': mixerCapabilities,
 

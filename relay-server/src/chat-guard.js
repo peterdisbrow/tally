@@ -69,6 +69,11 @@ const ON_TOPIC_KEYWORDS = [
   'start', 'stop', 'go', 'take', 'cut', 'fade', 'black', 'ftb',
   'recall', 'save', 'load', 'apply', 'set', 'change', 'adjust', 'turn',
   'check', 'test', 'verify', 'scan', 'snap', 'capture',
+
+  // ── Memory / knowledge commands ──
+  'remember', 'forget', 'note', 'recap', 'happened',
+  'document', 'sop', 'handbook', 'knowledge base',
+  'last week', 'last service', 'last sunday', 'session history',
 ];
 
 const OFF_TOPIC_RESPONSE = "I'm only here for production and equipment. Try 'help' to see what I can do.";

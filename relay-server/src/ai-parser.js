@@ -451,6 +451,9 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   // Church memory (pre-compiled summary from past observations)
   if (ctx.memorySummary) contextHint += ctx.memorySummary + ' ';
 
+  // Church knowledge base documents (relevant chunk for current query)
+  if (ctx.documentContext) contextHint += `[Docs: ${ctx.documentContext}] `;
+
   const userContent = contextHint
     ? `[${contextHint.trim()}]\n${text}`
     : text;
