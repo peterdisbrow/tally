@@ -377,6 +377,8 @@ a:hover { text-decoration: underline; }
   border-radius: 50%; box-shadow: 0 0 8px #22c55e;
 }
 .ht-sidebar-tagline { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+.ht-home-link { display: block; font-size: 12px; color: #94a3b8; margin-top: 8px; text-decoration: none; }
+.ht-home-link:hover { color: #22c55e; }
 .ht-search-wrap { padding: 12px 16px; }
 .ht-search {
   width: 100%; padding: 8px 12px; background: #09090b;
@@ -787,8 +789,9 @@ ${renderJsonLd(jsonLd)}
 <div class="ht-layout">
   <aside class="ht-sidebar" id="htSidebar">
     <div class="ht-sidebar-header">
-      <div class="ht-sidebar-logo">Tally How-To</div>
+      <a href="https://tallyconnect.app" class="ht-sidebar-logo" style="text-decoration:none;color:inherit;">Tally How-To</a>
       <div class="ht-sidebar-tagline">Step-by-step setup guides</div>
+      <a href="https://tallyconnect.app" class="ht-home-link">← Back to tallyconnect.app</a>
     </div>
     <div class="ht-search-wrap">
       <input type="text" class="ht-search" id="htSearch" placeholder="Search guides..." autocomplete="off" />
