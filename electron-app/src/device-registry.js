@@ -224,12 +224,15 @@ const ENCODER_OPTIONS = [
   { value: 'tricaster', label: 'TriCaster' },
   { value: 'birddog', label: 'BirdDog' },
   { value: 'yolobox', label: 'YoloBox' },
+  { value: 'youtube-live', label: 'YouTube Live (CDN destination)' },
+  { value: 'facebook-live', label: 'Facebook Live (CDN destination)' },
+  { value: 'vimeo-live', label: 'Vimeo Live (CDN destination)' },
   { value: 'tally-encoder', label: 'Tally Encoder' },
   { value: 'custom', label: 'Custom Encoder' },
 ];
 
 const ENCODER_API_TYPES = ['obs', 'vmix', 'blackmagic', 'aja', 'epiphan', 'teradek', 'tricaster', 'birddog', 'tally-encoder', 'custom'];
-const ENCODER_RTMP_TYPES = ['yolobox', 'rtmp-generic', 'custom-rtmp'];
+const ENCODER_RTMP_TYPES = ['yolobox', 'youtube-live', 'facebook-live', 'vimeo-live', 'rtmp-generic', 'custom-rtmp'];
 
 const ENCODER_DEFAULTS = {
   obs:              { host: 'localhost', port: '4455', pw: true,  note: 'OBS WebSocket v5 \u2014 GetStats, StartStream, StopStream' },
@@ -264,6 +267,6 @@ const SCAN_TO_DEVICE = {
 const ENCODER_DISPLAY_NAMES = {
   obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
   aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek', tricaster: 'TriCaster', birddog: 'BirdDog',
-  ndi: 'NDI Decoder', yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
+  ndi: 'NDI Decoder', yolobox: 'YoloBox', 'youtube-live': 'YouTube Live', 'facebook-live': 'Facebook Live', 'vimeo-live': 'Vimeo Live', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
   'atem-streaming': 'ATEM Mini',
 };
