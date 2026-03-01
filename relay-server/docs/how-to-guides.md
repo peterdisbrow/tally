@@ -1,7 +1,7 @@
 # Tally How-To Guides
 
 <!-- CATEGORIES
-1. Getting Started | H01, H02, H03, H04
+1. Getting Started | H01, H02, H03, H04, H16
 2. Equipment Integrations | H05, H07, H08, H09, H10, H11
 3. Automation and Companion | H06, H13
 4. Troubleshooting | H12, H14
@@ -1439,3 +1439,188 @@ If `DB_BACKUP_INTERVAL_MINUTES` is not set, backups default to every 15 minutes.
 ![Status page](screenshot:H15-status-dashboard)
 ![Incident history](screenshot:H15-incident-history)
 ![Log export](screenshot:H15-log-export)
+
+---
+
+## H16: Network Setup for Church AV
+<!-- category: Getting Started -->
+<!-- time: 15 min -->
+<!-- difficulty: Intermediate -->
+<!-- summary: Configure your church network so Tally, your ATEM, cameras, and streaming gear all communicate reliably. -->
+
+### Quick Start
+
+1. Put all AV gear on the same subnet (e.g. 192.168.1.x) using a dedicated switch
+2. Assign static IPs to every piece of AV equipment — never rely on DHCP for production gear
+3. Connect the Tally computer to the same switch and confirm it can reach each device
+4. Verify connectivity from Tally's Equipment Setup screen — every device should show a green dot
+
+### Who This Is For
+
+Church tech directors and volunteers setting up or troubleshooting the network that connects an ATEM switcher, cameras, streaming encoder, and Tally.
+
+### What You Will Accomplish
+
+- Understand why AV gear needs its own network segment
+- Assign static IPs to your ATEM, PTZ cameras, encoder, and other devices
+- Wire everything through a dedicated AV switch
+- Verify end-to-end connectivity from the Tally computer
+- Avoid the most common network mistakes that cause dropped connections
+
+### Prerequisites
+
+- [ ] A managed or unmanaged gigabit network switch (8-port minimum, 16-port recommended)
+- [ ] Ethernet cables for every piece of AV gear
+- [ ] Access to each device's network settings (ATEM Software Control, camera web UI, etc.)
+- [ ] Tally installed and signed in (see H01 and H02)
+
+### Step-by-Step Setup
+
+**Step 1 — Plan Your IP Scheme**
+
+Pick a subnet for all AV equipment. A common choice:
+
+| Device | IP Address |
+|--------|------------|
+| ATEM Switcher | 192.168.1.10 |
+| PTZ Camera 1 | 192.168.1.21 |
+| PTZ Camera 2 | 192.168.1.22 |
+| PTZ Camera 3 | 192.168.1.23 |
+| OBS / Encoder PC | 192.168.1.30 |
+| Audio Console (X32, etc.) | 192.168.1.40 |
+| Companion | 192.168.1.50 |
+| HyperDeck | 192.168.1.60 |
+| Tally Computer | 192.168.1.100 |
+
+> **Tip:** Write these on a label and stick it to the inside of your rack or tech booth desk. You will need them again.
+
+Use subnet mask **255.255.255.0** and gateway **192.168.1.1** everywhere. If your church internet router is on 192.168.1.1, this lets AV gear reach the internet for relay connections. If the router uses a different range, adjust your AV subnet to match or add a route.
+
+**Step 2 — Set Static IPs on Every Device**
+
+Never rely on DHCP for production AV gear. A DHCP lease change mid-service will drop your ATEM or camera connection instantly.
+
+- **ATEM** — Open ATEM Software Control → Switcher Settings → Network. Set a static IP, subnet mask, and gateway. Click Apply and wait for the switcher to restart its network.
+- **PTZ Cameras** — Open each camera's web interface (usually at the camera's current IP). Go to Network settings and assign the planned static IP.
+- **OBS / Encoder** — Set a static IP on the computer's Ethernet adapter in your OS network settings.
+- **Audio Console** — Access the console's Setup/Network screen and assign a static IP.
+- **Tally Computer** — Set a static IP on the Ethernet adapter. On Mac: System Settings → Network → Ethernet → Details → TCP/IP → Configure IPv4: Manually.
+
+**Step 3 — Wire Through a Dedicated Switch**
+
+Connect every piece of AV gear and the Tally computer to the same physical switch. This keeps AV traffic off the church Wi-Fi and general office network.
+
+```
+[Internet Router]
+       |
+[AV Switch] ─── ATEM Switcher
+       |─────── PTZ Camera 1
+       |─────── PTZ Camera 2
+       |─────── PTZ Camera 3
+       |─────── Encoder / OBS PC
+       |─────── Audio Console
+       |─────── Tally Computer
+       |─────── HyperDeck
+       |─────── Companion
+```
+
+> **Important:** Use Cat6 cables for runs longer than 10 feet. Use Cat5e only for short patch cables. Never use Wi-Fi for ATEM, cameras, or Tally — it is not reliable enough for live production.
+
+**Step 4 — Verify Connectivity from the Tally Computer**
+
+Open a terminal on the Tally computer and ping each device:
+
+```bash
+ping 192.168.1.10    # ATEM
+ping 192.168.1.21    # Camera 1
+ping 192.168.1.40    # Audio Console
+```
+
+Every device should respond in under 5 ms on a local switch. If any device does not respond:
+
+1. Check that the cable is seated — try a different port on the switch
+2. Confirm the static IP was saved on the device (some devices need a reboot)
+3. Make sure the Tally computer and the device are on the same subnet
+
+**Step 5 — Confirm in Tally**
+
+Open Tally and go to the Equipment Setup screen. Every connected device should show a green status dot. If a device shows red:
+
+- Double-check the IP address entered in Tally matches the static IP you assigned
+- Confirm the device is powered on and the Ethernet link light is active on the switch
+- Try unplugging and re-plugging the Ethernet cable
+
+**Step 6 — Verify Relay Connectivity**
+
+Tally connects to the cloud relay over the internet. Make sure the Tally computer (or the switch uplink) has a path to the internet.
+
+- The relay connection uses standard HTTPS (port 443) — no special firewall rules needed
+- If your church uses a firewall or content filter, make sure `api.tallyconnect.app` is allowed
+- Check the Tally app — the relay status should show "Connected" with a green dot
+
+### Advanced Details
+
+**VLANs (for managed switches):**
+
+If your church has a managed switch or enterprise network, create a dedicated VLAN for AV equipment. This isolates AV traffic from office computers and guest Wi-Fi while still allowing internet access for the relay connection.
+
+Typical VLAN setup:
+- VLAN 10 — AV Production (ATEM, cameras, Tally, encoder)
+- VLAN 20 — Church Office (staff computers, printers)
+- VLAN 30 — Guest Wi-Fi
+
+Configure the router to route between VLANs only if cross-VLAN access is needed (it usually isn't).
+
+**Multicast and IGMP:**
+
+ATEM discovery and some NDI workflows use multicast. If you're on a managed switch, enable **IGMP snooping** to prevent multicast traffic from flooding all ports. Most unmanaged switches handle this fine without configuration.
+
+**PoE (Power over Ethernet):**
+
+PTZ cameras and some devices support PoE. If your switch provides PoE, you can power cameras directly from the switch — no separate power adapter needed. Check your camera specs for PoE requirements (most PTZ cameras need PoE+ / 802.3at, 30W).
+
+**Bandwidth planning:**
+
+| Traffic Type | Bandwidth (per stream) |
+|-------------|----------------------|
+| ATEM control | < 1 Mbps |
+| PTZ control (VISCA/TCP) | < 1 Mbps |
+| Tally status updates | < 1 Mbps |
+| NDI video stream | 100–150 Mbps |
+| Relay (internet) | < 1 Mbps |
+
+A standard gigabit switch handles all of this comfortably. The only high-bandwidth item is NDI — if you use NDI, make sure your switch is gigabit and avoid daisy-chaining consumer switches.
+
+### Validation Checklist
+
+- [ ] Every AV device has a static IP (not DHCP)
+- [ ] All devices respond to ping from the Tally computer in under 5 ms
+- [ ] Tally Equipment Setup shows green dots for all connected devices
+- [ ] Relay status shows "Connected"
+- [ ] IP assignments are documented (label, spreadsheet, or config file)
+- [ ] No AV gear is relying on Wi-Fi
+
+### Common Issues and Fixes
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| ATEM drops out randomly | DHCP lease expired or IP conflict | Assign a static IP to the ATEM; check no other device uses the same address |
+| Camera unreachable after power cycle | Camera reverted to DHCP or a different IP | Re-assign the static IP in the camera's web interface |
+| Tally shows "Relay Disconnected" | No internet on the AV network | Confirm the switch uplink reaches a router with internet; allow `api.tallyconnect.app` on any firewall |
+| High latency on pings (>5 ms) | Traffic congestion or bad cable | Use a dedicated AV switch; replace suspect cables; check for broadcast storms |
+| Device works alone but fails when everything is on | IP address conflict — two devices share an IP | Audit every device IP; use the planned IP table to confirm no overlaps |
+| NDI video stutters | Not enough bandwidth or consumer switch | Use a gigabit managed switch; avoid daisy-chaining cheap switches |
+
+### Rollback / Fallback
+
+1. If a device becomes unreachable after changing its IP, connect a laptop directly to the device with a crosshair cable and reset its network settings.
+2. Most ATEM switchers can be factory-reset via the physical control panel (hold RESET on boot) which restores DHCP mode.
+3. PTZ cameras typically have a hardware reset button (pinhole on the back) that restores default network settings.
+
+### Screenshot Placeholders
+
+![IP address planning table](screenshot:H16-ip-plan)
+![ATEM network settings](screenshot:H16-atem-network)
+![Switch wiring diagram](screenshot:H16-switch-diagram)
+![Tally equipment status](screenshot:H16-tally-status)
+![Ping test results](screenshot:H16-ping-test)
