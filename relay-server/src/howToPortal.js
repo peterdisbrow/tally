@@ -31,6 +31,8 @@ function parseCategoryMap(lines) {
 
 function classifySection(title) {
   const map = {
+    'Quick Start': 'quickstart',
+    'Advanced Details': 'advanced',
     'Who This Is For': 'audience',
     'What You Will Accomplish': 'outcomes',
     'Prerequisites': 'prerequisites',
@@ -44,6 +46,8 @@ function classifySection(title) {
 }
 
 const SECTION_ICONS = {
+  quickstart: '&#9889;',
+  advanced: '&#128272;',
   audience: '&#128100;',
   outcomes: '&#127919;',
   prerequisites: '&#128221;',
@@ -56,6 +60,8 @@ const SECTION_ICONS = {
 };
 
 const SECTION_LABELS = {
+  quickstart: 'Quick Start',
+  advanced: 'Advanced Details',
   audience: 'Audience',
   outcomes: 'Goals',
   prerequisites: 'Before You Start',
@@ -111,6 +117,7 @@ function parseArticles(lines) {
         category: '',
         readTime: '',
         summary: '',
+        difficulty: '',
         sections: [],
       };
       currentSection = null;
@@ -126,6 +133,8 @@ function parseArticles(lines) {
       if (timeMatch) { current.readTime = timeMatch[1].trim(); continue; }
       const sumMatch = line.match(/<!--\s*summary:\s*(.+?)\s*-->/);
       if (sumMatch) { current.summary = sumMatch[1].trim(); continue; }
+      const diffMatch = line.match(/<!--\s*difficulty:\s*(.+?)\s*-->/);
+      if (diffMatch) { current.difficulty = diffMatch[1].trim(); continue; }
     }
 
     const sectionMatch = line.match(/^### (.+)$/);
@@ -622,6 +631,68 @@ a:hover { text-decoration: underline; }
 /* ── Category landing page ── */
 .ht-cat-landing-desc { font-size: 14px; color: #94a3b8; margin-bottom: 20px; line-height: 1.6; }
 
+/* ── Quick Start section ── */
+.ht-section-quickstart {
+  border-left-color: #3b82f6;
+  background: rgba(59,130,246,0.06);
+  border: 2px solid rgba(59,130,246,0.25);
+  border-left: 4px solid #3b82f6;
+  border-radius: 12px;
+}
+.ht-section-quickstart .ht-section-title { font-size: 20px; color: #3b82f6; }
+.ht-section-quickstart .ht-section-body ol {
+  counter-reset: qs-step; list-style: none; padding-left: 0;
+}
+.ht-section-quickstart .ht-section-body ol li {
+  counter-increment: qs-step;
+  display: flex; align-items: flex-start; gap: 12px;
+  margin-bottom: 10px; font-size: 15px; font-weight: 500;
+}
+.ht-section-quickstart .ht-section-body ol li::before {
+  content: counter(qs-step);
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 28px; height: 28px; border-radius: 50%;
+  background: #3b82f6; color: #fff; font-weight: 700; font-size: 13px; flex-shrink: 0;
+}
+
+/* ── Advanced Details (collapsible) ── */
+.ht-section-advanced {
+  border-left-color: #8b5cf6;
+  background: rgba(139,92,246,0.04);
+}
+.ht-section-advanced > summary {
+  cursor: pointer; list-style: none;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 18px; font-weight: 700; color: #f8fafc; padding: 0;
+}
+.ht-section-advanced > summary::-webkit-details-marker { display: none; }
+.ht-section-advanced > summary::marker { display: none; content: ''; }
+.ht-section-advanced > summary::before {
+  content: '\\25B6'; font-size: 12px; color: #8b5cf6; transition: transform 0.2s;
+}
+.ht-section-advanced[open] > summary::before { transform: rotate(90deg); }
+.ht-advanced-toggle {
+  margin-left: auto; font-size: 11px; color: #8b5cf6; font-weight: 500;
+}
+.ht-section-advanced > .ht-section-body {
+  margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(139,92,246,0.15);
+}
+
+/* ── Difficulty badges ── */
+.ht-meta-difficulty, .ht-preview-difficulty {
+  font-size: 11px; padding: 2px 10px; border-radius: 10px;
+  font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+}
+.ht-difficulty-beginner {
+  color: #22c55e; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2);
+}
+.ht-difficulty-intermediate {
+  color: #f59e0b; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2);
+}
+.ht-difficulty-advanced {
+  color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2);
+}
+
 /* ── Mobile ── */
 @media (max-width: 768px) {
   .ht-sidebar { display: none; }
@@ -788,6 +859,7 @@ function buildIndexPageHtml(categories, articles) {
           <div class="ht-preview-meta">
             ${a.readTime ? `<span class="ht-preview-time">&#128337; ${a.readTime}</span>` : ''}
             <span class="ht-preview-sections">${a.sections.length} sections</span>
+            ${a.difficulty ? `<span class="ht-preview-difficulty ht-difficulty-${a.difficulty.toLowerCase()}">${a.difficulty}</span>` : ''}
           </div>
           ${a.summary ? `<div class="ht-preview-summary">${a.summary}</div>` : ''}
         </a>
@@ -855,13 +927,24 @@ function buildArticlePageHtml(article, categories, articles) {
   const shareTitle = encodeURIComponent(article.title);
 
   // ── Sections HTML (h2 titles for correct hierarchy) ──
-  const sectionsHtml = article.sections.map(s => `
-    <section id="${s.id}" class="ht-section ht-section-${s.type}" data-section-type="${s.type}">
-      <h2 class="ht-section-title"><span class="ht-section-icon">${SECTION_ICONS[s.type] || ''}</span>${s.title}</h2>
-      ${s.type === 'checklist' ? '<div class="ht-check-counter">0 of 0 verified</div>' : ''}
-      <div class="ht-section-body">${s.html}</div>
-    </section>
-  `).join('');
+  const sectionsHtml = article.sections.map(s => {
+    if (s.type === 'advanced') {
+      return `
+        <details id="${s.id}" class="ht-section ht-section-advanced" data-section-type="advanced">
+          <summary class="ht-section-title">
+            <span class="ht-section-icon">${SECTION_ICONS.advanced}</span>${s.title}
+            <span class="ht-advanced-toggle">Show / Hide</span>
+          </summary>
+          <div class="ht-section-body">${s.html}</div>
+        </details>`;
+    }
+    return `
+      <section id="${s.id}" class="ht-section ht-section-${s.type}" data-section-type="${s.type}">
+        <h2 class="ht-section-title"><span class="ht-section-icon">${SECTION_ICONS[s.type] || ''}</span>${s.title}</h2>
+        ${s.type === 'checklist' ? '<div class="ht-check-counter">0 of 0 verified</div>' : ''}
+        <div class="ht-section-body">${s.html}</div>
+      </section>`;
+  }).join('');
 
   // ── Section tab nav ──
   const articleNavHtml = article.sections.map(s =>
@@ -945,6 +1028,7 @@ function buildArticlePageHtml(article, categories, articles) {
       <div class="ht-article-meta">
         ${article.readTime ? `<span class="ht-meta-time">&#128337; ${article.readTime}</span>` : ''}
         ${article.category ? `<span class="ht-meta-cat">${article.category}</span>` : ''}
+        ${article.difficulty ? `<span class="ht-meta-difficulty ht-difficulty-${article.difficulty.toLowerCase()}">${article.difficulty}</span>` : ''}
       </div>
     </div>
     <div class="ht-article-nav">${articleNavHtml}</div>
@@ -970,6 +1054,7 @@ function buildArticlePageHtml(article, categories, articles) {
     if (mins > 0) howToLd.totalTime = `PT${mins}M`;
   }
   if (steps.length > 0) howToLd.step = steps;
+  if (article.difficulty) howToLd.educationalLevel = article.difficulty;
 
   const breadcrumbLd = {
     '@context': 'https://schema.org',
@@ -994,10 +1079,13 @@ function buildArticlePageHtml(article, categories, articles) {
 
   // Article-specific script: progress bar, checkbox counters, code copy, smooth scroll
   const scriptContent = `
-  // ── Smooth scroll ──
+  // ── Smooth scroll (auto-opens collapsible sections) ──
   window.htScrollTo = function(id) {
     var el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (el) {
+      if (el.tagName === 'DETAILS') el.open = true;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   };
 
   // ── Progress bar ──
@@ -1068,6 +1156,7 @@ function buildCategoryPageHtml(category, categories, articles) {
       <div class="ht-preview-meta">
         ${a.readTime ? `<span class="ht-preview-time">&#128337; ${a.readTime}</span>` : ''}
         <span class="ht-preview-sections">${a.sections.length} sections</span>
+        ${a.difficulty ? `<span class="ht-preview-difficulty ht-difficulty-${a.difficulty.toLowerCase()}">${a.difficulty}</span>` : ''}
       </div>
       ${a.summary ? `<div class="ht-preview-summary">${a.summary}</div>` : ''}
     </a>
