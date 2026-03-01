@@ -2463,7 +2463,7 @@ app.delete('/api/churches/:churchId', requireAdmin, (req, res) => {
 // Map command prefixes to device types for tier-based gating
 // Connect tier: atem, obs, vmix only. Plus+: everything.
 const COMMAND_DEVICE_MAP = {
-  atem: 'atem', hyperdeck: 'atem', ptz: 'atem',
+  atem: 'atem', hyperdeck: 'atem', ptz: 'atem', camera: 'atem',
   obs: 'obs',
   vmix: 'vmix',
   propresenter: 'propresenter',
@@ -4139,7 +4139,7 @@ function handleChurchMessage(church, msg) {
     }
 
     case 'ping':
-      church.ws.send(JSON.stringify({ type: 'pong' }));
+      church.ws.send(JSON.stringify({ type: 'pong', ts: msg.ts }));
       break;
 
     default:

@@ -50,6 +50,22 @@ const patterns = [
   { match: /ptz\s*(\d+)\s+pan\s+(left|right|stop)/i, command: 'ptz.pan', extract: m => ({ camera: parseInt(m[1]), speed: m[2].toLowerCase() === 'left' ? -0.6 : (m[2].toLowerCase() === 'right' ? 0.6 : 0) }), desc: 'PTZ pan' },
   { match: /ptz\s*(\d+)\s+tilt\s+(up|down|stop)/i, command: 'ptz.tilt', extract: m => ({ camera: parseInt(m[1]), speed: m[2].toLowerCase() === 'up' ? 0.6 : (m[2].toLowerCase() === 'down' ? -0.6 : 0) }), desc: 'PTZ tilt' },
 
+  // Blackmagic camera control (via ATEM)
+  { match: /cam(?:era)?\s*(\d+)\s+iris\s+(open)/i, command: 'camera.setIris', extract: m => ({ camera: parseInt(m[1]), value: 1.0 }), desc: 'cam N iris open' },
+  { match: /cam(?:era)?\s*(\d+)\s+iris\s+(close|closed)/i, command: 'camera.setIris', extract: m => ({ camera: parseInt(m[1]), value: 0 }), desc: 'cam N iris close' },
+  { match: /cam(?:era)?\s*(\d+)\s+iris\s+(\d+(?:\.\d+)?)\s*%?/i, command: 'camera.setIris', extract: m => ({ camera: parseInt(m[1]), value: parseFloat(m[2]) }), desc: 'cam N iris N%' },
+  { match: /cam(?:era)?\s*(\d+)\s+auto\s*iris/i, command: 'camera.autoIris', extract: m => ({ camera: parseInt(m[1]) }), desc: 'cam N auto iris' },
+  { match: /cam(?:era)?\s*(\d+)\s+gain\s+(\d+)/i, command: 'camera.setGain', extract: m => ({ camera: parseInt(m[1]), gain: parseInt(m[2]) }), desc: 'cam N gain N dB' },
+  { match: /cam(?:era)?\s*(\d+)\s+iso\s+(\d+)/i, command: 'camera.setISO', extract: m => ({ camera: parseInt(m[1]), iso: parseInt(m[2]) }), desc: 'cam N ISO N' },
+  { match: /cam(?:era)?\s*(\d+)\s+(?:white\s*balance|wb)\s+(\d+)\s*k?/i, command: 'camera.setWhiteBalance', extract: m => ({ camera: parseInt(m[1]), kelvin: parseInt(m[2]) }), desc: 'cam N wb N K' },
+  { match: /cam(?:era)?\s*(\d+)\s+auto\s*(?:white\s*balance|wb)/i, command: 'camera.autoWhiteBalance', extract: m => ({ camera: parseInt(m[1]) }), desc: 'cam N auto wb' },
+  { match: /cam(?:era)?\s*(\d+)\s+shutter\s+(\d+)/i, command: 'camera.setShutter', extract: m => ({ camera: parseInt(m[1]), speed: parseInt(m[2]) }), desc: 'cam N shutter N°' },
+  { match: /cam(?:era)?\s*(\d+)\s+auto\s*focus/i, command: 'camera.autoFocus', extract: m => ({ camera: parseInt(m[1]) }), desc: 'cam N auto focus' },
+  { match: /cam(?:era)?\s*(\d+)\s+focus\s+(\d+(?:\.\d+)?)\s*%?/i, command: 'camera.setFocus', extract: m => ({ camera: parseInt(m[1]), value: parseFloat(m[2]) / (parseFloat(m[2]) > 1 ? 100 : 1) }), desc: 'cam N focus N%' },
+  { match: /cam(?:era)?\s*(\d+)\s+saturation\s+(\d+(?:\.\d+)?)/i, command: 'camera.setSaturation', extract: m => ({ camera: parseInt(m[1]), saturation: parseFloat(m[2]) }), desc: 'cam N saturation N' },
+  { match: /cam(?:era)?\s*(\d+)\s+contrast\s+(\d+(?:\.\d+)?)/i, command: 'camera.setContrast', extract: m => ({ camera: parseInt(m[1]), adjust: parseFloat(m[2]) }), desc: 'cam N contrast N' },
+  { match: /cam(?:era)?\s*(\d+)\s+reset\s+color/i, command: 'camera.resetColorCorrection', extract: m => ({ camera: parseInt(m[1]) }), desc: 'cam N reset color' },
+
   // OBS — stream
   { match: /(?:start|begin|go)\s+(?:the\s+)?stream(?:ing)?|go\s+live/i, command: 'obs.startStream', extract: () => ({}), desc: 'start stream / go live' },
   { match: /(?:stop|end)\s+(?:the\s+)?stream(?:ing)?/i, command: 'obs.stopStream', extract: () => ({}), desc: 'stop stream' },
@@ -194,6 +210,17 @@ function getHelpText(brandName = 'Tally') {
 • hyperdeck 1 play
 • hyperdeck 1 record
 • hyperdeck 1 next
+
+*Camera Control*
+• cam 1 iris 80%
+• cam 1 auto iris
+• cam 2 gain 12
+• cam 1 iso 800
+• cam 1 wb 5600
+• cam 1 auto wb
+• cam 1 shutter 180
+• cam 1 auto focus
+• cam 1 reset color
 
 *PTZ*
 • ptz 1 preset 3

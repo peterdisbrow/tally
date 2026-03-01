@@ -225,6 +225,15 @@ const SHARED_STYLES = `
 
   /* Footer */
   .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 0.72rem; color: var(--muted); text-align: center; }
+
+  /* Health telemetry */
+  .health-ok { color: var(--green); }
+  .health-warn { color: var(--yellow); }
+  .health-crit { color: var(--red); }
+  .health-grid { display: flex; flex-direction: column; gap: 0; }
+  .health-device { display: grid; grid-template-columns: 120px 80px 60px 110px 60px; align-items: center; gap: 8px; font-size: 0.78rem; padding: 7px 0; border-bottom: 1px solid var(--border); }
+  .health-device:last-child { border-bottom: none; }
+  .health-device-hdr { font-weight: 700; color: var(--muted); font-size: 0.72rem; }
 `;
 
 // ─── Shared JS helpers ────────────────────────────────────────────────────────
@@ -310,6 +319,30 @@ function syncBadge(syncStatus) {
   if (st === 'warn')     return \`<span class="tag tag-sync-warn">🟡 SYNC ~\${ms !== null && ms !== undefined ? Math.abs(ms) : '?'}ms</span>\`;
   if (st === 'critical') return \`<span class="tag tag-sync-crit">🔴 SYNC \${ms !== null && ms !== undefined ? Math.abs(ms) : '?'}ms</span>\`;
   return '<span class="tag tag-sync-na">⚫ SYNC</span>';
+}
+
+function healthSummary(health) {
+  if (!health) return '<span class="tag tag-na">—</span>';
+  const lat = health.relay?.latencyMs;
+  const devKeys = ['atem','obs','ptz','companion','proPresenter','resolume','vmix','mixer','hyperdeck','encoder','camera'];
+  let totalCmd = 0, okCmd = 0, reconn = 0;
+  for (const k of devKeys) {
+    const d = health[k];
+    if (!d) continue;
+    totalCmd += d.commandsTotal || 0;
+    okCmd += d.commandsOk || 0;
+    reconn += d.reconnects || 0;
+  }
+  reconn += health.relay?.reconnects || 0;
+  const rate = totalCmd > 0 ? ((okCmd / totalCmd) * 100).toFixed(1) : null;
+  let cls = 'health-ok';
+  if ((lat != null && lat > 1000) || (rate !== null && parseFloat(rate) < 95) || reconn > 5) cls = 'health-crit';
+  else if ((lat != null && lat > 200) || (rate !== null && parseFloat(rate) < 99) || reconn > 2) cls = 'health-warn';
+  const parts = [];
+  if (lat != null) parts.push(lat + 'ms');
+  if (rate !== null) parts.push(rate + '%');
+  parts.push(reconn + ' reconn');
+  return '<span class="' + cls + '" style="font-size:0.72rem;font-weight:500;">' + parts.join(' · ') + '</span>';
 }
 
 function encoderTypeName(type) {
@@ -421,6 +454,15 @@ function patchCard(church) {
             ? (encoderLive ? '<span class="tag tag-on">🔊 OK' + audioPortLabel + '</span>' : '<span class="tag tag-na">🔊 Standby</span>')
             : '<span class="tag tag-na">🔊 —</span>';
       if (rv.innerHTML !== audioBadge) rv.innerHTML = audioBadge;
+    }
+  }
+
+  // 5b) Health row (6th row)
+  if (rows.length >= 6) {
+    const rv = rows[5].querySelector('.row-value');
+    if (rv) {
+      const newHtml = healthSummary(s.health);
+      if (rv.innerHTML !== newHtml) rv.innerHTML = newHtml;
     }
   }
 
@@ -647,6 +689,7 @@ ${SHARED_STYLES}
     <button class="drawer-tab" data-dtab="sessions"    onclick="switchDrawerTab('sessions')">Sessions</button>
     <button class="drawer-tab" data-dtab="presets"     onclick="switchDrawerTab('presets')">Presets</button>
     <button class="drawer-tab" data-dtab="maintenance" onclick="switchDrawerTab('maintenance')">Maintenance</button>
+    <button class="drawer-tab" data-dtab="health"      onclick="switchDrawerTab('health')">Health</button>
   </div>
   <div class="drawer-body" id="drawerBody"><div class="drawer-empty">Select a church to view details.</div></div>
 </div>
@@ -992,6 +1035,7 @@ function renderCard(church) {
       <div class="row"><span class="row-label">Stream</span><span class="row-value">\${tag(encoderLive,'🔴 Live','Off-air','Unknown')}</span></div>
       <div class="row"><span class="row-label">Encoder</span><span class="row-value">\${encoderBadge} \${syncBadge(church.syncStatus)}</span></div>
       <div class="row"><span class="row-label">Audio</span><span class="row-value">\${audioBadge}</span></div>
+      <div class="row"><span class="row-label">Health</span><span class="row-value">\${healthSummary(s.health)}</span></div>
     </div>
     <div class="last-seen">Last seen: \${fmtLastSeen(church.lastSeen)}</div>
   </div>\`;
@@ -1723,6 +1767,7 @@ async function loadDrawerTab(tab) {
       <div class="drawer-item"><span class="drawer-item-label">Companion</span><span class="drawer-item-value">\${tag(isConnected(s.companion),'Online','Offline')}</span></div>
       <div class="drawer-item"><span class="drawer-item-label">ProPresenter</span><span class="drawer-item-value">\${tag(isConnected(s.proPresenter),'Online','Offline')}</span></div>
       <div class="drawer-item"><span class="drawer-item-label">A/V Sync</span><span class="drawer-item-value">\${syncBadge(church.syncStatus)}</span></div>
+      <div class="drawer-item"><span class="drawer-item-label">Health</span><span class="drawer-item-value">\${healthSummary(s.health)}</span></div>
       \${church.activeAlerts ? '<div class="drawer-item"><span class="drawer-item-label">Active Alerts</span><span class="drawer-item-value" style="color:var(--red);">'+church.activeAlerts+'</span></div>' : ''}
       <div style="margin-top:20px;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-secondary" style="font-size:0.78rem;" onclick="openCommandModal('\${esc(id)}','\${esc(church.name||id)}');closeDrawer()">💬 Command</button>
@@ -1817,6 +1862,53 @@ async function loadDrawerTab(tab) {
             <button class="btn btn-secondary" style="font-size:0.78rem;" onclick="document.getElementById('maintenanceForm').style.display='none'">Cancel</button>
           </div>
         </div>\`;
+
+    } else if (tab === 'health') {
+      const church = _churchStates[id] || {};
+      const s = church.status || {};
+      const h = s.health || {};
+      const devices = [
+        { key: 'relay',        label: 'Relay',         con: church.connected },
+        { key: 'atem',         label: 'ATEM',          con: isConnected(s.atem) },
+        { key: 'obs',          label: 'OBS Studio',    con: isConnected(s.obs) },
+        { key: 'encoder',      label: 'Encoder',       con: isConnected(s.encoder) },
+        { key: 'ptz',          label: 'PTZ Cameras',   con: Array.isArray(s.ptz) && s.ptz.some(c => c.connected) },
+        { key: 'companion',    label: 'Companion',     con: isConnected(s.companion) },
+        { key: 'proPresenter', label: 'ProPresenter',  con: isConnected(s.proPresenter) },
+        { key: 'resolume',     label: 'Resolume',      con: isConnected(s.resolume) },
+        { key: 'vmix',         label: 'vMix',          con: isConnected(s.vmix) },
+        { key: 'mixer',        label: 'Audio Console', con: isConnected(s.mixer) },
+        { key: 'hyperdeck',    label: 'HyperDeck',     con: isConnected(s.hyperdeck) },
+        { key: 'camera',       label: 'BM Camera',     con: Object.keys(s.atem?.cameras || {}).length > 0 },
+      ];
+      let html = '<div class="drawer-section-title">Device Health Telemetry</div>';
+      html += '<div style="margin-bottom:12px;">' + healthSummary(h) + '</div>';
+      html += '<div class="health-grid">';
+      html += '<div class="health-device health-device-hdr"><span>Device</span><span>Status</span><span>Latency</span><span>Commands</span><span>Reconn</span></div>';
+      for (const d of devices) {
+        const dh = h[d.key] || {};
+        const lat = dh.latencyMs != null ? dh.latencyMs + 'ms' : '—';
+        const total = dh.commandsTotal || 0;
+        const ok = dh.commandsOk || 0;
+        const rate = total > 0 ? ((ok / total) * 100).toFixed(1) + '%' : '—';
+        const cmdStr = total > 0 ? (ok + '/' + total + ' (' + rate + ')') : '—';
+        const reconn = dh.reconnects || 0;
+        const reconnCls = reconn > 5 ? 'health-crit' : reconn > 2 ? 'health-warn' : '';
+        html += '<div class="health-device">';
+        html += '<span style="font-weight:600;">' + d.label + '</span>';
+        html += '<span>' + tag(d.con, 'On', 'Off') + '</span>';
+        html += '<span style="color:var(--muted);font-family:monospace;">' + lat + '</span>';
+        html += '<span style="font-family:monospace;font-size:0.72rem;">' + cmdStr + '</span>';
+        html += '<span class="' + reconnCls + '" style="font-family:monospace;">' + reconn + '</span>';
+        html += '</div>';
+      }
+      html += '</div>';
+      if (h._startedAt) {
+        const uptimeMin = Math.round((Date.now() - h._startedAt) / 60000);
+        html += '<div style="margin-top:12px;font-size:0.72rem;color:var(--muted);">Client uptime: ' + (uptimeMin >= 60 ? Math.floor(uptimeMin/60) + 'h ' + (uptimeMin%60) + 'm' : uptimeMin + 'm') + '</div>';
+      }
+      body.innerHTML = html;
+      return;
     }
   } catch(e) { body.innerHTML = \`<div class="drawer-empty" style="color:var(--red);">Error: \${esc(e.message)}</div>\`; }
 }
@@ -2074,6 +2166,7 @@ function renderCard(church) {
       <div class="row"><span class="row-label">Stream</span><span class="row-value">\${tag(encoderLive, '🔴 Live', 'Off-air', 'Unknown')}</span></div>
       <div class="row"><span class="row-label">Encoder</span><span class="row-value">\${encoderBadge}</span></div>
       <div class="row"><span class="row-label">Audio</span><span class="row-value">\${audioBadge}</span></div>
+      <div class="row"><span class="row-label">Health</span><span class="row-value">\${healthSummary(s.health)}</span></div>
     </div>
     <div class="last-seen">Last seen: \${fmtLastSeen(church.lastSeen)}</div>
   </div>\`;

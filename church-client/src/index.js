@@ -319,6 +319,7 @@ class ChurchAVAgent {
         streamingService: null,
         audioDelays: {},
         atemAudioSources: [],
+        cameras: {}, // Blackmagic cameras detected via CCdP packets
       },
       audioViaAtem: false,
       audioViaAtemSource: 'none', // 'none' | 'auto' | 'manual'
@@ -352,6 +353,23 @@ class ChurchAVAgent {
       ptz: [],
       audio: { monitoring: false, lastLevel: null, silenceDetected: false },
       system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '' },
+    };
+
+    // Per-device health telemetry (latency, command success rate, reconnect count)
+    this.health = {
+      relay:        { latencyMs: null, reconnects: 0 },
+      atem:         { latencyMs: null, commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
+      obs:          { latencyMs: null, commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
+      ptz:          { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
+      companion:    { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
+      proPresenter: { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
+      resolume:     { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
+      vmix:         { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
+      mixer:        { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
+      hyperdeck:    { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
+      encoder:      { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
+      camera:       { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
+      _startedAt: Date.now(),
     };
   }
 
@@ -648,6 +666,15 @@ class ChurchAVAgent {
         this.reconnectDelay = 3000;
         this.sendStatus();
         doResolve();
+
+        // Ping relay every 30s to measure latency
+        if (this._relayPingTimer) clearInterval(this._relayPingTimer);
+        this._relayPingTimer = setInterval(() => {
+          if (this.relay?.readyState === WebSocket.OPEN) {
+            this._relayPingSent = Date.now();
+            this.sendToRelay({ type: 'ping', ts: this._relayPingSent });
+          }
+        }, 30_000);
       });
 
       this.relay.on('message', (data) => {
@@ -661,6 +688,8 @@ class ChurchAVAgent {
 
       this.relay.on('close', (code, reason) => {
         console.warn(`⚠️  Relay disconnected (${code}: ${reason}). Reconnecting in ${this.reconnectDelay / 1000}s...`);
+        if (this._relayPingTimer) clearInterval(this._relayPingTimer);
+        this.health.relay.reconnects++;
         doResolve(); // Don't block startup if relay is down
         setTimeout(() => this.connectRelay(), this.reconnectDelay);
         this.reconnectDelay = Math.min(this.reconnectDelay * 2, 60_000);
@@ -696,6 +725,7 @@ class ChurchAVAgent {
         })}`);
         break;
       case 'pong':
+        if (msg.ts) this.health.relay.latencyMs = Date.now() - msg.ts;
         break;
       default:
         console.log('Relay msg:', msg.type);
@@ -704,8 +734,13 @@ class ChurchAVAgent {
 
   async executeCommand(msg) {
     const { command, params = {}, id } = msg;
+    const deviceKey = command.split('.')[0];
+    const hDev = this.health[deviceKey];
+    if (hDev) hDev.commandsTotal++;
+
     let result = null;
     let error = null;
+    const t0 = Date.now();
 
     try {
       const handler = commandHandlers[command];
@@ -717,6 +752,12 @@ class ChurchAVAgent {
     } catch (e) {
       error = e.message;
       console.error(`Command error (${command}):`, e.message);
+    }
+
+    if (hDev) {
+      if (error) hDev.commandsFailed++;
+      else hDev.commandsOk++;
+      hDev.latencyMs = Date.now() - t0;
     }
 
     this.sendToRelay({ type: 'command_result', id, command, result, error });
@@ -833,6 +874,58 @@ class ChurchAVAgent {
       this.sendStatus();
     });
 
+    // ── Camera Control Protocol (CCdP) — detect Blackmagic cameras ──────
+    this.atem.on('receivedCommands', (commands) => {
+      let cameraChanged = false;
+      for (const cmd of commands) {
+        if (cmd.constructor?.rawName !== 'CCdP') continue;
+        const source = cmd.source;
+        const { category, parameter } = cmd;
+        const data = cmd.properties?.numberData || [];
+
+        // Initialize camera entry on first CCdP from this source
+        if (!this.status.atem.cameras[source]) {
+          this.status.atem.cameras[source] = {
+            detected: true,
+            iris: null, gain: null, iso: null,
+            whiteBalance: null, tint: null,
+            shutterAngle: null, focus: null,
+            lift: null, gamma: null, colorGain: null, offset: null,
+            contrast: null, hueSat: null, lumMix: null,
+          };
+          console.log(`📷 Blackmagic camera detected on input ${source}`);
+        }
+
+        const cam = this.status.atem.cameras[source];
+        cam.lastSeen = Date.now();
+
+        // Lens (category 0)
+        if (category === 0) {
+          if (parameter === 0) cam.focus = data[0] ?? cam.focus;
+          if (parameter === 2) cam.iris = data[0] ?? cam.iris;
+        }
+        // Video (category 1)
+        if (category === 1) {
+          if (parameter === 1) cam.gain = data[0] ?? cam.gain;
+          if (parameter === 2) { cam.whiteBalance = data[0] ?? cam.whiteBalance; cam.tint = data[1] ?? cam.tint; }
+          if (parameter === 5 || parameter === 8) cam.shutterAngle = data[0] ?? cam.shutterAngle;
+          if (parameter === 13) cam.iso = data[0] ?? cam.iso;
+        }
+        // Color correction (category 8)
+        if (category === 8) {
+          if (parameter === 0 && data.length >= 4) cam.lift = data.slice(0, 4);
+          if (parameter === 1 && data.length >= 4) cam.gamma = data.slice(0, 4);
+          if (parameter === 2 && data.length >= 4) cam.colorGain = data.slice(0, 4);
+          if (parameter === 3 && data.length >= 4) cam.offset = data.slice(0, 4);
+          if (parameter === 4 && data.length >= 2) cam.contrast = data.slice(0, 2);
+          if (parameter === 5) cam.lumMix = data[0] ?? cam.lumMix;
+          if (parameter === 6 && data.length >= 2) cam.hueSat = data.slice(0, 2);
+        }
+        cameraChanged = true;
+      }
+      if (cameraChanged) this.sendStatus();
+    });
+
     if (atemIp) {
       console.log(`📹 Connecting to ATEM at ${atemIp}...`);
       try {
@@ -848,6 +941,7 @@ class ChurchAVAgent {
 
   reconnectATEM() {
     if (this._stopping || this.atemReconnecting || !this.config.atemIp) return;
+    this.health.atem.reconnects++;
     this.atemReconnecting = true;
     console.log(`   Reconnecting ATEM in ${this.atemReconnectDelay / 1000}s...`);
     setTimeout(async () => {
@@ -927,6 +1021,7 @@ class ChurchAVAgent {
       this.obs.on('ConnectionClosed', () => {
         if (this._stopping) return;
         if (!this.isObsMonitoringEnabled()) return;
+        this.health.obs.reconnects++;
         console.warn(`⚠️  OBS disconnected. Retrying in ${this._obsReconnectDelay / 1000}s...`);
         this.status.obs.connected = false;
         if (!this._encoderManaged) this.status.encoder.connected = false;
@@ -1033,7 +1128,7 @@ class ChurchAVAgent {
         Object.assign(this.status.encoder, s);
         if (s?.details) this.logIdentity('encoder', 'Encoder identity:', s.details);
 
-        if (s.connected && !wasConnected) console.log('✅ Encoder connected');
+        if (s.connected && !wasConnected) { this.health.encoder.reconnects++; console.log('✅ Encoder connected'); }
         if (!s.connected && wasConnected) console.log('⚠️  Encoder disconnected');
       } catch { /* ignore */ }
     }, 15_000);
@@ -1080,7 +1175,7 @@ class ChurchAVAgent {
           this.status.companion.connections = conns.map(c => ({ id: c.id, label: c.label, moduleId: c.moduleId, status: c.status }));
         }
         // Log state changes so the Electron host picks them up
-        if (avail && !wasConnected) console.log('✅ Companion connected');
+        if (avail && !wasConnected) { this.health.companion.reconnects++; console.log('✅ Companion connected'); }
         if (!avail && wasConnected) console.log('⚠️  Companion disconnected');
       } catch { /* ignore */ }
     }, 30_000);
@@ -1246,10 +1341,12 @@ class ChurchAVAgent {
       if (!Array.isArray(this.hyperdecks) || this.hyperdecks.length === 0) return;
       await Promise.all(this.hyperdecks.map(async (deck) => {
         try {
+          const wasDeckConnected = deck.connected;
           if (!deck.connected) {
             await deck.connect();
           }
           if (deck.connected) {
+            if (!wasDeckConnected) this.health.hyperdeck.reconnects++;
             await deck.refreshStatus();
           }
         } catch {
@@ -1289,6 +1386,7 @@ class ChurchAVAgent {
     });
 
     this.proPresenter.on('disconnected', () => {
+      this.health.proPresenter.reconnects++;
       this.status.proPresenter.connected = false;
       this.sendStatus();
     });
@@ -1373,6 +1471,7 @@ class ChurchAVAgent {
         const wasConnected = this.status.resolume.connected;
         this.status.resolume.connected = running;
         if (wasConnected !== running) {
+          if (running && !wasConnected) this.health.resolume.reconnects++;
           this.sendAlert(running ? 'Resolume Arena reconnected' : 'Resolume Arena disconnected', running ? 'info' : 'warning');
           this.sendStatus();
         }
@@ -1415,8 +1514,10 @@ class ChurchAVAgent {
       if (!this.vmix) return;
       try {
         const status = await this.vmix.getStatus();
+        const wasConnected = this.status.vmix.connected;
         const wasStreaming = this.status.vmix.streaming;
         const wasRecording = this.status.vmix.recording;
+        if (status.running && !wasConnected) this.health.vmix.reconnects++;
         this.status.vmix = {
           connected: status.running,
           streaming: status.streaming || false,
@@ -1473,7 +1574,9 @@ class ChurchAVAgent {
       if (!this.mixer) return;
       try {
         const status = await this.mixer.getStatus();
+        const wasConnected = this.status.mixer.connected;
         const wasMuted = this.status.mixer.mainMuted;
+        if (status.online && !wasConnected) this.health.mixer.reconnects++;
         this.status.mixer = {
           connected: status.online,
           type: mixerConfig.type,
@@ -1507,8 +1610,13 @@ class ChurchAVAgent {
     setInterval(async () => {
       if (!this.ptzManager) return;
       try {
+        const prevPtz = this.status.ptz || [];
         await this.ptzManager.refreshStatus();
         this.status.ptz = this.ptzManager.getStatus();
+        // Count cameras that transitioned from disconnected to connected
+        for (let i = 0; i < this.status.ptz.length; i++) {
+          if (this.status.ptz[i]?.connected && !(prevPtz[i]?.connected)) this.health.ptz.reconnects++;
+        }
         this.sendStatus();
       } catch { /* ignore */ }
     }, 30_000);
@@ -1527,7 +1635,7 @@ class ChurchAVAgent {
     if (this._statusDebounce) return;
     this._statusDebounce = true;
     // Send immediately on first call, then coalesce subsequent calls within 100ms
-    this.sendToRelay({ type: 'status_update', status: this.status });
+    this.sendToRelay({ type: 'status_update', status: { ...this.status, health: this.health } });
     setTimeout(() => {
       this._statusDebounce = false;
     }, 100);
