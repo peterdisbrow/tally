@@ -112,6 +112,10 @@ class FakeAtem extends EventEmitter {
           2: { pan: 0, tilt: 0, zoom: 0, preset: 1 },
         },
       },
+      cameras: {
+        1: { iris: 0.5, gain: 0, iso: 800, whiteBalance: 5600, tint: 0, shutterAngle: 18000, focus: 0.5, lift: [0,0,0,0], gamma: [0,0,0,0], colorGain: [1,1,1,1], offset: [0,0,0,0], contrast: [0.5,1], hueSat: [0,1], lumMix: 1 },
+        2: { iris: 0.5, gain: 0, iso: 800, whiteBalance: 5600, tint: 0, shutterAngle: 18000, focus: 0.5, lift: [0,0,0,0], gamma: [0,0,0,0], colorGain: [1,1,1,1], offset: [0,0,0,0], contrast: [0.5,1], hueSat: [0,1], lumMix: 1 },
+      },
     };
     this._emitState('reset');
   }
@@ -122,6 +126,25 @@ class FakeAtem extends EventEmitter {
     this.emit('connected');
     this._emitState('connected');
     this._startTicker();
+
+    // Emit initial CCdP burst for fake cameras (simulates ATEM sending camera state on connect)
+    setTimeout(() => {
+      if (!this._connected) return;
+      for (const [sourceStr, cam] of Object.entries(this.state.cameras)) {
+        const source = Number(sourceStr);
+        const ccdps = [
+          { source, category: 0, parameter: 2, properties: { type: 128, numberData: [cam.iris], boolData: [], bigintData: [], stringData: '', periodicFlushEnabled: false } },
+          { source, category: 1, parameter: 1, properties: { type: 1, numberData: [cam.gain], boolData: [], bigintData: [], stringData: '', periodicFlushEnabled: false } },
+          { source, category: 1, parameter: 13, properties: { type: 3, numberData: [cam.iso], boolData: [], bigintData: [], stringData: '', periodicFlushEnabled: false } },
+          { source, category: 1, parameter: 2, properties: { type: 2, numberData: [cam.whiteBalance, cam.tint], boolData: [], bigintData: [], stringData: '', periodicFlushEnabled: false } },
+          { source, category: 1, parameter: 8, properties: { type: 3, numberData: [cam.shutterAngle], boolData: [], bigintData: [], stringData: '', periodicFlushEnabled: false } },
+          { source, category: 0, parameter: 0, properties: { type: 128, numberData: [cam.focus], boolData: [], bigintData: [], stringData: '', periodicFlushEnabled: false } },
+        ];
+        // Add rawName so the CCdP listener can identify them
+        ccdps.forEach(c => { c.constructor = { rawName: 'CCdP' }; });
+        this.emit('receivedCommands', ccdps);
+      }
+    }, 500);
   }
 
   async disconnect() {
@@ -554,6 +577,52 @@ class FakeAtem extends EventEmitter {
     this._emitState(`ptz.cameras.${camera}.preset`);
   }
 
+  _getCamera(camera = 1) {
+    const c = Number(camera) || 1;
+    if (!this.state.cameras[c]) {
+      this.state.cameras[c] = { iris: 0.5, gain: 0, iso: 800, whiteBalance: 5600, tint: 0, shutterAngle: 18000, focus: 0.5, lift: [0,0,0,0], gamma: [0,0,0,0], colorGain: [1,1,1,1], offset: [0,0,0,0], contrast: [0.5,1], hueSat: [0,1], lumMix: 1 };
+    }
+    return this.state.cameras[c];
+  }
+
+  /**
+   * Mock sendCommand — handles CameraControlCommand packets for testing.
+   */
+  async sendCommand(cmd) {
+    if (!cmd || cmd.constructor?.rawName !== 'CCmd') return;
+    const cam = this._getCamera(cmd.source);
+    const { category, parameter } = cmd;
+    const data = cmd.properties?.numberData || [];
+    // Lens (0)
+    if (category === 0 && parameter === 0) cam.focus = data[0] ?? cam.focus;
+    if (category === 0 && parameter === 2) cam.iris = data[0] ?? cam.iris;
+    // Video (1)
+    if (category === 1 && parameter === 1) cam.gain = data[0] ?? cam.gain;
+    if (category === 1 && parameter === 2) { cam.whiteBalance = data[0] ?? cam.whiteBalance; cam.tint = data[1] ?? cam.tint; }
+    if (category === 1 && parameter === 5) cam.shutterAngle = data[0] ?? cam.shutterAngle;
+    if (category === 1 && parameter === 8) cam.shutterAngle = data[0] ?? cam.shutterAngle;
+    if (category === 1 && parameter === 13) cam.iso = data[0] ?? cam.iso;
+    // Color (8)
+    if (category === 8 && parameter === 0) cam.lift = data.length >= 4 ? data.slice(0, 4) : cam.lift;
+    if (category === 8 && parameter === 1) cam.gamma = data.length >= 4 ? data.slice(0, 4) : cam.gamma;
+    if (category === 8 && parameter === 2) cam.colorGain = data.length >= 4 ? data.slice(0, 4) : cam.colorGain;
+    if (category === 8 && parameter === 3) cam.offset = data.length >= 4 ? data.slice(0, 4) : cam.offset;
+    if (category === 8 && parameter === 4) cam.contrast = data.length >= 2 ? data.slice(0, 2) : cam.contrast;
+    if (category === 8 && parameter === 5) cam.lumMix = data[0] ?? cam.lumMix;
+    if (category === 8 && parameter === 6) cam.hueSat = data.length >= 2 ? data.slice(0, 2) : cam.hueSat;
+    this._emitState(`cameras.${cmd.source}`);
+
+    // Echo back as CCdP (CameraControlUpdateCommand) — simulates real ATEM behavior
+    const ccdp = {
+      constructor: { rawName: 'CCdP' },
+      source: cmd.source,
+      category,
+      parameter,
+      properties: { type: cmd.properties?.type ?? 128, numberData: [...data], boolData: [], bigintData: [], stringData: '', periodicFlushEnabled: false },
+    };
+    this.emit('receivedCommands', [ccdp]);
+  }
+
   _getHyperdeck(index) {
     if (!this.state.hyperdecks[index]) {
       this.state.hyperdecks[index] = { status: 'stopped', clip: 1 };
@@ -590,6 +659,7 @@ class FakeAtem extends EventEmitter {
       mediaPlayers: { ...(this.state.video?.mediaPlayers || {}) },
       macros: { ...(this.state.macros || {}) },
       ptz: { ...(this.state.ptz?.cameras || {}) },
+      cameras: JSON.parse(JSON.stringify(this.state.cameras || {})),
       hyperdecks: Object.fromEntries(
         Object.entries(this.state.hyperdecks || {}).map(([k, v]) => [k, { status: v.status, clip: v.clip }])
       ),

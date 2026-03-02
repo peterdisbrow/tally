@@ -9,7 +9,7 @@
  *   Monitoring: 'ndi' (receive-only monitoring via ffprobe/libndi_newtek)
  *   Hardware:  'blackmagic', 'aja', 'epiphan', 'teradek', 'birddog', 'tally-encoder'
  *   ATEM:     'atem-streaming' (ATEM Mini built-in encoder, monitored via ATEM SDK)
- *   RTMP-push: 'yolobox', 'custom-rtmp', 'rtmp-generic' (no API, CDN-only)
+ *   RTMP-push: 'yolobox', 'youtube-live', 'facebook-live', 'vimeo-live', 'custom-rtmp', 'rtmp-generic' (no API, CDN-only)
  *   Custom:    'custom' (user-provided HTTP status endpoint)
  *
  * All encoders stream to their CDN directly (YouTube, Facebook, etc.).
@@ -79,6 +79,9 @@ class EncoderBridge {
         // Streaming status is monitored through the ATEM SDK connection.
         return new RtmpPushEncoder({ type: 'atem-streaming', label: 'ATEM Mini', host, port: port || 80 });
       case 'yolobox':
+      case 'youtube-live':
+      case 'facebook-live':
+      case 'vimeo-live':
       case 'custom-rtmp':
       case 'rtmp-generic':
         return new RtmpPushEncoder({ type: t, label, host, port: port || 80 });

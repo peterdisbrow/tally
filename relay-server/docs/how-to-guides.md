@@ -1,7 +1,7 @@
 # Tally How-To Guides
 
 <!-- CATEGORIES
-1. Getting Started | H01, H02, H03, H04
+1. Getting Started | H01, H02, H03, H04, H16
 2. Equipment Integrations | H05, H07, H08, H09, H10, H11
 3. Automation and Companion | H06, H13
 4. Troubleshooting | H12, H14
@@ -13,7 +13,15 @@
 ## H01: Install Tally Desktop (Mac)
 <!-- category: Getting Started -->
 <!-- time: 5 min -->
-<!-- summary: Install Tally, launch successfully, allow required permissions, and confirm app readiness. -->
+<!-- difficulty: Beginner -->
+<!-- summary: Install Tally on your Mac, open it for the first time, and confirm it's ready to go. -->
+
+### Quick Start
+
+1. Download the Tally installer file from the link your admin gave you
+2. Double-click the downloaded file, then drag the Tally app into your Applications folder
+3. Open Tally from Applications — if Mac asks for permission, click **Open**
+4. Confirm you see the sign-in screen
 
 ### Who This Is For
 
@@ -28,70 +36,77 @@ Church tech directors and volunteers installing Tally on a Mac for the first tim
 
 ### Prerequisites
 
-- [ ] Supported macOS version for current build
-- [ ] Local admin rights on the Mac
-- [ ] Internet access for first login and relay connectivity
+- [ ] A Mac running a recent version of macOS
+- [ ] Admin rights on the Mac (you can install apps)
+- [ ] Internet access
 
 ### Step-by-Step Setup
 
 **Step 1 — Download the Installer**
 
-Download the latest Tally `.dmg` file from the official source provided by your admin or reseller.
+Download the Tally installer file from the link provided by your admin or reseller.
 
-**Step 2 — Open the DMG**
+**Step 2 — Open the Installer**
 
-Double-click the downloaded `.dmg` file to mount the disk image.
+Double-click the downloaded file to open it. You'll see the Tally app icon and an Applications folder shortcut.
 
 **Step 3 — Drag to Applications**
 
-Drag `Tally by ATEM School.app` into the `Applications` folder.
+Drag the Tally app into the Applications folder.
 
 **Step 4 — Eject the Installer**
 
-Right-click the mounted disk image on your desktop and choose **Eject**.
+Right-click the installer icon on your desktop and choose **Eject**.
 
 **Step 5 — Launch Tally**
 
-Open the app from `Applications`. If macOS shows a security warning, click **Open** to proceed.
+Open the app from Applications. If macOS shows a security warning, click **Open** to continue.
 
-> **Note:** If macOS blocks the app entirely, go to `System Settings > Privacy & Security` and click **Open Anyway**.
+> **Note:** If macOS blocks the app entirely, go to **System Settings > Privacy & Security** and click **Open Anyway**.
 
 ### Validation Checklist
 
-- [ ] App opens to sign-in/setup screen
-- [ ] No startup crash dialog appears
-- [ ] UI is visible (not black screen)
-- [ ] App can close and reopen cleanly
+- [ ] App opens to the sign-in screen
+- [ ] No crash or error appears on launch
+- [ ] The window is visible (not a black screen)
+- [ ] App can close and reopen without issues
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| "App can't be opened" | Gatekeeper blocking unsigned app | Right-click app in Applications → Open; allow in System Settings > Privacy & Security |
-| Black screen on launch | Stale local config or rendering issue | Fully quit app, relaunch; clear stale local config if persistent |
-| High helper resource usage | Multiple app instances running | Ensure only one instance of Tally is running |
-| "Damaged app" warning | Corrupted download | Redownload the installer DMG and retry |
+| "App can't be opened" | Mac is blocking an unrecognized app | Right-click the app in Applications → Open; or allow in System Settings > Privacy & Security |
+| Black screen on launch | Stale settings or display glitch | Fully quit and reopen the app; delete any old config files if it persists |
+| App feels slow | Multiple copies running | Make sure only one copy of Tally is open |
+| "Damaged app" warning | The download was incomplete | Download the installer again and retry |
 
 ### Rollback / Fallback
 
-1. Delete Tally from `Applications`.
+1. Delete Tally from Applications.
 2. Reboot the Mac.
-3. Reinstall from a fresh DMG download.
-4. Retry launch and validation.
+3. Download a fresh installer and try again.
 
 ### Screenshot Placeholders
 
 ![Download page](screenshot:H01-download-page)
-![DMG drag to Applications](screenshot:H01-dmg-drag)
+![Drag to Applications](screenshot:H01-dmg-drag)
 ![First launch security prompt](screenshot:H01-security-prompt)
-![Successful sign-in landing](screenshot:H01-signin-landing)
+![Successful sign-in screen](screenshot:H01-signin-landing)
 
 ---
 
 ## H02: Create Church Account + First Sign-In
 <!-- category: Getting Started -->
 <!-- time: 8 min -->
-<!-- summary: Create your church account, verify your email, and complete first sign-in to the Tally app. -->
+<!-- difficulty: Beginner -->
+<!-- summary: Create your church account, verify your email, and sign in to the Tally app for the first time. -->
+
+### Quick Start
+
+1. Go to the signup page and enter your church name, email, and password
+2. Open the verification email and click the link to confirm
+3. Open the Tally app, enter your email and password, and click **Sign In**
+4. Check that your church name appears in the app
 
 ### Who This Is For
 
@@ -105,31 +120,31 @@ Church admins creating their first Tally account and signing into the desktop ap
 
 ### Prerequisites
 
-- [ ] Access to church admin email inbox
-- [ ] Internet access from the app machine
-- [ ] Active relay environment (provided by your admin)
+- [ ] Access to your church admin email inbox
+- [ ] Internet access on the computer running Tally
+- [ ] Relay server address (provided by your admin)
 
 ### Step-by-Step Setup
 
 **Step 1 — Open the Signup Page**
 
-Navigate to the account signup page in your browser.
+Go to the account signup page in your web browser.
 
 **Step 2 — Enter Church Details**
 
 Fill in your church name, admin email, and a strong password.
 
-> **Safety:** Store your admin credentials in a password manager. Do not share them via email or chat.
+> **Security tip:** Save your login details in a password manager. Don't share them over email or chat.
 
 **Step 3 — Submit Signup**
 
-Click **Create Account** to submit your registration.
+Click **Create Account** to register.
 
 **Step 4 — Verify Your Email**
 
-Open the verification email in your inbox and click the verify link.
+Open the verification email and click the link inside.
 
-> **Note:** Check your spam/junk folder if the email doesn't arrive within a few minutes.
+> **Note:** Check your spam or junk folder if the email doesn't arrive within a few minutes.
 
 **Step 5 — Launch the Tally App**
 
@@ -141,29 +156,29 @@ Enter your email and password, then click **Sign In**.
 
 **Step 7 — Confirm Church Name**
 
-Verify that your church name appears correctly in the app profile area.
+Make sure your church name appears correctly in the app.
 
 ### Validation Checklist
 
 - [ ] Verification email received
-- [ ] Email verification link succeeds
-- [ ] App sign-in returns success
-- [ ] Session persists after app restart
+- [ ] Email verification link works
+- [ ] Sign-in completes successfully
+- [ ] You stay signed in after restarting the app
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| "Invalid email or password" | Typo in credentials | Confirm exact email case/spacing and password |
-| "Email not verified" | Verification not completed | Re-send verify email from the portal and retry |
-| Sign-in fails after account creation | Wrong relay domain | Confirm app points to the correct relay URL |
-| Session resets repeatedly | Clock skew or token expiry | Check system clock accuracy; contact admin if persistent |
+| "Invalid email or password" | Typo in email or password | Double-check your email spelling and password |
+| "Email not verified" | You haven't clicked the verification link | Open the verification email and click the link, then try again |
+| Sign-in fails after creating account | Wrong server address | Confirm the app is pointed at the correct server address |
+| You keep getting signed out | Clock on your computer is wrong | Check that your computer's date and time are correct |
 
 ### Rollback / Fallback
 
-1. Reset your password from the portal login page.
-2. Re-verify your email if the link expired.
-3. Retry sign-in using the correct relay environment.
+1. Reset your password from the login page.
+2. Re-send the verification email if the link expired.
+3. Try signing in again with the correct server address.
 
 ### Screenshot Placeholders
 
@@ -177,292 +192,336 @@ Verify that your church name appears correctly in the app profile area.
 ## H03: Connect to Relay + Verify Connection
 <!-- category: Getting Started -->
 <!-- time: 5 min -->
-<!-- summary: Confirm your relay target, establish a connection, and validate a healthy API response. -->
+<!-- difficulty: Beginner -->
+<!-- summary: Make sure your Tally app can talk to the server and confirm the connection is working. -->
+
+### Quick Start
+
+1. Open Tally and go to **Settings**
+2. Confirm the server address is correct (your admin will provide this)
+3. Click the **Test Connection** button
+4. Look for the green "Connected" indicator
 
 ### Who This Is For
 
-Operators who need to verify app-to-relay connectivity before service.
+Anyone who needs to confirm the Tally app is connected to the server before a service.
 
 ### What You Will Accomplish
 
-- Confirm the correct relay URL in settings
-- Establish a live WebSocket connection
-- Validate a healthy API response from the relay
+- Confirm the correct server address in settings
+- Test the connection
+- Verify everything is communicating properly
 
 ### Prerequisites
 
-- [ ] Valid church credentials (signed in)
-- [ ] Relay URL known for your environment
-- [ ] Outbound network access from the booth machine
+- [ ] Signed in to the Tally app
+- [ ] Server address from your admin
+- [ ] Internet access from the booth computer
 
 ### Step-by-Step Setup
 
 **Step 1 — Open App Settings**
 
-Open the Tally app and navigate to the settings panel.
+Open the Tally app and go to the settings panel.
 
-**Step 2 — Confirm Relay URL**
+**Step 2 — Confirm Server Address**
 
-Verify that the relay URL is set to the production canonical URL (e.g., `wss://api.tallyconnect.app`).
+Make sure the server address matches what your admin provided (e.g., `api.tallyconnect.app`).
 
 **Step 3 — Save Settings**
 
-Save any changes to the relay configuration.
+Save any changes you made.
 
 **Step 4 — Run Connection Test**
 
-Use the in-app connection test to verify connectivity.
+Click the **Test Connection** button to check connectivity.
 
 **Step 5 — Verify Connected Status**
 
-Confirm the app status indicator shows the relay as connected.
+Confirm the status indicator shows green / connected.
 
-**Step 6 — Optional CLI Health Check**
+### Advanced Details
 
-From a terminal on the same network, run:
+If the in-app test isn't enough, you can verify from a terminal:
 
 ```bash
 curl -sS https://api.tallyconnect.app/api/health
 ```
 
-You should see a JSON response with `uptime` and `status` fields.
+You should see a response with `uptime` and `status` fields. This confirms the server is running and reachable from your network.
+
+Common network terms your IT team may mention:
+- **Port 443** — the standard secure web port (this should already be open on most networks)
+- **DNS** — the system that converts web addresses to IP numbers
+- **VLAN** — a network segment; your Tally computer and server need to be able to reach each other
 
 ### Validation Checklist
 
-- [ ] Relay connection test passes
-- [ ] WebSocket connection established
-- [ ] Health endpoint returns JSON with uptime/status
-- [ ] No repeated auth/timeout errors in app logs
+- [ ] Connection test passes in the app
+- [ ] Status shows as connected
+- [ ] No repeated errors in the app
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Unauthorized error | Token/session mismatch or wrong relay | Re-authenticate and confirm relay URL |
-| DNS resolution failure | Stale DNS or wrong CNAME | Flush DNS cache; verify domain records |
-| Old relay URL in config | Legacy Railway URL not updated | Remove legacy URL and set canonical relay domain |
-| Firewall blocking connection | Outbound TLS blocked | Allow outbound traffic to the relay domain on port 443 |
+| "Unauthorized" error | Login expired or wrong server | Sign out, sign back in, and confirm the server address |
+| Can't reach the server | Network or internet issue | Check your internet connection; ask IT if your network blocks outgoing connections |
+| Old server address | Settings weren't updated | Remove the old address and enter the current one from your admin |
+| Connection drops repeatedly | Firewall or network restriction | Ask your IT team to allow traffic to the server address |
 
 ### Rollback / Fallback
 
-1. Restore the known-good relay URL.
-2. Re-authenticate your user session.
+1. Put back the last known working server address.
+2. Sign out and sign back in.
 3. Retry the connection test.
 
 ### Screenshot Placeholders
 
-![Relay settings panel](screenshot:H03-relay-settings)
+![Server settings panel](screenshot:H03-relay-settings)
 ![Connection test success](screenshot:H03-test-success)
-![Connection test failure states](screenshot:H03-test-failure)
-![Health endpoint JSON example](screenshot:H03-health-json)
+![Connection test failure](screenshot:H03-test-failure)
+![Health check example](screenshot:H03-health-json)
 
 ---
 
 ## H04: First Equipment Setup Wizard
 <!-- category: Getting Started -->
 <!-- time: 10 min -->
-<!-- summary: Complete the initial equipment setup wizard and save a stable baseline config. -->
+<!-- difficulty: Beginner -->
+<!-- summary: Walk through the setup wizard to connect your main equipment and save a working configuration. -->
+
+### Quick Start
+
+1. Open the equipment section and click **Start Setup Wizard**
+2. Enter the IP address of your ATEM switcher
+3. Add your streaming software (OBS, vMix, etc.) and any other equipment
+4. Click **Save** and restart the app
 
 ### Who This Is For
 
-New deployments configuring equipment quickly with minimal manual edits.
+New setups configuring equipment for the first time.
 
 ### What You Will Accomplish
 
-- Run the setup wizard to completion
-- Configure your primary devices (ATEM, encoder, Companion)
-- Save a stable baseline configuration
+- Run the setup wizard from start to finish
+- Connect your main devices (ATEM, encoder, Companion)
+- Save a working configuration
 
 ### Prerequisites
 
 - [ ] Signed in to the Tally app
-- [ ] Device IP addresses known or network discovery available
-- [ ] Correct NIC selected on multi-NIC systems
+- [ ] Device IP addresses (ask your IT person or check each device's settings)
+- [ ] All devices on the same network as the Tally computer
 
 ### Step-by-Step Setup
 
 **Step 1 — Start the Setup Wizard**
 
-Open the equipment configuration and start the setup wizard.
+Open the equipment settings and click **Start Setup Wizard**.
 
 **Step 2 — Configure ATEM IP**
 
 Enter the IP address of your ATEM switcher (e.g., `192.168.1.240`).
 
-**Step 3 — Configure Primary Encoder**
+**Step 3 — Configure Streaming Software**
 
-Select your encoder type (OBS, vMix, or hardware) and enter the connection details.
+Select your streaming software (OBS, vMix, or hardware encoder) and enter the connection details.
 
-**Step 4 — Configure Companion**
+**Step 4 — Configure Companion (optional)**
 
-If you use Bitfocus Companion, enter the host and port (default: `8888`).
+If your team uses Bitfocus Companion for button control, enter the address and port (default: `8888`).
 
-**Step 5 — Configure Optional Integrations**
+**Step 5 — Add Optional Equipment**
 
-Add any optional integrations: HyperDeck, ProPresenter, audio mixer, PTZ cameras.
+Add any other equipment you use: HyperDeck, ProPresenter, audio mixer, PTZ cameras.
 
-> **Note:** You can skip optional integrations and add them later from the Equipment tab.
+> **Note:** You can skip optional items and add them later from the Equipment tab.
 
-**Step 6 — Save Wizard Config**
+**Step 6 — Save Your Settings**
 
-Review your settings and click **Save**.
+Review everything and click **Save**.
 
 **Step 7 — Restart the App**
 
-Restart the Tally app once to apply the new configuration.
+Restart Tally to apply the new settings.
 
 ### Validation Checklist
 
-- [ ] Config persists after restart
-- [ ] Required devices show connected/expected state
-- [ ] Unconfigured devices are not treated as critical failures
-- [ ] No repeated polling errors for disabled integrations
+- [ ] Settings are saved after restart
+- [ ] Connected devices show the expected status
+- [ ] Skipped devices aren't showing errors
+- [ ] No repeated error messages
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Wrong ports entered | Vendor-specific default ports differ | Check vendor documentation for correct API ports |
-| Device not discoverable | Subnet/NIC or VLAN routing issue | Verify network path between Tally machine and device |
-| Config not persisting | Write permissions issue | Check write permissions to the config file path |
-| Cluttered equipment UI | Unused integrations enabled | Disable integrations you are not using |
+| Wrong port numbers | Different equipment uses different ports | Check your device's documentation for the correct port |
+| Device not found | Tally computer can't reach the device | Make sure both are on the same network; try pinging the device IP |
+| Settings disappear after restart | File permission issue | Check that Tally can save to its settings folder |
+| Too many devices showing errors | Equipment you're not using is still enabled | Turn off integrations you're not using |
 
 ### Rollback / Fallback
 
 1. Reopen the setup wizard.
-2. Remove optional device configurations.
-3. Save a minimal known-good config with only essential devices.
+2. Remove optional devices.
+3. Save a simple configuration with just your essential equipment.
 
 ### Screenshot Placeholders
 
 ![Wizard start screen](screenshot:H04-wizard-start)
 ![Equipment configuration step](screenshot:H04-equipment-step)
 ![Save confirmation](screenshot:H04-save-confirm)
-![Post-restart dashboard state](screenshot:H04-dashboard)
+![Dashboard after restart](screenshot:H04-dashboard)
 
 ---
 
 ## H05: ATEM Setup + Auto-Detect Model
 <!-- category: Equipment Integrations -->
 <!-- time: 10 min -->
-<!-- summary: Connect your ATEM switcher, verify model detection, and run control smoke tests. -->
+<!-- difficulty: Intermediate -->
+<!-- summary: Connect your ATEM video switcher, verify it's detected, and test basic switching controls. -->
+
+### Quick Start
+
+1. Go to Equipment settings and enter your ATEM's IP address
+2. Click **Connect** and wait a few seconds
+3. Confirm the model name appears (e.g., "ATEM Mini Pro ISO")
+4. Test switching between camera inputs
 
 ### Who This Is For
 
-Teams using Blackmagic ATEM switchers as their primary video control path.
+Teams using Blackmagic ATEM switchers for video switching.
 
 ### What You Will Accomplish
 
 - Connect Tally to your ATEM switcher
-- Verify automatic model detection
-- Run smoke tests for switching, streaming, and recording
+- Verify the model is detected automatically
+- Test basic switching, streaming, and recording controls
 
 ### Prerequisites
 
-- [ ] ATEM and Tally machine on the same routable network
-- [ ] ATEM IP address known or discovered via network scan
-- [ ] ATEM reachable from the booth machine (ping test passes)
+- [ ] ATEM and Tally computer on the same network
+- [ ] ATEM IP address (check ATEM Software Control or your IT person)
+- [ ] You can reach the ATEM from the booth computer
 
 ### Step-by-Step Setup
 
 **Step 1 — Enter ATEM IP**
 
-Open Equipment settings and enter your ATEM IP address.
+Open Equipment settings and enter your ATEM's IP address.
 
 **Step 2 — Connect and Wait**
 
-Click **Connect** and wait for the status update. The connection typically takes 2-5 seconds.
+Click **Connect** and wait for the status to update. This usually takes 2-5 seconds.
 
 **Step 3 — Confirm Model Detection**
 
-Check that the detected model name appears in the ATEM status panel (e.g., "ATEM Mini Pro ISO").
+Check that the correct model name appears in the ATEM status panel (e.g., "ATEM Mini Pro ISO").
 
-**Step 4 — Run Smoke Commands**
+**Step 4 — Test Basic Controls**
 
-Test these basic control commands:
+Try these basic controls:
 
-1. Set preview input
-2. Set program input
-3. Execute a **Cut** transition
-4. Execute an **Auto** transition
-5. Check streaming/recording state readback
+1. Change the preview input
+2. Change the program input
+3. Do a **Cut** transition
+4. Do an **Auto** transition
+5. Check that streaming/recording status updates correctly
 
 **Step 5 — Verify Audio Detection**
 
-If using ATEM audio path, confirm that audio source detection shows expected inputs.
+If you're using the ATEM for audio, confirm that audio sources show up correctly.
 
-> **Implementation Note:** Audio source detection uses the ATEM SDK's audio state. If your model uses Fairlight audio, detection may differ from classic audio models.
+> **Note:** Audio detection works slightly differently depending on your ATEM model. Newer models use the Blackmagic Fairlight audio system, while older models use the classic audio mixer.
 
 ### Validation Checklist
 
-- [ ] ATEM connected state is stable (no reconnect loops)
-- [ ] Model detected correctly
-- [ ] Program/preview input changes succeed
-- [ ] Cut/Auto transition commands succeed
-- [ ] Stream/record state readback updates accurately
+- [ ] ATEM stays connected (no repeated disconnects)
+- [ ] Model name is detected correctly
+- [ ] Camera input changes work
+- [ ] Cut/Auto transitions work
+- [ ] Stream/record status updates properly
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| ATEM unreachable | Subnet mismatch or wrong IP | Verify IP and ensure both devices are on the same VLAN |
-| Intermittent disconnects | Network instability | Use a wired Ethernet connection instead of Wi-Fi |
-| Command errors | Unsupported function on model/firmware | Check ATEM firmware version; some commands require specific models |
-| Audio source detection unclear | ATEM audio routing misconfigured | Validate audio routing in ATEM Software Control |
+| ATEM not reachable | Wrong IP or different network | Double-check the IP address; make sure both devices are on the same network |
+| Keeps disconnecting | Unstable network connection | Use a wired Ethernet cable instead of Wi-Fi |
+| Some commands fail | Feature not supported on your model | Check your ATEM's firmware version; some features need newer firmware |
+| Audio sources not showing | Audio routing needs adjusting | Check audio routing in ATEM Software Control |
 
 ### Rollback / Fallback
 
-1. Disable advanced ATEM commands.
-2. Keep basic switching only (cut/auto).
-3. Operate advanced functions from ATEM Software Control or hardware panel.
+1. Turn off advanced ATEM commands.
+2. Keep basic switching only (cut/auto transitions).
+3. Use ATEM Software Control or the hardware panel for advanced features.
 
 ### Screenshot Placeholders
 
-![ATEM config block](screenshot:H05-atem-config)
-![Connected with model detected](screenshot:H05-connected-model)
-![Program/preview test result](screenshot:H05-switching-test)
-![Stream/record status panel](screenshot:H05-stream-status)
+![ATEM settings](screenshot:H05-atem-config)
+![Connected with model name](screenshot:H05-connected-model)
+![Switching test results](screenshot:H05-switching-test)
+![Stream/record status](screenshot:H05-stream-status)
 
 ---
 
 ## H06: Companion Integration Quick Start
 <!-- category: Automation and Companion -->
 <!-- time: 8 min -->
-<!-- summary: Connect Tally to Bitfocus Companion and trigger button actions reliably. -->
+<!-- difficulty: Advanced -->
+<!-- summary: Connect Tally to Bitfocus Companion so you can trigger button actions from Tally. -->
+
+### Quick Start
+
+1. In Tally Equipment settings, enter your Companion address (e.g., `http://192.168.1.100:8888`)
+2. Click **Save** and test the connection
+3. Create a test button in Companion's web interface
+4. Trigger the button from Tally and confirm it works
 
 ### Who This Is For
 
-Teams already using Bitfocus Companion for device control and macros.
+Teams already using Bitfocus Companion for device control and button macros.
 
 ### What You Will Accomplish
 
 - Connect Tally to your Companion instance
-- Trigger button actions by page/row/column
-- Trigger button actions by named button
+- Trigger buttons by their position on the grid
+- Trigger buttons by their name
 
 ### Prerequisites
 
-- [ ] Companion host IP and port known (default port: 8888)
-- [ ] Companion instance running with expected module connections
-- [ ] Tally can reach Companion over the network
+- [ ] Companion address and port (default port: 8888)
+- [ ] Companion running with at least one module connected
+- [ ] Tally computer can reach Companion over the network
 
 ### Step-by-Step Setup
 
-**Step 1 — Enter Companion URL**
+**Step 1 — Enter Companion Address**
 
-In Tally Equipment settings, enter the Companion URL (e.g., `http://192.168.1.100:8888`).
+In Tally Equipment settings, enter the Companion address (e.g., `http://192.168.1.100:8888`).
 
 **Step 2 — Save and Test Connection**
 
-Save the setting and run the connection test. Companion should report as reachable.
+Save and run the connection test. Companion should show as reachable.
 
 **Step 3 — Create a Test Button in Companion**
 
-In Companion's web UI, create a test button labeled `Test: Ping`.
+In Companion's web interface, create a test button labeled `Test: Ping`.
 
-**Step 4 — Trigger by Page/Row/Col**
+**Step 4 — Trigger by Button Position**
 
-From Tally, trigger the button using the page, row, and column coordinates:
+From Tally, trigger the button using its position on the Companion grid — specify the page, row, and column.
+
+**Step 5 — Trigger by Button Name**
+
+Trigger the same button using its label name. The name must match exactly (including uppercase/lowercase letters).
+
+### Advanced Details
+
+When sending commands programmatically, Tally uses this format:
 
 ```json
 {
@@ -471,9 +530,7 @@ From Tally, trigger the button using the page, row, and column coordinates:
 }
 ```
 
-**Step 5 — Trigger by Named Button**
-
-Trigger the same button using its label:
+Or by name:
 
 ```json
 {
@@ -482,399 +539,449 @@ Trigger the same button using its label:
 }
 ```
 
-> **Note:** Named button matching is case-sensitive. The label must match exactly as shown in Companion.
+The `companion.connections` command returns a list of all connected modules. Button names are case-sensitive — `"Test: Ping"` is not the same as `"test: ping"`.
+
+API compatibility depends on your Companion version. Check Companion's documentation if commands aren't working.
 
 ### Validation Checklist
 
-- [ ] Companion reports reachable from Tally
-- [ ] `companion.connections` returns expected module list
-- [ ] `companion.press` succeeds with correct coordinates
-- [ ] `companion.pressNamed` succeeds with correct label
-- [ ] Wrong button name returns a clear error message
+- [ ] Companion shows as reachable from Tally
+- [ ] Button trigger by position works
+- [ ] Button trigger by name works
+- [ ] A wrong button name gives a clear error message
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Companion shows 0 connections | Modules misconfigured or not loaded | Open Companion UI and verify module status |
-| API path mismatch | Companion version incompatibility | Verify Companion version supports the HTTP API |
-| Named press fails | Exact label mismatch (case-sensitive) | Copy the label directly from Companion's button config |
-| Intermittent connection | Host instability or LAN issues | Check host machine stability and wired network path |
+| Companion shows 0 connections | Modules not loaded or misconfigured | Open Companion and check that your modules are connected |
+| Commands not working | Companion version doesn't support this feature | Update Companion and check its API documentation |
+| Button name not found | Name doesn't match exactly | Copy the exact name from Companion's button settings |
+| Connection drops | Network or Companion host instability | Check your network cable and make sure the Companion computer is stable |
 
 ### Rollback / Fallback
 
-1. Keep Companion in manual-only operation mode.
-2. Disable Tally Companion triggers until the connection is stable.
+1. Use Companion manually from its own web interface.
+2. Turn off Tally's Companion triggers until the connection is stable.
 
 ### Screenshot Placeholders
 
-![Companion config in Tally](screenshot:H06-companion-config)
-![Companion status card](screenshot:H06-companion-status)
-![Named button test example](screenshot:H06-named-test)
-![Error handling example](screenshot:H06-error-example)
+![Companion settings in Tally](screenshot:H06-companion-config)
+![Companion status](screenshot:H06-companion-status)
+![Button test example](screenshot:H06-named-test)
+![Error example](screenshot:H06-error-example)
 
 ---
 
 ## H07: Control Multiple Power Outlets
 <!-- category: Equipment Integrations -->
 <!-- time: 12 min -->
-<!-- summary: Control 3-12+ outlets from Tally via Companion with safe naming and sequencing. -->
+<!-- difficulty: Beginner -->
+<!-- summary: Turn AV equipment on and off from Tally using smart power outlets and Companion. -->
+
+### Quick Start
+
+1. Add your smart outlet module in Companion (e.g., TP-Link Kasa, Shelly)
+2. Create buttons in Companion named like `Power: FOH Rack On` and `Power: FOH Rack Off`
+3. Test each button directly in Companion first
+4. Trigger the buttons from Tally
 
 ### Who This Is For
 
-Teams that want remote power control for AV equipment without enterprise PDU costs.
+Teams that want to turn AV equipment on and off remotely without expensive rack power systems.
 
 ### What You Will Accomplish
 
-- Set up outlet control via Companion modules
-- Create safely-named power buttons
-- Trigger on/off/cycle actions from Tally
+- Set up outlet control through Companion
+- Create clearly-named power buttons
+- Turn equipment on, off, or restart from Tally
 
 ### Prerequisites
 
-- [ ] Tally connected to relay
+- [ ] Tally connected to the server
 - [ ] Companion reachable from Tally
-- [ ] Outlet hardware installed and tested manually
-- [ ] Network path between Companion and outlet devices confirmed
+- [ ] Smart outlets plugged in and working (test manually first)
+- [ ] Companion can reach the outlet devices over the network
 
 ### Step-by-Step Setup
 
 **Step 1 — Add Outlet Module in Companion**
 
-In Companion, add the module for your outlet device (e.g., TP-Link Kasa, Shelly, Tasmota).
+In Companion, add the module for your outlet brand (e.g., TP-Link Kasa, Shelly, Tasmota).
 
-> **Note:** Budget path: TP-Link Kasa smart strips are the cheapest and easiest starting point. Pro path: managed PDU class (Digital Loggers, APC, CyberPower) for rack deployments.
+> **Note:** For budget setups, TP-Link Kasa smart power strips are the easiest starting point. For rack installations, look at Digital Loggers, APC, or CyberPower managed power units.
 
 **Step 2 — Confirm Module Connection**
 
-Verify the module shows as connected in Companion with the expected device list.
+Check that the module shows as connected in Companion with the right devices listed.
 
 **Step 3 — Create Named Buttons**
 
-Create buttons using this naming standard:
+Create buttons using clear names like:
 
 - `Power: FOH Rack On`
 - `Power: FOH Rack Off`
 - `Power: FOH Rack Cycle`
 
-**Step 4 — Test Directly in Companion**
+**Step 4 — Test in Companion First**
 
-Press each button in Companion's web UI to verify the outlet responds correctly.
+Press each button in Companion's web interface to make sure the outlet responds correctly.
 
 **Step 5 — Trigger from Tally**
 
-Send commands from Tally using `companion.pressNamed`:
+Send the commands from Tally by using the button names you created.
 
-```json
-{
-  "command": "companion.pressNamed",
-  "params": { "name": "Power: FOH Rack Cycle" }
-}
-```
-
-> **Safety:** Do not cycle your core network switch unintentionally. Do not cycle ATEM + encoder + switch simultaneously. Use cooldowns on repeated cycle actions. Always keep a manual rack fallback path.
+> **Safety:** Be careful not to accidentally restart your network switch or too many devices at once. Add delays between restart actions so equipment has time to boot up. Always have a way to manually flip power if something goes wrong.
 
 ### Validation Checklist
 
-- [ ] Companion reachable from Tally
-- [ ] On/off/cycle actions execute expected outlet state changes
-- [ ] Gear reboots predictably when cycling
-- [ ] Invalid button names return an actionable error
+- [ ] Companion can reach your outlet devices
+- [ ] On/off/restart buttons work as expected
+- [ ] Equipment reboots properly when restarted
+- [ ] Wrong button names show a helpful error
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| No button found | Naming mismatch between Tally and Companion | Verify exact button label (case-sensitive) |
-| Module connected but outlet not switching | Auth or IP issue on the outlet device | Check device credentials and IP in Companion module config |
-| Unstable switching behavior | Wi-Fi path unreliable | Move outlet devices to wired LAN where possible |
-| Gear fails after power cycle | No delay between power-off and power-on | Add delays and sequence rules between cycle actions |
+| Button not found | Name in Tally doesn't match Companion exactly | Check the exact button name (including capitalization) |
+| Module connected but outlet won't switch | Wrong password or IP for the outlet | Check device login details in Companion's module settings |
+| Unreliable switching | Wi-Fi connection is unstable | Move outlet devices to a wired network connection if possible |
+| Equipment fails after restart | No delay between power off and power on | Add a 10-15 second delay between off and on actions |
 
 ### Rollback / Fallback
 
-1. Disable outlet automations in Tally.
-2. Keep manual control through Companion's web UI.
-3. Reintroduce one outlet action at a time.
+1. Turn off outlet automation in Tally.
+2. Control outlets manually through Companion's web interface.
+3. Add back one outlet action at a time.
 
 ### Screenshot Placeholders
 
-![Companion outlet module status](screenshot:H07-outlet-module)
-![Power button bank naming example](screenshot:H07-button-naming)
-![Tally named command mapping](screenshot:H07-tally-command)
-![Validation checklist pass state](screenshot:H07-validation)
+![Companion outlet module](screenshot:H07-outlet-module)
+![Power button naming](screenshot:H07-button-naming)
+![Tally command mapping](screenshot:H07-tally-command)
+![Validation results](screenshot:H07-validation)
 
 ---
 
-## H08: ProPresenter Setup + Deep Control
+## H08: ProPresenter Setup + Control
 <!-- category: Equipment Integrations -->
 <!-- time: 10 min -->
-<!-- summary: Connect ProPresenter and control navigation, looks, timers, and stage messages from Tally. -->
+<!-- difficulty: Beginner -->
+<!-- summary: Connect ProPresenter to Tally so you can control slides, timers, and stage messages. -->
+
+### Quick Start
+
+1. In Equipment settings, enter your ProPresenter computer's address and port
+2. Click **Connect** and confirm ProPresenter shows as active
+3. Test next/previous slide commands
+4. Try changing a look, starting a timer, or sending a stage message
 
 ### Who This Is For
 
-Churches using ProPresenter for slides, stage display, and production messaging.
+Churches using ProPresenter for worship slides, stage displays, and countdown timers.
 
 ### What You Will Accomplish
 
 - Connect Tally to ProPresenter
-- Control slide navigation
-- Use advanced features: looks, timers, and stage messages
+- Control slide navigation from Tally
+- Use advanced features like looks (visual presets), timers, and stage messages (text sent to the stage screen)
 
 ### Prerequisites
 
-- [ ] ProPresenter host IP and API port known
-- [ ] API access enabled in ProPresenter settings
-- [ ] Tally host can reach ProPresenter over the network
+- [ ] ProPresenter computer's IP address and port number
+- [ ] API access turned on in ProPresenter's settings
+- [ ] Tally computer can reach the ProPresenter computer over the network
 
 ### Step-by-Step Setup
 
 **Step 1 — Configure ProPresenter Connection**
 
-In Equipment settings, enter the ProPresenter host and port.
+In Equipment settings, enter the ProPresenter host address and port.
 
 **Step 2 — Connect and Verify**
 
-Connect and confirm the running status shows as active.
+Connect and confirm the status shows as active.
 
-**Step 3 — Test Baseline Commands**
+**Step 3 — Test Slide Navigation**
 
-Run these navigation commands:
+Try these basic navigation commands:
 
 1. Next slide / Previous slide
-2. Go to slide by index
-3. Clear current slide / Clear all
+2. Go to a specific slide number
+3. Clear the current slide / Clear all
 
-**Step 4 — Test Deep Commands**
+**Step 4 — Test Advanced Controls**
 
-Run these advanced commands:
+Try these advanced features:
 
-1. Get looks → Set a specific look
-2. Get timers → Start/stop a timer
-3. Send stage message → Clear stage message
+1. **Looks** — switch between visual presets (different screen layouts)
+2. **Timers** — start or stop a countdown timer
+3. **Stage messages** — send a text message to the stage display, then clear it
 
-**Step 5 — Validate Status Readback**
+**Step 5 — Check Status Updates**
 
-Confirm version and current slide metadata updates in the Tally status panel.
+Confirm that the current slide name and ProPresenter version appear in the Tally status panel.
 
 ### Validation Checklist
 
-- [ ] ProPresenter connected and running status accurate
-- [ ] Slide navigation commands succeed
-- [ ] Look/timer/message commands succeed
-- [ ] Current slide metadata updates in status panel
+- [ ] ProPresenter shows as connected and active
+- [ ] Slide navigation works
+- [ ] Looks, timers, and stage messages work
+- [ ] Current slide info updates in the status panel
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Connected: false | Wrong host/port or API disabled | Verify ProPresenter network settings and enable API access |
-| Command succeeds but no visual change | Wrong target playlist or trigger state | Check the active playlist and presentation in ProPresenter |
-| Stage message not visible | Stage display misconfigured | Verify stage display layout in ProPresenter preferences |
-| Timer actions do nothing | Timer ID mismatch | List timers first to get correct IDs, then use those IDs |
+| Can't connect | Wrong address/port or API not enabled | Check ProPresenter's network settings and make sure API access is turned on |
+| Command works but nothing changes visually | Wrong playlist or presentation is active | Check which playlist is loaded in ProPresenter |
+| Stage message doesn't appear | Stage display not set up | Check stage display settings in ProPresenter's preferences |
+| Timer commands do nothing | Wrong timer ID | List all timers first to get the correct IDs, then use those |
 
 ### Rollback / Fallback
 
-1. Keep Tally in monitoring-only mode for ProPresenter.
-2. Execute live slide actions directly from ProPresenter until control confidence is restored.
+1. Put Tally in monitoring-only mode for ProPresenter.
+2. Control slides directly from ProPresenter until the connection is stable.
 
 ### Screenshot Placeholders
 
-![ProPresenter connection config](screenshot:H08-pro-config)
+![ProPresenter connection settings](screenshot:H08-pro-config)
 ![Command test panel](screenshot:H08-command-test)
 ![Looks and timers controls](screenshot:H08-looks-timers)
-![Stage message action result](screenshot:H08-stage-message)
+![Stage message result](screenshot:H08-stage-message)
 
 ---
 
 ## H09: Encoder Setup (OBS/vMix/Hardware/NDI)
 <!-- category: Equipment Integrations -->
 <!-- time: 10 min -->
-<!-- summary: Set your default encoder path, verify live status telemetry, and confirm control capabilities. -->
+<!-- difficulty: Intermediate -->
+<!-- summary: Connect your streaming software or hardware to Tally to monitor and control streaming/recording. -->
+
+### Quick Start
+
+1. In Equipment settings, select your encoder type (OBS, vMix, TriCaster, hardware, or NDI)
+2. Enter the address, port, and password (if needed)
+3. Click **Save** and connect
+4. Confirm the status shows your stream/recording state
 
 ### Who This Is For
 
-Teams streaming through OBS, vMix, TriCaster, hardware encoders, or NDI monitoring paths.
+Teams streaming through OBS, vMix, TriCaster, hardware encoders, or NDI.
 
 ### What You Will Accomplish
 
-- Configure your default encoder
-- Verify live status telemetry
-- Confirm control capabilities by encoder type
+- Connect your streaming software or hardware to Tally
+- See live streaming and recording status
+- Control start/stop for supported encoders
 
 ### Prerequisites
 
 - [ ] Encoder type selected (OBS, vMix, TriCaster, hardware, NDI)
-- [ ] Host/IP and credentials available
-- [ ] Network route confirmed from Tally machine to encoder
+- [ ] Address and login details ready
+- [ ] Tally computer can reach the encoder over the network
 
 ### Step-by-Step Setup
 
-**Step 1 — Choose Default Encoder**
+**Step 1 — Choose Your Encoder**
 
 In Equipment settings, select your encoder type from the dropdown.
 
-**Step 2 — Configure Type-Specific Fields**
+**Step 2 — Enter Connection Details**
 
-Enter the connection details for your encoder type:
+Enter the details for your encoder:
 
-- **OBS**: host, port, password
-- **vMix**: host, port
-- **TriCaster**: host, port, auth credentials if needed
-- **Hardware encoder**: vendor-specific host and credentials
-- **NDI monitor**: source name and ffprobe prerequisites
+- **OBS**: address, port, password
+- **vMix**: address, port
+- **TriCaster**: address, port, login details if needed
+- **Hardware encoder**: address and login details (varies by brand)
+- **NDI monitor**: the NDI source name
 
 **Step 3 — Save and Connect**
 
-Save the encoder configuration and initiate the connection.
+Save your settings and start the connection.
 
-**Step 4 — Run Status Check**
+**Step 4 — Check Status**
 
-Verify the encoder status panel shows connected with live telemetry.
+Verify the encoder status shows as connected with live information updating.
 
-**Step 5 — Test Control Actions**
+**Step 5 — Test Controls**
 
-Test supported actions (availability varies by encoder type):
+Test the available controls (not all encoders support all actions):
 
 1. Start/stop stream
 2. Start/stop recording
-3. Status readback verification
+3. Verify the status updates correctly
 
-> **Implementation Note:** Hardware encoders and NDI monitors are typically read-only. Unsupported actions will return an explicit error rather than failing silently.
+> **Note:** Hardware encoders and NDI monitors are usually read-only — Tally can see their status but can't control them. That's normal.
+
+### Advanced Details
+
+**NDI setup** requires the NDI runtime software to be installed on the Tally computer. You may also need `ffprobe` (a video analysis tool) for some NDI features.
+
+**Hardware encoders** that only push a stream (RTMP-only devices) cannot be controlled remotely — Tally monitors their output but can't start/stop them.
+
+**TriCaster** API support varies by model and firmware version. Check your TriCaster's documentation for available remote control features.
 
 ### Validation Checklist
 
-- [ ] Encoder connected state is accurate
-- [ ] Live/recording status updates in near-real-time
-- [ ] Unsupported actions return explicit "unsupported" error
-- [ ] OBS/vMix telemetry fields populate when available
+- [ ] Encoder shows as connected
+- [ ] Streaming and recording status updates in real-time
+- [ ] Unsupported actions show a clear "not supported" message
+- [ ] OBS/vMix status details appear when available
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| NDI monitor missing data | ffprobe or libndi support not installed | Install ffprobe and verify NDI runtime is available |
-| TriCaster partial control | API surface varies by installation | Check TriCaster firmware version and API documentation |
-| Hardware encoder read-only | Expected for RTMP push-only encoders | Use encoder's native UI for control; Tally monitors only |
-| Wrong default encoder selected | Wizard set a different encoder type | Change selection in Equipment settings (not wizard) |
+| NDI monitor shows no data | NDI software not installed | Install the NDI runtime on the Tally computer |
+| TriCaster only partially works | Not all features available on your model | Check your TriCaster firmware version and documentation |
+| Hardware encoder is read-only | That's expected for stream-only devices | Use the encoder's own controls; Tally will monitor the status |
+| Wrong encoder selected | Setup wizard chose a different type | Change the selection in Equipment settings |
 
 ### Rollback / Fallback
 
 1. Set the encoder to monitoring-only mode.
-2. Control streaming from the native encoder UI until the integration is stable.
+2. Control streaming from your encoder's own interface until the connection is stable.
 
 ### Screenshot Placeholders
 
 ![Encoder type selector](screenshot:H09-encoder-selector)
-![Type-specific config blocks](screenshot:H09-config-blocks)
-![Status panel with live/recording](screenshot:H09-status-panel)
-![Unsupported action error example](screenshot:H09-unsupported-error)
+![Connection settings](screenshot:H09-config-blocks)
+![Status panel](screenshot:H09-status-panel)
+![Unsupported action message](screenshot:H09-unsupported-error)
 
 ---
 
 ## H10: Audio Console Setup (X32/A&H/Yamaha)
 <!-- category: Equipment Integrations -->
 <!-- time: 10 min -->
-<!-- summary: Configure supported audio console controls and understand model/protocol limitations. -->
+<!-- difficulty: Advanced -->
+<!-- summary: Connect your audio mixing console to Tally for monitoring and basic remote control. -->
+
+### Quick Start
+
+1. In Equipment settings, select your console brand (Behringer/Midas, Allen & Heath, or Yamaha)
+2. Enter the console's IP address
+3. Click **Connect** and confirm it shows as online
+4. Test muting and unmuting a channel
 
 ### Who This Is For
 
-Teams integrating audio console status and control into Tally workflows.
+Teams connecting their audio mixing console to Tally for monitoring and control.
 
 ### What You Will Accomplish
 
 - Connect your audio console to Tally
-- Run supported control commands
-- Understand capability differences by console model
+- Run basic control commands (mute, volume)
+- Understand what's available for your specific console
 
 ### Prerequisites
 
-- [ ] Console model known (Behringer/Midas X32/M32, Allen & Heath SQ/dLive, Yamaha CL/QL)
-- [ ] Console IP and control protocol enabled
-- [ ] Network path confirmed from Tally machine to console
+- [ ] Console brand and model known
+- [ ] Console's IP address
+- [ ] Console and Tally computer on the same network
 
 ### Step-by-Step Setup
 
 **Step 1 — Select Console Type**
 
-In Equipment settings, choose your console type from the dropdown.
+In Equipment settings, choose your console brand from the dropdown.
 
 **Step 2 — Enter Connection Details**
 
-Enter the host IP, port, and any model-specific options.
+Enter the console's IP address. The port number is filled in automatically for your brand.
+
+**Step 3 — Connect and Verify**
+
+Connect and confirm the console shows as online in the status panel.
+
+**Step 4 — Test Basic Controls**
+
+Try the available commands:
+
+1. Mute/unmute a channel
+2. Adjust a channel's volume level
+3. Check the main output mute status
+4. Load a saved mix setup (if supported by your console)
+
+**Step 5 — Check What's Available**
+
+Look at the capability notes in the app to see which features are fully supported, partially supported, or not available for your console.
+
+> **Note:** Behringer/Midas consoles (X32/M32) have the most complete support. Allen & Heath and Yamaha consoles have fewer remote control features available. Loading saved mixes remotely isn't possible on most consoles — use the console's built-in controls for that.
+
+### Advanced Details
+
+The connection details for each console brand:
 
 - **Behringer/Midas X32/M32**: UDP port `10023`
 - **Allen & Heath SQ/dLive**: UDP port `51326`
 - **Yamaha CL/QL**: UDP port `8765`
 
-**Step 3 — Connect and Verify**
+Each brand uses a different communication protocol with different capabilities. "Scene recall" (loading a saved mixer setup) is only available on some Behringer/Midas consoles. Allen & Heath and Yamaha consoles have more limited remote control due to protocol restrictions.
 
-Connect and verify the console shows as online in the status panel.
-
-**Step 4 — Run Supported Commands**
-
-Test available commands:
-
-1. Mute/unmute a channel
-2. Set fader level
-3. Check main mute state
-4. Scene recall (if supported by your console)
-
-**Step 5 — Review Capability Map**
-
-Check the capability notes in the app to understand which features are full, partial, or unsupported for your console model.
-
-> **Implementation Note:** Allen & Heath and Yamaha consoles have more limited protocol support compared to Behringer/Midas. Scene save is not available via remote protocol on most models.
+State updates (like seeing volume changes) may take 1-2 seconds to sync — this is normal network behavior, not an error.
 
 ### Validation Checklist
 
-- [ ] Console connected state is accurate
+- [ ] Console shows as connected
 - [ ] Main mute status updates correctly
-- [ ] Supported commands execute as expected
-- [ ] Unsupported commands return a clear explanation
+- [ ] Supported commands work as expected
+- [ ] Unsupported commands show a clear explanation
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Feature gaps on Yamaha/A&H | Protocol limitations by model/firmware | Check the capability map; some functions are console-only |
-| Port mismatch | Non-default control port configured | Verify vendor default control port in documentation |
-| Delayed state updates | Polling interval and network latency | Expected behavior; allow 1-2 seconds for state sync |
-| Scene save unavailable | Protocol does not support remote scene save | Use console's native workflow for scene management |
+| Some features missing | Not all consoles support all features remotely | Check the capability list; some functions are console-only |
+| Can't connect | Wrong port number | Use the default port for your console brand (see Advanced Details) |
+| Slow status updates | Normal network delay | Allow 1-2 seconds for changes to show up |
+| Can't load saved mixes | Not supported remotely on your console | Use the console's physical controls for that |
 
 ### Rollback / Fallback
 
-1. Keep the console in monitoring-only mode.
-2. Use the console's physical controls for unsupported advanced functions.
+1. Put the console in monitoring-only mode.
+2. Use the console's physical controls for features Tally can't handle remotely.
 
 ### Screenshot Placeholders
 
-![Console config panel](screenshot:H10-console-config)
-![Connected state with model](screenshot:H10-connected-model)
-![Command success and unsupported examples](screenshot:H10-command-results)
-![Main mute warning example](screenshot:H10-mute-warning)
+![Console settings](screenshot:H10-console-config)
+![Connected status with model](screenshot:H10-connected-model)
+![Command results](screenshot:H10-command-results)
+![Main mute warning](screenshot:H10-mute-warning)
 
 ---
 
-## H11: PTZ Setup (ONVIF/VISCA/PTZOptics)
+## H11: PTZ Camera Setup
 <!-- category: Equipment Integrations -->
 <!-- time: 10 min -->
-<!-- summary: Connect PTZ cameras, control movement, and save/recall presets using supported protocols. -->
+<!-- difficulty: Advanced -->
+<!-- summary: Connect PTZ cameras to Tally so you can move them and recall saved positions. -->
+
+### Quick Start
+
+1. In the PTZ section, add each camera with a name and IP address
+2. Set the connection method to **Auto** (recommended)
+3. Click **Connect** and test moving each camera
+4. Save a camera position as a preset and recall it
 
 ### Who This Is For
 
-Teams operating one or more PTZ cameras from Tally.
+Teams using PTZ (pan-tilt-zoom) cameras that they want to control from Tally.
 
 ### What You Will Accomplish
 
-- Connect PTZ cameras using supported protocols
+- Connect PTZ cameras
 - Control pan, tilt, zoom, and home position
-- Save and recall camera presets
+- Save and recall camera positions (presets)
 
 ### Prerequisites
 
-- [ ] Camera IP addresses known
-- [ ] Credentials available if required (ONVIF)
-- [ ] Protocol choice known: `auto`, `onvif`, `visca-udp`, `visca-tcp`, `ptzoptics-tcp`, `ptzoptics-udp`
+- [ ] Camera IP addresses
+- [ ] Camera login credentials (if required)
+- [ ] Cameras and Tally computer on the same network
 
 ### Step-by-Step Setup
 
@@ -882,270 +989,308 @@ Teams operating one or more PTZ cameras from Tally.
 
 In the PTZ equipment section, add each camera with:
 
-1. Camera name (e.g., "Stage Left")
+1. A friendly name (e.g., "Stage Left", "Wide Shot")
 2. IP address
-3. Protocol (`auto` recommended for first setup)
-4. Port (if non-default)
-5. Credentials (if using ONVIF)
+3. Connection method — choose **Auto** to let Tally detect the best method
+4. Login credentials (if your camera requires them)
 
 **Step 2 — Connect All Cameras**
 
-Click **Connect** for each camera and verify connectivity.
+Click **Connect** for each camera and wait for the status to update.
 
-**Step 3 — Run Movement Tests**
+**Step 3 — Test Movement**
 
-Test basic movement commands for each camera:
+Test basic movement for each camera:
 
-1. Pan left / right
-2. Tilt up / down
-3. Zoom in / out
+1. Pan left and right
+2. Tilt up and down
+3. Zoom in and out
 4. Stop
-5. Home position
+5. Return to home position
 
-**Step 4 — Run Preset Tests**
+**Step 4 — Test Presets**
 
-Test preset operations:
+Test saving and recalling camera positions:
 
-1. Move camera to a desired position
-2. Save as preset (e.g., preset 1)
-3. Move camera away
-4. Recall the preset and verify it returns
+1. Move the camera to the position you want
+2. Save it as a preset (e.g., Preset 1)
+3. Move the camera somewhere else
+4. Recall the preset and confirm it returns to the right spot
+
+### Advanced Details
+
+Tally supports several camera connection methods (protocols):
+
+- **Auto** — recommended; Tally tries to detect the best method
+- **ONVIF** — an industry-standard camera protocol; may require username and password
+- **VISCA (UDP or TCP)** — a common PTZ control protocol
+- **PTZOptics (UDP or TCP)** — specific to PTZOptics brand cameras
+
+If Auto doesn't work reliably, you can force a specific method. Check your camera's documentation to see which protocols it supports.
+
+Common protocol issues:
+- ONVIF may require credentials even if the camera doesn't prompt for them
+- Some cameras report conflicting capabilities that confuse auto-detection — forcing a specific method usually fixes this
 
 ### Validation Checklist
 
-- [ ] Camera connectivity status accurate for each camera
-- [ ] Movement commands execute smoothly
-- [ ] Home command returns camera to home position
-- [ ] Preset set and recall works correctly
+- [ ] All cameras show as connected
+- [ ] Movement commands work smoothly
+- [ ] Home command returns the camera to its default position
+- [ ] Preset save and recall works correctly
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Auto protocol picks wrong path | Camera reports conflicting capabilities | Force an explicit protocol (e.g., `visca-tcp`) |
-| VISCA UDP/TCP mismatch | Wrong transport selected | Verify camera documentation for correct VISCA transport |
-| ONVIF auth errors | Wrong username/password or profile issue | Check credentials and ONVIF profile support on camera |
-| All cameras offline | NIC/subnet routing issue | Verify cameras and Tally are on the same VLAN |
+| Auto-detect picks wrong method | Camera sends conflicting information | Choose a specific connection method instead of Auto |
+| Camera won't connect | Wrong address or login credentials | Double-check the IP address and credentials |
+| All cameras offline | Network issue | Make sure cameras and Tally are on the same network |
+| Presets don't save | Camera doesn't support remote preset saving | Check your camera's documentation |
 
 ### Rollback / Fallback
 
-1. Disable PTZ automation in Tally.
-2. Keep manual camera control from the native PTZ controller.
+1. Turn off PTZ control in Tally.
+2. Use your camera's own controller or joystick for manual control.
 
 ### Screenshot Placeholders
 
-![PTZ list config](screenshot:H11-ptz-list)
-![Per-camera connection status](screenshot:H11-camera-status)
+![PTZ camera list](screenshot:H11-ptz-list)
+![Camera connection status](screenshot:H11-camera-status)
 ![Movement controls](screenshot:H11-movement-controls)
-![Preset save/recall confirmation](screenshot:H11-preset-confirm)
+![Preset save/recall](screenshot:H11-preset-confirm)
 
 ---
 
 ## H12: Alerts, Tally Engineer, and Auto-Recovery
 <!-- category: Troubleshooting -->
 <!-- time: 10 min -->
-<!-- summary: Understand how Tally detects issues, triggers alerts, and attempts automated recovery. -->
+<!-- difficulty: Intermediate -->
+<!-- summary: Set up alerts so Tally can warn you about problems and try to fix them automatically. -->
+
+### Quick Start
+
+1. Go to alert settings and turn on notifications (e.g., Telegram)
+2. Confirm the Tally Engineer panel is visible and showing data
+3. Simulate a problem (like disconnecting the ATEM) and check that you receive an alert
+4. Confirm the app tries to reconnect automatically
 
 ### Who This Is For
 
-Teams relying on proactive issue detection and guided remediation during services.
+Teams that want Tally to detect problems and alert them during services.
 
 ### What You Will Accomplish
 
-- Configure alert channels
-- Understand Tally Engineer diagnostics
-- Test controlled failure and recovery scenarios
+- Set up alert notifications
+- Understand the Tally Engineer diagnostics system
+- Test alerts and auto-recovery
 
 ### Prerequisites
 
-- [ ] Core integrations connected (ATEM, encoder, etc.)
-- [ ] Alert channels configured (Telegram bot token, chat IDs)
-- [ ] Support workflows enabled in the portal
+- [ ] Main equipment connected (ATEM, encoder, etc.)
+- [ ] Notification channel set up (e.g., a Telegram bot — your admin will provide the bot details and chat ID)
+- [ ] Support features enabled in the portal
 
 ### Step-by-Step Setup
 
-**Step 1 — Open Alert Configuration**
+**Step 1 — Open Alert Settings**
 
-Navigate to the alert settings in your church portal or app config.
+Go to the alert settings in your church portal or app settings.
 
-**Step 2 — Enable Critical Warning Channels**
+**Step 2 — Turn On Notification Channels**
 
-Configure which alert channels should receive critical warnings (e.g., Telegram).
+Set up which channels should receive alerts (e.g., Telegram). Your admin will provide the bot details and chat ID.
 
-**Step 3 — Confirm Tally Engineer Visibility**
+**Step 3 — Confirm Tally Engineer is Working**
 
-Verify that the Tally Engineer diagnostics panel is visible and showing data.
+Check that the Tally Engineer diagnostics panel is visible and showing system data.
 
-**Step 4 — Trigger Test Conditions**
+**Step 4 — Test with a Simulated Problem**
 
-In a non-production environment, trigger controlled test conditions:
+In a non-production environment, create a controlled problem:
 
-1. Disconnect the ATEM (unplug or change IP)
-2. Stop the encoder stream
-3. Mute audio master (test only — restore immediately)
+1. Disconnect the ATEM (unplug or change its IP)
+2. Stop the stream in your encoder
+3. Mute the main audio output (restore it immediately after)
 
-> **Safety:** Only trigger test conditions in a non-production environment. Restore all connections immediately after testing.
+> **Safety:** Only do this during testing — not during a live service! Restore all connections right away.
 
-**Step 5 — Confirm Alert Flow**
+**Step 5 — Confirm the Alert System Works**
 
-For each test condition, verify:
+For each test problem, check:
 
-1. Alert appears in the configured channel
-2. Diagnostic data is captured
-3. Auto-recovery attempt is recorded in the timeline
+1. You received a notification in the right channel
+2. System information was captured
+3. Tally attempted to reconnect or fix the problem automatically
 
 ### Validation Checklist
 
-- [ ] Alerts are generated for critical conditions
-- [ ] Dedup/cooldown behavior prevents alert flooding
-- [ ] Auto-recovery attempts are visible in logs/timeline
-- [ ] Manual escalation path is available when auto-recovery fails
+- [ ] Alerts arrive for real problems
+- [ ] Repeated alerts are suppressed (you don't get flooded with the same message)
+- [ ] Auto-recovery attempts show in the timeline
+- [ ] You can escalate manually if auto-recovery doesn't work
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Too many repeated alerts | Dedup/cooldown window too short | Tune the cooldown interval in alert settings |
-| Missing alerts | Status polling disabled or channel misconfigured | Verify polling is active and channel credentials are correct |
-| Recovery actions not firing | Permission/capability issue on target integration | Check that Tally has control access (not monitoring-only) |
-| AI triage shows low signal | Diagnostics payload incomplete | Include richer status data in the support payload |
+| Getting too many repeat alerts | Alert suppression window is too short | Increase the cooldown time in alert settings |
+| No alerts at all | Notifications turned off or wrong channel settings | Check that notifications are on and channel details are correct |
+| Auto-recovery not working | Tally doesn't have control access to the device | Make sure Tally has full control access, not just monitoring |
+| Diagnostics look incomplete | Not enough status data being collected | Make sure all equipment is connected and reporting |
 
 ### Rollback / Fallback
 
-1. Keep detection active but disable auto-recovery actions.
-2. Switch to manual operator confirmation for all recovery commands.
+1. Keep monitoring active but turn off automatic recovery actions.
+2. Switch to manual confirmation for all recovery actions.
 
 ### Screenshot Placeholders
 
-![Alert settings panel](screenshot:H12-alert-settings)
-![Alert timeline example](screenshot:H12-alert-timeline)
-![Auto-recovery event record](screenshot:H12-recovery-record)
-![Triage summary view](screenshot:H12-triage-summary)
+![Alert settings](screenshot:H12-alert-settings)
+![Alert timeline](screenshot:H12-alert-timeline)
+![Auto-recovery record](screenshot:H12-recovery-record)
+![Triage summary](screenshot:H12-triage-summary)
 
 ---
 
 ## H13: Service Schedule + Automation Rules
 <!-- category: Automation and Companion -->
 <!-- time: 12 min -->
-<!-- summary: Create service windows and automation rules that run reliably with safety constraints. -->
+<!-- difficulty: Intermediate -->
+<!-- summary: Create service time windows and automation rules so Tally can run actions on schedule. -->
+
+### Quick Start
+
+1. Open the Schedule tab and create a service window (e.g., Sunday 8:00 AM - 12:30 PM)
+2. Add an automation rule — pick a trigger (time, event, or manual) and an action
+3. Run a dry test to verify timing
+4. Enable the rule for the next service
 
 ### Who This Is For
 
-Teams running repeatable weekend workflows and timed operational actions.
+Teams with repeatable weekend workflows that want to automate routine actions.
 
 ### What You Will Accomplish
 
-- Create service windows by day and time
+- Create service time windows by day and time
 - Build automation rules with triggers and actions
-- Test rules safely before production use
+- Test rules safely before using them in a live service
 
 ### Prerequisites
 
-- [ ] Church timezone configured correctly
-- [ ] Baseline integrations connected
-- [ ] Automation feature enabled for your billing tier
+- [ ] Church timezone set correctly in settings
+- [ ] Main equipment connected
+- [ ] Automation feature available on your billing plan
 
 ### Step-by-Step Setup
 
 **Step 1 — Open the Schedule Tab**
 
-Navigate to the schedule/automation section in the portal.
+Go to the schedule/automation section in the portal.
 
 **Step 2 — Create Service Windows**
 
-Define service windows by day and time (e.g., Sunday 8:00 AM - 12:30 PM).
+Set up your service times by day and time (e.g., Sunday 8:00 AM - 12:30 PM).
 
 **Step 3 — Add Automation Rules**
 
-Create rules by selecting a trigger type:
+Create rules by choosing a trigger:
 
-1. **Schedule timer** — fires at a specific time within a service window
-2. **Status/event trigger** — fires when a device status changes
-3. **Manual trigger** — fires when explicitly invoked
+1. **Timer** — runs at a specific time during the service window
+2. **Event trigger** — runs when something happens (like a device disconnecting)
+3. **Manual trigger** — runs when you press a button
 
-**Step 4 — Add Actions with Ordering**
+**Step 4 — Add Actions**
 
-Add one or more actions to each rule. Set explicit order and delays between actions.
+Add one or more actions to each rule. Set the order and add delays between actions.
 
-> **Safety:** Always add delays between power-cycle actions and device commands. Gear needs time to boot before receiving further instructions.
+> **Important:** Always add delays between restart actions and device commands. Equipment needs time to boot up before it can accept new instructions.
 
 **Step 5 — Run a Dry Test**
 
-Save the rule and run a dry test for one service window to verify timing and execution.
+Save the rule and run a test for one service window to make sure the timing and actions are correct.
 
 ### Validation Checklist
 
-- [ ] Service windows trigger at expected local time
-- [ ] Rules fire once per intended event (no duplicates)
-- [ ] No duplicate or runaway actions
-- [ ] Command log captures each action and its result
+- [ ] Service windows trigger at the right local time
+- [ ] Rules run once per event (no accidental repeats)
+- [ ] No actions running in a loop
+- [ ] Action log shows each action and whether it succeeded
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Wrong execution time | Timezone mismatch between church and server | Verify church timezone setting matches your local timezone |
-| Rule not firing | Trigger conditions never met | Check that the trigger event actually occurs during the service window |
-| Rule fires in a loop | Missing guard conditions | Add a "once per window" or cooldown guard to the rule |
-| Actions too fast for gear | No delays between sequential commands | Add appropriate delays (5-15 seconds) between actions |
+| Actions run at the wrong time | Timezone mismatch | Check that your church timezone in settings matches your actual timezone |
+| Rule never fires | Trigger condition never happens | Make sure the triggering event actually occurs during the service window |
+| Rule fires over and over | No safety limit set | Add a "once per window" or cooldown limit to the rule |
+| Actions happen too fast | No delays between steps | Add 5-15 second delays between actions so equipment can keep up |
 
 ### Rollback / Fallback
 
 1. Pause all automation rules.
-2. Keep manual command workflows for the next service.
-3. Re-enable rules one by one after testing each individually.
+2. Run things manually for the next service.
+3. Re-enable rules one at a time after testing each one.
 
 ### Screenshot Placeholders
 
 ![Service window editor](screenshot:H13-service-editor)
 ![Rule builder](screenshot:H13-rule-builder)
-![Dry-run test result](screenshot:H13-dry-run)
-![Command log timeline](screenshot:H13-command-log)
+![Dry test result](screenshot:H13-dry-run)
+![Action log](screenshot:H13-command-log)
 
 ---
 
-## H14: Support Workflow (Triage + Ticket + Update)
+## H14: Support Workflow (Triage + Ticket)
 <!-- category: Troubleshooting -->
 <!-- time: 8 min -->
-<!-- summary: Run the full support flow: triage an issue, create a ticket, and post updates. -->
+<!-- difficulty: Beginner -->
+<!-- summary: Report a problem, get an AI-assisted diagnosis, and create a support ticket. -->
+
+### Quick Start
+
+1. Go to the Help section in the portal
+2. Select your issue type and run the AI triage
+3. Review the diagnosis and recommendations
+4. Click **Create Ticket** to submit a support request
 
 ### Who This Is For
 
-Church admins and support operators handling incidents from the church portal.
+Church admins and operators who need to report and track technical issues.
 
 ### What You Will Accomplish
 
-- Run an AI-assisted triage for an issue
-- Create a support ticket from triage results
+- Run an AI-assisted diagnosis for an issue
+- Create a support ticket from the results
 - Post updates and manage ticket status
 
 ### Prerequisites
 
-- [ ] Support routes enabled on the relay
-- [ ] Authenticated as a church admin or support user
-- [ ] Diagnostics collection available (app connected and reporting status)
+- [ ] Signed in as a church admin or support user
+- [ ] Tally app connected and reporting status
+- [ ] Support features enabled on the server
 
 ### Step-by-Step Setup
 
 **Step 1 — Open Help/Support**
 
-Navigate to the Help or Support section in the church portal.
+Go to the Help or Support section in the church portal.
 
 **Step 2 — Run Triage**
 
-Select the issue category and run the AI-assisted triage. The system will collect diagnostics and analyze the issue.
+Select the type of issue and run the AI-assisted triage. The system will gather information and analyze the problem.
 
-**Step 3 — Review Triage Result**
+**Step 3 — Review the Diagnosis**
 
-Review the triage result, which includes:
+Review what the system found:
 
-- Issue classification
-- Severity assessment
-- Recommended next steps
+- What type of issue it is
+- How serious it is
+- What to do next
 
 **Step 4 — Create Ticket**
 
-Click **Create Ticket** to generate a support ticket from the triage payload.
+Click **Create Ticket** to submit a support request based on the diagnosis.
 
 **Step 5 — Add Updates**
 
@@ -1153,28 +1298,28 @@ Post update messages to the ticket as the issue progresses.
 
 **Step 6 — Change Ticket Status**
 
-Update the ticket status as appropriate (e.g., In Progress, Resolved).
+Update the status as needed (e.g., In Progress, Resolved).
 
 ### Validation Checklist
 
-- [ ] Triage run is saved with diagnostics
-- [ ] Ticket created successfully with correct metadata
-- [ ] Updates are appended in chronological order
-- [ ] Access controls enforce church/admin boundaries
+- [ ] Triage runs successfully and saves results
+- [ ] Ticket is created with the correct details
+- [ ] Updates appear in order
+- [ ] Only authorized users can see and edit tickets
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Unauthorized error | Wrong token or user role | Re-authenticate with the correct church admin credentials |
-| Ticket not visible | Scope mismatch (church vs admin view) | Switch to the correct view (church portal vs admin dashboard) |
-| Missing diagnostics | Status ingestion incomplete | Ensure the Tally app is connected and reporting status |
-| Metadata update blocked | Church role restricted by design | Some metadata fields are admin-only; contact your admin |
+| "Unauthorized" error | Wrong login or user role | Sign in again with the correct admin account |
+| Can't find a ticket | Looking in the wrong view | Switch between the church portal and admin dashboard views |
+| Missing information in diagnosis | Tally app not fully connected | Make sure the Tally app is running and connected to all equipment |
+| Can't update some fields | Some fields are admin-only | Contact your admin to update those fields |
 
 ### Rollback / Fallback
 
-1. Use a manual support channel (email, phone) for urgent incidents.
-2. Log the event details and create the ticket after the support route recovers.
+1. For urgent issues, use your manual support channel (email, phone).
+2. Log the details and create the ticket later once the system is working.
 
 ### Screenshot Placeholders
 
@@ -1188,31 +1333,68 @@ Update the ticket status as appropriate (e.g., In Progress, Resolved).
 ## H15: Ops — Backups, Status Page, Logs, Updates
 <!-- category: Operations -->
 <!-- time: 12 min -->
-<!-- summary: Configure backup cadence, monitor platform status, export logs, and execute safe updates. -->
+<!-- difficulty: Advanced -->
+<!-- summary: Set up backups, monitor system health, review logs, and safely deploy updates. -->
+
+### Quick Start
+
+1. Open the admin panel and go to Backup Settings
+2. Confirm backups are running and check that backup files are being created
+3. Open the Status Page and verify all systems show as operational
+4. Before any update, always create a backup first
 
 ### Who This Is For
 
-Platform operators responsible for uptime and launch readiness.
+Platform administrators responsible for keeping Tally running and up to date.
 
 ### What You Will Accomplish
 
-- Configure automated database backups
-- Monitor platform status components
-- Export logs for incident review
-- Execute a safe update workflow
+- Confirm automated backups are working
+- Monitor platform health on the status page
+- Review and export logs
+- Safely deploy updates
 
 ### Prerequisites
 
-- [ ] Admin access to the relay server
-- [ ] Environment variables for backups configured (BACKUP_DIR, BACKUP_ENCRYPTION_KEY)
-- [ ] Storage path for snapshots confirmed and writable
+- [ ] Admin access to the server
+- [ ] Backup settings configured (your deployment admin will set this up)
+- [ ] Access to the status page
 
 ### Step-by-Step Setup
 
-**Step 1 — Configure Backup Environment**
+**Step 1 — Check Backup Settings**
 
-Set the backup environment variables:
+Open the admin panel and confirm backup settings are active. Backups should run automatically (typically every 15 minutes).
 
+**Step 2 — Verify Backups Are Being Created**
+
+Check that backup files are appearing on schedule. You should see timestamped backup files in the storage location.
+
+**Step 3 — Check the Status Page**
+
+Open the status page and verify that all components show their expected status (operational, degraded, or outage).
+
+**Step 4 — Review Logs**
+
+Review recent logs from both the app and server when investigating issues or preparing for an update.
+
+**Step 5 — Deploy Updates Safely**
+
+When it's time to update, follow this process:
+
+1. Tell users about the maintenance window
+2. Create a backup before starting
+3. Deploy the update
+4. Run basic tests to confirm everything works
+5. Check the status page — all components should be operational
+
+> **Important:** Always create a backup before deploying any update. Run tests before and after every deployment.
+
+### Advanced Details
+
+For administrators who manage the server directly, here are the technical details:
+
+**Backup environment variables:**
 ```bash
 DB_BACKUP_INTERVAL_MINUTES=15
 BACKUP_DIR=/data/backups
@@ -1220,63 +1402,225 @@ BACKUP_ENCRYPTION_KEY=your-encryption-key
 BACKUP_RETAIN_COUNT=96
 ```
 
-> **Note:** In production, backups default to every 15 minutes if `DB_BACKUP_INTERVAL_MINUTES` is not explicitly set. A startup warning will appear if no backup schedule is configured.
-
-**Step 2 — Verify Backup Snapshots**
-
-Check that backup files are being created on schedule:
-
+**Checking backups from the command line:**
 ```bash
 ls -la /data/backups/
 ```
 
 You should see timestamped `.sqlite.gz` or `.sqlite.gz.enc` files.
 
-**Step 3 — Check Status Page**
-
-Open the status components page and run health checks. Verify that relay API, portal, and proxy checks show their expected state (operational, degraded, or outage).
-
-**Step 4 — Export Logs**
-
-Export logs from both the app and server when testing or reviewing incidents.
-
-**Step 5 — Perform Updates**
-
-Execute the update process during a maintenance window:
-
-1. Notify users of the maintenance window
-2. Create a pre-update backup snapshot
-3. Deploy the update
-4. Run smoke tests
-5. Verify status page shows all components operational
-
-> **Safety:** Always create a backup snapshot before deploying updates. Run smoke tests before and after every deploy.
+If `DB_BACKUP_INTERVAL_MINUTES` is not set, backups default to every 15 minutes. A warning will appear at startup if no backup schedule is configured.
 
 ### Validation Checklist
 
-- [ ] Backup files are created and retained per policy
-- [ ] Status page updates at the expected interval
-- [ ] Incident history records state transitions
-- [ ] Log export contains enough detail for incident review
+- [ ] Backup files are being created on schedule
+- [ ] Status page updates correctly
+- [ ] Past incidents are recorded
+- [ ] Log exports contain enough detail for troubleshooting
 
 ### Common Issues and Fixes
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| No backups being created | DB_BACKUP_INTERVAL_MINUTES not set or set to 0 | Set the environment variable to a positive number (e.g., 15) |
-| False proxy outage on status page | Check targets or response classification wrong | Verify proxy check URLs; 404/auth errors should show as degraded, not outage |
-| Large or noisy log files | Verbose logging level in production | Tune logging levels to reduce noise |
-| Update causes regressions | No pre/post deploy smoke tests | Always run the full smoke test set before and after deploy |
+| No backups being created | Backup interval not configured | Ask your deployment admin to set the backup interval |
+| Status page shows false alarm | Health check targets not configured correctly | Verify the check URLs; some expected errors shouldn't count as outages |
+| Log files are too large | Too much detail being logged | Ask your admin to adjust logging levels |
+| Update causes problems | No testing before/after deployment | Always run tests before and after every update |
 
 ### Rollback / Fallback
 
-1. Restore the latest verified backup snapshot.
-2. Roll back to the previous known-good release.
-3. Re-run smoke checks and status page checks after rollback.
+1. Restore the most recent backup.
+2. Go back to the previous version of the software.
+3. Re-run health checks after rolling back.
 
 ### Screenshot Placeholders
 
-![Backup config and snapshot list](screenshot:H15-backup-config)
-![Status components dashboard](screenshot:H15-status-dashboard)
-![Incident history panel](screenshot:H15-incident-history)
-![Log export success](screenshot:H15-log-export)
+![Backup settings](screenshot:H15-backup-config)
+![Status page](screenshot:H15-status-dashboard)
+![Incident history](screenshot:H15-incident-history)
+![Log export](screenshot:H15-log-export)
+
+---
+
+## H16: Network Setup for Church AV
+<!-- category: Getting Started -->
+<!-- time: 15 min -->
+<!-- difficulty: Intermediate -->
+<!-- summary: Configure your church network so Tally, your ATEM, cameras, and streaming gear all communicate reliably. -->
+
+### Quick Start
+
+1. Put all AV gear on the same subnet (e.g. 192.168.1.x) using a dedicated switch
+2. Assign static IPs to every piece of AV equipment — never rely on DHCP for production gear
+3. Connect the Tally computer to the same switch and confirm it can reach each device
+4. Verify connectivity from Tally's Equipment Setup screen — every device should show a green dot
+
+### Who This Is For
+
+Church tech directors and volunteers setting up or troubleshooting the network that connects an ATEM switcher, cameras, streaming encoder, and Tally.
+
+### What You Will Accomplish
+
+- Understand why AV gear needs its own network segment
+- Assign static IPs to your ATEM, PTZ cameras, encoder, and other devices
+- Wire everything through a dedicated AV switch
+- Verify end-to-end connectivity from the Tally computer
+- Avoid the most common network mistakes that cause dropped connections
+
+### Prerequisites
+
+- [ ] A managed or unmanaged gigabit network switch (8-port minimum, 16-port recommended)
+- [ ] Ethernet cables for every piece of AV gear
+- [ ] Access to each device's network settings (ATEM Software Control, camera web UI, etc.)
+- [ ] Tally installed and signed in (see H01 and H02)
+
+### Step-by-Step Setup
+
+**Step 1 — Plan Your IP Scheme**
+
+Pick a subnet for all AV equipment. A common choice:
+
+| Device | IP Address |
+|--------|------------|
+| ATEM Switcher | 192.168.1.10 |
+| PTZ Camera 1 | 192.168.1.21 |
+| PTZ Camera 2 | 192.168.1.22 |
+| PTZ Camera 3 | 192.168.1.23 |
+| OBS / Encoder PC | 192.168.1.30 |
+| Audio Console (X32, etc.) | 192.168.1.40 |
+| Companion | 192.168.1.50 |
+| HyperDeck | 192.168.1.60 |
+| Tally Computer | 192.168.1.100 |
+
+> **Tip:** Write these on a label and stick it to the inside of your rack or tech booth desk. You will need them again.
+
+Use subnet mask **255.255.255.0** and gateway **192.168.1.1** everywhere. If your church internet router is on 192.168.1.1, this lets AV gear reach the internet for relay connections. If the router uses a different range, adjust your AV subnet to match or add a route.
+
+**Step 2 — Set Static IPs on Every Device**
+
+Never rely on DHCP for production AV gear. A DHCP lease change mid-service will drop your ATEM or camera connection instantly.
+
+- **ATEM** — Open ATEM Software Control → Switcher Settings → Network. Set a static IP, subnet mask, and gateway. Click Apply and wait for the switcher to restart its network.
+- **PTZ Cameras** — Open each camera's web interface (usually at the camera's current IP). Go to Network settings and assign the planned static IP.
+- **OBS / Encoder** — Set a static IP on the computer's Ethernet adapter in your OS network settings.
+- **Audio Console** — Access the console's Setup/Network screen and assign a static IP.
+- **Tally Computer** — Set a static IP on the Ethernet adapter. On Mac: System Settings → Network → Ethernet → Details → TCP/IP → Configure IPv4: Manually.
+
+**Step 3 — Wire Through a Dedicated Switch**
+
+Connect every piece of AV gear and the Tally computer to the same physical switch. This keeps AV traffic off the church Wi-Fi and general office network.
+
+```
+[Internet Router]
+       |
+[AV Switch] ─── ATEM Switcher
+       |─────── PTZ Camera 1
+       |─────── PTZ Camera 2
+       |─────── PTZ Camera 3
+       |─────── Encoder / OBS PC
+       |─────── Audio Console
+       |─────── Tally Computer
+       |─────── HyperDeck
+       |─────── Companion
+```
+
+> **Important:** Use Cat6 cables for runs longer than 10 feet. Use Cat5e only for short patch cables. Never use Wi-Fi for ATEM, cameras, or Tally — it is not reliable enough for live production.
+
+**Step 4 — Verify Connectivity from the Tally Computer**
+
+Open a terminal on the Tally computer and ping each device:
+
+```bash
+ping 192.168.1.10    # ATEM
+ping 192.168.1.21    # Camera 1
+ping 192.168.1.40    # Audio Console
+```
+
+Every device should respond in under 5 ms on a local switch. If any device does not respond:
+
+1. Check that the cable is seated — try a different port on the switch
+2. Confirm the static IP was saved on the device (some devices need a reboot)
+3. Make sure the Tally computer and the device are on the same subnet
+
+**Step 5 — Confirm in Tally**
+
+Open Tally and go to the Equipment Setup screen. Every connected device should show a green status dot. If a device shows red:
+
+- Double-check the IP address entered in Tally matches the static IP you assigned
+- Confirm the device is powered on and the Ethernet link light is active on the switch
+- Try unplugging and re-plugging the Ethernet cable
+
+**Step 6 — Verify Relay Connectivity**
+
+Tally connects to the cloud relay over the internet. Make sure the Tally computer (or the switch uplink) has a path to the internet.
+
+- The relay connection uses standard HTTPS (port 443) — no special firewall rules needed
+- If your church uses a firewall or content filter, make sure `api.tallyconnect.app` is allowed
+- Check the Tally app — the relay status should show "Connected" with a green dot
+
+### Advanced Details
+
+**VLANs (for managed switches):**
+
+If your church has a managed switch or enterprise network, create a dedicated VLAN for AV equipment. This isolates AV traffic from office computers and guest Wi-Fi while still allowing internet access for the relay connection.
+
+Typical VLAN setup:
+- VLAN 10 — AV Production (ATEM, cameras, Tally, encoder)
+- VLAN 20 — Church Office (staff computers, printers)
+- VLAN 30 — Guest Wi-Fi
+
+Configure the router to route between VLANs only if cross-VLAN access is needed (it usually isn't).
+
+**Multicast and IGMP:**
+
+ATEM discovery and some NDI workflows use multicast. If you're on a managed switch, enable **IGMP snooping** to prevent multicast traffic from flooding all ports. Most unmanaged switches handle this fine without configuration.
+
+**PoE (Power over Ethernet):**
+
+PTZ cameras and some devices support PoE. If your switch provides PoE, you can power cameras directly from the switch — no separate power adapter needed. Check your camera specs for PoE requirements (most PTZ cameras need PoE+ / 802.3at, 30W).
+
+**Bandwidth planning:**
+
+| Traffic Type | Bandwidth (per stream) |
+|-------------|----------------------|
+| ATEM control | < 1 Mbps |
+| PTZ control (VISCA/TCP) | < 1 Mbps |
+| Tally status updates | < 1 Mbps |
+| NDI video stream | 100–150 Mbps |
+| Relay (internet) | < 1 Mbps |
+
+A standard gigabit switch handles all of this comfortably. The only high-bandwidth item is NDI — if you use NDI, make sure your switch is gigabit and avoid daisy-chaining consumer switches.
+
+### Validation Checklist
+
+- [ ] Every AV device has a static IP (not DHCP)
+- [ ] All devices respond to ping from the Tally computer in under 5 ms
+- [ ] Tally Equipment Setup shows green dots for all connected devices
+- [ ] Relay status shows "Connected"
+- [ ] IP assignments are documented (label, spreadsheet, or config file)
+- [ ] No AV gear is relying on Wi-Fi
+
+### Common Issues and Fixes
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| ATEM drops out randomly | DHCP lease expired or IP conflict | Assign a static IP to the ATEM; check no other device uses the same address |
+| Camera unreachable after power cycle | Camera reverted to DHCP or a different IP | Re-assign the static IP in the camera's web interface |
+| Tally shows "Relay Disconnected" | No internet on the AV network | Confirm the switch uplink reaches a router with internet; allow `api.tallyconnect.app` on any firewall |
+| High latency on pings (>5 ms) | Traffic congestion or bad cable | Use a dedicated AV switch; replace suspect cables; check for broadcast storms |
+| Device works alone but fails when everything is on | IP address conflict — two devices share an IP | Audit every device IP; use the planned IP table to confirm no overlaps |
+| NDI video stutters | Not enough bandwidth or consumer switch | Use a gigabit managed switch; avoid daisy-chaining cheap switches |
+
+### Rollback / Fallback
+
+1. If a device becomes unreachable after changing its IP, connect a laptop directly to the device with a crosshair cable and reset its network settings.
+2. Most ATEM switchers can be factory-reset via the physical control panel (hold RESET on boot) which restores DHCP mode.
+3. PTZ cameras typically have a hardware reset button (pinhole on the back) that restores default network settings.
+
+### Screenshot Placeholders
+
+![IP address planning table](screenshot:H16-ip-plan)
+![ATEM network settings](screenshot:H16-atem-network)
+![Switch wiring diagram](screenshot:H16-switch-diagram)
+![Tally equipment status](screenshot:H16-tally-status)
+![Ping test results](screenshot:H16-ping-test)

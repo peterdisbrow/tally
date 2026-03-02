@@ -24,6 +24,9 @@ class RtmpPushEncoder {
       blackmagic: 'Blackmagic Web Presenter',
       'atem-streaming': 'ATEM Mini',
       yolobox: 'YoloBox',
+      'youtube-live': 'YouTube Live',
+      'facebook-live': 'Facebook Live',
+      'vimeo-live': 'Vimeo Live',
       'custom-rtmp': 'Custom RTMP',
       'rtmp-generic': 'RTMP Device',
     };

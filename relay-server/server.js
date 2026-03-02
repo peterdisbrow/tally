@@ -69,6 +69,7 @@ const { aiParseCommand, setAiUsageLogger: setParserLogger } = require('./src/ai-
 const { detectSetupIntent, detectIntentWithAttachment, parsePatchList, generateMixerSetup, parseCameraPlot, buildCameraCommands, setAiUsageLogger: setSetupLogger } = require('./src/ai-setup-assistant');
 const { isOnTopic, OFF_TOPIC_RESPONSE } = require('./src/chat-guard');
 const { ChurchMemory } = require('./src/churchMemory');
+const { ChurchDocuments } = require('./src/churchDocuments');
 const { PreServiceCheck } = require('./src/preServiceCheck');
 const { MonthlyReport } = require('./src/monthlyReport');
 const { OnCallRotation } = require('./src/onCallRotation');
@@ -609,8 +610,8 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_date ON ai_usage_log(created_at
 
 /** Log an AI API call to the usage table. Fire-and-forget — never throws. */
 function logAiUsage({ churchId, feature, model, inputTokens, outputTokens, cached }) {
-  // Haiku 4.5 pricing: $0.80 / 1M input tokens, $4.00 / 1M output tokens
-  const cost = ((inputTokens || 0) * 0.0000008) + ((outputTokens || 0) * 0.000004);
+  // Haiku 4.5 pricing: $1.00 / 1M input tokens, $5.00 / 1M output tokens
+  const cost = ((inputTokens || 0) * 0.000001) + ((outputTokens || 0) * 0.000005);
   try {
     db.prepare(
       'INSERT INTO ai_usage_log (church_id, feature, model, input_tokens, output_tokens, cost_usd, cached, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
@@ -658,6 +659,8 @@ monthlyReport.start();
 
 const churchMemory = new ChurchMemory(db);
 weeklyDigest.churchMemory = churchMemory;
+const churchDocuments = new ChurchDocuments(db);
+churchDocuments.setAiUsageLogger((opts) => logAiUsage({ churchId: opts.churchId || null, ...opts }));
 const sessionRecap = new SessionRecap(db);
 sessionRecap.churchMemory = churchMemory;
 sessionRecap.setNotificationConfig(
@@ -981,6 +984,109 @@ preServiceCheck = new PreServiceCheck({
   sessionRecap,
 });
 preServiceCheck.start();
+
+// ─── PRE-SERVICE BRIEFING (posted when service window opens) ────────────────
+// Registered after preServiceCheck so getLatestResult() is available
+scheduleEngine.addWindowOpenCallback((churchId) => {
+  try {
+    const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    if (!church) return;
+    const onCallTd = onCallRotation.getOnCallTD(churchId);
+    const briefing = churchMemory.getPreServiceBriefing(churchId);
+    const lastSession = db.prepare(
+      'SELECT * FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL ORDER BY ended_at DESC LIMIT 1'
+    ).get(churchId);
+    const preCheck = preServiceCheck ? preServiceCheck.getLatestResult(churchId) : null;
+
+    const lines = [`📋 Pre-Service Briefing — ${church.name}`];
+    if (onCallTd?.name) lines.push(`TD on call: ${onCallTd.name}`);
+    if (lastSession?.grade) lines.push(`Last service: ${lastSession.grade}`);
+    if (briefing.reliabilityTrend) lines.push(briefing.reliabilityTrend.summary);
+
+    // Recurring issues + equipment quirks
+    const warnings = [...briefing.recurringIssues, ...briefing.equipmentQuirks];
+    if (warnings.length) {
+      lines.push('');
+      lines.push('Watch for:');
+      for (const w of warnings) lines.push(`  ⚠ ${w.summary}`);
+    }
+
+    // User notes (TD reminders)
+    if (briefing.userNotes.length) {
+      lines.push('');
+      lines.push('Reminders:');
+      for (const n of briefing.userNotes) lines.push(`  📌 ${n.summary}`);
+    }
+
+    // Failed pre-service checks
+    if (preCheck && !preCheck.pass) {
+      const failed = (preCheck.checks || []).filter(c => !c.pass);
+      if (failed.length) {
+        lines.push('');
+        lines.push('Pre-check issues:');
+        for (const c of failed) lines.push(`  ❌ ${c.name}${c.detail ? ': ' + c.detail : ''}`);
+      }
+    }
+
+    // Only post if there's meaningful content beyond the header
+    if (lines.length > 2) {
+      postSystemChatMessage(churchId, lines.join('\n'));
+    }
+  } catch (e) {
+    console.error(`[Briefing] Error for ${churchId}:`, e.message);
+  }
+});
+
+// ─── PATTERN WARNINGS (proactive alerts during live service) ────────────────
+const patternWarningState = new Map(); // churchId → { timer, firedWarnings: Set }
+
+scheduleEngine.addWindowOpenCallback((churchId) => {
+  try {
+    const warningTimer = setInterval(() => {
+      try {
+        if (!sessionRecap.activeSessions.has(churchId)) {
+          clearInterval(warningTimer);
+          patternWarningState.delete(churchId);
+          return;
+        }
+        const now = new Date();
+        const currentMinute = now.getHours() * 60 + now.getMinutes();
+        const warnings = churchMemory.getTimedWarnings(churchId);
+        const state = patternWarningState.get(churchId);
+        if (!state) return;
+
+        for (const w of warnings) {
+          const minutesUntil = w.windowMinuteOfDay - currentMinute;
+          if (minutesUntil >= 5 && minutesUntil <= 10 && !state.firedWarnings.has(w.eventType)) {
+            state.firedWarnings.add(w.eventType);
+            const h = Math.floor(w.windowMinuteOfDay / 60);
+            const m = w.windowMinuteOfDay % 60;
+            const ampm = h < 12 ? 'AM' : 'PM';
+            const h12 = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+            const timeStr = `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+            postSystemChatMessage(churchId,
+              `⚠️ Heads up — ${w.summary}. Watching closely around ${timeStr}.`
+            );
+          }
+        }
+      } catch (e) {
+        console.error(`[PatternWarning] Tick error for ${churchId}:`, e.message);
+      }
+    }, 5 * 60 * 1000); // Check every 5 minutes
+
+    patternWarningState.set(churchId, { timer: warningTimer, firedWarnings: new Set() });
+  } catch (e) {
+    console.error(`[PatternWarning] Setup error for ${churchId}:`, e.message);
+  }
+});
+
+scheduleEngine.addWindowCloseCallback(async (churchId) => {
+  const warningState = patternWarningState.get(churchId);
+  if (warningState?.timer) {
+    clearInterval(warningState.timer);
+    patternWarningState.delete(churchId);
+  }
+});
 
 // Church Portal — self-service login for individual churches
 setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest });
@@ -2463,7 +2569,7 @@ app.delete('/api/churches/:churchId', requireAdmin, (req, res) => {
 // Map command prefixes to device types for tier-based gating
 // Connect tier: atem, obs, vmix only. Plus+: everything.
 const COMMAND_DEVICE_MAP = {
-  atem: 'atem', hyperdeck: 'atem', ptz: 'atem',
+  atem: 'atem', hyperdeck: 'atem', ptz: 'atem', camera: 'atem',
   obs: 'obs',
   vmix: 'vmix',
   propresenter: 'propresenter',
@@ -2721,6 +2827,24 @@ async function handleSetupRequest(churchId, rawMessage, attachment) {
         : `❌ Mixer setup failed: ${executed.error}`);
       return;
     }
+
+    // ─── Document upload → knowledge base ──────────────────────────────────
+    if (intentType === 'document') {
+      if (!attachment?.data) {
+        postSystemChatMessage(churchId, '⚠️ Please attach a file (PDF, TXT, or CSV) to upload to the knowledge base.');
+        return;
+      }
+      postSystemChatMessage(churchId, `📄 Processing "${attachment.fileName}"...`);
+      try {
+        const result = await churchDocuments.uploadDocument(
+          churchId, attachment.data, attachment.fileName || 'document', mimeType
+        );
+        postSystemChatMessage(churchId, `✅ Saved "${attachment.fileName}" (${result.chunkCount} sections). Summary: ${result.summary}\n\nI'll reference this document when answering questions. Say "list documents" to see all uploads.`);
+      } catch (docErr) {
+        postSystemChatMessage(churchId, `❌ Could not process document: ${docErr.message}`);
+      }
+      return;
+    }
   } catch (err) {
     postSystemChatMessage(churchId, `❌ Setup assistant error: ${err.message}`);
   }
@@ -2730,6 +2854,109 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
   // If there's an attachment or a setup intent, route through the setup assistant
   if (attachment?.data || detectSetupIntent(rawMessage)) {
     return handleSetupRequest(churchId, rawMessage, attachment);
+  }
+
+  const lowerMsg = (rawMessage || '').toLowerCase().trim();
+
+  // ─── "Remember this" handler ─────────────────────────────────────────────
+  if (/^(remember|note|save note|don't forget|tally remember)\b/i.test(lowerMsg)) {
+    const noteText = rawMessage.replace(/^(remember|note|save note|don't forget|tally remember)\s*/i, '').trim();
+    if (noteText.length < 5) {
+      postSystemChatMessage(churchId, 'What should I remember? Example: "Remember the pastor likes a tight shot during prayer"');
+      return;
+    }
+    churchMemory.saveUserNote(churchId, noteText);
+    postSystemChatMessage(churchId, "Got it — I'll remember that.");
+    return;
+  }
+
+  // ─── "What do you remember?" handler ─────────────────────────────────────
+  if (/^(what do you remember|what do you know|show notes|list notes|my notes)/i.test(lowerMsg)) {
+    const notes = churchMemory.getUserNotes(churchId);
+    if (!notes.length) {
+      postSystemChatMessage(churchId, 'I don\'t have any saved notes yet. Say "remember [something]" to teach me.');
+      return;
+    }
+    const lines = notes.map((n, i) => `${i + 1}. ${n.summary}`);
+    postSystemChatMessage(churchId, `Here's what I remember:\n${lines.join('\n')}`);
+    return;
+  }
+
+  // ─── "Forget N" handler ──────────────────────────────────────────────────
+  if (/^(forget|delete note|remove note)\s+(\d+)/i.test(lowerMsg)) {
+    const match = lowerMsg.match(/(\d+)/);
+    const idx = parseInt(match[1]) - 1;
+    const notes = churchMemory.getUserNotes(churchId);
+    if (idx >= 0 && idx < notes.length) {
+      db.prepare('UPDATE church_memory SET active = 0 WHERE id = ?').run(notes[idx].id);
+      churchMemory._rebuildSummary(churchId);
+      postSystemChatMessage(churchId, `Forgot: "${notes[idx].summary}"`);
+    } else {
+      postSystemChatMessage(churchId, 'Note number not found. Say "what do you remember" to see the list.');
+    }
+    return;
+  }
+
+  // ─── "What happened last week?" handler ──────────────────────────────────
+  if (/^(what happened|last (week|service|sunday)|previous (session|service)|recap|how did (last|this) week go|session history)/i.test(lowerMsg)) {
+    const sessions = db.prepare(
+      `SELECT * FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL ORDER BY started_at DESC LIMIT 4`
+    ).all(churchId);
+
+    if (!sessions.length) {
+      postSystemChatMessage(churchId, 'No recent service sessions on record yet.');
+      return;
+    }
+
+    const churchRow = db.prepare('SELECT name FROM churches WHERE churchId = ?').get(churchId);
+    const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const lines = [`Recent sessions for ${churchRow?.name || 'your church'}:`];
+
+    for (const s of sessions) {
+      const d = new Date(s.started_at);
+      const dayStr = `${DAYS[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`;
+      const dur = s.duration_minutes ? `${s.duration_minutes}m` : '?';
+      const stream = s.stream_runtime_minutes > 0 ? `streamed ${s.stream_runtime_minutes}m` : 'no stream';
+      const alerts = s.alert_count || 0;
+      const auto = s.auto_recovered_count || 0;
+      const viewers = s.peak_viewers != null ? `, ${s.peak_viewers} peak viewers` : '';
+      lines.push(`${dayStr} — ${s.grade || 'N/A'} (${dur}, ${stream}, ${alerts} alert${alerts !== 1 ? 's' : ''}${auto ? `, ${auto} auto-fixed` : ''}${viewers})`);
+
+      // Show event timeline for the most recent session only
+      if (s === sessions[0]) {
+        try {
+          const events = db.prepare(
+            'SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC LIMIT 5'
+          ).all(s.id);
+          for (const e of events) {
+            const t = new Date(e.timestamp);
+            const time = t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            const type = (e.event_type || '').replace(/_/g, ' ');
+            const status = e.auto_resolved ? 'auto-fixed' : e.resolved ? 'resolved' : 'unresolved';
+            lines.push(`  ${time} ${type} (${status})`);
+          }
+        } catch { /* service_events table might not exist yet */ }
+      }
+    }
+
+    postSystemChatMessage(churchId, lines.join('\n'));
+    return;
+  }
+
+  // ─── "List documents" handler ────────────────────────────────────────────
+  if (/^(list doc|my doc|what doc|show doc)/i.test(lowerMsg)) {
+    if (typeof churchDocuments !== 'undefined' && churchDocuments) {
+      const docs = churchDocuments.listDocuments(churchId);
+      if (!docs.length) {
+        postSystemChatMessage(churchId, 'No documents uploaded yet. Attach a PDF, TXT, or CSV in chat to upload.');
+        return;
+      }
+      const lines = docs.map((d, i) => `${i + 1}. ${d.filename} — ${d.summary.slice(0, 60)}...`);
+      postSystemChatMessage(churchId, `Your documents:\n${lines.join('\n')}`);
+    } else {
+      postSystemChatMessage(churchId, 'Document storage is not enabled.');
+    }
+    return;
   }
 
   const intent = parseChatCommandIntent(rawMessage);
@@ -2761,6 +2988,10 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
   const churchRow = stmtGet.get(churchId);
   let engineerProfile = {};
   try { engineerProfile = JSON.parse(churchRow?.engineer_profile || '{}'); } catch {}
+  // Inject document context if knowledge base is active
+  const docContext = (typeof churchDocuments !== 'undefined' && churchDocuments)
+    ? churchDocuments.getDocumentContext(churchId, intent.prompt)
+    : '';
   const aiResult = await aiParseCommand(intent.prompt, {
     churchId,
     churchName: church?.name || '',
@@ -2768,6 +2999,7 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     tier: churchRow?.billing_tier || 'connect',
     engineerProfile,
     memorySummary: churchRow?.memory_summary || '',
+    documentContext: docContext,
   }, conversationHistory);
 
   if (aiResult.type === 'error') {
@@ -4139,7 +4371,7 @@ function handleChurchMessage(church, msg) {
     }
 
     case 'ping':
-      church.ws.send(JSON.stringify({ type: 'pong' }));
+      church.ws.send(JSON.stringify({ type: 'pong', ts: msg.ts }));
       break;
 
     default:

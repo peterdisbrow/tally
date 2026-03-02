@@ -517,6 +517,198 @@ async function ptzSetPreset(agent, params) {
   throw new Error('PTZ set preset is only available for network PTZ cameras (ONVIF/VISCA)');
 }
 
+// ─── BLACKMAGIC CAMERA CONTROL (via ATEM) ───────────────────────────────────
+
+const CAMERA_CTRL = {
+  // Blackmagic Camera Control Protocol categories & parameters
+  LENS: 0,
+  VIDEO: 1,
+  COLOR: 8,
+  // Lens parameters
+  FOCUS: 0,
+  AUTO_FOCUS: 1,
+  IRIS: 2,
+  AUTO_IRIS: 3,
+  // Video parameters
+  GAIN: 1,
+  WHITE_BALANCE: 2,
+  AUTO_WB: 3,
+  SHUTTER_SPEED: 5,
+  SHUTTER_ANGLE: 8,
+  ISO: 13,
+  // Color correction parameters
+  LIFT: 0,
+  GAMMA: 1,
+  COLOR_GAIN: 2,
+  OFFSET: 3,
+  CONTRAST: 4,
+  LUM_MIX: 5,
+  HUE_SAT: 6,
+};
+
+let _atemCommands = null;
+function getAtemCommands() {
+  if (!_atemCommands) {
+    const { Commands } = require('atem-connection');
+    _atemCommands = Commands;
+  }
+  return _atemCommands;
+}
+
+function sendCameraControl(agent, source, category, parameter, type, data) {
+  const Commands = getAtemCommands();
+  const cmd = new Commands.CameraControlCommand(source, category, parameter, {
+    type,
+    numberData: Array.isArray(data) ? data : [data],
+    boolData: [],
+    bigintData: [],
+    stringData: '',
+    relative: false,
+  });
+  return agent.atemCommand(() => agent.atem.sendCommand(cmd));
+}
+
+function sendCameraControlTrigger(agent, source, category, parameter) {
+  const Commands = getAtemCommands();
+  const cmd = new Commands.CameraControlCommand(source, category, parameter, {
+    type: 0, // BOOL / void trigger
+    numberData: [],
+    boolData: [],
+    bigintData: [],
+    stringData: '',
+    relative: false,
+  });
+  return agent.atemCommand(() => agent.atem.sendCommand(cmd));
+}
+
+// Data type constants matching CameraControlDataType enum
+const DT_SINT8 = 1;
+const DT_SINT16 = 2;
+const DT_SINT32 = 3;
+const DT_FLOAT = 128;
+
+async function cameraSetIris(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  let value = Number(params.value);
+  if (!Number.isFinite(value)) throw new Error('iris value is required (0.0–1.0 or 0–100%)');
+  if (value > 1 && value <= 100) value = value / 100;
+  value = Math.max(0, Math.min(1, value));
+  await sendCameraControl(agent, camera, CAMERA_CTRL.LENS, CAMERA_CTRL.IRIS, DT_FLOAT, value);
+  return `Camera ${camera} iris set to ${Math.round(value * 100)}%`;
+}
+
+async function cameraAutoIris(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  await sendCameraControlTrigger(agent, camera, CAMERA_CTRL.LENS, CAMERA_CTRL.AUTO_IRIS);
+  return `Camera ${camera} auto iris triggered`;
+}
+
+async function cameraSetGain(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  const gain = toInt(params.gain, 'gain');
+  await sendCameraControl(agent, camera, CAMERA_CTRL.VIDEO, CAMERA_CTRL.GAIN, DT_SINT8, gain);
+  return `Camera ${camera} gain set to ${gain} dB`;
+}
+
+async function cameraSetISO(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  const iso = toInt(params.iso, 'iso');
+  await sendCameraControl(agent, camera, CAMERA_CTRL.VIDEO, CAMERA_CTRL.ISO, DT_SINT32, iso);
+  return `Camera ${camera} ISO set to ${iso}`;
+}
+
+async function cameraSetWhiteBalance(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  const kelvin = toInt(params.kelvin, 'kelvin');
+  const tint = toInt(params.tint ?? 0, 'tint');
+  await sendCameraControl(agent, camera, CAMERA_CTRL.VIDEO, CAMERA_CTRL.WHITE_BALANCE, DT_SINT16, [kelvin, tint]);
+  return `Camera ${camera} white balance set to ${kelvin}K${tint !== 0 ? `, tint ${tint}` : ''}`;
+}
+
+async function cameraAutoWhiteBalance(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  await sendCameraControlTrigger(agent, camera, CAMERA_CTRL.VIDEO, CAMERA_CTRL.AUTO_WB);
+  return `Camera ${camera} auto white balance triggered`;
+}
+
+async function cameraSetShutter(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  const speed = toInt(params.speed, 'speed');
+  // If value looks like an angle (≤360), convert to hundredths of degrees
+  if (speed <= 360) {
+    const angle = speed * 100;
+    await sendCameraControl(agent, camera, CAMERA_CTRL.VIDEO, CAMERA_CTRL.SHUTTER_ANGLE, DT_SINT32, angle);
+    return `Camera ${camera} shutter angle set to ${speed}°`;
+  }
+  // Otherwise treat as microseconds (e.g. 20000 = 1/50s)
+  await sendCameraControl(agent, camera, CAMERA_CTRL.VIDEO, CAMERA_CTRL.SHUTTER_SPEED, DT_SINT32, speed);
+  return `Camera ${camera} shutter speed set to 1/${Math.round(1000000 / speed)}s`;
+}
+
+async function cameraSetFocus(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  let value = Number(params.value);
+  if (!Number.isFinite(value)) throw new Error('focus value is required (0.0–1.0)');
+  value = Math.max(0, Math.min(1, value));
+  await sendCameraControl(agent, camera, CAMERA_CTRL.LENS, CAMERA_CTRL.FOCUS, DT_FLOAT, value);
+  return `Camera ${camera} focus set to ${Math.round(value * 100)}%`;
+}
+
+async function cameraAutoFocus(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  await sendCameraControlTrigger(agent, camera, CAMERA_CTRL.LENS, CAMERA_CTRL.AUTO_FOCUS);
+  return `Camera ${camera} auto focus triggered`;
+}
+
+async function cameraSetLift(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  const r = Number(params.r ?? 0), g = Number(params.g ?? 0), b = Number(params.b ?? 0), y = Number(params.y ?? 0);
+  await sendCameraControl(agent, camera, CAMERA_CTRL.COLOR, CAMERA_CTRL.LIFT, DT_FLOAT, [r, g, b, y]);
+  return `Camera ${camera} lift set to R:${r} G:${g} B:${b} Y:${y}`;
+}
+
+async function cameraSetGamma(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  const r = Number(params.r ?? 0), g = Number(params.g ?? 0), b = Number(params.b ?? 0), y = Number(params.y ?? 0);
+  await sendCameraControl(agent, camera, CAMERA_CTRL.COLOR, CAMERA_CTRL.GAMMA, DT_FLOAT, [r, g, b, y]);
+  return `Camera ${camera} gamma set to R:${r} G:${g} B:${b} Y:${y}`;
+}
+
+async function cameraSetColorGain(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  const r = Number(params.r ?? 1), g = Number(params.g ?? 1), b = Number(params.b ?? 1), y = Number(params.y ?? 1);
+  await sendCameraControl(agent, camera, CAMERA_CTRL.COLOR, CAMERA_CTRL.COLOR_GAIN, DT_FLOAT, [r, g, b, y]);
+  return `Camera ${camera} color gain set to R:${r} G:${g} B:${b} Y:${y}`;
+}
+
+async function cameraSetContrast(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  const pivot = Number(params.pivot ?? 0.5);
+  const adjust = Number(params.adjust ?? 1.0);
+  await sendCameraControl(agent, camera, CAMERA_CTRL.COLOR, CAMERA_CTRL.CONTRAST, DT_FLOAT, [pivot, adjust]);
+  return `Camera ${camera} contrast set to pivot:${pivot} adjust:${adjust}`;
+}
+
+async function cameraSetSaturation(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  const saturation = Number(params.saturation ?? 1.0);
+  const hue = Number(params.hue ?? 0);
+  await sendCameraControl(agent, camera, CAMERA_CTRL.COLOR, CAMERA_CTRL.HUE_SAT, DT_FLOAT, [hue, saturation]);
+  return `Camera ${camera} saturation set to ${saturation}${hue !== 0 ? `, hue ${hue}` : ''}`;
+}
+
+async function cameraResetColorCorrection(agent, params) {
+  const camera = toInt(params.camera ?? 1, 'camera');
+  await sendCameraControl(agent, camera, CAMERA_CTRL.COLOR, CAMERA_CTRL.LIFT, DT_FLOAT, [0, 0, 0, 0]);
+  await sendCameraControl(agent, camera, CAMERA_CTRL.COLOR, CAMERA_CTRL.GAMMA, DT_FLOAT, [0, 0, 0, 0]);
+  await sendCameraControl(agent, camera, CAMERA_CTRL.COLOR, CAMERA_CTRL.COLOR_GAIN, DT_FLOAT, [1, 1, 1, 1]);
+  await sendCameraControl(agent, camera, CAMERA_CTRL.COLOR, CAMERA_CTRL.OFFSET, DT_FLOAT, [0, 0, 0, 0]);
+  await sendCameraControl(agent, camera, CAMERA_CTRL.COLOR, CAMERA_CTRL.CONTRAST, DT_FLOAT, [0.5, 1]);
+  await sendCameraControl(agent, camera, CAMERA_CTRL.COLOR, CAMERA_CTRL.HUE_SAT, DT_FLOAT, [0, 1]);
+  await sendCameraControl(agent, camera, CAMERA_CTRL.COLOR, CAMERA_CTRL.LUM_MIX, DT_FLOAT, 1);
+  return `Camera ${camera} color correction reset to defaults`;
+}
+
 // ─── OBS COMMANDS ───────────────────────────────────────────────────────────
 
 async function obsStartStream(agent) {
@@ -1224,11 +1416,15 @@ async function resolumeGetBpm(agent) {
  * mixer types aren't blocked.
  */
 const MIXER_CAPABILITIES = {
-  X32:    { compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full' },
-  M32:    { compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full' },
-  SQ:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: 'partial', channelStrip: 'partial' },
-  dLive:  { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: 'partial', channelStrip: 'partial' },
-  CL:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
+  X32:    { compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full', preampGain: 'full', phantom: 'full', pan: 'full', channelColor: 'full', channelIcon: 'full', sendLevel: 'full', busAssign: 'full', dcaAssign: 'full', metering: 'full', sceneSaveVerify: 'full' },
+  M32:    { compressor: 'full', gate: 'full', hpf: 'full', eq: 'full', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: 'full', saveScene: 'partial', channelStrip: 'full', preampGain: 'full', phantom: 'full', pan: 'full', channelColor: 'full', channelIcon: 'full', sendLevel: 'full', busAssign: 'full', dcaAssign: 'full', metering: 'full', sceneSaveVerify: 'full' },
+  SQ:      { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
+  SQ5:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
+  SQ6:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
+  SQ7:     { compressor: false, gate: false, hpf: 'full', eq: 'partial', fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: 'full', dcaControl: 'full', muteGroup: 'full', pan: 'full', softKey: 'full' },
+  DLIVE:   { compressor: false, gate: false, hpf: 'full', eq: false, fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: false, pan: 'full', softKey: false },
+  AVANTIS: { compressor: false, gate: false, hpf: 'full', eq: false, fader: 'full', channelName: 'full', muteMaster: 'full', clearSolos: false, saveScene: false, channelStrip: 'partial', sendLevel: false, dcaControl: 'full', muteGroup: false, pan: 'full', softKey: false },
+  CL:      { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
   QL:     { compressor: false, gate: false, hpf: false, eq: false, fader: 'partial', channelName: false, muteMaster: 'partial', clearSolos: false, saveScene: false, channelStrip: 'partial' },
   TF:     { compressor: false, gate: false, hpf: false, eq: false, fader: false, channelName: false, muteMaster: false, clearSolos: false, saveScene: false, channelStrip: false },
 };
@@ -1402,6 +1598,123 @@ async function mixerSaveScene(agent, params) {
   if (scene == null) throw new Error('scene number required');
   await agent.mixer.saveScene(scene, name);
   return `Scene ${scene}${name ? ` ("${name}")` : ''} save attempted`;
+}
+
+// ─── NEW X32/M32 MIXER COMMANDS ──────────────────────────────────────────────
+
+async function mixerSetPreampGain(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'preampGain', 'Preamp gain');
+  const { channel, gain } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (gain == null) throw new Error('gain parameter required (dB, -18 to +18)');
+  const gainDb = parseFloat(gain);
+  if (isNaN(gainDb)) throw new Error('gain must be a number in dB');
+  await agent.mixer.setPreampGain(channel, gainDb);
+  return `Channel ${channel} preamp trim set to ${gainDb > 0 ? '+' : ''}${gainDb} dB`;
+}
+
+async function mixerSetPhantom(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'phantom', 'Phantom power');
+  const { channel, enabled } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  const on = enabled !== false && enabled !== 0 && enabled !== 'false';
+  await agent.mixer.setPhantom(channel, on);
+  return `Channel ${channel} phantom power ${on ? '⚡ ON' : 'OFF'}`;
+}
+
+async function mixerSetPan(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'pan', 'Pan');
+  const { channel, pan } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (pan == null) throw new Error('pan parameter required (-1.0 left to +1.0 right, 0 = center)');
+  const panVal = parseFloat(pan);
+  if (isNaN(panVal)) throw new Error('pan must be a number (-1.0 to +1.0)');
+  await agent.mixer.setPan(channel, panVal);
+  const label = panVal < -0.01 ? `${Math.round(panVal * 100)}% L` :
+                panVal > 0.01  ? `${Math.round(panVal * 100)}% R` : 'Center';
+  return `Channel ${channel} pan set to ${label}`;
+}
+
+async function mixerSetChannelColor(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'channelColor', 'Channel color');
+  const { channel, color } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (color == null) throw new Error('color parameter required (name like "red" or index 0–15)');
+  await agent.mixer.setChannelColor(channel, color);
+  return `Channel ${channel} color set to ${color}`;
+}
+
+async function mixerSetChannelIcon(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'channelIcon', 'Channel icon');
+  const { channel, icon } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (icon == null) throw new Error('icon parameter required (name like "mic" or index 1–74)');
+  await agent.mixer.setChannelIcon(channel, icon);
+  return `Channel ${channel} icon set to ${icon}`;
+}
+
+async function mixerSetSendLevel(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'sendLevel', 'Send level');
+  const { channel, bus, level } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (bus == null) throw new Error('bus parameter required (1–16)');
+  if (level == null) throw new Error('level parameter required (0.0–1.0)');
+  await agent.mixer.setSendLevel(channel, parseInt(bus), parseFloat(level));
+  return `Channel ${channel} → Bus ${bus} send level set to ${Math.round(parseFloat(level) * 100)}%`;
+}
+
+async function mixerAssignToBus(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'busAssign', 'Bus assignment');
+  const { channel, bus, enabled } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (bus == null) throw new Error('bus parameter required (1–16)');
+  const on = enabled !== false && enabled !== 0 && enabled !== 'false';
+  await agent.mixer.assignToBus(channel, parseInt(bus), on);
+  return `Channel ${channel} → Bus ${bus}: ${on ? '✅ assigned' : '❌ removed'}`;
+}
+
+async function mixerAssignToDca(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'dcaAssign', 'DCA assignment');
+  const { channel, dca, enabled } = params;
+  if (channel == null) throw new Error('channel parameter required');
+  if (dca == null) throw new Error('dca parameter required (1–8)');
+  const on = enabled !== false && enabled !== 0 && enabled !== 'false';
+  await agent.mixer.assignToDca(channel, parseInt(dca), on);
+  return `Channel ${channel} → DCA ${dca}: ${on ? '✅ assigned' : '❌ removed'}`;
+}
+
+async function mixerGetMeters(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'metering', 'Metering');
+  const channels = params.channels ? (Array.isArray(params.channels) ? params.channels.map(Number) : [parseInt(params.channels)]) : undefined;
+  const meters = await agent.mixer.getMeters(channels);
+  const lines = ['📊 Channel meters:'];
+  for (const m of meters) {
+    const pct = Math.round((m.fader ?? 0) * 100);
+    const bar = '█'.repeat(Math.round(pct / 5)) + '░'.repeat(20 - Math.round(pct / 5));
+    lines.push(`  Ch ${String(m.channel).padStart(2)}: ${bar} ${pct}% ${m.muted ? '🔇' : '🔊'}`);
+  }
+  return lines.join('\n');
+}
+
+async function mixerVerifySceneSave(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'sceneSaveVerify', 'Scene verification');
+  const { scene } = params;
+  if (scene == null) throw new Error('scene number required');
+  const result = await agent.mixer.verifySceneSave(parseInt(scene));
+  if (result.exists) {
+    return `✅ Scene ${result.sceneNumber} verified: "${result.name}"`;
+  }
+  return `⚠️ Scene ${result.sceneNumber}: no name found (may not exist or save may have failed)`;
 }
 
 /**
@@ -2876,6 +3189,23 @@ const commandHandlers = {
   'ptz.home': ptzHome,
   'ptz.setPreset': ptzSetPreset,
 
+  // Blackmagic camera control (via ATEM)
+  'camera.setIris': cameraSetIris,
+  'camera.autoIris': cameraAutoIris,
+  'camera.setGain': cameraSetGain,
+  'camera.setISO': cameraSetISO,
+  'camera.setWhiteBalance': cameraSetWhiteBalance,
+  'camera.autoWhiteBalance': cameraAutoWhiteBalance,
+  'camera.setShutter': cameraSetShutter,
+  'camera.setFocus': cameraSetFocus,
+  'camera.autoFocus': cameraAutoFocus,
+  'camera.setLift': cameraSetLift,
+  'camera.setGamma': cameraSetGamma,
+  'camera.setColorGain': cameraSetColorGain,
+  'camera.setContrast': cameraSetContrast,
+  'camera.setSaturation': cameraSetSaturation,
+  'camera.resetColorCorrection': cameraResetColorCorrection,
+
   'obs.startStream': obsStartStream,
   'obs.stopStream': obsStopStream,
   'obs.startRecording': obsStartRecording,
@@ -3016,6 +3346,16 @@ const commandHandlers = {
   'mixer.setGate': mixerSetGate,
   'mixer.setFullChannelStrip': mixerSetFullChannelStrip,
   'mixer.saveScene': mixerSaveScene,
+  'mixer.setPreampGain': mixerSetPreampGain,
+  'mixer.setPhantom': mixerSetPhantom,
+  'mixer.setPan': mixerSetPan,
+  'mixer.setChannelColor': mixerSetChannelColor,
+  'mixer.setChannelIcon': mixerSetChannelIcon,
+  'mixer.setSendLevel': mixerSetSendLevel,
+  'mixer.assignToBus': mixerAssignToBus,
+  'mixer.assignToDca': mixerAssignToDca,
+  'mixer.getMeters': mixerGetMeters,
+  'mixer.verifySceneSave': mixerVerifySceneSave,
   'mixer.setupFromPatchList': mixerSetupFromPatchList,
   'mixer.capabilities': mixerCapabilities,
 

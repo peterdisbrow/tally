@@ -45,10 +45,16 @@ const MEDIA_KEYWORDS = [
   'add this to', 'put this on', 'load this',
 ];
 
+const DOC_KEYWORDS = [
+  'upload document', 'upload doc', 'save document', 'knowledge base',
+  'reference doc', 'sop', 'handbook', 'production guide', 'volunteer guide',
+  'save this doc', 'store this', 'add to knowledge',
+];
+
 /**
  * Detect whether a chat message is a setup request.
  * @param {string} message
- * @returns {'mixer'|'camera'|'media'|null}
+ * @returns {'mixer'|'camera'|'media'|'document'|null}
  */
 function detectSetupIntent(message) {
   if (!message) return null;
@@ -62,6 +68,9 @@ function detectSetupIntent(message) {
   }
   for (const kw of MEDIA_KEYWORDS) {
     if (lower.includes(kw)) return 'media';
+  }
+  for (const kw of DOC_KEYWORDS) {
+    if (lower.includes(kw)) return 'document';
   }
 
   return null;
@@ -92,10 +101,14 @@ function detectIntentWithAttachment(message, mimeType) {
     return 'media';
   }
 
-  // CSV/text files are likely patch lists
-  if (mimeType === 'text/csv' || mimeType === 'text/plain') return 'mixer';
-  // PDFs could be either — default to mixer
-  if (mimeType === 'application/pdf') return 'mixer';
+  // Non-image files: check message for document keywords before falling back to mixer
+  if (['text/csv', 'text/plain', 'application/pdf'].includes(mimeType)) {
+    const lower = (message || '').toLowerCase();
+    const docHints = ['document', 'sop', 'handbook', 'guide', 'knowledge', 'reference', 'store this', 'save this'];
+    if (docHints.some(h => lower.includes(h))) return 'document';
+    // Default: CSV/TXT/PDF without doc keywords are likely patch lists
+    return 'mixer';
+  }
 
   return null;
 }

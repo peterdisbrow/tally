@@ -215,6 +215,7 @@ AVAILABLE COMMANDS (N=number, X=string):
 atem: cut(input:N), setPreview(input:N), auto(), fadeToBlack(), startRecording(), stopRecording(), setInputLabel(input:N,longName:X), runMacro(macroIndex:N), stopMacro(), setAux(aux:N,input:N), setTransitionStyle(style:mix|dip|wipe|dve|stinger), setTransitionRate(rate:N), setDskOnAir(keyer:N,onAir:bool), setDskTie(keyer:N,tie:bool), setDskRate(keyer:N,rate:N), setDskSource(keyer:N,fillSource:N,keySource:N), setProgram(input:N), uploadStill(index:N,data:X,name:X), setMediaPlayer(player:N,sourceType:X,stillIndex:N), captureStill(), clearStill(index:N)
 hyperdeck: play(hyperdeck:N), stop(hyperdeck:N), record(hyperdeck:N), nextClip(hyperdeck:N), prevClip(hyperdeck:N)
 ptz: pan(camera:N,speed:-1to1), tilt(camera:N,speed:-1to1), zoom(camera:N,speed:-1to1), preset(camera:N,preset:N), setPreset(camera:N,preset:N), stop(camera:N), home(camera:N)
+camera: setIris(camera:N,value:0-1), autoIris(camera:N), setGain(camera:N,gain:N), setISO(camera:N,iso:N), setWhiteBalance(camera:N,kelvin:N,tint:N), autoWhiteBalance(camera:N), setShutter(camera:N,speed:N), setFocus(camera:N,value:0-1), autoFocus(camera:N), setLift(camera:N,r:N,g:N,b:N,y:N), setGamma(camera:N,r:N,g:N,b:N,y:N), setColorGain(camera:N,r:N,g:N,b:N,y:N), setContrast(camera:N,pivot:N,adjust:N), setSaturation(camera:N,saturation:N), resetColorCorrection(camera:N)
 obs: startStream(), stopStream(), startRecording(), stopRecording(), setScene(scene:X)
 encoder: startStream(), stopStream(), startRecording(), stopRecording(), status()
 companion: pressNamed(name:X)
@@ -449,6 +450,9 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
 
   // Church memory (pre-compiled summary from past observations)
   if (ctx.memorySummary) contextHint += ctx.memorySummary + ' ';
+
+  // Church knowledge base documents (relevant chunk for current query)
+  if (ctx.documentContext) contextHint += `[Docs: ${ctx.documentContext}] `;
 
   const userContent = contextHint
     ? `[${contextHint.trim()}]\n${text}`

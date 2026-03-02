@@ -8,12 +8,15 @@
  * Supported types:
  *   'behringer' → Behringer X32 / X-Air (port 10023)
  *   'midas'     → Midas M32 / M32R (same protocol as Behringer, port 10023)
- *   'allenheath'→ Allen & Heath SQ / dLive (port 51326)
+ *   'allenheath'→ Allen & Heath SQ (hybrid OSC 51326 + TCP MIDI 51325)
+ *   'avantis'   → Allen & Heath Avantis (TCP MIDI port 51325)
+ *   'dlive'     → Allen & Heath dLive (TCP MIDI port 51325, same as Avantis)
  *   'yamaha'    → Yamaha CL / QL / TF (port 8765 or 49280)
  */
 
-const { BehringerMixer } = require('./mixers/behringer');
+const { BehringerMixer }  = require('./mixers/behringer');
 const { AllenHeathMixer } = require('./mixers/allenheath');
+const { AvantisMixer }    = require('./mixers/avantis');
 const { YamahaMixer }     = require('./mixers/yamaha');
 
 class MixerBridge {
@@ -39,10 +42,15 @@ class MixerBridge {
         return new BehringerMixer({ host, port: port || 10023, model: model || 'M32' });
       case 'allenheath':
         return new AllenHeathMixer({ host, port: port || 51326, model: model || 'SQ' });
+      case 'avantis':
+        return new AvantisMixer({ host, port: port || 51325, model: model || 'Avantis' });
+      case 'dlive':
+        // dLive uses identical TCP MIDI protocol to Avantis (128 inputs vs 64)
+        return new AvantisMixer({ host, port: port || 51325, model: model || 'dLive' });
       case 'yamaha':
         return new YamahaMixer({ host, port, model: model || 'CL' });
       default:
-        throw new Error(`Unknown mixer type: "${type}". Use x32, behringer, midas, allenheath, or yamaha.`);
+        throw new Error(`Unknown mixer type: "${type}". Use x32, behringer, midas, allenheath, avantis, dlive, or yamaha.`);
     }
   }
 
@@ -91,10 +99,33 @@ class MixerBridge {
   async setGate(ch, params)          { return this._mixer.setGate(ch, params); }
   async setFullChannelStrip(ch, strip) { return this._mixer.setFullChannelStrip(ch, strip); }
 
+  // ─── PREAMP / PHANTOM ──────────────────────────────────────────────────────
+
+  async setPreampGain(ch, gainDb)  { return this._mixer.setPreampGain(ch, gainDb); }
+  async setHeadampGain(ch, gainDb) { return this._mixer.setHeadampGain(ch, gainDb); }
+  async setPhantom(ch, enabled)    { return this._mixer.setPhantom(ch, enabled); }
+
+  // ─── PAN / COLOR / ICON ────────────────────────────────────────────────────
+
+  async setPan(ch, pan)            { return this._mixer.setPan(ch, pan); }
+  async setChannelColor(ch, color) { return this._mixer.setChannelColor(ch, color); }
+  async setChannelIcon(ch, icon)   { return this._mixer.setChannelIcon(ch, icon); }
+
+  // ─── SEND LEVELS / BUS / DCA ───────────────────────────────────────────────
+
+  async setSendLevel(ch, bus, level)    { return this._mixer.setSendLevel(ch, bus, level); }
+  async assignToBus(ch, bus, enabled)   { return this._mixer.assignToBus(ch, bus, enabled); }
+  async assignToDca(ch, dca, enabled)   { return this._mixer.assignToDca(ch, dca, enabled); }
+
+  // ─── METERING ──────────────────────────────────────────────────────────────
+
+  async getMeters(channels)             { return this._mixer.getMeters(channels); }
+
   // ─── SCENES & SOLOS ──────────────────────────────────────────────────────────
 
   async recallScene(n)   { return this._mixer.recallScene(n); }
   async saveScene(n, nm) { return this._mixer.saveScene(n, nm); }
+  async verifySceneSave(n) { return this._mixer.verifySceneSave(n); }
 
   /**
    * Clear all solos. Only Behringer X32/M32 support this; no-op on others.
