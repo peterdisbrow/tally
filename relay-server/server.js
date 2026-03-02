@@ -4885,10 +4885,17 @@ app.post('/api/chat/stream', async (req, res) => {
       return res.end();
     }
 
-    // Emit the response as chunked SSE deltas for a smooth typing effect
-    const chunkSize = 4;
-    for (let i = 0; i < text.length; i += chunkSize) {
-      res.write(`data: ${JSON.stringify({ type: 'delta', text: text.slice(i, i + chunkSize) })}\n\n`);
+    // Emit the response as chunked SSE deltas with staggered timing for a
+    // natural typing feel.  Chunks are small (2–5 chars) with a randomised
+    // delay so it doesn't feel robotic or perfectly uniform.
+    const delay = (ms) => new Promise(r => setTimeout(r, ms));
+    let pos = 0;
+    while (pos < text.length) {
+      const chunkLen = 2 + Math.floor(Math.random() * 4);          // 2-5 chars
+      const piece = text.slice(pos, pos + chunkLen);
+      res.write(`data: ${JSON.stringify({ type: 'delta', text: piece })}\n\n`);
+      pos += chunkLen;
+      await delay(20 + Math.floor(Math.random() * 30));            // 20-50 ms
     }
 
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
