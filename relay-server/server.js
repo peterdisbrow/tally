@@ -3611,10 +3611,10 @@ app.post('/api/events/create', requireAdmin, (req, res) => {
 
 // Create a new reseller
 app.post('/api/resellers', requireAdmin, (req, res) => {
-  const { name, brandName, supportEmail, logoUrl, webhookUrl, churchLimit } = req.body;
+  const { name, brandName, supportEmail, logoUrl, webhookUrl, churchLimit, commissionRate } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   try {
-    const result = resellerSystem.createReseller({ name, brandName, supportEmail, logoUrl, webhookUrl, churchLimit });
+    const result = resellerSystem.createReseller({ name, brandName, supportEmail, logoUrl, webhookUrl, churchLimit, commissionRate });
     res.json(result);
   } catch (e) {
     console.error('[/api/resellers POST]', e.message);
@@ -3631,11 +3631,65 @@ app.get('/api/resellers', requireAdmin, (req, res) => {
   }
 });
 
-// Reseller details + their churches
+// Reseller details + their churches (includes API key for admin)
 app.get('/api/resellers/:resellerId', requireAdmin, (req, res) => {
-  const detail = resellerSystem.getResellerDetail(req.params.resellerId);
-  if (!detail) return res.status(404).json({ error: 'Reseller not found' });
-  res.json(detail);
+  const reseller = resellerSystem.getResellerById(req.params.resellerId);
+  if (!reseller) return res.status(404).json({ error: 'Reseller not found' });
+  const churches = resellerSystem.getResellerChurches(req.params.resellerId);
+  // Admin gets full details including API key
+  res.json({ reseller, churches });
+});
+
+// Update a reseller (admin JWT)
+app.put('/api/resellers/:resellerId', requireAdmin, (req, res) => {
+  const { resellerId } = req.params;
+  const row = resellerSystem.getResellerById(resellerId);
+  if (!row) return res.status(404).json({ error: 'Reseller not found' });
+  // Map camelCase from request body to snake_case
+  const map = { brandName: 'brand_name', supportEmail: 'support_email', logoUrl: 'logo_url', primaryColor: 'primary_color', customDomain: 'custom_domain', webhookUrl: 'webhook_url', churchLimit: 'church_limit', commissionRate: 'commission_rate' };
+  const patch = {};
+  for (const [k, v] of Object.entries(req.body)) {
+    const key = map[k] || k;
+    patch[key] = v;
+  }
+  if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update' });
+  try {
+    const updated = resellerSystem.updateReseller(resellerId, patch);
+    res.json({ updated: true, reseller: updated });
+  } catch (e) {
+    console.error('[/api/resellers PUT]', e.message);
+    res.status(500).json({ error: safeErrorMessage(e) });
+  }
+});
+
+// Deactivate a reseller (admin JWT)
+app.delete('/api/resellers/:resellerId', requireAdmin, (req, res) => {
+  const { resellerId } = req.params;
+  const row = resellerSystem.getResellerById(resellerId);
+  if (!row) return res.status(404).json({ error: 'Reseller not found' });
+  db.prepare('UPDATE resellers SET active = 0 WHERE id = ?').run(resellerId);
+  res.json({ deactivated: true });
+});
+
+// Set reseller portal credentials (admin JWT)
+app.post('/api/resellers/:resellerId/password', requireAdmin, (req, res) => {
+  const { resellerId } = req.params;
+  const row = resellerSystem.getResellerById(resellerId);
+  if (!row) return res.status(404).json({ error: 'Reseller not found' });
+  const { password, email } = req.body;
+  if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const hashed = hashPassword(password);
+  // Ensure columns exist
+  try { db.exec('ALTER TABLE resellers ADD COLUMN portal_password_hash TEXT'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE resellers ADD COLUMN portal_email TEXT'); } catch { /* already exists */ }
+  if (email) {
+    const cleanEmail = email.trim().toLowerCase();
+    // portal_password_hash is used by /reseller-login, portal_password by legacy /portal
+    db.prepare('UPDATE resellers SET portal_password_hash = ?, portal_password = ?, portal_email = ? WHERE id = ?').run(hashed, hashed, cleanEmail, resellerId);
+  } else {
+    db.prepare('UPDATE resellers SET portal_password_hash = ?, portal_password = ? WHERE id = ?').run(hashed, hashed, resellerId);
+  }
+  res.json({ updated: true });
 });
 
 // ─── RESELLER-AUTHENTICATED API ───────────────────────────────────────────────

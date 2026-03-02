@@ -26,7 +26,8 @@ class ResellerSystem {
         support_email  TEXT,
         logo_url       TEXT,
         webhook_url    TEXT,
-        church_limit   INTEGER DEFAULT 10,
+        church_limit   INTEGER DEFAULT NULL,
+        commission_rate REAL,
         created_at     TEXT NOT NULL,
         slug           TEXT UNIQUE,
         primary_color  TEXT DEFAULT '#22c55e',
@@ -42,10 +43,14 @@ class ResellerSystem {
       "ALTER TABLE resellers ADD COLUMN custom_domain TEXT",
       "ALTER TABLE resellers ADD COLUMN active INTEGER DEFAULT 1",
       "ALTER TABLE resellers ADD COLUMN portal_password TEXT",
+      "ALTER TABLE resellers ADD COLUMN commission_rate REAL",
     ];
     for (const col of newColumns) {
       try { this.db.exec(col); } catch { /* column already exists */ }
     }
+
+    // Migration: remove old church_limit default of 10 → unlimited (NULL)
+    try { this.db.exec("UPDATE resellers SET church_limit = NULL WHERE church_limit = 10"); } catch { /* ok */ }
 
     // reseller_id foreign key column on churches
     try {
@@ -85,13 +90,14 @@ class ResellerSystem {
    * @param {string}  [opts.supportEmail]
    * @param {string}  [opts.logoUrl]
    * @param {string}  [opts.webhookUrl]
-   * @param {number}  [opts.churchLimit] - Max churches (default 10)
+   * @param {number}  [opts.churchLimit] - Max churches (null = unlimited)
    * @param {string}  [opts.slug]        - Custom slug (auto-generated if omitted)
    * @param {string}  [opts.primaryColor] - Accent color (default #22c55e)
    * @param {string}  [opts.customDomain]
+   * @param {number}  [opts.commissionRate] - Commission percentage as decimal (e.g. 0.20 = 20%)
    * @returns {{ resellerId, apiKey, name, slug }}
    */
-  createReseller({ name, brandName, supportEmail, logoUrl, webhookUrl, churchLimit = 10, slug, primaryColor, customDomain }) {
+  createReseller({ name, brandName, supportEmail, logoUrl, webhookUrl, churchLimit = null, slug, primaryColor, customDomain, commissionRate }) {
     if (!name) throw new Error('name required');
 
     const resellerId  = uuidv4();
@@ -102,12 +108,13 @@ class ResellerSystem {
 
     this.db.prepare(`
       INSERT INTO resellers
-        (id, name, api_key, brand_name, support_email, logo_url, webhook_url, church_limit, created_at, slug, primary_color, custom_domain, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+        (id, name, api_key, brand_name, support_email, logo_url, webhook_url, church_limit, created_at, slug, primary_color, custom_domain, active, commission_rate)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
     `).run(
       resellerId, name, apiKey,
       brandName || null, supportEmail || null, logoUrl || null, webhookUrl || null,
-      churchLimit, createdAt, finalSlug, finalColor, customDomain || null
+      churchLimit, createdAt, finalSlug, finalColor, customDomain || null,
+      commissionRate != null ? commissionRate : null
     );
 
     console.log(`[ResellerSystem] Created reseller: "${name}" (${resellerId}) slug="${finalSlug}"`);
@@ -143,11 +150,11 @@ class ResellerSystem {
   /**
    * Update reseller branding/settings.
    * @param {string} resellerId
-   * @param {object} patch - Fields to update (name, brand_name, support_email, logo_url, primary_color, custom_domain, webhook_url, church_limit)
+   * @param {object} patch - Fields to update
    * @returns {object} Updated reseller row
    */
   updateReseller(resellerId, patch) {
-    const allowed = ['name', 'brand_name', 'support_email', 'logo_url', 'primary_color', 'custom_domain', 'webhook_url', 'church_limit'];
+    const allowed = ['name', 'brand_name', 'support_email', 'logo_url', 'primary_color', 'custom_domain', 'webhook_url', 'church_limit', 'commission_rate', 'slug', 'active'];
     const fields = Object.keys(patch).filter(k => allowed.includes(k));
     if (fields.length === 0) throw new Error('No valid fields to update');
 
@@ -206,6 +213,8 @@ class ResellerSystem {
   canAddChurch(resellerId) {
     const reseller = this.getResellerById(resellerId);
     if (!reseller) return false;
+    // NULL church_limit = unlimited
+    if (reseller.church_limit == null) return true;
     const countRow = this.db.prepare('SELECT COUNT(*) AS cnt FROM churches WHERE reseller_id = ?').get(resellerId);
     const count = countRow ? countRow.cnt : 0;
     return count < reseller.church_limit;
