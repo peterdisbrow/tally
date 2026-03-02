@@ -152,6 +152,11 @@ class AlertEngine {
     this._ensureAlertsTable();
   }
 
+  /** Attach lifecycle emails engine for escalation emails */
+  setLifecycleEmails(engine) {
+    this.lifecycleEmails = engine;
+  }
+
   /**
    * Get the brand name for a church (for white-labeling alert messages).
    * Falls back to "Tally" if no reseller.
@@ -304,6 +309,10 @@ class AlertEngine {
           if (this.andrewChatId) {
             await this.sendTelegramMessage(this.andrewChatId, botToken,
               `🚨 ESCALATED (no TD response in 90s)\n\n${msg}`);
+          }
+          // Also send escalation email as backup
+          if (this.lifecycleEmails) {
+            this.lifecycleEmails.sendUrgentAlertEscalation(church, { alertType, context, alertId }).catch(() => {});
           }
         }
       }, 90_000);

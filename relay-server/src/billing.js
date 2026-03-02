@@ -327,6 +327,9 @@ class BillingSystem {
         // Stripe fires this 3 days before trial ends — our lifecycle emails already handle this
         console.log(`[Billing] Trial ending soon for subscription ${event.data.object.id}`);
         break;
+      case 'invoice.upcoming':
+        await this._onInvoiceUpcoming(event.data.object);
+        break;
     }
 
     return { received: true };
@@ -513,6 +516,12 @@ class BillingSystem {
       .run('disputed', billingRecord.church_id);
 
     console.log(`[Billing] ⚠️ Dispute opened for church ${billingRecord.church_id} — reason: ${dispute.reason}, amount: $${(dispute.amount / 100).toFixed(2)}`);
+
+    // Send dispute alert email
+    if (this.lifecycleEmails && billingRecord.church_id) {
+      const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(billingRecord.church_id);
+      if (church) this.lifecycleEmails.sendDisputeAlert(church, { amount: dispute.amount, reason: dispute.reason, disputeId: dispute.id }).catch(() => {});
+    }
   }
 
   async _onDisputeClosed(dispute) {
@@ -548,6 +557,29 @@ class BillingSystem {
         this._deactivateChurch(billingRecord.church_id, `dispute_${dispute.status}`);
       }
       console.log(`[Billing] ❌ Dispute ${dispute.status} for church ${billingRecord.church_id} — deactivated`);
+    }
+  }
+
+  // ─── INVOICE UPCOMING ────────────────────────────────────────────────────
+
+  async _onInvoiceUpcoming(invoice) {
+    const customerId = invoice.customer;
+    if (!customerId) return;
+
+    const billingRecord = this.db.prepare(
+      'SELECT * FROM billing_customers WHERE stripe_customer_id = ?'
+    ).get(customerId);
+    if (!billingRecord) return;
+
+    const amount = invoice.amount_due || invoice.total || 0;
+    const dueDate = invoice.due_date || invoice.next_payment_attempt;
+
+    if (this.lifecycleEmails && billingRecord.church_id) {
+      const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(billingRecord.church_id);
+      if (church) {
+        this.lifecycleEmails.sendInvoiceUpcoming(church, { amount, dueDate }).catch(() => {});
+        console.log(`[Billing] Invoice upcoming email queued for ${billingRecord.church_id} — $${(amount / 100).toFixed(2)}`);
+      }
     }
   }
 

@@ -50,6 +50,19 @@ class LifecycleEmails {
 
     // Migration: add subject column to email_sends
     try { this.db.exec('ALTER TABLE email_sends ADD COLUMN subject TEXT'); } catch { /* already exists */ }
+
+    // Sales leads table for lead capture + drip nurture sequences
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS sales_leads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL UNIQUE,
+        name TEXT,
+        church_name TEXT,
+        source TEXT DEFAULT 'website',
+        captured_at TEXT NOT NULL,
+        status TEXT DEFAULT 'active'
+      )
+    `);
   }
 
   // ─── CORE SEND ──────────────────────────────────────────────────────────────
@@ -147,6 +160,9 @@ class LifecycleEmails {
       await this._checkWeeklyDigest();
       await this._checkReviewRequest();
       await this._checkWinBack();
+      await this._checkGracePeriodEndingSoon();
+      await this._checkCancellationSurvey();
+      await this._checkLeadNurture();
     } catch (e) {
       console.error(`[LifecycleEmails] runCheck error: ${e.message}`);
     }
@@ -1213,6 +1229,738 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
+  // ─── SEQUENCE 18: REGISTRATION CONFIRMATION ────────────────────────────
+  // Sent immediately after signup, before email verification.
+
+  async sendRegistrationConfirmation(church) {
+    if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
+    const { html, text } = this._buildRegistrationEmail(church);
+    return this.sendEmail({
+      churchId: church.churchId,
+      emailType: 'registration-confirmation',
+      to: church.portal_email,
+      subject: `${church.name} is registered — let's get started`,
+      html, text,
+    });
+  }
+
+  _buildRegistrationEmail(church) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const downloadUrl = GITHUB_RELEASES_URL;
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Welcome to Tally!</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        <strong>${church.name}</strong> has been registered and your 14-day free trial is active.
+        Here's everything you need to get started:
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">Quick start:</div>
+        <div style="font-size: 14px; color: #333; line-height: 2.2;">
+          <strong>1.</strong> Verify your email (check your inbox)<br>
+          <strong>2.</strong> <a href="${downloadUrl}" style="color: #22c55e; text-decoration: none;">Download the Tally app</a> on your booth computer<br>
+          <strong>3.</strong> Sign in with your registration code<br>
+          <strong>4.</strong> Tally auto-discovers your ATEM, OBS, and other gear
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Once connected, you'll have real-time monitoring, automatic recovery, and pre-service health checks &mdash; all running in the background.
+      </p>
+
+      ${this._cta('Open Your Portal', portalUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        Need help? Reply to this email or reach out at support@atemschool.com.
+      </p>
+    `);
+
+    const text = `Welcome to Tally!\n\n${church.name} has been registered and your 14-day free trial is active.\n\nQuick start:\n1. Verify your email\n2. Download the Tally app: ${downloadUrl}\n3. Sign in with your registration code\n4. Tally auto-discovers your gear\n\nOpen your portal: ${portalUrl}\n\nTally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+
+    return { html, text };
+  }
+
+  // ─── SEQUENCE 19: DOWNGRADE CONFIRMATION ─────────────────────────────────
+
+  async sendDowngradeConfirmation(church, { oldTier, newTier }) {
+    if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
+    const { html, text, subject } = this._buildDowngradeEmail(church, { oldTier, newTier });
+    return this.sendEmail({
+      churchId: church.churchId,
+      emailType: `downgrade-${oldTier}-to-${newTier}`,
+      to: church.portal_email,
+      subject, html, text,
+    });
+  }
+
+  _buildDowngradeEmail(church, { oldTier, newTier }) {
+    const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise' };
+    const oldName = TIER_NAMES[oldTier] || oldTier;
+    const newName = TIER_NAMES[newTier] || newTier;
+    const portalUrl = `${this.appUrl}/portal`;
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Plan changed to ${newName}</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        <strong>${church.name}</strong> has been moved from ${oldName} to <strong>${newName}</strong>.
+        The change takes effect at the end of your current billing period.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #fffbeb; border-radius: 10px; border: 1px solid #fde68a;">
+        <div style="font-size: 14px; color: #333; line-height: 1.8;">
+          <strong>What this means:</strong><br>
+          &bull; You keep full ${oldName} features until this billing cycle ends<br>
+          &bull; Next billing cycle, your plan switches to ${newName}<br>
+          &bull; You can upgrade back anytime from your portal
+        </div>
+      </div>
+
+      ${this._cta('Manage Your Plan', portalUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        Questions about the change? Reply to this email &mdash; happy to help.
+      </p>
+    `);
+
+    const text = `Plan changed to ${newName}\n\n${church.name} has been moved from ${oldName} to ${newName}. The change takes effect at the end of your current billing period.\n\nManage your plan: ${portalUrl}\n\nTally by ATEM School`;
+    return { html, text, subject: `Plan changed to ${newName}` };
+  }
+
+  // ─── SEQUENCE 20: GRACE PERIOD ENDING SOON ──────────────────────────────
+  // Hourly check: 5+ days into the 7-day grace period (2 days left).
+
+  async _checkGracePeriodEndingSoon() {
+    const now = Date.now();
+    const twoDaysFromNow = new Date(now + 2 * 24 * 60 * 60 * 1000).toISOString();
+
+    let churches = [];
+    try {
+      churches = this.db.prepare(`
+        SELECT c.churchId, c.name, c.portal_email, bc.grace_period_ends_at
+        FROM churches c
+        JOIN billing_customers bc ON bc.church_id = c.churchId
+        WHERE c.portal_email IS NOT NULL
+          AND c.billing_status = 'past_due'
+          AND bc.grace_period_ends_at IS NOT NULL
+          AND bc.grace_period_ends_at <= ?
+          AND bc.grace_period_ends_at > ?
+      `).all(twoDaysFromNow, new Date(now).toISOString());
+    } catch { return; }
+
+    for (const church of churches) {
+      const daysLeft = Math.ceil(
+        (new Date(church.grace_period_ends_at).getTime() - now) / (24 * 60 * 60 * 1000)
+      );
+      const { html, text } = this._buildGracePeriodEndingSoonEmail(church, daysLeft);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'grace-period-ending',
+        to: church.portal_email,
+        subject: `Tally will be paused in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} — update payment now`,
+        html, text,
+      });
+    }
+  }
+
+  _buildGracePeriodEndingSoonEmail(church, daysLeft) {
+    const portalUrl = `${this.appUrl}/portal`;
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your grace period ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        We still haven't been able to process payment for <strong>${church.name}</strong>.
+        If not resolved in the next ${daysLeft} day${daysLeft !== 1 ? 's' : ''}, Tally will be paused.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca;">
+        <div style="font-size: 14px; color: #333; line-height: 1.8;">
+          <strong>When paused:</strong><br>
+          &bull; Real-time monitoring <strong>stops</strong><br>
+          &bull; Auto-recovery <strong>disabled</strong><br>
+          &bull; Pre-service checks <strong>won't run</strong><br>
+          &bull; Your data is safe for 30 days
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Update your payment method now to avoid any interruption:
+      </p>
+
+      ${this._cta('Update Payment Method', portalUrl)}
+    `);
+
+    const text = `Your grace period ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}\n\nWe still can't process payment for ${church.name}. Update your payment at ${portalUrl} to avoid service interruption.\n\nTally by ATEM School`;
+    return { html, text };
+  }
+
+  // ─── SEQUENCE 21: INVOICE UPCOMING ──────────────────────────────────────
+  // Triggered from Stripe invoice.upcoming webhook (3 days before charge).
+
+  async sendInvoiceUpcoming(church, { amount, dueDate }) {
+    if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
+    const monthKey = new Date(dueDate || Date.now()).toISOString().slice(0, 7); // 2026-03
+    const { html, text } = this._buildInvoiceUpcomingEmail(church, { amount, dueDate });
+    return this.sendEmail({
+      churchId: church.churchId,
+      emailType: `invoice-upcoming-${monthKey}`,
+      to: church.portal_email,
+      subject: `Upcoming invoice: $${(amount / 100).toFixed(2)} for Tally`,
+      html, text,
+    });
+  }
+
+  _buildInvoiceUpcomingEmail(church, { amount, dueDate }) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const formattedAmount = `$${(amount / 100).toFixed(2)}`;
+    const formattedDate = dueDate
+      ? new Date(dueDate * 1000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : 'soon';
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Upcoming invoice</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        A payment of <strong>${formattedAmount}</strong> for <strong>${church.name}</strong> will be charged on <strong>${formattedDate}</strong>.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
+        <table style="width: 100%; font-size: 14px; color: #333;">
+          <tr><td style="padding: 4px 0;">Church</td><td style="text-align: right; font-weight: 700;">${church.name}</td></tr>
+          <tr><td style="padding: 4px 0;">Amount</td><td style="text-align: right; font-weight: 700;">${formattedAmount}</td></tr>
+          <tr><td style="padding: 4px 0;">Charge date</td><td style="text-align: right; font-weight: 700;">${formattedDate}</td></tr>
+        </table>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        No action needed &mdash; this is just a heads-up. You can view invoices and update your payment method from your portal.
+      </p>
+
+      ${this._cta('View Billing', portalUrl)}
+    `);
+
+    const text = `Upcoming invoice\n\nA payment of ${formattedAmount} for ${church.name} will be charged on ${formattedDate}.\n\nView billing at ${portalUrl}\n\nTally by ATEM School`;
+    return { html, text };
+  }
+
+  // ─── SEQUENCE 22: EMAIL CHANGE CONFIRMATION ─────────────────────────────
+  // Sent when portal email is changed. Bypasses dedup (like password-reset).
+
+  async sendEmailChangeConfirmation(church, { oldEmail, newEmail }) {
+    const to = newEmail || church.portal_email;
+    if (!to) return { sent: false, reason: 'no-recipient' };
+    const { html, text } = this._buildEmailChangeEmail(church, { oldEmail, newEmail });
+
+    // Bypass dedup — send directly like password-reset
+    if (!this.resendApiKey) {
+      console.log(`[LifecycleEmails] No RESEND_API_KEY — would send email change confirmation to ${to}`);
+      return { sent: false, reason: 'no-api-key' };
+    }
+
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${this.resendApiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: this.fromEmail, to: [to],
+          subject: 'Your Tally email has been updated',
+          html, text,
+          tags: [{ name: 'category', value: 'email-change-confirmation' }],
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) { const err = await res.text(); console.error(`[LifecycleEmails] Email change send failed: ${err}`); return { sent: false, reason: 'resend-error' }; }
+      const data = await res.json();
+      try { this.db.prepare('INSERT INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject) VALUES (?, ?, ?, ?, ?, ?)').run(church.churchId, 'email-change-confirmation', to, new Date().toISOString(), data.id, 'Your Tally email has been updated'); } catch { }
+      return { sent: true, id: data.id };
+    } catch (e) { return { sent: false, reason: 'network-error' }; }
+  }
+
+  _buildEmailChangeEmail(church, { oldEmail, newEmail }) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Email address updated</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        The portal email for <strong>${church.name}</strong> has been changed.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
+        <div style="font-size: 14px; color: #333; line-height: 2;">
+          <strong>Previous:</strong> ${oldEmail || 'not set'}<br>
+          <strong>New:</strong> ${newEmail}
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        All future emails (invoices, alerts, reports) will be sent to <strong>${newEmail}</strong>.
+      </p>
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        If you didn't make this change, please contact support@atemschool.com immediately.
+      </p>
+
+      ${this._cta('Open Your Portal', portalUrl)}
+    `);
+
+    const text = `Email address updated\n\nThe portal email for ${church.name} has been changed from ${oldEmail || 'not set'} to ${newEmail}.\n\nIf you didn't make this change, contact support@atemschool.com.\n\nTally by ATEM School`;
+    return { html, text };
+  }
+
+  // ─── SEQUENCE 23: FIRST SERVICE COMPLETED ──────────────────────────────
+  // Sent after the very first service session ends.
+
+  async sendFirstServiceCompleted(church, sessionData) {
+    if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
+    const { html, text } = this._buildFirstServiceCompletedEmail(church, sessionData);
+    return this.sendEmail({
+      churchId: church.churchId,
+      emailType: 'first-service-completed',
+      to: church.portal_email,
+      subject: `First service in the books — here's how it went`,
+      html, text,
+    });
+  }
+
+  _buildFirstServiceCompletedEmail(church, sessionData) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const grade = sessionData?.grade || 'Monitored';
+    const duration = sessionData?.durationMinutes || 0;
+    const alerts = sessionData?.alerts?.length || 0;
+    const recoveries = sessionData?.recoveries || 0;
+
+    const gradeColor = grade.includes('Clean') ? '#22c55e' : grade.includes('Minor') ? '#eab308' : '#ef4444';
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your first service is in the books!</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Tally just finished monitoring the first service at <strong>${church.name}</strong>. Here's a quick summary:
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
+        <table style="width: 100%; font-size: 14px; color: #333;">
+          <tr><td style="padding: 6px 0;">Grade</td><td style="text-align: right; font-weight: 700; color: ${gradeColor};">${grade}</td></tr>
+          <tr><td style="padding: 6px 0;">Duration</td><td style="text-align: right; font-weight: 700;">${duration} min</td></tr>
+          <tr><td style="padding: 6px 0;">Alerts</td><td style="text-align: right; font-weight: 700;">${alerts}</td></tr>
+          ${recoveries ? `<tr><td style="padding: 6px 0;">Auto-recoveries</td><td style="text-align: right; font-weight: 700;">${recoveries}</td></tr>` : ''}
+        </table>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        ${alerts === 0
+          ? 'Everything ran smoothly &mdash; no issues detected. Tally was watching the whole time.'
+          : `Tally detected ${alerts} issue${alerts !== 1 ? 's' : ''}${recoveries ? ` and auto-recovered ${recoveries}` : ''}. Check your portal for the full timeline.`}
+      </p>
+
+      ${this._cta('View Service Timeline', portalUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        <strong>Tip:</strong> Share this with your production team lead &mdash; forward this email or invite them to the portal.
+      </p>
+    `);
+
+    const text = `Your first service is in the books!\n\nTally monitored ${church.name}'s first service.\n\nGrade: ${grade} | Duration: ${duration} min | Alerts: ${alerts}\n\nView timeline: ${portalUrl}\n\nTally by ATEM School`;
+    return { html, text };
+  }
+
+  // ─── SEQUENCE 24: DISPUTE ALERT ──────────────────────────────────────────
+  // Sent to admin when a charge dispute is opened.
+
+  async sendDisputeAlert(church, { amount, reason, disputeId }) {
+    if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
+    const { html, text } = this._buildDisputeAlertEmail(church, { amount, reason });
+    return this.sendEmail({
+      churchId: church.churchId,
+      emailType: `dispute-alert-${disputeId || Date.now()}`,
+      to: church.portal_email,
+      subject: `Payment dispute opened — action required`,
+      html, text,
+    });
+  }
+
+  _buildDisputeAlertEmail(church, { amount, reason }) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const formattedAmount = amount ? `$${(amount / 100).toFixed(2)}` : 'unknown';
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Payment dispute opened</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        A payment dispute has been filed for <strong>${church.name}</strong>.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca;">
+        <table style="width: 100%; font-size: 14px; color: #333;">
+          <tr><td style="padding: 4px 0;">Amount</td><td style="text-align: right; font-weight: 700;">${formattedAmount}</td></tr>
+          <tr><td style="padding: 4px 0;">Reason</td><td style="text-align: right; font-weight: 700;">${reason || 'Not specified'}</td></tr>
+        </table>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Disputes are serious and can result in account restrictions. If you believe this is a mistake, please reply to this email immediately so we can help resolve it.
+      </p>
+
+      ${this._cta('View Your Account', portalUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        We'll work with you to resolve this as quickly as possible.
+      </p>
+    `);
+
+    const text = `Payment dispute opened\n\nA dispute of ${formattedAmount} has been filed for ${church.name}. Reason: ${reason || 'not specified'}.\n\nPlease reply to this email to help resolve this.\n\nTally by ATEM School`;
+    return { html, text };
+  }
+
+  // ─── SEQUENCE 25: URGENT ALERT ESCALATION ────────────────────────────────
+  // Sent when a CRITICAL alert is escalated (90s no acknowledgment).
+  // Bypasses dedup — each escalation gets its own email.
+
+  async sendUrgentAlertEscalation(church, { alertType, context, alertId }) {
+    const to = church.portal_email;
+    if (!to) return { sent: false, reason: 'no-recipient' };
+    const { html, text } = this._buildUrgentAlertEmail(church, { alertType, context });
+
+    if (!this.resendApiKey) {
+      console.log(`[LifecycleEmails] No RESEND_API_KEY — would send urgent alert email to ${to}`);
+      return { sent: false, reason: 'no-api-key' };
+    }
+
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${this.resendApiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: this.fromEmail, to: [to],
+          subject: `🚨 URGENT: ${alertType} at ${church.name}`,
+          html, text,
+          tags: [{ name: 'category', value: 'urgent-alert-escalation' }],
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) { const err = await res.text(); console.error(`[LifecycleEmails] Urgent alert email failed: ${err}`); return { sent: false, reason: 'resend-error' }; }
+      const data = await res.json();
+      try { this.db.prepare('INSERT INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject) VALUES (?, ?, ?, ?, ?, ?)').run(church.churchId, `urgent-alert-${alertId || Date.now()}`, to, new Date().toISOString(), data.id, `URGENT: ${alertType} at ${church.name}`); } catch { }
+      return { sent: true, id: data.id };
+    } catch (e) { return { sent: false, reason: 'network-error' }; }
+  }
+
+  _buildUrgentAlertEmail(church, { alertType, context }) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const contextStr = typeof context === 'object' ? JSON.stringify(context, null, 2) : (context || '');
+
+    const html = this._wrap(`
+      <div style="margin: 0 0 24px; padding: 16px 20px; background: #fef2f2; border-radius: 10px; border: 2px solid #ef4444;">
+        <span style="font-size: 20px;">🚨</span>
+        <strong style="font-size: 16px; color: #dc2626; margin-left: 8px;">CRITICAL ALERT — No Response</strong>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        A critical alert at <strong>${church.name}</strong> has gone unacknowledged for 90 seconds.
+        The technical director has not responded via Telegram.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
+        <table style="width: 100%; font-size: 14px; color: #333;">
+          <tr><td style="padding: 4px 0;">Alert type</td><td style="text-align: right; font-weight: 700;">${alertType || 'Unknown'}</td></tr>
+          <tr><td style="padding: 4px 0;">Church</td><td style="text-align: right; font-weight: 700;">${church.name}</td></tr>
+          ${contextStr ? `<tr><td style="padding: 4px 0;" colspan="2"><pre style="margin: 8px 0 0; font-size: 12px; background: #f1f5f9; padding: 8px; border-radius: 4px; overflow-x: auto;">${contextStr}</pre></td></tr>` : ''}
+        </table>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        This email is a backup notification. Please check the portal for current status.
+      </p>
+
+      ${this._cta('View Alert Status', portalUrl)}
+    `);
+
+    const text = `🚨 CRITICAL ALERT — No Response\n\nAlert: ${alertType} at ${church.name}\nNo TD acknowledgment after 90 seconds.\n\nCheck status: ${portalUrl}\n\nTally by ATEM School`;
+    return { html, text };
+  }
+
+  // ─── SEQUENCE 26: CANCELLATION FEEDBACK SURVEY ──────────────────────────
+  // Hourly check: 3 days after cancellation, asks for feedback.
+
+  async _checkCancellationSurvey() {
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+
+    let churches = [];
+    try {
+      churches = this.db.prepare(`
+        SELECT c.churchId, c.name, c.portal_email
+        FROM churches c
+        WHERE c.billing_status IN ('canceled', 'inactive')
+          AND c.portal_email IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM billing_customers bc
+            WHERE bc.church_id = c.churchId
+              AND bc.status = 'canceled'
+              AND bc.updated_at <= ?
+              AND bc.updated_at >= ?
+          )
+      `).all(threeDaysAgo, tenDaysAgo);
+    } catch { return; }
+
+    for (const church of churches) {
+      const { html, text } = this._buildCancellationSurveyEmail(church);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'cancellation-survey',
+        to: church.portal_email,
+        subject: 'Quick question — what could we have done better?',
+        html, text,
+      });
+    }
+  }
+
+  _buildCancellationSurveyEmail(church) {
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">We'd love your honest feedback</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Hi &mdash; it's Andrew from Tally. Since <strong>${church.name}</strong> cancelled a few days ago,
+        I wanted to personally ask: <strong>what could we have done better?</strong>
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
+        <div style="font-size: 14px; color: #333; line-height: 2.2;">
+          Was it:<br>
+          &bull; <strong>Pricing</strong> &mdash; too expensive for what you got?<br>
+          &bull; <strong>Features</strong> &mdash; missing something you needed?<br>
+          &bull; <strong>Reliability</strong> &mdash; too many issues or false alerts?<br>
+          &bull; <strong>Fit</strong> &mdash; your team didn't end up using it?<br>
+          &bull; <strong>Something else</strong> entirely?
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Just hit reply and let me know. Even one sentence helps &mdash; I read every response personally
+        and use it to make Tally better for everyone.
+      </p>
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        And of course, if you ever want to come back, your data and settings are saved for 30 days.
+        Just log in at <a href="${this.appUrl}/portal" style="color: #22c55e; text-decoration: none;">your portal</a>.
+      </p>
+
+      <p style="font-size: 14px; color: #666;">
+        &mdash; Andrew Disbrow<br>Founder, Tally by ATEM School
+      </p>
+    `);
+
+    const text = `We'd love your honest feedback\n\n${church.name} cancelled a few days ago. What could we have done better?\n\n- Pricing?\n- Features?\n- Reliability?\n- Fit?\n- Something else?\n\nJust reply to this email — I read every response.\n\n— Andrew Disbrow\nFounder, Tally by ATEM School`;
+    return { html, text };
+  }
+
+  // ─── LEAD NURTURE DRIP SEQUENCE ─────────────────────────────────────────
+  // Captures leads and sends a 4-email drip over 14 days.
+
+  /** Capture a new sales lead. Returns the lead row. */
+  captureLead({ email, name, source, churchName }) {
+    if (!email) return null;
+    const now = new Date().toISOString();
+    try {
+      this.db.prepare(
+        'INSERT OR IGNORE INTO sales_leads (email, name, church_name, source, captured_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(email, name || null, churchName || null, source || 'website', now);
+    } catch (e) {
+      console.error(`[LifecycleEmails] Lead capture failed: ${e.message}`);
+      return null;
+    }
+    return this.db.prepare('SELECT * FROM sales_leads WHERE email = ?').get(email);
+  }
+
+  /** Send the immediate welcome email for a new lead */
+  async sendLeadWelcome(lead) {
+    if (!lead?.email) return { sent: false, reason: 'no-recipient' };
+    const { html, text } = this._buildLeadWelcomeEmail(lead);
+    return this.sendEmail({
+      churchId: `lead:${lead.email}`,
+      emailType: 'lead-welcome',
+      to: lead.email,
+      subject: 'Here\'s how churches are running stress-free services',
+      html, text,
+    });
+  }
+
+  /** Hourly check: send drip emails at day 3, 7, 14 */
+  async _checkLeadNurture() {
+    const now = Date.now();
+    const drips = [
+      { emailType: 'lead-day3-value',     minAge: 3,  maxAge: 7,  builder: '_buildLeadDay3Email',  subject: '3 problems Tally solves before Sunday' },
+      { emailType: 'lead-day7-casestudy', minAge: 7,  maxAge: 14, builder: '_buildLeadDay7Email',  subject: 'How one church eliminated stream failures' },
+      { emailType: 'lead-day14-offer',    minAge: 14, maxAge: 30, builder: '_buildLeadDay14Email', subject: 'Ready to try Tally? Start your free trial' },
+    ];
+
+    for (const drip of drips) {
+      const minCapturedAt = new Date(now - drip.maxAge * 24 * 60 * 60 * 1000).toISOString();
+      const maxCapturedAt = new Date(now - drip.minAge * 24 * 60 * 60 * 1000).toISOString();
+
+      let leads = [];
+      try {
+        leads = this.db.prepare(
+          'SELECT * FROM sales_leads WHERE status = ? AND captured_at <= ? AND captured_at >= ?'
+        ).all('active', maxCapturedAt, minCapturedAt);
+      } catch { continue; }
+
+      for (const lead of leads) {
+        const { html, text } = this[drip.builder](lead);
+        await this.sendEmail({
+          churchId: `lead:${lead.email}`,
+          emailType: drip.emailType,
+          to: lead.email,
+          subject: drip.subject,
+          html, text,
+        });
+      }
+    }
+  }
+
+  _buildLeadWelcomeEmail(lead) {
+    const signupUrl = `${this.appUrl}/signup`;
+    const name = lead.name ? lead.name.split(' ')[0] : 'there';
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Hey ${name} &mdash; thanks for your interest in Tally</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Tally is the production monitoring system built specifically for churches.
+        It watches your ATEM switcher, OBS, streaming, and other gear &mdash;
+        and automatically fixes problems before your congregation notices.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">What Tally does:</div>
+        <div style="font-size: 14px; color: #333; line-height: 2;">
+          &bull; <strong>Auto-recovers</strong> dropped streams in under 10 seconds<br>
+          &bull; <strong>Pre-service checks</strong> 30 minutes before service starts<br>
+          &bull; <strong>Real-time alerts</strong> to your tech director via Telegram<br>
+          &bull; <strong>Weekly reports</strong> for church leadership
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        You get a 14-day free trial with full access &mdash; no credit card required to start.
+      </p>
+
+      ${this._cta('Start Your Free Trial', signupUrl)}
+
+      <p style="font-size: 14px; color: #666;">
+        &mdash; Andrew Disbrow<br>Founder, Tally by ATEM School
+      </p>
+    `);
+
+    const text = `Hey ${name} — thanks for your interest in Tally\n\nTally monitors your church production gear and auto-fixes problems.\n\n- Auto-recovers dropped streams\n- Pre-service health checks\n- Real-time alerts via Telegram\n- Weekly reports\n\nStart your free trial: ${signupUrl}\n\n— Andrew Disbrow`;
+    return { html, text };
+  }
+
+  _buildLeadDay3Email(lead) {
+    const signupUrl = `${this.appUrl}/signup`;
+    const name = lead.name ? lead.name.split(' ')[0] : 'there';
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">3 problems Tally solves before Sunday</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Hey ${name} &mdash; every church production team deals with these:
+      </p>
+
+      <div style="margin: 24px 0;">
+        <div style="padding: 16px 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca; margin-bottom: 12px;">
+          <strong style="color: #dc2626;">1. Stream drops mid-service</strong>
+          <p style="font-size: 14px; color: #333; margin: 4px 0 0;">Tally detects it and auto-restarts OBS/stream in under 10 seconds. No one in the booth has to scramble.</p>
+        </div>
+        <div style="padding: 16px 20px; background: #fffbeb; border-radius: 10px; border: 1px solid #fde68a; margin-bottom: 12px;">
+          <strong style="color: #b45309;">2. No one checks gear before service</strong>
+          <p style="font-size: 14px; color: #333; margin: 4px 0 0;">Tally runs a pre-flight check 30 minutes early and texts your TD if anything's off.</p>
+        </div>
+        <div style="padding: 16px 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+          <strong style="color: #15803d;">3. Leadership has no visibility</strong>
+          <p style="font-size: 14px; color: #333; margin: 4px 0 0;">Tally sends weekly reports showing uptime, issues, and session grades &mdash; easy to share with pastors.</p>
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        All of this runs in the background. Set it up once, and it just works.
+      </p>
+
+      ${this._cta('Try It Free for 14 Days', signupUrl)}
+    `);
+
+    const text = `3 problems Tally solves:\n\n1. Stream drops → auto-recovery in 10 seconds\n2. Gear not checked → pre-flight 30 min before service\n3. No leadership visibility → weekly reports\n\nTry free: ${signupUrl}`;
+    return { html, text };
+  }
+
+  _buildLeadDay7Email(lead) {
+    const signupUrl = `${this.appUrl}/signup`;
+    const name = lead.name ? lead.name.split(' ')[0] : 'there';
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">How one church eliminated stream failures</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Hey ${name} &mdash; wanted to share a quick story.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
+        <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0;">
+          A 300-member church in Texas was losing their stream 2-3 times per month. Their volunteer TD would scramble
+          to restart OBS while the online audience dropped off. Leadership was frustrated.
+        </p>
+        <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 16px 0 0;">
+          After installing Tally, their stream drops went to <strong>zero visible outages</strong>. Tally auto-recovered
+          every disconnection before the online congregation even noticed. Their TD now checks his phone instead of being
+          glued to the booth.
+        </p>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        The setup took 10 minutes. No special hardware needed &mdash; just the Tally app on the booth computer.
+      </p>
+
+      ${this._cta('Start Your Free Trial', signupUrl)}
+
+      <p style="font-size: 14px; color: #666;">
+        &mdash; Andrew
+      </p>
+    `);
+
+    const text = `How one church eliminated stream failures\n\nA 300-member church was losing their stream 2-3 times per month. After Tally: zero visible outages. Auto-recovery handles everything.\n\nSetup takes 10 minutes. Try free: ${signupUrl}`;
+    return { html, text };
+  }
+
+  _buildLeadDay14Email(lead) {
+    const signupUrl = `${this.appUrl}/signup`;
+    const name = lead.name ? lead.name.split(' ')[0] : 'there';
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Ready to try Tally?</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Hey ${name} &mdash; just checking in one more time. If your church production team deals with
+        stream issues, gear surprises on Sunday morning, or volunteer burnout &mdash; Tally can help.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">Your free trial includes:</div>
+        <div style="font-size: 14px; color: #333; line-height: 2;">
+          &bull; 14 days of full access, no credit card needed<br>
+          &bull; Auto-recovery, pre-service checks, real-time alerts<br>
+          &bull; 10-minute setup &mdash; works with your existing gear<br>
+          &bull; Personal support from our team if you need it
+        </div>
+      </div>
+
+      ${this._cta('Start Your Free Trial', signupUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        Not the right time? No worries. This is the last email in this series &mdash;
+        we won't keep bugging you. But if you ever want to try it, just visit
+        <a href="${signupUrl}" style="color: #22c55e; text-decoration: none;">tallyconnect.app/signup</a>.
+      </p>
+
+      <p style="font-size: 14px; color: #666;">
+        &mdash; Andrew Disbrow<br>Founder, Tally by ATEM School
+      </p>
+    `);
+
+    const text = `Ready to try Tally?\n\n14 days free, no credit card, 10-minute setup.\n\nStart your trial: ${signupUrl}\n\nThis is the last email in this series. Visit tallyconnect.app/signup anytime.\n\n— Andrew Disbrow`;
+    return { html, text };
+  }
+
   // ─── SEQUENCE 15: WELCOME EMAIL (after email verification) ───────────────
 
   async sendWelcomeVerified(church) {
@@ -1386,6 +2134,21 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
     { type: 'welcome-verified',        name: 'Welcome Email',           trigger: 'On email verification' },
     { type: 'payment-confirmed',       name: 'Payment Confirmed',       trigger: 'Billing webhook — new subscription' },
     { type: 'password-reset',          name: 'Password Reset',          trigger: 'Self-service — forgot password' },
+    // Gap emails
+    { type: 'registration-confirmation', name: 'Registration Confirmation', trigger: 'On signup — immediate' },
+    { type: 'downgrade-confirmation',  name: 'Downgrade Confirmation',   trigger: 'On plan downgrade' },
+    { type: 'grace-period-ending',     name: 'Grace Period Ending',      trigger: 'Auto — 2 days before grace expires' },
+    { type: 'invoice-upcoming',        name: 'Invoice Upcoming',         trigger: 'Stripe webhook — invoice.upcoming' },
+    { type: 'email-change-confirmation', name: 'Email Change',           trigger: 'On portal email change' },
+    { type: 'first-service-completed', name: 'First Service Recap',      trigger: 'After first session ends' },
+    { type: 'dispute-alert',           name: 'Dispute Alert',            trigger: 'Stripe webhook — charge.dispute.created' },
+    { type: 'urgent-alert-escalation', name: 'Urgent Alert Email',       trigger: 'Alert escalation — 90s no ack' },
+    { type: 'cancellation-survey',     name: 'Cancellation Survey',      trigger: 'Auto — 3 days after cancellation' },
+    // Lead nurture drip
+    { type: 'lead-welcome',            name: 'Lead: Welcome',            trigger: 'On lead capture — immediate' },
+    { type: 'lead-day3-value',         name: 'Lead: Value Prop',         trigger: 'Auto — 3 days after capture' },
+    { type: 'lead-day7-casestudy',     name: 'Lead: Case Study',         trigger: 'Auto — 7 days after capture' },
+    { type: 'lead-day14-offer',        name: 'Lead: Special Offer',      trigger: 'Auto — 14 days after capture' },
   ];
 
   /** Get email send history with optional filters */
@@ -1560,6 +2323,21 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
         `);
         return { html, text: '', subject: 'Reset your Tally password' };
       },
+      // Gap emails
+      'registration-confirmation': () => ({ ...this._buildRegistrationEmail(sampleChurch), subject: 'Sample Church is registered — let\'s get started' }),
+      'downgrade-confirmation':  () => ({ ...this._buildDowngradeEmail(sampleChurch, { oldTier: 'pro', newTier: 'plus' }) }),
+      'grace-period-ending':     () => ({ ...this._buildGracePeriodEndingSoonEmail(sampleChurch, 2), subject: 'Tally will be paused in 2 days — update payment now' }),
+      'invoice-upcoming':        () => ({ ...this._buildInvoiceUpcomingEmail(sampleChurch, { amount: 9900, dueDate: Math.floor(Date.now() / 1000) + 3 * 86400 }), subject: 'Upcoming invoice: $99.00 for Tally' }),
+      'email-change-confirmation': () => ({ ...this._buildEmailChangeEmail(sampleChurch, { oldEmail: 'old@example.com', newEmail: 'new@example.com' }), subject: 'Your Tally email has been updated' }),
+      'first-service-completed': () => ({ ...this._buildFirstServiceCompletedEmail(sampleChurch, { grade: '🟢 Clean Service', durationMinutes: 72, alerts: [], recoveries: 0 }), subject: 'First service in the books — here\'s how it went' }),
+      'dispute-alert':           () => ({ ...this._buildDisputeAlertEmail(sampleChurch, { amount: 9900, reason: 'product_not_received' }), subject: 'Payment dispute opened — action required' }),
+      'urgent-alert-escalation': () => ({ ...this._buildUrgentAlertEmail(sampleChurch, { alertType: 'stream_stopped', context: { source: 'OBS', duration: '90s' } }), subject: '🚨 URGENT: stream_stopped at Sample Church' }),
+      'cancellation-survey':     () => ({ ...this._buildCancellationSurveyEmail(sampleChurch), subject: 'Quick question — what could we have done better?' }),
+      // Lead nurture drip
+      'lead-welcome':            () => ({ ...this._buildLeadWelcomeEmail({ email: 'lead@example.com', name: 'John Smith' }), subject: 'Here\'s how churches are running stress-free services' }),
+      'lead-day3-value':         () => ({ ...this._buildLeadDay3Email({ email: 'lead@example.com', name: 'John Smith' }), subject: '3 problems Tally solves before Sunday' }),
+      'lead-day7-casestudy':     () => ({ ...this._buildLeadDay7Email({ email: 'lead@example.com', name: 'John Smith' }), subject: 'How one church eliminated stream failures' }),
+      'lead-day14-offer':        () => ({ ...this._buildLeadDay14Email({ email: 'lead@example.com', name: 'John Smith' }), subject: 'Ready to try Tally? Start your free trial' }),
     };
 
     const builder = builders[emailType];

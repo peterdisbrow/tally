@@ -28,6 +28,11 @@ class SessionRecap {
     this._andrewChatId = andrewChatId;
   }
 
+  /** Attach lifecycle emails engine for first-service email */
+  setLifecycleEmails(engine) {
+    this.lifecycleEmails = engine;
+  }
+
   _ensureTable() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS service_sessions (
@@ -191,6 +196,18 @@ class SessionRecap {
       }
     } catch (e) {
       console.error(`[SessionRecap] Failed to send recap for ${churchId}:`, e.message);
+    }
+
+    // Send first-service email if this is the first completed session
+    try {
+      if (this.lifecycleEmails && church) {
+        const sessionCount = this.db.prepare('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL').get(churchId);
+        if (sessionCount?.cnt === 1) {
+          this.lifecycleEmails.sendFirstServiceCompleted(church, finalSession).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.error(`[SessionRecap] First-service email error for ${churchId}:`, e.message);
     }
 
     // Write post-service memories (non-blocking, don't fail the session)

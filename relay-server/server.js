@@ -850,6 +850,8 @@ const lifecycleEmails = new LifecycleEmails(db, {
   appUrl: APP_URL,
 });
 billing.setLifecycleEmails(lifecycleEmails);
+sessionRecap.setLifecycleEmails(lifecycleEmails);
+alertEngine.setLifecycleEmails(lifecycleEmails);
 
 // Run lifecycle email checks every hour
 _intervals.push(setInterval(() => {
@@ -1878,6 +1880,12 @@ app.post('/api/church/app/onboard', rateLimit(5, 60_000), async (req, res) => {
     text: `Verify your Tally email\n\nClick this link to verify: ${verifyUrl}\n\nIf you didn't sign up for Tally, ignore this email.`,
   }).catch(() => {});
 
+  // Send registration confirmation email (non-blocking)
+  if (lifecycleEmails) {
+    const regChurch = { churchId, name: cleanName, portal_email: cleanEmail };
+    lifecycleEmails.sendRegistrationConfirmation(regChurch).catch(() => {});
+  }
+
   const appToken = issueChurchAppToken(churchId, cleanName);
   const access = checkChurchPaidAccess(churchId);
 
@@ -1900,6 +1908,24 @@ app.post('/api/church/app/onboard', rateLimit(5, 60_000), async (req, res) => {
     checkoutSessionId,
     checkoutError,
   });
+});
+
+// ─── Lead capture for sales drip emails ─────────────────────────────────────
+app.post('/api/leads/capture', rateLimit(5, 60_000), async (req, res) => {
+  const { email, name, churchName, source } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return res.status(400).json({ error: 'Valid email required' });
+  }
+
+  const lead = lifecycleEmails.captureLead({ email: cleanEmail, name, source, churchName });
+  if (!lead) return res.status(500).json({ error: 'Failed to capture lead' });
+
+  // Send immediate welcome email (non-blocking)
+  lifecycleEmails.sendLeadWelcome(lead).catch(() => {});
+
+  log(`[Leads] Captured lead: ${cleanEmail} (source: ${source || 'website'})`);
+  res.json({ ok: true, message: 'Thanks! Check your email.' });
 });
 
 // Email verification (extracted)

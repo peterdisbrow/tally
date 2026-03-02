@@ -3610,6 +3610,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     if (audioViaAtem   !== undefined) patch.audio_via_atem   = audioViaAtem ? 1 : 0;
 
     const safePatch = Object.fromEntries(Object.entries(patch).filter(([k]) => allowedColumns.includes(k)));
+    const oldEmail = req.church.portal_email;
     if (Object.keys(safePatch).length) {
       const sets = Object.keys(safePatch).map(k => `${k} = ?`).join(', ');
       db.prepare(`UPDATE churches SET ${sets} WHERE churchId = ?`).run(...Object.values(safePatch), churchId);
@@ -3620,6 +3621,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           runtime.audio_via_atem = safePatch.audio_via_atem;
           runtime._audioViaAtemManualOverride = true;
         }
+      }
+      // Send email change confirmation if portal_email changed
+      if (safePatch.portal_email && safePatch.portal_email !== oldEmail && lifecycleEmails) {
+        lifecycleEmails.sendEmailChangeConfirmation(req.church, { oldEmail, newEmail: safePatch.portal_email }).catch(() => {});
       }
     }
     res.json({ ok: true });
@@ -4237,6 +4242,12 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       db.prepare('UPDATE billing_customers SET tier = ?, updated_at = ? WHERE church_id = ?').run(newTier, now, church.churchId);
 
       log.info('Downgraded church ' + church.churchId + ' from ' + currentTier + ' to ' + newTier);
+
+      // Send downgrade confirmation email
+      if (lifecycleEmails) {
+        lifecycleEmails.sendDowngradeConfirmation(church, { oldTier: currentTier, newTier }).catch(() => {});
+      }
+
       res.json({ success: true, tier: newTier, message: 'Plan downgraded to ' + newTier + '. Change takes effect at end of current billing period.' });
     } catch (e) {
       log.error('Billing downgrade: ' + e.message);
