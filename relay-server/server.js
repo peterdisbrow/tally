@@ -4849,10 +4849,7 @@ app.post('/api/chat/stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Chat-Version', '4');
   res.flushHeaders();
-
-  console.log('[ChatProxy] v4 — calling Anthropic (non-streaming)…');
 
   try {
     // Non-streaming call (proven reliable in this codebase), then emit as SSE
