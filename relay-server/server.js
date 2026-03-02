@@ -4828,9 +4828,12 @@ app.use((err, _req, res, _next) => {
 // ─── LANDING PAGE CHAT PROXY (Anthropic streaming) ───────────────────────────
 
 app.post('/api/chat/stream', (req, res) => {
+  console.log('[ChatProxy] Request received');
   // Shared secret prevents public abuse — only the Next.js app should call this
   const secret = req.headers['x-chat-secret'];
-  if (!secret || secret !== (process.env.CHAT_PROXY_SECRET || '')) {
+  const expected = process.env.CHAT_PROXY_SECRET || '';
+  if (!secret || secret !== expected) {
+    console.log('[ChatProxy] Auth failed — secret mismatch', { got: secret?.slice(0, 8), expected: expected?.slice(0, 8) });
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
@@ -4855,6 +4858,7 @@ app.post('/api/chat/stream', (req, res) => {
 
   req.on('close', () => { controller.abort(); clearTimeout(timeoutId); });
 
+  console.log('[ChatProxy] Auth OK, calling Anthropic…');
   // Use Node.js https module for reliable streaming
   const https = require('https');
   const payload = JSON.stringify({
