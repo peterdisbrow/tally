@@ -4855,78 +4855,88 @@ app.post('/api/chat/stream', (req, res) => {
 
   req.on('close', () => { controller.abort(); clearTimeout(timeoutId); });
 
-  (async () => {
-    try {
-      const upstream = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          system: system || '',
-          messages,
-          max_tokens,
-          temperature,
-          stream: true,
-        }),
-        signal: controller.signal,
-      });
+  // Use Node.js https module for reliable streaming
+  const https = require('https');
+  const payload = JSON.stringify({
+    model: 'claude-haiku-4-5-20251001',
+    system: system || '',
+    messages,
+    max_tokens,
+    temperature,
+    stream: true,
+  });
 
-      if (!upstream.ok) {
-        const body = await upstream.text();
-        console.error('[ChatProxy] Anthropic error:', upstream.status, body.slice(0, 200));
+  const upstreamReq = https.request('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Length': Buffer.byteLength(payload),
+    },
+    signal: controller.signal,
+  }, (upstream) => {
+    if (upstream.statusCode !== 200) {
+      let errBody = '';
+      upstream.on('data', c => { errBody += c; });
+      upstream.on('end', () => {
+        console.error('[ChatProxy] Anthropic error:', upstream.statusCode, errBody.slice(0, 200));
         res.write(`data: ${JSON.stringify({ type: 'error', message: 'AI service error.' })}\n\n`);
         res.end();
-        return;
+      });
+      return;
+    }
+
+    let buf = '';
+    upstream.setEncoding('utf8');
+
+    upstream.on('data', (chunk) => {
+      buf += chunk;
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (payload === '[DONE]') continue;
+        try {
+          const evt = JSON.parse(payload);
+          if (evt.type === 'content_block_delta' && evt.delta?.text) {
+            res.write(`data: ${JSON.stringify({ type: 'delta', text: evt.delta.text })}\n\n`);
+          } else if (evt.type === 'message_stop') {
+            res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+          }
+        } catch { /* skip */ }
       }
+    });
 
-      // Pipe Anthropic SSE → parse → re-emit simplified events
-      const reader = upstream.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-
-        // Process complete SSE lines
-        const lines = buf.split('\n');
-        buf = lines.pop() || ''; // keep incomplete line in buffer
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const payload = line.slice(6).trim();
-          if (payload === '[DONE]') continue;
-
-          try {
-            const evt = JSON.parse(payload);
-            if (evt.type === 'content_block_delta' && evt.delta?.text) {
-              res.write(`data: ${JSON.stringify({ type: 'delta', text: evt.delta.text })}\n\n`);
-            } else if (evt.type === 'message_stop') {
-              res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
-            }
-          } catch { /* skip unparseable events */ }
-        }
-      }
-
-      // Ensure done event is sent
+    upstream.on('end', () => {
+      clearTimeout(timeoutId);
       res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
       res.end();
-    } catch (err) {
-      if (err.name === 'AbortError') return res.end();
-      console.error('[ChatProxy] Error:', err.message);
+    });
+
+    upstream.on('error', (err) => {
+      console.error('[ChatProxy] Stream error:', err.message);
       try {
         res.write(`data: ${JSON.stringify({ type: 'error', message: 'Something went wrong.' })}\n\n`);
         res.end();
-      } catch { /* client disconnected */ }
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  })();
+      } catch { /* client gone */ }
+    });
+  });
+
+  upstreamReq.on('error', (err) => {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') return res.end();
+    console.error('[ChatProxy] Request error:', err.message);
+    try {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Something went wrong.' })}\n\n`);
+      res.end();
+    } catch { /* client gone */ }
+  });
+
+  upstreamReq.write(payload);
+  upstreamReq.end();
 });
 
 // ─── START ────────────────────────────────────────────────────────────────────
