@@ -85,7 +85,7 @@ const { ChatEngine } = require('./src/chatEngine');
 const { LifecycleEmails } = require('./src/lifecycleEmails');
 
 const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS } = require('./src/billing');
-const { buildDashboardHtml, buildResellerPortalHtml } = require('./src/dashboard');
+const { buildResellerPortalHtml } = require('./src/dashboard');
 const { setupSyncMonitor } = require('./src/syncMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
 const { setupResellerPortal } = require('./src/resellerPortal');
@@ -112,6 +112,7 @@ const PORT = Number(process.env.PORT || 3000);
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const FROM_EMAIL = process.env.FROM_EMAIL || 'Tally by ATEM School <noreply@atemschool.com>';
 const APP_URL = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://tallyconnect.app';
+const ADMIN_UI_URL = (process.env.ADMIN_UI_URL || `${APP_URL.replace(/\/$/, '')}/admin`).trim();
 
 if (process.env.NODE_ENV === 'production') {
   if (process.env.ADMIN_API_KEY === undefined || process.env.JWT_SECRET === undefined) {
@@ -3871,9 +3872,9 @@ function setAdminSession(res, key) {
   });
 }
 
-app.get('/dashboard', (req, res) => {
-  // Consolidated: single admin dashboard lives at tallyconnect.app/admin
-  res.redirect(301, 'https://tallyconnect.app/admin');
+app.get(['/dashboard', '/dashboard/*'], (req, res) => {
+  // Consolidated: canonical admin UI lives on Vercel.
+  res.redirect(302, ADMIN_UI_URL);
 });
 
 // ─── SSE Dashboard Stream ─────────────────────────────────────────────────────

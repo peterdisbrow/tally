@@ -2297,6 +2297,7 @@ loadFleet();
 // ─── MAIN SETUP ───────────────────────────────────────────────────────────────
 
 function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
+  const ADMIN_UI_URL = (process.env.ADMIN_UI_URL || 'https://tallyconnect.app/admin').trim();
 
   // ── Session middleware ────────────────────────────────────────────────────
 
@@ -2344,31 +2345,9 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // ── Admin Portal ──────────────────────────────────────────────────────────
 
-  app.get('/admin/login', (req, res) => {
-    // Consolidated: single admin dashboard lives at tallyconnect.app/admin
-    res.redirect(301, 'https://tallyconnect.app/admin');
-  });
-
-  app.post('/admin/login', express_urlencoded_middleware, (req, res) => {
-    const { email, password } = req.body || {};
-    const adminEmail = process.env.ADMIN_EMAIL || '';
-    const adminPw = process.env.ADMIN_PASSWORD || '';
-    if (email === adminEmail && password === adminPw) {
-      const payload = { role: 'admin', exp: Date.now() + 8 * 60 * 60 * 1000 };
-      setCookieHeader(res, payload);
-      return res.redirect('/admin');
-    }
-    res.redirect('/admin/login?error=1');
-  });
-
-  app.get('/admin', (req, res) => {
-    // Consolidated: single admin dashboard lives at tallyconnect.app/admin
-    res.redirect(301, 'https://tallyconnect.app/admin');
-  });
-
-  app.post('/admin/logout', (req, res) => {
-    clearCookieHeader(res);
-    res.redirect('/admin/login');
+  // Canonical admin UI is hosted on Vercel. Relay serves APIs only.
+  app.all(['/admin', '/admin/*'], (req, res) => {
+    res.redirect(302, ADMIN_UI_URL);
   });
 
   // ── Admin API ─────────────────────────────────────────────────────────────
