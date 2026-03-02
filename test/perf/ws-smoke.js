@@ -6,7 +6,7 @@ export const options = {
   duration: __ENV.DURATION || '60s',
 };
 
-const BASE_WS = (__ENV.BASE_WS || 'wss://tally-production-cde2.up.railway.app').replace(/\/$/, '');
+const BASE_WS = (__ENV.BASE_WS || 'wss://api.tallyconnect.app').replace(/\/$/, '');
 const ADMIN_API_KEY = __ENV.ADMIN_API_KEY || '';
 
 if (!ADMIN_API_KEY) {

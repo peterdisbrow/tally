@@ -11,7 +11,7 @@ try {
   WebSocket = require(path.join(__dirname, '../../relay-server/node_modules/ws'));
 }
 
-const BASE_URL = String(process.env.BASE_URL || 'https://tally-production-cde2.up.railway.app').replace(/\/+$/, '');
+const BASE_URL = String(process.env.BASE_URL || 'https://api.tallyconnect.app').replace(/\/+$/, '');
 const BASE_WS = String(process.env.BASE_WS || BASE_URL.replace(/^http/i, 'ws')).replace(/\/+$/, '');
 const REQUESTS = Math.max(1, Number(process.env.REQUESTS || 60));
 const CONCURRENCY = Math.max(1, Number(process.env.CONCURRENCY || 10));

@@ -368,6 +368,9 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN audio_via_atem INTEGER DEFAULT 0",
   // IANA timezone reported by the booth computer (e.g. 'America/New_York')
   "ALTER TABLE churches ADD COLUMN timezone TEXT DEFAULT ''",
+  // Self-service password reset
+  "ALTER TABLE churches ADD COLUMN password_reset_token TEXT",
+  "ALTER TABLE churches ADD COLUMN password_reset_expires TEXT",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -1853,7 +1856,7 @@ app.post('/api/church/app/onboard', rateLimit(5, 60_000), async (req, res) => {
   }
 
   // Send email verification (non-blocking)
-  const verifyUrl = `${process.env.RELAY_URL || 'https://tally-production-cde2.up.railway.app'}/api/church/verify-email?token=${emailVerifyToken}`;
+  const verifyUrl = `${process.env.RELAY_URL || 'https://api.tallyconnect.app'}/api/church/verify-email?token=${emailVerifyToken}`;
   sendOnboardingEmail({
     to: cleanEmail,
     subject: 'Verify your Tally email',
@@ -1900,7 +1903,7 @@ app.post('/api/church/app/onboard', rateLimit(5, 60_000), async (req, res) => {
 });
 
 // Email verification (extracted)
-require('./src/routes/emailVerification')(app, { db, APP_URL, sendOnboardingEmail, rateLimit, log });
+require('./src/routes/emailVerification')(app, { db, APP_URL, sendOnboardingEmail, lifecycleEmails, rateLimit, log });
 
 // Credential-based app login (used by Electron setup flow)
 app.post('/api/church/app/login', rateLimit(10, 15 * 60 * 1000), (req, res) => {
