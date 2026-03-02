@@ -4825,15 +4825,13 @@ app.use((err, _req, res, _next) => {
   });
 });
 
-// ─── LANDING PAGE CHAT PROXY (Anthropic streaming via fetch) ──────────────────
+// ─── LANDING PAGE CHAT PROXY (Anthropic → SSE) ───────────────────────────────
 
 app.post('/api/chat/stream', async (req, res) => {
-  console.log('[ChatProxy] Request received');
   // Shared secret prevents public abuse — only the Next.js app should call this
   const secret = req.headers['x-chat-secret'];
   const expected = process.env.CHAT_PROXY_SECRET || '';
   if (!secret || secret !== expected) {
-    console.log('[ChatProxy] Auth failed');
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
@@ -4853,10 +4851,9 @@ app.post('/api/chat/stream', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  console.log('[ChatProxy] Auth OK, calling Anthropic…');
-
   try {
-    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+    // Non-streaming call (proven reliable in this codebase), then emit as SSE
+    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -4869,44 +4866,31 @@ app.post('/api/chat/stream', async (req, res) => {
         messages,
         max_tokens,
         temperature,
-        stream: true,
       }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(15000),
     });
 
-    console.log('[ChatProxy] Anthropic status:', upstream.status);
-
-    if (!upstream.ok) {
-      const errBody = await upstream.text().catch(() => '');
-      console.error('[ChatProxy] Anthropic error:', upstream.status, errBody.slice(0, 300));
+    if (!aiRes.ok) {
+      const errBody = await aiRes.text().catch(() => '');
+      console.error('[ChatProxy] Anthropic error:', aiRes.status, errBody.slice(0, 300));
       res.write(`data: ${JSON.stringify({ type: 'error', message: 'AI service error.' })}\n\n`);
       return res.end();
     }
 
-    // Stream using async iteration (works across Node 18–22)
-    let buf = '';
-    const decoder = new TextDecoder();
-    for await (const chunk of upstream.body) {
-      buf += decoder.decode(chunk, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop() || '';
+    const data = await aiRes.json();
+    const text = data?.content?.[0]?.text || '';
 
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') continue;
-        try {
-          const evt = JSON.parse(data);
-          if (evt.type === 'content_block_delta' && evt.delta?.text) {
-            res.write(`data: ${JSON.stringify({ type: 'delta', text: evt.delta.text })}\n\n`);
-          } else if (evt.type === 'message_stop') {
-            res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
-          }
-        } catch { /* skip malformed */ }
-      }
+    if (!text) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'No response from AI.' })}\n\n`);
+      return res.end();
     }
 
-    // Final done event
+    // Emit the response as chunked SSE deltas for a smooth typing effect
+    const chunkSize = 4;
+    for (let i = 0; i < text.length; i += chunkSize) {
+      res.write(`data: ${JSON.stringify({ type: 'delta', text: text.slice(i, i + chunkSize) })}\n\n`);
+    }
+
     res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
     res.end();
   } catch (err) {
