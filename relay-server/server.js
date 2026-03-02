@@ -4880,6 +4880,17 @@ app.post('/api/chat/stream', async (req, res) => {
     const data = await aiRes.json();
     const text = data?.content?.[0]?.text || '';
 
+    // Track usage in the AI usage log
+    if (data?.usage) {
+      logAiUsage({
+        churchId: null,
+        feature: 'landing_chat',
+        model: 'claude-haiku-4-5-20251001',
+        inputTokens: data.usage.input_tokens || 0,
+        outputTokens: data.usage.output_tokens || 0,
+      });
+    }
+
     if (!text) {
       res.write(`data: ${JSON.stringify({ type: 'error', message: 'No response from AI.' })}\n\n`);
       return res.end();
