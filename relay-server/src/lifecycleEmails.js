@@ -37,6 +37,19 @@ class LifecycleEmails {
         UNIQUE(church_id, email_type)
       )
     `);
+
+    // Template overrides table — admin edits stored separately from code
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS email_template_overrides (
+        email_type TEXT PRIMARY KEY,
+        subject TEXT,
+        html TEXT,
+        updated_at TEXT NOT NULL
+      )
+    `);
+
+    // Migration: add subject column to email_sends
+    try { this.db.exec('ALTER TABLE email_sends ADD COLUMN subject TEXT'); } catch { /* already exists */ }
   }
 
   // ─── CORE SEND ──────────────────────────────────────────────────────────────
@@ -55,12 +68,19 @@ class LifecycleEmails {
       return { sent: false, reason: 'no-recipient' };
     }
 
+    // Check for admin template overrides
+    const override = this._getOverride(emailType);
+    if (override) {
+      if (override.subject) subject = override.subject;
+      if (override.html) html = override.html;
+    }
+
     const now = new Date().toISOString();
 
     if (!this.resendApiKey) {
       console.log(`[LifecycleEmails] No RESEND_API_KEY — would send "${subject}" (${emailType}) to ${to}`);
       // Still record it so we don't spam logs
-      this._recordSend(churchId, emailType, to, now, null);
+      this._recordSend(churchId, emailType, to, now, null, subject);
       return { sent: false, reason: 'no-api-key' };
     }
 
@@ -89,7 +109,7 @@ class LifecycleEmails {
       }
 
       const data = await res.json();
-      this._recordSend(churchId, emailType, to, now, data.id);
+      this._recordSend(churchId, emailType, to, now, data.id, subject);
       console.log(`[LifecycleEmails] Sent "${subject}" (${emailType}) to ${to}, id: ${data.id}`);
       return { sent: true, id: data.id };
     } catch (e) {
@@ -105,11 +125,11 @@ class LifecycleEmails {
     return !!row;
   }
 
-  _recordSend(churchId, emailType, recipient, sentAt, resendId) {
+  _recordSend(churchId, emailType, recipient, sentAt, resendId, subject) {
     try {
       this.db.prepare(
-        'INSERT OR IGNORE INTO email_sends (church_id, email_type, recipient, sent_at, resend_id) VALUES (?, ?, ?, ?, ?)'
-      ).run(churchId, emailType, recipient, sentAt, resendId || null);
+        'INSERT OR IGNORE INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(churchId, emailType, recipient, sentAt, resendId || null, subject || null);
     } catch (e) {
       console.error(`[LifecycleEmails] Failed to record send: ${e.message}`);
     }
@@ -1344,6 +1364,293 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       console.error(`[LifecycleEmails] Password reset send failed: ${e.message}`);
       return { sent: false, reason: 'network-error' };
     }
+  }
+  // ─── ADMIN DASHBOARD METHODS ──────────────────────────────────────────────
+
+  /** Email type registry — maps email_type to display info */
+  static EMAIL_REGISTRY = [
+    { type: 'setup-reminder',          name: 'Setup Nudge',             trigger: 'Auto — 24h after signup, app not connected' },
+    { type: 'first-sunday-prep',       name: 'First Sunday Prep',       trigger: 'Auto — 3 days after signup, app connected' },
+    { type: 'week-one-checkin',        name: 'Week-One Check-In',       trigger: 'Auto — 7 days after signup' },
+    { type: 'trial-ending-soon',       name: 'Trial Ending Soon',       trigger: 'Auto — 5 days before trial expires' },
+    { type: 'trial-ending-tomorrow',   name: 'Trial Ending Tomorrow',   trigger: 'Auto — 1 day before trial expires' },
+    { type: 'trial-expired',           name: 'Trial Expired',           trigger: 'Billing webhook — trial ended' },
+    { type: 'payment-failed',          name: 'Payment Failed',          trigger: 'Billing webhook — payment declined' },
+    { type: 'weekly-digest',           name: 'Weekly Digest',           trigger: 'Auto — Monday 8 AM for Pro+ churches' },
+    { type: 'cancellation-confirmation', name: 'Cancellation Confirmed', trigger: 'Billing webhook — subscription cancelled' },
+    { type: 'upgrade',                 name: 'Upgrade Confirmation',    trigger: 'Billing webhook — plan upgraded' },
+    { type: 'grace-expired',           name: 'Grace Period Expired',    trigger: 'Billing webhook — 7-day grace ended' },
+    { type: 'reactivation-confirmation', name: 'Reactivation Confirmed', trigger: 'Billing webhook — account reactivated' },
+    { type: 'win-back',                name: 'Win-Back',                trigger: 'Auto — 30-60 days after cancellation' },
+    { type: 'review-request',          name: 'Review Request',          trigger: 'Auto — 30-180 days, 4+ sessions, 2+ clean' },
+    { type: 'welcome-verified',        name: 'Welcome Email',           trigger: 'On email verification' },
+    { type: 'payment-confirmed',       name: 'Payment Confirmed',       trigger: 'Billing webhook — new subscription' },
+    { type: 'password-reset',          name: 'Password Reset',          trigger: 'Self-service — forgot password' },
+  ];
+
+  /** Get email send history with optional filters */
+  getEmailHistory({ limit = 50, offset = 0, emailType, churchId } = {}) {
+    const where = [];
+    const params = [];
+
+    if (emailType) {
+      where.push('es.email_type LIKE ?');
+      params.push(`%${emailType}%`);
+    }
+    if (churchId) {
+      where.push('es.church_id = ?');
+      params.push(churchId);
+    }
+
+    const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+    const countRow = this.db.prepare(
+      `SELECT COUNT(*) as total FROM email_sends es ${whereClause}`
+    ).get(...params);
+
+    const rows = this.db.prepare(`
+      SELECT es.*, c.name AS church_name
+      FROM email_sends es
+      LEFT JOIN churches c ON c.churchId = es.church_id
+      ${whereClause}
+      ORDER BY es.sent_at DESC
+      LIMIT ? OFFSET ?
+    `).all(...params, limit, offset);
+
+    return { rows, total: countRow?.total || 0 };
+  }
+
+  /** Get stats for email dashboard */
+  getEmailStats() {
+    const total = this.db.prepare('SELECT COUNT(*) as cnt FROM email_sends').get()?.cnt || 0;
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const today = this.db.prepare('SELECT COUNT(*) as cnt FROM email_sends WHERE sent_at >= ?')
+      .get(todayStart.toISOString())?.cnt || 0;
+
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const thisWeek = this.db.prepare('SELECT COUNT(*) as cnt FROM email_sends WHERE sent_at >= ?')
+      .get(weekAgo)?.cnt || 0;
+
+    // Per-type breakdown
+    const byType = this.db.prepare(
+      'SELECT email_type, COUNT(*) as cnt FROM email_sends GROUP BY email_type ORDER BY cnt DESC'
+    ).all();
+
+    return { total, today, thisWeek, byType };
+  }
+
+  /** Get all template types with override status */
+  getTemplateList() {
+    const overrides = new Set();
+    try {
+      const rows = this.db.prepare('SELECT email_type FROM email_template_overrides').all();
+      rows.forEach(r => overrides.add(r.email_type));
+    } catch { /* table might not exist yet */ }
+
+    return LifecycleEmails.EMAIL_REGISTRY.map(entry => ({
+      ...entry,
+      hasOverride: overrides.has(entry.type),
+    }));
+  }
+
+  /** Get a template override from DB */
+  _getOverride(emailType) {
+    try {
+      // Also check partial matches for dynamic types (weekly-digest-*, upgrade-*-to-*)
+      const baseType = emailType.startsWith('weekly-digest-') ? 'weekly-digest' :
+        emailType.startsWith('upgrade-') ? 'upgrade' : emailType;
+      return this.db.prepare('SELECT subject, html FROM email_template_overrides WHERE email_type = ?').get(baseType);
+    } catch { return null; }
+  }
+
+  /** Preview a template with sample data */
+  getPreview(emailType) {
+    const sampleChurch = { name: 'Sample Church', churchId: 'preview-123', portal_email: 'admin@example.com' };
+    const override = this._getOverride(emailType);
+
+    // Map email types to their builder methods + default subjects
+    const builders = {
+      'setup-reminder':          () => ({ ...this._buildSetupReminderEmail(sampleChurch), subject: 'Need help getting Tally set up?' }),
+      'first-sunday-prep':       () => ({ ...this._buildFirstSundayEmail(sampleChurch), subject: 'Get ready for your first Sunday with Tally' }),
+      'week-one-checkin':        () => ({ ...this._buildCheckinEmail(sampleChurch), subject: "How's Tally working for you?" }),
+      'trial-ending-soon':       () => ({ ...this._buildTrialEndingSoonEmail(sampleChurch, 5), subject: 'Your Tally trial ends in 5 days' }),
+      'trial-ending-tomorrow':   () => ({ ...this._buildTrialEndingTomorrowEmail(sampleChurch), subject: 'Your Tally trial ends tomorrow' }),
+      'trial-expired':           () => ({ ...this._buildTrialExpiredEmail(sampleChurch), subject: 'Your Tally trial has ended' }),
+      'payment-failed':          () => ({ ...this._buildPaymentFailedEmail(sampleChurch), subject: 'Action needed: payment failed for Tally' }),
+      'weekly-digest':           () => ({ ...this._buildWeeklyDigestEmail(sampleChurch, { totalSessions: 3, totalEvents: 12, criticalEvents: 1, autoRecoveries: 1, totalAlerts: 2 }), subject: 'Tally Weekly Report — Sample Church' }),
+      'cancellation-confirmation': () => {
+        const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+        const portalUrl = `${this.appUrl}/portal`;
+        const html = this._wrap(`
+          <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Tally subscription has been cancelled</h1>
+          <p style="font-size: 15px; color: #333; line-height: 1.6;">
+            We're sorry to see <strong>Sample Church</strong> go. Your subscription will remain active until <strong>${endDate}</strong>.
+          </p>
+          ${this._cta('Reactivate Subscription', portalUrl)}
+        `);
+        return { html, text: '', subject: 'Your Tally subscription has been cancelled' };
+      },
+      'upgrade':                 () => {
+        const portalUrl = `${this.appUrl}/portal`;
+        const html = this._wrap(`
+          <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Plan upgraded to Pro!</h1>
+          <p style="font-size: 15px; color: #333; line-height: 1.6;">
+            <strong>Sample Church</strong> has been upgraded from Plus to <strong>Pro</strong>. Your new features are available immediately.
+          </p>
+          ${this._cta('Explore Your Portal', portalUrl)}
+        `);
+        return { html, text: '', subject: 'Plan upgraded to Pro' };
+      },
+      'grace-expired':           () => {
+        const portalUrl = `${this.appUrl}/portal`;
+        const html = this._wrap(`
+          <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Tally has been paused</h1>
+          <p style="font-size: 15px; color: #333; line-height: 1.6;">
+            The 7-day grace period for <strong>Sample Church</strong> has expired.
+          </p>
+          ${this._cta('Update Payment & Reactivate', portalUrl)}
+        `);
+        return { html, text: '', subject: 'Tally monitoring paused — update payment to restore' };
+      },
+      'reactivation-confirmation': () => {
+        const portalUrl = `${this.appUrl}/portal`;
+        const html = this._wrap(`
+          <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Welcome back!</h1>
+          <p style="font-size: 15px; color: #333; line-height: 1.6;">
+            Great news — <strong>Sample Church</strong> is back online with Tally.
+          </p>
+          ${this._cta('Open Your Portal', portalUrl)}
+        `);
+        return { html, text: '', subject: 'Welcome back! Tally is monitoring again' };
+      },
+      'win-back':                () => ({ ...this._buildWinBackEmail(sampleChurch), subject: "We miss you at Tally — here's what you're missing" }),
+      'review-request':          () => ({ ...this._buildReviewRequestEmail(sampleChurch, { sessionCount: 12, cleanCount: 9 }), subject: 'Sample Church is crushing it — mind sharing a quick review?' }),
+      'welcome-verified':        () => {
+        const portalUrl = `${this.appUrl}/portal`;
+        const downloadUrl = GITHUB_RELEASES_URL;
+        const html = this._wrap(`
+          <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">You're all set!</h1>
+          <p style="font-size: 15px; color: #333; line-height: 1.6;">
+            Your email has been verified for <strong>Sample Church</strong>. Welcome to Tally!
+          </p>
+          ${this._cta('Open Your Portal', portalUrl)}
+        `);
+        return { html, text: '', subject: 'Welcome to Tally, Sample Church!' };
+      },
+      'payment-confirmed':       () => {
+        const portalUrl = `${this.appUrl}/portal`;
+        const html = this._wrap(`
+          <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Payment confirmed — you're on Pro!</h1>
+          <p style="font-size: 15px; color: #333; line-height: 1.6;">
+            Thanks for subscribing! <strong>Sample Church</strong> is now on the <strong>Pro</strong> plan.
+          </p>
+          ${this._cta('Open Your Portal', portalUrl)}
+        `);
+        return { html, text: '', subject: 'Payment confirmed — Sample Church is on Pro' };
+      },
+      'password-reset':          () => {
+        const html = this._wrap(`
+          <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Reset your password</h1>
+          <p style="font-size: 15px; color: #333; line-height: 1.6;">
+            We received a request to reset the portal password for <strong>Sample Church</strong>.
+          </p>
+          ${this._cta('Reset Password', this.appUrl + '/portal/reset-password?token=sample-token')}
+        `);
+        return { html, text: '', subject: 'Reset your Tally password' };
+      },
+    };
+
+    const builder = builders[emailType];
+    if (!builder) return { error: 'Unknown email type' };
+
+    const built = builder();
+    return {
+      subject: override?.subject || built.subject,
+      html: override?.html || built.html,
+      text: built.text || '',
+      hasOverride: !!override,
+      defaultSubject: built.subject,
+      defaultHtml: built.html,
+    };
+  }
+
+  /** Save an admin override for a template */
+  applyOverride(emailType, { subject, html }) {
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO email_template_overrides (email_type, subject, html, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(email_type) DO UPDATE SET
+        subject = excluded.subject,
+        html = excluded.html,
+        updated_at = excluded.updated_at
+    `).run(emailType, subject || null, html || null, now);
+    console.log(`[LifecycleEmails] Template override saved for "${emailType}"`);
+    return { emailType, subject, updated_at: now };
+  }
+
+  /** Remove an admin override — reverts to default template */
+  removeOverride(emailType) {
+    this.db.prepare('DELETE FROM email_template_overrides WHERE email_type = ?').run(emailType);
+    console.log(`[LifecycleEmails] Template override removed for "${emailType}"`);
+  }
+
+  /** Send a manual/custom email — bypasses dedup */
+  async sendManual({ churchId, emailType, to, subject, html, text }) {
+    if (!to) return { sent: false, reason: 'no-recipient' };
+
+    const actualType = emailType ? `manual:${emailType}` : 'custom';
+
+    if (!this.resendApiKey) {
+      console.log(`[LifecycleEmails] No RESEND_API_KEY — would send manual "${subject}" to ${to}`);
+      return { sent: false, reason: 'no-api-key' };
+    }
+
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.resendApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: this.fromEmail,
+          to: [to],
+          subject,
+          html,
+          text: text || '',
+          tags: [{ name: 'category', value: actualType }],
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        console.error(`[LifecycleEmails] Manual send failed (${res.status}): ${err}`);
+        return { sent: false, reason: 'resend-error', detail: err };
+      }
+
+      const data = await res.json();
+      // Record in email_sends (use INSERT without UNIQUE conflict by using the manual: prefix)
+      try {
+        this.db.prepare(
+          'INSERT INTO email_sends (church_id, email_type, recipient, sent_at, resend_id, subject) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run(churchId || 'admin', actualType, to, new Date().toISOString(), data.id, subject);
+      } catch { /* ignore duplicate key for manual sends */ }
+
+      console.log(`[LifecycleEmails] Manual send "${subject}" to ${to}, id: ${data.id}`);
+      return { sent: true, id: data.id };
+    } catch (e) {
+      console.error(`[LifecycleEmails] Manual send failed: ${e.message}`);
+      return { sent: false, reason: 'network-error' };
+    }
+  }
+
+  /** Get the email wrapper HTML (for custom email composition) */
+  getWrapperHtml() {
+    return this._wrap('<p style="font-size: 15px; color: #333; line-height: 1.6;">Your content here...</p>');
   }
 }
 

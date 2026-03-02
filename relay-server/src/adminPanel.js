@@ -317,6 +317,10 @@ tr:hover td{background:rgba(34,197,94,.02)}
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2a2 2 0 110 4 2 2 0 010-4zm-3.5 7.5c.7-1.2 2-2 3.5-2s2.8.8 3.5 2A5.97 5.97 0 018 13a5.97 5.97 0 01-3.5-2.5z"/></svg>
       AI Usage
     </div>
+    <div class="nav-item" onclick="showPage('emails')" id="nav-emails">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 00-1 1v8a1 1 0 001 1h12a1 1 0 001-1V4a1 1 0 00-1-1H2zm0 1.5l6 3.5 6-3.5V4L8 7.5 2 4v.5zM2 6l6 3.5L14 6v6H2V6z"/></svg>
+      Emails
+    </div>
     <div style="flex:1"></div>
     <div class="nav-item" onclick="showPage('settings')" id="nav-settings">
       <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 10.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zm5.5-2.5a5.5 5.5 0 01-.1 1l1.4 1.1-1.5 2.6-1.7-.5A5.5 5.5 0 019 12.9V15H7v-2.1a5.5 5.5 0 01-1.6-.7l-1.7.5-1.5-2.6L3.6 9A5.5 5.5 0 013.5 8c0-.4 0-.7.1-1L2.2 5.9l1.5-2.6 1.7.5A5.5 5.5 0 017 3.1V1h2v2.1a5.5 5.5 0 011.6.7l1.7-.5 1.5 2.6L12.4 7c.1.3.1.7.1 1z"/></svg>
@@ -504,6 +508,119 @@ tr:hover td{background:rgba(34,197,94,.02)}
       </div>
     </div>
 
+    <!-- EMAILS PAGE -->
+    <div id="page-emails" style="display:none">
+      <div class="summary-row" id="email-summary" style="grid-template-columns:repeat(3,1fr)">
+        <div class="summary-card"><div class="stat-num" id="email-total">—</div><div class="stat-label">Total Sent</div></div>
+        <div class="summary-card"><div class="stat-num" id="email-today">—</div><div class="stat-label">Sent Today</div></div>
+        <div class="summary-card"><div class="stat-num" id="email-week">—</div><div class="stat-label">This Week</div></div>
+      </div>
+
+      <div class="filter-tabs" id="email-sub-tabs" style="margin-bottom:16px">
+        <button class="filter-tab active" onclick="showEmailTab('history',this)">Send History</button>
+        <button class="filter-tab" onclick="showEmailTab('templates',this)">Templates</button>
+        <button class="filter-tab" onclick="showEmailTab('custom',this)">Send Custom</button>
+      </div>
+
+      <!-- History Sub-tab -->
+      <div id="email-tab-history">
+        <div class="table-toolbar">
+          <div style="display:flex;gap:10px;align-items:center">
+            <select id="email-type-filter" class="search-input" style="width:200px" onchange="loadEmailHistory()">
+              <option value="">All Types</option>
+            </select>
+            <input class="search-input" id="email-search" placeholder="Search by church..." oninput="loadEmailHistory()">
+          </div>
+        </div>
+        <table id="emails-table">
+          <thead><tr>
+            <th>Sent</th><th>Church</th><th>Type</th><th>Recipient</th><th>Subject</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="emails-tbody"><tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
+        </table>
+        <div style="text-align:center;padding:16px">
+          <button class="btn-secondary" id="email-load-more" onclick="loadMoreEmails()" style="display:none">Load More</button>
+        </div>
+      </div>
+
+      <!-- Templates Sub-tab -->
+      <div id="email-tab-templates" style="display:none">
+        <div id="templates-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px">
+          <div style="color:var(--muted);text-align:center;padding:24px">Loading templates...</div>
+        </div>
+      </div>
+
+      <!-- Send Custom Sub-tab -->
+      <div id="email-tab-custom" style="display:none">
+        <div class="card" style="max-width:640px">
+          <div class="card-title">Compose Email</div>
+          <div id="custom-email-msg"></div>
+          <div class="form-field">
+            <label>Recipient</label>
+            <div style="display:flex;gap:8px">
+              <select id="custom-church-select" class="search-input" style="flex:1" onchange="onCustomChurchSelect()">
+                <option value="">— Select a church —</option>
+              </select>
+              <span style="color:var(--muted);line-height:36px">or</span>
+              <input id="custom-email-to" class="search-input" style="flex:1" placeholder="email@example.com">
+            </div>
+          </div>
+          <div class="form-field">
+            <label>Subject</label>
+            <input id="custom-email-subject" type="text" placeholder="Email subject line">
+          </div>
+          <div class="form-field">
+            <label>HTML Body</label>
+            <textarea id="custom-email-html" rows="12" style="font-family:monospace;font-size:12px;width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:12px;resize:vertical"></textarea>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:16px">
+            <button class="btn-secondary" onclick="previewCustomEmail()">Preview</button>
+            <button class="btn-primary" onclick="sendCustomEmail(this)">Send Email</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- EMAIL PREVIEW MODAL -->
+<div class="modal-overlay" id="modal-email-preview">
+  <div class="modal" style="max-width:700px;max-height:90vh;overflow:auto">
+    <button class="modal-close" onclick="closeModal('modal-email-preview')">×</button>
+    <h2 id="email-preview-title">Email Preview</h2>
+    <div style="margin:12px 0;padding:8px 12px;background:var(--bg);border-radius:6px;font-size:13px">
+      <strong>Subject:</strong> <span id="email-preview-subject"></span>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fff">
+      <iframe id="email-preview-frame" style="width:100%;height:500px;border:none" sandbox="allow-same-origin"></iframe>
+    </div>
+  </div>
+</div>
+
+<!-- TEMPLATE EDIT MODAL -->
+<div class="modal-overlay" id="modal-template-edit">
+  <div class="modal" style="max-width:800px;max-height:90vh;overflow:auto">
+    <button class="modal-close" onclick="closeModal('modal-template-edit')">×</button>
+    <h2 id="template-edit-title">Edit Template</h2>
+    <div id="template-edit-msg"></div>
+    <input type="hidden" id="template-edit-type">
+    <div class="form-field">
+      <label>Subject Line</label>
+      <input id="template-edit-subject" type="text" placeholder="Email subject">
+    </div>
+    <div class="form-field">
+      <label>HTML Body <span style="color:var(--muted);font-weight:400">(overrides default template)</span></label>
+      <textarea id="template-edit-html" rows="16" style="font-family:monospace;font-size:12px;width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:12px;resize:vertical"></textarea>
+    </div>
+    <div class="modal-actions" style="display:flex;gap:10px;justify-content:space-between">
+      <button class="btn-danger" onclick="revertTemplate()" id="template-revert-btn" style="display:none">Revert to Default</button>
+      <div style="display:flex;gap:10px">
+        <button class="btn-secondary" onclick="previewEditTemplate()">Preview</button>
+        <button class="btn-secondary" onclick="closeModal('modal-template-edit')">Cancel</button>
+        <button class="btn-primary" onclick="saveTemplateOverride(this)">Save Override</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -645,7 +762,7 @@ let ticketFilter = 'all';
 let allBilling = [];
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
-const allPages = ['overview','churches','resellers','alerts','tickets','billing','aiusage','settings'];
+const allPages = ['overview','churches','resellers','alerts','tickets','billing','aiusage','emails','settings'];
 function showPage(page) {
   allPages.forEach(p => {
     const el = document.getElementById('page-'+p);
@@ -653,7 +770,7 @@ function showPage(page) {
     const nav = document.getElementById('nav-'+p);
     if (nav) nav.classList.toggle('active', p === page);
   });
-  const titles = {overview:'Overview',churches:'Churches',resellers:'Resellers',alerts:'Alerts',tickets:'Tickets',billing:'Billing',aiusage:'AI Usage',settings:'Settings'};
+  const titles = {overview:'Overview',churches:'Churches',resellers:'Resellers',alerts:'Alerts',tickets:'Tickets',billing:'Billing',aiusage:'AI Usage',emails:'Emails',settings:'Settings'};
   document.getElementById('page-title').textContent = titles[page]||page;
   currentPage = page;
   // Close mobile nav on page switch
@@ -668,6 +785,7 @@ function showPage(page) {
   else if (page === 'tickets') loadTickets();
   else if (page === 'billing') loadBilling();
   else if (page === 'aiusage') loadAIUsage();
+  else if (page === 'emails') loadEmails();
   else if (page === 'settings') loadSettings();
 }
 
@@ -1312,6 +1430,306 @@ async function loadAIUsage() {
     document.getElementById('ai-by-church').innerHTML = '<tr><td colspan="5" style="color:var(--red);text-align:center;padding:24px">Failed to load AI usage</td></tr>';
     document.getElementById('ai-by-feature').innerHTML = '';
   }
+}
+
+// ─── Emails ──────────────────────────────────────────────────────────────────
+let emailHistoryRows = [];
+let emailHistoryOffset = 0;
+let emailTemplates = [];
+let emailCurrentSubTab = 'history';
+
+function showEmailTab(tab, el) {
+  emailCurrentSubTab = tab;
+  ['history','templates','custom'].forEach(t => {
+    const panel = document.getElementById('email-tab-'+t);
+    if (panel) panel.style.display = t === tab ? '' : 'none';
+  });
+  document.querySelectorAll('#email-sub-tabs .filter-tab').forEach(b => b.classList.remove('active'));
+  if (el) el.classList.add('active');
+  if (tab === 'templates') loadEmailTemplates();
+  if (tab === 'custom') populateCustomEmailForm();
+}
+
+async function loadEmails() {
+  emailHistoryOffset = 0;
+  emailHistoryRows = [];
+  await Promise.all([loadEmailStats(), loadEmailHistory(), populateEmailTypeFilter()]);
+}
+
+async function loadEmailStats() {
+  try {
+    const r = await fetchTimeout('/api/admin/emails/stats');
+    const d = await r.json();
+    document.getElementById('email-total').textContent = (d.total||0).toLocaleString();
+    document.getElementById('email-today').textContent = (d.today||0).toLocaleString();
+    document.getElementById('email-week').textContent = (d.thisWeek||0).toLocaleString();
+  } catch { }
+}
+
+async function populateEmailTypeFilter() {
+  try {
+    const r = await fetchTimeout('/api/admin/emails/templates');
+    const templates = await r.json();
+    const sel = document.getElementById('email-type-filter');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">All Types</option>' +
+      templates.map(t => \`<option value="\${t.type}">\${esc(t.name)}</option>\`).join('');
+    sel.value = current;
+  } catch { }
+}
+
+async function loadEmailHistory() {
+  emailHistoryOffset = 0;
+  emailHistoryRows = [];
+  const type = document.getElementById('email-type-filter').value;
+  const search = document.getElementById('email-search').value.trim();
+  let url = '/api/admin/emails?limit=50&offset=0';
+  if (type) url += '&type=' + encodeURIComponent(type);
+  if (search) url += '&search=' + encodeURIComponent(search);
+
+  try {
+    const r = await fetchTimeout(url);
+    const d = await r.json();
+    emailHistoryRows = d.rows || [];
+    renderEmailHistory(d.rows, d.total);
+  } catch {
+    document.getElementById('emails-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red);text-align:center;padding:24px">Failed to load emails</td></tr>';
+  }
+}
+
+async function loadMoreEmails() {
+  emailHistoryOffset += 50;
+  const type = document.getElementById('email-type-filter').value;
+  const search = document.getElementById('email-search').value.trim();
+  let url = '/api/admin/emails?limit=50&offset=' + emailHistoryOffset;
+  if (type) url += '&type=' + encodeURIComponent(type);
+  if (search) url += '&search=' + encodeURIComponent(search);
+
+  try {
+    const r = await fetchTimeout(url);
+    const d = await r.json();
+    emailHistoryRows = emailHistoryRows.concat(d.rows || []);
+    renderEmailHistory(emailHistoryRows, d.total);
+  } catch { }
+}
+
+function renderEmailHistory(rows, total) {
+  const tbody = document.getElementById('emails-tbody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">No emails sent yet</td></tr>';
+    document.getElementById('email-load-more').style.display = 'none';
+    return;
+  }
+
+  tbody.innerHTML = rows.map((r, i) => {
+    const date = new Date(r.sent_at);
+    const dateStr = date.toLocaleDateString('en-US', {month:'short',day:'numeric'}) + ' ' + date.toLocaleTimeString('en-US', {hour:'numeric',minute:'2-digit'});
+    const typeBadge = r.email_type.startsWith('manual:') ? 'badge-yellow' : r.email_type === 'custom' ? 'badge-yellow' : 'badge-green';
+    return '<tr>' +
+      '<td style="white-space:nowrap;font-size:12px;color:var(--muted)">' + esc(dateStr) + '</td>' +
+      '<td>' + esc(r.church_name || r.church_id || '—') + '</td>' +
+      '<td><span class="badge ' + typeBadge + '">' + esc(r.email_type) + '</span></td>' +
+      '<td style="font-size:12px">' + esc(r.recipient || '—') + '</td>' +
+      '<td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.subject || '—') + '</td>' +
+      '<td><button class="btn-sm" onclick="previewSentEmail(' + i + ')">Preview</button>' +
+      ' <button class="btn-sm" onclick="resendEmail(' + JSON.stringify(JSON.stringify(r)) + ')">Resend</button></td>' +
+      '</tr>';
+  }).join('');
+
+  const btn = document.getElementById('email-load-more');
+  btn.style.display = rows.length < (total || 0) ? '' : 'none';
+}
+
+async function previewSentEmail(idx) {
+  const row = emailHistoryRows[idx];
+  if (!row) return;
+  // Try to get the template preview if it's a known type
+  const baseType = row.email_type.replace(/^manual:/, '').replace(/-\\d{4}-W\\d+$/, '').replace(/^upgrade-.*/, 'upgrade');
+  try {
+    const r = await fetchTimeout('/api/admin/emails/templates/' + encodeURIComponent(baseType) + '/preview');
+    if (r.ok) {
+      const d = await r.json();
+      showEmailPreview(row.subject || d.subject, d.html);
+      return;
+    }
+  } catch { }
+  showEmailPreview(row.subject || '(no subject)', '<div style="padding:40px;text-align:center;color:#999">Preview not available for this email type</div>');
+}
+
+function showEmailPreview(subject, html) {
+  document.getElementById('email-preview-subject').textContent = subject || '';
+  const frame = document.getElementById('email-preview-frame');
+  frame.srcdoc = html || '<p>No preview</p>';
+  openModal('modal-email-preview');
+}
+
+async function resendEmail(rowJson) {
+  const row = JSON.parse(rowJson);
+  if (!await modalConfirm('Resend Email', \`Resend "\${esc(row.email_type)}" to \${esc(row.recipient)}?\`)) return;
+  try {
+    const r = await fetchTimeout('/api/admin/emails/send', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ churchId: row.church_id, emailType: row.email_type.replace(/^manual:/, ''), to: row.recipient }),
+    });
+    const d = await r.json();
+    if (d.sent) showToast('Email resent');
+    else showToast(d.reason || 'Send failed', true);
+    loadEmailHistory();
+  } catch { showToast('Failed to resend', true); }
+}
+
+// ── Templates Sub-tab ──
+async function loadEmailTemplates() {
+  try {
+    const r = await fetchTimeout('/api/admin/emails/templates');
+    emailTemplates = await r.json();
+    renderTemplateGrid(emailTemplates);
+  } catch {
+    document.getElementById('templates-grid').innerHTML = '<div style="color:var(--red);text-align:center;padding:24px">Failed to load templates</div>';
+  }
+}
+
+function renderTemplateGrid(templates) {
+  const grid = document.getElementById('templates-grid');
+  grid.innerHTML = templates.map(t => \`
+    <div class="card" style="padding:20px">
+      <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px">
+        <strong style="font-size:14px">\${esc(t.name)}</strong>
+        \${t.hasOverride ? '<span class="badge badge-yellow" style="font-size:10px">Override</span>' : ''}
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">\${esc(t.trigger)}</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-sm" onclick="previewTemplate('\${t.type}')">Preview</button>
+        <button class="btn-sm" onclick="editTemplate('\${t.type}')">Edit</button>
+      </div>
+    </div>
+  \`).join('');
+}
+
+async function previewTemplate(type) {
+  try {
+    const r = await fetchTimeout('/api/admin/emails/templates/' + encodeURIComponent(type) + '/preview');
+    const d = await r.json();
+    showEmailPreview(d.subject, d.html);
+  } catch { showToast('Failed to load preview', true); }
+}
+
+async function editTemplate(type) {
+  try {
+    const r = await fetchTimeout('/api/admin/emails/templates/' + encodeURIComponent(type) + '/preview');
+    const d = await r.json();
+    document.getElementById('template-edit-type').value = type;
+    const tmpl = emailTemplates.find(t => t.type === type);
+    document.getElementById('template-edit-title').textContent = 'Edit: ' + (tmpl ? tmpl.name : type);
+    document.getElementById('template-edit-subject').value = d.subject || '';
+    document.getElementById('template-edit-html').value = d.html || '';
+    document.getElementById('template-edit-msg').innerHTML = '';
+    document.getElementById('template-revert-btn').style.display = d.hasOverride ? '' : 'none';
+    openModal('modal-template-edit');
+  } catch { showToast('Failed to load template', true); }
+}
+
+function previewEditTemplate() {
+  const subject = document.getElementById('template-edit-subject').value;
+  const html = document.getElementById('template-edit-html').value;
+  showEmailPreview(subject, html);
+}
+
+async function saveTemplateOverride(btn) {
+  const type = document.getElementById('template-edit-type').value;
+  const subject = document.getElementById('template-edit-subject').value.trim();
+  const html = document.getElementById('template-edit-html').value.trim();
+  if (!subject && !html) { showModalMsg('template-edit-msg', 'Subject or HTML required', 'error'); return; }
+  btnLoading(btn);
+  try {
+    const r = await fetchTimeout('/api/admin/emails/templates/' + encodeURIComponent(type), {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ subject: subject || null, html: html || null }),
+    });
+    const d = await r.json();
+    if (!r.ok) { showModalMsg('template-edit-msg', d.error || 'Save failed', 'error'); return; }
+    showToast('Template override saved');
+    closeModal('modal-template-edit');
+    loadEmailTemplates();
+  } catch { showModalMsg('template-edit-msg', 'Request failed', 'error'); }
+  finally { btnReset(btn); }
+}
+
+async function revertTemplate() {
+  const type = document.getElementById('template-edit-type').value;
+  if (!await modalConfirm('Revert Template', 'Remove the override and revert to the default template?')) return;
+  try {
+    await fetchTimeout('/api/admin/emails/templates/' + encodeURIComponent(type), { method: 'DELETE' });
+    showToast('Reverted to default');
+    closeModal('modal-template-edit');
+    loadEmailTemplates();
+  } catch { showToast('Failed to revert', true); }
+}
+
+// ── Send Custom Sub-tab ──
+function populateCustomEmailForm() {
+  const sel = document.getElementById('custom-church-select');
+  if (sel.options.length <= 1 && allChurches.length) {
+    sel.innerHTML = '<option value="">— Select a church —</option>' +
+      allChurches.map(c => \`<option value="\${c.churchId}" data-email="\${esc(c.portal_email||'')}">\${esc(c.name)}\${c.portal_email ? ' (' + esc(c.portal_email) + ')' : ''}</option>\`).join('');
+  }
+  // Pre-fill wrapper HTML if empty
+  const ta = document.getElementById('custom-email-html');
+  if (!ta.value) {
+    ta.value = '<div style="font-family: system-ui, -apple-system, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 0;">\\n' +
+      '  <div style="margin-bottom: 24px;">\\n    <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #22c55e; margin-right: 8px;"></span>\\n    <strong style="font-size: 16px; color: #111;">Tally</strong>\\n  </div>\\n\\n' +
+      '  <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your heading here</h1>\\n' +
+      '  <p style="font-size: 15px; color: #333; line-height: 1.6;">Your message here.</p>\\n\\n' +
+      '  <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />\\n' +
+      '  <p style="font-size: 12px; color: #999;">Tally by ATEM School</p>\\n' +
+      '</div>';
+  }
+}
+
+function onCustomChurchSelect() {
+  const sel = document.getElementById('custom-church-select');
+  const opt = sel.selectedOptions[0];
+  if (opt && opt.dataset.email) {
+    document.getElementById('custom-email-to').value = opt.dataset.email;
+  }
+}
+
+function previewCustomEmail() {
+  const subject = document.getElementById('custom-email-subject').value;
+  const html = document.getElementById('custom-email-html').value;
+  showEmailPreview(subject, html);
+}
+
+async function sendCustomEmail(btn) {
+  const to = document.getElementById('custom-email-to').value.trim();
+  const subject = document.getElementById('custom-email-subject').value.trim();
+  const html = document.getElementById('custom-email-html').value.trim();
+  const sel = document.getElementById('custom-church-select');
+  const churchId = sel.value || null;
+
+  if (!to) { showModalMsg('custom-email-msg', 'Recipient email required', 'error'); return; }
+  if (!subject) { showModalMsg('custom-email-msg', 'Subject required', 'error'); return; }
+  if (!html) { showModalMsg('custom-email-msg', 'HTML body required', 'error'); return; }
+  if (!await modalConfirm('Send Email', \`Send to \${esc(to)}?\`)) return;
+
+  btnLoading(btn);
+  try {
+    const r = await fetchTimeout('/api/admin/emails/send', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ to, subject, html, churchId }),
+    });
+    const d = await r.json();
+    if (d.sent) {
+      showToast('Email sent');
+      document.getElementById('custom-email-msg').innerHTML = '<div class="alert-box alert-success">Email sent to ' + esc(to) + '</div>';
+    } else {
+      showModalMsg('custom-email-msg', d.reason || 'Send failed', 'error');
+    }
+  } catch { showModalMsg('custom-email-msg', 'Request failed', 'error'); }
+  finally { btnReset(btn); }
 }
 
 // ─── Toast ───────────────────────────────────────────────────────────────────
@@ -2207,6 +2625,103 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   });
 
   // AI usage endpoint moved to server.js (uses requireAdminJwt for tally-landing proxy compatibility)
+
+  // ── Email Dashboard API ────────────────────────────────────────────────────
+
+  const { lifecycleEmails } = opts;
+
+  app.get('/api/admin/emails', requireAdminSession, (req, res) => {
+    if (!lifecycleEmails) return res.json({ rows: [], total: 0 });
+    const { limit, offset, type, search } = req.query;
+    const result = lifecycleEmails.getEmailHistory({
+      limit: Math.min(parseInt(limit) || 50, 200),
+      offset: parseInt(offset) || 0,
+      emailType: type || undefined,
+      churchId: undefined,
+    });
+
+    // Client-side search filter by church name
+    if (search) {
+      const q = String(search).toLowerCase();
+      result.rows = result.rows.filter(r => (r.church_name || '').toLowerCase().includes(q) || (r.recipient || '').toLowerCase().includes(q));
+      result.total = result.rows.length;
+    }
+
+    res.json(result);
+  });
+
+  app.get('/api/admin/emails/stats', requireAdminSession, (req, res) => {
+    if (!lifecycleEmails) return res.json({ total: 0, today: 0, thisWeek: 0, byType: [] });
+    res.json(lifecycleEmails.getEmailStats());
+  });
+
+  app.get('/api/admin/emails/templates', requireAdminSession, (req, res) => {
+    if (!lifecycleEmails) return res.json([]);
+    res.json(lifecycleEmails.getTemplateList());
+  });
+
+  app.get('/api/admin/emails/templates/:type/preview', requireAdminSession, (req, res) => {
+    if (!lifecycleEmails) return res.status(500).json({ error: 'Email system not available' });
+    const result = lifecycleEmails.getPreview(req.params.type);
+    if (result.error) return res.status(404).json(result);
+    res.json(result);
+  });
+
+  app.put('/api/admin/emails/templates/:type', requireAdminSession, (req, res) => {
+    if (!lifecycleEmails) return res.status(500).json({ error: 'Email system not available' });
+    const { subject, html } = req.body || {};
+    if (!subject && !html) return res.status(400).json({ error: 'subject or html required' });
+    const result = lifecycleEmails.applyOverride(req.params.type, { subject, html });
+    res.json(result);
+  });
+
+  app.delete('/api/admin/emails/templates/:type', requireAdminSession, (req, res) => {
+    if (!lifecycleEmails) return res.status(500).json({ error: 'Email system not available' });
+    lifecycleEmails.removeOverride(req.params.type);
+    res.json({ reverted: true });
+  });
+
+  app.post('/api/admin/emails/send', requireAdminSession, async (req, res) => {
+    if (!lifecycleEmails) return res.status(500).json({ error: 'Email system not available' });
+    const { churchId, emailType, to, subject, html } = req.body || {};
+
+    // If emailType provided, get the template preview for that type
+    if (emailType && !html) {
+      const preview = lifecycleEmails.getPreview(emailType.replace(/^manual:/, ''));
+      const recipient = to || (() => {
+        if (!churchId) return null;
+        const c = db.prepare('SELECT portal_email FROM churches WHERE churchId = ?').get(churchId);
+        return c?.portal_email;
+      })();
+
+      if (!recipient) return res.json({ sent: false, reason: 'no-recipient' });
+
+      const result = await lifecycleEmails.sendManual({
+        churchId: churchId || 'admin',
+        emailType: emailType.replace(/^manual:/, ''),
+        to: recipient,
+        subject: preview.subject,
+        html: preview.html,
+        text: preview.text || '',
+      });
+      return res.json(result);
+    }
+
+    // Custom email
+    if (!to) return res.status(400).json({ error: 'recipient (to) required' });
+    if (!subject) return res.status(400).json({ error: 'subject required' });
+    if (!html) return res.status(400).json({ error: 'html body required' });
+
+    const result = await lifecycleEmails.sendManual({
+      churchId: churchId || 'admin',
+      emailType: 'custom',
+      to,
+      subject,
+      html,
+      text: '',
+    });
+    res.json(result);
+  });
 
   // ── Reseller Portal ───────────────────────────────────────────────────────
 

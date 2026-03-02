@@ -975,7 +975,7 @@ alertEngine.resellerSystem = resellerSystem;
 
 // ─── ADMIN + RESELLER PORTALS ─────────────────────────────────────────────────
 const { setupAdminPanel } = require('./src/adminPanel');
-setupAdminPanel(app, db, churches, resellerSystem, { jwt, JWT_SECRET });
+setupAdminPanel(app, db, churches, resellerSystem, { jwt, JWT_SECRET, lifecycleEmails });
 
 // Pre-service check — created before portal so portal can trigger manual checks
 preServiceCheck = new PreServiceCheck({
