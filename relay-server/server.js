@@ -4825,15 +4825,15 @@ app.use((err, _req, res, _next) => {
   });
 });
 
-// ─── LANDING PAGE CHAT PROXY (Anthropic streaming) ───────────────────────────
+// ─── LANDING PAGE CHAT PROXY (Anthropic streaming via fetch) ──────────────────
 
-app.post('/api/chat/stream', (req, res) => {
+app.post('/api/chat/stream', async (req, res) => {
   console.log('[ChatProxy] Request received');
   // Shared secret prevents public abuse — only the Next.js app should call this
   const secret = req.headers['x-chat-secret'];
   const expected = process.env.CHAT_PROXY_SECRET || '';
   if (!secret || secret !== expected) {
-    console.log('[ChatProxy] Auth failed — secret mismatch', { got: secret?.slice(0, 8), expected: expected?.slice(0, 8) });
+    console.log('[ChatProxy] Auth failed');
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
@@ -4853,56 +4853,41 @@ app.post('/api/chat/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  let finished = false;
-  const finish = () => { if (!finished) { finished = true; try { res.end(); } catch {} } };
-
   console.log('[ChatProxy] Auth OK, calling Anthropic…');
 
-  const body = JSON.stringify({
-    model: 'claude-haiku-4-5-20251001',
-    system: system || '',
-    messages,
-    max_tokens,
-    temperature,
-    stream: true,
-  });
+  try {
+    const upstream = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        system: system || '',
+        messages,
+        max_tokens,
+        temperature,
+        stream: true,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
 
-  req.on('close', () => { finish(); });
+    console.log('[ChatProxy] Anthropic status:', upstream.status);
 
-  // Use Node.js https for reliable streaming
-  const https = require('https');
-
-  const upstreamReq = https.request({
-    hostname: 'api.anthropic.com',
-    port: 443,
-    path: '/v1/messages',
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Length': Buffer.byteLength(body),
-    },
-    timeout: 30000,
-  }, (upstream) => {
-    console.log('[ChatProxy] Anthropic responded:', upstream.statusCode);
-
-    if (upstream.statusCode !== 200) {
-      let errBody = '';
-      upstream.on('data', c => { errBody += c; });
-      upstream.on('end', () => {
-        console.error('[ChatProxy] Anthropic error:', upstream.statusCode, errBody.slice(0, 300));
-        try { res.write(`data: ${JSON.stringify({ type: 'error', message: 'AI service error.' })}\n\n`); } catch {}
-        finish();
-      });
-      return;
+    if (!upstream.ok) {
+      const errBody = await upstream.text().catch(() => '');
+      console.error('[ChatProxy] Anthropic error:', upstream.status, errBody.slice(0, 300));
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'AI service error.' })}\n\n`);
+      return res.end();
     }
 
+    // Stream using async iteration (works across Node 18–22)
     let buf = '';
-    upstream.setEncoding('utf8');
-
-    upstream.on('data', (chunk) => {
-      buf += chunk;
+    const decoder = new TextDecoder();
+    for await (const chunk of upstream.body) {
+      buf += decoder.decode(chunk, { stream: true });
       const lines = buf.split('\n');
       buf = lines.pop() || '';
 
@@ -4919,35 +4904,16 @@ app.post('/api/chat/stream', (req, res) => {
           }
         } catch { /* skip malformed */ }
       }
-    });
+    }
 
-    upstream.on('end', () => {
-      try { res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`); } catch {}
-      finish();
-    });
-
-    upstream.on('error', (err) => {
-      console.error('[ChatProxy] Stream error:', err.message);
-      try { res.write(`data: ${JSON.stringify({ type: 'error', message: 'Something went wrong.' })}\n\n`); } catch {}
-      finish();
-    });
-  });
-
-  upstreamReq.on('timeout', () => {
-    console.error('[ChatProxy] Request timed out');
-    upstreamReq.destroy();
-    try { res.write(`data: ${JSON.stringify({ type: 'error', message: 'Request timed out.' })}\n\n`); } catch {}
-    finish();
-  });
-
-  upstreamReq.on('error', (err) => {
-    console.error('[ChatProxy] Request error:', err.message);
+    // Final done event
+    res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+    res.end();
+  } catch (err) {
+    console.error('[ChatProxy] Error:', err.message);
     try { res.write(`data: ${JSON.stringify({ type: 'error', message: 'Something went wrong.' })}\n\n`); } catch {}
-    finish();
-  });
-
-  upstreamReq.write(body);
-  upstreamReq.end();
+    try { res.end(); } catch {}
+  }
 });
 
 // ─── START ────────────────────────────────────────────────────────────────────
