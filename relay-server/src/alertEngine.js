@@ -334,7 +334,7 @@ class AlertEngine {
     const icon = severity === 'EMERGENCY' ? '🚨' : severity === 'CRITICAL' ? '🔴' : '⚠️';
 
     const payload = {
-      username: 'Tally by ATEM School',
+      username: 'Tally',
       icon_emoji: ':satellite:',
       channel: church.slack_channel || undefined,
       attachments: [{
@@ -366,7 +366,7 @@ class AlertEngine {
     if (!church.slack_webhook_url) return;
     const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     const payload = {
-      username: 'Tally by ATEM School',
+      username: 'Tally',
       icon_emoji: ':satellite:',
       channel: church.slack_channel || undefined,
       attachments: [{

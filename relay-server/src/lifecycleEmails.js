@@ -1,5 +1,5 @@
 /**
- * Lifecycle Email Sequences — Tally by ATEM School
+ * Lifecycle Email Sequences — Tally
  *
  * Sends the right email at the right time, automatically:
  *   1. Setup Nudge (Day 1)          — app not connected after 24h
@@ -20,7 +20,7 @@ class LifecycleEmails {
   constructor(db, { resendApiKey, fromEmail, appUrl }) {
     this.db = db;
     this.resendApiKey = resendApiKey || '';
-    this.fromEmail = fromEmail || 'Tally by ATEM School <noreply@atemschool.com>';
+    this.fromEmail = fromEmail || 'Tally <noreply@atemschool.com>';
     this.appUrl = appUrl || 'https://tallyconnect.app';
     this._ensureSchema();
   }
@@ -458,7 +458,7 @@ class LifecycleEmails {
     return `
       <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />
       <p style="font-size: 12px; color: #999;">
-        Tally by ATEM School &mdash; <a href="${this.appUrl}" style="color: #999;">${this.appUrl.replace('https://', '')}</a>
+        Tally &mdash; <a href="${this.appUrl}" style="color: #999;">${this.appUrl.replace('https://', '')}</a>
       </p>`;
   }
 
@@ -524,7 +524,7 @@ Once connected, you'll see your gear status at ${this.appUrl}/portal
 
 Need help? Reply to this email or reach out at support@atemschool.com
 
-Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+Tally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -581,7 +581,7 @@ During service:
 
 Quick tip: If you haven't set up Telegram alerts yet, do it before Sunday. Connect at ${this.appUrl}/portal
 
-Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+Tally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -615,7 +615,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
         &mdash; Andrew Disbrow<br>
-        Founder, Tally by ATEM School
+        Founder, Tally
       </p>
     `);
 
@@ -632,9 +632,9 @@ A few things you might not have tried yet:
 Hit reply and let me know how it's going — I read every response personally.
 
 — Andrew Disbrow
-Founder, Tally by ATEM School
+Founder, Tally
 
-Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+Tally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -685,7 +685,7 @@ To keep Tally running, subscribe at ${billingUrl}. Plans start at $49/month.
 
 When your trial ends, monitoring will stop. Your data and settings are preserved — just subscribe to pick up where you left off.
 
-Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+Tally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -733,7 +733,7 @@ After your trial ends:
 
 Subscribe now at ${billingUrl} to keep everything running.
 
-Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+Tally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -784,7 +784,7 @@ Your data and settings are safe for 30 days. Subscribe at ${billingUrl} to pick 
 
 Questions? Reply to this email or reach out at support@atemschool.com.
 
-Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+Tally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -833,7 +833,7 @@ Update your payment method at ${billingUrl}
 
 If you think this is a mistake, reply to this email and I'll help sort it out.
 
-Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+Tally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -895,7 +895,7 @@ ${summaryLine}
 
 View full details at ${portalUrl}
 
-Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+Tally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -934,7 +934,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Your Tally subscription has been cancelled\n\nYour subscription for ${church.name} has been cancelled and will remain active until ${endDate}.\n\nYour data is preserved for 30 days. Reactivate anytime at ${portalUrl}\n\nTally by ATEM School`;
+    const text = `Your Tally subscription has been cancelled\n\nYour subscription for ${church.name} has been cancelled and will remain active until ${endDate}.\n\nYour data is preserved for 30 days. Reactivate anytime at ${portalUrl}\n\nTally`;
 
     return this.sendEmail({
       churchId: church.churchId,
@@ -1122,7 +1122,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       </p>
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally by ATEM School
+        &mdash; Andrew Disbrow<br>Founder, Tally
       </p>
     `);
 
@@ -1207,7 +1207,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       </p>
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally by ATEM School
+        &mdash; Andrew Disbrow<br>Founder, Tally
       </p>
     `);
 
@@ -1223,9 +1223,9 @@ Leave a review: ${portalUrl}
 You can also post on Google, Capterra, or G2.
 
 — Andrew Disbrow
-Founder, Tally by ATEM School
+Founder, Tally
 
-Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+Tally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -1276,7 +1276,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Welcome to Tally!\n\n${church.name} has been registered and your 14-day free trial is active.\n\nQuick start:\n1. Verify your email\n2. Download the Tally app: ${downloadUrl}\n3. Sign in with your registration code\n4. Tally auto-discovers your gear\n\nOpen your portal: ${portalUrl}\n\nTally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+    const text = `Welcome to Tally!\n\n${church.name} has been registered and your 14-day free trial is active.\n\nQuick start:\n1. Verify your email\n2. Download the Tally app: ${downloadUrl}\n3. Sign in with your registration code\n4. Tally auto-discovers your gear\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -1323,7 +1323,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Plan changed to ${newName}\n\n${church.name} has been moved from ${oldName} to ${newName}. The change takes effect at the end of your current billing period.\n\nManage your plan: ${portalUrl}\n\nTally by ATEM School`;
+    const text = `Plan changed to ${newName}\n\n${church.name} has been moved from ${oldName} to ${newName}. The change takes effect at the end of your current billing period.\n\nManage your plan: ${portalUrl}\n\nTally`;
     return { html, text, subject: `Plan changed to ${newName}` };
   }
 
@@ -1390,7 +1390,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Update Payment Method', portalUrl)}
     `);
 
-    const text = `Your grace period ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}\n\nWe still can't process payment for ${church.name}. Update your payment at ${portalUrl} to avoid service interruption.\n\nTally by ATEM School`;
+    const text = `Your grace period ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}\n\nWe still can't process payment for ${church.name}. Update your payment at ${portalUrl} to avoid service interruption.\n\nTally`;
     return { html, text };
   }
 
@@ -1438,7 +1438,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('View Billing', portalUrl)}
     `);
 
-    const text = `Upcoming invoice\n\nA payment of ${formattedAmount} for ${church.name} will be charged on ${formattedDate}.\n\nView billing at ${portalUrl}\n\nTally by ATEM School`;
+    const text = `Upcoming invoice\n\nA payment of ${formattedAmount} for ${church.name} will be charged on ${formattedDate}.\n\nView billing at ${portalUrl}\n\nTally`;
     return { html, text };
   }
 
@@ -1501,7 +1501,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Open Your Portal', portalUrl)}
     `);
 
-    const text = `Email address updated\n\nThe portal email for ${church.name} has been changed from ${oldEmail || 'not set'} to ${newEmail}.\n\nIf you didn't make this change, contact support@atemschool.com.\n\nTally by ATEM School`;
+    const text = `Email address updated\n\nThe portal email for ${church.name} has been changed from ${oldEmail || 'not set'} to ${newEmail}.\n\nIf you didn't make this change, contact support@atemschool.com.\n\nTally`;
     return { html, text };
   }
 
@@ -1557,7 +1557,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Your first service is in the books!\n\nTally monitored ${church.name}'s first service.\n\nGrade: ${grade} | Duration: ${duration} min | Alerts: ${alerts}\n\nView timeline: ${portalUrl}\n\nTally by ATEM School`;
+    const text = `Your first service is in the books!\n\nTally monitored ${church.name}'s first service.\n\nGrade: ${grade} | Duration: ${duration} min | Alerts: ${alerts}\n\nView timeline: ${portalUrl}\n\nTally`;
     return { html, text };
   }
 
@@ -1604,7 +1604,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Payment dispute opened\n\nA dispute of ${formattedAmount} has been filed for ${church.name}. Reason: ${reason || 'not specified'}.\n\nPlease reply to this email to help resolve this.\n\nTally by ATEM School`;
+    const text = `Payment dispute opened\n\nA dispute of ${formattedAmount} has been filed for ${church.name}. Reason: ${reason || 'not specified'}.\n\nPlease reply to this email to help resolve this.\n\nTally`;
     return { html, text };
   }
 
@@ -1671,7 +1671,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('View Alert Status', portalUrl)}
     `);
 
-    const text = `🚨 CRITICAL ALERT — No Response\n\nAlert: ${alertType} at ${church.name}\nNo TD acknowledgment after 90 seconds.\n\nCheck status: ${portalUrl}\n\nTally by ATEM School`;
+    const text = `🚨 CRITICAL ALERT — No Response\n\nAlert: ${alertType} at ${church.name}\nNo TD acknowledgment after 90 seconds.\n\nCheck status: ${portalUrl}\n\nTally`;
     return { html, text };
   }
 
@@ -1741,11 +1741,11 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       </p>
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally by ATEM School
+        &mdash; Andrew Disbrow<br>Founder, Tally
       </p>
     `);
 
-    const text = `We'd love your honest feedback\n\n${church.name} cancelled a few days ago. What could we have done better?\n\n- Pricing?\n- Features?\n- Reliability?\n- Fit?\n- Something else?\n\nJust reply to this email — I read every response.\n\n— Andrew Disbrow\nFounder, Tally by ATEM School`;
+    const text = `We'd love your honest feedback\n\n${church.name} cancelled a few days ago. What could we have done better?\n\n- Pricing?\n- Features?\n- Reliability?\n- Fit?\n- Something else?\n\nJust reply to this email — I read every response.\n\n— Andrew Disbrow\nFounder, Tally`;
     return { html, text };
   }
 
@@ -1842,7 +1842,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Start Your Free Trial', signupUrl)}
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally by ATEM School
+        &mdash; Andrew Disbrow<br>Founder, Tally
       </p>
     `);
 
@@ -1953,7 +1953,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       </p>
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally by ATEM School
+        &mdash; Andrew Disbrow<br>Founder, Tally
       </p>
     `);
 
@@ -1996,7 +1996,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `You're all set!\n\nYour email has been verified for ${church.name}. Welcome to Tally!\n\nNext steps:\n1. Download the Tally app: ${downloadUrl}\n2. Sign in with your registration code\n3. Set up Telegram alerts\n4. Set your service schedule\n\nYour trial has started — full access to everything.\n\nOpen your portal: ${portalUrl}\n\nTally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+    const text = `You're all set!\n\nYour email has been verified for ${church.name}. Welcome to Tally!\n\nNext steps:\n1. Download the Tally app: ${downloadUrl}\n2. Sign in with your registration code\n3. Set up Telegram alerts\n4. Set your service schedule\n\nYour trial has started — full access to everything.\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
 
     return this.sendEmail({
       churchId: church.churchId,
@@ -2044,7 +2044,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Payment confirmed — you're on ${tierName}!\n\nThanks for subscribing! ${church.name} is now on the ${tierName} plan${interval === 'annual' ? ' (annual)' : ''}.\n\nManage your subscription at ${portalUrl}\n\nTally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+    const text = `Payment confirmed — you're on ${tierName}!\n\nThanks for subscribing! ${church.name} is now on the ${tierName} plan${interval === 'annual' ? ' (annual)' : ''}.\n\nManage your subscription at ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
 
     return this.sendEmail({
       churchId: church.churchId,
@@ -2073,7 +2073,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Reset your password\n\nWe received a request to reset the portal password for ${church.name}.\n\nReset your password: ${resetUrl}\n\nThis link expires in 1 hour. If you didn't request this, ignore this email.\n\nTally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+    const text = `Reset your password\n\nWe received a request to reset the portal password for ${church.name}.\n\nReset your password: ${resetUrl}\n\nThis link expires in 1 hour. If you didn't request this, ignore this email.\n\nTally — ${this.appUrl.replace('https://', '')}`;
 
     // Password reset emails should NOT be deduped — allow multiple sends
     // So we bypass the normal sendEmail and call Resend directly

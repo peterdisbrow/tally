@@ -198,7 +198,7 @@ function buildChurchLoginHtml(error = '') {
       <input type="password" name="password" placeholder="••••••••" required autocomplete="current-password">
       <button type="submit" class="btn">Sign in</button>
     </form>
-    <div class="footer">Tally by Atem School — <a href="https://tallyconnect.app" style="color:#22c55e;text-decoration:none">tallyconnect.app</a></div>
+    <div class="footer">Tally — <a href="https://tallyconnect.app" style="color:#22c55e;text-decoration:none">tallyconnect.app</a></div>
   </div>
 </body>
 </html>`;

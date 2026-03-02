@@ -181,7 +181,7 @@ function buildResellerLoginHtml(error = '') {
     <div style="text-align:center;margin-top:18px;font-size:13px;color:#94A3B8">
       Don't have an account? <a href="/reseller" style="color:#22c55e;text-decoration:none;font-weight:500">Become a reseller &rarr;</a>
     </div>
-    <div class="footer">Tally by Atem School — <a href="https://tallyconnect.app" style="color:#22c55e;text-decoration:none">tallyconnect.app</a></div>
+    <div class="footer">Tally — <a href="https://tallyconnect.app" style="color:#22c55e;text-decoration:none">tallyconnect.app</a></div>
   </div>
 </body>
 </html>`;
@@ -545,7 +545,7 @@ function buildResellerSalesPageHtml(error = '') {
 
   <!-- ── Footer ───────────────────────────────────── -->
   <div class="page-footer">
-    Tally by ATEM School &mdash; <a href="https://tallyconnect.app">tallyconnect.app</a>
+    Tally &mdash; <a href="https://tallyconnect.app">tallyconnect.app</a>
   </div>
 
   <script>

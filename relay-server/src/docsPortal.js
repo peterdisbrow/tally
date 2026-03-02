@@ -141,7 +141,7 @@ function buildDocsHtml(sections) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Integration Docs — Tally by ATEM School</title>
+  <title>Integration Docs — Tally</title>
   <style>
     /* ── Reset & base ─────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

@@ -1131,7 +1131,7 @@ class TallyBot {
 
     const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     const payload = {
-      username: 'Tally by ATEM School',
+      username: 'Tally',
       icon_emoji: ':satellite:',
       channel: row.slack_channel || undefined,
       attachments: [{

@@ -1683,7 +1683,7 @@ function populateCustomEmailForm() {
       '  <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your heading here</h1>\\n' +
       '  <p style="font-size: 15px; color: #333; line-height: 1.6;">Your message here.</p>\\n\\n' +
       '  <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />\\n' +
-      '  <p style="font-size: 12px; color: #999;">Tally by ATEM School</p>\\n' +
+      '  <p style="font-size: 12px; color: #999;">Tally</p>\\n' +
       '</div>';
   }
 }

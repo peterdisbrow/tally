@@ -1047,8 +1047,8 @@ function buildArticlePageHtml(article, categories, articles) {
     '@type': 'HowTo',
     name: article.title,
     description: article.summary || `Step-by-step guide: ${article.title}`,
-    author: { '@type': 'Organization', name: 'Tally by ATEM School' },
-    publisher: { '@type': 'Organization', name: 'Tally by ATEM School', url: 'https://tallyconnect.app' },
+    author: { '@type': 'Organization', name: 'Tally' },
+    publisher: { '@type': 'Organization', name: 'Tally', url: 'https://tallyconnect.app' },
     datePublished: '2025-01-15',
     dateModified: new Date().toISOString().split('T')[0],
   };

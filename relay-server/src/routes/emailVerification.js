@@ -70,7 +70,7 @@ module.exports = function setupEmailVerificationRoutes(app, ctx) {
       </p>
       <p style="font-size: 13px; color: #666;">If you didn't sign up for Tally, ignore this email.</p>
       <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />
-      <p style="font-size: 12px; color: #999;">Tally by ATEM School</p>
+      <p style="font-size: 12px; color: #999;">Tally</p>
     </div>`,
       text: `Verify your Tally email\n\nClick this link to verify: ${verifyUrl}\n\nIf you didn't sign up for Tally, ignore this email.`,
     }).catch(() => {});
