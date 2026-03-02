@@ -223,6 +223,14 @@ test('mixer.setPan center', async () => {
   assert.ok(result.includes('Center'));
 });
 
+test('mixer.setPan rejects out-of-range pan', async () => {
+  const agent = mockX32();
+  await assert.rejects(
+    () => commandHandlers['mixer.setPan'](agent, { channel: 1, pan: 2 }),
+    /pan out of range/
+  );
+});
+
 test('mixer.setChannelColor on X32 succeeds', async () => {
   const agent = mockX32();
   const result = await commandHandlers['mixer.setChannelColor'](agent, { channel: 1, color: 'red' });
@@ -248,6 +256,8 @@ test('mixer.setSendLevel validates params', async () => {
   const agent = mockX32();
   await assert.rejects(() => commandHandlers['mixer.setSendLevel'](agent, { channel: 1 }), /bus parameter required/);
   await assert.rejects(() => commandHandlers['mixer.setSendLevel'](agent, { channel: 1, bus: 1 }), /level parameter required/);
+  await assert.rejects(() => commandHandlers['mixer.setSendLevel'](agent, { channel: 1, bus: 'abc', level: 0.4 }), /bus must be an integer/);
+  await assert.rejects(() => commandHandlers['mixer.setSendLevel'](agent, { channel: 1, bus: 1, level: 'oops' }), /level must be a number/);
 });
 
 test('mixer.assignToBus on X32 succeeds', async () => {

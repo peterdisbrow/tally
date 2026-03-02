@@ -492,13 +492,20 @@ class AllenHeathMixer {
   // ─── PAN ───────────────────────────────────────────────────────────────────
 
   /**
-   * Set input channel pan in LR (normalised 0.0 = left, 0.5 = center, 1.0 = right).
+   * Set input channel pan in LR.
+   * @param {number} pan -1.0 (left) to +1.0 (right), 0 = center
    */
   async setPan(ch, pan) {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const n = Math.max(0, parseInt(ch) - 1);
+    const p = Number(pan);
+    if (!Number.isFinite(p)) throw new Error('pan must be a number');
+    if (p < -1 || p > 1) throw new Error(`Pan out of range: ${pan} (valid: -1.0 to +1.0)`);
+
+    // SQ NRPN pan is 0.0–1.0 with center at 0.5.
+    const normalized = (p + 1) / 2;
     const addr = nrpn2D(SEND_PAN.inputToLr.msb, SEND_PAN.inputToLr.lsb, 1, n, 0);
-    const data = normalToPanData(parseFloat(pan));
+    const data = normalToPanData(normalized);
     const { vc, vf } = dataToVcVf(data);
     this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, vc, vf));
   }

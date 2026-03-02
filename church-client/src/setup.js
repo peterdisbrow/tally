@@ -335,17 +335,19 @@ async function stepOptional(config) {
 
   // Audio console
   print();
-  const hasConsole = await askYesNo('Do you have a digital audio console? (Behringer, Allen & Heath, Yamaha, Midas)', false);
+  const hasConsole = await askYesNo('Do you have a digital audio console? (Behringer, Midas, Allen & Heath, Yamaha)', false);
   if (hasConsole) {
     print('Console type:');
     print('  1. Behringer X32 / X-Air');
     print('  2. Midas M32 / M32R');
-    print('  3. Allen & Heath SQ / dLive');
-    print('  4. Yamaha CL / QL / TF');
+    print('  3. Allen & Heath SQ');
+    print('  4. Allen & Heath dLive');
+    print('  5. Allen & Heath Avantis');
+    print('  6. Yamaha CL / QL / TF');
     const type = await ask('Choice:', '1');
-    const types = ['behringer', 'midas', 'allenheath', 'yamaha'];
-    const defaultPorts = [10023, 10023, 51326, 8765];
-    const idx = Math.max(0, Math.min(3, parseInt(type) - 1));
+    const types = ['behringer', 'midas', 'allenheath', 'dlive', 'avantis', 'yamaha'];
+    const defaultPorts = [10023, 10023, 51326, 51325, 51325, 8765];
+    const idx = Math.max(0, Math.min(types.length - 1, parseInt(type) - 1));
     const consoleType = types[idx];
     const consoleIp = await ask('Console IP address:');
     if (consoleIp) {

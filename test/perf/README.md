@@ -6,7 +6,7 @@ Phase B baseline scripts for API and WebSocket reliability checks.
 
 ```bash
 k6 run \
-  -e BASE_URL=https://tally-production-cde2.up.railway.app \
+  -e BASE_URL=https://api.tallyconnect.app \
   -e VUS=10 \
   -e DURATION=2m \
   test/perf/baseline.js
@@ -16,7 +16,7 @@ Optional login checks (church app auth):
 
 ```bash
 k6 run \
-  -e BASE_URL=https://tally-production-cde2.up.railway.app \
+  -e BASE_URL=https://api.tallyconnect.app \
   -e LOGIN_EMAIL=your-email@example.com \
   -e LOGIN_PASSWORD='your-password' \
   test/perf/baseline.js
@@ -26,7 +26,7 @@ k6 run \
 
 ```bash
 k6 run \
-  -e BASE_WS=wss://tally-production-cde2.up.railway.app \
+  -e BASE_WS=wss://api.tallyconnect.app \
   -e ADMIN_API_KEY='your-admin-key' \
   -e VUS=5 \
   -e DURATION=60s \
@@ -50,8 +50,8 @@ node test/perf/node-smoke.js
 With admin + login probes:
 
 ```bash
-BASE_URL=https://tally-production-cde2.up.railway.app \
-BASE_WS=wss://tally-production-cde2.up.railway.app \
+BASE_URL=https://api.tallyconnect.app \
+BASE_WS=wss://api.tallyconnect.app \
 ADMIN_API_KEY='your-admin-key' \
 LOGIN_EMAIL='your-email@example.com' \
 LOGIN_PASSWORD='your-password' \

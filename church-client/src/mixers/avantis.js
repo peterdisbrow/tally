@@ -401,12 +401,16 @@ class AvantisMixer {
   /**
    * Set pan position.
    * @param {number|string} ch
-   * @param {number} pan  Normalised 0.0 (hard left) – 1.0 (hard right), 0.5 = center
+   * @param {number} pan  -1.0 (hard left) – +1.0 (hard right), 0 = center
    */
   async setPan(ch, pan) {
     if (!this._online) throw new Error(`${this.model} not connected`);
     const n = Math.max(0, parseInt(ch) - 1);
-    const val = Math.round(Math.max(0, Math.min(1, pan)) * 127);
+    const p = Number(pan);
+    if (!Number.isFinite(p)) throw new Error('pan must be a number');
+    if (p < -1 || p > 1) throw new Error(`Pan out of range: ${pan} (valid: -1.0 to +1.0)`);
+    const normalized = (p + 1) / 2;
+    const val = Math.round(Math.max(0, Math.min(1, normalized)) * 127);
     this._tcp.send(buildNrpn(this._chInput, n, NRPN.PAN, val));
   }
 

@@ -1167,11 +1167,7 @@ Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Leave a Quick Review →', portalUrl)}
 
       <p style="font-size: 13px; color: #888; line-height: 1.6;">
-        You can also post your review on
-        <a href="https://g.page/r/YOUR_GOOGLE_REVIEW_LINK" style="color: #22c55e;">Google</a>,
-        <a href="https://www.capterra.com/reviews/new/YOUR_CAPTERRA_ID" style="color: #22c55e;">Capterra</a>, or
-        <a href="https://www.g2.com/products/tally-connect/reviews" style="color: #22c55e;">G2</a>
-        &mdash; either way, it means a lot.
+        Your feedback helps other church production teams discover Tally &mdash; it means a lot.
       </p>
 
       <p style="font-size: 14px; color: #666;">
@@ -1196,6 +1192,158 @@ Founder, Tally by ATEM School
 Tally by ATEM School — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
+  }
+  // ─── SEQUENCE 15: WELCOME EMAIL (after email verification) ───────────────
+
+  async sendWelcomeVerified(church) {
+    if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
+
+    const portalUrl = `${this.appUrl}/portal`;
+    const downloadUrl = GITHUB_RELEASES_URL;
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">You're all set!</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Your email has been verified for <strong>${church.name}</strong>. Welcome to Tally!
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">Next steps:</div>
+        <div style="font-size: 14px; color: #333; line-height: 2.2;">
+          <strong>1.</strong> <a href="${downloadUrl}" style="color: #22c55e; text-decoration: none;">Download the Tally app</a> on your booth computer<br>
+          <strong>2.</strong> Sign in with your registration code<br>
+          <strong>3.</strong> Set up <strong>Telegram alerts</strong> so your TDs get notified on their phones<br>
+          <strong>4.</strong> Set your <strong>service schedule</strong> for automatic pre-flight checks
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Your trial has started &mdash; you have full access to everything while you try it out.
+      </p>
+
+      ${this._cta('Open Your Portal', portalUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        Questions? Reply to this email or check out our <a href="${this.appUrl}/how-to" style="color: #22c55e; text-decoration: none;">setup guides</a>.
+      </p>
+    `);
+
+    const text = `You're all set!\n\nYour email has been verified for ${church.name}. Welcome to Tally!\n\nNext steps:\n1. Download the Tally app: ${downloadUrl}\n2. Sign in with your registration code\n3. Set up Telegram alerts\n4. Set your service schedule\n\nYour trial has started — full access to everything.\n\nOpen your portal: ${portalUrl}\n\nTally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+
+    return this.sendEmail({
+      churchId: church.churchId,
+      emailType: 'welcome-verified',
+      to: church.portal_email,
+      subject: `Welcome to Tally, ${church.name}!`,
+      html, text,
+    });
+  }
+
+  // ─── SEQUENCE 16: PAYMENT CONFIRMED (new subscription) ─────────────────
+
+  async sendPaymentConfirmed(church, { tier, interval } = {}) {
+    if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
+
+    const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise', event: 'Event Pass' };
+    const tierName = TIER_NAMES[tier] || tier || 'your plan';
+    const portalUrl = `${this.appUrl}/portal`;
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Payment confirmed &mdash; you're on ${tierName}!</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Thanks for subscribing! <strong>${church.name}</strong> is now on the <strong>${tierName}</strong> plan${interval === 'annual' ? ' (annual)' : ''}.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 8px;">What's included:</div>
+        <div style="font-size: 14px; color: #333; line-height: 2;">
+          &bull; 24/7 real-time monitoring &amp; auto-recovery<br>
+          &bull; Pre-service health checks<br>
+          &bull; Telegram alerts &amp; remote control<br>
+          &bull; Session timelines &amp; reports<br>
+          &bull; Priority support
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        You can manage your subscription, view invoices, and update payment details from your Church Portal.
+      </p>
+
+      ${this._cta('Open Your Portal', portalUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        Thank you for trusting Tally with your production. We're here if you need anything.
+      </p>
+    `);
+
+    const text = `Payment confirmed — you're on ${tierName}!\n\nThanks for subscribing! ${church.name} is now on the ${tierName} plan${interval === 'annual' ? ' (annual)' : ''}.\n\nManage your subscription at ${portalUrl}\n\nTally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+
+    return this.sendEmail({
+      churchId: church.churchId,
+      emailType: 'payment-confirmed',
+      to: church.portal_email,
+      subject: `Payment confirmed — ${church.name} is on ${tierName}`,
+      html, text,
+    });
+  }
+
+  // ─── SEQUENCE 17: PASSWORD RESET ──────────────────────────────────────────
+
+  async sendPasswordReset(church, { resetUrl }) {
+    if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Reset your password</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        We received a request to reset the portal password for <strong>${church.name}</strong>.
+      </p>
+
+      ${this._cta('Reset Password', resetUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.5;">
+        This link expires in 1 hour. If you didn't request a password reset, you can safely ignore this email.
+      </p>
+    `);
+
+    const text = `Reset your password\n\nWe received a request to reset the portal password for ${church.name}.\n\nReset your password: ${resetUrl}\n\nThis link expires in 1 hour. If you didn't request this, ignore this email.\n\nTally by ATEM School — ${this.appUrl.replace('https://', '')}`;
+
+    // Password reset emails should NOT be deduped — allow multiple sends
+    // So we bypass the normal sendEmail and call Resend directly
+    if (!this.resendApiKey) {
+      console.log(`[LifecycleEmails] No RESEND_API_KEY — would send password reset to ${church.portal_email}`);
+      return { sent: false, reason: 'no-api-key' };
+    }
+
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.resendApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: this.fromEmail,
+          to: [church.portal_email],
+          subject: 'Reset your Tally password',
+          html, text,
+          tags: [{ name: 'category', value: 'password-reset' }],
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        console.error(`[LifecycleEmails] Password reset send failed (${res.status}): ${err}`);
+        return { sent: false, reason: 'resend-error' };
+      }
+
+      const data = await res.json();
+      console.log(`[LifecycleEmails] Password reset sent to ${church.portal_email}, id: ${data.id}`);
+      return { sent: true, id: data.id };
+    } catch (e) {
+      console.error(`[LifecycleEmails] Password reset send failed: ${e.message}`);
+      return { sent: false, reason: 'network-error' };
+    }
   }
 }
 

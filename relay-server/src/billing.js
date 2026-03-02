@@ -361,10 +361,16 @@ class BillingSystem {
 
     console.log(`[Billing] ✅ Checkout complete for church ${churchId} (${tier}, ${billingInterval || 'monthly'})`);
 
-    // Send reactivation email if this was a reactivation checkout
-    if (session.metadata?.reactivation === 'true' && this.lifecycleEmails && churchId) {
+    // Send appropriate email based on checkout type
+    if (this.lifecycleEmails && churchId) {
       const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(churchId);
-      if (church) this.lifecycleEmails.sendReactivationConfirmation(church).catch(() => {});
+      if (church) {
+        if (session.metadata?.reactivation === 'true') {
+          this.lifecycleEmails.sendReactivationConfirmation(church).catch(() => {});
+        } else {
+          this.lifecycleEmails.sendPaymentConfirmed(church, { tier, interval: billingInterval }).catch(() => {});
+        }
+      }
     }
   }
 
