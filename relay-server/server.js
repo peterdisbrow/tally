@@ -4853,15 +4853,12 @@ app.post('/api/chat/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-  req.on('close', () => { controller.abort(); clearTimeout(timeoutId); });
+  let finished = false;
+  const finish = () => { if (!finished) { finished = true; try { res.end(); } catch {} } };
 
   console.log('[ChatProxy] Auth OK, calling Anthropic…');
-  // Use Node.js https module for reliable streaming
-  const https = require('https');
-  const payload = JSON.stringify({
+
+  const body = JSON.stringify({
     model: 'claude-haiku-4-5-20251001',
     system: system || '',
     messages,
@@ -4870,23 +4867,33 @@ app.post('/api/chat/stream', (req, res) => {
     stream: true,
   });
 
-  const upstreamReq = https.request('https://api.anthropic.com/v1/messages', {
+  req.on('close', () => { finish(); });
+
+  // Use Node.js https for reliable streaming
+  const https = require('https');
+
+  const upstreamReq = https.request({
+    hostname: 'api.anthropic.com',
+    port: 443,
+    path: '/v1/messages',
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
-      'Content-Length': Buffer.byteLength(payload),
+      'Content-Length': Buffer.byteLength(body),
     },
-    signal: controller.signal,
+    timeout: 30000,
   }, (upstream) => {
+    console.log('[ChatProxy] Anthropic responded:', upstream.statusCode);
+
     if (upstream.statusCode !== 200) {
       let errBody = '';
       upstream.on('data', c => { errBody += c; });
       upstream.on('end', () => {
-        console.error('[ChatProxy] Anthropic error:', upstream.statusCode, errBody.slice(0, 200));
-        res.write(`data: ${JSON.stringify({ type: 'error', message: 'AI service error.' })}\n\n`);
-        res.end();
+        console.error('[ChatProxy] Anthropic error:', upstream.statusCode, errBody.slice(0, 300));
+        try { res.write(`data: ${JSON.stringify({ type: 'error', message: 'AI service error.' })}\n\n`); } catch {}
+        finish();
       });
       return;
     }
@@ -4901,45 +4908,45 @@ app.post('/api/chat/stream', (req, res) => {
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
-        const payload = line.slice(6).trim();
-        if (payload === '[DONE]') continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') continue;
         try {
-          const evt = JSON.parse(payload);
+          const evt = JSON.parse(data);
           if (evt.type === 'content_block_delta' && evt.delta?.text) {
             res.write(`data: ${JSON.stringify({ type: 'delta', text: evt.delta.text })}\n\n`);
           } else if (evt.type === 'message_stop') {
             res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
           }
-        } catch { /* skip */ }
+        } catch { /* skip malformed */ }
       }
     });
 
     upstream.on('end', () => {
-      clearTimeout(timeoutId);
-      res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
-      res.end();
+      try { res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`); } catch {}
+      finish();
     });
 
     upstream.on('error', (err) => {
       console.error('[ChatProxy] Stream error:', err.message);
-      try {
-        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Something went wrong.' })}\n\n`);
-        res.end();
-      } catch { /* client gone */ }
+      try { res.write(`data: ${JSON.stringify({ type: 'error', message: 'Something went wrong.' })}\n\n`); } catch {}
+      finish();
     });
   });
 
-  upstreamReq.on('error', (err) => {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') return res.end();
-    console.error('[ChatProxy] Request error:', err.message);
-    try {
-      res.write(`data: ${JSON.stringify({ type: 'error', message: 'Something went wrong.' })}\n\n`);
-      res.end();
-    } catch { /* client gone */ }
+  upstreamReq.on('timeout', () => {
+    console.error('[ChatProxy] Request timed out');
+    upstreamReq.destroy();
+    try { res.write(`data: ${JSON.stringify({ type: 'error', message: 'Request timed out.' })}\n\n`); } catch {}
+    finish();
   });
 
-  upstreamReq.write(payload);
+  upstreamReq.on('error', (err) => {
+    console.error('[ChatProxy] Request error:', err.message);
+    try { res.write(`data: ${JSON.stringify({ type: 'error', message: 'Something went wrong.' })}\n\n`); } catch {}
+    finish();
+  });
+
+  upstreamReq.write(body);
   upstreamReq.end();
 });
 
