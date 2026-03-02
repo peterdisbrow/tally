@@ -1056,9 +1056,10 @@ scheduleEngine.addWindowOpenCallback((churchId) => {
         if (!state) return;
 
         for (const w of warnings) {
+          const warningKey = `${String(w.eventType || '').toLowerCase()}|${String(w.summary || '').toLowerCase()}|${w.windowMinuteOfDay}`;
           const minutesUntil = w.windowMinuteOfDay - currentMinute;
-          if (minutesUntil >= 5 && minutesUntil <= 10 && !state.firedWarnings.has(w.eventType)) {
-            state.firedWarnings.add(w.eventType);
+          if (minutesUntil >= 5 && minutesUntil <= 10 && !state.firedWarnings.has(warningKey)) {
+            state.firedWarnings.add(warningKey);
             const h = Math.floor(w.windowMinuteOfDay / 60);
             const m = w.windowMinuteOfDay % 60;
             const ampm = h < 12 ? 'AM' : 'PM';

@@ -182,14 +182,16 @@ const DEVICE_REGISTRY = {
         { value: 'x32', label: 'X32 (Behringer protocol)' },
         { value: 'behringer', label: 'Behringer X32 / X-Air' },
         { value: 'midas', label: 'Midas M32 / M32R' },
-        { value: 'allenheath', label: 'Allen & Heath SQ / dLive' },
+        { value: 'allenheath', label: 'Allen & Heath SQ' },
+        { value: 'dlive', label: 'Allen & Heath dLive' },
+        { value: 'avantis', label: 'Allen & Heath Avantis' },
         { value: 'yamaha', label: 'Yamaha CL / QL / TF' },
       ]},
       { key: 'host', label: 'IP Address', type: 'text', placeholder: 'Console IP address' },
       { key: 'port', label: 'Port', type: 'text', placeholder: 'Auto', style: 'max-width:80px' },
     ],
     testType: 'mixer',
-    detailHint: 'Default ports: X32/M32=10023, A&H SQ=51326, Yamaha CL/QL=8765, TF=49280',
+    detailHint: 'Default ports: X32/M32=10023, A&H SQ=51326, A&H dLive/Avantis=51325, Yamaha CL/QL=8765, TF=49280',
   },
 
   dante: {

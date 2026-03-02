@@ -68,7 +68,7 @@ class ChurchDocuments {
     if (mimeType === 'text/plain' || mimeType === 'text/csv') {
       text = Buffer.from(base64Data, 'base64').toString('utf-8');
     } else if (mimeType === 'application/pdf' || (mimeType && mimeType.startsWith('image/'))) {
-      text = await this._extractWithVision(base64Data, mimeType);
+      text = await this._extractWithVision(base64Data, mimeType, churchId);
     } else {
       throw new Error(`Unsupported file type: ${mimeType}. Supported: PDF, TXT, CSV, images.`);
     }
@@ -81,7 +81,7 @@ class ChurchDocuments {
     const chunks = this._chunkText(text, CHUNK_SIZE).slice(0, MAX_CHUNKS_PER_DOC);
 
     // 3. Generate summary with one Haiku call
-    const summary = await this._generateSummary(text.slice(0, 3000), fileName);
+    const summary = await this._generateSummary(text.slice(0, 3000), fileName, churchId);
 
     // 4. Store in database
     const id = uuidv4();
@@ -100,7 +100,7 @@ class ChurchDocuments {
   /**
    * Extract text from images or PDFs using Claude Haiku vision.
    */
-  async _extractWithVision(base64Data, mimeType) {
+  async _extractWithVision(base64Data, mimeType, churchId) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
 
@@ -144,6 +144,7 @@ class ChurchDocuments {
       // Log AI usage
       if (this._logAiUsage && data.usage) {
         this._logAiUsage({
+          churchId,
           feature: 'document_extract',
           model: 'claude-haiku-4-5-20251001',
           inputTokens: data.usage.input_tokens,
@@ -161,7 +162,7 @@ class ChurchDocuments {
   /**
    * Generate a concise summary for the document.
    */
-  async _generateSummary(text, fileName) {
+  async _generateSummary(text, fileName, churchId) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return fileName; // Fallback to filename
 
@@ -190,6 +191,7 @@ class ChurchDocuments {
 
       if (this._logAiUsage && data.usage) {
         this._logAiUsage({
+          churchId,
           feature: 'document_summary',
           model: 'claude-haiku-4-5-20251001',
           inputTokens: data.usage.input_tokens,

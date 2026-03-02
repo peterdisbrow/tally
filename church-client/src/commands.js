@@ -1632,6 +1632,7 @@ async function mixerSetPan(agent, params) {
   if (pan == null) throw new Error('pan parameter required (-1.0 left to +1.0 right, 0 = center)');
   const panVal = parseFloat(pan);
   if (isNaN(panVal)) throw new Error('pan must be a number (-1.0 to +1.0)');
+  if (panVal < -1 || panVal > 1) throw new Error('pan out of range (-1.0 to +1.0)');
   await agent.mixer.setPan(channel, panVal);
   const label = panVal < -0.01 ? `${Math.round(panVal * 100)}% L` :
                 panVal > 0.01  ? `${Math.round(panVal * 100)}% R` : 'Center';
@@ -1665,8 +1666,19 @@ async function mixerSetSendLevel(agent, params) {
   if (channel == null) throw new Error('channel parameter required');
   if (bus == null) throw new Error('bus parameter required (1–16)');
   if (level == null) throw new Error('level parameter required (0.0–1.0)');
-  await agent.mixer.setSendLevel(channel, parseInt(bus), parseFloat(level));
-  return `Channel ${channel} → Bus ${bus} send level set to ${Math.round(parseFloat(level) * 100)}%`;
+
+  const busNum = Number(bus);
+  if (!Number.isInteger(busNum) || busNum < 1 || busNum > 16) {
+    throw new Error('bus must be an integer in range 1–16');
+  }
+
+  const levelNum = Number(level);
+  if (!Number.isFinite(levelNum) || levelNum < 0 || levelNum > 1) {
+    throw new Error('level must be a number in range 0.0–1.0');
+  }
+
+  await agent.mixer.setSendLevel(channel, busNum, levelNum);
+  return `Channel ${channel} → Bus ${busNum} send level set to ${Math.round(levelNum * 100)}%`;
 }
 
 async function mixerAssignToBus(agent, params) {
