@@ -485,6 +485,83 @@ function buildChurchPortalHtml(church) {
       color: #22c55e;
       word-break: break-all;
     }
+    /* ANALYTICS */
+    .analytics-range {
+      padding: 6px 14px;
+      font-size: 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .analytics-range.active {
+      background: rgba(34,197,94,0.15);
+      border-color: #22c55e;
+      color: #22c55e;
+    }
+    .a-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    .a-bar-label {
+      width: 100px;
+      text-align: right;
+      color: #94A3B8;
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .a-bar-track {
+      flex: 1;
+      height: 18px;
+      background: #09090B;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .a-bar-fill {
+      height: 100%;
+      background: #22c55e;
+      border-radius: 4px;
+      transition: width 0.4s ease;
+      min-width: 2px;
+    }
+    .a-bar-fill.yellow { background: #eab308; }
+    .a-bar-fill.red { background: #ef4444; }
+    .a-bar-value {
+      width: 50px;
+      color: #F8FAFC;
+      font-size: 12px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .a-metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .a-metric-item {
+      background: #09090B;
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .a-metric-val {
+      font-size: 20px;
+      font-weight: 700;
+      color: #22c55e;
+    }
+    .a-metric-lbl {
+      font-size: 11px;
+      color: #94A3B8;
+      margin-top: 2px;
+    }
+    @media (max-width: 640px) {
+      #analytics-kpi { grid-template-columns: repeat(2, 1fr) !important; }
+      .a-metric-grid { grid-template-columns: 1fr; }
+      .a-bar-label { width: 60px; font-size: 11px; }
+    }
     /* MODAL */
     .modal-backdrop {
       position: fixed; inset: 0;
@@ -567,6 +644,9 @@ function buildChurchPortalHtml(church) {
     <button class="nav-item" data-page="alerts" onclick="showPage('alerts',this)">
       <span class="icon">⊗</span> Alerts
     </button>
+    <button class="nav-item" data-page="analytics" onclick="showPage('analytics', this)">
+      <span class="icon">📊</span> Analytics
+    </button>
     <button class="nav-item" data-page="billing" onclick="showPage('billing', this)">
       <span class="icon">⊠</span> Billing
     </button>
@@ -644,9 +724,9 @@ function buildChurchPortalHtml(church) {
           </div>
         </div>
         <table>
-          <thead><tr><th>System</th><th>Status</th><th>Last Seen</th></tr></thead>
+          <thead><tr><th>System</th><th>Status</th><th>Version</th><th>Last Seen</th></tr></thead>
           <tbody id="equipment-tbody">
-            <tr><td colspan="3" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
+            <tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -1023,6 +1103,60 @@ function buildChurchPortalHtml(church) {
       </div>
     </div>
 
+    <!-- ANALYTICS -->
+    <div class="page" id="page-analytics">
+      <div class="page-header">
+        <div class="page-title">Analytics</div>
+        <div class="page-sub">Stream health, viewer trends, and equipment performance</div>
+      </div>
+
+      <div style="margin-bottom:20px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn-secondary analytics-range active" data-days="30" onclick="setAnalyticsRange(30, this)">Last 30 days</button>
+        <button class="btn-secondary analytics-range" data-days="90" onclick="setAnalyticsRange(90, this)">Last 90 days</button>
+        <button class="btn-secondary analytics-range" data-days="180" onclick="setAnalyticsRange(180, this)">Last 6 months</button>
+        <button class="btn-secondary analytics-range" data-days="365" onclick="setAnalyticsRange(365, this)">Last year</button>
+      </div>
+
+      <div class="stats-row" id="analytics-kpi" style="grid-template-columns:repeat(4,1fr)">
+        <div class="stat-card">
+          <div class="stat-value" id="a-uptime">\u2014</div>
+          <div class="stat-label">Stream Uptime</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="a-sessions-count">\u2014</div>
+          <div class="stat-label">Total Sessions</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="a-avg-viewers">\u2014</div>
+          <div class="stat-label">Avg Peak Viewers</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="a-recovery-rate">\u2014</div>
+          <div class="stat-label">Auto-Recovery Rate</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Stream Health & Reliability</div>
+        <div id="a-health-content" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Viewer Trends</div>
+        <div id="a-viewer-chart" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Session Duration & Frequency</div>
+        <div id="a-session-stats" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Equipment Performance</div>
+        <div id="a-equipment-content" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
+      </div>
+    </div>
+
     <!-- ALERTS -->
     <div class="page" id="page-alerts">
       <div class="page-header">
@@ -1235,6 +1369,7 @@ function buildChurchPortalHtml(church) {
       if (id === 'billing') loadBilling();
       if (id === 'notifications') loadNotifications();
       if (id === 'support') loadSupportInfo();
+      if (id === 'analytics') loadAnalytics();
     }
 
     // ── toast ──────────────────────────────────────────────────────────────────
@@ -1311,29 +1446,62 @@ function buildChurchPortalHtml(church) {
             ? ((encoderLive || obsStreaming) ? 'ok' : 'connected')
           : 'unknown';
         const audioLabel = 'Audio' + (audioViaAtem && audioPortLabel ? audioPortLabel : '');
+
+        // ── Version checking helpers ──────────────────────────────────────────
+        var MIN_VERS = {obs:'30.0',proPresenter:'7.14',vmix:'27.0',atem_protocol:'2.30',encoder_birddog:'6.0',encoder_teradek:'4.0',encoder_epiphan:'4.24',mixer_behringer:'4.0'};
+        function cmpVer(a,b){
+          if(!a||!b)return null;
+          var pa=String(a).split('.').map(Number),pb=String(b).split('.').map(Number);
+          for(var i=0;i<Math.max(pa.length,pb.length);i++){
+            var x=pa[i]||0,y=pb[i]||0;
+            if(x<y)return -1;if(x>y)return 1;
+          }
+          return 0;
+        }
+        function verInfo(ver,type){
+          if(!ver)return null;
+          var min=MIN_VERS[type];
+          var outdated=min?cmpVer(ver,min)<0:false;
+          return {text:'v'+ver,outdated:outdated};
+        }
+
+        // Extract version strings for each device
+        var atemVer = status.atem && status.atem.protocolVersion ? status.atem.protocolVersion : null;
+        var encVer = null, encVerType = null;
+        if (enc.type === 'obs' || (!enc.type && status.obs)) {
+          encVer = status.obs && status.obs.version; encVerType = 'obs';
+        } else if (enc.type === 'vmix') {
+          encVer = status.vmix && status.vmix.version; encVerType = 'vmix';
+        } else if (enc.type) {
+          encVer = enc.firmwareVersion; encVerType = 'encoder_' + enc.type;
+        }
+        var mixerVer = status.mixer && status.mixer.firmware ? status.mixer.firmware : null;
+        var mixerVerType = status.mixer && status.mixer.type ? 'mixer_' + status.mixer.type : null;
+
         const rows = [
-          ['ATEM Switcher', atemConnected ? 'connected' : 'unknown', status.atemLastSeen],
-          [encoderLabel, encoderStatus, null],
-          ['Stream', (encoderLive || obsStreaming) ? 'live' : 'offline', null],
-          [audioLabel, audioStatus, null],
-          ['A/V Sync', status.syncOk === false ? 'warning' : (status.syncOk ? 'ok' : 'unknown'), null],
+          ['ATEM Switcher', atemConnected ? 'connected' : 'unknown', verInfo(atemVer, 'atem_protocol'), status.atemLastSeen],
+          [encoderLabel, encoderStatus, verInfo(encVer, encVerType), null],
+          ['Stream', (encoderLive || obsStreaming) ? 'live' : 'offline', null, null],
+          [audioLabel, audioStatus, null, null],
+          ['A/V Sync', status.syncOk === false ? 'warning' : (status.syncOk ? 'ok' : 'unknown'), null, null],
         ];
         // Dynamic device rows — only show if the device exists in status
         const hd = status.hyperdeck || status.hyperDeck;
         if (hd) {
           const hdSt = hd.recording ? 'recording' : (hd.connected ? 'connected' : 'unknown');
-          rows.push(['HyperDeck', hdSt, hd.lastSeen || null]);
+          rows.push(['HyperDeck', hdSt, null, hd.lastSeen || null]);
         }
         if (Array.isArray(status.hyperdecks || status.hyperDecks)) {
           (status.hyperdecks || status.hyperDecks).forEach(function(deck, i) {
             const hdSt = deck.recording ? 'recording' : (deck.connected ? 'connected' : 'unknown');
-            rows.push(['HyperDeck ' + (i + 1), hdSt, deck.lastSeen || null]);
+            rows.push(['HyperDeck ' + (i + 1), hdSt, null, deck.lastSeen || null]);
           });
         }
         const pp = status.proPresenter || status.propresenter;
         if (pp) {
           const ppSt = pp.connected ? 'connected' : 'unknown';
-          rows.push(['ProPresenter', ppSt, pp.lastSeen || null]);
+          const ppVer = pp.version || null;
+          rows.push(['ProPresenter', ppSt, verInfo(ppVer, 'proPresenter'), pp.lastSeen || null]);
         }
         if (status.ptz || status.cameras) {
           const cams = status.cameras || (status.ptz ? [status.ptz] : []);
@@ -1341,13 +1509,13 @@ function buildChurchPortalHtml(church) {
             if (!cam) return;
             const camSt = cam.connected ? 'connected' : 'unknown';
             const camLabel = cam.name || ('PTZ Camera ' + (i + 1));
-            rows.push([camLabel, camSt, cam.lastSeen || null]);
+            rows.push([camLabel, camSt, null, cam.lastSeen || null]);
           });
         }
         if (status.mixer) {
           const mxSt = status.mixer.connected ? 'connected' : 'unknown';
           const mxName = status.mixer.name || 'Audio Mixer';
-          rows.push([mxName, mxSt, status.mixer.lastSeen || null]);
+          rows.push([mxName, mxSt, verInfo(mixerVer, mixerVerType), status.mixer.lastSeen || null]);
         }
 
         // Staleness indicator
@@ -1360,7 +1528,7 @@ function buildChurchPortalHtml(church) {
           stalenessEl.style.color = ago > 300 ? '#f59e0b' : '#475569';
         }
 
-        tbody.innerHTML = rows.map(([name, st, ts]) => {
+        tbody.innerHTML = rows.map(([name, st, ver, ts]) => {
           let badgeCls = 'badge-gray';
           let label = st;
           if (st === 'connected' || st === 'ok') badgeCls = 'badge-green';
@@ -1369,9 +1537,16 @@ function buildChurchPortalHtml(church) {
           else if (st === 'warning') badgeCls = 'badge-yellow';
           else if (st === 'muted') { badgeCls = 'badge-yellow'; label = '🔇 Muted'; }
           else if (st === 'offline') { badgeCls = 'badge-gray'; label = 'Offline'; }
+          var verHtml = '—';
+          if (ver) {
+            verHtml = ver.outdated
+              ? '<span style="color:#f59e0b">⚠️ ' + ver.text + '</span>'
+              : '<span style="color:#22c55e">' + ver.text + '</span>';
+          }
           return \`<tr>
             <td>\${name}</td>
             <td><span class="badge \${badgeCls}">\${label}</span></td>
+            <td style="font-size:12px">\${verHtml}</td>
             <td style="color:#475569;font-size:12px">\${ts ? new Date(ts).toLocaleTimeString() : '—'}</td>
           </tr>\`;
         }).join('');
@@ -3107,6 +3282,167 @@ function buildChurchPortalHtml(church) {
       return '<span style="color:#ef4444;font-weight:700">Outage</span>';
     }
 
+    // ── Analytics ───────────────────────────────────────────────────────────
+    var analyticsRange = 30;
+
+    function setAnalyticsRange(days, el) {
+      analyticsRange = days;
+      document.querySelectorAll('.analytics-range').forEach(function(b) { b.classList.remove('active'); });
+      el.classList.add('active');
+      loadAnalytics();
+    }
+
+    async function loadAnalytics() {
+      try {
+        var data = await api('GET', '/api/church/analytics?days=' + analyticsRange);
+        renderAnalyticsKPI(data);
+        renderStreamHealth(data);
+        renderViewerChart(data);
+        renderSessionStats(data);
+        renderEquipmentPerf(data);
+      } catch (e) {
+        document.getElementById('a-health-content').innerHTML =
+          '<p style="color:#ef4444">' + escapeHtml(e.message) + '</p>';
+      }
+    }
+
+    function renderAnalyticsKPI(d) {
+      var upEl = document.getElementById('a-uptime');
+      upEl.textContent = d.uptime_pct.toFixed(1) + '%';
+      upEl.style.color = d.uptime_pct >= 99 ? '#22c55e' : d.uptime_pct >= 95 ? '#eab308' : '#ef4444';
+      document.getElementById('a-sessions-count').textContent = d.total_sessions;
+      document.getElementById('a-avg-viewers').textContent =
+        d.avg_peak_viewers !== null ? Math.round(d.avg_peak_viewers) : '\\u2014';
+      document.getElementById('a-recovery-rate').textContent =
+        d.auto_recovery_rate !== null ? d.auto_recovery_rate.toFixed(0) + '%' : '\\u2014';
+      document.getElementById('a-recovery-rate').style.color =
+        d.auto_recovery_rate === null ? '#94A3B8' : d.auto_recovery_rate >= 80 ? '#22c55e' : d.auto_recovery_rate >= 50 ? '#eab308' : '#ef4444';
+    }
+
+    function renderStreamHealth(d) {
+      var el = document.getElementById('a-health-content');
+      if (!d.total_sessions) {
+        el.innerHTML = '<p style="color:#475569">No sessions in this period.</p>';
+        return;
+      }
+      var html = '<div class="a-metric-grid">';
+      html += aMetricBox(d.total_alerts, 'Total Alerts');
+      html += aMetricBox(d.auto_recovered_count, 'Auto-Recovered');
+      html += aMetricBox(d.escalated_count, 'Escalated');
+      html += aMetricBox(d.audio_silence_total, 'Audio Silence Events');
+      html += '</div>';
+
+      if (d.top_event_types && d.top_event_types.length) {
+        html += '<div style="margin-top:16px">';
+        html += '<div style="font-size:12px;color:#94A3B8;margin-bottom:8px;font-weight:600">Most Common Issues</div>';
+        var maxCount = d.top_event_types[0].count;
+        d.top_event_types.forEach(function(t) {
+          var pct = Math.round((t.count / maxCount) * 100);
+          var label = t.type.replace(/_/g, ' ');
+          html += '<div class="a-bar-row">';
+          html += '<div class="a-bar-label" title="' + escapeHtml(t.type) + '">' + escapeHtml(label) + '</div>';
+          html += '<div class="a-bar-track"><div class="a-bar-fill" style="width:' + pct + '%"></div></div>';
+          html += '<div class="a-bar-value">' + t.count + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      el.innerHTML = html;
+    }
+
+    function renderViewerChart(d) {
+      var el = document.getElementById('a-viewer-chart');
+      if (!d.viewer_trend || !d.viewer_trend.length) {
+        el.innerHTML = '<p style="color:#475569">No viewer data available.</p>';
+        return;
+      }
+      var maxV = Math.max.apply(null, d.viewer_trend.map(function(v) { return v.peak; }));
+      if (maxV === 0) maxV = 1;
+      var html = '';
+      d.viewer_trend.forEach(function(v) {
+        var pct = Math.round((v.peak / maxV) * 100);
+        html += '<div class="a-bar-row">';
+        html += '<div class="a-bar-label">' + escapeHtml(v.label) + '</div>';
+        html += '<div class="a-bar-track"><div class="a-bar-fill" style="width:' + pct + '%"></div></div>';
+        html += '<div class="a-bar-value">' + v.peak + '</div>';
+        html += '</div>';
+      });
+      el.innerHTML = html;
+    }
+
+    function renderSessionStats(d) {
+      var el = document.getElementById('a-session-stats');
+      if (!d.total_sessions) {
+        el.innerHTML = '<p style="color:#475569">No sessions in this period.</p>';
+        return;
+      }
+      var html = '<div class="a-metric-grid">';
+      html += aMetricBox(aFmtHours(d.total_stream_hours), 'Total Stream Hours');
+      html += aMetricBox(d.avg_session_minutes !== null ? d.avg_session_minutes + 'm' : '\\u2014', 'Avg Session Length');
+      html += aMetricBox(d.sessions_per_week !== null ? d.sessions_per_week.toFixed(1) : '\\u2014', 'Sessions / Week');
+      html += aMetricBox(d.stream_ran_pct !== null ? d.stream_ran_pct.toFixed(0) + '%' : '\\u2014', 'Sessions With Stream');
+      html += '</div>';
+
+      if (d.weekly_sessions && d.weekly_sessions.length) {
+        html += '<div style="margin-top:16px">';
+        html += '<div style="font-size:12px;color:#94A3B8;margin-bottom:8px;font-weight:600">Sessions Per Week</div>';
+        var maxW = Math.max.apply(null, d.weekly_sessions.map(function(w) { return w.count; }));
+        if (maxW === 0) maxW = 1;
+        d.weekly_sessions.forEach(function(w) {
+          var pct = Math.round((w.count / maxW) * 100);
+          html += '<div class="a-bar-row">';
+          html += '<div class="a-bar-label">' + escapeHtml(w.label) + '</div>';
+          html += '<div class="a-bar-track"><div class="a-bar-fill" style="width:' + pct + '%"></div></div>';
+          html += '<div class="a-bar-value">' + w.count + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      el.innerHTML = html;
+    }
+
+    function renderEquipmentPerf(d) {
+      var el = document.getElementById('a-equipment-content');
+      if (!d.equipment_disconnects || !d.equipment_disconnects.length) {
+        el.innerHTML = '<p style="color:#475569">No equipment disconnect data available.</p>';
+        return;
+      }
+      var maxC = d.equipment_disconnects[0].count;
+      if (maxC === 0) maxC = 1;
+      var html = '<div style="font-size:12px;color:#94A3B8;margin-bottom:8px;font-weight:600">Disconnects by Device</div>';
+      d.equipment_disconnects.forEach(function(eq) {
+        var pct = Math.round((eq.count / maxC) * 100);
+        var colorClass = eq.count >= 10 ? 'red' : eq.count >= 5 ? 'yellow' : '';
+        html += '<div class="a-bar-row">';
+        html += '<div class="a-bar-label" title="' + escapeHtml(eq.device) + '">' + escapeHtml(eq.device) + '</div>';
+        html += '<div class="a-bar-track"><div class="a-bar-fill ' + colorClass + '" style="width:' + pct + '%"></div></div>';
+        html += '<div class="a-bar-value">' + eq.count + '</div>';
+        html += '</div>';
+      });
+
+      if (d.equipment_auto_resolve_rates && d.equipment_auto_resolve_rates.length) {
+        html += '<div style="margin-top:16px;font-size:12px;color:#94A3B8;margin-bottom:8px;font-weight:600">Auto-Resolve Rate by Device</div>';
+        d.equipment_auto_resolve_rates.forEach(function(eq) {
+          var pct = Math.round(eq.rate);
+          var colorClass = pct >= 80 ? '' : pct >= 50 ? 'yellow' : 'red';
+          html += '<div class="a-bar-row">';
+          html += '<div class="a-bar-label">' + escapeHtml(eq.device) + '</div>';
+          html += '<div class="a-bar-track"><div class="a-bar-fill ' + colorClass + '" style="width:' + pct + '%"></div></div>';
+          html += '<div class="a-bar-value">' + pct + '%</div>';
+          html += '</div>';
+        });
+      }
+      el.innerHTML = html;
+    }
+
+    function aMetricBox(val, label) {
+      return '<div class="a-metric-item"><div class="a-metric-val">' + val + '</div><div class="a-metric-lbl">' + label + '</div></div>';
+    }
+    function aFmtHours(h) {
+      if (h === null || h === undefined) return '\\u2014';
+      return h < 1 ? Math.round(h * 60) + 'm' : h.toFixed(1) + 'h';
+    }
+
     // Client-side mirror of shared escapeHtml in src/auth.js
     // (inline because this runs in the browser, not Node)
     function escapeHtml(v) {
@@ -4615,6 +4951,161 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) {
       // alerts table may not exist yet
       res.json([]);
+    }
+  });
+
+  // ── GET /api/church/analytics ─────────────────────────────────────────────
+  app.get('/api/church/analytics', authMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 365);
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+
+      // ── Sessions aggregate ──────────────────────────────────────────
+      let sessAgg = {};
+      try {
+        sessAgg = db.prepare(`
+          SELECT
+            COUNT(*)                                 AS total_sessions,
+            COALESCE(SUM(duration_minutes), 0)       AS total_duration_min,
+            ROUND(AVG(duration_minutes), 0)          AS avg_session_minutes,
+            ROUND(AVG(peak_viewers), 0)              AS avg_peak_viewers,
+            COALESCE(SUM(alert_count), 0)            AS total_alerts,
+            COALESCE(SUM(auto_recovered_count), 0)   AS auto_recovered_count,
+            COALESCE(SUM(escalated_count), 0)        AS escalated_count,
+            COALESCE(SUM(audio_silence_count), 0)    AS audio_silence_total,
+            SUM(CASE WHEN stream_ran = 1 THEN 1 ELSE 0 END) AS stream_ran_count,
+            COALESCE(SUM(stream_runtime_minutes), 0) AS total_stream_minutes
+          FROM service_sessions
+          WHERE church_id = ? AND started_at >= ?
+        `).get(churchId, since) || {};
+      } catch { /* table may not exist yet */ }
+
+      const totalSessions = sessAgg.total_sessions || 0;
+      const totalAlerts = sessAgg.total_alerts || 0;
+      const autoRecovered = sessAgg.auto_recovered_count || 0;
+      const totalStreamMin = sessAgg.total_stream_minutes || 0;
+      const totalDurMin = sessAgg.total_duration_min || 0;
+
+      const uptimePct = totalDurMin > 0
+        ? Math.min(100, (totalStreamMin / totalDurMin) * 100)
+        : (totalSessions > 0 ? 100 : 0);
+
+      const autoRecoveryRate = totalAlerts > 0
+        ? (autoRecovered / totalAlerts) * 100
+        : null;
+
+      const weeksInRange = Math.max(1, days / 7);
+      const sessionsPerWeek = totalSessions / weeksInRange;
+
+      const streamRanPct = totalSessions > 0
+        ? ((sessAgg.stream_ran_count || 0) / totalSessions) * 100
+        : null;
+
+      // ── Viewer trend (by week) ──────────────────────────────────────
+      let viewerTrend = [];
+      try {
+        viewerTrend = db.prepare(`
+          SELECT
+            strftime('%Y-W%W', started_at) AS week_key,
+            MAX(peak_viewers)              AS peak
+          FROM service_sessions
+          WHERE church_id = ? AND started_at >= ? AND peak_viewers IS NOT NULL
+          GROUP BY week_key
+          ORDER BY week_key ASC
+        `).all(churchId, since).map(r => ({
+          label: r.week_key,
+          peak: r.peak || 0
+        }));
+      } catch {}
+
+      // ── Weekly session counts ───────────────────────────────────────
+      let weeklySessions = [];
+      try {
+        weeklySessions = db.prepare(`
+          SELECT
+            strftime('%Y-W%W', started_at) AS week_key,
+            COUNT(*)                        AS count
+          FROM service_sessions
+          WHERE church_id = ? AND started_at >= ?
+          GROUP BY week_key
+          ORDER BY week_key ASC
+        `).all(churchId, since).map(r => ({
+          label: r.week_key,
+          count: r.count
+        }));
+      } catch {}
+
+      // ── Top event types ─────────────────────────────────────────────
+      let topEventTypes = [];
+      try {
+        topEventTypes = db.prepare(`
+          SELECT event_type AS type, COUNT(*) AS count
+          FROM service_events
+          WHERE church_id = ? AND timestamp >= ?
+          GROUP BY event_type
+          ORDER BY count DESC
+          LIMIT 8
+        `).all(churchId, since);
+      } catch {}
+
+      // ── Equipment disconnects ───────────────────────────────────────
+      let equipDisconnects = [];
+      try {
+        equipDisconnects = db.prepare(`
+          SELECT
+            REPLACE(event_type, '_disconnected', '') AS device,
+            COUNT(*) AS count
+          FROM service_events
+          WHERE church_id = ? AND timestamp >= ?
+            AND event_type LIKE '%_disconnected'
+          GROUP BY event_type
+          ORDER BY count DESC
+        `).all(churchId, since);
+      } catch {}
+
+      // ── Equipment auto-resolve rates ────────────────────────────────
+      let equipAutoResolve = [];
+      try {
+        equipAutoResolve = db.prepare(`
+          SELECT
+            REPLACE(event_type, '_disconnected', '') AS device,
+            COUNT(*) AS total,
+            SUM(CASE WHEN auto_resolved = 1 THEN 1 ELSE 0 END) AS auto_count
+          FROM service_events
+          WHERE church_id = ? AND timestamp >= ?
+            AND event_type LIKE '%_disconnected'
+          GROUP BY event_type
+          ORDER BY total DESC
+        `).all(churchId, since).map(r => ({
+          device: r.device,
+          rate: r.total > 0 ? (r.auto_count / r.total) * 100 : 0
+        }));
+      } catch {}
+
+      res.json({
+        days,
+        total_sessions: totalSessions,
+        uptime_pct: Math.round(uptimePct * 10) / 10,
+        avg_peak_viewers: sessAgg.avg_peak_viewers ?? null,
+        auto_recovery_rate: autoRecoveryRate !== null ? Math.round(autoRecoveryRate * 10) / 10 : null,
+        total_alerts: totalAlerts,
+        auto_recovered_count: autoRecovered,
+        escalated_count: sessAgg.escalated_count || 0,
+        audio_silence_total: sessAgg.audio_silence_total || 0,
+        total_stream_hours: Math.round((totalStreamMin / 60) * 10) / 10,
+        avg_session_minutes: sessAgg.avg_session_minutes ?? null,
+        sessions_per_week: Math.round(sessionsPerWeek * 10) / 10,
+        stream_ran_pct: streamRanPct !== null ? Math.round(streamRanPct * 10) / 10 : null,
+        viewer_trend: viewerTrend,
+        weekly_sessions: weeklySessions,
+        top_event_types: topEventTypes,
+        equipment_disconnects: equipDisconnects,
+        equipment_auto_resolve_rates: equipAutoResolve,
+      });
+    } catch (e) {
+      log(`[Analytics] Error: ${e.message}`);
+      res.status(500).json({ error: 'Failed to load analytics' });
     }
   });
 
