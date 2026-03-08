@@ -10,6 +10,16 @@ const { isStreamActive, isRecordingActive } = require('./status-utils');
 const { smartParse } = require('./smart-parser');
 const { checkStreamSafety, checkWorkflowSafety, hasForceBypass } = require('./stream-guard');
 
+function isValidSlackWebhookUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    return parsed.protocol === 'https:' &&
+      (parsed.hostname === 'hooks.slack.com' || parsed.hostname.endsWith('.slack.com'));
+  } catch {
+    return false;
+  }
+}
+
 // ─── COMMAND PATTERNS (ported from parse-command.js + videohub + extras) ─────
 
 const patterns = [
@@ -1324,6 +1334,13 @@ class TallyBot {
   // ─── SLACK HANDLERS ───────────────────────────────────────────────────────
 
   async _handleSetSlack(church, chatId, webhookUrl) {
+    if (!isValidSlackWebhookUrl(webhookUrl)) {
+      return this.sendMessage(
+        chatId,
+        '❌ Invalid Slack webhook URL. It must be an `https://hooks.slack.com/...` URL.',
+        { parse_mode: 'Markdown' }
+      );
+    }
     try {
       this.db.prepare('UPDATE churches SET slack_webhook_url = ? WHERE churchId = ?')
         .run(webhookUrl, church.churchId);

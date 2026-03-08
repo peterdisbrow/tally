@@ -2307,8 +2307,8 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   // ── Session middleware ────────────────────────────────────────────────────
 
   function requireAdminSession(req, res, next) {
-    // Allow programmatic access via x-api-key or ADMIN_API_KEY query param
-    const apiKey = req.headers['x-api-key'] || req.query.apikey || req.query.key;
+    // Allow programmatic access via x-api-key header only.
+    const apiKey = req.headers['x-api-key'];
     if (apiKey && apiKey === (process.env.ADMIN_API_KEY || '')) return next();
 
     const payload = getSession(req);

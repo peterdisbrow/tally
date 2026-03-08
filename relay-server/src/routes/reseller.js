@@ -7,7 +7,7 @@
 module.exports = function setupResellerRoutes(app, ctx) {
   const { db, churches, requireAdmin, requireReseller, resellerSystem,
           hashPassword, safeErrorMessage, stmtInsert, stmtFindByName,
-          jwt, JWT_SECRET, buildResellerPortalHtml, log } = ctx;
+          jwt, JWT_SECRET, log } = ctx;
   const WebSocket = require('ws').WebSocket;
 
   // ─── ADMIN CRUD (requires admin JWT) ──────────────────────────────────────
@@ -151,23 +151,6 @@ module.exports = function setupResellerRoutes(app, ctx) {
     const branding = resellerSystem.getBranding(req.reseller.id);
     if (!branding) return res.status(404).json({ error: 'Reseller not found' });
     res.json(branding);
-  });
-
-  // GET /portal — white-labeled portal HTML
-  app.get('/portal', (req, res) => {
-    const key = req.query.key || req.headers['x-reseller-key'];
-    if (!key) {
-      return res.status(401).send('<html><body style="background:#0f1117;color:#e2e4ef;font-family:monospace;padding:40px"><h1>401 Unauthorized</h1><p>Add <code>?key=YOUR_RESELLER_KEY</code> to the URL.</p></body></html>');
-    }
-    const reseller = resellerSystem.getReseller(key);
-    if (!reseller) {
-      return res.status(403).send('<html><body style="background:#0f1117;color:#e2e4ef;font-family:monospace;padding:40px"><h1>403 Forbidden</h1><p>Invalid reseller key.</p></body></html>');
-    }
-    if (reseller.active === 0) {
-      return res.status(403).send('<html><body style="background:#0f1117;color:#e2e4ef;font-family:monospace;padding:40px"><h1>403 Forbidden</h1><p>Reseller account is inactive.</p></body></html>');
-    }
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(buildResellerPortalHtml(reseller));
   });
 
   app.get('/api/reseller/me', requireReseller, (req, res) => {

@@ -36,7 +36,7 @@ module.exports = function createAuthMiddleware(ctx) {
 
   /**
    * JWT-based admin auth middleware.
-   * Accepts: Authorization: Bearer <jwt>, x-admin-jwt header, or legacy x-api-key.
+   * Accepts: Authorization: Bearer <jwt> or x-admin-jwt header.
    * @param {...string} allowedRoles - If provided, only these roles are allowed. Empty = any admin role.
    */
   function requireAdminJwt(...allowedRoles) {
@@ -76,22 +76,12 @@ module.exports = function createAuthMiddleware(ctx) {
         }
       }
 
-      // 3. Legacy fallback: x-api-key or admin cookie → treat as super_admin
-      const key = resolveAdminKey(req);
-      if (safeCompareKey(key, ADMIN_API_KEY)) {
-        req.adminUser = { id: '_legacy_api_key', email: '', name: 'API Key', role: 'super_admin' };
-        if (allowedRoles.length > 0 && !allowedRoles.includes('super_admin')) {
-          return res.status(403).json({ error: 'Insufficient permissions' });
-        }
-        return next();
-      }
-
       return res.status(401).json({ error: 'unauthorized' });
     };
   }
 
   function requireAdmin(req, res, next) {
-    // Backward-compatible: accepts JWT or legacy API key
+    // Alias for JWT-based admin auth
     return requireAdminJwt()(req, res, next);
   }
 
