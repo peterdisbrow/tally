@@ -3,7 +3,6 @@
  * On the 1st of each month at 9 AM, generate and send a health report
  * for each church to their TDs + Andrew's ADMIN_CHAT_ID.
  *
- * Also exposes setupRoutes(app, requireAdmin) for GET /api/churches/:churchId/report
  */
 
 class MonthlyReport {
@@ -33,37 +32,6 @@ class MonthlyReport {
 
   stop() {
     if (this._timer) { clearInterval(this._timer); this._timer = null; }
-  }
-
-  /**
-   * Register REST endpoint for manual report generation.
-   * @param {import('express').Application} app
-   * @param {function} requireAdmin - middleware
-   */
-  setupRoutes(app, requireAdmin) {
-    app.get('/api/churches/:churchId/report', requireAdmin, (req, res) => {
-      const { churchId } = req.params;
-      let { month } = req.query;
-
-      if (!month) {
-        // Default to previous month
-        const d = new Date();
-        d.setMonth(d.getMonth() - 1);
-        month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      }
-
-      if (!/^\d{4}-\d{2}$/.test(month)) {
-        return res.status(400).json({ error: 'month must be in YYYY-MM format' });
-      }
-
-      try {
-        const report = this.generate(churchId, month);
-        if (!report) return res.status(404).json({ error: 'Church not found' });
-        res.json({ churchId, month, report });
-      } catch (e) {
-        res.status(500).json({ error: e.message });
-      }
-    });
   }
 
   // ─── REPORT GENERATION ────────────────────────────────────────────────────
