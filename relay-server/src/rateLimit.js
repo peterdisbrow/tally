@@ -19,8 +19,8 @@ function startLocalCleanup() {
 }
 
 function resolveClientIp(req) {
-  const forwarded = String(req.headers?.['x-forwarded-for'] || '').split(',').map((v) => v.trim()).filter(Boolean);
-  if (forwarded.length > 0) return forwarded[0];
+  // Use req.ip which respects Express trust proxy setting.
+  // Falls back to socket address if req.ip is unavailable.
   return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 

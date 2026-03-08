@@ -4,6 +4,8 @@
  * buildResellerPortalHtml(r) → White-labeled reseller portal HTML
  */
 
+const { escapeHtml } = require('./escapeHtml');
+
 // ─── Shared card/grid CSS + JS helpers ────────────────────────────────────────
 
 const SHARED_STYLES = `
@@ -502,7 +504,7 @@ function buildResellerPortalHtml(reseller) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${brandName} — Church Monitor</title>
+<title>${escapeHtml(brandName)} — Church Monitor</title>
 <style>
 ${SHARED_STYLES}
 ${colorOverride}
@@ -512,8 +514,8 @@ ${colorOverride}
 
 <header>
   <div class="logo">
-    ${logoUrl ? `<img src="${logoUrl}" alt="${brandName}" style="height:32px;vertical-align:middle;margin-right:8px;">` : '⛪'}
-    <span style="color:var(--accent)">${brandName}</span>
+    ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(brandName)}" style="height:32px;vertical-align:middle;margin-right:8px;">` : '⛪'}
+    <span style="color:var(--accent)">${escapeHtml(brandName)}</span>
   </div>
   <div class="status-bar">
     <div class="sse-dot" id="sseDot"></div>

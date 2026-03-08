@@ -8,7 +8,7 @@ module.exports = function setupSessionRoutes(app, ctx) {
   const { db, churches, requireAdmin, requireFeature, stmtGet,
           scheduleEngine, alertEngine, weeklyDigest, sessionRecap,
           monthlyReport, safeErrorMessage, logAiUsage, isOnTopic,
-          OFF_TOPIC_RESPONSE, log } = ctx;
+          OFF_TOPIC_RESPONSE, rateLimit, log } = ctx;
 
   // ─── SCHEDULE ────────────────────────────────────────────────────────────────
 
@@ -67,7 +67,7 @@ module.exports = function setupSessionRoutes(app, ctx) {
 
   // ─── AI CHAT (Dashboard panel) ───────────────────────────────────────────────
 
-  app.post('/api/chat', requireAdmin, async (req, res) => {
+  app.post('/api/chat', requireAdmin, rateLimit(30, 60_000), async (req, res) => {
     const { message, churchStates, history = [] } = req.body || {};
     if (!message || typeof message !== 'string') return res.status(400).json({ error: 'message (string) required' });
 
@@ -130,7 +130,7 @@ module.exports = function setupSessionRoutes(app, ctx) {
       res.json({ reply });
     } catch (err) {
       console.error(`[Dashboard Chat] Error: ${err.message}`);
-      res.status(503).json({ error: `AI unavailable: ${err.message}` });
+      res.status(503).json({ error: safeErrorMessage(err, 'AI unavailable') });
     }
   });
 

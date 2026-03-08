@@ -73,9 +73,9 @@ module.exports = function setupResellerRoutes(app, ctx) {
     try { db.exec('ALTER TABLE resellers ADD COLUMN portal_email TEXT'); } catch { /* exists */ }
     if (email) {
       const cleanEmail = email.trim().toLowerCase();
-      db.prepare('UPDATE resellers SET portal_password_hash = ?, portal_password = ?, portal_email = ? WHERE id = ?').run(hashed, hashed, cleanEmail, req.params.resellerId);
+      db.prepare('UPDATE resellers SET portal_password_hash = ?, portal_email = ? WHERE id = ?').run(hashed, cleanEmail, req.params.resellerId);
     } else {
-      db.prepare('UPDATE resellers SET portal_password_hash = ?, portal_password = ? WHERE id = ?').run(hashed, hashed, req.params.resellerId);
+      db.prepare('UPDATE resellers SET portal_password_hash = ? WHERE id = ?').run(hashed, req.params.resellerId);
     }
     res.json({ updated: true });
   });

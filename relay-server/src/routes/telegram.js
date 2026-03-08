@@ -11,7 +11,8 @@ module.exports = function setupTelegramRoutes(app, ctx) {
   // Receive Telegram webhook updates
   app.post('/api/telegram-webhook', (req, res) => {
     const providedSecret = req.headers['x-telegram-bot-api-secret-token'] || '';
-    if (TALLY_BOT_WEBHOOK_SECRET && providedSecret !== TALLY_BOT_WEBHOOK_SECRET) {
+    const requireSecret = process.env.NODE_ENV === 'production' || !!TALLY_BOT_WEBHOOK_SECRET;
+    if (requireSecret && (!providedSecret || providedSecret !== TALLY_BOT_WEBHOOK_SECRET)) {
       return res.status(401).json({ error: 'Unauthorized webhook secret' });
     }
     res.sendStatus(200); // Respond immediately to Telegram

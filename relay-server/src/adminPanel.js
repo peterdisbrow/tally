@@ -8,6 +8,11 @@ const { WebSocket } = require('ws');
 const COOKIE_NAME = 'tally_session';
 const COOKIE_MAX_AGE = 28800; // 8 hours in seconds
 
+function safeErrorMessage(err, fallback = 'Internal server error') {
+  if (process.env.NODE_ENV === 'production') return fallback;
+  return err?.message || fallback;
+}
+
 // ─── SESSION HELPERS ──────────────────────────────────────────────────────────
 
 function signSession(payload) {
@@ -2421,7 +2426,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         event_expires_at: null, event_label: null, reseller_id: resellerId || null,
       });
       res.json({ churchId, name, token, registeredAt });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
   app.put('/api/admin/churches/:id', requireAdminSession, (req, res) => {
@@ -2463,7 +2468,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       const church = churches.get(id);
       if (church) church.token = token;
       res.json({ token });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
   app.delete('/api/admin/churches/:id', requireAdminSession, (req, res) => {
@@ -2496,7 +2501,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       const vals = [...fields.map(f => patch[f]), id];
       db.prepare(`UPDATE resellers SET ${setClauses} WHERE id=?`).run(...vals);
       res.json({ updated: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
   app.post('/api/admin/resellers/:id/password', requireAdminSession, (req, res) => {
@@ -2565,7 +2570,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         .run(new Date().toISOString(), ackBy, id);
       res.json({ acknowledged: true });
     } catch(e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -2781,7 +2786,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     try {
       const stats = resellerSystem.getResellerStats(req.reseller.id, churches);
       res.json(stats);
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
   // Portal account update — uses cookie auth, no API key needed in client-side JS
@@ -2799,7 +2804,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       const vals = [...fields.map(f => patch[f]), req.reseller.id];
       db.prepare(`UPDATE resellers SET ${setClauses} WHERE id=?`).run(...vals);
       res.json({ updated: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 }
 

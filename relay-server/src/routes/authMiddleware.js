@@ -98,8 +98,8 @@ module.exports = function createAuthMiddleware(ctx) {
   function requireReseller(req, res, next) {
     const key = req.headers['x-reseller-key'];
     if (!key) return res.status(401).json({ error: 'Reseller API key required' });
-    const reseller = db.prepare('SELECT * FROM resellers WHERE api_key = ?').get(key);
-    if (!reseller) return res.status(403).json({ error: 'Invalid reseller key' });
+    const reseller = db.prepare('SELECT * FROM resellers WHERE api_key = ? AND active = 1').get(key);
+    if (!reseller) return res.status(403).json({ error: 'Invalid or deactivated reseller key' });
     req.reseller = reseller;
     next();
   }

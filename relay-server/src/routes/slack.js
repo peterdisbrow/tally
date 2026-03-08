@@ -5,7 +5,7 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupSlackRoutes(app, ctx) {
-  const { db, churches, requireAdmin, alertEngine, stmtGet, safeErrorMessage, log } = ctx;
+  const { db, churches, requireAdmin, alertEngine, stmtGet, safeErrorMessage, log, isValidSlackWebhookUrl } = ctx;
 
   // Get Slack config for a church (masked webhook for security)
   app.get('/api/churches/:churchId/slack', requireAdmin, (req, res) => {
@@ -26,6 +26,9 @@ module.exports = function setupSlackRoutes(app, ctx) {
     if (!church) return res.status(404).json({ error: 'Church not found' });
     const { webhookUrl, channel } = req.body;
     if (!webhookUrl) return res.status(400).json({ error: 'webhookUrl required' });
+    if (isValidSlackWebhookUrl && !isValidSlackWebhookUrl(webhookUrl)) {
+      return res.status(400).json({ error: 'Invalid Slack webhook URL. Must be an https:// URL on hooks.slack.com.' });
+    }
     db.prepare('UPDATE churches SET slack_webhook_url = ?, slack_channel = ? WHERE churchId = ?')
       .run(webhookUrl, channel || null, req.params.churchId);
     log(`Slack configured for church ${church.name}`);

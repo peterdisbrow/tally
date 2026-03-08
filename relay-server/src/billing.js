@@ -846,8 +846,8 @@ class BillingSystem {
       return;
     }
 
-    // Monthly price in cents for the referrer's plan
-    const TIER_MONTHLY_CENTS = { connect: 4900, plus: 9900, pro: 14900, managed: 49900 };
+    // Fixed referral credit amount — same for all tiers to prevent abuse
+    const REFERRAL_CREDIT_CENTS = 4900; // $49 credit regardless of tier
 
     // Get referrer's billing info
     const referrerBilling = this.db.prepare(
@@ -859,7 +859,7 @@ class BillingSystem {
       return;
     }
 
-    const creditAmountCents = TIER_MONTHLY_CENTS[referrerBilling.tier] || TIER_MONTHLY_CENTS.connect;
+    const creditAmountCents = REFERRAL_CREDIT_CENTS;
     const now = new Date().toISOString();
 
     try {

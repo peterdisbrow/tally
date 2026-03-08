@@ -74,7 +74,7 @@ class GuestTdMode {
       weekday: 'long', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
     });
 
-    console.log(`[GuestTdMode] Generated token ${token} for ${churchName}`);
+    console.log(`[GuestTdMode] Generated token ${token.slice(0, 4)}**** for ${churchName}`);
     return { token, expiresAt: expiresAt.toISOString(), expiresFormatted };
   }
 
@@ -148,7 +148,7 @@ class GuestTdMode {
   revokeToken(token) {
     const result = this.db.prepare(`DELETE FROM guest_tokens WHERE token = ?`).run(token);
     const revoked = result.changes > 0;
-    if (revoked) console.log(`[GuestTdMode] Revoked token ${token}`);
+    if (revoked) console.log(`[GuestTdMode] Revoked token ${token.slice(0, 4)}****`);
     return { revoked, token };
   }
 

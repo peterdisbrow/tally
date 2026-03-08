@@ -7,7 +7,7 @@
 module.exports = function setupAdminChurchRoutes(app, ctx) {
   const { db, churches, requireAdmin, stmtGet, stmtDelete,
           billing, normalizeBillingInterval, messageQueues,
-          BILLING_TIERS, BILLING_STATUSES, log } = ctx;
+          BILLING_TIERS, BILLING_STATUSES, safeErrorMessage, log } = ctx;
   const WebSocket = require('ws').WebSocket;
 
   // ─── Helper: cascade-delete all church data ──────────────────────────────────
@@ -130,7 +130,7 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
       deleteChurchCascade(churchId);
     } catch (e) {
       console.error(`[DeleteChurch] Failed for ${churchId}:`, e.message);
-      return res.status(500).json({ error: 'Failed to delete church', details: e.message });
+      return res.status(500).json({ error: safeErrorMessage(e, 'Failed to delete church') });
     }
     churches.delete(churchId);
     messageQueues.delete(churchId);

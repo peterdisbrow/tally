@@ -22,6 +22,7 @@
 const crypto = require('crypto');
 const jwt    = require('jsonwebtoken');
 const { createRateLimit } = require('./rateLimit');
+const { escapeHtml } = require('./escapeHtml');
 
 // ─── password helpers ──────────────────────────────────────────────────────────
 
@@ -586,7 +587,7 @@ function buildResellerPortalHtml(reseller) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${brandName} — Partner Portal</title>
+  <title>${escapeHtml(brandName)} — Partner Portal</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root { --accent: ${accent}; --accent-dim: ${accent}22; --accent-border: ${accent}44; }
@@ -768,7 +769,7 @@ function buildResellerPortalHtml(reseller) {
     <div class="sidebar-logo">
       <div class="sidebar-dot"></div>
       <div>
-        <div class="sidebar-brand" id="sidebar-brand">${brandName}</div>
+        <div class="sidebar-brand" id="sidebar-brand">${escapeHtml(brandName)}</div>
         <div class="sidebar-sub">Partner Portal</div>
       </div>
     </div>
@@ -794,7 +795,7 @@ function buildResellerPortalHtml(reseller) {
     <!-- DASHBOARD -->
     <div class="page active" id="page-dashboard">
       <div class="page-header">
-        <div class="page-title" id="dash-brand">${brandName}</div>
+        <div class="page-title" id="dash-brand">${escapeHtml(brandName)}</div>
         <div class="page-sub">Partner overview</div>
       </div>
       <div class="stats-row">
@@ -883,7 +884,7 @@ function buildResellerPortalHtml(reseller) {
         <div class="card-title">Live Preview</div>
         <div style="display:flex;align-items:center;gap:10px;padding:16px;background:#09090B;border-radius:8px">
           <div id="preview-dot" style="width:10px;height:10px;border-radius:50%;background:${accent};box-shadow:0 0 8px ${accent}"></div>
-          <span id="preview-brand" style="font-size:16px;font-weight:700">${brandName}</span>
+          <span id="preview-brand" style="font-size:16px;font-weight:700">${escapeHtml(brandName)}</span>
           <span style="font-size:12px;color:#94A3B8;margin-left:auto">Powered by Tally</span>
         </div>
       </div>
@@ -1385,10 +1386,17 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
 
   // ── PUT /api/reseller-portal/me ───────────────────────────────────────────────
   app.put('/api/reseller-portal/me', authMiddleware, (req, res) => {
-    const { brand_name, support_email, logo_url, primary_color, custom_domain, webhook_url, newPassword } = req.body;
+    const { brand_name, support_email, logo_url, primary_color, custom_domain, webhook_url, newPassword, currentPassword } = req.body;
     const resellerId = req.reseller.id;
 
     if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Current password is required to set a new password' });
+      }
+      const reseller = db.prepare('SELECT portal_password_hash FROM resellers WHERE id = ?').get(resellerId);
+      if (!reseller?.portal_password_hash || !verifyPassword(currentPassword, reseller.portal_password_hash)) {
+        return res.status(400).json({ error: 'Current password is incorrect' });
+      }
       if (newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
       db.prepare('UPDATE resellers SET portal_password_hash = ? WHERE id = ?').run(hashPassword(newPassword), resellerId);
     }

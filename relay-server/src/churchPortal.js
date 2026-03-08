@@ -33,6 +33,12 @@ const log = createLogger('portal');
 const { hashPassword, verifyPassword, generateRegistrationCode: _genRegCode } = require('./auth');
 const { createRateLimit } = require('./rateLimit');
 const { isStreamActive, isRecordingActive } = require('./status-utils');
+const { escapeHtml } = require('./escapeHtml');
+
+function safeErrorMessage(err, fallback = 'Internal server error') {
+  if (process.env.NODE_ENV === 'production') return fallback;
+  return err?.message || fallback;
+}
 
 // ─── JWT helpers ───────────────────────────────────────────────────────────────
 
@@ -211,7 +217,7 @@ function buildChurchPortalHtml(church) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${name} — Tally Portal</title>
+  <title>${escapeHtml(name)} — Tally Portal</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -612,7 +618,7 @@ function buildChurchPortalHtml(church) {
       <div class="sidebar-dot"></div>
       <div>
         <div class="sidebar-brand">Tally</div>
-        <div class="sidebar-church" id="sidebar-church-name">${name}</div>
+        <div class="sidebar-church" id="sidebar-church-name">${escapeHtml(name)}</div>
       </div>
     </div>
     <button class="nav-item active" data-page="overview" onclick="showPage('overview', this)">
@@ -666,7 +672,7 @@ function buildChurchPortalHtml(church) {
     <!-- OVERVIEW -->
     <div class="page active" id="page-overview">
       <div class="page-header">
-        <div class="page-title" id="overview-church-name">${name}</div>
+        <div class="page-title" id="overview-church-name">${escapeHtml(name)}</div>
         <div class="page-sub">Church monitoring portal</div>
       </div>
 
@@ -3996,6 +4002,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     },
   });
 
+  const billingRateLimit = createRateLimit({ scope: 'church_billing', maxAttempts: 3, windowMs: 60_000 });
+
   // ── Schema ──────────────────────────────────────────────────────────────────
   const migrations = [
     "ALTER TABLE churches ADD COLUMN portal_email TEXT",
@@ -4311,7 +4319,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         campuses,
       });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -4391,7 +4399,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         registeredAt,
       });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -4413,7 +4421,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       db.prepare('DELETE FROM churches WHERE churchId = ?').run(campusId);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -4436,7 +4444,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       if (!row) return res.json({ status: null, message: 'No reports yet' });
       res.json(row);
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -4450,7 +4458,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       if (!row) return res.json(null);
       res.json(row);
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -4463,7 +4471,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       if (!result) return res.json({ result: null, message: 'Client offline or no response' });
       res.json({ result });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -4529,7 +4537,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       res.json({ results });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -4541,7 +4549,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const data = weeklyDigest.getChurchDigest(req.church.churchId);
       res.json(data);
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -4569,7 +4577,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       res.json({ active: true, ...session, events });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -4610,7 +4618,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const runtime = churches.get(targetId);
       if (runtime) runtime.schedule = req.body;
       res.json({ ok: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
+    } catch(e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
   // ── GET /api/church/tds ───────────────────────────────────────────────────────
@@ -4727,7 +4735,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── POST /api/church/billing/upgrade ──────────────────────────────────────────
   // Upgrades the church's Stripe subscription to a new tier.
-  app.post('/api/church/billing/upgrade', authMiddleware, async (req, res) => {
+  app.post('/api/church/billing/upgrade', authMiddleware, billingRateLimit, async (req, res) => {
     try {
       const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
       if (!STRIPE_KEY) return res.status(503).json({ error: 'Stripe not configured' });
@@ -4800,13 +4808,13 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.json({ success: true, tier: newTier, message: 'Plan upgraded to ' + newTier });
     } catch (e) {
       log.error('Billing upgrade: ' + e.message);
-      res.status(500).json({ error: 'Upgrade failed: ' + e.message });
+      res.status(500).json({ error: safeErrorMessage(e, 'Upgrade failed') });
     }
   });
 
   // ── POST /api/church/billing/reactivate ─────────────────────────────────────
   // Reactivation path for cancelled/expired/inactive churches.
-  app.post('/api/church/billing/reactivate', authMiddleware, async (req, res) => {
+  app.post('/api/church/billing/reactivate', authMiddleware, billingRateLimit, async (req, res) => {
     try {
       const church = req.church;
       const { tier, billingInterval } = req.body || {};
@@ -4822,13 +4830,13 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.json(result);
     } catch (e) {
       log.error('Billing reactivate: ' + e.message);
-      res.status(400).json({ error: e.message });
+      res.status(400).json({ error: safeErrorMessage(e) });
     }
   });
 
   // ── POST /api/church/billing/downgrade ─────────────────────────────────────
   // Downgrade to a lower tier (same billing interval).
-  app.post('/api/church/billing/downgrade', authMiddleware, async (req, res) => {
+  app.post('/api/church/billing/downgrade', authMiddleware, billingRateLimit, async (req, res) => {
     try {
       const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
       if (!STRIPE_KEY) return res.status(503).json({ error: 'Stripe not configured' });
@@ -4883,9 +4891,11 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         proration_behavior: 'none',
       });
 
-      const now = new Date().toISOString();
-      db.prepare('UPDATE churches SET billing_tier = ? WHERE churchId = ?').run(newTier, church.churchId);
-      db.prepare('UPDATE billing_customers SET tier = ?, updated_at = ? WHERE church_id = ?').run(newTier, now, church.churchId);
+      // Don't update local tier immediately — let the Stripe webhook handle it
+      // when the subscription change takes effect at end of billing period.
+      // db.prepare('UPDATE churches SET billing_tier = ? WHERE churchId = ?').run(newTier, church.churchId);
+      // db.prepare('UPDATE billing_customers SET tier = ?, updated_at = ? WHERE church_id = ?').run(newTier, now, church.churchId);
+      log.info(`[Billing] Downgrade scheduled for ${church.churchId}: ${currentTier} → ${newTier} (takes effect at period end)`);
 
       log.info('Downgraded church ' + church.churchId + ' from ' + currentTier + ' to ' + newTier);
 
@@ -4897,7 +4907,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.json({ success: true, tier: newTier, message: 'Plan downgraded to ' + newTier + '. Change takes effect at end of current billing period.' });
     } catch (e) {
       log.error('Billing downgrade: ' + e.message);
-      res.status(500).json({ error: 'Downgrade failed: ' + e.message });
+      res.status(500).json({ error: safeErrorMessage(e, 'Downgrade failed') });
     }
   });
 
@@ -4988,7 +4998,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.json(exportData);
     } catch (e) {
       log.error('DataExport: ' + e.message);
-      res.status(500).json({ error: 'Export failed: ' + e.message });
+      res.status(500).json({ error: safeErrorMessage(e, 'Export failed') });
     }
   });
 
@@ -5063,7 +5073,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.json({ deleted: true, message: 'Your account and all associated data have been permanently deleted.' });
     } catch (e) {
       log.error('GDPR delete: ' + e.message);
-      res.status(500).json({ error: 'Deletion failed: ' + e.message });
+      res.status(500).json({ error: safeErrorMessage(e, 'Deletion failed') });
     }
   });
 
@@ -5107,7 +5117,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const eligible = isReviewEligible(req.church.churchId);
       res.json({ hasReview: false, eligible });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -5170,7 +5180,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       ).all();
       res.json({ reviews });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -5182,7 +5192,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       log.info('Approved review ' + req.params.id);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -5194,7 +5204,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       db.prepare('UPDATE church_reviews SET featured = ? WHERE id = ?').run(newVal, req.params.id);
       res.json({ ok: true, featured: newVal });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -5205,7 +5215,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       log.info('Deleted review ' + req.params.id);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -5241,7 +5251,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         creditsRemaining: Math.max(0, maxCredits - totalCredited),
       });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -5445,7 +5455,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       }
       res.json(rows);
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -5467,7 +5477,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       try { diagnostics = JSON.parse(ticket.diagnostics_json || '{}'); } catch {}
       res.json({ ...ticket, diagnostics, updates });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -5579,7 +5589,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         createdAt: nowIso,
       });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -5628,7 +5638,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       res.status(201).json({ ticketId, status: 'open', createdAt: nowIso });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -5655,7 +5665,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       res.json({ ok: true, ticketId: ticket.id, status, updatedAt: nowIso });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 

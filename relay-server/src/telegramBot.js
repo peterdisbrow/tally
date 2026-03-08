@@ -590,7 +590,7 @@ class TallyBot {
         return this.sendMessage(chatId, '❌ Church not found for this token.');
       }
 
-      console.log(`[TallyBot] Guest registered: ${name} → ${church.name} (token: ${code})`);
+      console.log(`[TallyBot] Guest registered: ${name} → ${church.name} (token: ${code.slice(0, 4)}****)`);
       return this.sendMessage(chatId,
         `✅ Welcome, *${name}*!\n\nYou have *guest access* for *${church.name}*.\n\n${result.message}\n\nType \`help\` to see available commands.`,
         { parse_mode: 'Markdown' }

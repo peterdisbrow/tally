@@ -6,11 +6,11 @@
  */
 module.exports = function setupChatRoutes(app, ctx) {
   const { db, chatEngine, requireAdmin, requireChurchAppAuth,
-          handleChatCommandMessage, log } = ctx;
+          handleChatCommandMessage, rateLimit, log } = ctx;
 
   // Church-facing: TD sends a chat message from Electron app
   // Supports optional `attachment` field: { data: "base64...", mimeType: "image/jpeg", fileName: "patch.jpg" }
-  app.post('/api/church/chat', requireChurchAppAuth, (req, res) => {
+  app.post('/api/church/chat', requireChurchAppAuth, rateLimit(20, 60_000), (req, res) => {
     const { message, senderName, attachment } = req.body;
     // Allow empty message if there's an attachment
     if ((!message || !message.trim()) && !attachment?.data) {
@@ -45,7 +45,7 @@ module.exports = function setupChatRoutes(app, ctx) {
   });
 
   // Admin-facing: Admin sends a chat message
-  app.post('/api/churches/:churchId/chat', requireAdmin, (req, res) => {
+  app.post('/api/churches/:churchId/chat', requireAdmin, rateLimit(30, 60_000), (req, res) => {
     const churchRow = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(req.params.churchId);
     if (!churchRow) return res.status(404).json({ error: 'Church not found' });
     const { message, senderName } = req.body;

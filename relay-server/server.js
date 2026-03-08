@@ -25,6 +25,7 @@ const Database = require('better-sqlite3');
 const cookieParser = require('cookie-parser');
 
 const app = express();
+app.set('trust proxy', 1); // Railway runs behind a single reverse proxy
 
 // ─── SECURITY HEADERS ────────────────────────────────────────────────────────
 app.use(helmet({
@@ -97,6 +98,7 @@ const { setupStatusPage } = require('./src/statusPage');
 const { setupDocsPortal } = require('./src/docsPortal');
 const { setupHowToPortal } = require('./src/howToPortal');
 const { hasStreamSignal, isStreamActive, isRecordingActive } = require('./src/status-utils');
+const { escapeHtml } = require('./src/escapeHtml');
 const { createBackupSnapshot } = require('./src/dbBackup');
 const { createRateLimit, consumeRateLimit, logRateLimitStatus } = require('./src/rateLimit');
 const relayPackage = require('./package.json');
@@ -121,13 +123,25 @@ const ADMIN_UI_URL = (process.env.ADMIN_UI_URL || `${APP_URL.replace(/\/$/, '')}
 
 if (process.env.NODE_ENV === 'production') {
   if (process.env.ADMIN_API_KEY === undefined || process.env.JWT_SECRET === undefined) {
-    throw new Error('ADMIN_API_KEY and JWT_SECRET are required in production. Set both in environment variables.');
+    throw new Error('ADMIN_API_KEY and JWT_SECRET are required in production.');
+  }
+  if (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secret-change-me') {
+    throw new Error('Default development credentials detected in production! Change ADMIN_API_KEY and JWT_SECRET to secure values.');
+  }
+  if (!process.env.SESSION_SECRET) {
+    console.warn('[Security] ⚠️  SESSION_SECRET not set — using fallback. Set SESSION_SECRET env var for production security.');
   }
 }
 if (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secret-change-me') {
   console.warn('\n⚠️  WARNING: Using default dev keys! Set ADMIN_API_KEY and JWT_SECRET env vars for production.\n');
 }
 const DB_PATH       = process.env.DATABASE_PATH || './data/churches.db';
+
+// ─── CONNECTION LIMITS ───────────────────────────────────────────────────────
+const wsConnectionsByIp = new Map(); // IP -> count
+const MAX_WS_CONNECTIONS_PER_IP = 5;
+const MAX_CONTROLLERS = 20;
+const MAX_SSE_CLIENTS = 50;
 
 // ─── TIMER COORDINATION ─────────────────────────────────────────────────────
 // Track all setInterval IDs so graceful shutdown can clear them, preventing
@@ -194,6 +208,17 @@ function safeCompareKey(untrusted, trusted) {
   return crypto.timingSafeEqual(a, b);
 }
 
+// ─── SLACK WEBHOOK URL VALIDATION ────────────────────────────────────────────
+// Prevents SSRF by ensuring webhook URLs point to legitimate Slack endpoints.
+
+function isValidSlackWebhookUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' &&
+           (parsed.hostname === 'hooks.slack.com' || parsed.hostname.endsWith('.slack.com'));
+  } catch { return false; }
+}
+
 // ─── ERROR DETAIL MASKING ────────────────────────────────────────────────────
 // In production, internal error details are replaced with a generic message to
 // avoid leaking stack traces or implementation details to clients.
@@ -249,7 +274,7 @@ function buildConnectionEmailHtml({ churchName, registrationCode, portalUrl }) {
         <strong style="font-size: 16px; color: #111;">Tally</strong>
       </div>
 
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Tally is live at ${churchName}!</h1>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Tally is live at ${escapeHtml(churchName)}!</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6; margin: 0 0 24px;">
         Your booth computer just connected to Tally. You're now being monitored in real-time.
       </p>
@@ -2510,7 +2535,7 @@ function resolveAdminKey(req) {
 function setAdminSession(res, key) {
   res.cookie(ADMIN_SESSION_COOKIE, key, {
     httpOnly: true,
-    sameSite: 'Lax',
+    sameSite: 'Strict',
     secure: process.env.NODE_ENV === 'production',
     maxAge: ADMIN_SESSION_TTL_MS,
   });
@@ -2524,6 +2549,10 @@ app.get(['/dashboard', '/dashboard/*'], (req, res) => {
 // ─── SSE Dashboard Stream ─────────────────────────────────────────────────────
 
 app.get('/api/dashboard/stream', (req, res) => {
+  if (sseClients.size >= MAX_SSE_CLIENTS) {
+    return res.status(503).json({ error: 'Maximum SSE connections reached' });
+  }
+
   const key         = resolveAdminKey(req);
   const resellerKey = req.query.resellerKey || req.headers['x-reseller-key'];
 
@@ -2622,7 +2651,7 @@ wss.on('connection', (ws, req) => {
   if (role === 'church') {
     handleChurchConnection(ws, url, clientIp);
   } else if (role === 'controller') {
-    handleControllerConnection(ws, url);
+    handleControllerConnection(ws, url, req);
   } else {
     ws.close(1008, 'Unknown role');
   }
@@ -2757,9 +2786,21 @@ function handleChurchConnection(ws, url, clientIp) {
   safeSend(ws, { type: 'connected', churchId: church.churchId, name: church.name });
 }
 
-function handleControllerConnection(ws, url) {
+function handleControllerConnection(ws, url, req) {
   const apiKey = url.searchParams.get('apikey');
   if (!safeCompareKey(apiKey, ADMIN_API_KEY)) return ws.close(1008, 'invalid api key');
+
+  const clientIp = req.socket?.remoteAddress || 'unknown';
+  const currentCount = wsConnectionsByIp.get(clientIp) || 0;
+  if (currentCount >= MAX_WS_CONNECTIONS_PER_IP) {
+    ws.close(1008, 'Too many connections from this IP');
+    return;
+  }
+  if (controllers.size >= MAX_CONTROLLERS) {
+    ws.close(1008, 'Maximum controller connections reached');
+    return;
+  }
+  wsConnectionsByIp.set(clientIp, currentCount + 1);
 
   controllers.add(ws);
   log(`Controller connected (total: ${controllers.size})`);
@@ -2789,6 +2830,9 @@ function handleControllerConnection(ws, url) {
   ws.on('close', () => {
     clearInterval(wsPingInterval);
     controllers.delete(ws);
+    const count = wsConnectionsByIp.get(clientIp) || 1;
+    if (count <= 1) wsConnectionsByIp.delete(clientIp);
+    else wsConnectionsByIp.set(clientIp, count - 1);
     log(`Controller disconnected (total: ${controllers.size})`);
   });
 
@@ -2978,6 +3022,9 @@ function handleChurchMessage(church, msg) {
 
     case 'chat': {
       if (!msg.message || !msg.message.trim()) break;
+      if (msg.message.length > 2000) {
+        msg.message = msg.message.slice(0, 2000);
+      }
       const saved = chatEngine.saveMessage({
         churchId: church.churchId,
         senderName: msg.senderName || church.tdName || 'TD',
@@ -3243,7 +3290,7 @@ require('./src/routes/chat')(app, {
 
 // Slack integration API (extracted)
 require('./src/routes/slack')(app, {
-  db, churches, requireAdmin, alertEngine, stmtGet, safeErrorMessage, log,
+  db, churches, requireAdmin, alertEngine, stmtGet, safeErrorMessage, log, isValidSlackWebhookUrl,
 });
 
 // Offline between-service detection (extracted)
@@ -3272,7 +3319,7 @@ app.post('/api/chat/stream', async (req, res) => {
   // Shared secret prevents public abuse — only the Next.js app should call this
   const secret = req.headers['x-chat-secret'];
   const expected = process.env.CHAT_PROXY_SECRET || '';
-  if (!secret || secret !== expected) {
+  if (!secret || !expected || !safeCompareKey(secret, expected)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 

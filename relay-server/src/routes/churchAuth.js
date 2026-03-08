@@ -12,7 +12,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
           sendOnboardingEmail, lifecycleEmails, broadcastToSSE,
           stmtInsert, stmtFindByName, stmtUpdateRegistrationCode,
           jwt, JWT_SECRET, CHURCH_APP_TOKEN_TTL, REQUIRE_ACTIVE_BILLING,
-          TRIAL_PERIOD_DAYS, uuidv4, log } = ctx;
+          TRIAL_PERIOD_DAYS, uuidv4, safeErrorMessage, log } = ctx;
 
   // ─── ONBOARD (self-service signup) ───────────────────────────────────────────
 
@@ -46,10 +46,14 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       if (!isPending) return res.status(409).json({ error: `A church named "${cleanName}" already exists` });
     }
 
-    const existingByEmail = db.prepare('SELECT churchId, billing_status FROM churches WHERE portal_email = ?').get(cleanEmail);
+    const existingByEmail = db.prepare('SELECT churchId, billing_status, billing_trial_ends FROM churches WHERE portal_email = ?').get(cleanEmail);
     if (existingByEmail) {
       const isPending = existingByEmail.billing_status === 'pending' || existingByEmail.billing_status === 'inactive';
       if (!isPending) return res.status(409).json({ error: 'An account with this email already exists' });
+      // Prevent trial abuse: if a previous account had a trial, don't grant another one
+      if (existingByEmail.billing_trial_ends) {
+        return res.status(409).json({ error: 'A trial has already been used with this email. Please complete checkout to continue.' });
+      }
       const oldChurchId = existingByEmail.churchId;
       churches.delete(oldChurchId);
       db.prepare('DELETE FROM billing_customers WHERE church_id = ?').run(oldChurchId);
@@ -279,7 +283,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       res.status(201).json({ id, status: 'saved' });
     } catch (e) {
       log(`[PF] Report save error: ${e.message}`);
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -290,10 +294,11 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
     const newPw = newPassword || password;
     if (newPw) {
-      if (currentPassword) {
-        if (!req.church.portal_password_hash || !verifyPassword(currentPassword, req.church.portal_password_hash)) {
-          return res.status(400).json({ error: 'Current password is incorrect' });
-        }
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Current password is required to set a new password' });
+      }
+      if (!req.church.portal_password_hash || !verifyPassword(currentPassword, req.church.portal_password_hash)) {
+        return res.status(400).json({ error: 'Current password is incorrect' });
       }
       if (newPw.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
       db.prepare('UPDATE churches SET portal_password_hash = ? WHERE churchId = ?')
@@ -303,7 +308,14 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     const ALLOWED_PROFILE_COLUMNS = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'audio_via_atem'];
     const { audioViaAtem } = req.body;
     const patch = {};
-    if (email          !== undefined) patch.portal_email     = email.trim().toLowerCase();
+    if (email !== undefined) {
+      const cleanNewEmail = email.trim().toLowerCase();
+      const existingEmail = db.prepare('SELECT churchId FROM churches WHERE portal_email = ? AND churchId != ?').get(cleanNewEmail, churchId);
+      if (existingEmail) {
+        return res.status(409).json({ error: 'This email is already in use by another account' });
+      }
+      patch.portal_email = cleanNewEmail;
+    }
     if (phone          !== undefined) patch.phone            = phone;
     if (location       !== undefined) patch.location         = location;
     if (notes          !== undefined) patch.notes            = notes;
