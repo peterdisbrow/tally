@@ -1,120 +1,41 @@
 /**
- * Auto Recovery — Automatic fix execution for known failure patterns
+ * Auto Recovery — Alert classification for known failure patterns
+ *
+ * NOTE: Automatic command dispatch is DISABLED. All alerts go straight to
+ * the alert engine escalation ladder (Telegram → TD → Andrew). The playbook
+ * is retained for classification and future use when auto-recovery is
+ * re-enabled per-church.
  */
 
 const RECOVERY_PLAYBOOK = {
-  'stream_stopped': {
-    waitMs: 10000,
-    command: 'obs.startStream',
-    params: {},
-    maxAttempts: 2,
-    onSuccess: 'stream_recovered',
-    onFail: 'escalate_to_td',
-  },
-  'fps_low': {
-    waitMs: 5000,
-    command: 'obs.reduceBitrate',
-    params: { reductionPercent: 20 },
-    maxAttempts: 1,
-    onSuccess: 'fps_stabilized',
-    onFail: 'alert_td_fps',
-  },
-  'recording_not_started': {
-    waitMs: 0,
-    command: 'atem.startRecording',
-    params: {},
-    maxAttempts: 1,
-    onSuccess: 'recording_auto_started',
-    onFail: 'alert_td_recording',
-  },
-  'atem_stream_stopped': {
-    waitMs: 10000,
-    command: 'atem.startStreaming',
-    params: {},
-    maxAttempts: 2,
-    onSuccess: 'atem_stream_recovered',
-    onFail: 'escalate_to_td',
-  },
-  'atem_disconnected': {
-    waitMs: 15000,
-    command: 'status', // request fresh status — triggers reconnect attempt on client
-    params: {},
-    maxAttempts: 2,
-    onSuccess: 'atem_reconnected',
-    onFail: 'escalate_to_td',
-  },
-  'obs_disconnected': {
-    waitMs: 10000,
-    command: 'status', // request fresh status — client will retry OBS connection
-    params: {},
-    maxAttempts: 1,
-    onSuccess: 'obs_reconnected',
-    onFail: 'alert_td_obs',
-  },
-  'companion_disconnected': {
-    waitMs: 0,
-    command: null, // cannot auto-fix external app — log only
-    params: {},
-    maxAttempts: 0,
-    onSuccess: null,
-    onFail: 'alert_td_companion',
-  },
-  'vmix_disconnected': {
-    waitMs: 10000,
-    command: 'status', // request fresh status — client will retry vMix connection
-    params: {},
-    maxAttempts: 1,
-    onSuccess: 'vmix_reconnected',
-    onFail: 'alert_td_vmix',
-  },
-  'encoder_disconnected': {
-    waitMs: 10000,
-    command: 'status', // request fresh status — client will retry encoder connection
-    params: {},
-    maxAttempts: 2,
-    onSuccess: 'encoder_reconnected',
-    onFail: 'alert_td_encoder',
-  },
-  'hyperdeck_disconnected': {
-    waitMs: 10000,
-    command: 'status', // request fresh status — client will retry HyperDeck connection
-    params: {},
-    maxAttempts: 1,
-    onSuccess: 'hyperdeck_reconnected',
-    onFail: 'alert_td_hyperdeck',
-  },
-  'mixer_disconnected': {
-    waitMs: 0,
-    command: null, // cannot auto-fix hardware mixer — log only
-    params: {},
-    maxAttempts: 0,
-    onSuccess: null,
-    onFail: 'alert_td_mixer',
-  },
-  'ptz_disconnected': {
-    waitMs: 0,
-    command: null, // cannot auto-fix PTZ cameras — log only
-    params: {},
-    maxAttempts: 0,
-    onSuccess: null,
-    onFail: 'alert_td_ptz',
-  },
-  'propresenter_disconnected': {
-    waitMs: 0,
-    command: null, // cannot auto-fix ProPresenter — log only
-    params: {},
-    maxAttempts: 0,
-    onSuccess: null,
-    onFail: 'alert_td_propresenter',
-  },
+  'stream_stopped':            { onFail: 'escalate_to_td' },
+  'fps_low':                   { onFail: 'alert_td_fps' },
+  'bitrate_low':               { onFail: 'alert_td_bitrate' },
+  'recording_not_started':     { onFail: 'alert_td_recording' },
+  'atem_stream_stopped':       { onFail: 'escalate_to_td' },
+  'atem_disconnected':         { onFail: 'escalate_to_td' },
+  'obs_disconnected':          { onFail: 'alert_td_obs' },
+  'vmix_disconnected':         { onFail: 'alert_td_vmix' },
+  'vmix_stream_stopped':       { onFail: 'escalate_to_td' },
+  'encoder_disconnected':      { onFail: 'alert_td_encoder' },
+  'encoder_stream_stopped':    { onFail: 'escalate_to_td' },
+  'companion_disconnected':    { onFail: 'alert_td_companion' },
+  'hyperdeck_disconnected':    { onFail: 'alert_td_hyperdeck' },
+  'mixer_disconnected':        { onFail: 'alert_td_mixer' },
+  'ptz_disconnected':          { onFail: 'alert_td_ptz' },
+  'propresenter_disconnected': { onFail: 'alert_td_propresenter' },
+  'audio_silence':             { onFail: 'alert_td_audio' },
+  'audio_muted':               { onFail: 'alert_td_audio' },
+  'multiple_systems_down':     { onFail: 'escalate_to_td' },
+  'stream_platform_health':    { onFail: 'escalate_to_td' },
 };
 
 class AutoRecovery {
   constructor(churches, alertEngine, db) {
-    this.churches = churches; // Map from server.js
+    this.churches = churches;
     this.alertEngine = alertEngine;
     this.db = db || null;
-    this.attemptCounts = new Map(); // `${churchId}:${failureType}` → count
+    this.attemptCounts = new Map();
   }
 
   _key(churchId, failureType) {
@@ -125,61 +46,17 @@ class AutoRecovery {
     this.attemptCounts.delete(this._key(churchId, failureType));
   }
 
+  /**
+   * Auto-recovery is currently disabled globally.
+   * All alerts pass through to the alert engine for TD notification.
+   */
   async attempt(church, failureType, currentStatus) {
-    // Check if auto-recovery is enabled for this church
-    if (this.db) {
-      try {
-        const row = this.db.prepare('SELECT auto_recovery_enabled FROM churches WHERE churchId = ?').get(church.churchId);
-        if (row && row.auto_recovery_enabled === 0) {
-          return { attempted: false, reason: 'auto_recovery_disabled' };
-        }
-      } catch { /* column may not exist yet — default to enabled */ }
-    }
-
     const playbook = RECOVERY_PLAYBOOK[failureType];
-    if (!playbook) return { attempted: false, reason: 'no_playbook' };
-
-    // No auto-fix available (e.g., companion_disconnected)
-    if (!playbook.command || playbook.maxAttempts === 0) {
-      return { attempted: false, reason: 'no_auto_fix', command: null, event: playbook.onFail };
-    }
-
-    const key = this._key(church.churchId, failureType);
-    const attempts = this.attemptCounts.get(key) || 0;
-    if (attempts >= playbook.maxAttempts) {
-      return { attempted: false, reason: 'max_attempts_reached', command: playbook.command };
-    }
-
-    this.attemptCounts.set(key, attempts + 1);
-
-    if (playbook.waitMs > 0) {
-      await new Promise(r => setTimeout(r, playbook.waitMs));
-    }
-
-    console.log(`[AutoRecovery] Attempting ${playbook.command} for ${church.name} (attempt ${attempts + 1}/${playbook.maxAttempts})`);
-
-    try {
-      const result = await this.dispatchCommand(church, playbook.command, { ...playbook.params, ...(currentStatus || {}) });
-      console.log(`[AutoRecovery] ✅ ${playbook.onSuccess} — ${church.name}`);
-      this.attemptCounts.delete(key);
-
-      // Send Slack resolution message after successful auto-fix
-      try {
-        const dbChurch = this.alertEngine.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(church.churchId);
-        if (dbChurch?.slack_webhook_url) {
-          await this.alertEngine.sendSlackResolution({ ...church, ...dbChurch }, failureType);
-        }
-      } catch (e) {
-        console.warn('[AutoRecovery] Slack resolution notify failed:', e.message);
-      }
-
-      return { attempted: true, success: true, command: playbook.command, result, event: playbook.onSuccess };
-    } catch (e) {
-      console.error(`[AutoRecovery] ❌ ${playbook.command} failed for ${church.name}: ${e.message}`);
-      return { attempted: true, success: false, command: playbook.command, error: e.message, event: playbook.onFail };
-    }
+    const event = playbook ? playbook.onFail : 'escalate_to_td';
+    return { attempted: false, reason: 'auto_recovery_disabled', command: null, event };
   }
 
+  /** Kept for future use when auto-recovery is re-enabled */
   async dispatchCommand(church, command, params) {
     const { WebSocket } = require('ws');
     if (!church.ws || church.ws.readyState !== WebSocket.OPEN) {
@@ -193,7 +70,6 @@ class AutoRecovery {
         reject(new Error('Command timeout (15s)'));
       }, 15000);
 
-      // Listen for response
       const handler = (data) => {
         try {
           const msg = JSON.parse(data.toString());

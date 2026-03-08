@@ -31,6 +31,9 @@ const DEFAULT_FLAGS = {
   problemFinderAiEnabled: false,
 };
 
+// ─── Cameras verified toggle (manual confirmation by TD) ────────────────────
+let _camerasVerified = false;
+
 // ─── Run history ─────────────────────────────────────────────────────────────
 const MAX_RUN_HISTORY = 100;
 const runHistory = [];
@@ -122,6 +125,61 @@ function extractRecentErrors(logs) {
   return logs.filter((line) => errorPatterns.test(line)).slice(-20);
 }
 
+/**
+ * Build cameraInputs array from ATEM state.
+ * Uses program/preview inputs as a signal-presence proxy — if an input is on
+ * program or preview, it must have a live signal. For other labeled inputs,
+ * we mark them as expected but signal unknown (not failed).
+ */
+function buildCameraInputs(status) {
+  const inputs = [];
+  const atem = status.atem && typeof status.atem === 'object' ? status.atem : null;
+  if (!atem || !atem.connected) return inputs;
+
+  const labels = atem.inputLabels || {};
+  const pgm = atem.programInput;
+  const pvw = atem.previewInput;
+
+  // Collect all labeled external inputs (IDs 1-20 are camera/source inputs)
+  for (const [idStr, name] of Object.entries(labels)) {
+    const id = parseInt(idStr, 10);
+    if (isNaN(id) || id < 1 || id > 20) continue; // skip non-camera inputs (MP, color bars, etc.)
+
+    const isOnPgm = pgm === id;
+    const isOnPvw = pvw === id;
+    // If input is on program or preview, we know it has signal
+    const signalConfirmed = isOnPgm || isOnPvw;
+
+    inputs.push({
+      inputId: id,
+      label: name || `Input ${id}`,
+      expected: true,
+      signalPresent: signalConfirmed ? true : null,  // null = unknown (not failed)
+      locked: signalConfirmed ? true : null,
+      format: '',
+      connection: isOnPgm ? 'program' : isOnPvw ? 'preview' : '',
+    });
+  }
+
+  // If no labels, create entries from program/preview at minimum
+  if (inputs.length === 0) {
+    if (pgm && pgm >= 1 && pgm <= 20) {
+      inputs.push({
+        inputId: pgm, label: `Cam ${pgm}`, expected: true,
+        signalPresent: true, locked: true, format: '', connection: 'program',
+      });
+    }
+    if (pvw && pvw >= 1 && pvw <= 20 && pvw !== pgm) {
+      inputs.push({
+        inputId: pvw, label: `Cam ${pvw}`, expected: true,
+        signalPresent: true, locked: true, format: '', connection: 'preview',
+      });
+    }
+  }
+
+  return inputs;
+}
+
 function buildLiveSnapshot() {
   const status = _getAgentStatus();
   const config = _getConfig();
@@ -131,6 +189,9 @@ function buildLiveSnapshot() {
   // Normalize atem — in the Electron app, status.atem can be { connected: true, model: '...' }
   const atemConnected = status.atem === true || (status.atem && status.atem.connected === true);
   const atemModel = (status.atem && typeof status.atem === 'object' && status.atem.model) || '';
+
+  // Build cameraInputs from ATEM state — use program/preview as signal proxy
+  const cameraInputs = buildCameraInputs(status);
 
   return {
     scenario: 'live',
@@ -145,7 +206,8 @@ function buildLiveSnapshot() {
       encoderType: status.encoderType || '',
       streaming: status.streaming || false,
       fps: status.fps || 0,
-      cameraInputs: [],
+      cameraInputs,
+      camerasVerified: _camerasVerified,
       audio: {
         silenceDetected: !!(status.audio && status.audio.silenceDetected),
         masterMuted: !!(status.audio && status.audio.masterMuted),
@@ -396,6 +458,14 @@ function isAvailable() {
   return engine !== null;
 }
 
+function setCamerasVerified(verified) {
+  _camerasVerified = !!verified;
+}
+
+function getCamerasVerified() {
+  return _camerasVerified;
+}
+
 // ─── MODULE EXPORTS ──────────────────────────────────────────────────────────
 
 // ─── RELAY REPORT PUSH ──────────────────────────────────────────────────────
@@ -472,4 +542,6 @@ module.exports = {
   clearPreflightTimers,
   getRunHistory,
   getFeatureFlags,
+  setCamerasVerified,
+  getCamerasVerified,
 };

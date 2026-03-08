@@ -27,7 +27,7 @@ module.exports = function setupEmailVerificationRoutes(app, ctx) {
 
     // Send welcome email (non-blocking)
     if (lifecycleEmails) {
-      lifecycleEmails.sendWelcomeVerified(church).catch(() => {});
+      lifecycleEmails.sendWelcomeVerified(church).catch(e => log(`[EmailVerify] ⚠ Welcome email failed for "${church.name}": ${e.message}`));
     }
 
     res.redirect('/church-portal?verified=true');
@@ -73,7 +73,7 @@ module.exports = function setupEmailVerificationRoutes(app, ctx) {
       <p style="font-size: 12px; color: #999;">Tally</p>
     </div>`,
       text: `Verify your Tally email\n\nClick this link to verify: ${verifyUrl}\n\nIf you didn't sign up for Tally, ignore this email.`,
-    }).catch(() => {});
+    }).catch(e => log(`[EmailVerify] ⚠ Verification email send failed for ${cleanEmail}: ${e.message}`));
 
     res.json({ sent: true });
   });
@@ -98,7 +98,7 @@ module.exports = function setupEmailVerificationRoutes(app, ctx) {
     const resetUrl = `${APP_URL}/portal/reset-password?token=${resetToken}`;
 
     if (lifecycleEmails) {
-      lifecycleEmails.sendPasswordReset(church, { resetUrl }).catch(() => {});
+      lifecycleEmails.sendPasswordReset(church, { resetUrl }).catch(e => log(`[PasswordReset] ⚠ Reset email send failed for "${church.name}": ${e.message}`));
     }
 
     log(`[PasswordReset] Reset token generated for "${church.name}" (${church.churchId})`);

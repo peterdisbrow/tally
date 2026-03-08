@@ -49,6 +49,13 @@ async function loadProblemFinder() {
   if (unavailableEl) unavailableEl.style.display = 'none';
   if (contentEl) contentEl.style.display = 'block';
 
+  // Restore cameras-verified checkbox state
+  try {
+    const verified = await api.pfGetCamerasVerified();
+    const cb = document.getElementById('pf-cameras-verified-cb');
+    if (cb) cb.checked = !!verified;
+  } catch { /* ignore */ }
+
   // Load run history
   try {
     const history = await api.pfRunHistory();
@@ -59,6 +66,12 @@ async function loadProblemFinder() {
   if (_pfLastReport) {
     renderPfReport(_pfLastReport, _pfLastGoNoGo);
   }
+}
+
+async function pfToggleCamerasVerified(checked) {
+  const api = window.electronAPI;
+  if (!api || !api.pfSetCamerasVerified) return;
+  await api.pfSetCamerasVerified(checked);
 }
 
 // ─── AUTO-REFRESH FROM MAIN PROCESS ──────────────────────────────────────────

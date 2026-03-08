@@ -59,6 +59,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pfGetConfig: () => ipcRenderer.invoke('pf-get-config'),
   pfSimulateFix: (simId) => ipcRenderer.invoke('pf-simulate-fix', simId),
   pfAvailable: () => ipcRenderer.invoke('pf-available'),
+  pfSetCamerasVerified: (v) => ipcRenderer.invoke('pf-set-cameras-verified', v),
+  pfGetCamerasVerified: () => ipcRenderer.invoke('pf-get-cameras-verified'),
   onPfUpdate: (cb) => ipcRenderer.on('pf-update', (_, data) => cb(data)),
   // Window visibility (pause polling when hidden to tray)
   onWindowVisibility: (cb) => ipcRenderer.on('window-visibility', (_, visible) => cb(visible)),

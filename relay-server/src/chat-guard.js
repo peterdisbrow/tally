@@ -74,9 +74,62 @@ const ON_TOPIC_KEYWORDS = [
   'remember', 'forget', 'note', 'recap', 'happened',
   'document', 'sop', 'handbook', 'knowledge base',
   'last week', 'last service', 'last sunday', 'session history',
+
+  // ── Engineering / system questions ──
+  'command', 'handler', 'websocket', 'protocol', 'api', 'endpoint',
+  'relay', 'client', 'agent', 'driver', 'bridge', 'mock',
+  'auto-recovery', 'autopilot', 'automation', 'schedule', 'session',
+  'tier', 'billing', 'plan', 'feature', 'subscription',
+  'config', 'configuration', 'troubleshoot', 'diagnose',
+
+  // ── Social / courtesy (so "thank you for helping with the camera" passes) ──
+  'thank', 'thanks', 'awesome', 'perfect', 'great job', 'good job',
+  'undo', 'oops', 'go back', 'revert', 'wrong',
+
+  // ── Volunteer-friendly terms ──
+  'lyrics', 'words', 'slides', 'brighter', 'darker', 'zoom', 'louder', 'quieter',
+  'live', 'ready', 'pastor', 'band', 'worship',
 ];
 
 const OFF_TOPIC_RESPONSE = "I'm only here for production and equipment. Try 'help' to see what I can do.";
+
+// ─── SENSITIVE DATA DETECTION ──────────────────────────────────────────────
+// Block stream keys, passwords, and other secrets from being saved in chat.
+// These patterns match common RTMP stream keys from major platforms.
+
+const SENSITIVE_PATTERNS = [
+  // YouTube stream keys (xxxx-xxxx-xxxx-xxxx or longer alphanumeric)
+  /\b[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}(-[a-z0-9]{4})?\b/i,
+  // Facebook / generic long hex/alphanum keys (20+ chars)
+  /\b[A-Za-z0-9]{20,}\b/,
+  // RTMP URLs with keys embedded
+  /rtmp[s]?:\/\/\S+/i,
+  // Explicit "stream key" or "key is" phrasing with a value
+  /\b(stream\s*key|server\s*key|secret\s*key|api\s*key|password)\s*(is|:|=)\s*\S+/i,
+];
+
+const SENSITIVE_RESPONSE = "⚠️ It looks like you're sharing a stream key, password, or other sensitive credential. For security, please don't enter those in chat — they get stored in message history and sent to the AI. Enter stream keys directly in your encoder or streaming software instead.";
+
+/**
+ * Check whether a message appears to contain a stream key or credential.
+ * @param {string} message
+ * @returns {boolean}
+ */
+function containsSensitiveData(message) {
+  if (!message || typeof message !== 'string') return false;
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+
+  // Only flag messages that look like they're sharing a key, not just any long word
+  // Require either an explicit key-related keyword OR an RTMP URL
+  const lower = trimmed.toLowerCase();
+  const hasKeyContext = /\b(stream\s*key|key|rtmp|secret|password|credential|token)\b/i.test(lower);
+  const hasRtmpUrl = /rtmp[s]?:\/\//i.test(trimmed);
+
+  if (!hasKeyContext && !hasRtmpUrl) return false;
+
+  return SENSITIVE_PATTERNS.some((pat) => pat.test(trimmed));
+}
 
 /**
  * Check whether a chat message is plausibly about AV / production.
@@ -92,11 +145,11 @@ function isOnTopic(message) {
   const trimmed = message.trim();
   if (!trimmed) return false;
 
-  // Short messages are almost always commands or quick questions — let them through
-  if (trimmed.split(/\s+/).length <= 3) return true;
+  // Short messages are almost always commands or quick follow-ups — let them through
+  if (trimmed.split(/\s+/).length <= 5) return true;
 
   const lower = trimmed.toLowerCase();
   return ON_TOPIC_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
-module.exports = { isOnTopic, OFF_TOPIC_RESPONSE };
+module.exports = { isOnTopic, OFF_TOPIC_RESPONSE, containsSensitiveData, SENSITIVE_RESPONSE };

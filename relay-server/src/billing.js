@@ -443,7 +443,7 @@ class BillingSystem {
       // Send payment-failed dunning email
       if (this.lifecycleEmails && billingRecord.church_id) {
         const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(billingRecord.church_id);
-        if (church) this.lifecycleEmails.sendPaymentFailed(church).catch(() => {});
+        if (church) this.lifecycleEmails.sendPaymentFailed(church).catch(e => console.error(`[Billing] Payment-failed email error for ${church.name}: ${e.message}`));
       }
     }
   }
@@ -520,7 +520,7 @@ class BillingSystem {
     // Send dispute alert email
     if (this.lifecycleEmails && billingRecord.church_id) {
       const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(billingRecord.church_id);
-      if (church) this.lifecycleEmails.sendDisputeAlert(church, { amount: dispute.amount, reason: dispute.reason, disputeId: dispute.id }).catch(() => {});
+      if (church) this.lifecycleEmails.sendDisputeAlert(church, { amount: dispute.amount, reason: dispute.reason, disputeId: dispute.id }).catch(e => console.error(`[Billing] Dispute alert email error for ${church.name}: ${e.message}`));
     }
   }
 

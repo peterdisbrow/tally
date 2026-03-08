@@ -12,6 +12,10 @@ const ALERT_CLASSIFICATIONS = {
   'bitrate_low': 'WARNING',
   'cpu_high': 'WARNING',
   'stream_stopped': 'CRITICAL',
+  'atem_stream_stopped': 'CRITICAL',
+  'vmix_stream_stopped': 'CRITICAL',
+  'encoder_stream_stopped': 'CRITICAL',
+  'stream_platform_health': 'WARNING',
   'atem_disconnected': 'CRITICAL',
   'recording_failed': 'CRITICAL',
   'obs_disconnected': 'WARNING',
@@ -22,16 +26,19 @@ const ALERT_CLASSIFICATIONS = {
   'mixer_disconnected': 'WARNING',
   'ptz_disconnected': 'WARNING',
   'propresenter_disconnected': 'INFO',
+  'audio_silence': 'WARNING',
+  'audio_muted': 'CRITICAL',
+  'firmware_outdated': 'WARNING',
   'multiple_systems_down': 'EMERGENCY',
   'no_td_response': 'EMERGENCY',
 };
 
 const DIAGNOSIS_TEMPLATES = {
   'stream_stopped': {
-    likely_cause: 'Internet fluctuation or encoder crash',
+    likely_cause: 'Internet fluctuation or encoder/software crash',
     confidence: 85,
-    steps: ['Check OBS — is it still running?', 'Click "Start Streaming" in Tally', 'If still down, restart your router'],
-    canAutoFix: true,
+    steps: ['Check your streaming software — is it still running?', 'Restart the stream from your encoder or Tally', 'If still down, check your internet connection'],
+    canAutoFix: false,
   },
   'atem_disconnected': {
     likely_cause: 'ATEM lost network connection',
@@ -48,19 +55,19 @@ const DIAGNOSIS_TEMPLATES = {
   'fps_low': {
     likely_cause: 'CPU overloaded or encoding settings too high',
     confidence: 80,
-    steps: ['Check CPU usage in OBS', 'Tally will auto-reduce bitrate', 'If persistent, lower resolution in OBS settings'],
-    canAutoFix: true,
+    steps: ['Check CPU usage on streaming machine', 'Lower resolution or encoding preset', 'Close unnecessary applications'],
+    canAutoFix: false,
   },
   'bitrate_low': {
     likely_cause: 'Network bandwidth insufficient for current settings',
     confidence: 75,
     steps: ['Check internet speed', 'Close other bandwidth-heavy applications', 'Consider lowering stream quality'],
-    canAutoFix: true,
+    canAutoFix: false,
   },
   'cpu_high': {
-    likely_cause: 'Too many OBS sources or effects active',
+    likely_cause: 'Too many sources or effects active on streaming software',
     confidence: 85,
-    steps: ['Close unnecessary applications', 'Disable unused OBS sources', 'Reduce output resolution'],
+    steps: ['Close unnecessary applications', 'Disable unused sources/scenes', 'Reduce output resolution'],
     canAutoFix: false,
   },
   'obs_disconnected': {
@@ -97,7 +104,7 @@ const DIAGNOSIS_TEMPLATES = {
     likely_cause: 'Recording was not started before service',
     confidence: 95,
     steps: ['Start recording via Tally', 'Check ATEM recording settings'],
-    canAutoFix: true,
+    canAutoFix: false,
   },
   'encoder_disconnected': {
     likely_cause: 'Hardware encoder lost network connection or powered off',
@@ -133,7 +140,31 @@ const DIAGNOSIS_TEMPLATES = {
     likely_cause: 'ATEM streaming encoder stopped — network issue or service disruption',
     confidence: 85,
     steps: ['Check ATEM streaming settings', 'Verify streaming service key is still valid', 'Check internet connection to ATEM'],
-    canAutoFix: true,
+    canAutoFix: false,
+  },
+  'vmix_stream_stopped': {
+    likely_cause: 'vMix stream stopped — software crash or network issue',
+    confidence: 85,
+    steps: ['Check if vMix is still running', 'Restart stream from vMix interface', 'Check internet connection'],
+    canAutoFix: false,
+  },
+  'encoder_stream_stopped': {
+    likely_cause: 'Hardware encoder stream stopped — network or configuration issue',
+    confidence: 85,
+    steps: ['Check encoder status lights/display', 'Verify stream key and destination URL', 'Check internet connection to encoder'],
+    canAutoFix: false,
+  },
+  'stream_platform_health': {
+    likely_cause: 'Stream may not be reaching destination platform properly',
+    confidence: 70,
+    steps: ['Check platform dashboard (YouTube Studio / Facebook Live)', 'Verify stream key is correct', 'Check internet connection quality'],
+    canAutoFix: false,
+  },
+  'firmware_outdated': {
+    likely_cause: 'Device firmware or software version is below recommended minimum',
+    confidence: 95,
+    steps: ['Check the version shown in your church portal equipment table', 'Visit the manufacturer website for the latest update', 'Schedule a maintenance window to update — never update during a service'],
+    canAutoFix: false,
   },
 };
 

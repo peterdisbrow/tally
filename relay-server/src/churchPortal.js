@@ -435,6 +435,7 @@ function buildChurchPortalHtml(church) {
     .status-dot.online { background: #22c55e; box-shadow: 0 0 5px #22c55e; }
     .status-dot.offline { background: #94A3B8; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    @keyframes thinkBounce { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
     /* STATS ROW */
     .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
     .stat-card {
@@ -724,12 +725,40 @@ function buildChurchPortalHtml(church) {
           </div>
         </div>
         <table>
-          <thead><tr><th>System</th><th>Status</th><th>Version</th><th>Last Seen</th></tr></thead>
+          <thead><tr><th>System</th><th>Status</th><th>Version</th><th>Detail</th></tr></thead>
           <tbody id="equipment-tbody">
             <tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
         </table>
       </div>
+
+      <!-- Live Stream Stats (shown when any source is streaming) -->
+      <div class="card" id="stream-stats-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin:0"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:8px;animation:pulse 2s infinite"></span>Live Stream</div>
+          <span id="stream-source-label" style="font-size:12px;color:#94A3B8;background:#0F1613;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">
+          <div>
+            <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-bitrate">—</div>
+            <div style="font-size:11px;color:#64748B;margin-top:2px">Bitrate (kbps)</div>
+          </div>
+          <div>
+            <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-fps">—</div>
+            <div style="font-size:11px;color:#64748B;margin-top:2px">FPS</div>
+          </div>
+          <div>
+            <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-health">—</div>
+            <div style="font-size:11px;color:#64748B;margin-top:2px">Health</div>
+          </div>
+          <div>
+            <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-uptime">—</div>
+            <div style="font-size:11px;color:#64748B;margin-top:2px">Uptime</div>
+          </div>
+        </div>
+        <div id="ss-detail-row" style="margin-top:12px;display:flex;gap:16px;font-size:12px;color:#64748B;justify-content:center;flex-wrap:wrap"></div>
+      </div>
+
       <!-- Pre-Service Check Card -->
       <div class="card" id="preservice-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -1064,6 +1093,28 @@ function buildChurchPortalHtml(church) {
           <div style="color:#475569;text-align:center;padding:16px;font-size:13px">Loading coaching data…</div>
         </div>
       </div>
+      <div class="card" style="margin-top:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin:0">💬 Chat with Tally Engineer</div>
+          <button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="clearEngineerChat()">Clear</button>
+        </div>
+        <div id="engineer-chat-messages" style="min-height:200px;max-height:500px;overflow-y:auto;border:1px solid #1a2e1f;border-radius:8px;padding:12px;background:#09090B;margin-bottom:12px">
+          <div id="engineer-chat-empty" style="text-align:center;padding:24px 16px">
+            <div style="color:#94A3B8;font-size:13px;margin-bottom:16px">Ask about your setup, troubleshooting, or available commands</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
+              <button class="engineer-pill" onclick="sendEngineerPill(this)" style="background:#0F1613;border:1px solid #1a2e1f;border-radius:999px;padding:6px 14px;color:#94A3B8;font-size:12px;cursor:pointer;transition:border-color 0.2s">What commands can I use?</button>
+              <button class="engineer-pill" onclick="sendEngineerPill(this)" style="background:#0F1613;border:1px solid #1a2e1f;border-radius:999px;padding:6px 14px;color:#94A3B8;font-size:12px;cursor:pointer;transition:border-color 0.2s">How does auto-recovery work?</button>
+              <button class="engineer-pill" onclick="sendEngineerPill(this)" style="background:#0F1613;border:1px solid #1a2e1f;border-radius:999px;padding:6px 14px;color:#94A3B8;font-size:12px;cursor:pointer;transition:border-color 0.2s">Help me troubleshoot my stream</button>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="engineer-chat-input" placeholder="Ask Tally Engineer a question..."
+            style="flex:1;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:9px 12px;color:#F8FAFC;font-size:13px;outline:none"
+            onkeydown="if(event.key==='Enter')sendEngineerChat()">
+          <button class="btn-primary" onclick="sendEngineerChat()" style="min-width:80px">Send</button>
+        </div>
+      </div>
     </div>
 
     <!-- GUEST ACCESS -->
@@ -1370,6 +1421,7 @@ function buildChurchPortalHtml(church) {
       if (id === 'notifications') loadNotifications();
       if (id === 'support') loadSupportInfo();
       if (id === 'analytics') loadAnalytics();
+      if (id === 'engineer') startEngineerChatPoll(); else stopEngineerChatPoll();
     }
 
     // ── toast ──────────────────────────────────────────────────────────────────
@@ -1422,8 +1474,10 @@ function buildChurchPortalHtml(church) {
         const atemConnected = status.atem === true || !!(status.atem && status.atem.connected);
         const obsConnected = status.obs === true || !!(status.obs && status.obs.connected);
         const obsStreaming = status.streaming === true || !!(status.obs && status.obs.streaming);
+        const atemStreamingFlag = !!(status.atem && status.atem.streaming);
+        const vmixStreamingFlag = !!(status.vmix && status.vmix.streaming);
         const encoderConnected = status.encoder === true || !!enc.connected;
-        const encoderLive = !!enc.live || obsStreaming;
+        const encoderLive = !!enc.live || !!enc.streaming || obsStreaming || atemStreamingFlag || vmixStreamingFlag;
         const encNames = {
           obs:'OBS', vmix:'vMix', ecamm:'Ecamm', blackmagic:'Blackmagic',
           aja:'AJA HELO', epiphan:'Epiphan', teradek:'Teradek', tricaster:'TriCaster', birddog:'BirdDog', ndi:'NDI Decoder',
@@ -1478,12 +1532,40 @@ function buildChurchPortalHtml(church) {
         var mixerVer = status.mixer && status.mixer.firmware ? status.mixer.firmware : null;
         var mixerVerType = status.mixer && status.mixer.type ? 'mixer_' + status.mixer.type : null;
 
+        // ATEM program/preview detail
+        var atemDetail = '';
+        if (atemConnected && status.atem) {
+          var parts = [];
+          if (status.atem.programInput != null) parts.push('PGM: Input ' + status.atem.programInput);
+          if (status.atem.previewInput != null) parts.push('PVW: Input ' + status.atem.previewInput);
+          if (status.atem.model) parts.push(status.atem.model);
+          atemDetail = parts.join(' · ');
+        }
+
+        // Stream detail — bitrate + FPS from any source
+        var streamDetail = '';
+        if (encoderLive || obsStreaming) {
+          var sdParts = [];
+          var br = null, fp = null;
+          if (obsStreaming && status.obs.bitrate > 0) br = status.obs.bitrate;
+          else if (atemStreamingFlag && status.atem.streamingBitrate > 0) br = Math.round(status.atem.streamingBitrate / 1000);
+          else if (enc.bitrateKbps > 0) br = enc.bitrateKbps;
+          if (obsStreaming && status.obs.fps > 0) fp = Math.round(status.obs.fps);
+          else if (enc.fps > 0) fp = Math.round(enc.fps);
+          if (br) sdParts.push(br.toLocaleString() + ' kbps');
+          if (fp) sdParts.push(fp + ' fps');
+          streamDetail = sdParts.join(' · ') || '';
+        }
+
+        // Recording detail
+        var isRecording = !!(status.atem && status.atem.recording) || !!(status.obs && status.obs.recording) || !!(status.vmix && status.vmix.recording);
+
         const rows = [
-          ['ATEM Switcher', atemConnected ? 'connected' : 'unknown', verInfo(atemVer, 'atem_protocol'), status.atemLastSeen],
+          ['ATEM Switcher', atemConnected ? 'connected' : 'unknown', verInfo(atemVer, 'atem_protocol'), atemDetail || null],
           [encoderLabel, encoderStatus, verInfo(encVer, encVerType), null],
-          ['Stream', (encoderLive || obsStreaming) ? 'live' : 'offline', null, null],
+          ['Stream', (encoderLive || obsStreaming) ? 'live' : 'offline', null, streamDetail || null],
+          ['Recording', isRecording ? 'recording' : 'offline', null, null],
           [audioLabel, audioStatus, null, null],
-          ['A/V Sync', status.syncOk === false ? 'warning' : (status.syncOk ? 'ok' : 'unknown'), null, null],
         ];
         // Dynamic device rows — only show if the device exists in status
         const hd = status.hyperdeck || status.hyperDeck;
@@ -1543,13 +1625,22 @@ function buildChurchPortalHtml(church) {
               ? '<span style="color:#f59e0b">⚠️ ' + ver.text + '</span>'
               : '<span style="color:#22c55e">' + ver.text + '</span>';
           }
+          var detailHtml = '—';
+          if (typeof ts === 'string' && ts.length > 0 && isNaN(Date.parse(ts))) {
+            detailHtml = '<span style="color:#94A3B8">' + ts + '</span>';
+          } else if (ts) {
+            detailHtml = new Date(ts).toLocaleTimeString();
+          }
           return \`<tr>
             <td>\${name}</td>
             <td><span class="badge \${badgeCls}">\${label}</span></td>
             <td style="font-size:12px">\${verHtml}</td>
-            <td style="color:#475569;font-size:12px">\${ts ? new Date(ts).toLocaleTimeString() : '—'}</td>
+            <td style="color:#475569;font-size:12px">\${detailHtml}</td>
           </tr>\`;
         }).join('');
+
+        // ── Live Stream Stats card ──────────────────────────────────────────
+        updateStreamStats(status, enc);
 
         var statusText = document.getElementById('stat-status-text');
         var statusDot = document.getElementById('stat-status-dot');
@@ -1586,6 +1677,88 @@ function buildChurchPortalHtml(church) {
         toast('Equipment status refreshed');
       } catch { toast('Refresh failed', true); }
       finally { if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; } }
+    }
+
+    var _streamStartedAt = null;
+    function updateStreamStats(status, enc) {
+      var card = document.getElementById('stream-stats-card');
+      if (!card) return;
+
+      // Determine if any source is streaming
+      var obsStreaming = !!(status.obs && status.obs.streaming);
+      var atemStreaming = !!(status.atem && status.atem.streaming);
+      var vmixStreaming = !!(status.vmix && status.vmix.streaming);
+      var encoderLive = !!(enc.live || enc.streaming);
+      var isLive = obsStreaming || atemStreaming || vmixStreaming || encoderLive;
+
+      if (!isLive) {
+        card.style.display = 'none';
+        _streamStartedAt = null;
+        return;
+      }
+      card.style.display = '';
+      if (!_streamStartedAt) _streamStartedAt = Date.now();
+
+      // Source label
+      var source = 'Unknown';
+      var encNames = {obs:'OBS',vmix:'vMix',ecamm:'Ecamm',blackmagic:'Blackmagic',aja:'AJA',epiphan:'Epiphan',teradek:'Teradek',tricaster:'TriCaster',birddog:'BirdDog'};
+      if (atemStreaming) source = 'ATEM Encoder' + (status.atem.streamingService ? ' → ' + status.atem.streamingService : '');
+      else if (obsStreaming) source = 'OBS Studio';
+      else if (vmixStreaming) source = 'vMix';
+      else if (encoderLive) source = encNames[enc.type] || enc.type || 'Encoder';
+      document.getElementById('stream-source-label').textContent = source;
+
+      // Bitrate — from any source
+      var bitrate = null;
+      if (obsStreaming && status.obs.bitrate > 0) bitrate = status.obs.bitrate;
+      else if (atemStreaming && status.atem.streamingBitrate > 0) bitrate = Math.round(status.atem.streamingBitrate / 1000);
+      else if (encoderLive && enc.bitrateKbps > 0) bitrate = enc.bitrateKbps;
+      var brEl = document.getElementById('ss-bitrate');
+      if (brEl) {
+        brEl.textContent = bitrate !== null ? bitrate.toLocaleString() : '—';
+        brEl.style.color = bitrate !== null && bitrate < 1000 ? '#ef4444' : '#F8FAFC';
+      }
+
+      // FPS — from any source
+      var fps = null;
+      if (obsStreaming && status.obs.fps > 0) fps = Math.round(status.obs.fps);
+      else if (encoderLive && enc.fps > 0) fps = Math.round(enc.fps);
+      var fpsEl = document.getElementById('ss-fps');
+      if (fpsEl) {
+        fpsEl.textContent = fps !== null ? fps : '—';
+        fpsEl.style.color = fps !== null && fps < 24 ? '#f59e0b' : '#F8FAFC';
+      }
+
+      // Health indicator
+      var healthEl = document.getElementById('ss-health');
+      if (healthEl) {
+        if (bitrate !== null && bitrate < 1000) { healthEl.textContent = '⚠️ Low'; healthEl.style.color = '#ef4444'; }
+        else if (fps !== null && fps < 24) { healthEl.textContent = '⚠️ FPS'; healthEl.style.color = '#f59e0b'; }
+        else if (bitrate !== null || fps !== null) { healthEl.textContent = '✓ Good'; healthEl.style.color = '#22c55e'; }
+        else { healthEl.textContent = '—'; healthEl.style.color = '#F8FAFC'; }
+      }
+
+      // Uptime
+      var uptimeEl = document.getElementById('ss-uptime');
+      if (uptimeEl && _streamStartedAt) {
+        var sec = Math.round((Date.now() - _streamStartedAt) / 1000);
+        var h = Math.floor(sec / 3600); var m = Math.floor((sec % 3600) / 60); var s = sec % 60;
+        uptimeEl.textContent = h > 0 ? h + 'h ' + m + 'm' : m + 'm ' + s + 's';
+      }
+
+      // Detail row — extra info
+      var details = [];
+      if (atemStreaming && status.atem.streamingCacheUsed !== null && status.atem.streamingCacheUsed !== undefined) {
+        details.push('ATEM cache: ' + status.atem.streamingCacheUsed + '%');
+      }
+      if (status.streamHealth && status.streamHealth.baselineBitrate) {
+        details.push('Baseline: ' + status.streamHealth.baselineBitrate);
+      }
+      if (status.streamHealth && status.streamHealth.recentBitrate) {
+        details.push('Recent avg: ' + status.streamHealth.recentBitrate);
+      }
+      var detailEl = document.getElementById('ss-detail-row');
+      if (detailEl) detailEl.innerHTML = details.map(function(d) { return '<span>' + d + '</span>'; }).join('');
     }
 
     function fmt12(hhmm) {
@@ -2110,6 +2283,143 @@ function buildChurchPortalHtml(church) {
         updateTrainingBadge(ep);
         toast('Tally Engineer profile saved');
       } catch(e) { toast(e.message, true); }
+    }
+
+    // ── Engineer Chat ──────────────────────────────────────────────────────────
+
+    var engineerChatMsgs = [];
+    var engineerChatPollTimer = null;
+    var engineerChatLastTs = null;
+
+    async function loadEngineerChat() {
+      try {
+        var since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        var resp = await api('GET', '/api/church/chat?limit=50&since=' + encodeURIComponent(since));
+        if (resp && resp.messages) {
+          engineerChatMsgs = resp.messages;
+          if (engineerChatMsgs.length > 0) {
+            engineerChatLastTs = engineerChatMsgs[engineerChatMsgs.length - 1].timestamp;
+          }
+          renderEngineerChat();
+        }
+      } catch(e) { /* silent */ }
+    }
+
+    function startEngineerChatPoll() {
+      loadEngineerChat();
+      if (engineerChatPollTimer) clearInterval(engineerChatPollTimer);
+      engineerChatPollTimer = setInterval(pollEngineerChat, 4000);
+    }
+
+    function stopEngineerChatPoll() {
+      if (engineerChatPollTimer) { clearInterval(engineerChatPollTimer); engineerChatPollTimer = null; }
+    }
+
+    async function pollEngineerChat() {
+      if (!engineerChatLastTs) return loadEngineerChat();
+      try {
+        var resp = await api('GET', '/api/church/chat?since=' + encodeURIComponent(engineerChatLastTs));
+        if (resp && resp.messages && resp.messages.length > 0) {
+          engineerChatMsgs = engineerChatMsgs.concat(resp.messages);
+          engineerChatLastTs = resp.messages[resp.messages.length - 1].timestamp;
+          hideEngineerThinking();
+          renderEngineerChat();
+        }
+      } catch(e) { /* silent */ }
+    }
+
+    function renderEngineerChat() {
+      var container = document.getElementById('engineer-chat-messages');
+      var empty = document.getElementById('engineer-chat-empty');
+      if (!container) return;
+      if (engineerChatMsgs.length === 0) {
+        if (empty) empty.style.display = '';
+        return;
+      }
+      if (empty) empty.style.display = 'none';
+      // Build HTML for all messages
+      var html = '';
+      for (var i = 0; i < engineerChatMsgs.length; i++) {
+        var m = engineerChatMsgs[i];
+        var name = m.sender_name || m.senderName || 'Unknown';
+        var role = m.sender_role || m.senderRole || 'td';
+        var time = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        var nameColor = role === 'system' ? '#22c55e' : (role === 'admin' ? '#22c55e' : '#F8FAFC');
+        var icon = role === 'system' ? '🤖' : (role === 'admin' ? '🌐' : '💻');
+        var msgText = escapeHtml(m.message);
+        // Basic markdown: bold
+        msgText = msgText.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
+        // Bullet lists
+        msgText = msgText.replace(/^[-•]\\s+/gm, '<span style="color:#22c55e">•</span> ');
+        // Newlines
+        msgText = msgText.replace(/\\n/g, '<br>');
+        html += '<div style="padding:6px 0;margin-bottom:4px;border-bottom:1px solid rgba(26,46,31,0.3)">'
+          + '<div style="font-size:10px;color:#475569;font-family:monospace">'
+          + icon + ' <span style="color:' + nameColor + ';font-weight:600">' + escapeHtml(name) + '</span>'
+          + ' <span style="margin-left:6px">' + time + '</span></div>'
+          + '<div style="font-size:13px;color:#F8FAFC;margin-top:2px;line-height:1.5">' + msgText + '</div>'
+          + '</div>';
+      }
+      // Keep only messages, remove empty state
+      container.innerHTML = html;
+      container.scrollTop = container.scrollHeight;
+    }
+
+    async function sendEngineerChat() {
+      var input = document.getElementById('engineer-chat-input');
+      var msg = (input.value || '').trim();
+      if (!msg) return;
+      input.value = '';
+      try {
+        var resp = await api('POST', '/api/church/chat', { message: msg, senderName: 'TD' });
+        if (resp && resp.id) {
+          engineerChatMsgs.push(resp);
+          engineerChatLastTs = resp.timestamp;
+          renderEngineerChat();
+          // Show thinking indicator while waiting for AI response
+          showEngineerThinking();
+        }
+      } catch(e) {
+        toast(e.message, true);
+        input.value = msg; // restore on failure
+      }
+    }
+
+    function showEngineerThinking() {
+      var container = document.getElementById('engineer-chat-messages');
+      if (!container) return;
+      var existing = document.getElementById('engineer-thinking');
+      if (existing) existing.remove();
+      var div = document.createElement('div');
+      div.id = 'engineer-thinking';
+      div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;margin:4px 0;font-size:12px;color:#64748B';
+      div.innerHTML = '<span style="display:inline-flex;gap:3px"><span style="animation:thinkBounce 1.2s infinite;width:6px;height:6px;background:#22C55E;border-radius:50%"></span><span style="animation:thinkBounce 1.2s infinite 0.2s;width:6px;height:6px;background:#22C55E;border-radius:50%"></span><span style="animation:thinkBounce 1.2s infinite 0.4s;width:6px;height:6px;background:#22C55E;border-radius:50%"></span></span> Tally Engineer is thinking\u2026';
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+      setTimeout(function() { var el = document.getElementById('engineer-thinking'); if (el) el.remove(); }, 30000);
+    }
+
+    function hideEngineerThinking() {
+      var el = document.getElementById('engineer-thinking');
+      if (el) el.remove();
+    }
+
+    function sendEngineerPill(btn) {
+      var input = document.getElementById('engineer-chat-input');
+      if (input) input.value = btn.textContent;
+      sendEngineerChat();
+    }
+
+    function clearEngineerChat() {
+      engineerChatMsgs = [];
+      engineerChatLastTs = null;
+      var container = document.getElementById('engineer-chat-messages');
+      var empty = document.getElementById('engineer-chat-empty');
+      if (container && empty) {
+        container.innerHTML = '';
+        container.appendChild(empty);
+        empty.style.display = '';
+      }
     }
 
     // ── Campuses ───────────────────────────────────────────────────────────────

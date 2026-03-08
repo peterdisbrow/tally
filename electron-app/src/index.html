@@ -497,7 +497,7 @@
   <div class="content tab-content" id="tab-engineer">
 
     <!-- Diagnostics section (scrollable) -->
-    <div style="flex:1; overflow-y:auto;">
+    <div id="chat-scroll-area" style="flex:1; overflow-y:auto;">
 
       <!-- Feature gate (shown when disabled) -->
       <div id="pf-unavailable" style="display:none;">
@@ -529,6 +529,12 @@
             <div class="label">Last Run</div>
             <div class="value" id="pf-last-run">--</div>
           </div>
+        </div>
+
+        <!-- Camera verification -->
+        <div id="pf-camera-verify" style="display:flex; align-items:center; gap:8px; margin:10px 0; padding:8px 12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px;">
+          <input type="checkbox" id="pf-cameras-verified-cb" onchange="pfToggleCamerasVerified(this.checked)" style="accent-color:var(--green); width:16px; height:16px; cursor:pointer;">
+          <label for="pf-cameras-verified-cb" style="font-size:12px; color:var(--muted); cursor:pointer;">I've verified cameras on multiview — all inputs look good</label>
         </div>
 
         <!-- Quick actions -->

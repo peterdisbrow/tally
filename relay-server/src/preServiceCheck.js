@@ -15,13 +15,14 @@ class PreServiceCheck {
    * @param {string} [opts.andrewChatId] - Andrew's Telegram chat ID
    * @param {object} [opts.sessionRecap] - SessionRecap instance for session ID linking
    */
-  constructor({ db, scheduleEngine, churches, defaultBotToken, andrewChatId, sessionRecap } = {}) {
+  constructor({ db, scheduleEngine, churches, defaultBotToken, andrewChatId, sessionRecap, versionConfig } = {}) {
     this.lastPreServiceCheckAt = new Map(); // churchId → timestamp (ms)
     this._timer = null;
     this.db = db || null;
     this.scheduleEngine = scheduleEngine || null;
     this.churches = churches || null;
     this.sessionRecap = sessionRecap || null;
+    this.versionConfig = versionConfig || null;
     this.tallyBot = null;
     this.sendCommand = null;
     this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN;
@@ -140,8 +141,8 @@ class PreServiceCheck {
     // Send command to church client via WS and await result
     let result = null;
     let failReason = 'offline'; // 'offline' | 'timeout' | 'error'
+    const churchRuntime = this.churches?.get(church.churchId);
     try {
-      const churchRuntime = this.churches?.get(church.churchId);
       if (churchRuntime?.ws?.readyState === 1) {
         const crypto = require('crypto');
         const msgId = crypto.randomUUID();
@@ -169,6 +170,12 @@ class PreServiceCheck {
     } catch (e) {
       failReason = 'error';
       console.error(`[PreServiceCheck] sendCommand error for ${church.name}:`, e.message);
+    }
+
+    // Enrich with server-side device version checks
+    if (result && this.versionConfig && churchRuntime) {
+      result.checks = this._enrichWithVersionChecks(result.checks || [], churchRuntime.status);
+      result.pass = result.pass && !result.checks.some(c => !c.pass);
     }
 
     // Persist result to DB for portal display
@@ -281,8 +288,48 @@ class PreServiceCheck {
     }));
 
     const result = await resultPromise;
+    if (result && this.versionConfig && churchRuntime) {
+      result.checks = this._enrichWithVersionChecks(result.checks || [], churchRuntime.status);
+      result.pass = result.pass && !result.checks.some(c => !c.pass);
+    }
     this._persistResult(churchId, result, 'manual');
     return result;
+  }
+
+  /**
+   * Append server-side device version checks to the pre-service check results.
+   * Reads current version strings from the church's live status object and
+   * compares them against versionConfig minimums.
+   */
+  _enrichWithVersionChecks(checks, status) {
+    if (!this.versionConfig || !status) return checks;
+
+    const enriched = [...checks];
+    const encType = status.encoder?.type || 'unknown';
+    const mixerType = status.mixer?.type || 'unknown';
+
+    const devices = [
+      { label: 'OBS Version',            type: 'obs',                   version: status.obs?.version },
+      { label: 'ProPresenter Version',    type: 'proPresenter',          version: status.proPresenter?.version },
+      { label: 'vMix Version',            type: 'vmix',                  version: status.vmix?.version },
+      { label: 'ATEM Firmware',           type: 'atem_protocol',         version: status.atem?.protocolVersion },
+      { label: `${encType} Firmware`,     type: `encoder_${encType}`,    version: status.encoder?.firmwareVersion },
+      { label: `${mixerType} Firmware`,   type: `mixer_${mixerType}`,    version: status.mixer?.firmware },
+    ];
+
+    for (const d of devices) {
+      if (!d.version) continue;
+      const result = this.versionConfig.checkVersion(d.type, d.version);
+      if (!result.checked) continue;
+      enriched.push({
+        name: d.label,
+        pass: result.meetsRequirement,
+        detail: result.outdated
+          ? `v${result.current} (minimum: v${result.minimum})`
+          : `v${result.current} ✓`,
+      });
+    }
+    return enriched;
   }
 }
 
