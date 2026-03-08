@@ -3285,7 +3285,7 @@ function makeCommandSender(church) {
 
 // Chat endpoints (extracted)
 require('./src/routes/chat')(app, {
-  db, chatEngine, requireAdmin, requireChurchAppAuth, handleChatCommandMessage, log,
+  db, chatEngine, requireAdmin, requireChurchAppAuth, handleChatCommandMessage, rateLimit, log,
 });
 
 // Slack integration API (extracted)
