@@ -66,93 +66,80 @@
   <div class="content">
     <div class="step-indicator" id="step-indicator"></div>
 
-    <!-- Step 1: ATEM -->
+    <!-- Step 1: Auto-Discover Devices -->
     <div class="wizard-step active" data-step="1">
-      <h2 class="wizard-headline">ATEM Switcher</h2>
-      <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
-        Pick your network interface first, then scan for ATEM on that subnet.
+      <h2 class="wizard-headline">Discover Your Gear</h2>
+      <p style="color: var(--muted); font-size: 12px; margin-bottom: 12px; line-height: 1.5;">
+        Tally is scanning your network for production equipment...
       </p>
-      <div class="form-group">
+      <div class="form-group" style="margin-bottom:8px;">
         <label>Network Interface</label>
         <select id="wiz-scan-nic"></select>
       </div>
-      <div class="form-group">
-        <label>ATEM IP Address</label>
-        <input id="wiz-atem" type="text" placeholder="192.168.1.10">
+      <!-- Scan progress -->
+      <div id="wiz-scan-progress" style="margin-bottom:12px;">
+        <div style="height:4px; background:var(--border); border-radius:2px; overflow:hidden;">
+          <div id="wiz-scan-fill" style="width:0%; height:100%; background:var(--green); transition:width 0.3s;"></div>
+        </div>
+        <div id="wiz-scan-status" style="font-size:10px; color:var(--dim); margin-top:4px; font-family:var(--mono);">Preparing scan...</div>
       </div>
-      <button class="btn-small btn-secondary" onclick="scanForATEM()" id="btn-scan">🔍 Auto-Discover on Network</button>
-      <div style="margin-top:10px;">
-        <a href="#" style="color: var(--dim); font-size: 12px; text-decoration: none; font-family: var(--mono);"
-           onclick="event.preventDefault(); document.getElementById('wiz-atem').value=''; wizardNext();">
-          Skip — I don't have an ATEM
-        </a>
-      </div>
+      <!-- Discovered devices list -->
+      <div id="wiz-discovered-devices" style="display:none; margin-bottom:12px;"></div>
+      <!-- Manual config fallback -->
+      <details id="wiz-manual-config" style="margin-top:8px;">
+        <summary style="color:var(--dim); font-size:12px; cursor:pointer; font-family:var(--mono);">Didn't find something? Configure manually</summary>
+        <div style="margin-top:10px;">
+          <div class="form-group">
+            <label>ATEM IP Address</label>
+            <input id="wiz-atem" type="text" placeholder="192.168.1.10">
+          </div>
+          <div class="form-group">
+            <label>Encoder Type</label>
+            <select id="wiz-encoder-type" onchange="onWizEncoderTypeChanged()" style="width:100%;">
+              <option value="">— None —</option>
+              <option value="blackmagic">Blackmagic Web Presenter</option>
+              <option value="obs">OBS Studio</option>
+              <option value="vmix">vMix</option>
+              <option value="atem-streaming">ATEM Mini (built-in)</option>
+              <option value="ecamm">Ecamm Live</option>
+              <option value="aja">AJA HELO</option>
+              <option value="epiphan">Epiphan Pearl</option>
+              <option value="teradek">Teradek</option>
+              <option value="tricaster">TriCaster</option>
+              <option value="birddog">BirdDog</option>
+              <option value="yolobox">YoloBox</option>
+              <option value="tally-encoder">Tally Encoder</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div id="wiz-encoder-fields"></div>
+          <div class="form-group">
+            <label>Companion IP (optional)</label>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <input id="wiz-companion-host" type="text" placeholder="localhost" style="flex:1;">
+              <span style="color:var(--dim); font-size:11px;">:</span>
+              <input id="wiz-companion-port" type="number" placeholder="8888" style="width:80px;">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>System Name (optional)</label>
+            <input id="wiz-name" type="text" placeholder="e.g., Main Sanctuary">
+          </div>
+          <div class="form-group">
+            <label>Live Stream URL (optional)</label>
+            <input id="wiz-livestream" type="text" placeholder="https://youtube.com/live/...">
+          </div>
+        </div>
+      </details>
+      <button class="btn-small btn-secondary" id="btn-scan" onclick="wizardRescan()" style="margin-top:8px; display:none;">Re-Scan Network</button>
       <div id="scan-result" style="margin-top:8px; font-size:11px; color: var(--muted); font-family: var(--mono);"></div>
     </div>
 
-    <!-- Step 2: Streaming Encoder -->
+    <!-- Step 2: Stream Profile -->
     <div class="wizard-step" data-step="2">
-      <h2 style="font-size: 14px; color: var(--white); font-weight: 700; letter-spacing: -0.01em; text-transform: none; font-family: var(--font); margin-bottom: 10px;">Streaming Encoder</h2>
-      <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
-        Select the encoder your church uses to stream. This can be changed later in Equipment settings.
-      </p>
-      <div class="form-group">
-        <label>Encoder Type</label>
-        <select id="wiz-encoder-type" onchange="onWizEncoderTypeChanged()" style="width:100%;">
-          <option value="blackmagic">Blackmagic Web Presenter / Streaming Encoder</option>
-          <option value="obs">OBS Studio</option>
-          <option value="vmix">vMix</option>
-          <option value="atem-streaming">ATEM Mini (built-in streaming)</option>
-          <option value="ecamm">Ecamm Live (Mac only)</option>
-          <option value="aja">AJA HELO</option>
-          <option value="epiphan">Epiphan Pearl</option>
-          <option value="teradek">Teradek Cube / VidiU</option>
-          <option value="tricaster">TriCaster</option>
-          <option value="birddog">BirdDog</option>
-          <option value="yolobox">YoloBox</option>
-          <option value="tally-encoder">Tally Encoder (Raspberry Pi)</option>
-          <option value="custom">Custom Encoder</option>
-        </select>
-      </div>
-      <div id="wiz-encoder-fields"></div>
-      <div style="margin-top:10px;">
-        <a href="#" style="color: var(--dim); font-size: 12px; text-decoration: none; font-family: var(--mono);"
-           onclick="event.preventDefault(); wizardNext();">
-          Skip — I'll set up the encoder later
-        </a>
-      </div>
-    </div>
-
-    <!-- Step 3: Companion & Details -->
-    <div class="wizard-step" data-step="3">
-      <h2 style="font-size: 14px; color: var(--white); font-weight: 700; letter-spacing: -0.01em; text-transform: none; font-family: var(--font); margin-bottom: 10px;">Optional: Companion &amp; Details</h2>
-      <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
-        Skip these if you don't use Bitfocus Companion.
-      </p>
-      <div class="form-group">
-        <label>Companion IP / Host (optional)</label>
-        <div style="display:flex; gap:6px; align-items:center;">
-          <input id="wiz-companion-host" type="text" placeholder="localhost" style="flex:1;">
-          <span style="color:var(--dim); font-size:11px;">:</span>
-          <input id="wiz-companion-port" type="number" placeholder="8888" style="width:80px;">
-        </div>
-        <div style="font-size: 10px; color: var(--dim); margin-top: 4px; font-family: var(--mono);">Leave blank if not using Bitfocus Companion. Default port: 8888</div>
-      </div>
-      <div class="form-group">
-        <label>System Name (optional)</label>
-        <input id="wiz-name" type="text" placeholder="e.g., Main Sanctuary">
-      </div>
-      <div class="form-group">
-        <label>Live Stream URL (optional — YouTube / Facebook)</label>
-        <input id="wiz-livestream" type="text" placeholder="https://youtube.com/live/…">
-      </div>
-    </div>
-
-    <!-- Step 4: Train Your Tally Engineer -->
-    <div class="wizard-step" data-step="4">
       <h2 style="font-size: 14px; color: var(--white); font-weight: 700; letter-spacing: -0.01em; text-transform: none; font-family: var(--font); margin-bottom: 10px;">Train Your Tally Engineer</h2>
       <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
-        Help Tally Engineer understand your setup so it can give smarter alerts and recommendations.
+        Help Tally understand your setup so it can give smarter alerts and recommendations.
       </p>
       <div class="form-group">
         <label>Stream Platform</label>
@@ -214,8 +201,8 @@
       </div>
     </div>
 
-    <!-- Step 5: Done -->
-    <div class="wizard-step" data-step="5">
+    <!-- Step 3: Done -->
+    <div class="wizard-step" data-step="3">
       <div style="text-align:center; padding: 24px 0 16px;">
         <div class="wizard-badge">Setup Complete</div>
         <div class="wizard-headline">All Set!</div>
@@ -266,6 +253,22 @@
 
   <!-- ══════════ STATUS TAB ══════════ -->
   <div class="content tab-content active" id="tab-status" style="flex:1; overflow-y:auto;">
+
+    <!-- Pre-Service Check Hero Panel -->
+    <div class="section preservice-hero" id="preservice-panel" style="display:none;">
+      <div class="preservice-header">
+        <div class="preservice-badge" id="preservice-badge">
+          <span class="preservice-icon" id="preservice-icon"></span>
+          <span class="preservice-title" id="preservice-title">Checking...</span>
+        </div>
+        <div class="preservice-meta" id="preservice-meta"></div>
+      </div>
+      <div class="preservice-checks" id="preservice-checks"></div>
+      <div class="preservice-actions" id="preservice-actions">
+        <button class="btn-small btn-secondary" id="preservice-run-btn" onclick="runPreServiceCheck()">Run Check Now</button>
+        <button class="btn-small" id="preservice-fix-btn" style="display:none; background:var(--warn); color:#000; border-color:var(--warn);" onclick="fixAllPreService()">Fix All</button>
+      </div>
+    </div>
 
     <!-- ATEM Status -->
     <div class="section">
@@ -378,6 +381,25 @@
           <div class="label">Companion</div>
           <div class="value muted" id="val-id-companion">—</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Rundown Panel -->
+    <div class="section rundown-panel" id="rundown-panel" style="display:none;">
+      <h2>Rundown</h2>
+      <div id="rundown-inactive" style="display:none;">
+        <p style="color:var(--dim); font-size:12px; font-family:var(--mono);">No active rundown. Set one up in the <a href="#" class="ext-link" data-url="https://tallyconnect.app/church-portal" style="color:var(--green);">Church Portal</a>.</p>
+      </div>
+      <div id="rundown-active" style="display:none;">
+        <div class="rundown-progress" id="rundown-progress" style="font-size:10px; color:var(--dim); font-family:var(--mono); margin-bottom:8px;"></div>
+        <div class="rundown-current-step" id="rundown-current-step"></div>
+        <div class="rundown-next" id="rundown-next" style="margin-top:8px;"></div>
+        <div class="rundown-controls" style="display:flex; gap:6px; margin-top:10px;">
+          <button class="btn-small" id="rundown-exec-btn" style="background:var(--green); color:#000; border-color:var(--green);" onclick="executeRundownStep()">Execute</button>
+          <button class="btn-small btn-secondary" id="rundown-advance-btn" onclick="advanceRundownStep()">Next Step</button>
+          <button class="btn-small btn-secondary" id="rundown-end-btn" onclick="endRundown()" style="margin-left:auto; color:var(--danger); border-color:var(--danger);">End</button>
+        </div>
+        <div class="rundown-steps-list" id="rundown-steps-list" style="margin-top:10px;"></div>
       </div>
     </div>
 

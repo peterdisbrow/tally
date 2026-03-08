@@ -1,5 +1,5 @@
 const api = window.electronAPI;
-const TOTAL_STEPS = 5;
+const TOTAL_STEPS = 3;
 let currentStep = 1;
 let isRunning = false;
 let alertCount = 0;
@@ -173,6 +173,10 @@ async function init() {
     updateToggleBtn();
     const status = await api.getStatus();
     updateStatusUI(status);
+    // Load pre-service check hero panel
+    loadPreServiceCheck();
+    // Load rundown panel
+    loadRundownPanel();
     // Initialize Problem Finder real-time listener
     if (typeof initProblemFinderListener === 'function') initProblemFinderListener();
   } catch (err) {
@@ -218,6 +222,8 @@ function showEquipmentWizard() {
   document.getElementById('wizard').classList.add('active');
   renderStepIndicator();
   goToStep(1);
+  // Auto-start network scan when wizard opens
+  wizardAutoScan();
 }
 
 function showWizard() {
@@ -363,8 +369,8 @@ function goToStep(n) {
   back.style.display = n > 1 ? '' : 'none';
   next.textContent = n === TOTAL_STEPS ? 'Finish & Connect' : 'Next →';
 
-  // Render dynamic encoder fields when entering step 2
-  if (n === 2 && typeof onWizEncoderTypeChanged === 'function') {
+  // Render dynamic encoder fields when step 1 manual config is visible
+  if (n === 1 && typeof onWizEncoderTypeChanged === 'function') {
     onWizEncoderTypeChanged();
   }
 }
@@ -393,14 +399,14 @@ function showWizardHint(msg) {
 
 function wizardValidateStep(step) {
   if (step === 1) {
+    // Validate manual ATEM IP if provided
     const ip = document.getElementById('wiz-atem').value.trim();
     if (ip && !isValidIpOrHostname(ip)) {
       showWizardHint('Please enter a valid IP address (e.g. 192.168.1.10) or leave blank to skip.');
       return false;
     }
-  }
-  if (step === 2) {
-    const type = document.getElementById('wiz-encoder-type').value;
+    // Validate manual encoder host if provided
+    const type = document.getElementById('wiz-encoder-type')?.value;
     const hostEl = document.getElementById('wiz-encoder-host');
     const needsHost = ['obs', 'vmix', 'blackmagic', 'aja', 'epiphan', 'teradek', 'tricaster', 'birddog', 'custom'].includes(type);
     if (needsHost && hostEl) {
@@ -417,10 +423,17 @@ function wizardValidateStep(step) {
 async function wizardNext() {
   if (currentStep < TOTAL_STEPS) {
     if (!wizardValidateStep(currentStep)) return;
+
+    // Step 1 → 2: Apply discovered/manual devices before advancing
+    if (currentStep === 1) {
+      applyWizardDevices();
+    }
+
     goToStep(currentStep + 1);
+
     if (currentStep === TOTAL_STEPS) {
-      // Step 5 (Done) — save equipment config, engineer profile, mark setup complete
-      const encType = document.getElementById('wiz-encoder-type').value;
+      // Step 3 (Done) — save equipment config, engineer profile, mark setup complete
+      const encType = document.getElementById('wiz-encoder-type')?.value || '';
       const encHostEl = document.getElementById('wiz-encoder-host');
       const encPortEl = document.getElementById('wiz-encoder-port');
       const encPwEl = document.getElementById('wiz-encoder-password');
@@ -429,14 +442,14 @@ async function wizardNext() {
       const encSourceEl = document.getElementById('wiz-encoder-source');
 
       const equipConfig = {
-        atemIp: document.getElementById('wiz-atem').value.trim(),
+        atemIp: document.getElementById('wiz-atem')?.value.trim() || '',
         companionUrl: (() => {
-          const h = document.getElementById('wiz-companion-host').value.trim();
-          const p = document.getElementById('wiz-companion-port').value.trim() || '8888';
+          const h = (document.getElementById('wiz-companion-host')?.value || '').trim();
+          const p = (document.getElementById('wiz-companion-port')?.value || '').trim() || '8888';
           return h ? `http://${h}:${p}` : '';
         })(),
-        name: document.getElementById('wiz-name').value.trim(),
-        liveStreamUrl: document.getElementById('wiz-livestream').value.trim(),
+        name: (document.getElementById('wiz-name')?.value || '').trim(),
+        liveStreamUrl: (document.getElementById('wiz-livestream')?.value || '').trim(),
         encoderType: encType,
         encoderHost: encHostEl ? encHostEl.value.trim() : '',
         encoderPort: encPortEl ? parseInt(encPortEl.value) || 0 : 0,
@@ -451,14 +464,13 @@ async function wizardNext() {
 
       // Save engineer profile to relay server
       const engineerProfile = {
-        streamPlatform: document.getElementById('wiz-stream-platform').value,
-        expectedViewers: document.getElementById('wiz-expected-viewers').value,
-        operatorLevel: document.getElementById('wiz-operator-level').value,
-        backupEncoder: document.getElementById('wiz-backup-encoder').value,
-        backupSwitcher: document.getElementById('wiz-backup-switcher').value,
-        specialNotes: document.getElementById('wiz-special-notes').value.trim(),
+        streamPlatform: document.getElementById('wiz-stream-platform')?.value || '',
+        expectedViewers: document.getElementById('wiz-expected-viewers')?.value || '',
+        operatorLevel: document.getElementById('wiz-operator-level')?.value || '',
+        backupEncoder: document.getElementById('wiz-backup-encoder')?.value || '',
+        backupSwitcher: document.getElementById('wiz-backup-switcher')?.value || '',
+        specialNotes: (document.getElementById('wiz-special-notes')?.value || '').trim(),
       };
-      // Don't block wizard on network issues, but warn on failure
       api.saveEngineerProfile(engineerProfile).catch(() => {
         console.warn('Engineer profile save failed — will retry on next session');
       });
@@ -466,14 +478,14 @@ async function wizardNext() {
       // Test connection
       const config = await api.getConfig();
       const el = document.getElementById('test-result');
-      el.innerHTML = '<span class="spinner-inline"></span> Testing connection…';
+      el.innerHTML = '<span class="spinner-inline"></span> Testing connection\u2026';
       el.style.color = 'var(--muted)';
       const result = await api.testConnection({ url: config.relay, token: config.token });
       if (result.success) {
-        el.innerHTML = '● Connected to relay server!';
+        el.innerHTML = '\u25CF Connected to relay server!';
         el.style.color = 'var(--green)';
       } else {
-        el.textContent = `⚠ Could not reach relay: ${result.error}`;
+        el.textContent = `\u26A0 Could not reach relay: ${result.error}`;
         el.style.color = 'var(--warn)';
       }
     }
@@ -482,7 +494,7 @@ async function wizardNext() {
     showDashboard();
     const config = await api.getConfig();
     if (config.name) document.getElementById('church-name').textContent = config.name;
-    try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`❌ Agent start failed: ${e.message}`); }
+    try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`\u274C Agent start failed: ${e.message}`); }
     updateToggleBtn();
   }
 }
@@ -580,30 +592,405 @@ function onWizEncoderTypeChanged() {
   container.innerHTML = '';
 }
 
-async function scanForATEM() {
-  const el = document.getElementById('scan-result');
-  const scanBtn = document.getElementById('btn-scan');
+// ─── WIZARD AUTO-DISCOVERY ─────────────────────────────────────────────────
+
+let _wizScanResults = null;
+let _wizCheckedDevices = {};
+
+const DEVICE_TYPE_LABELS = {
+  atem: 'ATEM Switcher', companion: 'Companion', obs: 'OBS Studio', hyperdeck: 'HyperDeck',
+  propresenter: 'ProPresenter', vmix: 'vMix', resolume: 'Resolume', tricaster: 'TriCaster',
+  birddog: 'BirdDog', videohub: 'VideoHub', mixers: 'Audio Mixer', encoders: 'Encoder',
+  ptz: 'PTZ Camera', ndi: 'NDI Source',
+};
+
+async function wizardAutoScan() {
+  const fill = document.getElementById('wiz-scan-fill');
+  const status = document.getElementById('wiz-scan-status');
+  const devicesEl = document.getElementById('wiz-discovered-devices');
+  const rescanBtn = document.getElementById('btn-scan');
+  const progressEl = document.getElementById('wiz-scan-progress');
   const wizSelect = document.getElementById('wiz-scan-nic');
   const selectedInterface = wizSelect?.value || pendingDiscoveryNic || '';
 
-  scanBtn.disabled = true;
-  scanBtn.textContent = '🔍 Scanning…';
-  el.textContent = `Scanning ${selectedInterface || 'network'} for ATEM…`;
+  if (fill) fill.style.width = '0%';
+  if (status) status.textContent = 'Scanning your network for devices...';
+  if (progressEl) progressEl.style.display = '';
+  if (devicesEl) devicesEl.style.display = 'none';
+  if (rescanBtn) rescanBtn.style.display = 'none';
+
+  // Listen for scan progress updates
+  const removeScanListener = api.onScanProgress(({ percent, message }) => {
+    if (fill) fill.style.width = `${percent}%`;
+    if (status) status.textContent = message || `Scanning... ${percent}%`;
+  });
+
   try {
-    const results = await api.scanNetwork(selectedInterface ? { interfaceName: selectedInterface } : {});
-    if (!results.atem || results.atem.length === 0) {
-      el.innerHTML = 'No ATEM found on this interface.<br>Try these manual IPs: 192.168.1.10, 192.168.1.240, 10.0.0.10';
-      return;
-    }
-    const primary = results.atem[0];
-    document.getElementById('wiz-atem').value = primary.ip;
-    const suffix = results.atem.length > 1 ? ` (+${results.atem.length - 1} more)` : '';
-    el.innerHTML = `Found ${results.atem.length} ATEM${suffix ? 's' : ''} on this interface. Using ${primary.ip}.`;
+    const options = selectedInterface ? { interfaceName: selectedInterface } : {};
+    const results = await api.scanNetwork(options);
+    _wizScanResults = results;
+
+    if (fill) fill.style.width = '100%';
+    renderDiscoveredDevices(results);
   } catch (err) {
-    el.textContent = `Scan failed: ${err.message}`;
+    if (status) status.textContent = `Scan failed: ${err.message}`;
+    if (rescanBtn) rescanBtn.style.display = '';
   } finally {
-    scanBtn.disabled = false;
-    scanBtn.textContent = '🔍 Auto-Discover on Network';
+    if (removeScanListener) removeScanListener();
+  }
+}
+
+function renderDiscoveredDevices(results) {
+  const devicesEl = document.getElementById('wiz-discovered-devices');
+  const statusEl = document.getElementById('wiz-scan-status');
+  const progressEl = document.getElementById('wiz-scan-progress');
+  const rescanBtn = document.getElementById('btn-scan');
+  if (!devicesEl) return;
+
+  // Count total discovered devices
+  let totalDevices = 0;
+  const deviceRows = [];
+
+  for (const [category, devices] of Object.entries(results)) {
+    if (!Array.isArray(devices) || devices.length === 0) continue;
+    for (const device of devices) {
+      totalDevices++;
+      const label = DEVICE_TYPE_LABELS[category] || category;
+      const ip = device.ip || device.host || '';
+      const name = device.name || device.model || '';
+      const key = `${category}-${ip}-${name}`;
+      if (_wizCheckedDevices[key] === undefined) _wizCheckedDevices[key] = true; // default checked
+      deviceRows.push({ category, label, ip, name, key, device });
+    }
+  }
+
+  if (totalDevices === 0) {
+    if (statusEl) statusEl.textContent = 'No devices found on this network.';
+    devicesEl.style.display = 'none';
+    if (rescanBtn) rescanBtn.style.display = '';
+    // Open manual config automatically
+    const manual = document.getElementById('wiz-manual-config');
+    if (manual) manual.open = true;
+    return;
+  }
+
+  if (progressEl) progressEl.style.display = 'none';
+  if (statusEl) statusEl.textContent = `Found ${totalDevices} device${totalDevices !== 1 ? 's' : ''} on your network`;
+
+  let html = '<div style="display:flex; flex-direction:column; gap:4px;">';
+  for (const row of deviceRows) {
+    const checked = _wizCheckedDevices[row.key] ? 'checked' : '';
+    html += `<label style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--card); border:1px solid var(--border); border-radius:6px; cursor:pointer; font-family:var(--mono); font-size:12px;">
+      <input type="checkbox" ${checked} onchange="toggleWizDevice('${row.key}')" style="accent-color:var(--green);">
+      <span style="color:var(--green); font-weight:700; min-width:110px;">${escapeText(row.label)}</span>
+      <span style="color:var(--muted);">${escapeText(row.ip)}</span>
+      ${row.name ? `<span style="color:var(--dim); font-size:10px;">${escapeText(row.name)}</span>` : ''}
+    </label>`;
+  }
+  html += '</div>';
+
+  devicesEl.innerHTML = html;
+  devicesEl.style.display = '';
+  if (rescanBtn) rescanBtn.style.display = '';
+}
+
+function toggleWizDevice(key) {
+  _wizCheckedDevices[key] = !_wizCheckedDevices[key];
+}
+
+function wizardRescan() {
+  _wizScanResults = null;
+  _wizCheckedDevices = {};
+  wizardAutoScan();
+}
+
+function applyWizardDevices() {
+  if (!_wizScanResults) return;
+  // Apply checked scan results to manual fields (for config save)
+  for (const [category, devices] of Object.entries(_wizScanResults)) {
+    if (!Array.isArray(devices) || devices.length === 0) continue;
+    for (const device of devices) {
+      const ip = device.ip || device.host || '';
+      const name = device.name || device.model || '';
+      const key = `${category}-${ip}-${name}`;
+      if (!_wizCheckedDevices[key]) continue; // unchecked, skip
+
+      // Apply primary device to wizard fields
+      if (category === 'atem' && ip) {
+        const el = document.getElementById('wiz-atem');
+        if (el && !el.value.trim()) el.value = ip;
+      }
+      if (category === 'companion' && ip) {
+        const el = document.getElementById('wiz-companion-host');
+        if (el && !el.value.trim()) el.value = ip;
+      }
+      if (category === 'obs' && ip) {
+        const typeEl = document.getElementById('wiz-encoder-type');
+        if (typeEl && !typeEl.value) { typeEl.value = 'obs'; onWizEncoderTypeChanged(); }
+        const hostEl = document.getElementById('wiz-encoder-host');
+        if (hostEl && !hostEl.value.trim()) hostEl.value = ip;
+      }
+
+      // Apply to equipment-ui device state (if equipment-ui is loaded)
+      if (typeof addFromScan === 'function') {
+        addFromScan(category, device);
+      }
+    }
+  }
+}
+
+// Legacy alias for backward compat
+async function scanForATEM() { wizardRescan(); }
+
+// ─── PRE-SERVICE CHECK HERO ────────────────────────────────────────────────
+
+let _preServiceData = null;
+
+async function loadPreServiceCheck() {
+  try {
+    const data = await api.getPreServiceCheck();
+    if (data && data.checks_json) {
+      _preServiceData = data;
+      renderPreServicePanel(data);
+    } else {
+      // No check data yet — hide the panel
+      const panel = document.getElementById('preservice-panel');
+      if (panel) panel.style.display = 'none';
+    }
+  } catch (e) {
+    console.warn('Pre-service check load failed:', e);
+  }
+}
+
+function renderPreServicePanel(data) {
+  const panel = document.getElementById('preservice-panel');
+  if (!panel) return;
+
+  let checks;
+  try {
+    checks = typeof data.checks_json === 'string' ? JSON.parse(data.checks_json) : data.checks_json;
+  } catch {
+    panel.style.display = 'none';
+    return;
+  }
+
+  if (!Array.isArray(checks) || checks.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  const failures = checks.filter(c => c.status === 'fail');
+  const warnings = checks.filter(c => c.status === 'warn');
+  const passes = checks.filter(c => c.status === 'pass');
+  const fixable = checks.filter(c => c.status === 'fail' && c.fixable);
+
+  // Determine hero state
+  const allPass = failures.length === 0 && warnings.length === 0;
+  const hasFailures = failures.length > 0;
+
+  panel.classList.remove('pass', 'fail', 'warn');
+  panel.classList.add(allPass ? 'pass' : hasFailures ? 'fail' : 'warn');
+  panel.style.display = '';
+
+  // Badge
+  const icon = document.getElementById('preservice-icon');
+  const title = document.getElementById('preservice-title');
+  if (allPass) {
+    icon.textContent = '\u2705';
+    title.textContent = 'All Systems Go';
+  } else {
+    const issueCount = failures.length + warnings.length;
+    icon.textContent = hasFailures ? '\u26A0\uFE0F' : '\u26A0\uFE0F';
+    title.textContent = `${issueCount} Issue${issueCount !== 1 ? 's' : ''} Found`;
+  }
+
+  // Meta (timestamp)
+  const meta = document.getElementById('preservice-meta');
+  if (data.created_at) {
+    const d = new Date(data.created_at);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMin = Math.round(diffMs / 60000);
+    if (diffMin < 1) meta.textContent = 'Just now';
+    else if (diffMin < 60) meta.textContent = `${diffMin}m ago`;
+    else if (diffMin < 1440) meta.textContent = `${Math.round(diffMin / 60)}h ago`;
+    else meta.textContent = d.toLocaleDateString();
+  } else {
+    meta.textContent = '';
+  }
+
+  // Checklist rows
+  const container = document.getElementById('preservice-checks');
+  container.innerHTML = '';
+
+  // Show failures first, then warnings, then passes
+  const sorted = [...failures, ...warnings, ...passes];
+  for (const check of sorted) {
+    const status = check.status || 'skip';
+    const row = document.createElement('div');
+    row.className = `preservice-check-row ${status}`;
+    row.innerHTML = `<div class="check-dot ${status}"></div>`
+      + `<span class="check-name">${escapeText(check.name || check.type || 'Check')}</span>`
+      + `<span class="check-detail">${escapeText(check.detail || check.message || '')}</span>`;
+    container.appendChild(row);
+  }
+
+  // Fix All button visibility
+  const fixBtn = document.getElementById('preservice-fix-btn');
+  if (fixBtn) {
+    fixBtn.style.display = fixable.length > 0 ? '' : 'none';
+    fixBtn.textContent = `Fix All (${fixable.length})`;
+    fixBtn.disabled = false;
+  }
+
+  // Run button reset
+  const runBtn = document.getElementById('preservice-run-btn');
+  if (runBtn) { runBtn.disabled = false; runBtn.textContent = 'Run Check Now'; }
+}
+
+function escapeText(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function runPreServiceCheck() {
+  const btn = document.getElementById('preservice-run-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Running\u2026'; }
+  try {
+    const result = await api.runPreServiceCheck();
+    if (result && result.error) {
+      console.warn('Pre-service check run error:', result.error);
+    }
+    // Reload panel after a short delay (check runs async on server)
+    setTimeout(() => loadPreServiceCheck(), 2000);
+  } catch (e) {
+    console.warn('Pre-service check run failed:', e);
+    if (btn) { btn.disabled = false; btn.textContent = 'Run Check Now'; }
+  }
+}
+
+async function fixAllPreService() {
+  const btn = document.getElementById('preservice-fix-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Fixing\u2026'; }
+  try {
+    const result = await api.fixAllPreService();
+    if (result && result.results) {
+      const fixed = result.results.filter(r => r.success).length;
+      const failed = result.results.length - fixed;
+      if (btn) btn.textContent = failed > 0 ? `${fixed} fixed, ${failed} failed` : `${fixed} fixed`;
+    }
+    // Reload panel after fixes
+    setTimeout(() => loadPreServiceCheck(), 3000);
+  } catch (e) {
+    console.warn('Pre-service fix-all failed:', e);
+    if (btn) { btn.disabled = false; btn.textContent = 'Fix All'; }
+  }
+}
+
+// ─── RUNDOWN PANEL ─────────────────────────────────────────────────────────
+
+let _rundownData = null;
+
+async function loadRundownPanel() {
+  try {
+    const data = await api.getActiveRundown();
+    _rundownData = data;
+    renderRundownPanel(data);
+  } catch (e) {
+    console.warn('Rundown load failed:', e);
+  }
+}
+
+function renderRundownPanel(data) {
+  const panel = document.getElementById('rundown-panel');
+  if (!panel) return;
+
+  if (!data || !data.active) {
+    panel.style.display = '';
+    document.getElementById('rundown-inactive').style.display = '';
+    document.getElementById('rundown-active').style.display = 'none';
+    return;
+  }
+
+  panel.style.display = '';
+  document.getElementById('rundown-inactive').style.display = 'none';
+  document.getElementById('rundown-active').style.display = '';
+
+  const steps = data.rundown?.steps || [];
+  const currentIdx = data.currentStep || 0;
+  const currentStep = steps[currentIdx] || null;
+  const nextStep = steps[currentIdx + 1] || null;
+
+  // Progress
+  const progressEl = document.getElementById('rundown-progress');
+  if (progressEl) {
+    progressEl.textContent = `${escapeText(data.rundownName || data.rundown?.name || 'Rundown')} \u2014 Step ${currentIdx + 1} of ${steps.length}`;
+  }
+
+  // Current step card
+  const currentEl = document.getElementById('rundown-current-step');
+  if (currentEl && currentStep) {
+    currentEl.innerHTML = `<div class="step-label">${escapeText(currentStep.label || 'Step ' + (currentIdx + 1))}</div>`
+      + (currentStep.notes ? `<div class="step-notes">${escapeText(currentStep.notes)}</div>` : '');
+  }
+
+  // Next up preview
+  const nextEl = document.getElementById('rundown-next');
+  if (nextEl) {
+    nextEl.textContent = nextStep ? `Next: ${nextStep.label || 'Step ' + (currentIdx + 2)}` : 'Last step';
+  }
+
+  // Disable advance on last step
+  const advBtn = document.getElementById('rundown-advance-btn');
+  if (advBtn) advBtn.disabled = currentIdx >= steps.length - 1;
+
+  // Steps sidebar list
+  const listEl = document.getElementById('rundown-steps-list');
+  if (listEl) {
+    listEl.innerHTML = steps.map((s, i) => {
+      const cls = i < currentIdx ? 'done' : i === currentIdx ? 'current' : '';
+      const icon = i < currentIdx ? '\u2713' : i === currentIdx ? '\u25B6' : '\u25CB';
+      return `<div class="rundown-step-item ${cls}">${icon} ${escapeText(s.label || 'Step ' + (i + 1))}</div>`;
+    }).join('');
+  }
+}
+
+async function executeRundownStep() {
+  const btn = document.getElementById('rundown-exec-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Executing\u2026'; }
+  try {
+    const result = await api.executeRundownStep();
+    if (result.error) console.warn('Execute step error:', result.error);
+    setTimeout(() => {
+      if (btn) { btn.disabled = false; btn.textContent = 'Execute'; }
+      loadRundownPanel();
+    }, 1000);
+  } catch (e) {
+    console.warn('Execute step failed:', e);
+    if (btn) { btn.disabled = false; btn.textContent = 'Execute'; }
+  }
+}
+
+async function advanceRundownStep() {
+  const btn = document.getElementById('rundown-advance-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Advancing\u2026'; }
+  try {
+    await api.advanceRundownStep();
+    loadRundownPanel();
+  } catch (e) {
+    console.warn('Advance step failed:', e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Next Step'; }
+  }
+}
+
+async function endRundown() {
+  try {
+    await api.deactivateRundown();
+    loadRundownPanel();
+  } catch (e) {
+    console.warn('Deactivate rundown failed:', e);
   }
 }
 
@@ -970,6 +1357,17 @@ function addAlert(text) {
 api.onStatus((status) => {
   updateStatusUI(status);
 });
+
+// Periodically refresh pre-service panel (every 5 minutes when dashboard is visible)
+let _preServiceRefreshTimer = null;
+function startPreServiceRefresh() {
+  if (_preServiceRefreshTimer) return;
+  _preServiceRefreshTimer = setInterval(() => {
+    const panel = document.getElementById('preservice-panel');
+    if (panel) loadPreServiceCheck();
+  }, 5 * 60 * 1000);
+}
+startPreServiceRefresh();
 
 api.onLog((text) => {
   const t = text.trim();

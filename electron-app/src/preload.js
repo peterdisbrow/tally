@@ -51,6 +51,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   oauthStatus: () => ipcRenderer.invoke('oauth-status'),
   oauthStreamKeys: () => ipcRenderer.invoke('oauth-stream-keys'),
   onOauthUpdate: (cb) => ipcRenderer.on('oauth-update', (_, data) => cb(data)),
+  // Pre-Service Check
+  getPreServiceCheck: () => ipcRenderer.invoke('get-preservice-check'),
+  runPreServiceCheck: () => ipcRenderer.invoke('run-preservice-check'),
+  fixAllPreService: () => ipcRenderer.invoke('fix-all-preservice'),
+  // Rundown
+  getActiveRundown: () => ipcRenderer.invoke('get-active-rundown'),
+  executeRundownStep: () => ipcRenderer.invoke('execute-rundown-step'),
+  advanceRundownStep: () => ipcRenderer.invoke('advance-rundown-step'),
+  deactivateRundown: () => ipcRenderer.invoke('deactivate-rundown'),
   // Problem Finder
   pfAnalyze: () => ipcRenderer.invoke('pf-analyze'),
   pfGoNoGo: (opts) => ipcRenderer.invoke('pf-go-no-go', opts),

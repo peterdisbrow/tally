@@ -329,7 +329,7 @@ class WeeklyDigest {
 
         const text = lines.join('\n');
 
-        // Send to TDs
+        // Send to TDs via Telegram
         const tds = this.db.prepare(
           'SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1'
         ).all(church.churchId);
@@ -337,6 +337,23 @@ class WeeklyDigest {
         for (const td of tds) {
           if (!td.telegram_chat_id) continue;
           await this._sendTelegram(td.telegram_chat_id, botToken, text);
+        }
+
+        // Send digest email to leadership recipients
+        if (this.lifecycleEmails) {
+          const fullChurch = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(church.churchId);
+          if (fullChurch && fullChurch.leadership_emails) {
+            const leaderEmails = fullChurch.leadership_emails.split(',').map(e => e.trim()).filter(e => e && e.includes('@'));
+            const sessionCount = this.db.prepare(
+              'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?'
+            ).get(church.churchId, weekAgo.toISOString())?.cnt || 0;
+            const digestData = { reliability, patterns, totalEvents: events.length, autoRecovered, sessionCount };
+            for (const leaderEmail of leaderEmails) {
+              this.lifecycleEmails.sendWeeklyDigestEmail(fullChurch, digestData, leaderEmail).catch(err => {
+                console.error(`[WeeklyDigest] Leadership email error for ${leaderEmail}:`, err.message);
+              });
+            }
+          }
         }
       } catch (e) {
         console.error(`[WeeklyDigest] Church digest error for ${church.name}:`, e.message);
@@ -406,6 +423,11 @@ class WeeklyDigest {
    */
   setNotificationConfig(botToken) {
     this._botToken = botToken;
+  }
+
+  /** Attach lifecycle emails engine for leadership digest emails */
+  setLifecycleEmails(engine) {
+    this.lifecycleEmails = engine;
   }
 
   startWeeklyTimer() {

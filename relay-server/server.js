@@ -93,6 +93,7 @@ const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS } = require('./src/b
 const { buildResellerPortalHtml } = require('./src/dashboard');
 const { setupSyncMonitor } = require('./src/syncMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
+const { RundownEngine } = require('./src/rundownEngine');
 const { setupResellerPortal } = require('./src/resellerPortal');
 const { setupStatusPage } = require('./src/statusPage');
 const { setupDocsPortal } = require('./src/docsPortal');
@@ -683,6 +684,7 @@ const versionConfig = new VersionConfig(db);
 const autoRecovery = new AutoRecovery(churches, alertEngine, db);
 const weeklyDigest = new WeeklyDigest(db);
 weeklyDigest.setNotificationConfig(process.env.ALERT_BOT_TOKEN);
+const rundownEngine = new RundownEngine(db);
 weeklyDigest.churchMemory = null; // set after churchMemory is created below
 weeklyDigest.startWeeklyTimer();
 
@@ -889,6 +891,7 @@ const lifecycleEmails = new LifecycleEmails(db, {
 });
 billing.setLifecycleEmails(lifecycleEmails);
 sessionRecap.setLifecycleEmails(lifecycleEmails);
+weeklyDigest.setLifecycleEmails(lifecycleEmails);
 alertEngine.setLifecycleEmails(lifecycleEmails);
 
 // Run lifecycle email checks every hour
@@ -1134,7 +1137,7 @@ scheduleEngine.addWindowCloseCallback(async (churchId) => {
 });
 
 // Church Portal — self-service login for individual churches
-setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest });
+setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine });
 console.log('[Server] ✓ Church Portal routes registered');
 
 // Reseller Portal — self-service login for integrators/resellers

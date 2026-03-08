@@ -193,6 +193,70 @@ body.is-mac .header .header-title {
   font-family: var(--mono);
 }
 
+/* ── Pre-Service Check Hero ─────────────────────────────────── */
+.preservice-hero {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: 14px 16px;
+  transition: border-color 0.3s ease;
+}
+.preservice-hero.pass { border-color: var(--green); box-shadow: 0 0 18px rgba(34,197,94,0.12); }
+.preservice-hero.fail { border-color: var(--danger); box-shadow: 0 0 18px rgba(239,68,68,0.12); }
+.preservice-hero.warn { border-color: var(--warn); box-shadow: 0 0 18px rgba(234,179,8,0.12); }
+.preservice-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.preservice-badge {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 15px; font-weight: 700; font-family: var(--mono);
+  color: var(--white);
+}
+.preservice-icon { font-size: 20px; }
+.preservice-meta { font-size: 10px; color: var(--dim); font-family: var(--mono); }
+.preservice-checks { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.preservice-check-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-family: var(--mono); color: var(--muted);
+  padding: 4px 8px; border-radius: 4px;
+  background: rgba(255,255,255,0.02);
+}
+.preservice-check-row .check-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+}
+.preservice-check-row .check-dot.pass { background: var(--green); box-shadow: 0 0 5px var(--green); }
+.preservice-check-row .check-dot.fail { background: var(--danger); box-shadow: 0 0 5px var(--danger); }
+.preservice-check-row .check-dot.warn { background: var(--warn); box-shadow: 0 0 5px var(--warn); }
+.preservice-check-row .check-dot.skip { background: var(--dim); }
+.preservice-check-row .check-name { flex: 1; color: var(--white); }
+.preservice-check-row .check-detail { color: var(--dim); font-size: 10px; }
+.preservice-check-row.fail .check-name { color: var(--danger); }
+.preservice-check-row.warn .check-name { color: var(--warn); }
+.preservice-actions { display: flex; gap: 8px; align-items: center; }
+.preservice-actions .btn-small { cursor: pointer; }
+.preservice-actions .btn-small:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Rundown Panel ─────────────────────────────────────────── */
+.rundown-panel { }
+.rundown-current-step {
+  background: var(--card); border: 1px solid var(--green); border-radius: var(--r-card);
+  padding: 12px 14px;
+}
+.rundown-current-step .step-label {
+  font-size: 14px; font-weight: 700; color: var(--white); margin-bottom: 4px;
+}
+.rundown-current-step .step-notes {
+  font-size: 11px; color: var(--muted); font-family: var(--mono);
+}
+.rundown-next {
+  font-size: 11px; color: var(--dim); font-family: var(--mono);
+}
+.rundown-step-item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-family: var(--mono); color: var(--dim);
+  padding: 3px 0;
+}
+.rundown-step-item.current { color: var(--green); font-weight: 700; }
+.rundown-step-item.done { color: var(--muted); text-decoration: line-through; }
+
 /* ── Info Grid ──────────────────────────────────────────────── */
 .info-grid {
   display: grid;

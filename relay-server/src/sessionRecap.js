@@ -189,13 +189,28 @@ class SessionRecap {
     const finalSession = { ...session, durationMinutes, endedAt, grade };
 
     // Send recap via Telegram
+    let church = null;
     try {
-      const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+      church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
       if (church) {
         await this._sendRecap(church, finalSession);
       }
     } catch (e) {
       console.error(`[SessionRecap] Failed to send recap for ${churchId}:`, e.message);
+    }
+
+    // Send recap email to leadership recipients
+    try {
+      if (this.lifecycleEmails && church && church.leadership_emails) {
+        const emails = church.leadership_emails.split(',').map(e => e.trim()).filter(e => e && e.includes('@'));
+        for (const email of emails) {
+          this.lifecycleEmails.sendSessionRecapEmail(church, finalSession, email).catch(err => {
+            console.error(`[SessionRecap] Leadership email error for ${email}:`, err.message);
+          });
+        }
+      }
+    } catch (e) {
+      console.error(`[SessionRecap] Leadership email error for ${churchId}:`, e.message);
     }
 
     // Send first-service email if this is the first completed session

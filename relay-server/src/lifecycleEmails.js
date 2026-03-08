@@ -148,6 +148,105 @@ class LifecycleEmails {
     }
   }
 
+  // ─── SESSION RECAP EMAIL ────────────────────────────────────────────────────
+
+  /**
+   * Send a post-service recap email to a leadership email address.
+   * Uses session-specific dedup key so each session sends once per recipient.
+   */
+  async sendSessionRecapEmail(church, session, toEmail) {
+    const sessionId = session.sessionId || 'unknown';
+    const emailType = `session-recap-${sessionId}`;
+
+    const dayName = session.startedAt ? new Date(session.startedAt).toLocaleDateString('en-US', { weekday: 'long' }) : '';
+    const dateStr = session.startedAt ? new Date(session.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    const durationStr = session.durationMinutes ? `${session.durationMinutes} min` : 'N/A';
+    const grade = session.grade || 'N/A';
+    const gradeColor = grade === 'A+' || grade === 'A' ? '#22c55e' : grade === 'B' ? '#eab308' : '#ef4444';
+    const streamMin = session.streamTotalMinutes || 0;
+    const peakViewers = session.peakViewers ?? 'N/A';
+    const alerts = session.alertCount || 0;
+    const autoFixed = session.autoRecovered || 0;
+    const churchName = this._esc(church.name || 'Your Church');
+
+    const subject = `Service Recap: ${churchName} — ${dayName} ${dateStr}`;
+    const html = `
+      <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; background: #09090B; color: #F8FAFC; padding: 32px; border-radius: 12px;">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <div style="display: inline-block; background: ${gradeColor}22; border: 2px solid ${gradeColor}; border-radius: 50%; width: 64px; height: 64px; line-height: 64px; font-size: 28px; font-weight: 800; color: ${gradeColor};">${this._esc(grade)}</div>
+          <h1 style="margin: 12px 0 4px; font-size: 20px; color: #F8FAFC;">${churchName}</h1>
+          <p style="margin: 0; color: #94A3B8; font-size: 14px;">${dayName} ${dateStr} &middot; ${durationStr}</p>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Stream Runtime</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${streamMin} min</td></tr>
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Peak Viewers</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${peakViewers}</td></tr>
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Alerts</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${alerts === 0 ? '<span style="color:#22c55e;">None</span>' : `<span style="color:#ef4444;">${alerts}</span>`}</td></tr>
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Auto-Fixed</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${autoFixed}</td></tr>
+          <tr><td style="padding: 8px 12px; color: #94A3B8;">Recording</td><td style="padding: 8px 12px; text-align: right; font-weight: 600;">${session.recordingDetected ? '<span style="color:#22c55e;">Yes</span>' : '<span style="color:#94A3B8;">No</span>'}</td></tr>
+        </table>
+        ${alerts === 0 ? '<p style="text-align:center; color:#22c55e; font-weight:600;">Smooth service — no issues detected.</p>' : ''}
+        <div style="text-align: center; margin-top: 24px;">
+          <a href="${this.appUrl}/church-portal" style="display:inline-block; background:#22c55e; color:#000; padding:10px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">View Full Report</a>
+        </div>
+        <p style="text-align: center; margin-top: 20px; color: #475569; font-size: 11px;">Sent by Tally &middot; <a href="${this.appUrl}" style="color:#475569;">tallyconnect.app</a></p>
+      </div>
+    `;
+
+    return this.sendEmail({ churchId: church.churchId, emailType, to: toEmail, subject, html });
+  }
+
+  // ─── WEEKLY DIGEST EMAIL ──────────────────────────────────────────────────
+
+  /**
+   * Send a weekly digest email to a leadership email address.
+   * Uses week-specific dedup key so each week sends once per recipient.
+   */
+  async sendWeeklyDigestEmail(church, digestData, toEmail) {
+    const now = new Date();
+    const weekStr = `${now.getFullYear()}-W${String(Math.ceil((now.getDate() + new Date(now.getFullYear(), now.getMonth(), 1).getDay()) / 7)).padStart(2, '0')}`;
+    const emailType = `weekly-digest-email-${weekStr}`;
+    const dateLabel = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const churchName = this._esc(church.name || 'Your Church');
+
+    const reliability = digestData.reliability ?? 'N/A';
+    const reliabilityColor = typeof reliability === 'number' && reliability >= 99 ? '#22c55e' : typeof reliability === 'number' && reliability >= 95 ? '#eab308' : '#ef4444';
+    const totalEvents = digestData.totalEvents || 0;
+    const autoRecovered = digestData.autoRecovered || 0;
+    const sessionCount = digestData.sessionCount || 0;
+    const patterns = digestData.patterns || [];
+
+    const subject = `Weekly Report: ${churchName} — Week of ${dateLabel}`;
+    const patternRows = patterns.length > 0
+      ? patterns.map(p => `<li style="margin-bottom:6px;">${this._esc(p.pattern)} <span style="color:#475569;">— ${this._esc(p.timeWindow || '')}</span>${p.recommendation ? `<br><span style="color:#22c55e; font-size:12px;">&rarr; ${this._esc(p.recommendation)}</span>` : ''}</li>`).join('')
+      : '<li style="color:#22c55e;">No recurring issues this week</li>';
+
+    const html = `
+      <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; background: #09090B; color: #F8FAFC; padding: 32px; border-radius: 12px;">
+        <h1 style="font-size: 20px; margin-bottom: 4px;">Weekly Report</h1>
+        <p style="color: #94A3B8; margin: 0 0 24px;">${churchName} &middot; Week of ${dateLabel}</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Services This Week</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${sessionCount}</td></tr>
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Reliability</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600; color: ${reliabilityColor};">${typeof reliability === 'number' ? reliability + '%' : reliability}</td></tr>
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Total Events</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${totalEvents}</td></tr>
+          <tr><td style="padding: 8px 12px; color: #94A3B8;">Auto-Recovered</td><td style="padding: 8px 12px; text-align: right; font-weight: 600;">${autoRecovered}</td></tr>
+        </table>
+        <h3 style="font-size: 14px; margin: 20px 0 8px; color: #86efac;">Recurring Patterns</h3>
+        <ul style="padding-left: 20px; color: #F8FAFC; font-size: 13px;">${patternRows}</ul>
+        <div style="text-align: center; margin-top: 24px;">
+          <a href="${this.appUrl}/church-portal" style="display:inline-block; background:#22c55e; color:#000; padding:10px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">View Portal</a>
+        </div>
+        <p style="text-align: center; margin-top: 20px; color: #475569; font-size: 11px;">Sent by Tally &middot; <a href="${this.appUrl}" style="color:#475569;">tallyconnect.app</a></p>
+      </div>
+    `;
+
+    return this.sendEmail({ churchId: church.churchId, emailType, to: toEmail, subject, html });
+  }
+
+  /** HTML escape helper */
+  _esc(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
   // ─── HOURLY CHECK ───────────────────────────────────────────────────────────
 
   async runCheck() {

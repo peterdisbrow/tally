@@ -851,6 +851,11 @@ function buildChurchPortalHtml(church) {
           <label><span class="tip" data-tip="Visible to ATEM School support when handling your tickets">Notes for Support Team</span></label>
           <textarea id="profile-notes" placeholder="Any special setup notes, known issues, contact preferences..."></textarea>
         </div>
+        <div class="field">
+          <label><span class="tip" data-tip="Send post-service recaps and weekly reports to leadership. Comma-separated email addresses.">Leadership Email Recipients</span></label>
+          <input type="text" id="profile-leadership-emails" placeholder="pastor@church.org, board@church.org">
+          <div style="font-size:11px; color:#94a3b8; margin-top:4px;">Service recaps and weekly reports will be emailed to these addresses automatically.</div>
+        </div>
         <button class="btn-primary" id="btn-save-profile" onclick="saveProfile()">Save Changes</button>
       </div>
       <div class="card">
@@ -2208,6 +2213,7 @@ function buildChurchPortalHtml(church) {
         document.getElementById('profile-phone').value = d.phone || '';
         document.getElementById('profile-location').value = d.location || '';
         document.getElementById('profile-notes').value = d.notes || '';
+        document.getElementById('profile-leadership-emails').value = d.leadership_emails || '';
       } catch(e) { toast('Failed to load profile', true); }
     }
     loadProfile();
@@ -2220,6 +2226,7 @@ function buildChurchPortalHtml(church) {
           phone: document.getElementById('profile-phone').value,
           location: document.getElementById('profile-location').value,
           notes: document.getElementById('profile-notes').value,
+          leadershipEmails: document.getElementById('profile-leadership-emails').value,
         });
         toast('Profile saved');
       } catch(e) { toast(e.message, true); }
@@ -3986,7 +3993,7 @@ function buildChurchPortalHtml(church) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine } = {}) {
   const express = require('express');
   log.info('Setup started');
 
@@ -4017,6 +4024,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     "ALTER TABLE churches ADD COLUMN campus_name TEXT",
     "ALTER TABLE churches ADD COLUMN schedule TEXT DEFAULT '{}'",
     "ALTER TABLE churches ADD COLUMN auto_recovery_enabled INTEGER DEFAULT 1",
+    "ALTER TABLE churches ADD COLUMN leadership_emails TEXT DEFAULT ''",
   ];
   for (const m of migrations) {
     try { db.exec(m); } catch { /* already exists */ }
@@ -4235,7 +4243,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── PUT /api/church/me ────────────────────────────────────────────────────────
   app.put('/api/church/me', authMiddleware, (req, res) => {
-    const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, autoRecoveryEnabled, currentPassword, newPassword } = req.body;
+    const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, autoRecoveryEnabled, currentPassword, newPassword, leadershipEmails } = req.body;
     const churchId = req.church.churchId;
 
     if (newPassword) {
@@ -4251,7 +4259,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
 
     const { audioViaAtem } = req.body;
-    const allowedColumns = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'auto_recovery_enabled', 'audio_via_atem'];
+    const allowedColumns = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'auto_recovery_enabled', 'audio_via_atem', 'leadership_emails'];
     const patch = {};
     if (email          !== undefined) patch.portal_email     = email.trim().toLowerCase();
     if (phone          !== undefined) patch.phone            = phone;
@@ -4262,6 +4270,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     if (engineerProfile !== undefined) patch.engineer_profile = JSON.stringify(engineerProfile);
     if (autoRecoveryEnabled !== undefined) patch.auto_recovery_enabled = autoRecoveryEnabled ? 1 : 0;
     if (audioViaAtem   !== undefined) patch.audio_via_atem   = audioViaAtem ? 1 : 0;
+    if (leadershipEmails !== undefined) patch.leadership_emails = String(leadershipEmails || '').trim();
 
     const safePatch = Object.fromEntries(Object.entries(patch).filter(([k]) => allowedColumns.includes(k)));
     const oldEmail = req.church.portal_email;
@@ -4539,6 +4548,126 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }
+  });
+
+  // ── RUNDOWN ENDPOINTS ─────────────────────────────────────────────────────────
+
+  app.get('/api/church/rundowns', authMiddleware, (req, res) => {
+    try {
+      if (!rundownEngine) return res.json([]);
+      res.json(rundownEngine.getRundowns(req.church.churchId));
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.post('/api/church/rundowns', authMiddleware, (req, res) => {
+    try {
+      if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
+      const { name, steps } = req.body;
+      if (!name || !name.trim()) return res.status(400).json({ error: 'Name required' });
+      const rundown = rundownEngine.createRundown(req.church.churchId, name.trim(), steps || []);
+      res.json(rundown);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.get('/api/church/rundowns/:id', authMiddleware, (req, res) => {
+    try {
+      if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
+      const rundown = rundownEngine.getRundown(req.params.id);
+      if (!rundown || rundown.church_id !== req.church.churchId) return res.status(404).json({ error: 'Rundown not found' });
+      res.json(rundown);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.put('/api/church/rundowns/:id', authMiddleware, (req, res) => {
+    try {
+      if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
+      const existing = rundownEngine.getRundown(req.params.id);
+      if (!existing || existing.church_id !== req.church.churchId) return res.status(404).json({ error: 'Rundown not found' });
+      const { name, steps } = req.body;
+      const updated = rundownEngine.updateRundown(req.params.id, { name, steps });
+      res.json(updated);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.delete('/api/church/rundowns/:id', authMiddleware, (req, res) => {
+    try {
+      if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
+      const existing = rundownEngine.getRundown(req.params.id);
+      if (!existing || existing.church_id !== req.church.churchId) return res.status(404).json({ error: 'Rundown not found' });
+      res.json(rundownEngine.deleteRundown(req.params.id));
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.post('/api/church/rundowns/:id/activate', authMiddleware, (req, res) => {
+    try {
+      if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
+      const result = rundownEngine.activateRundown(req.church.churchId, req.params.id);
+      if (!result) return res.status(404).json({ error: 'Rundown not found' });
+      res.json(result);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.get('/api/church/rundown/active', authMiddleware, (req, res) => {
+    try {
+      if (!rundownEngine) return res.json({ active: false });
+      const active = rundownEngine.getActiveRundown(req.church.churchId);
+      if (!active) return res.json({ active: false });
+      const current = rundownEngine.getCurrentStep(req.church.churchId);
+      res.json({ active: true, ...active, ...current });
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.post('/api/church/rundown/advance', authMiddleware, (req, res) => {
+    try {
+      if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
+      const result = rundownEngine.advanceStep(req.church.churchId);
+      if (!result) return res.status(400).json({ error: 'Cannot advance — at last step or no active rundown' });
+      const current = rundownEngine.getCurrentStep(req.church.churchId);
+      res.json({ ...result, ...current });
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.post('/api/church/rundown/execute', authMiddleware, async (req, res) => {
+    try {
+      if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
+      const current = rundownEngine.getCurrentStep(req.church.churchId);
+      if (!current || !current.step) return res.status(400).json({ error: 'No active step' });
+
+      const commands = current.step.commands || [];
+      if (commands.length === 0) return res.json({ executed: true, results: [] });
+
+      const churchId = req.church.churchId;
+      const churchRuntime = churches.get(churchId);
+      if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
+        return res.status(503).json({ error: 'Church client offline' });
+      }
+
+      const crypto = require('crypto');
+      const results = [];
+      for (const cmd of commands) {
+        const msgId = crypto.randomUUID();
+        try {
+          churchRuntime.ws.send(JSON.stringify({
+            type: 'command',
+            command: cmd.command,
+            params: cmd.params || {},
+            messageId: msgId,
+            source: 'rundown',
+          }));
+          results.push({ command: cmd.command, sent: true });
+        } catch (e) {
+          results.push({ command: cmd.command, sent: false, error: e.message });
+        }
+      }
+      res.json({ executed: true, results, step: current });
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.post('/api/church/rundown/deactivate', authMiddleware, (req, res) => {
+    try {
+      if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
+      res.json(rundownEngine.deactivateRundown(req.church.churchId));
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
   // ── GET /api/church/coaching ──────────────────────────────────────────────────

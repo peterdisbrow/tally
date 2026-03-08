@@ -831,6 +831,104 @@ ipcMain.handle('get-chat', async (_, opts = {}) => {
   }
 });
 ipcMain.handle('get-network-interfaces', () => listAvailableInterfaces());
+
+// ─── PRE-SERVICE CHECK IPC ────────────────────────────────────────────────────
+ipcMain.handle('get-preservice-check', async () => {
+  const config = loadConfig();
+  if (!config.token) return { error: 'Not configured' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const resp = await fetch(`${relayHttp}/api/church/preservice-check`, {
+      headers: { 'Authorization': `Bearer ${config.token}` },
+    });
+    return await resp.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('run-preservice-check', async () => {
+  const config = loadConfig();
+  if (!config.token) return { error: 'Not configured' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const resp = await fetch(`${relayHttp}/api/church/preservice-check/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+    });
+    return await resp.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('fix-all-preservice', async () => {
+  const config = loadConfig();
+  if (!config.token) return { error: 'Not configured' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const resp = await fetch(`${relayHttp}/api/church/preservice-check/fix-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+    });
+    return await resp.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+// ─── RUNDOWN IPC ──────────────────────────────────────────────────────────────
+ipcMain.handle('get-active-rundown', async () => {
+  const config = loadConfig();
+  if (!config.token) return { active: false };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const resp = await fetch(`${relayHttp}/api/church/rundown/active`, {
+      headers: { 'Authorization': `Bearer ${config.token}` },
+    });
+    return await resp.json();
+  } catch { return { active: false }; }
+});
+
+ipcMain.handle('execute-rundown-step', async () => {
+  const config = loadConfig();
+  if (!config.token) return { error: 'Not configured' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const resp = await fetch(`${relayHttp}/api/church/rundown/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+    });
+    return await resp.json();
+  } catch (e) { return { error: e.message }; }
+});
+
+ipcMain.handle('advance-rundown-step', async () => {
+  const config = loadConfig();
+  if (!config.token) return { error: 'Not configured' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const resp = await fetch(`${relayHttp}/api/church/rundown/advance`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+    });
+    return await resp.json();
+  } catch (e) { return { error: e.message }; }
+});
+
+ipcMain.handle('deactivate-rundown', async () => {
+  const config = loadConfig();
+  if (!config.token) return { error: 'Not configured' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const resp = await fetch(`${relayHttp}/api/church/rundown/deactivate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+    });
+    return await resp.json();
+  } catch (e) { return { error: e.message }; }
+});
+
 ipcMain.handle('export-test-logs', async () => {
   try {
     return await exportTestLogs();
