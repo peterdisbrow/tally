@@ -528,6 +528,14 @@ function startAgent() {
     if (prevInputMatch && agentStatus.atem && typeof agentStatus.atem === 'object') {
       agentStatus.atem.previewInput = parseInt(prevInputMatch[1]); statusChanged = true;
     }
+    // Parse ATEM input labels (e.g. ATEM Labels: {"1":"Camera 1","2":"Camera 2",...})
+    const labelsMatch = text.match(/ATEM Labels: (\{.+\})/);
+    if (labelsMatch && agentStatus.atem && typeof agentStatus.atem === 'object') {
+      try {
+        agentStatus.atem.inputLabels = JSON.parse(labelsMatch[1]);
+        statusChanged = true;
+      } catch { /* ignore parse errors */ }
+    }
     if (text.includes('recording STARTED') && agentStatus.atem && typeof agentStatus.atem === 'object') {
       agentStatus.atem.recording = true; statusChanged = true;
     }
@@ -808,7 +816,11 @@ ipcMain.handle('get-chat', async (_, opts = {}) => {
   const config = loadConfig();
   if (!config.token) return { messages: [] };
   const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
-  const qs = opts.since ? `?since=${encodeURIComponent(opts.since)}` : '';
+  const params = new URLSearchParams();
+  if (opts.since) params.set('since', opts.since);
+  if (opts.latest) params.set('latest', 'true');
+  if (opts.limit) params.set('limit', String(opts.limit));
+  const qs = params.toString() ? `?${params.toString()}` : '';
   try {
     const resp = await fetch(`${relayHttp}/api/church/chat${qs}`, {
       headers: { 'Authorization': `Bearer ${config.token}` },
@@ -1054,6 +1066,8 @@ ipcMain.handle('pf-feedback', (_, fb) => problemFinderBridge.recordFeedback(fb))
 ipcMain.handle('pf-get-config', () => problemFinderBridge.getFeatureFlags());
 ipcMain.handle('pf-simulate-fix', (_, simId) => problemFinderBridge.simulateFix(simId));
 ipcMain.handle('pf-available', () => problemFinderBridge.isAvailable());
+ipcMain.handle('pf-set-cameras-verified', (_, verified) => problemFinderBridge.setCamerasVerified(verified));
+ipcMain.handle('pf-get-cameras-verified', () => problemFinderBridge.getCamerasVerified());
 
 // ─── AUTO-UPDATE ──────────────────────────────────────────────────────────────
 

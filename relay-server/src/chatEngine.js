@@ -88,7 +88,7 @@ class ChatEngine {
    * @param {string} [opts.sessionId] - Filter by session ID
    * @returns {Array} Messages ordered by timestamp ASC
    */
-  getMessages(churchId, { since, limit, sessionId } = {}) {
+  getMessages(churchId, { since, limit, sessionId, latest } = {}) {
     const conditions = ['church_id = ?'];
     const params = [churchId];
 
@@ -104,6 +104,16 @@ class ChatEngine {
 
     const maxMessages = Math.min(parseInt(limit) || 50, 200);
     params.push(maxMessages);
+
+    if (latest) {
+      // Get the most recent N messages then reverse to chronological order.
+      // Without this, LIMIT + ASC returns the oldest messages first — useless
+      // when a busy church has hundreds of messages in the time window.
+      const rows = this.db.prepare(
+        `SELECT * FROM chat_messages WHERE ${conditions.join(' AND ')} ORDER BY timestamp DESC LIMIT ?`
+      ).all(...params);
+      return rows.reverse();
+    }
 
     return this.db.prepare(
       `SELECT * FROM chat_messages WHERE ${conditions.join(' AND ')} ORDER BY timestamp ASC LIMIT ?`

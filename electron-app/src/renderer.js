@@ -7,6 +7,31 @@ let pendingDiscoveryNic = '';
 let _audioViaAtem = false; // synced from relay — true if church routes audio directly into ATEM
 const DEFAULT_RELAY_URL = 'wss://api.tallyconnect.app';
 
+// Well-known ATEM input IDs → human-readable fallback names
+const ATEM_INPUT_NAMES = {
+  0: 'Black', 1000: 'Color Bars', 2001: 'Color 1', 2002: 'Color 2',
+  3010: 'MP 1', 3011: 'MP 1 Key', 3020: 'MP 2', 3021: 'MP 2 Key',
+  6000: 'Super Source', 7001: 'Clean Feed 1', 7002: 'Clean Feed 2',
+  10010: 'ME 1 Pgm', 10011: 'ME 1 Pvw', 10020: 'ME 2 Pgm', 10021: 'ME 2 Pvw',
+};
+
+/**
+ * Get a human-readable name for an ATEM input ID.
+ * Uses stored labels first, then well-known IDs, then "Input N".
+ */
+function getInputName(inputId, inputLabels) {
+  if (inputId === null || inputId === undefined) return null;
+  // Check user-assigned labels from ATEM
+  if (inputLabels && inputLabels[String(inputId)]) {
+    return inputLabels[String(inputId)];
+  }
+  // Check well-known ATEM special input IDs
+  if (ATEM_INPUT_NAMES[inputId]) return ATEM_INPUT_NAMES[inputId];
+  // Fallback — "Cam N" for standard inputs (1-20), "Input N" for unknowns
+  if (inputId >= 1 && inputId <= 20) return `Cam ${inputId}`;
+  return `Input ${inputId}`;
+}
+
 function showFatalInitError(message) {
   const wizard = document.getElementById('wizard');
   const dashboard = document.getElementById('dashboard');
@@ -638,16 +663,17 @@ function updateStatusUI(status) {
   }
 
   // ── ATEM program/preview input display ──────────────────────────────────
+  const inputLabels = atemData.inputLabels || {};
   if (atemData.programInput !== null && atemData.programInput !== undefined) {
-    setStatusValue('val-program', `Input ${atemData.programInput}`, true);
-  } else if (!atemConnected) {
-    setStatusValue('val-program', '—', false);
+    setStatusValue('val-program', getInputName(atemData.programInput, inputLabels), true);
+  } else {
+    setStatusValue('val-program', atemConnected ? 'Detecting...' : '—', false);
   }
 
   if (atemData.previewInput !== null && atemData.previewInput !== undefined) {
-    setStatusValue('val-preview', `Input ${atemData.previewInput}`, true);
-  } else if (!atemConnected) {
-    setStatusValue('val-preview', '—', false);
+    setStatusValue('val-preview', getInputName(atemData.previewInput, inputLabels), true);
+  } else {
+    setStatusValue('val-preview', atemConnected ? 'Detecting...' : '—', false);
   }
 
   if (atemData.recording !== undefined) {
@@ -1089,8 +1115,9 @@ async function switchTab(name) {
 let chatMessages = [];
 let chatLastTimestamp = null;
 let chatPollInterval = null;
-const MAX_CHAT_MESSAGES = 500;
+const MAX_CHAT_MESSAGES = 200;
 let _chatRenderedCount = 0; // track how many messages are already in the DOM
+const _chatIdSet = new Set();  // O(1) dedup instead of .some() scan
 
 function startChatPolling() {
   loadChatHistory();
@@ -1103,11 +1130,15 @@ function stopChatPolling() {
 }
 
 async function loadChatHistory() {
-  // Only load today's messages (24hr window) to keep the app chat clean
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const resp = await api.getChat({ since });
+  // Only load today's messages (since midnight local) — latest 200 so we
+  // show the most recent conversation, not stale messages from hours ago.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const resp = await api.getChat({ since: today.toISOString(), latest: true, limit: 200 });
   if (resp?.messages) {
     chatMessages = resp.messages;
+    _chatIdSet.clear();
+    for (const m of chatMessages) if (m.id) _chatIdSet.add(m.id);
     if (chatMessages.length > 0) chatLastTimestamp = chatMessages[chatMessages.length - 1].timestamp;
     _chatRenderedCount = 0; // force full rebuild
     renderChat();
@@ -1118,7 +1149,11 @@ async function pollChat() {
   if (!chatLastTimestamp) return loadChatHistory();
   const resp = await api.getChat({ since: chatLastTimestamp });
   if (resp?.messages?.length > 0) {
-    chatMessages.push(...resp.messages);
+    for (const m of resp.messages) {
+      if (m.id && _chatIdSet.has(m.id)) continue; // dedup
+      chatMessages.push(m);
+      if (m.id) _chatIdSet.add(m.id);
+    }
     chatLastTimestamp = resp.messages[resp.messages.length - 1].timestamp;
     renderChat();
   }
@@ -1126,9 +1161,9 @@ async function pollChat() {
 
 // Real-time inbound via WebSocket → stdout → IPC
 api.onChatMessage((msg) => {
-  // Dedup: don't add if we already have this message
-  if (msg.id && chatMessages.some(m => m.id === msg.id)) return;
+  if (msg.id && _chatIdSet.has(msg.id)) return; // O(1) dedup
   chatMessages.push(msg);
+  if (msg.id) _chatIdSet.add(msg.id);
   chatLastTimestamp = msg.timestamp || chatLastTimestamp;
   renderChat();
 });
@@ -1173,6 +1208,8 @@ function renderChat() {
   // Cap messages to prevent unbounded memory growth
   if (chatMessages.length > MAX_CHAT_MESSAGES) {
     chatMessages = chatMessages.slice(-MAX_CHAT_MESSAGES);
+    _chatIdSet.clear();
+    for (const m of chatMessages) if (m.id) _chatIdSet.add(m.id);
     _chatRenderedCount = 0; // array was sliced, need full rebuild
   }
   // Full rebuild when reset or first render
@@ -1185,7 +1222,9 @@ function renderChat() {
     for (const m of newMessages) container.appendChild(_buildChatEl(m));
   }
   _chatRenderedCount = chatMessages.length;
-  container.scrollTop = container.scrollHeight;
+  // Scroll the parent overflow container, not #chat-messages itself
+  const scrollArea = document.getElementById('chat-scroll-area');
+  if (scrollArea) scrollArea.scrollTop = scrollArea.scrollHeight;
 }
 
 // ─── CHAT FILE ATTACHMENT ──────────────────────────────────────────────────

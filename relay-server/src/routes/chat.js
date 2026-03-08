@@ -39,6 +39,7 @@ module.exports = function setupChatRoutes(app, ctx) {
     const messages = chatEngine.getMessages(req.church.churchId, {
       since: req.query.since || null,
       limit: parseInt(req.query.limit) || 50,
+      latest: req.query.latest === 'true',
     });
     res.json({ messages });
   });
