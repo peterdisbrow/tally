@@ -765,6 +765,50 @@ function buildChurchPortalHtml(church) {
         <div id="ss-detail-row" style="margin-top:12px;display:flex;gap:16px;font-size:12px;color:#64748B;justify-content:center;flex-wrap:wrap"></div>
       </div>
 
+      <!-- ATEM Switcher Detail Card -->
+      <div class="card" id="atem-detail-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="ATEM switcher state — program/preview inputs, recording & streaming status">🎛 ATEM Switcher</span></div>
+          <span id="atem-model-label" style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
+          <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Program</div>
+            <div style="font-size:22px;font-weight:700;color:#ef4444" id="atem-pgm-input">—</div>
+            <div style="font-size:12px;color:#94A3B8;margin-top:4px" id="atem-pgm-label"></div>
+          </div>
+          <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Preview</div>
+            <div style="font-size:22px;font-weight:700;color:#22c55e" id="atem-pvw-input">—</div>
+            <div style="font-size:12px;color:#94A3B8;margin-top:4px" id="atem-pvw-label"></div>
+          </div>
+        </div>
+        <div id="atem-status-badges" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+      </div>
+
+      <!-- Audio Health Card -->
+      <div class="card" id="audio-health-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Audio monitoring — mute detection, silence alerts, source information">🔊 Audio Health</span></div>
+          <span id="audio-source-label" style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
+          <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Mute</div>
+            <div style="font-size:18px;font-weight:700" id="audio-mute-status">—</div>
+          </div>
+          <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Silence</div>
+            <div style="font-size:18px;font-weight:700" id="audio-silence-status">—</div>
+          </div>
+          <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Monitoring</div>
+            <div style="font-size:18px;font-weight:700" id="audio-monitoring-status">—</div>
+          </div>
+        </div>
+        <div id="audio-detail-row" style="font-size:12px;color:#64748B;display:flex;gap:16px;flex-wrap:wrap"></div>
+      </div>
+
       <!-- Pre-Service Check Card -->
       <div class="card" id="preservice-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -777,6 +821,28 @@ function buildChurchPortalHtml(church) {
         <div style="display:flex;gap:8px;margin-top:12px">
           <button class="btn-primary" id="preservice-fix-btn" onclick="fixAllPreServiceIssues()" style="display:none;font-size:12px;padding:6px 14px">Fix All Safe Issues</button>
           <button class="btn-secondary" id="preservice-run-btn" onclick="runPreServiceCheck()" style="font-size:12px;padding:6px 14px">Run Check Now</button>
+        </div>
+      </div>
+
+      <!-- Service Rundown Card -->
+      <div class="card" id="rundown-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Follow a step-by-step rundown during your service. Execute device commands directly from here.">📋 Service Rundown</span></div>
+          <span id="rundown-status-badge" class="badge badge-gray">—</span>
+        </div>
+        <div id="rundown-body">
+          <div style="color:#475569;text-align:center;padding:16px;font-size:13px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Activity Feed -->
+      <div class="card" id="activity-feed-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time operational events — status changes, alerts, and auto-recovery actions">⚡ Activity Feed</span></div>
+          <span id="activity-feed-count" style="font-size:11px;color:#475569"></span>
+        </div>
+        <div id="activity-feed-body" style="max-height:300px;overflow-y:auto">
+          <div style="color:#475569;text-align:center;padding:16px;font-size:13px">Loading…</div>
         </div>
       </div>
 
@@ -1421,7 +1487,7 @@ function buildChurchPortalHtml(church) {
       var overlay = document.getElementById('sidebar-overlay');
       if (sidebar) sidebar.classList.remove('open');
       if (overlay) overlay.classList.remove('open');
-      if (id === 'overview') loadOverview();
+      if (id === 'overview') { loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
       if (id === 'campuses') loadCampuses();
       if (id === 'tds') loadTds();
       if (id === 'schedule') loadSchedule();
@@ -1671,8 +1737,20 @@ function buildChurchPortalHtml(church) {
         // ── Live incident commander ──────────────────────────────────────────
         loadIncidents();
 
+        // ── ATEM detail card ──────────────────────────────────────────────────
+        updateAtemDetailCard(status);
+
+        // ── Audio health card ────────────────────────────────────────────────
+        updateAudioHealthCard(status, audioViaAtem);
+
         // ── Pre-service check card ──────────────────────────────────────────
         loadPreServiceCheck();
+
+        // ── Service rundown ──────────────────────────────────────────────────
+        loadRundown();
+
+        // ── Activity feed ────────────────────────────────────────────────────
+        loadActivityFeed();
 
         // ── Tally Engineer diagnostics ──────────────────────────────────────
         populatePfCampusPicker();
@@ -1771,6 +1849,303 @@ function buildChurchPortalHtml(church) {
       var detailEl = document.getElementById('ss-detail-row');
       if (detailEl) detailEl.innerHTML = details.map(function(d) { return '<span>' + d + '</span>'; }).join('');
     }
+
+    // ── ATEM Detail Card ─────────────────────────────────────────────────────
+    function updateAtemDetailCard(status) {
+      var card = document.getElementById('atem-detail-card');
+      if (!card) return;
+      var atem = status.atem;
+      if (!atem || (!atem.connected && atem !== true)) { card.style.display = 'none'; return; }
+      card.style.display = '';
+
+      var modelEl = document.getElementById('atem-model-label');
+      if (modelEl) modelEl.textContent = (typeof atem === 'object' && atem.model) ? atem.model : 'ATEM';
+
+      var labels = (typeof atem === 'object' && atem.inputLabels) ? atem.inputLabels : {};
+      var pgmEl = document.getElementById('atem-pgm-input');
+      var pgmLbl = document.getElementById('atem-pgm-label');
+      if (pgmEl) pgmEl.textContent = atem.programInput != null ? 'Input ' + atem.programInput : '—';
+      if (pgmLbl) pgmLbl.textContent = labels[atem.programInput] || '';
+
+      var pvwEl = document.getElementById('atem-pvw-input');
+      var pvwLbl = document.getElementById('atem-pvw-label');
+      if (pvwEl) pvwEl.textContent = atem.previewInput != null ? 'Input ' + atem.previewInput : '—';
+      if (pvwLbl) pvwLbl.textContent = labels[atem.previewInput] || '';
+
+      var badges = document.getElementById('atem-status-badges');
+      if (badges) {
+        var parts = [];
+        if (atem.recording) parts.push('<span class="badge badge-green">⏺ Recording</span>');
+        if (atem.streaming) parts.push('<span class="badge badge-green">🔴 Streaming</span>');
+        if (!atem.recording && !atem.streaming) parts.push('<span class="badge badge-gray">Standby</span>');
+        if (atem.streamingCacheUsed > 80) parts.push('<span class="badge badge-yellow">Cache ' + Math.round(atem.streamingCacheUsed) + '%</span>');
+        badges.innerHTML = parts.join(' ');
+      }
+    }
+
+    // ── Audio Health Card ────────────────────────────────────────────────────
+    function updateAudioHealthCard(status, audioViaAtem) {
+      var card = document.getElementById('audio-health-card');
+      if (!card) return;
+      var mixer = status.mixer || {};
+      var audio = status.audio || {};
+      var hasAudio = mixer.connected || audioViaAtem || audio.monitoring;
+      if (!hasAudio) { card.style.display = 'none'; return; }
+      card.style.display = '';
+
+      var srcEl = document.getElementById('audio-source-label');
+      if (srcEl) {
+        var src = audioViaAtem ? 'ATEM Audio' : (mixer.name || mixer.type || 'Audio Mixer');
+        srcEl.textContent = src;
+      }
+
+      var muteEl = document.getElementById('audio-mute-status');
+      if (muteEl) {
+        if (mixer.mainMuted) { muteEl.textContent = '🔇 MUTED'; muteEl.style.color = '#ef4444'; }
+        else { muteEl.textContent = '🔊 OK'; muteEl.style.color = '#22c55e'; }
+      }
+
+      var silEl = document.getElementById('audio-silence-status');
+      if (silEl) {
+        if (audio.silenceDetected) { silEl.textContent = '⚠ Silence'; silEl.style.color = '#eab308'; }
+        else { silEl.textContent = '✓ Signal'; silEl.style.color = '#22c55e'; }
+      }
+
+      var monEl = document.getElementById('audio-monitoring-status');
+      if (monEl) {
+        if (audio.monitoring) { monEl.textContent = '✓ Active'; monEl.style.color = '#22c55e'; }
+        else { monEl.textContent = '— Off'; monEl.style.color = '#94A3B8'; }
+      }
+
+      var detailRow = document.getElementById('audio-detail-row');
+      if (detailRow) {
+        var parts = [];
+        if (mixer.firmware) parts.push('Firmware: ' + mixer.firmware);
+        if (audio.lastLevel != null) parts.push('Level: ' + audio.lastLevel + ' dB');
+        var atemSrcs = status.atem && status.atem.atemAudioSources;
+        if (Array.isArray(atemSrcs) && atemSrcs.length) parts.push('Port: ' + atemSrcs[0].portType);
+        detailRow.innerHTML = parts.map(function(p) { return '<span>' + p + '</span>'; }).join('');
+      }
+    }
+
+    // ── Rundown Card ─────────────────────────────────────────────────────────
+    async function loadRundown() {
+      var body = document.getElementById('rundown-body');
+      var badge = document.getElementById('rundown-status-badge');
+      if (!body) return;
+      try {
+        var active = await api('GET', '/api/church/rundown/active');
+        if (active && active.active) {
+          badge.className = 'badge badge-green';
+          badge.textContent = 'Step ' + ((active.stepIndex || 0) + 1) + ' / ' + (active.totalSteps || '?');
+          renderActiveRundown(body, active);
+        } else {
+          badge.className = 'badge badge-gray';
+          badge.textContent = 'Inactive';
+          var rundowns = await api('GET', '/api/church/rundowns');
+          renderRundownPicker(body, rundowns);
+        }
+      } catch (e) {
+        body.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">Rundown unavailable</div>';
+        badge.className = 'badge badge-gray';
+        badge.textContent = '—';
+      }
+    }
+
+    function renderActiveRundown(container, data) {
+      var steps = data.rundown ? data.rundown.steps : [];
+      var currentIdx = data.stepIndex || 0;
+      var html = '<div style="font-size:14px;font-weight:600;color:#F8FAFC;margin-bottom:12px">' + escapeHtml(data.rundownName || 'Rundown') + '</div>';
+      html += '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">';
+      steps.forEach(function(step, i) {
+        var isCurrent = i === currentIdx;
+        var isPast = i < currentIdx;
+        var bg = isCurrent ? 'rgba(34,197,94,0.1)' : '#09090B';
+        var border = isCurrent ? '1px solid rgba(34,197,94,0.3)' : '1px solid transparent';
+        var nameColor = isCurrent ? '#22c55e' : (isPast ? '#475569' : '#94A3B8');
+        var icon = isPast ? '✓' : (isCurrent ? '▶' : (i + 1));
+        var iconColor = isPast ? '#22c55e' : (isCurrent ? '#22c55e' : '#475569');
+        var stepName = step.label || step.name || ('Step ' + (i + 1));
+        var cmdCount = (step.commands || []).length;
+        var cmdLabel = cmdCount > 0 ? ' (' + cmdCount + ' cmd' + (cmdCount !== 1 ? 's' : '') + ')' : '';
+        html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:' + bg + ';border:' + border + ';border-radius:6px">';
+        html += '<span style="color:' + iconColor + ';font-size:13px;width:20px;text-align:center;font-weight:700">' + icon + '</span>';
+        html += '<span style="color:' + nameColor + ';font-size:13px;flex:1">' + escapeHtml(stepName) + '<span style="color:#475569;font-size:11px">' + cmdLabel + '</span></span>';
+        if (isCurrent && cmdCount > 0) html += '<button class="btn-sm" onclick="portalExecuteStep()" style="font-size:10px;padding:3px 8px">Execute</button>';
+        html += '</div>';
+      });
+      html += '</div>';
+      html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+      if (currentIdx < steps.length - 1) html += '<button class="btn-primary" onclick="portalAdvanceStep()" style="font-size:12px;padding:6px 14px">Next Step ▶</button>';
+      else html += '<button class="btn-primary" disabled style="font-size:12px;padding:6px 14px;opacity:0.5">Last Step</button>';
+      html += '<button class="btn-secondary" onclick="portalEndRundown()" style="font-size:12px;padding:6px 12px">End Rundown</button>';
+      html += '</div>';
+      if (steps[currentIdx] && steps[currentIdx].notes) {
+        html += '<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,0.08);border-radius:6px;font-size:12px;color:#f59e0b">💡 ' + escapeHtml(steps[currentIdx].notes) + '</div>';
+      }
+      container.innerHTML = html;
+    }
+
+    function renderRundownPicker(container, rundowns) {
+      if (!rundowns || !rundowns.length) {
+        container.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">No rundowns created yet. Create one in the Tally desktop app or portal Rundowns tab.</div>';
+        return;
+      }
+      var html = '<div style="display:flex;flex-direction:column;gap:6px">';
+      rundowns.forEach(function(r) {
+        var stepCount = (r.steps || []).length;
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#09090B;border-radius:6px">';
+        html += '<div><span style="color:#F8FAFC;font-size:13px">' + escapeHtml(r.name) + '</span>';
+        html += ' <span style="color:#475569;font-size:11px">' + stepCount + ' steps</span></div>';
+        html += '<button class="btn-sm" onclick="portalActivateRundown(&apos;' + r.id + '&apos;)">Activate</button>';
+        html += '</div>';
+      });
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    async function portalActivateRundown(rundownId) {
+      try { await api('POST', '/api/church/rundowns/' + rundownId + '/activate'); toast('Rundown activated'); loadRundown(); }
+      catch (e) { toast(e.message, true); }
+    }
+    async function portalAdvanceStep() {
+      try { await api('POST', '/api/church/rundown/advance'); toast('Advanced to next step'); loadRundown(); }
+      catch (e) { toast(e.message, true); }
+    }
+    async function portalExecuteStep() {
+      try {
+        var r = await api('POST', '/api/church/rundown/execute');
+        var sent = (r.results || []).filter(function(x) { return x.sent; }).length;
+        toast(sent + ' command' + (sent !== 1 ? 's' : '') + ' sent');
+      } catch (e) { toast(e.message, true); }
+    }
+    async function portalEndRundown() {
+      try { await api('POST', '/api/church/rundown/deactivate'); toast('Rundown ended'); loadRundown(); }
+      catch (e) { toast(e.message, true); }
+    }
+
+    // ── Activity Feed ────────────────────────────────────────────────────────
+    async function loadActivityFeed() {
+      var body = document.getElementById('activity-feed-body');
+      var countEl = document.getElementById('activity-feed-count');
+      if (!body) return;
+      try {
+        var sessionData, alerts;
+        try { sessionData = await api('GET', '/api/church/session/active'); } catch { sessionData = { active: false }; }
+        try { alerts = await api('GET', '/api/church/alerts'); } catch { alerts = []; }
+
+        var items = [];
+        if (sessionData && sessionData.active && sessionData.events) {
+          sessionData.events.forEach(function(e) {
+            items.push({
+              time: new Date(e.timestamp),
+              type: (e.event_type || '').replace(/_/g, ' '),
+              detail: typeof e.details === 'string' ? e.details.slice(0, 100) : (typeof e.message === 'string' ? e.message.slice(0, 100) : ''),
+              severity: e.auto_resolved ? 'auto_fixed' : (e.resolved ? 'resolved' : 'active'),
+              source: 'session'
+            });
+          });
+        }
+        (alerts || []).slice(0, 15).forEach(function(a) {
+          items.push({
+            time: new Date(a.created_at),
+            type: (a.alert_type || '').replace(/_/g, ' '),
+            detail: a.context && a.context.diagnosis ? (a.context.diagnosis.likely_cause || '').slice(0, 100) : '',
+            severity: a.resolved ? 'resolved' : (a.severity || 'INFO'),
+            source: 'alert'
+          });
+        });
+
+        items.sort(function(a, b) { return b.time - a.time; });
+        // deduplicate by type+minute
+        var seen = {};
+        items = items.filter(function(it) {
+          var key = it.type + '-' + Math.floor(it.time.getTime() / 60000);
+          if (seen[key]) return false;
+          seen[key] = true;
+          return true;
+        }).slice(0, 20);
+
+        if (countEl) countEl.textContent = items.length + ' events';
+        if (!items.length) {
+          body.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">No recent activity</div>';
+          return;
+        }
+
+        body.innerHTML = items.map(function(item) {
+          var timeStr = item.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+          var dateStr = item.time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          var icon, color;
+          if (item.severity === 'auto_fixed') { icon = '🤖'; color = '#22c55e'; }
+          else if (item.severity === 'resolved') { icon = '✅'; color = '#22c55e'; }
+          else if (item.severity === 'CRITICAL' || item.severity === 'EMERGENCY') { icon = '🔴'; color = '#ef4444'; }
+          else if (item.severity === 'WARNING' || item.severity === 'active') { icon = '⚡'; color = '#f59e0b'; }
+          else { icon = 'ℹ️'; color = '#94A3B8'; }
+          return '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'
+            + '<span style="font-size:11px;color:#475569;min-width:72px;flex-shrink:0">' + dateStr + '<br>' + timeStr + '</span>'
+            + '<span style="font-size:13px">' + icon + '</span>'
+            + '<div style="flex:1;min-width:0">'
+            + '<div style="font-size:13px;color:' + color + ';text-transform:capitalize">' + escapeHtml(item.type) + '</div>'
+            + (item.detail ? '<div style="font-size:11px;color:#64748B;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(item.detail) + '</div>' : '')
+            + '</div></div>';
+        }).join('');
+      } catch (e) {
+        body.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">Unable to load activity feed</div>';
+      }
+    }
+
+    // ── Auto-refresh polling ─────────────────────────────────────────────────
+    var _overviewPollTimer = null;
+    var OVERVIEW_POLL_MS = 15000;
+
+    function startOverviewPoll() {
+      stopOverviewPoll();
+      _overviewPollTimer = setInterval(refreshOverviewData, OVERVIEW_POLL_MS);
+    }
+    function stopOverviewPoll() {
+      if (_overviewPollTimer) { clearInterval(_overviewPollTimer); _overviewPollTimer = null; }
+    }
+
+    async function refreshOverviewData() {
+      try {
+        var d = await api('GET', '/api/church/me');
+        var status = d.status || {};
+        var enc = (status.encoder && typeof status.encoder === 'object') ? status.encoder : {};
+        var audioViaAtem = !!(d.audio_via_atem);
+
+        // Connection status
+        var statusText = document.getElementById('stat-status-text');
+        var statusDot = document.getElementById('stat-status-dot');
+        if (statusText) { statusText.textContent = d.connected ? 'Online' : 'Offline'; statusText.style.color = d.connected ? '#22c55e' : '#94A3B8'; }
+        if (statusDot) { statusDot.style.background = d.connected ? '#22c55e' : '#ef4444'; }
+
+        // Staleness
+        var stalenessEl = document.getElementById('equip-staleness');
+        if (stalenessEl && d.lastSeen) {
+          var ago = Math.round((Date.now() - new Date(d.lastSeen).getTime()) / 1000);
+          if (ago < 60) stalenessEl.textContent = 'Updated just now';
+          else if (ago < 3600) stalenessEl.textContent = 'Updated ' + Math.round(ago / 60) + 'm ago';
+          else stalenessEl.textContent = 'Updated ' + Math.round(ago / 3600) + 'h ago';
+          stalenessEl.style.color = ago > 300 ? '#f59e0b' : '#475569';
+        }
+
+        // Cards
+        updateStreamStats(status, enc);
+        updateAtemDetailCard(status);
+        updateAudioHealthCard(status, audioViaAtem);
+        loadRundown();
+        loadIncidents();
+        loadActivityFeed();
+      } catch (e) { /* silent fail on poll */ }
+    }
+
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden) { stopOverviewPoll(); }
+      else {
+        var overviewPage = document.getElementById('page-overview');
+        if (overviewPage && overviewPage.classList.contains('active')) startOverviewPoll();
+      }
+    });
 
     function fmt12(hhmm) {
       var mins = toMinutes(hhmm);
@@ -3985,6 +4360,7 @@ function buildChurchPortalHtml(church) {
 
     // Auto-load overview + billing banner on start
     loadOverview();
+    startOverviewPoll();
     loadBilling(); // populates billing banner on all pages
   </script>
 </body>
