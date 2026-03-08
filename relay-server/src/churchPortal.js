@@ -564,6 +564,11 @@ function buildChurchPortalHtml(church) {
       color: #94A3B8;
       margin-top: 2px;
     }
+    /* RESPONSIVE GRID UTILITIES */
+    .grid-4col { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+    .grid-3col { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+    .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     @media (max-width: 640px) {
       #analytics-kpi { grid-template-columns: repeat(2, 1fr) !important; }
       .a-metric-grid { grid-template-columns: 1fr; }
@@ -603,10 +608,19 @@ function buildChurchPortalHtml(church) {
       .sidebar { display: none; position: fixed; z-index: 1000; top: 0; left: 0; bottom: 0; width: 220px; }
       .sidebar.open { display: flex; flex-direction: column; }
       .sidebar-overlay.open { display: block; }
-      .main { margin-left: 0; padding: 20px; padding-top: 60px; }
-      .schedule-row {
-        grid-template-columns: 1fr 1fr;
-      }
+      .main { margin-left: 0; padding: 16px; padding-top: 56px; }
+      .page-title { font-size: 18px; }
+      .card { padding: 16px; }
+      .stats-row { grid-template-columns: 1fr !important; gap: 10px; }
+      .stat-value { font-size: 22px; }
+      .grid-4col { grid-template-columns: repeat(2,1fr) !important; }
+      .grid-3col { grid-template-columns: 1fr !important; }
+      .grid-2col { grid-template-columns: 1fr !important; }
+      .field-row { grid-template-columns: 1fr !important; }
+      .schedule-row { grid-template-columns: 1fr !important; gap: 6px; }
+      table { font-size: 12px; }
+      th, td { padding: 8px 6px 8px 0; }
+      #toast { left: 16px; right: 16px; bottom: 16px; text-align: center; }
     }
   </style>
 </head>
@@ -730,12 +744,14 @@ function buildChurchPortalHtml(church) {
             <button class="btn-secondary" id="btn-refresh-equip" onclick="refreshEquipmentStatus()" style="padding:4px 10px;font-size:11px" title="Refresh">&#x21bb; Refresh</button>
           </div>
         </div>
+        <div class="table-wrap">
         <table>
           <thead><tr><th>System</th><th>Status</th><th>Version</th><th>Detail</th></tr></thead>
           <tbody id="equipment-tbody">
             <tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
         </table>
+        </div>
       </div>
 
       <!-- Live Stream Stats (shown when any source is streaming) -->
@@ -744,7 +760,7 @@ function buildChurchPortalHtml(church) {
           <div class="card-title" style="margin:0"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:8px;animation:pulse 2s infinite"></span>Live Stream</div>
           <span id="stream-source-label" style="font-size:12px;color:#94A3B8;background:#0F1613;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center">
+        <div class="grid-4col" style="text-align:center">
           <div>
             <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-bitrate">—</div>
             <div style="font-size:11px;color:#64748B;margin-top:2px">Bitrate (kbps)</div>
@@ -771,7 +787,7 @@ function buildChurchPortalHtml(church) {
           <div class="card-title" style="margin:0"><span class="tip" data-tip="ATEM switcher state — program/preview inputs, recording & streaming status">🎛 ATEM Switcher</span></div>
           <span id="atem-model-label" style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
+        <div class="grid-2col" style="gap:16px;margin-bottom:14px">
           <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
             <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Program</div>
             <div style="font-size:22px;font-weight:700;color:#ef4444" id="atem-pgm-input">—</div>
@@ -792,7 +808,7 @@ function buildChurchPortalHtml(church) {
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Audio monitoring — mute detection, silence alerts, source information">🔊 Audio Health</span></div>
           <span id="audio-source-label" style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px">
+        <div class="grid-3col" style="margin-bottom:14px">
           <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
             <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Mute</div>
             <div style="font-size:18px;font-weight:700" id="audio-mute-status">—</div>
@@ -970,12 +986,14 @@ function buildChurchPortalHtml(church) {
       </div>
       <div class="card">
         <div class="card-title">Linked Campuses</div>
+        <div class="table-wrap">
         <table>
           <thead><tr><th>Campus</th><th>Status</th><th>Registration Code</th><th>Connection Token</th><th></th></tr></thead>
           <tbody id="campuses-tbody">
             <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
         </table>
+        </div>
       </div>
     </div>
 
@@ -990,12 +1008,14 @@ function buildChurchPortalHtml(church) {
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
           <button class="btn-primary" onclick="document.getElementById('modal-add-td').classList.add('open')">+ Add TD</button>
         </div>
+        <div class="table-wrap">
         <table>
           <thead><tr><th>Name</th><th><span class="tip" data-tip="Primary TD gets escalations. On-call TD receives first alerts.">Role</span></th><th>Email</th><th>Phone</th><th></th></tr></thead>
           <tbody id="tds-tbody">
             <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
         </table>
+        </div>
       </div>
     </div>
 
@@ -1205,12 +1225,14 @@ function buildChurchPortalHtml(church) {
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
           <button class="btn-primary" onclick="generateGuestToken()">+ Generate Token</button>
         </div>
+        <div class="table-wrap">
         <table>
           <thead><tr><th><span class="tip" data-tip="Share this code with the guest — they enter it in the Tally app or Telegram bot">Token</span></th><th>Label</th><th>Created</th><th><span class="tip" data-tip="Token stops working after this date. Revoke early if needed.">Expires</span></th><th></th></tr></thead>
           <tbody id="guests-tbody">
             <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
         </table>
+        </div>
       </div>
     </div>
 
@@ -1222,12 +1244,14 @@ function buildChurchPortalHtml(church) {
       </div>
       <p class="help-box"><strong>What counts as a session?</strong> A session is recorded each time Tally detects your live stream or recording starting during a service window. Duration, peak viewer count, and any alerts that fired are logged here.</p>
       <div class="card">
+        <div class="table-wrap">
         <table>
           <thead><tr><th>Date</th><th>Duration</th><th>Peak Viewers</th><th>Status</th></tr></thead>
           <tbody id="sessions-tbody">
             <tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
         </table>
+        </div>
       </div>
     </div>
 
@@ -1245,7 +1269,7 @@ function buildChurchPortalHtml(church) {
         <button class="btn-secondary analytics-range" data-days="365" onclick="setAnalyticsRange(365, this)">Last year</button>
       </div>
 
-      <div class="stats-row" id="analytics-kpi" style="grid-template-columns:repeat(4,1fr)">
+      <div class="stats-row grid-4col" id="analytics-kpi">
         <div class="stat-card">
           <div class="stat-value" id="a-uptime">\u2014</div>
           <div class="stat-label">Stream Uptime</div>
@@ -1362,12 +1386,14 @@ function buildChurchPortalHtml(church) {
       </div>
       <div class="card">
         <div class="card-title">Support Tickets</div>
+        <div class="table-wrap">
         <table>
           <thead><tr><th>Created</th><th>Status</th><th>Severity</th><th>Title</th><th>Action</th></tr></thead>
           <tbody id="support-tickets-tbody">
             <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
         </table>
+        </div>
       </div>
     </div>
 
@@ -3467,7 +3493,7 @@ function buildChurchPortalHtml(church) {
         }
 
         html += '<h3 style="font-size:14px;color:#F8FAFC;margin:12px 0 8px">Your Plan Includes</h3>';
-        html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px">';
+        html += '<div class="grid-2col" style="gap:6px;font-size:13px">';
         const features = b.features || {};
         const includedFeatures = [
           ['ATEM + encoder monitoring (OBS, vMix, NDI, hardware)', true],
@@ -3496,7 +3522,7 @@ function buildChurchPortalHtml(church) {
           html += '<span style="background:rgba(34,197,94,0.12);color:#22c55e;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.08em;font-family:ui-monospace,monospace">PLUS</span>';
           html += '<span style="color:#F8FAFC;font-size:14px;font-weight:700">Unlock with Plus</span>';
           html += '</div>';
-          html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px;margin-bottom:16px">';
+          html += '<div class="grid-2col" style="gap:6px;font-size:13px;margin-bottom:16px">';
           html += '<div style="color:#94A3B8">\\u2726 ProPresenter control (looks, timers, stage)</div>';
           html += '<div style="color:#94A3B8">\\u2726 Live video preview stream</div>';
           html += '<div style="color:#94A3B8">\\u2726 On-call TD rotation</div>';
@@ -3511,7 +3537,7 @@ function buildChurchPortalHtml(church) {
           html += '<span style="background:rgba(34,197,94,0.12);color:#22c55e;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.08em;font-family:ui-monospace,monospace">PRO</span>';
           html += '<span style="color:#F8FAFC;font-size:14px;font-weight:700">Unlock with Pro</span>';
           html += '</div>';
-          html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px;margin-bottom:16px">';
+          html += '<div class="grid-2col" style="gap:6px;font-size:13px;margin-bottom:16px">';
           html += '<div style="color:#94A3B8">\\u2726 Everything in Plus</div>';
           html += '<div style="color:#94A3B8">\\u2726 AI Autopilot automation rules</div>';
           html += '<div style="color:#94A3B8">\\u2726 Planning Center sync + write-back</div>';
@@ -3527,7 +3553,7 @@ function buildChurchPortalHtml(church) {
           html += '<span style="background:rgba(34,197,94,0.12);color:#22c55e;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.08em;font-family:ui-monospace,monospace">PRO</span>';
           html += '<span style="color:#F8FAFC;font-size:14px;font-weight:700">Unlock with Pro</span>';
           html += '</div>';
-          html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px;margin-bottom:16px">';
+          html += '<div class="grid-2col" style="gap:6px;font-size:13px;margin-bottom:16px">';
           html += '<div style="color:#94A3B8">\\u2726 AI Autopilot automation rules</div>';
           html += '<div style="color:#94A3B8">\\u2726 Planning Center sync + write-back</div>';
           html += '<div style="color:#94A3B8">\\u2726 Monthly leadership reports</div>';
