@@ -111,6 +111,7 @@ const RELAY_VERSION = process.env.RELAY_VERSION || relayPackage.version;
 const RELAY_BUILD = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.VERCEL_GIT_COMMIT_SHA || null;
 const SUPPORT_TRIAGE_WINDOW_HOURS = Number(process.env.SUPPORT_TRIAGE_WINDOW_HOURS || 24);
 const PORT = Number(process.env.PORT || 3000);
+const ADMIN_ROLES = ['super_admin', 'admin', 'engineer', 'sales'];
 
 // Onboarding email configuration
 const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
@@ -3083,8 +3084,6 @@ function broadcastToSSE(data) {
 }
 
 // ─── AUTH MIDDLEWARE ──────────────────────────────────────────────────────────
-
-const ADMIN_ROLES = ['super_admin', 'admin', 'engineer', 'sales'];
 
 const ROLE_PERMISSIONS = {
   super_admin: ['*'],
