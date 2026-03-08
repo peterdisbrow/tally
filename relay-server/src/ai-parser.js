@@ -43,7 +43,7 @@ const AI_RATE_LIMITS = {
   connect: 5,     // basic taste — upgrade to Plus for more
   plus: 30,
   pro: 60,
-  managed: 120,   // Enterprise gets highest throughput
+  managed: 250,   // Enterprise gets highest throughput
   event: 15,
   default: 15,
 };
@@ -67,63 +67,249 @@ function checkAiRateLimit(churchId, tier) {
 // ─── System prompt ─────────────────────────────────────────────────────────
 
 const FALLBACK_COMMANDS = [
+  // ── AJA HELO ──
+  'aja.recallPreset',
+  'aja.setAudioInput',
+  'aja.setMute',
+  'aja.setRecordProfile',
+  'aja.setStreamProfile',
+  'aja.setVideoInput',
+  // ── ATEM (video switching) ──
   'atem.auto',
+  'atem.autoDsk',
+  'atem.captureStill',
+  'atem.clearMediaPoolClip',
+  'atem.clearStartupState',
+  'atem.clearStill',
   'atem.cut',
   'atem.fadeToBlack',
+  'atem.listVisibleInputs',
+  'atem.macroContinue',
+  'atem.macroDelete',
+  'atem.macroInsertTimedWait',
+  'atem.macroInsertUserWait',
+  'atem.macroSetLoop',
+  'atem.macroStartRecord',
+  'atem.macroStopRecord',
+  'atem.macroUpdateProperties',
+  'atem.previewTransition',
+  'atem.requestRecordingDuration',
+  'atem.requestStreamingDuration',
+  'atem.requestTime',
   'atem.runMacro',
+  'atem.runUskFlyKeyTo',
+  'atem.runUskFlyKeyToInfinite',
+  'atem.saveStartupState',
   'atem.setAux',
+  // ── ATEM (classic audio) ──
+  'atem.setClassicAudioHeadphonesProps',
+  'atem.setClassicAudioInputProps',
+  'atem.setClassicAudioMasterProps',
+  'atem.setClassicAudioMixerProps',
+  'atem.setClassicAudioMonitorProps',
+  'atem.setClassicAudioResetPeaks',
+  // ── ATEM (misc) ──
+  'atem.setColorGeneratorColour',
+  'atem.setDVETransitionSettings',
+  'atem.setDipTransitionSettings',
+  'atem.setDisplayClockProperties',
+  'atem.setDskGeneralProperties',
+  'atem.setDskMaskSettings',
   'atem.setDskOnAir',
   'atem.setDskRate',
   'atem.setDskSource',
   'atem.setDskTie',
+  'atem.setEnableISORecording',
+  'atem.setFadeToBlackRate',
+  // ── ATEM (Fairlight audio) ──
+  'atem.setFairlightAudioInputProps',
+  'atem.setFairlightAudioMasterCompressorProps',
+  'atem.setFairlightAudioMasterDynamicsReset',
+  'atem.setFairlightAudioMasterEqBandProps',
+  'atem.setFairlightAudioMasterEqReset',
+  'atem.setFairlightAudioMasterLimiterProps',
+  'atem.setFairlightAudioMasterProps',
+  'atem.setFairlightAudioMonitorProps',
+  'atem.setFairlightAudioMonitorSolo',
+  'atem.setFairlightAudioResetPeaks',
+  'atem.setFairlightAudioSourceCompressorProps',
+  'atem.setFairlightAudioSourceEqBandProps',
+  'atem.setFairlightAudioSourceExpanderProps',
+  'atem.setFairlightAudioSourceLimiterProps',
+  'atem.setFairlightAudioSourceProps',
+  // ── ATEM (inputs, media, transitions, keys) ──
   'atem.setInputLabel',
+  'atem.setMediaClip',
+  'atem.setMediaPlayer',
+  'atem.setMediaPlayerSettings',
+  'atem.setMultiViewerProperties',
+  'atem.setMultiViewerVuOpacity',
+  'atem.setMultiViewerWindowSafeAreaEnabled',
+  'atem.setMultiViewerWindowSource',
+  'atem.setMultiViewerWindowVuEnabled',
   'atem.setPreview',
   'atem.setProgram',
+  'atem.setRecordingSettings',
+  'atem.setStingerTransitionSettings',
+  'atem.setStreamingAudioBitrates',
+  'atem.setStreamingService',
+  'atem.setSuperSourceBorder',
+  'atem.setSuperSourceBoxSettings',
+  'atem.setSuperSourceProperties',
+  'atem.setTime',
+  'atem.setTransitionPosition',
   'atem.setTransitionRate',
   'atem.setTransitionStyle',
+  'atem.setUskChromaSettings',
+  'atem.setUskCutSource',
+  'atem.setUskDVESettings',
+  'atem.setUskFillSource',
+  'atem.setUskLumaSettings',
+  'atem.setUskMaskSettings',
+  'atem.setUskOnAir',
+  'atem.setUskPatternSettings',
+  'atem.setUskType',
+  'atem.setWipeTransitionSettings',
+  'atem.startFairlightSendLevels',
   'atem.startRecording',
+  'atem.startStreaming',
+  'atem.stopFairlightSendLevels',
   'atem.stopMacro',
   'atem.stopRecording',
+  'atem.stopStreaming',
+  'atem.switchRecordingDisk',
+  'atem.uploadStill',
+  // ── Blackmagic Web Presenter ──
+  'blackmagic.getActivePlatform',
+  'blackmagic.getAudioSources',
+  'blackmagic.getPlatformConfig',
+  'blackmagic.getPlatforms',
+  'blackmagic.getSupportedVideoFormats',
+  'blackmagic.getVideoFormat',
+  'blackmagic.setActivePlatform',
+  'blackmagic.setAudioSource',
+  'blackmagic.setVideoFormat',
+  // ── Camera (ATEM camera control) ──
+  'camera.autoFocus',
+  'camera.autoIris',
+  'camera.autoWhiteBalance',
+  'camera.resetColorCorrection',
+  'camera.setColorGain',
+  'camera.setContrast',
+  'camera.setFocus',
+  'camera.setGain',
+  'camera.setGamma',
+  'camera.setISO',
+  'camera.setIris',
+  'camera.setLift',
+  'camera.setSaturation',
+  'camera.setShutter',
+  'camera.setWhiteBalance',
+  // ── Companion ──
   'companion.connections',
   'companion.getGrid',
   'companion.press',
   'companion.pressNamed',
+  // ── Dante ──
   'dante.scene',
+  // ── Ecamm Live ──
+  'ecamm.getInputs',
+  'ecamm.getOverlays',
+  'ecamm.getScenes',
+  'ecamm.nextScene',
+  'ecamm.prevScene',
+  'ecamm.setInput',
+  'ecamm.setScene',
+  'ecamm.toggleMute',
+  'ecamm.togglePIP',
+  'ecamm.togglePause',
+  // ── Encoder (generic) ──
   'encoder.startRecording',
   'encoder.startStream',
   'encoder.status',
   'encoder.stopRecording',
   'encoder.stopStream',
+  // ── Epiphan Pearl ──
+  'epiphan.getLayouts',
+  'epiphan.getStreamingParams',
+  'epiphan.setActiveLayout',
+  'epiphan.setStreamingParams',
+  'epiphan.startPublisher',
+  'epiphan.stopPublisher',
+  // ── HyperDeck ──
+  'hyperdeck.goToClip',
+  'hyperdeck.goToTimecode',
+  'hyperdeck.jog',
   'hyperdeck.nextClip',
   'hyperdeck.play',
   'hyperdeck.prevClip',
   'hyperdeck.record',
+  'hyperdeck.selectSlot',
+  'hyperdeck.setPlaySpeed',
+  'hyperdeck.status',
   'hyperdeck.stop',
   'hyperdeck.stopRecord',
+  // ── Mixer (audio console) ──
+  'mixer.activateMuteGroup',
+  'mixer.assignToBus',
+  'mixer.assignToDca',
+  'mixer.capabilities',
+  'mixer.channelStatus',
+  'mixer.clearSolos',
+  'mixer.deactivateMuteGroup',
+  'mixer.getMeters',
+  'mixer.isOnline',
   'mixer.mute',
+  'mixer.muteDca',
+  'mixer.pressSoftKey',
   'mixer.recallScene',
   'mixer.saveScene',
+  'mixer.setChannelColor',
+  'mixer.setChannelIcon',
   'mixer.setChannelName',
   'mixer.setCompressor',
+  'mixer.setDcaFader',
   'mixer.setEq',
   'mixer.setFader',
   'mixer.setFullChannelStrip',
   'mixer.setGate',
   'mixer.setHpf',
+  'mixer.setPan',
+  'mixer.setPhantom',
+  'mixer.setPreampGain',
+  'mixer.setSendLevel',
   'mixer.setupFromPatchList',
   'mixer.status',
   'mixer.unmute',
-  'atem.uploadStill',
-  'atem.setMediaPlayer',
-  'atem.captureStill',
-  'atem.clearStill',
+  'mixer.unmuteDca',
+  'mixer.verifySceneSave',
+  // ── NDI ──
+  'ndi.getSource',
+  'ndi.setSource',
+  // ── OBS ──
   'obs.configureMonitorStream',
+  'obs.getInputList',
+  'obs.getSceneItems',
+  'obs.getScenes',
+  'obs.getSourceFilters',
+  'obs.pauseRecording',
   'obs.reduceBitrate',
+  'obs.resumeRecording',
+  'obs.setInputMute',
+  'obs.setInputVolume',
+  'obs.setPreviewScene',
   'obs.setScene',
+  'obs.setSceneItemEnabled',
+  'obs.setSourceFilterEnabled',
+  'obs.setStudioMode',
+  'obs.setTransition',
+  'obs.setTransitionDuration',
   'obs.startRecording',
   'obs.startStream',
   'obs.stopRecording',
   'obs.stopStream',
+  'obs.toggleVirtualCam',
+  // ── Presets / Preview / Status ──
   'preset.delete',
   'preset.list',
   'preset.recall',
@@ -131,6 +317,7 @@ const FALLBACK_COMMANDS = [
   'preview.snap',
   'preview.start',
   'preview.stop',
+  // ── ProPresenter ──
   'propresenter.clearAll',
   'propresenter.clearMessage',
   'propresenter.clearSlide',
@@ -138,6 +325,7 @@ const FALLBACK_COMMANDS = [
   'propresenter.getTimers',
   'propresenter.goToSlide',
   'propresenter.isRunning',
+  'propresenter.messages',
   'propresenter.next',
   'propresenter.playlist',
   'propresenter.previous',
@@ -146,48 +334,81 @@ const FALLBACK_COMMANDS = [
   'propresenter.startTimer',
   'propresenter.status',
   'propresenter.stopTimer',
+  'propresenter.version',
+  // ── PTZ Cameras ──
+  'ptz.autoFocus',
+  'ptz.autoWhiteBalance',
+  'ptz.backlightComp',
+  'ptz.focusFar',
+  'ptz.focusNear',
+  'ptz.focusStop',
   'ptz.home',
+  'ptz.indoorWhiteBalance',
+  'ptz.manualFocus',
+  'ptz.onePushWb',
+  'ptz.outdoorWhiteBalance',
   'ptz.pan',
   'ptz.preset',
   'ptz.setPreset',
   'ptz.stop',
   'ptz.tilt',
   'ptz.zoom',
+  // ── Resolume ──
   'resolume.clearAll',
+  'resolume.getBpm',
   'resolume.getColumns',
   'resolume.getLayers',
   'resolume.isRunning',
   'resolume.playClip',
+  'resolume.playClipByName',
   'resolume.setBpm',
   'resolume.setLayerOpacity',
   'resolume.setMasterOpacity',
   'resolume.status',
   'resolume.stopClip',
   'resolume.triggerColumn',
+  'resolume.triggerColumnByName',
+  'resolume.version',
+  // ── System ──
   'status',
   'system.getServiceWindow',
   'system.preServiceCheck',
   'system.setWatchdogMode',
+  // ── VideoHub ──
+  'videohub.getInputLabels',
+  'videohub.getOutputLabels',
   'videohub.getRoutes',
   'videohub.route',
   'videohub.setInputLabel',
   'videohub.setOutputLabel',
+  // ── vMix ──
+  'vmix.audioLevels',
   'vmix.cut',
   'vmix.fade',
+  'vmix.fadeToBlack',
   'vmix.function',
   'vmix.isRunning',
   'vmix.listInputs',
   'vmix.mute',
+  'vmix.muteInput',
+  'vmix.overlayInput',
+  'vmix.overlayOff',
   'vmix.preview',
+  'vmix.replay',
+  'vmix.setInputVolume',
   'vmix.setPreview',
   'vmix.setProgram',
+  'vmix.setText',
   'vmix.setVolume',
+  'vmix.startPlaylist',
   'vmix.startRecording',
   'vmix.startStream',
   'vmix.status',
+  'vmix.stopPlaylist',
   'vmix.stopRecording',
   'vmix.stopStream',
   'vmix.unmute',
+  'vmix.unmuteInput',
 ];
 
 function getAvailableCommandNames() {
@@ -208,105 +429,233 @@ function getAvailableCommandNames() {
 const AVAILABLE_COMMANDS = getAvailableCommandNames();
 // Note: AVAILABLE_COMMANDS is exported via getAvailableCommandNames() for use elsewhere
 
-const SYSTEM_PROMPT = `You parse natural language into JSON commands for Tally, a church AV control system.
+// ─── Device command signature blocks (included only when device is connected) ──
+const CMD_SIGS = {
+  atem: `atem: cut(input:N), setPreview(input:N), auto(), fadeToBlack(), setFadeToBlackRate(rate:N), startRecording(), stopRecording(), startStreaming(), stopStreaming(), requestStreamingDuration(), requestRecordingDuration(), setInputLabel(input:N,longName:X), listVisibleInputs(), runMacro(macroIndex:N), stopMacro(), macroContinue(), macroSetLoop(macroIndex:N,isLooping:bool), macroStartRecord(macroIndex:N), macroStopRecord(macroIndex:N), macroUpdateProperties(macroIndex:N,name:X,description:X), macroDelete(macroIndex:N), setAux(aux:N,input:N), setTransitionStyle(style:mix|dip|wipe|dve|stinger), setTransitionRate(rate:N), setDskOnAir(keyer:N,onAir:bool), setDskTie(keyer:N,tie:bool), setDskRate(keyer:N,rate:N), setDskSource(keyer:N,fillSource:N,keySource:N), autoDsk(keyer:N), setDskGeneralProperties(keyer:N,preMultiplied:bool,clip:N,gain:N,invertKey:bool), setDskMaskSettings(keyer:N,maskEnabled:bool,maskTop:N,maskBottom:N,maskLeft:N,maskRight:N), setProgram(input:N), uploadStill(index:N,data:X,name:X), setMediaPlayer(player:N,sourceType:X,stillIndex:N), captureStill(), clearStill(index:N), setColorGeneratorColour(index:N,hue:N,saturation:N,luminance:N), saveStartupState(), clearStartupState()`,
+  atemFairlight: `atem (Fairlight audio — use when audio_via_atem is true or user says "on the atem"):
+  setFairlightAudioSourceProps(index:N,source:N,faderGain:N,gain:N,balance:N,mixOption:N) — faderGain -10000 to 1000, mixOption: 0=off 1=on 2=AFV
+  setFairlightAudioSourceCompressorProps(index:N,source:N,compressorEnabled:bool,threshold:N,ratio:N,attack:N,hold:N,release:N)
+  setFairlightAudioSourceLimiterProps(index:N,source:N,limiterEnabled:bool,threshold:N,attack:N,hold:N,release:N)
+  setFairlightAudioSourceExpanderProps(index:N,source:N,expanderEnabled:bool,gateEnabled:bool,threshold:N,range:N,ratio:N,attack:N,hold:N,release:N)
+  setFairlightAudioSourceEqBandProps(index:N,source:N,band:0-5,eqEnabled:bool,shape:N,frequencyRange:N,frequency:N,gain:N,qFactor:N)
+  setFairlightAudioMasterProps(faderGain:N,followFadeToBlack:bool)
+  setFairlightAudioMasterCompressorProps(compressorEnabled:bool,threshold:N,ratio:N,attack:N,hold:N,release:N)
+  setFairlightAudioMasterLimiterProps(limiterEnabled:bool,threshold:N,attack:N,hold:N,release:N)
+  setFairlightAudioMasterEqBandProps(band:0-5,eqEnabled:bool,shape:N,frequencyRange:N,frequency:N,gain:N,qFactor:N)
+  setFairlightAudioMasterEqReset(band:N), setFairlightAudioMasterDynamicsReset()
+  setFairlightAudioMonitorProps(gain:N,inputMasterMuted:bool,inputMasterGain:N)
+  setFairlightAudioMonitorSolo(index:N,source:N,solo:bool), setFairlightAudioInputProps(index:N,activeConfiguration:X), setFairlightAudioResetPeaks(all:bool)`,
+  atemClassicAudio: `atem (Classic audio — ATEM Mini / Mini Pro / older non-Fairlight):
+  setClassicAudioInputProps(index:N,mixOption:N,gain:N,balance:N), setClassicAudioMasterProps(gain:N,balance:N,followFadeToBlack:bool), setClassicAudioMonitorProps(enabled:bool,gain:N,mute:bool,solo:bool,soloInput:N,dim:bool), setClassicAudioHeadphonesProps(gain:N,programOutGain:N), setClassicAudioResetPeaks()`,
+  atemKeyers: `atem (Upstream Keyers — PIP, chroma, luma, DVE):
+  setUskOnAir(keyer:N,onAir:bool), setUskFillSource(keyer:N,fillSource:N), setUskCutSource(keyer:N,cutSource:N), setUskType(keyer:N,mixEffectKeyType:N,flyEnabled:bool) — 0=luma 1=chroma 2=pattern 3=DVE
+  setUskLumaSettings(keyer:N,preMultiplied:bool,clip:N,gain:N,invertKey:bool), setUskChromaSettings(keyer:N,hue:N,gain:N,ySuppress:N,lift:N,narrow:bool)
+  setUskDVESettings(keyer:N,sizeX:N,sizeY:N,positionX:N,positionY:N,rotation:N,borderEnabled:bool,borderOuterWidth:N,borderHue:N,borderSaturation:N,borderLuma:N,maskEnabled:bool,maskTop:N,maskBottom:N,maskLeft:N,maskRight:N)
+  setUskPatternSettings(keyer:N,style:N,size:N,symmetry:N,softness:N,positionX:N,positionY:N,invertPattern:bool), setUskMaskSettings(keyer:N,maskEnabled:bool,maskTop:N,maskBottom:N,maskLeft:N,maskRight:N)
+  runUskFlyKeyTo(keyer:N,keyFrame:N), runUskFlyKeyToInfinite(keyer:N,direction:N)
+  PIP: "put camera X in a PIP" → setUskType(keyer:0,mixEffectKeyType:3,flyEnabled:true), setUskFillSource(keyer:0,fillSource:X), setUskDVESettings(keyer:0,sizeX:0.33,sizeY:0.33,positionX:7,positionY:4), setUskOnAir(keyer:0,onAir:true)`,
+  atemSuperSource: `atem (SuperSource — split-screen, 1 M/E+ and Constellation only):
+  setSuperSourceBoxSettings(box:0-3,source:N,enabled:bool,positionX:N,positionY:N,size:N,cropped:bool,cropTop:N,cropBottom:N,cropLeft:N,cropRight:N), setSuperSourceProperties(artFillSource:N,artCutSource:N,artOption:N,artPreMultiplied:bool,artClip:N,artGain:N,artInvertKey:bool), setSuperSourceBorder(borderEnabled:bool,borderOuterWidth:N,borderInnerWidth:N,borderHue:N,borderSaturation:N,borderLuma:N)`,
+  atemMultiviewer: `atem (Multiviewer):
+  setMultiViewerWindowSource(mv:N,window:N,source:N), setMultiViewerWindowVuEnabled(mv:N,window:N,enabled:bool), setMultiViewerWindowSafeAreaEnabled(mv:N,window:N,enabled:bool), setMultiViewerVuOpacity(mv:N,opacity:N), setMultiViewerProperties(mv:N,layout:N,programPreviewSwapped:bool)`,
+  atemTransitions: `atem (Transitions):
+  setDipTransitionSettings(rate:N,input:N), setWipeTransitionSettings(rate:N,pattern:N,borderWidth:N,borderSoftness:N,symmetry:N,xPosition:N,yPosition:N,reverseDirection:bool,flipFlop:bool), setDVETransitionSettings(rate:N,style:N,fillSource:N,keySource:N), setStingerTransitionSettings(source:N,preMultiplied:bool,clip:N,gain:N,invertKey:bool,preRoll:N,clipDuration:N,triggerPoint:N,mixRate:N)`,
+  hyperdeck: `hyperdeck: play(hyperdeck:N), stop(hyperdeck:N), record(hyperdeck:N), stopRecord(hyperdeck:N), nextClip(hyperdeck:N), prevClip(hyperdeck:N), status(hyperdeck:N), selectSlot(hyperdeck:N,slot:N), setPlaySpeed(hyperdeck:N,speed:N), goToClip(hyperdeck:N,clip:N), goToTimecode(hyperdeck:N,timecode:X), jog(hyperdeck:N,timecode:X)`,
+  ptz: `ptz: pan(camera:N,speed:-1to1), tilt(camera:N,speed:-1to1), zoom(camera:N,speed:-1to1), preset(camera:N,preset:N), setPreset(camera:N,preset:N), stop(camera:N), home(camera:N), autoFocus(camera:N), manualFocus(camera:N), focusNear(camera:N,speed:0-7), focusFar(camera:N,speed:0-7), focusStop(camera:N), autoWhiteBalance(camera:N), indoorWhiteBalance(camera:N), outdoorWhiteBalance(camera:N), onePushWb(camera:N), backlightComp(camera:N,enabled:bool)`,
+  camera: `camera: setIris(camera:N,value:0-1), autoIris(camera:N), setGain(camera:N,gain:N), setISO(camera:N,iso:N), setWhiteBalance(camera:N,kelvin:N,tint:N), autoWhiteBalance(camera:N), setShutter(camera:N,speed:N), setFocus(camera:N,value:0-1), autoFocus(camera:N), setLift(camera:N,r:N,g:N,b:N,y:N), setGamma(camera:N,r:N,g:N,b:N,y:N), setColorGain(camera:N,r:N,g:N,b:N,y:N), setContrast(camera:N,pivot:N,adjust:N), setSaturation(camera:N,saturation:N), resetColorCorrection(camera:N)`,
+  obs: `obs: startStream(), stopStream(), startRecording(), stopRecording(), pauseRecording(), resumeRecording(), setScene(scene:X), getScenes(), getInputList(), setInputVolume(input:X,volume:0-1), setInputMute(input:X,muted:bool), setTransition(transition:X), setTransitionDuration(duration:N), getSourceFilters(source:X), setSourceFilterEnabled(source:X,filter:X,enabled:bool), setStudioMode(enabled:bool), setPreviewScene(scene:X), toggleVirtualCam(), getSceneItems(scene:X), setSceneItemEnabled(scene:X,itemId:N,enabled:bool), reduceBitrate(), configureMonitorStream()`,
+  encoder: `encoder: startStream(), stopStream(), startRecording(), stopRecording(), status()`,
+  webPresenter: `blackmagic (Web Presenter): getActivePlatform(), setActivePlatform(platform:X,server:X,key:X,quality:X), getPlatforms(), getPlatformConfig(name:X), getVideoFormat(), setVideoFormat(format:X), getSupportedVideoFormats(), getAudioSources(), setAudioSource(source:X)`,
+  companion: `companion: pressNamed(name:X), press(page:N,row:N,col:N), getGrid(), connections()`,
+  vmix: `vmix: startStream(), stopStream(), startRecording(), stopRecording(), cut(), fade(ms:N), setPreview(input:N), setProgram(input:N), setVolume(value:N), mute(), unmute(), function(function:X,input:X), status(), listInputs(), isRunning(), startPlaylist(), stopPlaylist(), audioLevels(), fadeToBlack(), setInputVolume(input:X,volume:0-100), muteInput(input:X), unmuteInput(input:X), overlayInput(overlay:1-4,input:X), overlayOff(overlay:1-4), setText(input:X,text:X), replay(action:X)`,
+  videohub: `videohub: route(input:N,output:N), getRoutes(), setInputLabel(index:N,label:X), setOutputLabel(index:N,label:X), getInputLabels(), getOutputLabels()`,
+  propresenter: `propresenter: next(), previous(), goToSlide(index:N), status(), playlist(), clearAll(), clearSlide(), stageMessage(name:X), clearMessage(), getLooks(), setLook(name:X), getTimers(), startTimer(name:X), stopTimer(name:X), version(), messages()`,
+  resolume: `resolume: playClip(name:X), stopClip(), triggerColumn(column:N), clearAll(), setBpm(bpm:N), getBpm(), setLayerOpacity(layer:N,value:0-1), setMasterOpacity(value:0-1), getLayers(), getColumns(), isRunning(), version(), status(), playClipByName(name:X), triggerColumnByName(name:X)`,
+  mixer: `mixer: status(), mute(channel:master|N), unmute(channel:master|N), recallScene(scene:N), saveScene(scene:N,name:X), setFader(channel:N,level:0-1), setChannelName(channel:N,name:X), setHpf(channel:N,enabled:bool,frequency:N), setEq(channel:N,enabled:bool,bands:[...]), setCompressor(channel:N,enabled:bool,threshold:N,ratio:N,attack:N,release:N,knee:N), setGate(channel:N,enabled:bool,threshold:N,range:N,attack:N,hold:N,release:N), setPreampGain(channel:N,gain:N), setPhantom(channel:N,enabled:bool), setPan(channel:N,pan:-1to1), setSendLevel(channel:N,bus:N,level:0-1), assignToBus(channel:N,bus:N,enabled:bool), assignToDca(channel:N,dca:N,enabled:bool), muteDca(dca:N), unmuteDca(dca:N), setDcaFader(dca:N,level:0-1), activateMuteGroup(group:N), deactivateMuteGroup(group:N), pressSoftKey(key:N), clearSolos(), channelStatus(channel:N), getMeters(), capabilities(), setChannelColor(channel:N,color:X), setChannelIcon(channel:N,icon:X)`,
+  dante: `dante: scene(name:X)`,
+  ecamm: `ecamm: togglePause(), getScenes(), setScene(id:X), nextScene(), prevScene(), toggleMute(), getInputs(), setInput(id:X), togglePIP(), getOverlays()`,
+  aja: `aja (AJA HELO): setVideoInput(source:N), setAudioInput(source:N), setStreamProfile(profile:X), setRecordProfile(profile:X), setMute(muted:bool), recallPreset(preset:X)`,
+  epiphan: `epiphan (Epiphan Pearl): startPublisher(publisher:X), stopPublisher(publisher:X), getLayouts(), setActiveLayout(layout:X), getStreamingParams(), setStreamingParams(params:X)`,
+  ndi: `ndi: getSource(), setSource(source:X)`,
+};
+
+// Always-included blocks
+const CMD_SIGS_ALWAYS = `preset: save(name:X), list(), recall(name:X), delete(name:X)
+preview: snap()
+other: system.preServiceCheck(), status()
+system: wait(seconds:N) — pause between steps (max 30s)`;
+
+/**
+ * Build a SYSTEM_PROMPT that only includes command signatures for connected devices.
+ * Cuts token usage dramatically for churches with fewer devices.
+ */
+function buildSystemPrompt(status = {}) {
+  const s = status || {};
+  const sigs = [];
+
+  // ATEM is almost always present
+  if (s.atem?.connected) {
+    sigs.push(CMD_SIGS.atem);
+    sigs.push(CMD_SIGS.atemFairlight);
+    sigs.push(CMD_SIGS.atemClassicAudio);
+    sigs.push(CMD_SIGS.atemKeyers);
+    sigs.push(CMD_SIGS.atemSuperSource);
+    sigs.push(CMD_SIGS.atemMultiviewer);
+    sigs.push(CMD_SIGS.atemTransitions);
+  }
+  if (s.hyperdeck?.connected)     sigs.push(CMD_SIGS.hyperdeck);
+  const ptzConnected = (s.ptz || []).some(c => c?.connected);
+  if (ptzConnected)               sigs.push(CMD_SIGS.ptz);
+  if (s.atem?.connected)          sigs.push(CMD_SIGS.camera); // BMD camera control requires ATEM
+  if (s.obs?.connected)           sigs.push(CMD_SIGS.obs);
+  if (s.encoder?.connected)       sigs.push(CMD_SIGS.encoder);
+  if (s.webPresenter?.connected)  sigs.push(CMD_SIGS.webPresenter);
+  if (s.companion?.connected)     sigs.push(CMD_SIGS.companion);
+  if (s.vmix?.connected)          sigs.push(CMD_SIGS.vmix);
+  if (s.videohub?.connected)      sigs.push(CMD_SIGS.videohub);
+  if (s.proPresenter?.connected)  sigs.push(CMD_SIGS.propresenter);
+  if (s.resolume?.connected)      sigs.push(CMD_SIGS.resolume);
+  if (s.mixer?.connected)         sigs.push(CMD_SIGS.mixer);
+  if (s.dante?.connected)         sigs.push(CMD_SIGS.dante);
+  if (s.ecamm?.connected)         sigs.push(CMD_SIGS.ecamm);
+  if (s.aja?.connected)           sigs.push(CMD_SIGS.aja);
+  if (s.epiphan?.connected)       sigs.push(CMD_SIGS.epiphan);
+  if (s.ndi?.connected)           sigs.push(CMD_SIGS.ndi);
+  sigs.push(CMD_SIGS_ALWAYS);
+
+  // If NO devices connected (admin context, etc.), include all signatures
+  if (sigs.length <= 1) {
+    for (const v of Object.values(CMD_SIGS)) sigs.unshift(v);
+  }
+
+  // Count connected streaming devices for conditional prompt sections
+  const streamDevices = [s.encoder?.connected, s.obs?.connected, s.vmix?.connected, s.atem?.connected].filter(Boolean);
+  const hasMultipleStreamDevices = streamDevices.length > 1;
+  const hasMixer = !!s.mixer?.connected;
+  const hasAtemAudio = !!s.atem?.connected && !hasMixer;
+
+  // Build streaming selection rules (only if multiple streaming devices exist)
+  let streamingRules = '';
+  if (hasMultipleStreamDevices) {
+    streamingRules = `
+STREAMING DEVICE SELECTION:
+When asked to "start stream" or "go live", pick the right device:
+- If user wants ALL ("start all encoders", "go live on everything") → multi-step for every connected streaming device
+- If user names a device → use that device
+- If memory/notes say which device → use it
+- If only one streaming device → use it
+- Priority: Encoder > OBS > vMix > ATEM built-in streaming (last resort)
+- If multiple and no preference → ask user which one
+
+RECORDING DEVICE SELECTION:
+- "start all recording" → multi-step for all connected recording devices
+- If user names a device → use it
+- Default to atem.startRecording if ATEM connected`;
+  } else {
+    streamingRules = `
+STREAMING: Use the connected streaming device. For "start all" / "stop all", include all connected devices.`;
+  }
+
+  // Audio rules (only include the relevant set)
+  let audioRules = '';
+  if (hasMixer) {
+    audioRules = `
+AUDIO: External mixer is connected — use mixer.* commands for audio. If user says "on the atem" → use ATEM audio commands instead.`;
+  } else if (s.atem?.connected) {
+    audioRules = `
+AUDIO: No external mixer — use ATEM audio commands. Fairlight: index=input number, source=-256 (default), faderGain in hundredths of dB (0=0dB, -10000=-inf, 1000=+10dB).
+When enabling compressor/gate/limiter/EQ → MUST set enabled flag to true with defaults.`;
+  }
+
+  const prompt = `You parse natural language into JSON commands for Tally, a church AV control system.
 Return ONLY valid JSON. No markdown, no explanation.
 
 AVAILABLE COMMANDS (N=number, X=string):
-atem: cut(input:N), setPreview(input:N), auto(), fadeToBlack(), startRecording(), stopRecording(), setInputLabel(input:N,longName:X), runMacro(macroIndex:N), stopMacro(), setAux(aux:N,input:N), setTransitionStyle(style:mix|dip|wipe|dve|stinger), setTransitionRate(rate:N), setDskOnAir(keyer:N,onAir:bool), setDskTie(keyer:N,tie:bool), setDskRate(keyer:N,rate:N), setDskSource(keyer:N,fillSource:N,keySource:N), setProgram(input:N), uploadStill(index:N,data:X,name:X), setMediaPlayer(player:N,sourceType:X,stillIndex:N), captureStill(), clearStill(index:N)
-hyperdeck: play(hyperdeck:N), stop(hyperdeck:N), record(hyperdeck:N), nextClip(hyperdeck:N), prevClip(hyperdeck:N)
-ptz: pan(camera:N,speed:-1to1), tilt(camera:N,speed:-1to1), zoom(camera:N,speed:-1to1), preset(camera:N,preset:N), setPreset(camera:N,preset:N), stop(camera:N), home(camera:N)
-camera: setIris(camera:N,value:0-1), autoIris(camera:N), setGain(camera:N,gain:N), setISO(camera:N,iso:N), setWhiteBalance(camera:N,kelvin:N,tint:N), autoWhiteBalance(camera:N), setShutter(camera:N,speed:N), setFocus(camera:N,value:0-1), autoFocus(camera:N), setLift(camera:N,r:N,g:N,b:N,y:N), setGamma(camera:N,r:N,g:N,b:N,y:N), setColorGain(camera:N,r:N,g:N,b:N,y:N), setContrast(camera:N,pivot:N,adjust:N), setSaturation(camera:N,saturation:N), resetColorCorrection(camera:N)
-obs: startStream(), stopStream(), startRecording(), stopRecording(), setScene(scene:X)
-encoder: startStream(), stopStream(), startRecording(), stopRecording(), status()
-companion: pressNamed(name:X)
-vmix: startStream(), stopStream(), startRecording(), stopRecording(), cut(), fade(ms:N), setPreview(input:N), setProgram(input:N), setVolume(value:N), mute(), unmute(), function(function:X,input:X)
-videohub: route(input:N,output:N), getRoutes()
-propresenter: next(), previous(), goToSlide(index:N), status(), playlist()
-resolume: playClip(name:X), triggerColumn(column:N), clearAll(), setBpm(bpm:N)
-mixer: status(), mute(channel:master|N), unmute(channel:master|N), recallScene(scene:N), saveScene(scene:N,name:X), setFader(channel:N,level:0-1), setChannelName(channel:N,name:X), setHpf(channel:N,enabled:bool,frequency:N), setEq(channel:N,enabled:bool,bands:[...]), setCompressor(channel:N,enabled:bool,threshold:N,ratio:N,attack:N,release:N,knee:N), setGate(channel:N,enabled:bool,threshold:N,range:N,attack:N,hold:N,release:N)
-dante: scene(name:X)
-other: preview.snap(), system.preServiceCheck(), status()
-system: wait(seconds:N) — pause between steps (max 30s)
+${sigs.join('\n')}
+${streamingRules}
+${audioRules}
 
 OUTPUT FORMAT — return exactly one of these JSON shapes:
+Single: {"type":"command","command":"atem.cut","params":{"input":2}}
+Multi: {"type":"commands","steps":[{"command":"...","params":{...}},{"command":"...","params":{...}}]}
+Chat: {"type":"chat","text":"..."}
 
-Single action:
-{"type":"command","command":"atem.cut","params":{"input":2}}
+MULTI-STEP: If user asks for >1 action ("then", "and", commas, lists) → MUST return type "commands" with steps array.
 
-Multiple actions (MUST use when message contains "then", "and", commas, or lists):
-{"type":"commands","steps":[{"command":"...","params":{...}},{"command":"...","params":{...}}]}
+WHEN UNSURE — ASK: If ambiguous, return a chat response asking the user to clarify with 2-4 specific options they can say verbatim.
 
-Conversation reply:
-{"type":"chat","text":"..."}
+CONFIRM HIGH-IMPACT: fadeToBlack, stopStream, "end service" → ask for confirmation unless user already expressed clear intent or is repeating.
 
-CRITICAL MULTI-STEP RULES:
-If the user asks for MORE THAN ONE action, you MUST return type "commands" with a "steps" array.
-Words like "then", "and", "after that", commas, or numbered lists ALWAYS mean multiple steps.
-
-MULTI-STEP EXAMPLES WITH FULL JSON OUTPUT:
-
-User: "cut to cam 1 then cut to cam 2"
-{"type":"commands","steps":[{"command":"atem.cut","params":{"input":1}},{"command":"atem.cut","params":{"input":2}}]}
-
-User: "cut to 1 then wait 5 seconds then cut to 2"
-{"type":"commands","steps":[{"command":"atem.cut","params":{"input":1}},{"command":"system.wait","params":{"seconds":5}},{"command":"atem.cut","params":{"input":2}}]}
-
-User: "cut to 1 then 2 then 3 then 4"
-{"type":"commands","steps":[{"command":"atem.cut","params":{"input":1}},{"command":"atem.cut","params":{"input":2}},{"command":"atem.cut","params":{"input":3}},{"command":"atem.cut","params":{"input":4}}]}
-
-User: "preview cam 3 then take it"
-{"type":"commands","steps":[{"command":"atem.setPreview","params":{"input":3}},{"command":"atem.auto","params":{}}]}
-
-User: "fade to black, stop recording, and stop streaming"
-{"type":"commands","steps":[{"command":"atem.fadeToBlack","params":{}},{"command":"atem.stopRecording","params":{}},{"command":"obs.stopStream","params":{}}]}
+OPERATOR LEVEL: Context "Operator: volunteer|intermediate|pro". volunteer=simple language, pro=concise. Auto-detect if missing.
 
 RULES:
-- "wide"→cam1, "pastor"→cam2, "take it"→atem.auto
-- Muting audio → companion.pressNamed with descriptive name
+- Match camera labels from context when available. "take it"→atem.auto. DSK: "auto lower third"→autoDsk(keyer:0).
 - Off-topic → {"type":"chat","text":"I'm only here for production. Try 'help' for what I can do."}
-- Use conversation history to resolve "again", "same for cam 3", "undo that", etc.
-- Up to 50 steps allowed (audio consoles may need 32+ channel operations).`;
+- Use conversation history for "again", "undo that", etc. Up to 50 steps. Batch: "mute 1-8" → one step per channel.
+- "we're done"/"that's a wrap" → multi-step: fadeToBlack + stop all streams + stop all recordings.
+- Relative adjustments: "louder" → +0.1 fader or +300 Fairlight. "quieter" → reverse.
+- Troubleshooting: describe problem → return diagnosis with suggested commands.
+- Social phrases (thanks, hi) → friendly reply, NOT off-topic response.
+- Undo → reverse the last command from history.
+- Volunteer phrases: "put the words up"→propresenter.next, "zoom in"→ptz.zoom(speed:0.3), "are we live?"→status()`;
+
+  return prompt;
+}
+
 
 // ─── Anthropic API call ───────────────────────────────────────────────────
 
-async function callAnthropic(messages, timeout = 15000) {
+async function callAnthropic(messages, timeout = 15000, systemPrompt = '') {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const MAX_RETRIES = 2;
+  const RETRY_DELAYS = [1000, 2500]; // ms before each retry
 
-  try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        system: SYSTEM_PROMPT,
-        messages,
-        temperature: 0.2,
-        max_tokens: 2048,
-      }),
-      signal: controller.signal,
-    });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    if (!resp.ok) {
-      const body = await resp.text();
-      throw new Error(`Anthropic API ${resp.status}: ${body.slice(0, 100)}`);
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          system: systemPrompt,
+          messages,
+          temperature: 0.2,
+          max_tokens: 2048,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!resp.ok) {
+        const body = await resp.text();
+        const status = resp.status;
+        // Retry on 429 (rate-limited) or 529 (overloaded) — not on 4xx auth/validation errors
+        if ((status === 429 || status === 529) && attempt < MAX_RETRIES) {
+          clearTimeout(timeoutId);
+          console.warn(`[ai-parser] API ${status}, retry ${attempt + 1}/${MAX_RETRIES} in ${RETRY_DELAYS[attempt]}ms`);
+          await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+          continue;
+        }
+        throw new Error(`Anthropic API ${status}: ${body.slice(0, 100)}`);
+      }
+
+      const data = await resp.json();
+      const raw = data?.content?.[0]?.text?.trim();
+
+      if (!raw) throw new Error('Anthropic returned empty response');
+      return { text: raw, usage: data.usage || null };
+
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const data = await resp.json();
-    const raw = data?.content?.[0]?.text?.trim();
-
-    if (!raw) throw new Error('Anthropic returned empty response');
-    return { text: raw, usage: data.usage || null };
-
-  } finally {
-    clearTimeout(timeoutId);
   }
 }
 
@@ -379,13 +728,18 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   // ATEM switcher
   if (ctx.status?.atem?.connected) {
     const s = ctx.status.atem;
-    contextHint += `ATEM: pgm=cam${s.programInput || '?'}, pvw=cam${s.previewInput || '?'}. `;
+    let atemInfo = 'ATEM';
+    if (s.model) atemInfo += ` (${s.model})`;
+    atemInfo += `: pgm=cam${s.programInput || '?'}, pvw=cam${s.previewInput || '?'}`;
+    contextHint += atemInfo + '. ';
     if (s.inputLabels && Object.keys(s.inputLabels).length) {
       const labels = Object.entries(s.inputLabels).map(([k, v]) => `${k}=${v}`).join(', ');
       contextHint += `Labels: ${labels}. `;
     }
     if (s.streaming) contextHint += `ATEM streaming${s.streamingBitrate ? ` ${s.streamingBitrate}kbps` : ''}${s.streamingService ? ` (${s.streamingService})` : ''}. `;
     if (s.recording) contextHint += 'ATEM recording. ';
+    // audio_via_atem flag for audio routing
+    if (ctx.status.audio_via_atem) contextHint += 'audio_via_atem=true. ';
   }
 
   // OBS
@@ -461,9 +815,12 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   // Build messages array: conversation history + current message
   const messages = [...conversationHistory, { role: 'user', content: userContent }];
 
+  // Build dynamic system prompt based on connected devices
+  const systemPrompt = buildSystemPrompt(ctx.status || {});
+  const promptTokenEst = Math.round(systemPrompt.length / 4);
   try {
-    console.log(`[ai-parser] Calling Haiku (${messages.length} msg) for: "${text.slice(0, 60)}"`);
-    const { text: raw, usage } = await callAnthropic(messages);
+    console.log(`[ai-parser] Calling Haiku (${messages.length} msg, ~${promptTokenEst} prompt tokens) for: "${text.slice(0, 60)}"`);
+    const { text: raw, usage } = await callAnthropic(messages, 15000, systemPrompt);
     console.log(`[ai-parser] Raw response: ${raw.slice(0, 300)}`);
 
     // Log AI usage
@@ -481,6 +838,29 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
 
     if (!parsed.type || !['command', 'commands', 'chat'].includes(parsed.type)) {
       throw new Error(`Invalid response type: ${parsed.type}`);
+    }
+
+    // ── Validate command names exist in the handler registry ──
+    if (parsed.type === 'command' && parsed.command) {
+      if (parsed.command !== 'system.wait' && parsed.command !== 'system.preServiceCheck' && !AVAILABLE_COMMANDS.includes(parsed.command)) {
+        console.warn(`[ai-parser] AI hallucinated command: ${parsed.command}`);
+        return {
+          type: 'chat',
+          text: `I tried to run "${parsed.command}" but that command doesn't exist. Could you rephrase what you'd like to do?`,
+        };
+      }
+    }
+    if (parsed.type === 'commands' && Array.isArray(parsed.steps)) {
+      const invalid = parsed.steps.find((s) =>
+        s.command && s.command !== 'system.wait' && s.command !== 'system.preServiceCheck' && !AVAILABLE_COMMANDS.includes(s.command)
+      );
+      if (invalid) {
+        console.warn(`[ai-parser] AI hallucinated command in multi-step: ${invalid.command}`);
+        return {
+          type: 'chat',
+          text: `I tried to run "${invalid.command}" but that command doesn't exist. Could you rephrase what you'd like to do?`,
+        };
+      }
     }
 
     // Cache the result (only for single-turn requests without history)

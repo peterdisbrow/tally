@@ -62,12 +62,15 @@ const wss = new WebSocketServer({ server, maxPayload: 256 * 1024 }); // 256 KB m
 
 const { ScheduleEngine } = require('./src/scheduleEngine');
 const { AlertEngine } = require('./src/alertEngine');
+const { VersionConfig } = require('./src/versionConfig');
 const { AutoRecovery } = require('./src/autoRecovery');
 const { WeeklyDigest } = require('./src/weeklyDigest');
 const { TallyBot, parseCommand } = require('./src/telegramBot');
 const { aiParseCommand, setAiUsageLogger: setParserLogger } = require('./src/ai-parser');
+const { smartParse } = require('./src/smart-parser');
 const { detectSetupIntent, detectIntentWithAttachment, parsePatchList, generateMixerSetup, parseCameraPlot, buildCameraCommands, setAiUsageLogger: setSetupLogger } = require('./src/ai-setup-assistant');
-const { isOnTopic, OFF_TOPIC_RESPONSE } = require('./src/chat-guard');
+const { isOnTopic, OFF_TOPIC_RESPONSE, containsSensitiveData, SENSITIVE_RESPONSE } = require('./src/chat-guard');
+const { checkStreamSafety, checkWorkflowSafety, hasForceBypass } = require('./src/stream-guard');
 const { ChurchMemory } = require('./src/churchMemory');
 const { ChurchDocuments } = require('./src/churchDocuments');
 const { PreServiceCheck } = require('./src/preServiceCheck');
@@ -82,6 +85,7 @@ const { EventMode } = require('./src/eventMode');
 const { ResellerSystem } = require('./src/reseller');
 const { AutoPilot } = require('./src/autoPilot');
 const { ChatEngine } = require('./src/chatEngine');
+const { ENGINEER_SYSTEM_PROMPT } = require('./src/engineer-knowledge');
 const { LifecycleEmails } = require('./src/lifecycleEmails');
 
 const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS } = require('./src/billing');
@@ -613,13 +617,19 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_church ON ai_usage_log(church_i
 db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_date ON ai_usage_log(created_at)');
 
 /** Log an AI API call to the usage table. Fire-and-forget — never throws. */
+const MODEL_PRICING = {
+  'claude-haiku-4-5-20251001':  { input: 1.00,  output: 5.00  },  // $/M tokens
+  'claude-3-haiku-20240307':    { input: 0.25,  output: 1.25  },
+  'claude-sonnet-4-20250514':   { input: 3.00,  output: 15.00 },
+};
 function logAiUsage({ churchId, feature, model, inputTokens, outputTokens, cached }) {
-  // Haiku 4.5 pricing: $1.00 / 1M input tokens, $5.00 / 1M output tokens
-  const cost = ((inputTokens || 0) * 0.000001) + ((outputTokens || 0) * 0.000005);
+  const m = model || 'claude-haiku-4-5-20251001';
+  const pricing = MODEL_PRICING[m] || MODEL_PRICING['claude-haiku-4-5-20251001'];
+  const cost = ((inputTokens || 0) * pricing.input / 1_000_000) + ((outputTokens || 0) * pricing.output / 1_000_000);
   try {
     db.prepare(
       'INSERT INTO ai_usage_log (church_id, feature, model, input_tokens, output_tokens, cost_usd, cached, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(churchId || null, feature, model || 'claude-haiku-4-5-20251001', inputTokens || 0, outputTokens || 0, cost, cached ? 1 : 0, new Date().toISOString());
+    ).run(churchId || null, feature, m, inputTokens || 0, outputTokens || 0, cost, cached ? 1 : 0, new Date().toISOString());
   } catch (err) {
     console.error('[AI Usage] Failed to log:', err.message);
   }
@@ -643,6 +653,7 @@ const scheduleEngine = new ScheduleEngine(db);
 const billing = new BillingSystem(db);
 const onCallRotation = new OnCallRotation(db);
 const alertEngine = new AlertEngine(db, scheduleEngine, { onCallRotation });
+const versionConfig = new VersionConfig(db);
 const autoRecovery = new AutoRecovery(churches, alertEngine, db);
 const weeklyDigest = new WeeklyDigest(db);
 weeklyDigest.setNotificationConfig(process.env.ALERT_BOT_TOKEN);
@@ -938,7 +949,7 @@ chatEngine.setBroadcasters({
   broadcastToChurch: (churchId, msg) => {
     const church = churches.get(churchId);
     if (church?.ws?.readyState === WebSocket.OPEN) {
-      church.ws.send(JSON.stringify(msg));
+      safeSend(church.ws, msg);
     }
   },
   broadcastToControllers: (msg) => broadcastToControllers(msg),
@@ -988,6 +999,7 @@ preServiceCheck = new PreServiceCheck({
   defaultBotToken: process.env.ALERT_BOT_TOKEN,
   andrewChatId: ANDREW_TELEGRAM_CHAT_ID,
   sessionRecap,
+  versionConfig,
 });
 preServiceCheck.start();
 
@@ -1147,7 +1159,7 @@ function drainQueue(churchId, ws) {
   let delivered = 0;
   for (const item of queue) {
     if (now - item.queuedAt < QUEUE_TTL_MS) {
-      ws.send(JSON.stringify(item.msg));
+      safeSend(ws, item.msg);
       delivered++;
     }
   }
@@ -2644,6 +2656,90 @@ function formatResultForChat(result) {
   }
 }
 
+// ─── ENGINEER AI (question answering) ─────────────────────────────────────
+
+const QUESTION_STARTERS = /^(how|what|why|where|when|which|who|explain|tell me|can (you|i|we|tally)|could (you|i|we)|would (you|it)|does|do|is there|is it|is the|is my|help me|i need help|i'm having|im having|any idea|do you know|what's|whats|where's|where is|walk me through|show me how|describe|should (i|we)|i don't understand|i dont understand|i'm confused|im confused|troubleshoot|diagnose)/i;
+const COMMAND_STARTERS = /^(cut|switch|take|go|start|stop|mute|unmute|fade|set|recall|save|run|press|play|record|route|clear|toggle|upload|snap|check|scan|test|turn|apply|load)\b/i;
+
+function isEngineerQuestion(message) {
+  if (!message || typeof message !== 'string') return false;
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+  // Short messages (1-2 words) are likely commands, not questions
+  if (trimmed.split(/\s+/).length <= 2 && !trimmed.includes('?')) return false;
+  // Messages starting with command verbs are commands, not questions
+  if (COMMAND_STARTERS.test(trimmed)) return false;
+  // Messages starting with question words or containing ? are questions
+  if (QUESTION_STARTERS.test(trimmed)) return true;
+  if (trimmed.includes('?')) return true;
+  return false;
+}
+
+async function callEngineerAI(churchId, question) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return 'AI is not configured (ANTHROPIC_API_KEY missing).';
+
+  const church = churches.get(churchId);
+  const churchRow = stmtGet.get(churchId);
+  let engineerProfile = {};
+  try { engineerProfile = JSON.parse(churchRow?.engineer_profile || '{}'); } catch {}
+
+  const statusContext = church?.status ? JSON.stringify(church.status) : '{}';
+  const profileContext = Object.keys(engineerProfile).length > 0
+    ? '\n\nEngineer profile: ' + JSON.stringify(engineerProfile)
+    : '';
+
+  const conversationHistory = chatEngine.getRecentConversation(churchId);
+
+  try {
+    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        system: ENGINEER_SYSTEM_PROMPT
+          + '\n\nCurrent church status: ' + statusContext
+          + profileContext,
+        messages: [
+          ...(Array.isArray(conversationHistory) ? conversationHistory : []),
+          { role: 'user', content: question },
+        ],
+        temperature: 0.4,
+        max_tokens: 800,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!aiRes.ok) {
+      const errBody = await aiRes.text().catch(() => '');
+      console.error(`[EngineerAI] Anthropic error: ${aiRes.status} ${errBody.slice(0, 200)}`);
+      return 'Sorry, I couldn\'t process that question right now. Try again in a moment.';
+    }
+
+    const data = await aiRes.json();
+    const reply = data?.content?.[0]?.text || 'No response.';
+
+    if (data?.usage) {
+      logAiUsage({
+        churchId,
+        feature: 'engineer_chat',
+        model: 'claude-haiku-4-5-20251001',
+        inputTokens: data.usage.input_tokens || 0,
+        outputTokens: data.usage.output_tokens || 0,
+      });
+    }
+
+    return reply;
+  } catch (err) {
+    console.error(`[EngineerAI] Error: ${err.message}`);
+    return 'Sorry, I couldn\'t process that question right now. Try again in a moment.';
+  }
+}
+
 function postSystemChatMessage(churchId, message) {
   const saved = chatEngine.saveMessage({
     churchId,
@@ -2679,7 +2775,7 @@ async function executeChurchCommandWithResult(churchId, command, params = {}) {
   }
 }
 
-function parseChatCommandIntent(rawMessage) {
+function parseChatCommandIntent(rawMessage, status) {
   const text = String(rawMessage || '').trim();
   if (!text) return null;
 
@@ -2704,17 +2800,37 @@ function parseChatCommandIntent(rawMessage) {
     return { type: 'command', parsed };
   }
 
+  // "confirm: ..." prefix — force-confirmed re-send (stream guard bypass)
+  if (lower.startsWith('confirm:') || lower.startsWith('confirm ')) {
+    const commandText = text.replace(/^confirm[:\s]+/i, '').trim();
+    if (!commandText) return null;
+    const parsed = parseCommand(commandText);
+    if (parsed) return { type: 'command', parsed, forceConfirmed: true };
+    const smartResult = smartParse(commandText, status || {});
+    if (smartResult) {
+      if (smartResult.type === 'command') return { type: 'command', parsed: { command: smartResult.command, params: smartResult.params }, forceConfirmed: true };
+      if (smartResult.type === 'commands') return { type: 'commands', steps: smartResult.steps, forceConfirmed: true };
+    }
+    return { type: 'ai', prompt: commandText, forceConfirmed: true };
+  }
+
   if (lower.startsWith('/ai')) {
     const prompt = text.slice(3).trim();
     if (!prompt) return { type: 'invalid', reason: 'Usage: /ai move to the pastor shot and start stream' };
     return { type: 'ai', prompt };
   }
 
-  // All other messages: try pattern parsing first, then AI as fallback.
-  // This lets TDs type naturally ("switch to camera 2", "start recording")
-  // without needing a prefix.
+  // All other messages: try pattern parsing first, then smart parser, then AI.
   const parsed = parseCommand(text);
   if (parsed) return { type: 'command', parsed };
+
+  // Smart parser: device-aware routing without AI
+  const smartResult = smartParse(text, status || {});
+  if (smartResult) {
+    if (smartResult.type === 'chat') return { type: 'chat_reply', text: smartResult.text };
+    if (smartResult.type === 'command') return { type: 'command', parsed: { command: smartResult.command, params: smartResult.params } };
+    if (smartResult.type === 'commands') return { type: 'commands', steps: smartResult.steps };
+  }
 
   // Fall through to AI for conversational commands
   return { type: 'ai', prompt: text };
@@ -2889,6 +3005,12 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
 
   const lowerMsg = (rawMessage || '').toLowerCase().trim();
 
+  // ─── Sensitive data guard (stream keys, passwords, etc.) ─────────────────
+  if (containsSensitiveData(rawMessage)) {
+    postSystemChatMessage(churchId, SENSITIVE_RESPONSE);
+    return;
+  }
+
   // ─── "Remember this" handler ─────────────────────────────────────────────
   if (/^(remember|note|save note|don't forget|tally remember)\b/i.test(lowerMsg)) {
     const noteText = rawMessage.replace(/^(remember|note|save note|don't forget|tally remember)\s*/i, '').trim();
@@ -2990,7 +3112,15 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     return;
   }
 
-  const intent = parseChatCommandIntent(rawMessage);
+  // ─── Engineer AI: answer questions before trying command parsing ──────────
+  if (isEngineerQuestion(rawMessage)) {
+    const reply = await callEngineerAI(churchId, rawMessage);
+    postSystemChatMessage(churchId, reply);
+    return;
+  }
+
+  const church = churches.get(churchId);
+  const intent = parseChatCommandIntent(rawMessage, church?.status);
   if (!intent) return;
 
   if (intent.type === 'invalid') {
@@ -2998,8 +3128,49 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     return;
   }
 
+  if (intent.type === 'chat_reply') {
+    postSystemChatMessage(churchId, intent.text);
+    return;
+  }
+
+  // ─── Stream guard: skip if force-confirmed or has force bypass ──────────
+  const streamGuardBypassed = intent.forceConfirmed || hasForceBypass(rawMessage);
+
+  if (intent.type === 'commands' && Array.isArray(intent.steps) && intent.steps.length > 0) {
+    if (!streamGuardBypassed) {
+      const wfSafety = checkWorkflowSafety(intent.steps, church?.status || {});
+      if (wfSafety) {
+        postSystemChatMessage(churchId, `${wfSafety.warning}\n\nTo confirm, resend: confirm: ${rawMessage}`);
+        return;
+      }
+    }
+    for (const step of intent.steps) {
+      if (!step?.command) continue;
+      if (step.command === 'system.wait') {
+        const seconds = Math.min(Math.max(Number(step.params?.seconds) || 1, 0.5), 30);
+        postSystemChatMessage(churchId, `⏳ Waiting ${seconds}s...`);
+        await new Promise((r) => setTimeout(r, seconds * 1000));
+        continue;
+      }
+      const executed = await executeChurchCommandWithResult(churchId, step.command, step.params || {});
+      if (!executed.ok) {
+        postSystemChatMessage(churchId, `❌ ${friendlyError(step.command, executed.error)}`);
+        return;
+      }
+      postSystemChatMessage(churchId, `✅ ${step.command} ${formatResultForChat(executed.result)}`);
+    }
+    return;
+  }
+
   if (intent.type === 'command') {
     const { command, params } = intent.parsed;
+    if (!streamGuardBypassed) {
+      const safety = checkStreamSafety(command, params, church?.status || {});
+      if (safety) {
+        postSystemChatMessage(churchId, `${safety.warning}\n\nTo confirm, resend: confirm: ${rawMessage}`);
+        return;
+      }
+    }
     const executed = await executeChurchCommandWithResult(churchId, command, params || {});
     if (!executed.ok) {
       postSystemChatMessage(churchId, `❌ ${command} failed: ${executed.error}`);
@@ -3014,7 +3185,6 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     return;
   }
 
-  const church = churches.get(churchId);
   const conversationHistory = chatEngine.getRecentConversation(churchId);
   const churchRow = stmtGet.get(churchId);
   let engineerProfile = {};
@@ -3052,6 +3222,15 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     return;
   }
 
+  // Stream guard for AI-parsed commands
+  if (!streamGuardBypassed) {
+    const wfSafety = checkWorkflowSafety(steps, church?.status || {});
+    if (wfSafety) {
+      postSystemChatMessage(churchId, `${wfSafety.warning}\n\nTo confirm, resend: confirm: ${rawMessage}`);
+      return;
+    }
+  }
+
   for (const step of steps) {
     if (!step?.command) continue;
 
@@ -3066,11 +3245,33 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     const executed = await executeChurchCommandWithResult(churchId, step.command, step.params || {});
     churchMemory.recordCommandOutcome(churchId, step.command, executed.ok, 'user_request');
     if (!executed.ok) {
-      postSystemChatMessage(churchId, `❌ ${step.command} failed: ${executed.error}`);
+      postSystemChatMessage(churchId, `❌ ${friendlyError(step.command, executed.error)}`);
       return;
     }
     postSystemChatMessage(churchId, `✅ ${step.command} ${formatResultForChat(executed.result)}`);
   }
+}
+
+/** Make device errors volunteer-friendly. */
+function friendlyError(command, error) {
+  const msg = String(error || 'Command failed');
+  const device = command?.split('.')[0] || '';
+  // Device not connected
+  if (/not connected/i.test(msg)) {
+    const deviceNames = { atem: 'video switcher (ATEM)', obs: 'OBS', mixer: 'audio console', encoder: 'encoder', vmix: 'vMix', companion: 'Companion', propresenter: 'ProPresenter', ptz: 'PTZ camera', hyperdeck: 'HyperDeck' };
+    const friendly = deviceNames[device] || device;
+    return `The ${friendly} isn't responding. Check that it's powered on and connected to the network — or ask your tech director for help.`;
+  }
+  if (/not configured/i.test(msg)) {
+    return `${device || 'That device'} isn't set up yet. Ask your tech director to configure it in the Tally settings.`;
+  }
+  if (/timed out/i.test(msg)) {
+    return `The command took too long to respond. The device might be busy — try again in a few seconds.`;
+  }
+  if (/doesn't exist|not found/i.test(msg) && /camera|input/i.test(msg)) {
+    return msg; // Already friendly from validateAtemInput
+  }
+  return `${command} failed: ${msg}`;
 }
 
 // Send a command to a specific church
@@ -3105,7 +3306,7 @@ app.post('/api/command', requireAdmin, async (req, res) => {
     return res.status(503).json({ error: 'Church client not connected' });
   }
 
-  church.ws.send(JSON.stringify(msg));
+  safeSend(church.ws, msg);
   log(`CMD → ${church.name}: ${command} ${JSON.stringify(params)}`);
   res.json({ sent: true, messageId: msg.id });
 });
@@ -3116,7 +3317,7 @@ app.post('/api/broadcast', requireAdmin, (req, res) => {
   let sent = 0;
   for (const church of churches.values()) {
     if (church.ws?.readyState === WebSocket.OPEN) {
-      church.ws.send(JSON.stringify({ type: 'command', command, params, id: uuidv4() }));
+      safeSend(church.ws, { type: 'command', command, params, id: uuidv4() });
       sent++;
       totalMessagesRelayed++;
     }
@@ -4174,7 +4375,7 @@ function handleChurchConnection(ws, url, clientIp) {
     if (dbChurchRow && dbChurchRow.reseller_id) {
       const branding = resellerSystem.getBranding(dbChurchRow.reseller_id);
       if (branding && branding.brandName) {
-        ws.send(JSON.stringify({ type: 'branding', ...branding }));
+        safeSend(ws, { type: 'branding', ...branding });
         log(`Branding sent to "${church.name}" via reseller "${branding.brandName}"`);
       }
     }
@@ -4220,6 +4421,7 @@ function handleChurchConnection(ws, url, clientIp) {
     church.disconnectedAt = Date.now();
     // Reset device status so dashboard doesn't show stale connected states
     church.status = { connected: false, atem: null, obs: null };
+    church._versionCheckedDevices = null; // allow re-check on next connect
     log(`Church "${church.name}" disconnected`);
     const disconnectEvent = {
       type: 'church_disconnected',
@@ -4236,7 +4438,7 @@ function handleChurchConnection(ws, url, clientIp) {
     console.error(`WS error from church "${church.name}":`, err.message);
   });
 
-  ws.send(JSON.stringify({ type: 'connected', churchId: church.churchId, name: church.name }));
+  safeSend(ws, { type: 'connected', churchId: church.churchId, name: church.name });
 }
 
 function handleControllerConnection(ws, url) {
@@ -4252,7 +4454,7 @@ function handleControllerConnection(ws, url) {
     connected: c.ws?.readyState === WebSocket.OPEN,
     status: c.status,
   }));
-  ws.send(JSON.stringify({ type: 'church_list', churches: churchList }));
+  safeSend(ws, { type: 'church_list', churches: churchList });
 
   // WebSocket-level ping every 25s to keep the connection alive through reverse proxies
   const wsPingInterval = setInterval(() => {
@@ -4277,6 +4479,39 @@ function handleControllerConnection(ws, url) {
   ws.on('error', (err) => {
     console.error('WS error from controller:', err.message);
   });
+}
+
+// ── Device version check helper (fires once per device per WS session) ───────
+function _checkDeviceVersions(church, status) {
+  if (!status) return;
+  if (!church._versionCheckedDevices) church._versionCheckedDevices = new Set();
+
+  const encType = status.encoder?.type || 'unknown';
+  const mixerType = status.mixer?.type || 'unknown';
+  const checks = [
+    { key: 'obs',          version: status.obs?.version,            type: 'obs',                    label: 'OBS Studio' },
+    { key: 'proPresenter', version: status.proPresenter?.version,   type: 'proPresenter',           label: 'ProPresenter' },
+    { key: 'vmix',         version: status.vmix?.version,           type: 'vmix',                   label: 'vMix' },
+    { key: 'atem',         version: status.atem?.protocolVersion,   type: 'atem_protocol',          label: 'ATEM Firmware' },
+    { key: 'encoder',      version: status.encoder?.firmwareVersion,type: `encoder_${encType}`,     label: `${encType} Encoder` },
+    { key: 'mixer',        version: status.mixer?.firmware,         type: `mixer_${mixerType}`,     label: `${mixerType} Mixer` },
+  ];
+
+  for (const c of checks) {
+    if (!c.version) continue;
+    const dedupKey = `${c.key}:${c.version}`;
+    if (church._versionCheckedDevices.has(dedupKey)) continue;
+    church._versionCheckedDevices.add(dedupKey);
+
+    const result = versionConfig.checkVersion(c.type, c.version);
+    if (result.checked && result.outdated) {
+      alertEngine.sendAlert(
+        church, 'firmware_outdated',
+        { device: c.label, currentVersion: result.current, minimumVersion: result.minimum },
+        sessionRecap?.getActiveSessionId?.(church.churchId) || null,
+      ).catch(() => {});
+    }
+  }
 }
 
 function handleChurchMessage(church, msg) {
@@ -4318,6 +4553,9 @@ function handleChurchMessage(church, msg) {
         try { db.prepare('UPDATE churches SET timezone = ? WHERE churchId = ?').run(church.timezone, church.churchId); }
         catch (e) { log(`[timezone] sync DB error: ${e.message}`); }
       }
+
+      // ── Check device firmware / software versions (once per device per WS session) ──
+      _checkDeviceVersions(church, msg.status);
 
       {
         const statusEvent = {
@@ -4456,7 +4694,7 @@ function handleChurchMessage(church, msg) {
     }
 
     case 'ping':
-      church.ws.send(JSON.stringify({ type: 'pong', ts: msg.ts }));
+      safeSend(church.ws, { type: 'pong', ts: msg.ts });
       break;
 
     default:
@@ -4468,15 +4706,15 @@ async function handleControllerMessage(ws, msg) {
   if (msg.type === 'command' && msg.churchId) {
     const rateLimit = await checkCommandRateLimit(msg.churchId);
     if (!rateLimit.ok) {
-      ws.send(JSON.stringify({ type: 'error', error: 'Rate limit exceeded', churchId: msg.churchId }));
+      safeSend(ws, { type: 'error', error: 'Rate limit exceeded', churchId: msg.churchId });
       return;
     }
     const church = churches.get(msg.churchId);
     if (church?.ws?.readyState === WebSocket.OPEN) {
-      church.ws.send(JSON.stringify(msg));
+      safeSend(church.ws, msg);
       totalMessagesRelayed++;
     } else {
-      ws.send(JSON.stringify({ type: 'error', error: 'Church not connected', churchId: msg.churchId }));
+      safeSend(ws, { type: 'error', error: 'Church not connected', churchId: msg.churchId });
     }
   }
 
@@ -4493,10 +4731,19 @@ async function handleControllerMessage(ws, msg) {
   }
 }
 
+/** Safely send JSON to a WebSocket — catches errors from mid-close sockets */
+function safeSend(ws, payload) {
+  try {
+    if (ws?.readyState === WebSocket.OPEN) ws.send(typeof payload === 'string' ? payload : JSON.stringify(payload));
+  } catch (e) {
+    log(`[WS] safeSend error: ${e.message}`);
+  }
+}
+
 function broadcastToControllers(msg) {
   const data = JSON.stringify(msg);
   for (const ws of controllers) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(data);
+    safeSend(ws, data);
   }
 }
 
@@ -4665,7 +4912,7 @@ function makeCommandSender(church) {
       } catch { /* ignore */ }
     };
     church.ws.on('message', handler);
-    church.ws.send(JSON.stringify({ type: 'command', command, params, id }));
+    safeSend(church.ws, { type: 'command', command, params, id });
   });
 }
 
@@ -4861,10 +5108,10 @@ app.post('/api/chat/stream', async (req, res) => {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-3-haiku-20240307',
         system: system || '',
         messages,
-        max_tokens,
+        max_tokens: Math.min(max_tokens, 250),
         temperature,
       }),
       signal: AbortSignal.timeout(15000),
@@ -4885,7 +5132,7 @@ app.post('/api/chat/stream', async (req, res) => {
       logAiUsage({
         churchId: null,
         feature: 'landing_chat',
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-3-haiku-20240307',
         inputTokens: data.usage.input_tokens || 0,
         outputTokens: data.usage.output_tokens || 0,
       });
