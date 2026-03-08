@@ -515,7 +515,7 @@ class TallyBot {
       }
 
       // Confirmed
-      if (/^(yes|y|confirm|do it|proceed|go|go ahead|execute)$/i.test(lower)) {
+      if (/^(yes|y|yep|yup|confirm|confirmed|do it|proceed|go|go ahead|execute|ok|okay|sure)$/i.test(lower)) {
         this._pendingConfirmations.delete(chatId);
         if (pending.steps) {
           const replies = [];

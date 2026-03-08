@@ -202,6 +202,38 @@ describe('checkWorkflowSafety', () => {
 
 // ─── DANGEROUS_COMMANDS registry ────────────────────────────────────────────
 
+// ─── Confirmation reply patterns (matches telegramBot.js inline regex) ─────
+
+describe('Confirmation reply patterns', () => {
+  // Mirror the exact regex from telegramBot.js line 518
+  const CONFIRM_RE = /^(yes|y|yep|yup|confirm|confirmed|do it|proceed|go|go ahead|execute|ok|okay|sure)$/i;
+  const CANCEL_RE = /^(no|n|cancel|abort|stop|nevermind|never mind|nah)$/i;
+
+  const confirmPhrases = ['yes', 'y', 'yep', 'yup', 'confirm', 'confirmed', 'do it', 'proceed', 'go', 'go ahead', 'execute', 'ok', 'okay', 'sure', 'Yes', 'YES', 'Confirmed', 'OK'];
+
+  for (const phrase of confirmPhrases) {
+    it(`"${phrase}" is accepted as confirmation`, () => {
+      expect(CONFIRM_RE.test(phrase.toLowerCase().trim())).toBe(true);
+    });
+  }
+
+  const cancelPhrases = ['no', 'n', 'cancel', 'abort', 'stop', 'nevermind', 'never mind', 'nah', 'No', 'CANCEL'];
+
+  for (const phrase of cancelPhrases) {
+    it(`"${phrase}" is accepted as cancellation`, () => {
+      expect(CANCEL_RE.test(phrase.toLowerCase().trim())).toBe(true);
+    });
+  }
+
+  it('ambiguous replies do not match confirm or cancel', () => {
+    const ambiguous = ['maybe', 'what', 'huh', 'start stream', 'cut to camera 1', 'thanks'];
+    for (const phrase of ambiguous) {
+      expect(CONFIRM_RE.test(phrase.toLowerCase().trim())).toBe(false);
+      expect(CANCEL_RE.test(phrase.toLowerCase().trim())).toBe(false);
+    }
+  });
+});
+
 describe('DANGEROUS_COMMANDS registry', () => {
   it('has exactly 11 entries', () => {
     expect(Object.keys(DANGEROUS_COMMANDS).length).toBe(11);

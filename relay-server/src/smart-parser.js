@@ -21,6 +21,14 @@ const { isStreamActive, isRecordingActive } = require('./status-utils');
 
 // ─── Device priority helpers ────────────────────────────────────────────────
 
+/** ATEM uses startStreaming/stopStreaming, all others use startStream/stopStream. */
+function startStreamCmd(device) {
+  return device === 'atem' ? 'atem.startStreaming' : `${device}.startStream`;
+}
+function stopStreamCmd(device) {
+  return device === 'atem' ? 'atem.stopStreaming' : `${device}.stopStream`;
+}
+
 /** Pick the best streaming device from connected status. */
 function pickStreamDevice(status) {
   if (status.encoder?.connected) return 'encoder';
@@ -32,11 +40,11 @@ function pickStreamDevice(status) {
 
 /** Pick the best recording device from connected status. */
 function pickRecordDevice(status) {
-  if (status.obs?.connected)       return 'obs';
-  if (status.vmix?.connected)      return 'vmix';
   if (status.hyperdeck?.connected) return 'hyperdeck';
   if (status.atem?.connected)      return 'atem';
   if (status.encoder?.connected)   return 'encoder';
+  if (status.vmix?.connected)      return 'vmix';
+  if (status.obs?.connected)       return 'obs';
   return null;
 }
 
@@ -53,11 +61,11 @@ function getStreamDevices(status) {
 /** Get list of all connected recording-capable devices. */
 function getRecordDevices(status) {
   const devices = [];
-  if (status.obs?.connected)       devices.push('obs');
-  if (status.vmix?.connected)      devices.push('vmix');
   if (status.hyperdeck?.connected) devices.push('hyperdeck');
   if (status.atem?.connected)      devices.push('atem');
   if (status.encoder?.connected)   devices.push('encoder');
+  if (status.vmix?.connected)      devices.push('vmix');
+  if (status.obs?.connected)       devices.push('obs');
   return devices;
 }
 
@@ -106,6 +114,10 @@ const END_SERVICE_RE = /^(?:(?:we(?:'re|\s+are)\s+done)|(?:end|finish|wrap\s+up|
 // G. Generic status / pre-service check
 const STATUS_RE = /^(?:status|check\s*(?:everything|all|systems?)?|pre-?service\s+check|systems?\s+check|run\s+(?:a\s+)?check)[\s?!]*$/i;
 
+// H. ATEM audio mute/unmute headphone or monitor output
+const MUTE_HEADPHONE_RE = /^mute\s+(?:the\s+)?(?:headphone(?:s)?|monitor)(?:\s+(?:mix|output))?[\s!.]*$/i;
+const UNMUTE_HEADPHONE_RE = /^unmute\s+(?:the\s+)?(?:headphone(?:s)?|monitor)(?:\s+(?:mix|output))?[\s!.]*$/i;
+
 // ─── Main parser ────────────────────────────────────────────────────────────
 
 /**
@@ -152,13 +164,13 @@ function smartParse(text, status = {}) {
   if (START_STREAM_RE.test(trimmed)) {
     const device = pickStreamDevice(status);
     if (!device) return null; // no streaming device → let AI explain
-    return { type: 'command', command: `${device}.startStream`, params: {} };
+    return { type: 'command', command: startStreamCmd(device), params: {} };
   }
 
   if (STOP_STREAM_RE.test(trimmed)) {
     const device = pickStreamDevice(status);
     if (!device) return null;
-    return { type: 'command', command: `${device}.stopStream`, params: {} };
+    return { type: 'command', command: stopStreamCmd(device), params: {} };
   }
 
   // ─── D. Generic recording start/stop ────────────────────────────────────
@@ -180,14 +192,14 @@ function smartParse(text, status = {}) {
   if (START_ALL_STREAMS_RE.test(trimmed)) {
     const devices = getStreamDevices(status);
     if (devices.length === 0) return null;
-    const steps = devices.map(d => ({ command: `${d}.startStream`, params: {} }));
+    const steps = devices.map(d => ({ command: startStreamCmd(d), params: {} }));
     return { type: 'commands', steps };
   }
 
   if (STOP_ALL_STREAMS_RE.test(trimmed)) {
     const devices = getStreamDevices(status);
     if (devices.length === 0) return null;
-    const steps = devices.map(d => ({ command: `${d}.stopStream`, params: {} }));
+    const steps = devices.map(d => ({ command: stopStreamCmd(d), params: {} }));
     return { type: 'commands', steps };
   }
 
@@ -231,7 +243,7 @@ function smartParse(text, status = {}) {
       steps.push({ command: 'vmix.stopStream', params: {} });
     }
     if (status.atem?.streaming) {
-      steps.push({ command: 'atem.stopStream', params: {} });
+      steps.push({ command: 'atem.stopStreaming', params: {} });
     }
 
     // Stop all active recordings
@@ -259,6 +271,16 @@ function smartParse(text, status = {}) {
   // ─── G. Generic status / pre-service check ─────────────────────────────
   if (STATUS_RE.test(trimmed)) {
     return { type: 'command', command: 'preServiceCheck', params: {} };
+  }
+
+  // ─── H. ATEM audio mute/unmute headphone or monitor ───────────────────
+  if (status.atem?.connected) {
+    if (MUTE_HEADPHONE_RE.test(trimmed)) {
+      return { type: 'command', command: 'atem.setClassicAudioMonitorProps', params: { mute: true } };
+    }
+    if (UNMUTE_HEADPHONE_RE.test(trimmed)) {
+      return { type: 'command', command: 'atem.setClassicAudioMonitorProps', params: { mute: false } };
+    }
   }
 
   // ─── No match — fall through to AI ──────────────────────────────────────

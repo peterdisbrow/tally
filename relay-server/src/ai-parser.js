@@ -446,7 +446,7 @@ const CMD_SIGS = {
   setFairlightAudioMonitorProps(gain:N,inputMasterMuted:bool,inputMasterGain:N)
   setFairlightAudioMonitorSolo(index:N,source:N,solo:bool), setFairlightAudioInputProps(index:N,activeConfiguration:X), setFairlightAudioResetPeaks(all:bool)`,
   atemClassicAudio: `atem (Classic audio — ATEM Mini / Mini Pro / older non-Fairlight):
-  setClassicAudioInputProps(index:N,mixOption:N,gain:N,balance:N), setClassicAudioMasterProps(gain:N,balance:N,followFadeToBlack:bool), setClassicAudioMonitorProps(enabled:bool,gain:N,mute:bool,solo:bool,soloInput:N,dim:bool), setClassicAudioHeadphonesProps(gain:N,programOutGain:N), setClassicAudioResetPeaks()`,
+  setClassicAudioInputProps(index:N,mixOption:N,gain:N,balance:N), setClassicAudioMasterProps(gain:N,balance:N,followFadeToBlack:bool), setClassicAudioMonitorProps(enabled:bool,gain:N,mute:bool,solo:bool,soloInput:N,dim:bool) — use mute:true/false to mute/unmute headphone or monitor output, setClassicAudioHeadphonesProps(gain:N,programOutGain:N,sidetoneGain:N,talkbackGain:N) — gain adjustment only (no mute here), setClassicAudioResetPeaks() — resets peak meters only (never use for unmute)`,
   atemKeyers: `atem (Upstream Keyers — PIP, chroma, luma, DVE):
   setUskOnAir(keyer:N,onAir:bool), setUskFillSource(keyer:N,fillSource:N), setUskCutSource(keyer:N,cutSource:N), setUskType(keyer:N,mixEffectKeyType:N,flyEnabled:bool) — 0=luma 1=chroma 2=pattern 3=DVE
   setUskLumaSettings(keyer:N,preMultiplied:bool,clip:N,gain:N,invertKey:bool), setUskChromaSettings(keyer:N,hue:N,gain:N,ySuppress:N,lift:N,narrow:bool)
@@ -564,7 +564,8 @@ AUDIO: External mixer is connected — use mixer.* commands for audio. If user s
   } else if (s.atem?.connected) {
     audioRules = `
 AUDIO: No external mixer — use ATEM audio commands. Fairlight: index=input number, source=-256 (default), faderGain in hundredths of dB (0=0dB, -10000=-inf, 1000=+10dB).
-When enabling compressor/gate/limiter/EQ → MUST set enabled flag to true with defaults.`;
+When enabling compressor/gate/limiter/EQ → MUST set enabled flag to true with defaults.
+Classic audio mute/unmute: "mute headphone/monitor" → setClassicAudioMonitorProps(mute:true). "unmute headphone/monitor" → setClassicAudioMonitorProps(mute:false). Never use setClassicAudioHeadphonesProps or setClassicAudioResetPeaks for mute/unmute.`;
   }
 
   const prompt = `You parse natural language into JSON commands for Tally, a church AV control system.
@@ -893,4 +894,4 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   }
 }
 
-module.exports = { aiParseCommand, getAvailableCommandNames, setAiUsageLogger };
+module.exports = { aiParseCommand, getAvailableCommandNames, setAiUsageLogger, buildSystemPrompt };
