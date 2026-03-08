@@ -7,6 +7,8 @@
 const crypto = require('crypto');
 const { aiParseCommand } = require('./ai-parser');
 const { isStreamActive, isRecordingActive } = require('./status-utils');
+const { smartParse } = require('./smart-parser');
+const { checkStreamSafety, checkWorkflowSafety, hasForceBypass } = require('./stream-guard');
 
 // ─── COMMAND PATTERNS (ported from parse-command.js + videohub + extras) ─────
 
@@ -21,9 +23,9 @@ const patterns = [
   { match: /auto\s*(?:transition|mix|trans)|^take$/i, command: 'atem.auto', extract: () => ({}), desc: 'auto transition / take' },
   { match: /(?:fade\s*to\s*black|ftb)/i, command: 'atem.fadeToBlack', extract: () => ({}), desc: 'fade to black' },
 
-  // ATEM — recording
-  { match: /(?:start|begin)\s+recording/i, command: 'atem.startRecording', extract: () => ({}), desc: 'start recording' },
-  { match: /stop\s+recording/i, command: 'atem.stopRecording', extract: () => ({}), desc: 'stop recording' },
+  // ATEM — recording (device-specific; generic "start/stop recording" handled by smart-parser)
+  { match: /(?:start|begin)\s+(?:atem\s+)?recording\s+(?:on\s+)?(?:atem|switcher)/i, command: 'atem.startRecording', extract: () => ({}), desc: 'start ATEM recording' },
+  { match: /stop\s+(?:atem\s+)?recording\s+(?:on\s+)?(?:atem|switcher)/i, command: 'atem.stopRecording', extract: () => ({}), desc: 'stop ATEM recording' },
 
   // ATEM — input label / rename
   { match: /(?:change|rename|set|label)\s+(?:cam(?:era)?|input)\s*(\d+)\s+(?:name\s+)?(?:to|as)\s+["""]?(.+?)["""]?\s*$/i, command: 'atem.setInputLabel', extract: m => ({ input: parseInt(m[1]), longName: m[2].trim() }), desc: 'rename camera N to "Name"' },
@@ -66,9 +68,9 @@ const patterns = [
   { match: /cam(?:era)?\s*(\d+)\s+contrast\s+(\d+(?:\.\d+)?)/i, command: 'camera.setContrast', extract: m => ({ camera: parseInt(m[1]), adjust: parseFloat(m[2]) }), desc: 'cam N contrast N' },
   { match: /cam(?:era)?\s*(\d+)\s+reset\s+color/i, command: 'camera.resetColorCorrection', extract: m => ({ camera: parseInt(m[1]) }), desc: 'cam N reset color' },
 
-  // OBS — stream
-  { match: /(?:start|begin|go)\s+(?:the\s+)?stream(?:ing)?|go\s+live/i, command: 'obs.startStream', extract: () => ({}), desc: 'start stream / go live' },
-  { match: /(?:stop|end)\s+(?:the\s+)?stream(?:ing)?/i, command: 'obs.stopStream', extract: () => ({}), desc: 'stop stream' },
+  // OBS — stream (device-specific; generic "start/stop stream" / "go live" handled by smart-parser)
+  { match: /(?:start|begin|go)\s+(?:the\s+)?(?:obs)\s+stream(?:ing)?/i, command: 'obs.startStream', extract: () => ({}), desc: 'start OBS stream' },
+  { match: /(?:stop|end)\s+(?:the\s+)?(?:obs)\s+stream(?:ing)?/i, command: 'obs.stopStream', extract: () => ({}), desc: 'stop OBS stream' },
 
     // vMix - legacy/volunteer production flows
   { match: /(?:^|\s)(?:start|begin|go)\s+(?:the\s+)?(?:vmix|v\.?mix)\s*(?:stream|streaming)?/i, command: 'vmix.startStream', extract: () => ({}), desc: 'start vMix stream' },
@@ -94,10 +96,15 @@ const patterns = [
   { match: /(?:stop|end)\s+(?:the\s+)?encoder\s+stream(?:ing)?/i, command: 'encoder.stopStream', extract: () => ({}), desc: 'stop encoder stream' },
   { match: /(?:start|begin)\s+encoder\s+record(?:ing)?/i, command: 'encoder.startRecording', extract: () => ({}), desc: 'start encoder recording' },
   { match: /(?:stop|end)\s+encoder\s+record(?:ing)?/i, command: 'encoder.stopRecording', extract: () => ({}), desc: 'stop encoder recording' },
+  { match: /(?:start|begin|go)\s+(?:the\s+)?encoders?\s*$/i, command: 'encoder.startStream', extract: () => ({}), desc: 'start encoder (bare — defaults to stream)' },
+  { match: /(?:stop|end|kill)\s+(?:the\s+)?encoders?\s*$/i, command: 'encoder.stopStream', extract: () => ({}), desc: 'stop encoder (bare — defaults to stream)' },
   { match: /(?:encoder|hardware\s+encoder)\s+status/i, command: 'encoder.status', extract: () => ({}), desc: 'encoder status' },
 
 // OBS — scene
   { match: /(?:switch|go|change)\s+(?:to\s+)?scene\s+["""]?(.+?)["""]?\s*$/i, command: 'obs.setScene', extract: m => ({ scene: m[1].trim() }), desc: 'switch to scene "Name"' },
+
+  // Mixer — softkey (must be before Companion to avoid "press softkey" matching companion)
+  { match: /(?:press|trigger|hit)\s+soft\s*key\s*(\d+)/i, command: 'mixer.pressSoftKey', extract: m => ({ key: parseInt(m[1]) }), desc: 'press softkey N' },
 
   // Companion
   { match: /(?:press|trigger|hit|fire)\s+(?:the\s+)?["""](.+?)["""](?:\s+(?:button|in|on))?/i, command: 'companion.pressNamed', extract: m => ({ name: m[1] }), desc: 'press "button name"' },
@@ -131,14 +138,71 @@ const patterns = [
   // Dante (via Companion)
   { match: /(?:load\s+dante\s+scene|dante\s+preset)\s+["""]?(.+?)["""]?\s*$/i, command: 'dante.scene', extract: m => ({ name: m[1].trim() }), desc: 'load dante scene [name]' },
 
-  // Mixer
-  { match: /(?:mute)\s+(?:channel|ch)\s*(\d+)/i, command: 'mixer.mute', extract: m => ({ channel: parseInt(m[1]) }), desc: 'mute channel N' },
-  { match: /(?:unmute)\s+(?:channel|ch)\s*(\d+)/i, command: 'mixer.unmute', extract: m => ({ channel: parseInt(m[1]) }), desc: 'unmute channel N' },
-  { match: /(?:mute)\s+master/i, command: 'mixer.mute', extract: () => ({ channel: 'master' }), desc: 'mute master output' },
-  { match: /(?:unmute)\s+master/i, command: 'mixer.unmute', extract: () => ({ channel: 'master' }), desc: 'unmute master output' },
+  // Mixer — mute / unmute / fader (unmute BEFORE mute so "unmute" isn't caught by /mute/)
+  { match: /unmute\s+(?:channel|ch)\s*(\d+)/i, command: 'mixer.unmute', extract: m => ({ channel: parseInt(m[1]) }), desc: 'unmute channel N' },
+  { match: /(?<!un)mute\s+(?:channel|ch)\s*(\d+)/i, command: 'mixer.mute', extract: m => ({ channel: parseInt(m[1]) }), desc: 'mute channel N' },
+  { match: /unmute\s+master/i, command: 'mixer.unmute', extract: () => ({ channel: 'master' }), desc: 'unmute master output' },
+  { match: /(?<!un)mute\s+master/i, command: 'mixer.mute', extract: () => ({ channel: 'master' }), desc: 'mute master output' },
   { match: /(?:set\s+)?(?:channel|ch)\s*(\d+)\s+fader\s*(?:to)?\s*(\d{1,3})%?/i, command: 'mixer.setFader', extract: m => ({ channel: parseInt(m[1]), level: Math.max(0, Math.min(1, parseInt(m[2]) / 100)) }), desc: 'set channel fader level' },
+  { match: /(?:set\s+)?fader\s+(?:channel|ch)\s*(\d+)\s*(?:to)?\s*(\d{1,3})%?/i, command: 'mixer.setFader', extract: m => ({ channel: parseInt(m[1]), level: Math.max(0, Math.min(1, parseInt(m[2]) / 100)) }), desc: null },
+
+  // Mixer — scene
   { match: /(?:recall|load)\s+(?:mixer\s+)?scene\s*(\d+)/i, command: 'mixer.recallScene', extract: m => ({ scene: parseInt(m[1]) }), desc: 'recall mixer scene' },
-  { match: /(?:mixer|audio)\s+status/i, command: 'mixer.status', extract: () => ({}), desc: 'audio console status' },
+  { match: /save\s+(?:mixer\s+)?scene\s*(\d+)(?:\s+(?:as|name(?:d)?)\s+["""]?(.+?)["""]?)?\s*$/i, command: 'mixer.saveScene', extract: m => ({ scene: parseInt(m[1]), name: (m[2] || '').trim() || undefined }), desc: 'save mixer scene' },
+
+  // Mixer — status & channel status
+  { match: /(?:mixer|audio|console)\s+status/i, command: 'mixer.status', extract: () => ({}), desc: 'audio console status' },
+  { match: /(?:channel|ch)\s*(\d+)\s+status/i, command: 'mixer.channelStatus', extract: m => ({ channel: parseInt(m[1]) }), desc: 'channel N status' },
+
+  // Mixer — channel name
+  { match: /(?:name|label|rename)\s+(?:channel|ch)\s*(\d+)\s+(?:to\s+|as\s+)?["""]?(.+?)["""]?\s*$/i, command: 'mixer.setChannelName', extract: m => ({ channel: parseInt(m[1]), name: m[2].trim() }), desc: 'name channel N' },
+
+  // Mixer — HPF
+  { match: /(?:enable|turn\s+on)\s+(?:hpf|high\s*pass)\s+(?:on\s+)?(?:channel|ch)\s*(\d+)/i, command: 'mixer.setHpf', extract: m => ({ channel: parseInt(m[1]), enabled: true }), desc: 'enable HPF on channel N' },
+  { match: /(?:disable|turn\s+off)\s+(?:hpf|high\s*pass)\s+(?:on\s+)?(?:channel|ch)\s*(\d+)/i, command: 'mixer.setHpf', extract: m => ({ channel: parseInt(m[1]), enabled: false }), desc: 'disable HPF on channel N' },
+  { match: /(?:set\s+)?(?:hpf|high\s*pass)\s+(?:on\s+)?(?:channel|ch)\s*(\d+)\s+(?:to\s+)?(\d+)\s*(?:hz)?/i, command: 'mixer.setHpf', extract: m => ({ channel: parseInt(m[1]), enabled: true, frequency: parseInt(m[2]) }), desc: 'set HPF frequency on channel N' },
+
+  // Mixer — pan
+  { match: /pan\s+(?:channel|ch)\s*(\d+)\s+(left|right|center|centre)/i, command: 'mixer.setPan', extract: m => ({ channel: parseInt(m[1]), pan: m[2].toLowerCase() === 'left' ? -1.0 : m[2].toLowerCase() === 'right' ? 1.0 : 0 }), desc: 'pan channel N L/R/C' },
+  { match: /pan\s+(?:channel|ch)\s*(\d+)\s+(?:to\s+)?(-?\d+)\s*%?/i, command: 'mixer.setPan', extract: m => ({ channel: parseInt(m[1]), pan: Math.max(-1, Math.min(1, parseInt(m[2]) / 100)) }), desc: 'pan channel N to N%' },
+
+  // Mixer — preamp gain / phantom
+  { match: /(?:set\s+)?(?:preamp|trim|pre-amp)\s+(?:gain\s+)?(?:on\s+)?(?:channel|ch)\s*(\d+)\s+(?:to\s+)?([+-]?\d+(?:\.\d+)?)\s*(?:db)?/i, command: 'mixer.setPreampGain', extract: m => ({ channel: parseInt(m[1]), gain: parseFloat(m[2]) }), desc: 'set preamp gain' },
+  { match: /(?:enable|turn\s+on)\s+(?:phantom|48v)\s+(?:on\s+)?(?:channel|ch)\s*(\d+)/i, command: 'mixer.setPhantom', extract: m => ({ channel: parseInt(m[1]), enabled: true }), desc: 'enable phantom power' },
+  { match: /(?:disable|turn\s+off)\s+(?:phantom|48v)\s+(?:on\s+)?(?:channel|ch)\s*(\d+)/i, command: 'mixer.setPhantom', extract: m => ({ channel: parseInt(m[1]), enabled: false }), desc: 'disable phantom power' },
+
+  // Mixer — send level
+  { match: /(?:set\s+)?send\s+(?:from\s+)?(?:channel|ch)\s*(\d+)\s+(?:to\s+)?(?:bus|mix)\s*(\d+)\s+(?:to\s+|at\s+)?(\d{1,3})%?/i, command: 'mixer.setSendLevel', extract: m => ({ channel: parseInt(m[1]), bus: parseInt(m[2]), level: Math.max(0, Math.min(1, parseInt(m[3]) / 100)) }), desc: 'set send level ch→bus' },
+
+  // Mixer — DCA control (unmute BEFORE mute)
+  { match: /unmute\s+dca\s*(\d+)/i, command: 'mixer.unmuteDca', extract: m => ({ dca: parseInt(m[1]) }), desc: 'unmute DCA N' },
+  { match: /(?<!un)mute\s+dca\s*(\d+)/i, command: 'mixer.muteDca', extract: m => ({ dca: parseInt(m[1]) }), desc: 'mute DCA N' },
+  { match: /(?:set\s+)?dca\s*(\d+)\s+(?:fader\s+|level\s+)?(?:to\s+)?(\d{1,3})%?/i, command: 'mixer.setDcaFader', extract: m => ({ dca: parseInt(m[1]), level: Math.max(0, Math.min(1, parseInt(m[2]) / 100)) }), desc: 'set DCA fader level' },
+  { match: /assign\s+(?:channel|ch)\s*(\d+)\s+(?:to\s+)?dca\s*(\d+)/i, command: 'mixer.assignToDca', extract: m => ({ channel: parseInt(m[1]), dca: parseInt(m[2]), enabled: true }), desc: 'assign channel to DCA' },
+  { match: /(?:remove|unassign)\s+(?:channel|ch)\s*(\d+)\s+(?:from\s+)?dca\s*(\d+)/i, command: 'mixer.assignToDca', extract: m => ({ channel: parseInt(m[1]), dca: parseInt(m[2]), enabled: false }), desc: 'remove channel from DCA' },
+
+  // Mixer — bus assign
+  { match: /assign\s+(?:channel|ch)\s*(\d+)\s+(?:to\s+)?(?:bus|mix)\s*(\d+)/i, command: 'mixer.assignToBus', extract: m => ({ channel: parseInt(m[1]), bus: parseInt(m[2]), enabled: true }), desc: 'assign channel to bus' },
+  { match: /(?:remove|unassign)\s+(?:channel|ch)\s*(\d+)\s+(?:from\s+)?(?:bus|mix)\s*(\d+)/i, command: 'mixer.assignToBus', extract: m => ({ channel: parseInt(m[1]), bus: parseInt(m[2]), enabled: false }), desc: 'remove channel from bus' },
+
+  // Mixer — mute group (deactivate BEFORE activate)
+  { match: /(?:deactivate|disable)\s+mute\s+group\s*(\d+)/i, command: 'mixer.deactivateMuteGroup', extract: m => ({ group: parseInt(m[1]) }), desc: 'deactivate mute group' },
+  { match: /(?:activate|enable)\s+mute\s+group\s*(\d+)/i, command: 'mixer.activateMuteGroup', extract: m => ({ group: parseInt(m[1]) }), desc: 'activate mute group' },
+
+  // Mixer — channel color
+  { match: /(?:set\s+)?(?:channel|ch)\s*(\d+)\s+colou?r\s+(?:to\s+)?(\w+)/i, command: 'mixer.setChannelColor', extract: m => ({ channel: parseInt(m[1]), color: m[2].toLowerCase() }), desc: 'set channel color' },
+  { match: /colou?r\s+(?:channel|ch)\s*(\d+)\s+(\w+)/i, command: 'mixer.setChannelColor', extract: m => ({ channel: parseInt(m[1]), color: m[2].toLowerCase() }), desc: null },
+
+  // Mixer — clear solos
+  { match: /clear\s+solos?/i, command: 'mixer.clearSolos', extract: () => ({}), desc: 'clear solos' },
+
+  // Mixer — compressor / gate / EQ enable/disable
+  { match: /(?:enable|turn\s+on)\s+(?:compressor|comp|dynamics)\s+(?:on\s+)?(?:channel|ch)\s*(\d+)/i, command: 'mixer.setCompressor', extract: m => ({ channel: parseInt(m[1]), enabled: true }), desc: 'enable compressor' },
+  { match: /(?:disable|turn\s+off)\s+(?:compressor|comp|dynamics)\s+(?:on\s+)?(?:channel|ch)\s*(\d+)/i, command: 'mixer.setCompressor', extract: m => ({ channel: parseInt(m[1]), enabled: false }), desc: 'disable compressor' },
+  { match: /(?:enable|turn\s+on)\s+(?:gate|noise\s*gate)\s+(?:on\s+)?(?:channel|ch)\s*(\d+)/i, command: 'mixer.setGate', extract: m => ({ channel: parseInt(m[1]), enabled: true }), desc: 'enable gate' },
+  { match: /(?:disable|turn\s+off)\s+(?:gate|noise\s*gate)\s+(?:on\s+)?(?:channel|ch)\s*(\d+)/i, command: 'mixer.setGate', extract: m => ({ channel: parseInt(m[1]), enabled: false }), desc: 'disable gate' },
+  { match: /(?:enable|turn\s+on)\s+eq\s+(?:on\s+)?(?:channel|ch)\s*(\d+)/i, command: 'mixer.setEq', extract: m => ({ channel: parseInt(m[1]), enabled: true }), desc: 'enable EQ' },
+  { match: /(?:disable|turn\s+off)\s+eq\s+(?:on\s+)?(?:channel|ch)\s*(\d+)/i, command: 'mixer.setEq', extract: m => ({ channel: parseInt(m[1]), enabled: false }), desc: 'disable EQ' },
 
   // Resolume
   { match: /(?:resolume\s+)?(?:trigger|go\s+to)\s+column\s*(\d+)/i, command: 'resolume.triggerColumn', extract: m => ({ column: parseInt(m[1]) }), desc: 'trigger resolume column' },
@@ -204,6 +268,7 @@ function getHelpText(brandName = 'Tally') {
 *Encoder*
 • start / stop encoder stream
 • start / stop encoder recording
+• start / stop encoders
 • encoder status
 
 *HyperDeck*
@@ -343,6 +408,16 @@ class TallyBot {
     this._stmtRegisterTD = this.db.prepare('INSERT OR REPLACE INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active) VALUES (?, ?, ?, ?, ?, 1)');
     this._stmtListTDs = this.db.prepare('SELECT * FROM church_tds WHERE church_id = ? AND active = 1');
     this._stmtDeactivateTD = this.db.prepare('UPDATE church_tds SET active = 0 WHERE church_id = ? AND telegram_user_id = ?');
+
+    // ─── Stream Guard: pending confirmations for dangerous commands ──────
+    // chatId → { command?, params?, steps?, church, expiresAt }
+    this._pendingConfirmations = new Map();
+    this._confirmCleanupTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [chatId, pending] of this._pendingConfirmations) {
+        if (now > pending.expiresAt) this._pendingConfirmations.delete(chatId);
+      }
+    }, 120_000);
   }
 
   // ─── WEBHOOK HANDLER ───────────────────────────────────────────────────
@@ -416,6 +491,47 @@ class TallyBot {
     // 4. /confirmswap — TD confirming an on-call swap
     if (text === '/confirmswap' && this.onCallRotation) {
       return this._handleConfirmSwap(userId, chatId);
+    }
+
+    // 4b. Stream guard — check for pending dangerous-command confirmation
+    if (this._pendingConfirmations.has(chatId)) {
+      const pending = this._pendingConfirmations.get(chatId);
+      const lower = text.toLowerCase().trim();
+
+      // Expired?
+      if (Date.now() > pending.expiresAt) {
+        this._pendingConfirmations.delete(chatId);
+        return this.sendMessage(chatId, '⏰ Confirmation timed out — command cancelled. Nothing was changed.');
+      }
+
+      // Confirmed
+      if (/^(yes|y|confirm|do it|proceed|go|go ahead|execute)$/i.test(lower)) {
+        this._pendingConfirmations.delete(chatId);
+        if (pending.steps) {
+          const replies = [];
+          for (const step of pending.steps) {
+            if (step.command === 'system.wait') {
+              const seconds = Math.min(Math.max(Number(step.params?.seconds) || 1, 0.5), 30);
+              replies.push(`⏳ Waited ${seconds}s`);
+              await new Promise((r) => setTimeout(r, seconds * 1000));
+              continue;
+            }
+            const reply = await this._dispatchCommandSilent(pending.church, chatId, step.command, step.params);
+            if (reply) replies.push(reply);
+          }
+          return this.sendMessage(chatId, replies.join('\n') || '✅ Done', { parse_mode: 'Markdown' });
+        }
+        return this._dispatchCommand(pending.church, chatId, pending.command, pending.params);
+      }
+
+      // Cancelled
+      if (/^(no|n|cancel|abort|stop|nevermind|never mind|nah)$/i.test(lower)) {
+        this._pendingConfirmations.delete(chatId);
+        return this.sendMessage(chatId, '✅ Cancelled — nothing was changed.');
+      }
+
+      // Unknown reply — re-prompt
+      return this.sendMessage(chatId, '↩️ Reply "yes" to confirm or "cancel" to abort.');
     }
 
     // 5. Check if admin
@@ -698,17 +814,67 @@ class TallyBot {
 
     // ── Fast path: regex parser ──────────────────────────────────────────────
     const parsed = parseCommand(text);
+    const churchRuntime = this.relay.churches.get(church.churchId);
+    const liveStatus = churchRuntime?.status || {};
+    const forceBypassed = hasForceBypass(text);
 
     if (parsed) {
+      // Stream guard: warn if dangerous while live
+      if (!forceBypassed) {
+        const safety = checkStreamSafety(parsed.command, parsed.params, liveStatus);
+        if (safety) {
+          this._pendingConfirmations.set(chatId, { command: parsed.command, params: parsed.params, church, expiresAt: Date.now() + 60_000 });
+          return this.sendMessage(chatId, safety.warning);
+        }
+      }
       return this._dispatchCommand(church, chatId, parsed.command, parsed.params);
     }
 
+    // ── Smart parser: device-aware routing (no AI needed) ───────────────────
+    const smartResult = smartParse(text, liveStatus);
+
+    if (smartResult) {
+      if (smartResult.type === 'command') {
+        if (!forceBypassed) {
+          const safety = checkStreamSafety(smartResult.command, smartResult.params, liveStatus);
+          if (safety) {
+            this._pendingConfirmations.set(chatId, { command: smartResult.command, params: smartResult.params, church, expiresAt: Date.now() + 60_000 });
+            return this.sendMessage(chatId, safety.warning);
+          }
+        }
+        return this._dispatchCommand(church, chatId, smartResult.command, smartResult.params);
+      }
+      if (smartResult.type === 'commands' && Array.isArray(smartResult.steps) && smartResult.steps.length > 0) {
+        if (!forceBypassed) {
+          const wfSafety = checkWorkflowSafety(smartResult.steps, liveStatus);
+          if (wfSafety) {
+            this._pendingConfirmations.set(chatId, { steps: smartResult.steps, church, expiresAt: Date.now() + 60_000 });
+            return this.sendMessage(chatId, wfSafety.warning);
+          }
+        }
+        const replies = [];
+        for (const step of smartResult.steps) {
+          if (step.command === 'system.wait') {
+            const seconds = Math.min(Math.max(Number(step.params?.seconds) || 1, 0.5), 30);
+            replies.push(`⏳ Waited ${seconds}s`);
+            await new Promise((r) => setTimeout(r, seconds * 1000));
+            continue;
+          }
+          const reply = await this._dispatchCommandSilent(church, chatId, step.command, step.params);
+          if (reply) replies.push(reply);
+        }
+        return this.sendMessage(chatId, replies.join('\n') || '✅ Done', { parse_mode: 'Markdown' });
+      }
+      if (smartResult.type === 'chat') {
+        return this.sendMessage(chatId, smartResult.text);
+      }
+    }
+
     // ── AI fallback: Anthropic parser ──────────────────────────────────────────
-    const churchRuntime = this.relay.churches.get(church.churchId);
     const ctx = {
       churchId: church.churchId,
       churchName: church.name,
-      status: churchRuntime?.status || {},
+      status: liveStatus,
       tier: church.billing_tier || 'connect',
     };
     const conversationHistory = this.chatEngine?.getRecentConversation(church.churchId) || [];
@@ -717,11 +883,25 @@ class TallyBot {
 
     // Single command
     if (aiResult.type === 'command') {
+      if (!forceBypassed) {
+        const safety = checkStreamSafety(aiResult.command, aiResult.params, liveStatus);
+        if (safety) {
+          this._pendingConfirmations.set(chatId, { command: aiResult.command, params: aiResult.params, church, expiresAt: Date.now() + 60_000 });
+          return this.sendMessage(chatId, safety.warning);
+        }
+      }
       return this._dispatchCommand(church, chatId, aiResult.command, aiResult.params);
     }
 
     // Multi-step commands — execute sequentially
     if (aiResult.type === 'commands' && Array.isArray(aiResult.steps) && aiResult.steps.length > 0) {
+      if (!forceBypassed) {
+        const wfSafety = checkWorkflowSafety(aiResult.steps, liveStatus);
+        if (wfSafety) {
+          this._pendingConfirmations.set(chatId, { steps: aiResult.steps, church, expiresAt: Date.now() + 60_000 });
+          return this.sendMessage(chatId, wfSafety.warning);
+        }
+      }
       const replies = [];
       for (const step of aiResult.steps) {
         // Handle system.wait pseudo-command
@@ -867,13 +1047,55 @@ class TallyBot {
     }
 
     let parsed = parseCommand(commandText);
+
+    // Smart parser — device-aware routing (no AI needed)
+    const adminForceBypassed = hasForceBypass(commandText);
+    if (!parsed && targetChurch) {
+      const adminChurchRuntime = this.relay.churches.get(targetChurch.churchId);
+      const adminLiveStatus = adminChurchRuntime?.status || {};
+      const smartResult = smartParse(commandText, adminLiveStatus);
+      if (smartResult) {
+        if (smartResult.type === 'command') {
+          parsed = { command: smartResult.command, params: smartResult.params };
+        } else if (smartResult.type === 'commands' && smartResult.steps?.length) {
+          if (!adminForceBypassed) {
+            const wfSafety = checkWorkflowSafety(smartResult.steps, adminLiveStatus);
+            if (wfSafety) {
+              this._pendingConfirmations.set(chatId, { steps: smartResult.steps, church: targetChurch, expiresAt: Date.now() + 60_000 });
+              return this.sendMessage(chatId, wfSafety.warning);
+            }
+          }
+          const replies = [];
+          for (const step of smartResult.steps) {
+            const r = await this._dispatchCommandSilent(targetChurch, chatId, step.command, step.params);
+            if (r) replies.push(r);
+          }
+          return this.sendMessage(chatId, replies.join('\n') || '✅ Done', { parse_mode: 'Markdown' });
+        } else if (smartResult.type === 'chat') {
+          return this.sendMessage(chatId, smartResult.text);
+        }
+      }
+    }
+
     if (!parsed) {
-      // Try AI for admin too
-      const aiResult = await aiParseCommand(commandText, { churchName: targetChurch?.name });
+      // Try AI for admin too — pass church tier so rate limit matches their plan
+      const aiResult = await aiParseCommand(commandText, {
+        churchId: targetChurch?.churchId,
+        churchName: targetChurch?.name,
+        tier: targetChurch?.billing_tier || 'managed',
+      });
       if (aiResult.type === 'command') {
         parsed = { command: aiResult.command, params: aiResult.params };
       } else if (aiResult.type === 'commands' && aiResult.steps?.length) {
         if (targetChurch) {
+          if (!adminForceBypassed) {
+            const adminRuntime = this.relay.churches.get(targetChurch.churchId);
+            const wfSafety = checkWorkflowSafety(aiResult.steps, adminRuntime?.status || {});
+            if (wfSafety) {
+              this._pendingConfirmations.set(chatId, { steps: aiResult.steps, church: targetChurch, expiresAt: Date.now() + 60_000 });
+              return this.sendMessage(chatId, wfSafety.warning);
+            }
+          }
           const replies = [];
           for (const step of aiResult.steps) {
             const r = await this._dispatchCommandSilent(targetChurch, chatId, step.command, step.params);
