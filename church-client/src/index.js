@@ -123,10 +123,16 @@ function extractAtemIdentity(state) {
   const modelEnumName = modelCode !== null ? ATEM_MODEL_ENUM[modelCode] : null;
   const modelName = productIdentifier || prettifyAtemModelEnumName(modelEnumName);
 
+  // Protocol version serves as a proxy for firmware revision
+  const apiVer = info.apiVersion;
+  const protocolVersion = apiVer && typeof apiVer === 'object'
+    ? `${apiVer.major || 0}.${apiVer.minor || 0}` : null;
+
   return {
     modelName: modelName || null,
     modelCode,
     productIdentifier: productIdentifier || null,
+    protocolVersion,
   };
 }
 
@@ -310,6 +316,7 @@ class ChurchAVAgent {
         model: null,
         modelCode: null,
         productIdentifier: null,
+        protocolVersion: null,
         programInput: null,
         previewInput: null,
         recording: false,
@@ -349,7 +356,7 @@ class ChurchAVAgent {
       proPresenter: { connected: false, running: false, version: null, currentSlide: null, slideIndex: null, slideTotal: null },
       resolume: { connected: false, host: null, port: null, version: null },
       vmix: { connected: false, streaming: false, recording: false, edition: null, version: null },
-      mixer: { connected: false, type: null, model: null, mainMuted: false },
+      mixer: { connected: false, type: null, model: null, firmware: null, mainMuted: false },
       ptz: [],
       audio: { monitoring: false, lastLevel: null, silenceDetected: false },
       system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '' },
@@ -382,9 +389,31 @@ class ChurchAVAgent {
     if (detected.modelName) this.status.atem.model = detected.modelName;
     if (detected.modelCode !== null) this.status.atem.modelCode = detected.modelCode;
     if (detected.productIdentifier) this.status.atem.productIdentifier = detected.productIdentifier;
+    if (detected.protocolVersion) this.status.atem.protocolVersion = detected.protocolVersion;
 
     if (this.status.atem.model && this.status.atem.model !== previousModel) {
       console.log(`ATEM model detected: ${this.status.atem.model}`);
+    }
+  }
+
+  /**
+   * Extract and log ATEM input labels so Electron main.js can parse them.
+   * Stores labels in status.atem.inputLabels as { inputId: "label", ... }
+   */
+  _logInputLabels(state) {
+    if (!state || typeof state !== 'object') return;
+    const inputs = state.inputs;
+    if (!inputs || typeof inputs !== 'object') return;
+
+    const labels = {};
+    for (const [id, input] of Object.entries(inputs)) {
+      if (input && input.longName) {
+        labels[id] = input.longName;
+      }
+    }
+    if (Object.keys(labels).length > 0) {
+      this.status.atem.inputLabels = labels;
+      console.log(`ATEM Labels: ${JSON.stringify(labels)}`);
     }
   }
 
@@ -536,18 +565,20 @@ class ChurchAVAgent {
   async watchdogTick() {
     if (!this.watchdogActive) return;
     const issues = [];
-    const obsMonitoringEnabled = this.isObsMonitoringEnabled();
 
-    // FPS check
-    if (obsMonitoringEnabled && this.status.obs.streaming && this.status.obs.fps && this.status.obs.fps < 24) {
+    // ── Source-agnostic stream quality checks ───────────────────────────────
+    // Check FPS from whatever source is streaming
+    const fps = this._getStreamFps();
+    if (fps && fps.value < 24) {
       issues.push('fps_low');
-      this._sendWatchdogAlert('fps_low', `Low FPS: ${this.status.obs.fps}`);
+      this._sendWatchdogAlert('fps_low', `Low FPS on ${fps.source}: ${fps.value}`);
     }
 
-    // Bitrate check
-    if (obsMonitoringEnabled && this.status.obs.streaming && this.status.obs.bitrate && this.status.obs.bitrate < 1000) {
+    // Check bitrate from whatever source is streaming
+    const bitrate = this._getStreamBitrate();
+    if (bitrate && bitrate.value < 1000) {
       issues.push('bitrate_low');
-      this._sendWatchdogAlert('bitrate_low', `Low bitrate: ${this.status.obs.bitrate}kbps`);
+      this._sendWatchdogAlert('bitrate_low', `Low bitrate on ${bitrate.source}: ${bitrate.value}kbps`);
     }
 
     // ATEM disconnected
@@ -633,6 +664,32 @@ class ChurchAVAgent {
         recentBitrate: shStatus.recentBitrate,
       };
     }
+  }
+
+  /**
+   * Get current stream bitrate from whatever source is actively streaming.
+   * Returns { value, source } or null.
+   */
+  _getStreamBitrate() {
+    if (this.status.obs?.streaming && this.status.obs.bitrate > 0)
+      return { value: this.status.obs.bitrate, source: 'OBS' };
+    if (this.status.atem?.streaming && this.status.atem.streamingBitrate > 0)
+      return { value: Math.round(this.status.atem.streamingBitrate / 1000), source: 'ATEM' };
+    if ((this.status.encoder?.live || this.status.encoder?.streaming) && this.status.encoder.bitrateKbps > 0)
+      return { value: this.status.encoder.bitrateKbps, source: this.status.encoder.type || 'Encoder' };
+    return null;
+  }
+
+  /**
+   * Get current stream FPS from whatever source is actively streaming.
+   * Returns { value, source } or null.
+   */
+  _getStreamFps() {
+    if (this.status.obs?.streaming && this.status.obs.fps > 0)
+      return { value: this.status.obs.fps, source: 'OBS' };
+    if ((this.status.encoder?.live || this.status.encoder?.streaming) && this.status.encoder.fps > 0)
+      return { value: this.status.encoder.fps, source: this.status.encoder.type || 'Encoder' };
+    return null;
   }
 
   _sendWatchdogAlert(alertType, message) {
@@ -784,6 +841,24 @@ class ChurchAVAgent {
       this.atemReconnecting = false;
       this.sendStatus();
       this.sendAlert('ATEM connected', 'info');
+
+      // Log initial program/preview + input labels after state has populated
+      setTimeout(() => {
+        try {
+          const me = this.atem?.state?.video?.mixEffects?.[0];
+          if (me) {
+            if (this.status.atem.programInput === undefined || this.status.atem.programInput === null) {
+              this.status.atem.programInput = me.programInput;
+              console.log(`Program: Input ${me.programInput}`);
+            }
+            if (this.status.atem.previewInput === undefined || this.status.atem.previewInput === null) {
+              this.status.atem.previewInput = me.previewInput;
+              console.log(`Preview: Input ${me.previewInput}`);
+            }
+          }
+          this._logInputLabels(this.atem?.state);
+        } catch { /* non-critical */ }
+      }, 2000);
     });
 
     this.atem.on('disconnected', () => {
@@ -801,9 +876,19 @@ class ChurchAVAgent {
 
       const me = state.video?.mixEffects?.[0];
       if (me) {
+        const prevPgm = this.status.atem.programInput;
+        const prevPvw = this.status.atem.previewInput;
         this.status.atem.programInput = me.programInput;
         this.status.atem.previewInput = me.previewInput;
         this.status.atem.inTransition = me.transitionPosition?.inTransition || false;
+        // Log changes so Electron main.js can parse them from stdout
+        if (me.programInput !== prevPgm) console.log(`Program: Input ${me.programInput}`);
+        if (me.previewInput !== prevPvw) console.log(`Preview: Input ${me.previewInput}`);
+      }
+
+      // Detect input label changes
+      if (typeof pathToChange === 'string' && pathToChange.startsWith('inputs.')) {
+        this._logInputLabels(state);
       }
 
       const recording = state.recording;
@@ -956,9 +1041,14 @@ class ChurchAVAgent {
     }, this.atemReconnectDelay);
   }
 
-  async atemCommand(fn) {
+  async atemCommand(fn, timeoutMs = 10000) {
     if (!this.atem || !this.status.atem.connected) throw new Error('ATEM not connected');
-    return fn();
+    return Promise.race([
+      fn(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('ATEM command timed out after ' + (timeoutMs / 1000) + 's')), timeoutMs)
+      ),
+    ]);
   }
 
   async stop() {
@@ -1124,12 +1214,24 @@ class ChurchAVAgent {
       if (!this.encoderBridge) return;
       try {
         const wasConnected = this.status.encoder.connected;
+        const wasLive = this.status.encoder.live || this.status.encoder.streaming;
         const s = await this.encoderBridge.getStatus();
         Object.assign(this.status.encoder, s);
         if (s?.details) this.logIdentity('encoder', 'Encoder identity:', s.details);
 
         if (s.connected && !wasConnected) { this.health.encoder.reconnects++; console.log('✅ Encoder connected'); }
         if (!s.connected && wasConnected) console.log('⚠️  Encoder disconnected');
+
+        // Detect encoder stream stopped
+        const isLive = s.live || s.streaming;
+        if (wasLive && !isLive && s.connected) {
+          const encoderType = s.type || this.config.encoder?.type || 'Encoder';
+          this.sendAlert(`🔴 ${encoderType} stream stopped`, 'critical');
+        }
+        if (!wasLive && isLive) {
+          const encoderType = s.type || this.config.encoder?.type || 'Encoder';
+          this.sendAlert(`✅ ${encoderType} streaming started`, 'info');
+        }
       } catch { /* ignore */ }
     }, 15_000);
   }
@@ -1559,7 +1661,7 @@ class ChurchAVAgent {
     const online = await this.mixer.isOnline();
     if (online) {
       const status = await this.mixer.getStatus();
-      this.status.mixer = { connected: true, type: mixerConfig.type, model: status.model || null, mainMuted: status.mainMuted };
+      this.status.mixer = { connected: true, type: mixerConfig.type, model: status.model || null, firmware: status.firmware || null, mainMuted: status.mainMuted };
       const mixerIdentity = `${String(mixerConfig.type || 'mixer').toUpperCase()}${status.model ? ` ${status.model}` : ''}`;
       this.logIdentity('mixer', 'Mixer identity:', mixerIdentity);
       console.log(`✅ ${mixerConfig.type} console connected`);
@@ -1581,6 +1683,7 @@ class ChurchAVAgent {
           connected: status.online,
           type: mixerConfig.type,
           model: status.model || this.status.mixer.model || null,
+          firmware: status.firmware || this.status.mixer.firmware || null,
           mainMuted: status.mainMuted,
         };
         const mixerIdentity = `${String(mixerConfig.type || 'mixer').toUpperCase()}${this.status.mixer.model ? ` ${this.status.mixer.model}` : ''}`;

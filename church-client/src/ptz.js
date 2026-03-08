@@ -676,6 +676,101 @@ class PTZManager {
     return cam.home();
   }
 
+  // ─── Extended VISCA camera controls ────────────────────────────────────────
+
+  async autoFocus(cameraRef) {
+    const cam = this._resolveCamera(cameraRef);
+    if (cam._sendVisca) {
+      await cam._sendVisca([0x81, 0x01, 0x04, 0x38, 0x02, 0xff]);
+      return 'auto';
+    }
+    throw new Error('Auto focus not supported on this camera type');
+  }
+
+  async manualFocus(cameraRef) {
+    const cam = this._resolveCamera(cameraRef);
+    if (cam._sendVisca) {
+      await cam._sendVisca([0x81, 0x01, 0x04, 0x38, 0x03, 0xff]);
+      return 'manual';
+    }
+    throw new Error('Manual focus not supported on this camera type');
+  }
+
+  async focusNear(cameraRef, speed = 3) {
+    const cam = this._resolveCamera(cameraRef);
+    if (cam._sendVisca) {
+      const sp = clamp(speed, 0, 7);
+      await cam._sendVisca([0x81, 0x01, 0x04, 0x08, 0x30 + sp, 0xff]);
+      return 'focusing near';
+    }
+    throw new Error('Focus control not supported on this camera type');
+  }
+
+  async focusFar(cameraRef, speed = 3) {
+    const cam = this._resolveCamera(cameraRef);
+    if (cam._sendVisca) {
+      const sp = clamp(speed, 0, 7);
+      await cam._sendVisca([0x81, 0x01, 0x04, 0x08, 0x20 + sp, 0xff]);
+      return 'focusing far';
+    }
+    throw new Error('Focus control not supported on this camera type');
+  }
+
+  async focusStop(cameraRef) {
+    const cam = this._resolveCamera(cameraRef);
+    if (cam._sendVisca) {
+      await cam._sendVisca([0x81, 0x01, 0x04, 0x08, 0x00, 0xff]);
+      return 'focus stopped';
+    }
+    throw new Error('Focus control not supported on this camera type');
+  }
+
+  async setAutoWhiteBalance(cameraRef) {
+    const cam = this._resolveCamera(cameraRef);
+    if (cam._sendVisca) {
+      await cam._sendVisca([0x81, 0x01, 0x04, 0x35, 0x00, 0xff]);
+      return 'auto';
+    }
+    throw new Error('White balance not supported on this camera type');
+  }
+
+  async setIndoorWhiteBalance(cameraRef) {
+    const cam = this._resolveCamera(cameraRef);
+    if (cam._sendVisca) {
+      await cam._sendVisca([0x81, 0x01, 0x04, 0x35, 0x01, 0xff]);
+      return 'indoor';
+    }
+    throw new Error('White balance not supported on this camera type');
+  }
+
+  async setOutdoorWhiteBalance(cameraRef) {
+    const cam = this._resolveCamera(cameraRef);
+    if (cam._sendVisca) {
+      await cam._sendVisca([0x81, 0x01, 0x04, 0x35, 0x02, 0xff]);
+      return 'outdoor';
+    }
+    throw new Error('White balance not supported on this camera type');
+  }
+
+  async setOnePushWhiteBalance(cameraRef) {
+    const cam = this._resolveCamera(cameraRef);
+    if (cam._sendVisca) {
+      await cam._sendVisca([0x81, 0x01, 0x04, 0x35, 0x03, 0xff]);
+      await cam._sendVisca([0x81, 0x01, 0x04, 0x10, 0x05, 0xff]);
+      return 'one-push triggered';
+    }
+    throw new Error('White balance not supported on this camera type');
+  }
+
+  async setBacklightComp(cameraRef, enabled) {
+    const cam = this._resolveCamera(cameraRef);
+    if (cam._sendVisca) {
+      await cam._sendVisca([0x81, 0x01, 0x04, 0x33, enabled ? 0x02 : 0x03, 0xff]);
+      return enabled ? 'on' : 'off';
+    }
+    throw new Error('Backlight compensation not supported on this camera type');
+  }
+
   _normalizeEntry(entry, index) {
     if (typeof entry === 'string') {
       return { ip: entry, name: `PTZ ${index + 1}`, protocol: 'auto' };

@@ -558,6 +558,13 @@ class AvantisMixer {
 
   // ─── STATIC HELPERS ────────────────────────────────────────────────────────
 
+  // ─── MUTE GROUP / SOFTKEY STUBS ────────────────────────────────────────────
+  // Avantis/dLive TCP MIDI protocol does not expose mute groups or softkeys.
+
+  async activateMuteGroup()    { console.warn(`🎛️  ${this.model}: mute groups not available via TCP MIDI`); }
+  async deactivateMuteGroup()  { console.warn(`🎛️  ${this.model}: mute groups not available via TCP MIDI`); }
+  async pressSoftKey()         { console.warn(`🎛️  ${this.model}: softkeys not available via TCP MIDI`); }
+
   /** Available channel colours for this console. */
   static get COLORS() { return Object.keys(COLORS); }
 

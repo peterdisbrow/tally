@@ -2,11 +2,11 @@
  * Stream Platform Health Monitor
  *
  * Checks the health of the stream on its destination platform (YouTube / Facebook)
- * every 60 seconds while OBS is actively streaming.
+ * every 60 seconds while ANY source is actively streaming (OBS, ATEM, vMix, encoder, etc.).
  *
- * If no platform API keys are configured, falls back to OBS bitrate analysis:
- * if bitrate drops >50% from baseline within 30 seconds, alerts that the stream
- * may be failing at the platform level.
+ * If no platform API keys are configured, falls back to bitrate analysis using
+ * whatever source is providing bitrate data (OBS, ATEM encoder, hardware encoder).
+ * If bitrate drops >50% from baseline, alerts that the stream may be failing.
  *
  * Config keys (in ~/.church-av/config.json):
  *   youtubeApiKey       - YouTube Data API v3 key
@@ -30,10 +30,10 @@ class StreamHealthMonitor {
     this._interval = null;
     this._lastAlertTimes = new Map(); // alertKey → timestamp
 
-    // OBS bitrate fallback state
-    this._bitrateHistory  = []; // [{ bytes, time }] for differential calculation
+    // Bitrate fallback state
     this._baselineBitrate = null; // kbps baseline established early in stream
     this._bitrateKbps     = []; // rolling window of kbps samples
+    this._lastBitrateSource = null; // which source provided the last reading
   }
 
   /** Start monitoring. Must be called with the ChurchAVAgent instance. */
@@ -54,21 +54,61 @@ class StreamHealthMonitor {
     }
     this.agent = null;
     this._baselineBitrate = null;
-    this._bitrateHistory  = [];
     this._bitrateKbps     = [];
+    this._lastBitrateSource = null;
     console.log('[StreamHealthMonitor] Stopped');
+  }
+
+  /**
+   * Detect if ANY source is actively streaming.
+   * Returns the streaming source name or null.
+   */
+  _getActiveStreamSource() {
+    if (!this.agent) return null;
+    const { status } = this.agent;
+    if (status.obs?.streaming)                             return 'obs';
+    if (status.atem?.streaming)                            return 'atem';
+    if (status.vmix?.streaming)                            return 'vmix';
+    if (status.encoder?.live || status.encoder?.streaming) return status.encoder?.type || 'encoder';
+    return null;
+  }
+
+  /**
+   * Get the current bitrate from whatever source is streaming.
+   * Returns { bitrateKbps, source } or null.
+   */
+  _getCurrentBitrate() {
+    if (!this.agent) return null;
+    const { status } = this.agent;
+
+    // OBS — bitrate in kbps directly
+    if (status.obs?.streaming && status.obs.bitrate > 0)
+      return { bitrateKbps: status.obs.bitrate, source: 'OBS' };
+
+    // ATEM built-in encoder — bitrate in bps, convert to kbps
+    if (status.atem?.streaming && status.atem.streamingBitrate > 0)
+      return { bitrateKbps: Math.round(status.atem.streamingBitrate / 1000), source: 'ATEM' };
+
+    // Hardware/software encoder via EncoderBridge
+    if ((status.encoder?.live || status.encoder?.streaming) && status.encoder.bitrateKbps > 0)
+      return { bitrateKbps: status.encoder.bitrateKbps, source: status.encoder.type || 'Encoder' };
+
+    // vMix — doesn't expose bitrate, can't monitor
+    return null;
   }
 
   /** Main check cycle — runs every 60 seconds */
   async check() {
     if (!this.agent) return;
-    const { status, config } = this.agent;
+    const { config } = this.agent;
 
-    // Only check during active OBS streaming
-    if (!status.obs?.streaming) {
+    // Check if ANY source is streaming (not just OBS)
+    const streamSource = this._getActiveStreamSource();
+    if (!streamSource) {
+      // No active stream — reset baseline
       this._baselineBitrate = null;
-      this._bitrateHistory  = [];
       this._bitrateKbps     = [];
+      this._lastBitrateSource = null;
       return;
     }
 
@@ -76,7 +116,7 @@ class StreamHealthMonitor {
 
     // ── YouTube Live ─────────────────────────────────────────────────────────
     if (config.youtubeApiKey) {
-      await this._checkYouTube(config.youtubeApiKey).catch(e => {
+      await this._checkYouTube(config.youtubeApiKey, streamSource).catch(e => {
         console.warn('[StreamHealthMonitor] YouTube check failed:', e.message);
       });
       platformChecked = true;
@@ -84,23 +124,23 @@ class StreamHealthMonitor {
 
     // ── Facebook Live ────────────────────────────────────────────────────────
     if (config.facebookAccessToken) {
-      await this._checkFacebook(config.facebookAccessToken).catch(e => {
+      await this._checkFacebook(config.facebookAccessToken, streamSource).catch(e => {
         console.warn('[StreamHealthMonitor] Facebook check failed:', e.message);
       });
       platformChecked = true;
     }
 
-    // ── Fallback: OBS bitrate analysis ───────────────────────────────────────
+    // ── Fallback: bitrate analysis from any source ───────────────────────────
     if (!platformChecked) {
-      await this._checkOBSBitrate().catch(e => {
-        console.warn('[StreamHealthMonitor] OBS bitrate check failed:', e.message);
+      await this._checkBitrate().catch(e => {
+        console.warn('[StreamHealthMonitor] Bitrate check failed:', e.message);
       });
     }
   }
 
   // ─── YouTube ───────────────────────────────────────────────────────────────
 
-  async _checkYouTube(apiKey) {
+  async _checkYouTube(apiKey, streamSource) {
     const url = `https://www.googleapis.com/youtube/v3/liveBroadcasts?part=status&broadcastStatus=active&key=${encodeURIComponent(apiKey)}`;
     const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
 
@@ -115,7 +155,7 @@ class StreamHealthMonitor {
     if (broadcasts.length === 0) {
       this._sendAlert(
         'youtube_no_active_broadcast',
-        'YouTube: No active broadcast found while OBS is streaming. The stream may not be reaching YouTube — check your stream key and network.'
+        `YouTube: No active broadcast found while ${streamSource} is streaming. The stream may not be reaching YouTube — check your stream key and network.`
       );
       return;
     }
@@ -132,7 +172,7 @@ class StreamHealthMonitor {
       } else if (health === 'noData') {
         this._sendAlert(
           'youtube_stream_no_data',
-          `YouTube reports no data received. The stream may have dropped — check OBS and your internet connection.`
+          `YouTube reports no data received. The stream may have dropped — check ${streamSource} and your internet connection.`
         );
       }
     }
@@ -140,7 +180,7 @@ class StreamHealthMonitor {
 
   // ─── Facebook ─────────────────────────────────────────────────────────────
 
-  async _checkFacebook(accessToken) {
+  async _checkFacebook(accessToken, streamSource) {
     const url = `https://graph.facebook.com/v18.0/me/live_videos?status=LIVE&access_token=${encodeURIComponent(accessToken)}`;
     const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
 
@@ -155,69 +195,55 @@ class StreamHealthMonitor {
     if (liveVideos.length === 0) {
       this._sendAlert(
         'facebook_no_live_video',
-        'Facebook: No active LIVE video found while OBS is streaming. The stream may not be reaching Facebook — check your stream key.'
+        `Facebook: No active LIVE video found while ${streamSource} is streaming. The stream may not be reaching Facebook — check your stream key.`
       );
     } else {
       console.log(`[StreamHealthMonitor] Facebook: ${liveVideos.length} live video(s) active`);
     }
   }
 
-  // ─── OBS Bitrate Fallback ─────────────────────────────────────────────────
+  // ─── Bitrate Fallback (source-agnostic) ─────────────────────────────────
 
-  async _checkOBSBitrate() {
-    const { agent } = this;
-    if (!agent.obs || !agent.status.obs?.connected) return;
+  async _checkBitrate() {
+    const reading = this._getCurrentBitrate();
+    if (!reading) return; // no bitrate data available from any source
 
-    const streamStatus = await agent.obs.call('GetStreamStatus');
-    if (!streamStatus.outputActive) {
-      this._bitrateHistory = [];
-      return;
+    const { bitrateKbps, source } = reading;
+
+    // If source changed (e.g. switched from OBS to ATEM encoder), reset baseline
+    if (this._lastBitrateSource && this._lastBitrateSource !== source) {
+      console.log(`[StreamHealthMonitor] Stream source changed (${this._lastBitrateSource} → ${source}), resetting baseline`);
+      this._baselineBitrate = null;
+      this._bitrateKbps = [];
+    }
+    this._lastBitrateSource = source;
+
+    this._bitrateKbps.push(bitrateKbps);
+
+    // Keep rolling window: last 5 samples
+    if (this._bitrateKbps.length > 5) this._bitrateKbps.shift();
+
+    // Establish baseline from first BASELINE_SAMPLES samples
+    if (!this._baselineBitrate && this._bitrateKbps.length >= BASELINE_SAMPLES) {
+      this._baselineBitrate = this._bitrateKbps.reduce((a, b) => a + b, 0) / this._bitrateKbps.length;
+      console.log(`[StreamHealthMonitor] Baseline bitrate (${source}): ${this._baselineBitrate.toFixed(0)} kbps`);
     }
 
-    const currentBytes = streamStatus.outputBytes || 0;
-    const now = Date.now();
+    // Check for drop > threshold
+    if (this._baselineBitrate && this._bitrateKbps.length >= BASELINE_SAMPLES) {
+      const avgRecent = this._bitrateKbps.reduce((a, b) => a + b, 0) / this._bitrateKbps.length;
+      const dropFraction = 1 - (avgRecent / this._baselineBitrate);
 
-    if (this._bitrateHistory.length > 0) {
-      const prev = this._bitrateHistory[this._bitrateHistory.length - 1];
-      const elapsed = (now - prev.time) / 1000;
-
-      if (elapsed > 0) {
-        const bytesDiff = currentBytes - prev.bytes;
-        if (bytesDiff >= 0) {
-          const currentKbps = (bytesDiff * 8) / elapsed / 1000;
-          this._bitrateKbps.push(currentKbps);
-
-          // Keep rolling window: last 5 samples
-          if (this._bitrateKbps.length > 5) this._bitrateKbps.shift();
-
-          // Establish baseline from first BASELINE_SAMPLES samples
-          if (!this._baselineBitrate && this._bitrateKbps.length >= BASELINE_SAMPLES) {
-            this._baselineBitrate = this._bitrateKbps.reduce((a, b) => a + b, 0) / this._bitrateKbps.length;
-            console.log(`[StreamHealthMonitor] Baseline bitrate: ${this._baselineBitrate.toFixed(0)} kbps`);
-          }
-
-          // Check for drop > threshold
-          if (this._baselineBitrate && this._bitrateKbps.length >= BASELINE_SAMPLES) {
-            const avgRecent = this._bitrateKbps.reduce((a, b) => a + b, 0) / this._bitrateKbps.length;
-            const dropFraction = 1 - (avgRecent / this._baselineBitrate);
-
-            if (dropFraction > BITRATE_DROP_THRESHOLD) {
-              const dropPct = Math.round(dropFraction * 100);
-              this._sendAlert(
-                'stream_bitrate_drop',
-                `Stream may be failing at platform — bitrate dropped ${dropPct}% ` +
-                `(from ${this._baselineBitrate.toFixed(0)}kbps to ${avgRecent.toFixed(0)}kbps). ` +
-                `Check your internet connection and platform dashboard.`
-              );
-            }
-          }
-        }
+      if (dropFraction > BITRATE_DROP_THRESHOLD) {
+        const dropPct = Math.round(dropFraction * 100);
+        this._sendAlert(
+          'stream_bitrate_drop',
+          `Stream may be failing — ${source} bitrate dropped ${dropPct}% ` +
+          `(from ${this._baselineBitrate.toFixed(0)}kbps to ${avgRecent.toFixed(0)}kbps). ` +
+          `Check your internet connection and platform dashboard.`
+        );
       }
     }
-
-    // Always store current sample
-    this._bitrateHistory.push({ bytes: currentBytes, time: now });
-    if (this._bitrateHistory.length > 10) this._bitrateHistory.shift();
   }
 
   // ─── Alert helper ─────────────────────────────────────────────────────────
@@ -245,6 +271,7 @@ class StreamHealthMonitor {
   getStatus() {
     return {
       monitoring: !!this._interval,
+      streamSource: this._lastBitrateSource,
       baselineBitrate: this._baselineBitrate ? `${this._baselineBitrate.toFixed(0)} kbps` : null,
       recentBitrate: this._bitrateKbps.length
         ? `${(this._bitrateKbps.reduce((a, b) => a + b, 0) / this._bitrateKbps.length).toFixed(0)} kbps`

@@ -537,6 +537,17 @@ class BehringerMixer {
       return { sceneNumber: idx, name: null, exists: false };
     }
   }
+
+  // ─── DCA / MUTE GROUP / SOFTKEY STUBS ────────────────────────────────────
+  // X32 uses assignToDca (bitmask) for DCA assignment, not direct DCA mute/fader.
+  // These stubs exist so MixerBridge never throws on missing methods.
+
+  async muteDca()              { console.warn('🎛️  X32: use assignToDca for DCA control'); }
+  async unmuteDca()            { console.warn('🎛️  X32: use assignToDca for DCA control'); }
+  async setDcaFader()          { console.warn('🎛️  X32: DCA fader not controllable via OSC — use assignToDca'); }
+  async activateMuteGroup()    { console.warn('🎛️  X32: mute groups not available via OSC'); }
+  async deactivateMuteGroup()  { console.warn('🎛️  X32: mute groups not available via OSC'); }
+  async pressSoftKey()         { console.warn('🎛️  X32: softkeys not available via OSC'); }
 }
 
 module.exports = { BehringerMixer };

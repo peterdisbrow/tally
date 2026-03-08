@@ -117,6 +117,21 @@ class MixerBridge {
   async assignToBus(ch, bus, enabled)   { return this._mixer.assignToBus(ch, bus, enabled); }
   async assignToDca(ch, dca, enabled)   { return this._mixer.assignToDca(ch, dca, enabled); }
 
+  // ─── DCA CONTROL (SQ / Avantis / dLive) ──────────────────────────────────
+
+  async muteDca(dca)            { return this._mixer.muteDca(dca); }
+  async unmuteDca(dca)          { return this._mixer.unmuteDca(dca); }
+  async setDcaFader(dca, level) { return this._mixer.setDcaFader(dca, level); }
+
+  // ─── MUTE GROUPS (SQ only) ───────────────────────────────────────────────
+
+  async activateMuteGroup(mg)   { return this._mixer.activateMuteGroup(mg); }
+  async deactivateMuteGroup(mg) { return this._mixer.deactivateMuteGroup(mg); }
+
+  // ─── SOFTKEYS (SQ only) ──────────────────────────────────────────────────
+
+  async pressSoftKey(key)       { return this._mixer.pressSoftKey(key); }
+
   // ─── METERING ──────────────────────────────────────────────────────────────
 
   async getMeters(channels)             { return this._mixer.getMeters(channels); }

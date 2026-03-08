@@ -303,6 +303,16 @@ class YamahaMixer {
   async setGate(ch, params)         { return this._impl.setGate(ch, params); }
   async setFullChannelStrip(ch, s)  { return this._impl.setFullChannelStrip(ch, s); }
   async saveScene(n, name)          { return this._impl.saveScene(n, name); }
+
+  // ─── DCA / MUTE GROUP / SOFTKEY STUBS ────────────────────────────────────
+  // Yamaha CL/QL/TF do not expose these via OSC or TCP MIDI.
+
+  async muteDca()              { console.warn('🎛️  Yamaha: DCA control not available via protocol'); }
+  async unmuteDca()            { console.warn('🎛️  Yamaha: DCA control not available via protocol'); }
+  async setDcaFader()          { console.warn('🎛️  Yamaha: DCA fader not available via protocol'); }
+  async activateMuteGroup()    { console.warn('🎛️  Yamaha: mute groups not available via protocol'); }
+  async deactivateMuteGroup()  { console.warn('🎛️  Yamaha: mute groups not available via protocol'); }
+  async pressSoftKey()         { console.warn('🎛️  Yamaha: softkeys not available via protocol'); }
 }
 
 module.exports = { YamahaMixer };

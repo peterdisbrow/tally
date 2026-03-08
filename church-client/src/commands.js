@@ -9,6 +9,38 @@ function toInt(value, name) {
   return parsed;
 }
 
+// ─── Fairlight enum mappings (accept both strings and integers) ─────────────
+
+const FAIRLIGHT_MIX_OPTION = {
+  off: 0, '0': 0,
+  on: 1, '1': 1,
+  audiofollowvideo: 2, afv: 2, '2': 2,
+};
+
+const FAIRLIGHT_EQ_SHAPE = {
+  lowshelf: 0, 'low shelf': 0, '0': 0,
+  lowpass: 1, 'low pass': 1, '1': 1,
+  bell: 2, '2': 2,
+  notch: 3, '3': 3,
+  highpass: 4, 'high pass': 4, '4': 4,
+  highshelf: 5, 'high shelf': 5, '5': 5,
+};
+
+const FAIRLIGHT_FREQ_RANGE = {
+  low: 0, '0': 0,
+  mid: 1, '1': 1,
+  high: 2, '2': 2,
+};
+
+function toFairlightEnum(value, map, name) {
+  if (value == null) return undefined;
+  const key = String(value).trim().toLowerCase().replace(/[^a-z0-9 ]/g, '');
+  if (key in map) return map[key];
+  const num = Number.parseInt(value, 10);
+  if (Number.isFinite(num)) return num;
+  throw new Error(`${name}: unknown value "${value}". Expected one of: ${Object.keys(map).filter(k => isNaN(k)).join(', ')}`);
+}
+
 function normalizeTransitionStyle(style) {
   const raw = String(style || '').trim().toLowerCase();
   const table = {
@@ -27,6 +59,23 @@ function normalizeTransitionStyle(style) {
 
 function isFakeAtem(agent) {
   return !!agent._fakeAtemMode;
+}
+
+/**
+ * Validate ATEM camera input number. If the ATEM reports available inputs,
+ * check that the requested input exists. Returns early for non-camera sources
+ * (e.g. color bars 1000+, media player 3010+, etc.).
+ */
+function validateAtemInput(agent, input) {
+  if (input == null || input >= 1000) return; // special sources are fine
+  const labels = agent.status?.atem?.inputLabels;
+  if (!labels || typeof labels !== 'object') return; // can't validate without labels
+  const knownIds = Object.keys(labels).map(Number).filter((n) => n >= 1 && n <= 40);
+  if (knownIds.length === 0) return; // no label data
+  if (!knownIds.includes(input)) {
+    const available = knownIds.sort((a, b) => a - b).join(', ');
+    throw new Error(`Camera ${input} doesn't exist on this switcher. Available inputs: ${available}. Try one of those instead.`);
+  }
 }
 
 function resolvePtzRef(params = {}) {
@@ -96,6 +145,7 @@ function ensureObs(agent) {
 async function atemCut(agent, params) {
   const me = toInt(params.me ?? 0, 'me');
   const input = params.input != null ? toInt(params.input, 'input') : null;
+  if (input != null) validateAtemInput(agent, input);
   await agent.atemCommand(async () => {
     if (input != null) {
       if (isFakeAtem(agent)) await agent.atem?.changeProgramInput(me, input);
@@ -115,6 +165,7 @@ async function atemAuto(agent, params) {
 async function atemSetProgram(agent, params) {
   const input = toInt(params.input, 'input');
   const me = toInt(params.me ?? 0, 'me');
+  validateAtemInput(agent, input);
   await agent.atemCommand(() => {
     if (isFakeAtem(agent)) return agent.atem?.changeProgramInput(me, input);
     return agent.atem?.changeProgramInput(input, me);
@@ -125,6 +176,7 @@ async function atemSetProgram(agent, params) {
 async function atemSetPreview(agent, params) {
   const input = toInt(params.input, 'input');
   const me = toInt(params.me ?? 0, 'me');
+  validateAtemInput(agent, input);
   await agent.atemCommand(() => {
     if (isFakeAtem(agent)) return agent.atem?.changePreviewInput(me, input);
     return agent.atem?.changePreviewInput(input, me);
@@ -402,14 +454,26 @@ async function hyperdeckStatus(agent, params) {
   const direct = getDirectHyperDeck(agent, index);
   if (!direct) throw new Error(`HyperDeck ${getHyperDeckLabel(index)} not configured`);
   const status = await direct.refreshStatus();
+  const label = status.name || `HyperDeck ${getHyperDeckLabel(index)}`;
+  const modelInfo = [status.model, status.protocolVersion ? `v${status.protocolVersion}` : null].filter(Boolean).join(' · ');
+
+  if (!status.connected) {
+    return `🎬 ${label} — ❌ Offline\n\nHyperDeck is not responding. Check power and network connection.`;
+  }
+
+  const transportLabel = (status.transport || 'unknown').replace(/([a-z])([A-Z])/g, '$1 $2');
   const lines = [
-    `HyperDeck ${getHyperDeckLabel(index)}: ${status.name || 'Unknown'}`,
-    `Model: ${status.model || 'N/A'} | Protocol: ${status.protocolVersion || 'N/A'}`,
-    `Connected: ${status.connected ? '✅' : '❌'}`,
-    `Transport: ${status.transport || 'unknown'}`,
-    `Recording: ${status.recording ? '🔴 Yes' : 'No'}`,
-    status.clipId != null ? `Clip: ${status.clipId} | Slot: ${status.slotId}` : null,
-  ].filter(Boolean);
+    `🎬 ${label} — ✅ Connected`,
+    modelInfo ? `📦 ${modelInfo}` : null,
+    '',
+    status.recording
+      ? '⏺️  Recording: Active'
+      : '⚫ Recording: Off',
+    `🔄 Transport: ${transportLabel.charAt(0).toUpperCase() + transportLabel.slice(1)}`,
+    status.clipId != null ? `🎞️  Clip: ${status.clipId}` : null,
+    status.slotId != null ? `💾 Slot: ${status.slotId}` : null,
+  ].filter(l => l != null);
+
   return lines.join('\n');
 }
 
@@ -515,6 +579,81 @@ async function ptzSetPreset(agent, params) {
     return `PTZ camera ${camera} saved preset ${preset} (${token})`;
   }
   throw new Error('PTZ set preset is only available for network PTZ cameras (ONVIF/VISCA)');
+}
+
+// ─── PTZ EXTENDED COMMANDS (VISCA focus, white balance) ─────────────────────
+
+async function ptzAutoFocus(agent, params) {
+  if (!hasNetworkPtz(agent)) throw new Error('PTZ focus control requires network PTZ cameras (VISCA)');
+  const camera = resolvePtzRef(params);
+  await agent.ptzManager.autoFocus(camera);
+  return `PTZ camera ${camera}: auto focus enabled`;
+}
+
+async function ptzManualFocus(agent, params) {
+  if (!hasNetworkPtz(agent)) throw new Error('PTZ focus control requires network PTZ cameras (VISCA)');
+  const camera = resolvePtzRef(params);
+  await agent.ptzManager.manualFocus(camera);
+  return `PTZ camera ${camera}: manual focus mode`;
+}
+
+async function ptzFocusNear(agent, params) {
+  if (!hasNetworkPtz(agent)) throw new Error('PTZ focus control requires network PTZ cameras (VISCA)');
+  const camera = resolvePtzRef(params);
+  const speed = params.speed != null ? Number(params.speed) : 3;
+  await agent.ptzManager.focusNear(camera, speed);
+  return `PTZ camera ${camera}: focusing near`;
+}
+
+async function ptzFocusFar(agent, params) {
+  if (!hasNetworkPtz(agent)) throw new Error('PTZ focus control requires network PTZ cameras (VISCA)');
+  const camera = resolvePtzRef(params);
+  const speed = params.speed != null ? Number(params.speed) : 3;
+  await agent.ptzManager.focusFar(camera, speed);
+  return `PTZ camera ${camera}: focusing far`;
+}
+
+async function ptzFocusStop(agent, params) {
+  if (!hasNetworkPtz(agent)) throw new Error('PTZ focus control requires network PTZ cameras (VISCA)');
+  const camera = resolvePtzRef(params);
+  await agent.ptzManager.focusStop(camera);
+  return `PTZ camera ${camera}: focus stopped`;
+}
+
+async function ptzAutoWhiteBalance(agent, params) {
+  if (!hasNetworkPtz(agent)) throw new Error('PTZ white balance control requires network PTZ cameras (VISCA)');
+  const camera = resolvePtzRef(params);
+  await agent.ptzManager.setAutoWhiteBalance(camera);
+  return `PTZ camera ${camera}: auto white balance`;
+}
+
+async function ptzIndoorWhiteBalance(agent, params) {
+  if (!hasNetworkPtz(agent)) throw new Error('PTZ white balance control requires network PTZ cameras (VISCA)');
+  const camera = resolvePtzRef(params);
+  await agent.ptzManager.setIndoorWhiteBalance(camera);
+  return `PTZ camera ${camera}: indoor white balance`;
+}
+
+async function ptzOutdoorWhiteBalance(agent, params) {
+  if (!hasNetworkPtz(agent)) throw new Error('PTZ white balance control requires network PTZ cameras (VISCA)');
+  const camera = resolvePtzRef(params);
+  await agent.ptzManager.setOutdoorWhiteBalance(camera);
+  return `PTZ camera ${camera}: outdoor white balance`;
+}
+
+async function ptzOnePushWb(agent, params) {
+  if (!hasNetworkPtz(agent)) throw new Error('PTZ white balance control requires network PTZ cameras (VISCA)');
+  const camera = resolvePtzRef(params);
+  await agent.ptzManager.setOnePushWhiteBalance(camera);
+  return `PTZ camera ${camera}: one-push white balance triggered`;
+}
+
+async function ptzBacklightComp(agent, params) {
+  if (!hasNetworkPtz(agent)) throw new Error('PTZ backlight compensation requires network PTZ cameras (VISCA)');
+  const camera = resolvePtzRef(params);
+  const enabled = params.enabled !== false && params.enabled !== 'false';
+  await agent.ptzManager.setBacklightComp(camera, enabled);
+  return `PTZ camera ${camera}: backlight compensation ${enabled ? 'on' : 'off'}`;
 }
 
 // ─── BLACKMAGIC CAMERA CONTROL (via ATEM) ───────────────────────────────────
@@ -741,6 +880,132 @@ async function obsSetScene(agent, params) {
   return `Scene set to: ${params.scene}`;
 }
 
+// ─── OBS EXTENDED COMMANDS ──────────────────────────────────────────────────
+
+async function obsGetScenes(agent) {
+  const obs = ensureObs(agent);
+  const data = await obs.call('GetSceneList');
+  const scenes = (data.scenes || []).map(s => s.sceneName).reverse();
+  const current = data.currentProgramSceneName || '';
+  return `Scenes: ${scenes.map(s => s === current ? `[${s}]` : s).join(', ')}`;
+}
+
+async function obsGetInputList(agent) {
+  const obs = ensureObs(agent);
+  const data = await obs.call('GetInputList');
+  const inputs = (data.inputs || []).map(i => `${i.inputName} (${i.inputKind})`);
+  return inputs.length ? `Inputs:\n${inputs.join('\n')}` : 'No inputs found';
+}
+
+async function obsSetInputVolume(agent, params) {
+  const obs = ensureObs(agent);
+  const name = String(params.input || params.name || '').trim();
+  if (!name) throw new Error('input name required');
+  const opts = {};
+  if (params.volumeDb != null) {
+    opts.inputVolumeDb = Number(params.volumeDb);
+  } else {
+    opts.inputVolumeMul = params.volume != null ? Number(params.volume) : 1;
+  }
+  await obs.call('SetInputVolume', { inputName: name, ...opts });
+  return `Volume set for "${name}"`;
+}
+
+async function obsSetInputMute(agent, params) {
+  const obs = ensureObs(agent);
+  const name = String(params.input || params.name || '').trim();
+  if (!name) throw new Error('input name required');
+  const muted = params.muted !== false && params.muted !== 'false';
+  await obs.call('SetInputMute', { inputName: name, inputMuted: muted });
+  return `${name}: ${muted ? 'muted' : 'unmuted'}`;
+}
+
+async function obsSetTransition(agent, params) {
+  const obs = ensureObs(agent);
+  const name = String(params.transition || params.name || '').trim();
+  if (!name) throw new Error('transition name required');
+  await obs.call('SetCurrentSceneTransition', { transitionName: name });
+  return `Transition set to: ${name}`;
+}
+
+async function obsSetTransitionDuration(agent, params) {
+  const obs = ensureObs(agent);
+  const ms = toInt(params.duration || params.ms, 'duration');
+  await obs.call('SetCurrentSceneTransitionDuration', { transitionDuration: ms });
+  return `Transition duration set to ${ms}ms`;
+}
+
+async function obsGetSourceFilters(agent, params) {
+  const obs = ensureObs(agent);
+  const name = String(params.source || params.input || '').trim();
+  if (!name) throw new Error('source name required');
+  const data = await obs.call('GetSourceFilterList', { sourceName: name });
+  const filters = (data.filters || []).map(f => `${f.filterName} (${f.filterKind}) ${f.filterEnabled ? '✓' : '✗'}`);
+  return filters.length ? `Filters on "${name}":\n${filters.join('\n')}` : `No filters on "${name}"`;
+}
+
+async function obsSetSourceFilterEnabled(agent, params) {
+  const obs = ensureObs(agent);
+  const source = String(params.source || '').trim();
+  const filter = String(params.filter || '').trim();
+  if (!source || !filter) throw new Error('source and filter names required');
+  const enabled = params.enabled !== false && params.enabled !== 'false';
+  await obs.call('SetSourceFilterEnabled', { sourceName: source, filterName: filter, filterEnabled: enabled });
+  return `Filter "${filter}" on "${source}": ${enabled ? 'enabled' : 'disabled'}`;
+}
+
+async function obsSetStudioMode(agent, params) {
+  const obs = ensureObs(agent);
+  const enabled = params.enabled !== false && params.enabled !== 'false';
+  await obs.call('SetStudioModeEnabled', { studioModeEnabled: enabled });
+  return `Studio mode: ${enabled ? 'enabled' : 'disabled'}`;
+}
+
+async function obsSetPreviewScene(agent, params) {
+  const obs = ensureObs(agent);
+  const scene = String(params.scene || '').trim();
+  if (!scene) throw new Error('scene name required');
+  await obs.call('SetCurrentPreviewScene', { sceneName: scene });
+  return `Preview scene set to: ${scene}`;
+}
+
+async function obsToggleVirtualCam(agent) {
+  const obs = ensureObs(agent);
+  await obs.call('ToggleVirtualCam');
+  return 'Virtual camera toggled';
+}
+
+async function obsPauseRecording(agent) {
+  const obs = ensureObs(agent);
+  await obs.call('PauseRecord');
+  return 'OBS recording paused';
+}
+
+async function obsResumeRecording(agent) {
+  const obs = ensureObs(agent);
+  await obs.call('ResumeRecord');
+  return 'OBS recording resumed';
+}
+
+async function obsGetSceneItems(agent, params) {
+  const obs = ensureObs(agent);
+  const scene = String(params.scene || '').trim();
+  if (!scene) throw new Error('scene name required');
+  const data = await obs.call('GetSceneItemList', { sceneName: scene });
+  const items = (data.sceneItems || []).map(i => `${i.sourceName} ${i.sceneItemEnabled ? '✓' : '✗'}`);
+  return items.length ? `Items in "${scene}":\n${items.join('\n')}` : `No items in "${scene}"`;
+}
+
+async function obsSetSceneItemEnabled(agent, params) {
+  const obs = ensureObs(agent);
+  const scene = String(params.scene || '').trim();
+  if (!scene) throw new Error('scene name required');
+  const item = toInt(params.itemId, 'itemId');
+  const enabled = params.enabled !== false && params.enabled !== 'false';
+  await obs.call('SetSceneItemEnabled', { sceneName: scene, sceneItemId: item, sceneItemEnabled: enabled });
+  return `Scene item ${item} in "${scene}": ${enabled ? 'visible' : 'hidden'}`;
+}
+
 // ─── ENCODER COMMANDS ────────────────────────────────────────────────────────
 
 async function encoderStartStream(agent) {
@@ -771,6 +1036,25 @@ async function encoderStopRecording(agent) {
   return 'Encoder recording stopped';
 }
 
+/** Pretty encoder type name for display. */
+function encoderBrandName(type) {
+  switch ((type || '').toLowerCase()) {
+    case 'obs':           return 'OBS Studio';
+    case 'vmix':          return 'vMix';
+    case 'ecamm':         return 'Ecamm Live';
+    case 'blackmagic':    return 'Blackmagic Web Presenter';
+    case 'aja':           return 'AJA HELO';
+    case 'epiphan':       return 'Epiphan Pearl';
+    case 'teradek':       return 'Teradek';
+    case 'rtmppush':      return 'RTMP Push Encoder';
+    case 'ndi':           return 'NDI Encoder';
+    case 'tricaster':     return 'TriCaster';
+    case 'birddog':       return 'BirdDog';
+    case 'custom':        return 'Custom Encoder';
+    default:              return type || 'Encoder';
+  }
+}
+
 async function encoderStatus(agent) {
   if (!agent.encoderBridge) return agent.status.encoder;
   try {
@@ -779,7 +1063,29 @@ async function encoderStatus(agent) {
   } catch {
     // best-effort read
   }
-  return agent.status.encoder;
+  const s = agent.status.encoder || {};
+  const name = encoderBrandName(s.type);
+
+  if (!s.connected) {
+    return `📡 ${name} — ❌ Offline\n\nEncoder is not responding. Check power and network connection.`;
+  }
+
+  const lines = [
+    `📡 ${name} — ✅ Connected`,
+    '',
+    s.live || s.streaming
+      ? '🔴 Streaming: LIVE'
+      : '⚫ Streaming: Off',
+    s.recording
+      ? '⏺️  Recording: Active'
+      : '⚫ Recording: Off',
+    s.bitrateKbps != null ? `📊 Bitrate: ${s.bitrateKbps >= 1000 ? (s.bitrateKbps / 1000).toFixed(1) + ' Mbps' : s.bitrateKbps + ' kbps'}` : null,
+    s.fps != null ? `🎞️  Frame rate: ${s.fps} fps` : null,
+    s.cpuUsage != null ? `💻 CPU: ${Math.round(s.cpuUsage)}%` : null,
+    s.details ? `ℹ️  ${s.details}` : null,
+  ].filter(l => l != null);
+
+  return lines.join('\n');
 }
 
 function ensureEncoderAdapter(agent, expectedType) {
@@ -1080,8 +1386,19 @@ async function propresenterGoToSlide(agent, params) {
 async function propresenterStatus(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   const slide = await agent.proPresenter.getCurrentSlide();
-  if (!slide) return 'ProPresenter not reachable';
-  return `${slide.presentationName} — slide ${slide.slideIndex + 1}/${slide.slideTotal}`;
+
+  if (!slide) {
+    return '📺 ProPresenter — ❌ Offline\n\nProPresenter is not responding. Check that it is running.';
+  }
+
+  const lines = [
+    '📺 ProPresenter — ✅ Running',
+    '',
+    `🎬 Presentation: ${slide.presentationName || 'Untitled'}`,
+    `📄 Slide: ${slide.slideIndex + 1} of ${slide.slideTotal}`,
+  ];
+
+  return lines.join('\n');
 }
 
 async function propresenterPlaylist(agent) {
@@ -1094,7 +1411,7 @@ async function propresenterPlaylist(agent) {
 async function propresenterIsRunning(agent) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   const running = await agent.proPresenter.isRunning();
-  return running ? 'ProPresenter is running' : 'ProPresenter is not reachable';
+  return running ? '📺 ProPresenter — ✅ Running' : '📺 ProPresenter — ❌ Not reachable';
 }
 
 async function propresenterClearAll(agent) {
@@ -1176,16 +1493,31 @@ async function propresenterMessages(agent) {
 async function vmixStatus(agent) {
   if (!agent.vmix) throw new Error('vMix not configured');
   const status = await agent.vmix.getStatus();
-  if (!status.running) return 'vMix is not reachable';
-  const lines = [
-    `vMix ${status.edition} ${status.version}`,
-    `Program: ${status.activeInput} | Preview: ${status.previewInput}`,
-    `Streaming: ${status.streaming ? '🔴 LIVE' : '⚫ Off'} | Recording: ${status.recording ? '⏺ On' : '⚫ Off'}`,
-    `Inputs: ${status.inputCount}`,
-  ];
-  if (status.audio) {
-    lines.push(`Master: ${status.audio.volume}% ${status.audio.muted ? '(MUTED)' : ''}`);
+
+  if (!status.running) {
+    return '🖥️ vMix — ❌ Offline\n\nvMix is not responding. Check that it is running.';
   }
+
+  const edition = [status.edition, status.version].filter(Boolean).join(' ');
+  const lines = [
+    `🖥️ vMix${edition ? ' ' + edition : ''} — ✅ Running`,
+    '',
+    status.streaming ? '🔴 Streaming: LIVE' : '⚫ Streaming: Off',
+    status.recording ? '⏺️  Recording: Active' : '⚫ Recording: Off',
+    '',
+    `🎬 Program: Input ${status.activeInput}`,
+    `👁️ Preview: Input ${status.previewInput}`,
+    `📋 Inputs: ${status.inputCount} loaded`,
+  ];
+
+  if (status.audio) {
+    const volPct = Math.round(status.audio.volume ?? 0);
+    lines.push('');
+    lines.push(status.audio.muted
+      ? `🔇 Master audio: MUTED (${volPct}%)`
+      : `🔊 Master audio: ${faderBar(volPct)} ${volPct}%`);
+  }
+
   return lines.join('\n');
 }
 
@@ -1273,7 +1605,7 @@ async function vmixPreview(agent) {
 async function vmixIsRunning(agent) {
   if (!agent.vmix) throw new Error('vMix not configured');
   const running = await agent.vmix.isRunning();
-  return running ? 'vMix is running' : 'vMix is not reachable';
+  return running ? '🖥️ vMix — ✅ Running' : '🖥️ vMix — ❌ Not reachable';
 }
 
 async function vmixFunction(agent, params) {
@@ -1310,17 +1642,100 @@ async function vmixAudioLevels(agent) {
   return `Master: ${audio.volume}% ${audio.muted ? '🔇 MUTED' : '🔊'} | L: ${audio.meterL} R: ${audio.meterR}`;
 }
 
+// ─── VMIX EXTENDED COMMANDS ─────────────────────────────────────────────────
+
+async function vmixFadeToBlack(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix._call('FadeToBlack');
+  return 'vMix: fade to black';
+}
+
+async function vmixSetInputVolume(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const input = params.input;
+  if (input == null) throw new Error('input required');
+  const value = params.volume != null ? params.volume : params.value;
+  if (value == null) throw new Error('volume value required (0-100)');
+  await agent.vmix._call('SetVolume', { Input: input, Value: value });
+  return `vMix input ${input} volume set to ${value}%`;
+}
+
+async function vmixMuteInput(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const input = params.input;
+  if (input == null) throw new Error('input required');
+  await agent.vmix._call('AudioOff', { Input: input });
+  return `vMix input ${input} muted`;
+}
+
+async function vmixUnmuteInput(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const input = params.input;
+  if (input == null) throw new Error('input required');
+  await agent.vmix._call('AudioOn', { Input: input });
+  return `vMix input ${input} unmuted`;
+}
+
+async function vmixOverlayInput(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const overlay = toInt(params.overlay || 1, 'overlay');
+  const input = params.input;
+  if (input == null) throw new Error('input required');
+  await agent.vmix._call(`OverlayInput${overlay}`, { Input: input });
+  return `vMix overlay ${overlay} set to input ${input}`;
+}
+
+async function vmixOverlayOff(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const overlay = toInt(params.overlay || 1, 'overlay');
+  await agent.vmix._call(`OverlayInput${overlay}Off`);
+  return `vMix overlay ${overlay} off`;
+}
+
+async function vmixSetText(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const input = params.input;
+  if (input == null) throw new Error('input required');
+  const text = String(params.text || params.value || '');
+  await agent.vmix._call('SetText', { Input: input, Value: text });
+  return `vMix input ${input} text updated`;
+}
+
+async function vmixReplay(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const action = String(params.action || 'PlayLastEvent').trim();
+  await agent.vmix._call(action);
+  return `vMix replay: ${action}`;
+}
+
 // ─── RESOLUME COMMANDS ────────────────────────────────────────────────────────
 
 async function resolumeStatus(agent) {
   if (!agent.resolume) throw new Error('Resolume not configured');
   const status = await agent.resolume.getStatus();
-  if (!status.running) return 'Resolume Arena is not reachable';
-  const playing = status.playing.length
-    ? status.playing.map(p => `${p.layer}: ${p.clip}`).join('\n')
-    : 'Nothing playing';
-  const bpm = status.bpm ? ` | BPM: ${status.bpm}` : '';
-  return `Resolume running | ${status.layerCount} layers | ${status.columnCount} columns${bpm}\n${playing}`;
+
+  if (!status.running) {
+    return '🎆 Resolume Arena — ❌ Offline\n\nResolume is not responding. Check that it is running.';
+  }
+
+  const lines = [
+    '🎆 Resolume Arena — ✅ Running',
+    '',
+    `📐 Composition: ${status.layerCount} layers · ${status.columnCount} columns`,
+    status.bpm ? `🥁 BPM: ${status.bpm}` : null,
+    '',
+  ];
+
+  if (status.playing.length) {
+    lines.push('▶️  Now playing:');
+    for (const p of status.playing) {
+      lines.push(`   ${p.layer}: ${p.clip}`);
+    }
+  } else {
+    lines.push('⏸️  Nothing playing');
+  }
+
+  return lines.filter(l => l != null).join('\n');
 }
 
 async function resolumePlayClip(agent, params) {
@@ -1390,7 +1805,7 @@ async function resolumeGetColumns(agent) {
 async function resolumeIsRunning(agent) {
   if (!agent.resolume) throw new Error('Resolume not configured');
   const running = await agent.resolume.isRunning();
-  return running ? 'Resolume Arena is running' : 'Resolume Arena is not reachable';
+  return running ? '🎆 Resolume Arena — ✅ Running' : '🎆 Resolume Arena — ❌ Not reachable';
 }
 
 async function resolumeVersion(agent) {
@@ -1405,6 +1820,71 @@ async function resolumeGetBpm(agent) {
   const bpm = await agent.resolume.getBpm();
   if (bpm == null) return 'BPM data not available';
   return `Current BPM: ${bpm}`;
+}
+
+// ─── RESOLUME EXTENDED COMMANDS ──────────────────────────────────────────────
+
+async function resolumePlayClipByName(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const name = String(params.name || '').trim();
+  if (!name) throw new Error('clip name required');
+  const result = await agent.resolume.playClipByName(name);
+  return `Playing clip "${result.clip}" on layer "${result.layer}"`;
+}
+
+async function resolumeTriggerColumnByName(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const name = String(params.name || '').trim();
+  if (!name) throw new Error('column name required');
+  await agent.resolume.triggerColumnByName(name);
+  return `Triggered column "${name}"`;
+}
+
+// ─── HYPERDECK EXTENDED COMMANDS ────────────────────────────────────────────
+
+async function hyperdeckSelectSlot(agent, params) {
+  const index = resolveHyperDeckIndex(params);
+  const deck = getDirectHyperDeck(agent, index);
+  if (!deck || !deck.connected) throw new Error(`HyperDeck ${getHyperDeckLabel(index)} not connected`);
+  const slot = toInt(params.slot, 'slot');
+  await deck._sendAndWait(`slot select: slot id: ${slot}`, [200]);
+  return `HyperDeck ${getHyperDeckLabel(index)} slot ${slot} selected`;
+}
+
+async function hyperdeckSetPlaySpeed(agent, params) {
+  const index = resolveHyperDeckIndex(params);
+  const deck = getDirectHyperDeck(agent, index);
+  if (!deck || !deck.connected) throw new Error(`HyperDeck ${getHyperDeckLabel(index)} not connected`);
+  const speed = params.speed != null ? Number(params.speed) : 100;
+  await deck._sendAndWait(`play: speed: ${speed}`, [200]);
+  return `HyperDeck ${getHyperDeckLabel(index)} playing at ${speed}% speed`;
+}
+
+async function hyperdeckGoToClip(agent, params) {
+  const index = resolveHyperDeckIndex(params);
+  const deck = getDirectHyperDeck(agent, index);
+  if (!deck || !deck.connected) throw new Error(`HyperDeck ${getHyperDeckLabel(index)} not connected`);
+  const clipId = toInt(params.clip || params.clipId, 'clip');
+  await deck._sendAndWait(`goto: clip id: ${clipId}`, [200]);
+  return `HyperDeck ${getHyperDeckLabel(index)} went to clip ${clipId}`;
+}
+
+async function hyperdeckGoToTimecode(agent, params) {
+  const index = resolveHyperDeckIndex(params);
+  const deck = getDirectHyperDeck(agent, index);
+  if (!deck || !deck.connected) throw new Error(`HyperDeck ${getHyperDeckLabel(index)} not connected`);
+  const tc = String(params.timecode || '00:00:00:00').trim();
+  await deck._sendAndWait(`goto: timecode: ${tc}`, [200]);
+  return `HyperDeck ${getHyperDeckLabel(index)} jumped to ${tc}`;
+}
+
+async function hyperdeckJog(agent, params) {
+  const index = resolveHyperDeckIndex(params);
+  const deck = getDirectHyperDeck(agent, index);
+  if (!deck || !deck.connected) throw new Error(`HyperDeck ${getHyperDeckLabel(index)} not connected`);
+  const tc = String(params.timecode || '00:00:01:00').trim();
+  await deck._sendAndWait(`jog: timecode: ${tc}`, [200]);
+  return `HyperDeck ${getHyperDeckLabel(index)} jogged to ${tc}`;
 }
 
 // ─── MIXER COMMANDS ──────────────────────────────────────────────────────────
@@ -1445,18 +1925,48 @@ function requireMixerCapability(agent, feature, friendlyName) {
   return cap; // 'full' or 'partial'
 }
 
+/** Pretty brand name for display. */
+function mixerBrandName(type, model) {
+  const t = (type || '').toLowerCase();
+  const m = (model || '').trim();
+  switch (t) {
+    case 'behringer': case 'x32':   return m ? `Behringer ${m}` : 'Behringer X32';
+    case 'midas':                    return m ? `Midas ${m}` : 'Midas M32';
+    case 'allenheath':               return m ? `Allen & Heath ${m}` : 'Allen & Heath SQ';
+    case 'avantis':                  return m ? `Allen & Heath ${m}` : 'Allen & Heath Avantis';
+    case 'dlive':                    return m ? `Allen & Heath ${m}` : 'Allen & Heath dLive';
+    case 'yamaha':                   return m ? `Yamaha ${m}` : 'Yamaha CL/QL';
+    default:                         return m || type || 'Audio Console';
+  }
+}
+
+/** Simple ASCII fader bar. */
+function faderBar(pct) {
+  const filled = Math.round(pct / 10);
+  return '█'.repeat(filled) + '░'.repeat(10 - filled);
+}
+
 async function mixerStatus(agent) {
   if (!agent.mixer) throw new Error('Audio console not configured');
   const status = await agent.mixer.getStatus();
-  if (!status.online) return `${status.type || 'Mixer'} console: not reachable`;
+  const name = mixerBrandName(status.type, status.model);
+
+  if (!status.online) {
+    return `🎛️ ${name} — ❌ Offline\n\nConsole is not responding. Check power and network connection.`;
+  }
+
   const faderPct = Math.round((status.mainFader ?? 0) * 100);
   const lines = [
-    `🎛️ ${status.type} console (${status.model || ''})`,
-    `Status: ${status.online ? '✅ Online' : '❌ Offline'}`,
-    `Main fader: ${faderPct}%`,
-    `Main output: ${status.mainMuted ? '🔇 MUTED' : '🔊 Active'}`,
-    status.scene != null ? `Current scene: ${status.scene}` : null,
-  ].filter(Boolean);
+    `🎛️ ${name} — ✅ Online`,
+    '',
+    status.mainMuted
+      ? '🔇 Main output: MUTED'
+      : `🔊 Main output: Active`,
+    `📊 Main fader: ${faderBar(faderPct)} ${faderPct}%`,
+    status.scene != null ? `🎬 Scene: ${status.scene}` : null,
+    status.firmware ? `📟 Firmware: ${status.firmware}` : null,
+  ].filter(l => l != null);
+
   return lines.join('\n');
 }
 
@@ -1488,7 +1998,13 @@ async function mixerChannelStatus(agent, params) {
   if (!ch) throw new Error('channel parameter required');
   const status = await agent.mixer.getChannelStatus(ch);
   const faderPct = Math.round((status.fader ?? 0) * 100);
-  return `Channel ${ch}: fader ${faderPct}% | ${status.muted ? '🔇 Muted' : '🔊 Active'}`;
+  const lines = [
+    `🎚️ Channel ${ch}`,
+    status.muted ? '🔇 Muted' : '🔊 Active',
+    `📊 Fader: ${faderBar(faderPct)} ${faderPct}%`,
+    status.name ? `🏷️ Name: ${status.name}` : null,
+  ].filter(l => l != null);
+  return lines.join('\n');
 }
 
 async function mixerRecallScene(agent, params) {
@@ -1509,7 +2025,8 @@ async function mixerClearSolos(agent) {
 async function mixerIsOnline(agent) {
   if (!agent.mixer) throw new Error('Audio console not configured');
   const online = await agent.mixer.isOnline();
-  return online ? '✅ Audio console is reachable' : '❌ Audio console not reachable';
+  const name = mixerBrandName(agent.config?.mixer?.type, agent.config?.mixer?.model);
+  return online ? `🎛️ ${name} — ✅ Online` : `🎛️ ${name} — ❌ Not reachable`;
 }
 
 function mixerCapabilities(agent) {
@@ -1727,6 +2244,64 @@ async function mixerVerifySceneSave(agent, params) {
     return `✅ Scene ${result.sceneNumber} verified: "${result.name}"`;
   }
   return `⚠️ Scene ${result.sceneNumber}: no name found (may not exist or save may have failed)`;
+}
+
+// ─── DCA / MUTE GROUP / SOFTKEY ──────────────────────────────────────────────
+
+async function mixerMuteDca(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'dcaControl', 'DCA control');
+  const { dca } = params;
+  if (dca == null) throw new Error('dca number required');
+  await agent.mixer.muteDca(parseInt(dca));
+  return `DCA ${dca} muted`;
+}
+
+async function mixerUnmuteDca(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'dcaControl', 'DCA control');
+  const { dca } = params;
+  if (dca == null) throw new Error('dca number required');
+  await agent.mixer.unmuteDca(parseInt(dca));
+  return `DCA ${dca} unmuted`;
+}
+
+async function mixerSetDcaFader(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'dcaControl', 'DCA control');
+  const { dca, level } = params;
+  if (dca == null) throw new Error('dca number required');
+  if (level == null) throw new Error('level required (0.0–1.0)');
+  const lvl = Math.max(0, Math.min(1, parseFloat(level)));
+  await agent.mixer.setDcaFader(parseInt(dca), lvl);
+  return `DCA ${dca} fader set to ${Math.round(lvl * 100)}%`;
+}
+
+async function mixerActivateMuteGroup(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'muteGroup', 'Mute groups');
+  const { group } = params;
+  if (group == null) throw new Error('group number required');
+  await agent.mixer.activateMuteGroup(parseInt(group));
+  return `Mute group ${group} activated`;
+}
+
+async function mixerDeactivateMuteGroup(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'muteGroup', 'Mute groups');
+  const { group } = params;
+  if (group == null) throw new Error('group number required');
+  await agent.mixer.deactivateMuteGroup(parseInt(group));
+  return `Mute group ${group} deactivated`;
+}
+
+async function mixerPressSoftKey(agent, params) {
+  if (!agent.mixer) throw new Error('Audio console not configured');
+  requireMixerCapability(agent, 'softKey', 'SoftKeys');
+  const { key } = params;
+  if (key == null) throw new Error('softkey number required');
+  await agent.mixer.pressSoftKey(parseInt(key));
+  return `SoftKey ${key} pressed`;
 }
 
 /**
@@ -2265,7 +2840,7 @@ async function atemClearMediaPoolClip(agent, params) {
 async function atemSetClassicAudioInputProps(agent, params) {
   const index = toInt(params.index ?? params.input, 'index');
   const props = {};
-  if (params.mixOption !== undefined) props.mixOption = toInt(params.mixOption, 'mixOption');
+  if (params.mixOption !== undefined) props.mixOption = toFairlightEnum(params.mixOption, FAIRLIGHT_MIX_OPTION, 'mixOption');
   if (params.gain !== undefined) props.gain = Number(params.gain);
   if (params.balance !== undefined) props.balance = Number(params.balance);
   if (params.rcaToXlrEnabled !== undefined) props.rcaToXlrEnabled = !!params.rcaToXlrEnabled;
@@ -2334,7 +2909,8 @@ async function atemSetFairlightAudioMasterProps(agent, params) {
 
 async function atemSetFairlightAudioMasterCompressorProps(agent, params) {
   const props = {};
-  if (params.enabled !== undefined) props.compressorEnabled = !!params.enabled;
+  if (params.compressorEnabled !== undefined) props.compressorEnabled = !!params.compressorEnabled;
+  else if (params.enabled !== undefined) props.compressorEnabled = !!params.enabled;
   if (params.threshold !== undefined) props.threshold = Number(params.threshold);
   if (params.ratio !== undefined) props.ratio = Number(params.ratio);
   if (params.attack !== undefined) props.attack = Number(params.attack);
@@ -2346,7 +2922,8 @@ async function atemSetFairlightAudioMasterCompressorProps(agent, params) {
 
 async function atemSetFairlightAudioMasterLimiterProps(agent, params) {
   const props = {};
-  if (params.enabled !== undefined) props.limiterEnabled = !!params.enabled;
+  if (params.limiterEnabled !== undefined) props.limiterEnabled = !!params.limiterEnabled;
+  else if (params.enabled !== undefined) props.limiterEnabled = !!params.enabled;
   if (params.threshold !== undefined) props.threshold = Number(params.threshold);
   if (params.attack !== undefined) props.attack = Number(params.attack);
   if (params.hold !== undefined) props.hold = Number(params.hold);
@@ -2358,9 +2935,10 @@ async function atemSetFairlightAudioMasterLimiterProps(agent, params) {
 async function atemSetFairlightAudioMasterEqBandProps(agent, params) {
   const band = toInt(params.band, 'band');
   const props = {};
-  if (params.bandEnabled !== undefined) props.bandEnabled = !!params.bandEnabled;
-  if (params.shape !== undefined) props.shape = toInt(params.shape, 'shape');
-  if (params.frequencyRange !== undefined) props.frequencyRange = toInt(params.frequencyRange, 'frequencyRange');
+  if (params.eqEnabled !== undefined) props.bandEnabled = !!params.eqEnabled;
+  else if (params.bandEnabled !== undefined) props.bandEnabled = !!params.bandEnabled;
+  if (params.shape !== undefined) props.shape = toFairlightEnum(params.shape, FAIRLIGHT_EQ_SHAPE, 'shape');
+  if (params.frequencyRange !== undefined) props.frequencyRange = toFairlightEnum(params.frequencyRange, FAIRLIGHT_FREQ_RANGE, 'frequencyRange');
   if (params.frequency !== undefined) props.frequency = Number(params.frequency);
   if (params.gain !== undefined) props.gain = Number(params.gain);
   if (params.qFactor !== undefined) props.qFactor = Number(params.qFactor);
@@ -2447,7 +3025,7 @@ async function atemSetFairlightAudioSourceProps(agent, params) {
   if (params.gain !== undefined) props.gain = Number(params.gain);
   if (params.balance !== undefined) props.balance = Number(params.balance);
   if (params.faderGain !== undefined) props.faderGain = Number(params.faderGain);
-  if (params.mixOption !== undefined) props.mixOption = toInt(params.mixOption, 'mixOption');
+  if (params.mixOption !== undefined) props.mixOption = toFairlightEnum(params.mixOption, FAIRLIGHT_MIX_OPTION, 'mixOption');
   if (params.stereoSimulation !== undefined) props.stereoSimulation = Number(params.stereoSimulation);
   await agent.atemCommand(() => agent.atem?.setFairlightAudioMixerSourceProps(index, source, props));
   return `Fairlight audio input ${index} source ${source} properties updated`;
@@ -2457,7 +3035,8 @@ async function atemSetFairlightAudioSourceCompressorProps(agent, params) {
   const index = toInt(params.index ?? params.input, 'index');
   const source = params.source ?? params.sourceId ?? '0';
   const props = {};
-  if (params.enabled !== undefined) props.compressorEnabled = !!params.enabled;
+  if (params.compressorEnabled !== undefined) props.compressorEnabled = !!params.compressorEnabled;
+  else if (params.enabled !== undefined) props.compressorEnabled = !!params.enabled;
   if (params.threshold !== undefined) props.threshold = Number(params.threshold);
   if (params.ratio !== undefined) props.ratio = Number(params.ratio);
   if (params.attack !== undefined) props.attack = Number(params.attack);
@@ -2471,7 +3050,8 @@ async function atemSetFairlightAudioSourceLimiterProps(agent, params) {
   const index = toInt(params.index ?? params.input, 'index');
   const source = params.source ?? params.sourceId ?? '0';
   const props = {};
-  if (params.enabled !== undefined) props.limiterEnabled = !!params.enabled;
+  if (params.limiterEnabled !== undefined) props.limiterEnabled = !!params.limiterEnabled;
+  else if (params.enabled !== undefined) props.limiterEnabled = !!params.enabled;
   if (params.threshold !== undefined) props.threshold = Number(params.threshold);
   if (params.attack !== undefined) props.attack = Number(params.attack);
   if (params.hold !== undefined) props.hold = Number(params.hold);
@@ -2484,7 +3064,8 @@ async function atemSetFairlightAudioSourceExpanderProps(agent, params) {
   const index = toInt(params.index ?? params.input, 'index');
   const source = params.source ?? params.sourceId ?? '0';
   const props = {};
-  if (params.enabled !== undefined) props.expanderEnabled = !!params.enabled;
+  if (params.expanderEnabled !== undefined) props.expanderEnabled = !!params.expanderEnabled;
+  else if (params.enabled !== undefined) props.expanderEnabled = !!params.enabled;
   if (params.gateEnabled !== undefined) props.gateEnabled = !!params.gateEnabled;
   if (params.threshold !== undefined) props.threshold = Number(params.threshold);
   if (params.range !== undefined) props.range = Number(params.range);
@@ -2501,9 +3082,10 @@ async function atemSetFairlightAudioSourceEqBandProps(agent, params) {
   const source = params.source ?? params.sourceId ?? '0';
   const band = toInt(params.band, 'band');
   const props = {};
-  if (params.bandEnabled !== undefined) props.bandEnabled = !!params.bandEnabled;
-  if (params.shape !== undefined) props.shape = toInt(params.shape, 'shape');
-  if (params.frequencyRange !== undefined) props.frequencyRange = toInt(params.frequencyRange, 'frequencyRange');
+  if (params.eqEnabled !== undefined) props.bandEnabled = !!params.eqEnabled;
+  else if (params.bandEnabled !== undefined) props.bandEnabled = !!params.bandEnabled;
+  if (params.shape !== undefined) props.shape = toFairlightEnum(params.shape, FAIRLIGHT_EQ_SHAPE, 'shape');
+  if (params.frequencyRange !== undefined) props.frequencyRange = toFairlightEnum(params.frequencyRange, FAIRLIGHT_FREQ_RANGE, 'frequencyRange');
   if (params.frequency !== undefined) props.frequency = Number(params.frequency);
   if (params.gain !== undefined) props.gain = Number(params.gain);
   if (params.qFactor !== undefined) props.qFactor = Number(params.qFactor);
@@ -2945,7 +3527,7 @@ async function preServiceCheck(agent) {
     checks.push({
       name: 'Audio Console',
       pass: mixerOnline,
-      detail: mixerOnline ? `${agent.config.mixer?.type} reachable` : 'Console not reachable',
+      detail: mixerOnline ? `${mixerBrandName(agent.config.mixer?.type, agent.config.mixer?.model)} reachable` : 'Console not reachable',
     });
     if (mixerOnline) {
       const mixerStatus = await agent.mixer.getStatus().catch(() => null);
@@ -3192,6 +3774,11 @@ const commandHandlers = {
   'hyperdeck.nextClip': hyperdeckNextClip,
   'hyperdeck.prevClip': hyperdeckPrevClip,
   'hyperdeck.status': hyperdeckStatus,
+  'hyperdeck.selectSlot': hyperdeckSelectSlot,
+  'hyperdeck.setPlaySpeed': hyperdeckSetPlaySpeed,
+  'hyperdeck.goToClip': hyperdeckGoToClip,
+  'hyperdeck.goToTimecode': hyperdeckGoToTimecode,
+  'hyperdeck.jog': hyperdeckJog,
 
   'ptz.pan': ptzPan,
   'ptz.tilt': ptzTilt,
@@ -3200,6 +3787,16 @@ const commandHandlers = {
   'ptz.stop': ptzStop,
   'ptz.home': ptzHome,
   'ptz.setPreset': ptzSetPreset,
+  'ptz.autoFocus': ptzAutoFocus,
+  'ptz.manualFocus': ptzManualFocus,
+  'ptz.focusNear': ptzFocusNear,
+  'ptz.focusFar': ptzFocusFar,
+  'ptz.focusStop': ptzFocusStop,
+  'ptz.autoWhiteBalance': ptzAutoWhiteBalance,
+  'ptz.indoorWhiteBalance': ptzIndoorWhiteBalance,
+  'ptz.outdoorWhiteBalance': ptzOutdoorWhiteBalance,
+  'ptz.onePushWb': ptzOnePushWb,
+  'ptz.backlightComp': ptzBacklightComp,
 
   // Blackmagic camera control (via ATEM)
   'camera.setIris': cameraSetIris,
@@ -3224,6 +3821,21 @@ const commandHandlers = {
   'obs.stopRecording': obsStopRecording,
   'obs.setScene': obsSetScene,
   'obs.configureMonitorStream': obsConfigureMonitorStream,
+  'obs.getScenes': obsGetScenes,
+  'obs.getInputList': obsGetInputList,
+  'obs.setInputVolume': obsSetInputVolume,
+  'obs.setInputMute': obsSetInputMute,
+  'obs.setTransition': obsSetTransition,
+  'obs.setTransitionDuration': obsSetTransitionDuration,
+  'obs.getSourceFilters': obsGetSourceFilters,
+  'obs.setSourceFilterEnabled': obsSetSourceFilterEnabled,
+  'obs.setStudioMode': obsSetStudioMode,
+  'obs.setPreviewScene': obsSetPreviewScene,
+  'obs.toggleVirtualCam': obsToggleVirtualCam,
+  'obs.pauseRecording': obsPauseRecording,
+  'obs.resumeRecording': obsResumeRecording,
+  'obs.getSceneItems': obsGetSceneItems,
+  'obs.setSceneItemEnabled': obsSetSceneItemEnabled,
   'encoder.startStream': encoderStartStream,
   'encoder.stopStream': encoderStopStream,
   'encoder.startRecording': encoderStartRecording,
@@ -3328,6 +3940,14 @@ const commandHandlers = {
   'vmix.startPlaylist': vmixStartPlaylist,
   'vmix.stopPlaylist': vmixStopPlaylist,
   'vmix.audioLevels': vmixAudioLevels,
+  'vmix.fadeToBlack': vmixFadeToBlack,
+  'vmix.setInputVolume': vmixSetInputVolume,
+  'vmix.muteInput': vmixMuteInput,
+  'vmix.unmuteInput': vmixUnmuteInput,
+  'vmix.overlayInput': vmixOverlayInput,
+  'vmix.overlayOff': vmixOverlayOff,
+  'vmix.setText': vmixSetText,
+  'vmix.replay': vmixReplay,
 
   'resolume.status': resolumeStatus,
   'resolume.playClip': resolumePlayClip,
@@ -3342,6 +3962,8 @@ const commandHandlers = {
   'resolume.isRunning': resolumeIsRunning,
   'resolume.version': resolumeVersion,
   'resolume.getBpm': resolumeGetBpm,
+  'resolume.playClipByName': resolumePlayClipByName,
+  'resolume.triggerColumnByName': resolumeTriggerColumnByName,
 
   'mixer.status': mixerStatus,
   'mixer.mute': mixerMute,
@@ -3370,6 +3992,12 @@ const commandHandlers = {
   'mixer.verifySceneSave': mixerVerifySceneSave,
   'mixer.setupFromPatchList': mixerSetupFromPatchList,
   'mixer.capabilities': mixerCapabilities,
+  'mixer.muteDca': mixerMuteDca,
+  'mixer.unmuteDca': mixerUnmuteDca,
+  'mixer.setDcaFader': mixerSetDcaFader,
+  'mixer.activateMuteGroup': mixerActivateMuteGroup,
+  'mixer.deactivateMuteGroup': mixerDeactivateMuteGroup,
+  'mixer.pressSoftKey': mixerPressSoftKey,
 
   'atem.uploadStill': atemUploadStill,
   'atem.setMediaPlayer': atemSetMediaPlayer,

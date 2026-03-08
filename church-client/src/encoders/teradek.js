@@ -173,6 +173,7 @@ class TeradekEncoder {
       cpuUsage: null,
       recording,
       details,
+      firmwareVersion: this._firmware || null,
     };
   }
 

@@ -23,6 +23,7 @@ class EpiphanEncoder {
     this._channels = [];
     this._recorders = [];
     this._productName = 'Epiphan Pearl';
+    this._firmware = null;
   }
 
   // ── HTTP helpers ──────────────────────────────────────────────────────────
@@ -82,6 +83,7 @@ class EpiphanEncoder {
       const fwRes = await this._api('GET', '/system/firmware');
       if (fwRes.ok && fwRes.data?.result) {
         this._productName = fwRes.data.result.product_name || 'Epiphan Pearl';
+        this._firmware = fwRes.data.result.version || null;
       }
     }
     return online;
@@ -159,6 +161,7 @@ class EpiphanEncoder {
       cpuUsage: cpuLoad,
       recording: anyRecording,
       details,
+      firmwareVersion: this._firmware || null,
     };
   }
 
