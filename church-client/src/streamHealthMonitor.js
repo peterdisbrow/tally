@@ -181,8 +181,11 @@ class StreamHealthMonitor {
   // ─── Facebook ─────────────────────────────────────────────────────────────
 
   async _checkFacebook(accessToken, streamSource) {
-    const url = `https://graph.facebook.com/v18.0/me/live_videos?status=LIVE&access_token=${encodeURIComponent(accessToken)}`;
-    const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    const url = `https://graph.facebook.com/v18.0/me/live_videos?status=LIVE`;
+    const resp = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    });
 
     if (!resp.ok) {
       console.warn(`[StreamHealthMonitor] Facebook API ${resp.status}`);

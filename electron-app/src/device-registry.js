@@ -272,3 +272,18 @@ const ENCODER_DISPLAY_NAMES = {
   ndi: 'NDI Decoder', yolobox: 'YoloBox', 'youtube-live': 'YouTube Live', 'facebook-live': 'Facebook Live', 'vimeo-live': 'Vimeo Live', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
   'atem-streaming': 'ATEM Mini',
 };
+
+// CommonJS export — allows `require()` from Node.js while remaining
+// a plain <script> global in the Electron renderer.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    DEVICE_CATEGORIES,
+    DEVICE_REGISTRY,
+    ENCODER_OPTIONS,
+    ENCODER_API_TYPES,
+    ENCODER_RTMP_TYPES,
+    ENCODER_DEFAULTS,
+    SCAN_TO_DEVICE,
+    ENCODER_DISPLAY_NAMES,
+  };
+}
