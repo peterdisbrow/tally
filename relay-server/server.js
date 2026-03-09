@@ -65,6 +65,7 @@ const { ScheduleEngine } = require('./src/scheduleEngine');
 const { AlertEngine } = require('./src/alertEngine');
 const { VersionConfig } = require('./src/versionConfig');
 const { AutoRecovery } = require('./src/autoRecovery');
+const { SignalFailover } = require('./src/signalFailover');
 const { WeeklyDigest } = require('./src/weeklyDigest');
 const { TallyBot, parseCommand } = require('./src/telegramBot');
 const { aiParseCommand, setAiUsageLogger: setParserLogger } = require('./src/ai-parser');
@@ -405,6 +406,11 @@ const _schemaMigrations = [
   // Self-service password reset
   "ALTER TABLE churches ADD COLUMN password_reset_token TEXT",
   "ALTER TABLE churches ADD COLUMN password_reset_expires TEXT",
+  // Signal failover settings
+  "ALTER TABLE churches ADD COLUMN failover_enabled INTEGER DEFAULT 0",
+  "ALTER TABLE churches ADD COLUMN failover_black_threshold_s INTEGER DEFAULT 5",
+  "ALTER TABLE churches ADD COLUMN failover_ack_timeout_s INTEGER DEFAULT 30",
+  "ALTER TABLE churches ADD COLUMN failover_action TEXT",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -684,6 +690,7 @@ const onCallRotation = new OnCallRotation(db);
 const alertEngine = new AlertEngine(db, scheduleEngine, { onCallRotation });
 const versionConfig = new VersionConfig(db);
 const autoRecovery = new AutoRecovery(churches, alertEngine, db);
+const signalFailover = new SignalFailover(churches, alertEngine, autoRecovery, db);
 const weeklyDigest = new WeeklyDigest(db);
 weeklyDigest.setNotificationConfig(process.env.ALERT_BOT_TOKEN);
 const rundownEngine = new RundownEngine(db);
@@ -2982,6 +2989,8 @@ function handleChurchMessage(church, msg) {
           sessionRecap.recordRecordingConfirmed(church.churchId);
         }
       }
+      // Feed signal failover with bitrate data from regular status polls
+      signalFailover.onStatusUpdate(church.churchId, church.status);
       break;
 
     case 'alert':
@@ -3034,6 +3043,14 @@ function handleChurchMessage(church, msg) {
           }
         })();
       }
+      break;
+
+    case 'signal_event':
+      signalFailover.onSignalEvent(church.churchId, msg.signal, {
+        bitrateKbps: msg.bitrateKbps,
+        baselineKbps: msg.baselineKbps,
+        church,
+      });
       break;
 
     case 'command_result': {

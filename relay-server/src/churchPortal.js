@@ -442,6 +442,11 @@ function buildChurchPortalHtml(church) {
     .status-dot.offline { background: #94A3B8; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
     @keyframes thinkBounce { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
+    @keyframes onboardPulse { 0%, 100% { border-color: #1a3a24; box-shadow: 0 0 0 rgba(34,197,94,0); } 50% { border-color: #22c55e; box-shadow: 0 0 12px rgba(34,197,94,0.15); } }
+    @keyframes onboardSlideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes onboardCheckPop { 0% { transform: scale(0.5); opacity: 0; } 50% { transform: scale(1.2); } 100% { transform: scale(1); opacity: 1; } }
+    .onboard-action-btn { display:inline-flex; align-items:center; gap:4px; font-size:11px; color:#22c55e; background:rgba(34,197,94,0.08); border:1px solid rgba(34,197,94,0.2); border-radius:4px; padding:3px 8px; cursor:pointer; text-decoration:none; margin-top:4px; }
+    .onboard-action-btn:hover { background:rgba(34,197,94,0.15); border-color:#22c55e; }
     /* STATS ROW */
     .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
     .stat-card {
@@ -700,6 +705,10 @@ function buildChurchPortalHtml(church) {
           <button onclick="dismissOnboarding()" style="background:none; border:1px solid #1a2e1f; color:#64748B; font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;">Dismiss</button>
         </div>
         <div id="onboarding-items"></div>
+      </div>
+      <!-- Resume Setup Guide (shown when dismissed but not all steps complete) -->
+      <div id="onboarding-resume" style="display:none; margin-bottom:16px; text-align:center;">
+        <button onclick="undismissOnboarding()" style="background:none; border:none; color:#22c55e; font-size:12px; cursor:pointer; padding:4px 8px; opacity:0.7;">📋 Resume Setup Guide</button>
       </div>
 
       <!-- Upgrade Banner -->
@@ -1095,6 +1104,61 @@ function buildChurchPortalHtml(church) {
           <label class="toggle"><input type="checkbox" id="notif-auto-recovery"><span class="slider"></span></label>
         </div>
         <button class="btn-primary" onclick="saveNotifications()" style="margin-top:12px">Save Preferences</button>
+      </div>
+      <div class="card">
+        <div class="card-title">Stream Failover Protection</div>
+        <p style="font-size:12px;color:#94A3B8;margin-bottom:12px">When enabled, Tally monitors encoder bitrate and ATEM connection. If an outage is detected, your TD is alerted via Telegram. If no one responds within the ack timeout, Tally automatically switches to your configured safe source.</p>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">Enable stream failover</div>
+            <div class="toggle-desc">Auto-switch to a safe source on confirmed signal loss</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="failover-enabled"><span class="slider"></span></label>
+        </div>
+        <div id="failover-config" style="margin-top:12px;display:none">
+          <div class="field" style="margin-bottom:10px">
+            <label>Failover action</label>
+            <select id="failover-action-type" onchange="toggleFailoverAction()" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+              <option value="">— Select —</option>
+              <option value="atem_switch">Switch ATEM program source</option>
+              <option value="videohub_route">Switch VideoHub route</option>
+            </select>
+          </div>
+          <div id="failover-atem-fields" style="display:none">
+            <div class="field" style="margin-bottom:10px">
+              <label>Safe source (ATEM input)</label>
+              <select id="failover-atem-input" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+                <option value="">Connect your ATEM to see inputs</option>
+              </select>
+            </div>
+          </div>
+          <div id="failover-videohub-fields" style="display:none">
+            <div class="field" style="margin-bottom:10px">
+              <label>VideoHub output (destination)</label>
+              <select id="failover-vh-output" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+                <option value="">Connect your VideoHub to see outputs</option>
+              </select>
+            </div>
+            <div class="field" style="margin-bottom:10px">
+              <label>Safe source (VideoHub input)</label>
+              <select id="failover-vh-input" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+                <option value="">Connect your VideoHub to see inputs</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;margin-bottom:10px">
+            <div class="field" style="flex:1">
+              <label>Black threshold (seconds)</label>
+              <input type="number" id="failover-black-threshold" value="5" min="3" max="15" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+            </div>
+            <div class="field" style="flex:1">
+              <label>Ack timeout (seconds)</label>
+              <input type="number" id="failover-ack-timeout" value="30" min="10" max="120" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+            </div>
+          </div>
+          <p style="font-size:11px;color:#64748B;margin-bottom:12px">Black threshold: how long to wait before confirming an outage. Ack timeout: how long to wait for TD response before auto-failover.</p>
+        </div>
+        <button class="btn-primary" onclick="saveFailoverSettings()" style="margin-top:8px">Save Failover Settings</button>
       </div>
       <div class="card">
         <div class="card-title">Telegram Integration</div>
@@ -2609,43 +2673,89 @@ function buildChurchPortalHtml(church) {
     function renderOnboarding(d) {
       const container = document.getElementById('onboarding-checklist');
       const itemsEl = document.getElementById('onboarding-items');
+      const resumeEl = document.getElementById('onboarding-resume');
       if (!container || !itemsEl) return;
 
-      // Hide if dismissed or all milestones complete
-      if (d.onboarding_dismissed) { container.style.display = 'none'; return; }
+      onboardingRegCode = d.registration_code || '';
 
       const steps = [
-        { done: true, label: 'Account created', detail: 'Your Tally account is set up' },
-        { done: !!d.onboarding_app_connected_at, label: 'Desktop app connected', detail: 'Download and run the Tally app on your booth computer' },
-        { done: !!d.onboarding_atem_connected_at, label: 'ATEM connected', detail: 'The app will auto-discover your ATEM switcher on the network' },
-        { done: !!d.onboarding_telegram_registered_at, label: 'Telegram bot registered', detail: 'Have a TD send /register ' + escapeHtml(d.registration_code || 'CODE') + ' to @tallybot' },
+        { key: 'account', done: true, label: 'Account created', detail: 'Your Tally account is set up' },
+        { key: 'app', done: !!d.onboarding_app_connected_at, label: 'Desktop app connected', detail: 'Download and run the Tally app on your booth computer', action: '<a href="/download" target="_blank" class="onboard-action-btn">⬇ Download App</a>' },
+        { key: 'atem', done: !!d.onboarding_atem_connected_at, label: 'ATEM connected', detail: 'The app will auto-discover your ATEM switcher on the network', action: '<span class="onboard-action-btn" onclick="showAtemTip()">💡 Network Tips</span>' },
+        { key: 'telegram', done: !!d.onboarding_telegram_registered_at, label: 'Telegram bot registered', detail: 'Send /register ' + escapeHtml(d.registration_code || 'CODE') + ' to @tallybot on Telegram', action: '<span class="onboard-action-btn" onclick="copyOnboardingCode()">📋 Copy Code</span> <a href="https://t.me/tallybot" target="_blank" class="onboard-action-btn">💬 Open Telegram</a>' },
       ];
 
       const completed = steps.filter(s => s.done).length;
-      if (completed >= steps.length) { container.style.display = 'none'; return; }
+      const allDone = completed >= steps.length;
 
+      // Show celebration banner when all steps complete
+      if (allDone) {
+        container.style.display = 'block';
+        container.style.animation = 'none';
+        container.style.borderColor = '#22c55e';
+        itemsEl.innerHTML = '<div style="text-align:center;padding:16px 0"><div style="font-size:28px;margin-bottom:8px;animation:onboardCheckPop 0.5s ease-out">🎉</div><div style="font-size:15px;font-weight:700;color:#22c55e">All set!</div><div style="font-size:12px;color:#94A3B8;margin-top:4px">Your Tally system is fully configured</div></div>';
+        if (resumeEl) resumeEl.style.display = 'none';
+        setTimeout(function() { container.style.display = 'none'; }, 5000);
+        return;
+      }
+
+      // Show resume link if dismissed but not complete
+      if (d.onboarding_dismissed) {
+        container.style.display = 'none';
+        if (resumeEl) resumeEl.style.display = 'block';
+        return;
+      }
+
+      // Show checklist
+      if (resumeEl) resumeEl.style.display = 'none';
       container.style.display = 'block';
+      container.style.animation = completed < 2 ? 'onboardPulse 3s ease-in-out infinite, onboardSlideIn 0.4s ease-out' : 'onboardSlideIn 0.4s ease-out';
       document.getElementById('onboarding-progress-text').textContent = completed + ' of ' + steps.length + ' steps complete';
 
       itemsEl.innerHTML = steps.map((s, i) => {
         const icon = s.done
-          ? '<div style="width:24px;height:24px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;color:#000;font-size:13px;font-weight:700;flex-shrink:0;">✓</div>'
+          ? '<div style="width:24px;height:24px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;color:#000;font-size:13px;font-weight:700;flex-shrink:0;animation:onboardCheckPop 0.4s ease-out">✓</div>'
           : '<div style="width:24px;height:24px;border-radius:50%;border:2px solid #334155;display:flex;align-items:center;justify-content:center;color:#64748B;font-size:12px;font-weight:700;flex-shrink:0;">' + (i + 1) + '</div>';
+        var actionHtml = (!s.done && s.action) ? '<div style="margin-top:4px">' + s.action + '</div>' : '';
         return '<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;' + (i < steps.length - 1 ? 'border-bottom:1px solid #1a2e1f;' : '') + '">'
           + icon
-          + '<div>'
+          + '<div style="flex:1">'
           + '<div style="font-size:13px;font-weight:600;color:' + (s.done ? '#22c55e' : '#F8FAFC') + ';">' + s.label + '</div>'
           + (s.done ? '' : '<div style="font-size:12px;color:#64748B;margin-top:2px;">' + s.detail + '</div>')
+          + actionHtml
           + '</div>'
           + '</div>';
       }).join('');
+    }
+
+    var onboardingRegCode = '';
+
+    function copyOnboardingCode() {
+      if (!onboardingRegCode) { toast('No registration code available', true); return; }
+      navigator.clipboard.writeText('/register ' + onboardingRegCode).then(function() { toast('Copied: /register ' + onboardingRegCode); }).catch(function() { toast('Code: /register ' + onboardingRegCode); });
+    }
+
+    function showAtemTip() {
+      toast('Ensure your ATEM and booth computer are on the same network subnet. The app scans automatically.');
     }
 
     async function dismissOnboarding() {
       try {
         await api('POST', '/api/church/onboarding/dismiss');
         document.getElementById('onboarding-checklist').style.display = 'none';
+        var resumeEl = document.getElementById('onboarding-resume');
+        if (resumeEl) resumeEl.style.display = 'block';
       } catch(e) { console.error('Dismiss failed:', e); }
+    }
+
+    async function undismissOnboarding() {
+      try {
+        await api('POST', '/api/church/onboarding/undismiss');
+        var resumeEl = document.getElementById('onboarding-resume');
+        if (resumeEl) resumeEl.style.display = 'none';
+        // Reload overview to re-render onboarding
+        loadOverview();
+      } catch(e) { toast('Failed to restore setup guide', true); }
     }
 
     // ── Profile ─────────────────────────────────────────────────────────────────
@@ -2836,6 +2946,9 @@ function buildChurchPortalHtml(church) {
           renderEngineerChat();
           // Show thinking indicator while waiting for AI response
           showEngineerThinking();
+          // Quick-poll for faster response: check at 1s and 2s instead of waiting for 4s interval
+          setTimeout(function() { pollEngineerChat(); }, 1000);
+          setTimeout(function() { pollEngineerChat(); }, 2000);
         }
       } catch(e) {
         toast(e.message, true);
@@ -2843,23 +2956,41 @@ function buildChurchPortalHtml(church) {
       }
     }
 
+    var engineerThinkingTimer = null;
+    var engineerThinkingStart = 0;
+
     function showEngineerThinking() {
       var container = document.getElementById('engineer-chat-messages');
       if (!container) return;
       var existing = document.getElementById('engineer-thinking');
       if (existing) existing.remove();
+      if (engineerThinkingTimer) { clearInterval(engineerThinkingTimer); engineerThinkingTimer = null; }
+      engineerThinkingStart = Date.now();
       var div = document.createElement('div');
       div.id = 'engineer-thinking';
       div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;margin:4px 0;font-size:12px;color:#64748B';
-      div.innerHTML = '<span style="display:inline-flex;gap:3px"><span style="animation:thinkBounce 1.2s infinite;width:6px;height:6px;background:#22C55E;border-radius:50%"></span><span style="animation:thinkBounce 1.2s infinite 0.2s;width:6px;height:6px;background:#22C55E;border-radius:50%"></span><span style="animation:thinkBounce 1.2s infinite 0.4s;width:6px;height:6px;background:#22C55E;border-radius:50%"></span></span> Tally Engineer is thinking\u2026';
+      div.innerHTML = '<span style="display:inline-flex;gap:3px"><span style="animation:thinkBounce 1.2s infinite;width:6px;height:6px;background:#22C55E;border-radius:50%"></span><span style="animation:thinkBounce 1.2s infinite 0.2s;width:6px;height:6px;background:#22C55E;border-radius:50%"></span><span style="animation:thinkBounce 1.2s infinite 0.4s;width:6px;height:6px;background:#22C55E;border-radius:50%"></span></span> <span id="engineer-thinking-text">Tally Engineer is thinking\u2026</span> <span id="engineer-thinking-elapsed" style="color:#475569;font-size:10px;margin-left:4px"></span>';
       container.appendChild(div);
       container.scrollTop = container.scrollHeight;
-      setTimeout(function() { var el = document.getElementById('engineer-thinking'); if (el) el.remove(); }, 30000);
+      engineerThinkingTimer = setInterval(function() {
+        var el = document.getElementById('engineer-thinking');
+        if (!el) { clearInterval(engineerThinkingTimer); engineerThinkingTimer = null; return; }
+        var elapsed = Math.floor((Date.now() - engineerThinkingStart) / 1000);
+        var elapsedEl = document.getElementById('engineer-thinking-elapsed');
+        if (elapsedEl) elapsedEl.textContent = elapsed + 's';
+        var textEl = document.getElementById('engineer-thinking-text');
+        if (textEl) {
+          if (elapsed >= 15) textEl.textContent = 'Analyzing your system\u2026';
+          else if (elapsed >= 5) textEl.textContent = 'Still working on it\u2026';
+        }
+      }, 1000);
+      setTimeout(function() { var el = document.getElementById('engineer-thinking'); if (el) el.remove(); if (engineerThinkingTimer) { clearInterval(engineerThinkingTimer); engineerThinkingTimer = null; } }, 60000);
     }
 
     function hideEngineerThinking() {
       var el = document.getElementById('engineer-thinking');
       if (el) el.remove();
+      if (engineerThinkingTimer) { clearInterval(engineerThinkingTimer); engineerThinkingTimer = null; }
     }
 
     function sendEngineerPill(btn) {
@@ -3420,7 +3551,11 @@ function buildChurchPortalHtml(church) {
         document.getElementById('notif-digest').checked = !!notifData.digest;
         document.getElementById('notif-auto-recovery').checked = d.autoRecoveryEnabled !== false && d.autoRecoveryEnabled !== 0;
         document.getElementById('telegram-chat-id').value = d.telegramChatId || '';
+        // Populate failover dropdowns from live equipment status
+        if (d.status) populateFailoverInputs(d.status);
       } catch(e) { toast('Failed to load notifications', true); }
+      // Load failover settings separately
+      loadFailoverSettings();
     }
 
     async function saveNotifications() {
@@ -3436,6 +3571,130 @@ function buildChurchPortalHtml(church) {
           autoRecoveryEnabled: document.getElementById('notif-auto-recovery').checked,
         });
         toast('Notification preferences saved');
+      } catch(e) { toast(e.message, true); }
+    }
+
+    // ── Stream Failover Settings ─────────────────────────────────────────────
+    function toggleFailoverAction() {
+      var t = document.getElementById('failover-action-type').value;
+      document.getElementById('failover-atem-fields').style.display = t === 'atem_switch' ? 'block' : 'none';
+      document.getElementById('failover-videohub-fields').style.display = t === 'videohub_route' ? 'block' : 'none';
+    }
+
+    async function loadFailoverSettings() {
+      try {
+        var f = await api('GET', '/api/church/failover');
+        document.getElementById('failover-enabled').checked = f.enabled;
+        document.getElementById('failover-config').style.display = f.enabled ? 'block' : 'none';
+        document.getElementById('failover-black-threshold').value = f.blackThresholdS || 5;
+        document.getElementById('failover-ack-timeout').value = f.ackTimeoutS || 30;
+        if (f.action) {
+          document.getElementById('failover-action-type').value = f.action.type || '';
+          toggleFailoverAction();
+          if (f.action.type === 'atem_switch') {
+            // Set ATEM input after dropdown is populated
+            setTimeout(function() {
+              var sel = document.getElementById('failover-atem-input');
+              if (sel) sel.value = String(f.action.input || '');
+            }, 500);
+          } else if (f.action.type === 'videohub_route') {
+            setTimeout(function() {
+              var oSel = document.getElementById('failover-vh-output');
+              var iSel = document.getElementById('failover-vh-input');
+              if (oSel) oSel.value = String(f.action.output || '');
+              if (iSel) iSel.value = String(f.action.input || '');
+            }, 500);
+          }
+        }
+      } catch(e) { /* failover not configured yet — use defaults */ }
+    }
+
+    // Toggle config visibility when enabled/disabled
+    document.getElementById('failover-enabled').addEventListener('change', function() {
+      document.getElementById('failover-config').style.display = this.checked ? 'block' : 'none';
+    });
+
+    function populateFailoverInputs(status) {
+      // Populate ATEM input dropdown
+      var atemSel = document.getElementById('failover-atem-input');
+      if (atemSel && status && status.atem && status.atem.inputLabels) {
+        var labels = status.atem.inputLabels;
+        var prevVal = atemSel.value;
+        atemSel.innerHTML = '<option value="">— Select safe source —</option>';
+        // Standard inputs
+        Object.keys(labels).sort(function(a, b) { return Number(a) - Number(b); }).forEach(function(id) {
+          var opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = id + ' — ' + labels[id];
+          atemSel.appendChild(opt);
+        });
+        // Always add media players (may not be in inputLabels)
+        [{ id: 3010, name: 'Media Player 1' }, { id: 3020, name: 'Media Player 2' }].forEach(function(mp) {
+          if (!labels[String(mp.id)]) {
+            var opt = document.createElement('option');
+            opt.value = mp.id;
+            opt.textContent = mp.id + ' — ' + mp.name;
+            atemSel.appendChild(opt);
+          }
+        });
+        if (prevVal) atemSel.value = prevVal;
+      }
+
+      // Populate VideoHub dropdowns
+      if (status && status.videoHubs && status.videoHubs.length > 0) {
+        var hub = status.videoHubs[0];
+        var oSel = document.getElementById('failover-vh-output');
+        var iSel = document.getElementById('failover-vh-input');
+        if (oSel && hub.outputLabels) {
+          var prevO = oSel.value;
+          oSel.innerHTML = '<option value="">— Select output —</option>';
+          hub.outputLabels.forEach(function(l, i) {
+            var opt = document.createElement('option');
+            opt.value = i;
+            opt.textContent = i + ' — ' + (l || 'Output ' + i);
+            oSel.appendChild(opt);
+          });
+          if (prevO) oSel.value = prevO;
+        }
+        if (iSel && hub.inputLabels) {
+          var prevI = iSel.value;
+          iSel.innerHTML = '<option value="">— Select safe source —</option>';
+          hub.inputLabels.forEach(function(l, i) {
+            var opt = document.createElement('option');
+            opt.value = i;
+            opt.textContent = i + ' — ' + (l || 'Input ' + i);
+            iSel.appendChild(opt);
+          });
+          if (prevI) iSel.value = prevI;
+        }
+      }
+    }
+
+    async function saveFailoverSettings() {
+      try {
+        var actionType = document.getElementById('failover-action-type').value;
+        var action = null;
+        if (actionType === 'atem_switch') {
+          var input = document.getElementById('failover-atem-input').value;
+          if (!input) { toast('Select an ATEM input for failover', true); return; }
+          action = { type: 'atem_switch', input: Number(input) };
+        } else if (actionType === 'videohub_route') {
+          var output = document.getElementById('failover-vh-output').value;
+          var vhInput = document.getElementById('failover-vh-input').value;
+          if (!output || !vhInput) { toast('Select VideoHub output and input for failover', true); return; }
+          action = { type: 'videohub_route', output: Number(output), input: Number(vhInput), hubIndex: 0 };
+        }
+
+        var enabled = document.getElementById('failover-enabled').checked;
+        if (enabled && !action) { toast('Configure a failover action before enabling', true); return; }
+
+        await api('PUT', '/api/church/failover', {
+          enabled: enabled,
+          blackThresholdS: Number(document.getElementById('failover-black-threshold').value) || 5,
+          ackTimeoutS: Number(document.getElementById('failover-ack-timeout').value) || 30,
+          action: action,
+        });
+        toast('Failover settings saved');
       } catch(e) { toast(e.message, true); }
     }
 
@@ -4684,6 +4943,71 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to dismiss onboarding' });
+    }
+  });
+
+  // ── POST /api/church/onboarding/undismiss ──────────────────────────────────
+  app.post('/api/church/onboarding/undismiss', authMiddleware, (req, res) => {
+    try {
+      db.prepare('UPDATE churches SET onboarding_dismissed = 0 WHERE churchId = ?').run(req.church.churchId);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to restore onboarding' });
+    }
+  });
+
+  // ── GET /api/church/failover ─────────────────────────────────────────────────
+  app.get('/api/church/failover', authMiddleware, (req, res) => {
+    try {
+      const row = db.prepare(
+        'SELECT failover_enabled, failover_black_threshold_s, failover_ack_timeout_s, failover_action FROM churches WHERE churchId = ?'
+      ).get(req.church.churchId);
+      if (!row) return res.status(404).json({ error: 'Church not found' });
+      let action = null;
+      try { action = row.failover_action ? JSON.parse(row.failover_action) : null; } catch { /* invalid JSON */ }
+      res.json({
+        enabled: !!row.failover_enabled,
+        blackThresholdS: row.failover_black_threshold_s || 5,
+        ackTimeoutS: row.failover_ack_timeout_s || 30,
+        action,
+      });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to load failover settings' });
+    }
+  });
+
+  // ── PUT /api/church/failover ─────────────────────────────────────────────────
+  app.put('/api/church/failover', authMiddleware, (req, res) => {
+    try {
+      const { enabled, blackThresholdS, ackTimeoutS, action } = req.body;
+      const churchId = req.church.churchId;
+
+      // Validate thresholds
+      const blackS = Math.max(3, Math.min(15, Number(blackThresholdS) || 5));
+      const ackS = Math.max(10, Math.min(120, Number(ackTimeoutS) || 30));
+
+      // Validate action shape
+      let actionJson = null;
+      if (action && typeof action === 'object') {
+        if (action.type === 'atem_switch' && action.input != null) {
+          actionJson = JSON.stringify({ type: 'atem_switch', input: Number(action.input) });
+        } else if (action.type === 'videohub_route' && action.output != null && action.input != null) {
+          actionJson = JSON.stringify({
+            type: 'videohub_route',
+            output: Number(action.output),
+            input: Number(action.input),
+            hubIndex: Number(action.hubIndex) || 0,
+          });
+        }
+      }
+
+      db.prepare(
+        'UPDATE churches SET failover_enabled = ?, failover_black_threshold_s = ?, failover_ack_timeout_s = ?, failover_action = ? WHERE churchId = ?'
+      ).run(enabled ? 1 : 0, blackS, ackS, actionJson, churchId);
+
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to save failover settings' });
     }
   });
 

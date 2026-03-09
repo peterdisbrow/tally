@@ -28,6 +28,9 @@ const RECOVERY_PLAYBOOK = {
   'audio_muted':               { onFail: 'alert_td_audio' },
   'multiple_systems_down':     { onFail: 'escalate_to_td' },
   'stream_platform_health':    { onFail: 'escalate_to_td' },
+  'failover_confirmed_outage': { onFail: 'execute_failover' },
+  'failover_executed':         { onFail: 'escalate_to_td' },
+  'failover_command_failed':   { onFail: 'escalate_to_td' },
 };
 
 class AutoRecovery {

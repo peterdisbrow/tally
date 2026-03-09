@@ -378,6 +378,12 @@ class ChurchAVAgent {
       camera:       { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
       _startedAt: Date.now(),
     };
+
+    // ── Signal failover bitrate tracking ──────────────────────────────────────
+    this._bitrateBaseline = null;      // established kbps baseline for current stream
+    this._bitrateSamples = [];         // rolling samples for baseline calculation
+    this._bitrateInLoss = false;       // true = loss signal sent, waiting for recovery
+    this._fastEncoderPoll = false;     // true = 3s poll instead of 15s
   }
 
   updateAtemIdentity(state) {
@@ -841,6 +847,7 @@ class ChurchAVAgent {
       this.atemReconnecting = false;
       this.sendStatus();
       this.sendAlert('ATEM connected', 'info');
+      this.sendToRelay({ type: 'signal_event', signal: 'atem_restored' });
 
       // Log initial program/preview + input labels after state has populated
       setTimeout(() => {
@@ -867,6 +874,7 @@ class ChurchAVAgent {
       this.status.atem.connected = false;
       this.sendStatus();
       this.sendAlert('ATEM disconnected', 'warning');
+      this.sendToRelay({ type: 'signal_event', signal: 'atem_lost' });
       this.reconnectATEM();
     });
 
@@ -1209,31 +1217,99 @@ class ChurchAVAgent {
       console.log('⚠️  Encoder not available (will retry)');
     }
 
-    // Poll every 15 seconds
-    setInterval(async () => {
-      if (!this.encoderBridge) return;
-      try {
-        const wasConnected = this.status.encoder.connected;
-        const wasLive = this.status.encoder.live || this.status.encoder.streaming;
-        const s = await this.encoderBridge.getStatus();
-        Object.assign(this.status.encoder, s);
-        if (s?.details) this.logIdentity('encoder', 'Encoder identity:', s.details);
+    // Adaptive encoder polling: 3s during active streams (for failover detection), 15s otherwise
+    this._encoderPollTimer = null;
+    this._startEncoderPoll(15_000);
+  }
 
-        if (s.connected && !wasConnected) { this.health.encoder.reconnects++; console.log('✅ Encoder connected'); }
-        if (!s.connected && wasConnected) console.log('⚠️  Encoder disconnected');
+  _startEncoderPoll(intervalMs) {
+    if (this._encoderPollTimer) clearInterval(this._encoderPollTimer);
+    this._encoderPollTimer = setInterval(() => this._pollEncoder(), intervalMs);
+  }
 
-        // Detect encoder stream stopped
-        const isLive = s.live || s.streaming;
-        if (wasLive && !isLive && s.connected) {
-          const encoderType = s.type || this.config.encoder?.type || 'Encoder';
-          this.sendAlert(`🔴 ${encoderType} stream stopped`, 'critical');
+  async _pollEncoder() {
+    if (!this.encoderBridge) return;
+    try {
+      const wasConnected = this.status.encoder.connected;
+      const wasLive = this.status.encoder.live || this.status.encoder.streaming;
+      const s = await this.encoderBridge.getStatus();
+      Object.assign(this.status.encoder, s);
+      if (s?.details) this.logIdentity('encoder', 'Encoder identity:', s.details);
+
+      if (s.connected && !wasConnected) { this.health.encoder.reconnects++; console.log('✅ Encoder connected'); }
+      if (!s.connected && wasConnected) console.log('⚠️  Encoder disconnected');
+
+      // Detect encoder stream started/stopped
+      const isLive = s.live || s.streaming;
+      if (wasLive && !isLive && s.connected) {
+        const encoderType = s.type || this.config.encoder?.type || 'Encoder';
+        this.sendAlert(`🔴 ${encoderType} stream stopped`, 'critical');
+        // Reset bitrate tracking + switch back to slow poll
+        this._bitrateBaseline = null;
+        this._bitrateSamples = [];
+        this._bitrateInLoss = false;
+        if (this._fastEncoderPoll) {
+          this._fastEncoderPoll = false;
+          this._startEncoderPoll(15_000);
         }
-        if (!wasLive && isLive) {
-          const encoderType = s.type || this.config.encoder?.type || 'Encoder';
-          this.sendAlert(`✅ ${encoderType} streaming started`, 'info');
+      }
+      if (!wasLive && isLive) {
+        const encoderType = s.type || this.config.encoder?.type || 'Encoder';
+        this.sendAlert(`✅ ${encoderType} streaming started`, 'info');
+        // Switch to fast poll for failover detection
+        if (!this._fastEncoderPoll) {
+          this._fastEncoderPoll = true;
+          this._startEncoderPoll(3_000);
+          console.log('[SignalFailover] Fast encoder poll enabled (3s)');
         }
-      } catch { /* ignore */ }
-    }, 15_000);
+      }
+
+      // ── Bitrate signal tracking (for failover state machine) ──────────────
+      if (isLive && s.bitrateKbps > 0) {
+        this._updateBitrateSignal(s.bitrateKbps);
+      }
+    } catch { /* ignore */ }
+  }
+
+  _updateBitrateSignal(bitrateKbps) {
+    const BASELINE_SAMPLES = 3;
+    const DROP_RATIO = 0.2;     // below 20% of baseline = loss
+    const RECOVER_RATIO = 0.5;  // above 50% of baseline = recovered
+
+    // Build baseline from first healthy samples
+    if (bitrateKbps > 500) {
+      this._bitrateSamples.push(bitrateKbps);
+      if (this._bitrateSamples.length > 10) this._bitrateSamples.shift();
+      if (!this._bitrateBaseline && this._bitrateSamples.length >= BASELINE_SAMPLES) {
+        this._bitrateBaseline = this._bitrateSamples.reduce((a, b) => a + b, 0) / this._bitrateSamples.length;
+        console.log(`[SignalFailover] Bitrate baseline: ${Math.round(this._bitrateBaseline)} kbps`);
+      }
+    }
+
+    if (!this._bitrateBaseline) return;
+
+    const ratio = bitrateKbps / this._bitrateBaseline;
+
+    if (!this._bitrateInLoss && ratio < DROP_RATIO) {
+      // Bitrate dropped below threshold — signal loss
+      this._bitrateInLoss = true;
+      console.log(`[SignalFailover] Bitrate loss: ${Math.round(bitrateKbps)} kbps (${Math.round(ratio * 100)}% of baseline ${Math.round(this._bitrateBaseline)} kbps)`);
+      this.sendToRelay({
+        type: 'signal_event',
+        signal: 'encoder_bitrate_loss',
+        bitrateKbps: Math.round(bitrateKbps),
+        baselineKbps: Math.round(this._bitrateBaseline),
+      });
+    } else if (this._bitrateInLoss && ratio > RECOVER_RATIO) {
+      // Bitrate recovered above threshold — signal recovery
+      this._bitrateInLoss = false;
+      console.log(`[SignalFailover] Bitrate recovered: ${Math.round(bitrateKbps)} kbps (${Math.round(ratio * 100)}% of baseline)`);
+      this.sendToRelay({
+        type: 'signal_event',
+        signal: 'encoder_bitrate_recovered',
+        bitrateKbps: Math.round(bitrateKbps),
+      });
+    }
   }
 
   // ─── COMPANION CONNECTION ────────────────────────────────────────────────

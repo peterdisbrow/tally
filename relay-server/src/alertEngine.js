@@ -31,6 +31,15 @@ const ALERT_CLASSIFICATIONS = {
   'firmware_outdated': 'WARNING',
   'multiple_systems_down': 'EMERGENCY',
   'no_td_response': 'EMERGENCY',
+  // Signal failover classifications
+  'failover_suspected_black': 'WARNING',
+  'failover_atem_lost': 'WARNING',
+  'failover_confirmed_outage': 'CRITICAL',
+  'failover_executed': 'EMERGENCY',
+  'failover_source_recovering': 'INFO',
+  'failover_recovery_executed': 'INFO',
+  'failover_recovery_failed': 'CRITICAL',
+  'failover_command_failed': 'EMERGENCY',
 };
 
 const DIAGNOSIS_TEMPLATES = {
@@ -164,6 +173,24 @@ const DIAGNOSIS_TEMPLATES = {
     likely_cause: 'Device firmware or software version is below recommended minimum',
     confidence: 95,
     steps: ['Check the version shown in your church portal equipment table', 'Visit the manufacturer website for the latest update', 'Schedule a maintenance window to update — never update during a service'],
+    canAutoFix: false,
+  },
+  'failover_confirmed_outage': {
+    likely_cause: 'Source signal lost — possible upstream power or hardware failure',
+    confidence: 90,
+    steps: ['Check source equipment power', 'Verify SDI/HDMI signal chain', 'Failover will engage automatically if unacknowledged'],
+    canAutoFix: true,
+  },
+  'failover_executed': {
+    likely_cause: 'Automated failover triggered after source outage was confirmed',
+    confidence: 95,
+    steps: ['Check and restore original source equipment', 'Verify source signal is stable', 'Reply with /recover command when ready to switch back'],
+    canAutoFix: false,
+  },
+  'failover_command_failed': {
+    likely_cause: 'Failover command could not be sent to the switcher or router',
+    confidence: 85,
+    steps: ['Check ATEM/VideoHub connection', 'Manually switch to backup source immediately', 'Check network between Tally and switcher'],
     canAutoFix: false,
   },
 };
