@@ -93,12 +93,10 @@ const { buildDiagnosticContext } = require('./src/diagnostic-context');
 const { LifecycleEmails } = require('./src/lifecycleEmails');
 
 const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS } = require('./src/billing');
-const { buildResellerPortalHtml } = require('./src/dashboard');
 const { setupSyncMonitor } = require('./src/syncMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
 const { RundownEngine } = require('./src/rundownEngine');
 const { RundownScheduler } = require('./src/scheduler');
-const setupSchedulerRoutes = require('./src/routes/scheduler');
 const { setupResellerPortal } = require('./src/resellerPortal');
 const { setupStatusPage } = require('./src/statusPage');
 const { setupDocsPortal } = require('./src/docsPortal');
@@ -1870,7 +1868,7 @@ const routeCtx = {
   resellerSystem, planningCenter, streamOAuth, eventMode,
   scheduleEngine, alertEngine, weeklyDigest, sessionRecap,
   monthlyReport, autoPilot, presetLibrary, onCallRotation, rundownEngine, scheduler,
-  guestTdMode, chatEngine, buildResellerPortalHtml,
+  guestTdMode, chatEngine,
   logAiUsage, isOnTopic, OFF_TOPIC_RESPONSE, runManualDbSnapshot,
   jwt, JWT_SECRET, ADMIN_ROLES, ADMIN_API_KEY, uuidv4,
   CHURCH_APP_TOKEN_TTL, REQUIRE_ACTIVE_BILLING, TRIAL_PERIOD_DAYS,
@@ -3542,6 +3540,10 @@ function gracefulShutdown(signal) {
   // Clear all tracked intervals to prevent timer leaks / post-close errors
   for (const id of _intervals) clearInterval(id);
   _intervals.length = 0;
+
+  // Clean up subsystem timers (failover black/ack timers, Telegram bot polling)
+  try { signalFailover.cleanup(); } catch {}
+  try { tallyBot?.stop?.(); } catch {}
 
   // Close WebSocket server (stops accepting new connections)
   wss.close(() => {

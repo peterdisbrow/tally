@@ -384,6 +384,16 @@ class ChurchAVAgent {
     this._bitrateSamples = [];         // rolling samples for baseline calculation
     this._bitrateInLoss = false;       // true = loss signal sent, waiting for recovery
     this._fastEncoderPoll = false;     // true = 3s poll instead of 15s
+
+    // ── Interval tracking for clean shutdown ───────────────────────────────────
+    this._intervals = [];              // all setInterval IDs for unified cleanup
+    this._relayConnecting = false;     // guard against overlapping connectRelay() calls
+  }
+
+  /** Track a setInterval ID for cleanup on stop(). Returns the ID. */
+  _track(intervalId) {
+    this._intervals.push(intervalId);
+    return intervalId;
   }
 
   updateAtemIdentity(state) {
@@ -554,15 +564,15 @@ class ChurchAVAgent {
     await this.connectPTZ();
     await this.connectEncoder();
 
-    setInterval(() => this.sendStatus(), 10_000);
-    setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000);
+    this._track(setInterval(() => this.sendStatus(), 10_000));
+    this._track(setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000));
 
     // Watchdog
     this.watchdogActive = this.config.watchdog !== false;
     this._lastAlerts = new Map(); // alertType → timestamp (dedup)
     if (this.watchdogActive) {
       console.log('🐕 Watchdog enabled (30s interval)');
-      setInterval(() => this.watchdogTick(), 30_000);
+      this._track(setInterval(() => this.watchdogTick(), 30_000));
     }
 
     console.log('\n✅ Tally running. Press Ctrl+C to stop.\n');
@@ -711,6 +721,10 @@ class ChurchAVAgent {
   // ─── RELAY CONNECTION ──────────────────────────────────────────────────────
 
   connectRelay() {
+    // Guard against overlapping connection attempts (e.g. rapid close events)
+    if (this._relayConnecting) return Promise.resolve();
+    this._relayConnecting = true;
+
     return new Promise((resolve) => {
       const url = `${this.config.relay}/church?token=${this.config.token}`;
       console.log(`\n📡 Connecting to relay...`);
@@ -722,22 +736,26 @@ class ChurchAVAgent {
 
       this.relay = new WebSocket(url);
       let resolved = false;
-      const doResolve = () => { if (!resolved) { resolved = true; resolve(); } };
+      const doResolve = () => {
+        this._relayConnecting = false;
+        if (!resolved) { resolved = true; resolve(); }
+      };
 
       this.relay.on('open', () => {
         console.log('✅ Connected to relay server');
+        this._relayConnecting = false;
         this.reconnectDelay = 3000;
         this.sendStatus();
         doResolve();
 
         // Ping relay every 30s to measure latency
         if (this._relayPingTimer) clearInterval(this._relayPingTimer);
-        this._relayPingTimer = setInterval(() => {
+        this._relayPingTimer = this._track(setInterval(() => {
           if (this.relay?.readyState === WebSocket.OPEN) {
             this._relayPingSent = Date.now();
             this.sendToRelay({ type: 'ping', ts: this._relayPingSent });
           }
-        }, 30_000);
+        }, 30_000));
       });
 
       this.relay.on('message', (data) => {
@@ -750,15 +768,19 @@ class ChurchAVAgent {
       });
 
       this.relay.on('close', (code, reason) => {
+        this._relayConnecting = false;
         console.warn(`⚠️  Relay disconnected (${code}: ${reason}). Reconnecting in ${this.reconnectDelay / 1000}s...`);
         if (this._relayPingTimer) clearInterval(this._relayPingTimer);
         this.health.relay.reconnects++;
         doResolve(); // Don't block startup if relay is down
-        setTimeout(() => this.connectRelay(), this.reconnectDelay);
-        this.reconnectDelay = Math.min(this.reconnectDelay * 2, 60_000);
+        if (!this._stopping) {
+          setTimeout(() => this.connectRelay(), this.reconnectDelay);
+          this.reconnectDelay = Math.min(this.reconnectDelay * 2, 60_000);
+        }
       });
 
       this.relay.on('error', (err) => {
+        this._relayConnecting = false;
         console.error('Relay error:', err.message);
         doResolve(); // Don't block startup on error
       });
@@ -834,6 +856,13 @@ class ChurchAVAgent {
     const atemIp = this.config.atemIp;
     this.status.atem.ip = atemIp || null;
     this._fakeAtemMode = false;
+
+    // Clean up previous ATEM instance to prevent orphaned event handlers
+    if (this.atem) {
+      try { this.atem.removeAllListeners(); } catch { /* ignore */ }
+      try { this.atem.destroy(); } catch { /* ignore */ }
+    }
+
     this.atem = new Atem();
 
     this.atem.on('connected', () => {
@@ -1061,6 +1090,25 @@ class ChurchAVAgent {
 
   async stop() {
     this._stopping = true;
+
+    // 1. Clear ALL tracked intervals (prevents timer fires after connections close)
+    for (const id of this._intervals) clearInterval(id);
+    this._intervals.length = 0;
+
+    // 2. Clear named timers (belt + suspenders for any created before _track)
+    if (this._relayPingTimer) { clearInterval(this._relayPingTimer); this._relayPingTimer = null; }
+    if (this._encoderPollTimer) { clearInterval(this._encoderPollTimer); this._encoderPollTimer = null; }
+    if (this._previewTimer) { clearInterval(this._previewTimer); this._previewTimer = null; }
+
+    // 3. Close relay WebSocket
+    if (this.relay) {
+      try { this.relay.removeAllListeners(); this.relay.terminate(); } catch { /* ignore */ }
+    }
+
+    // 4. Prevent pending ATEM reconnect from firing
+    this.atemReconnecting = true;
+
+    // 5. Disconnect all devices
     try {
       if (this.obs && typeof this.obs.disconnect === 'function') {
         await this.obs.disconnect();
@@ -1081,6 +1129,8 @@ class ChurchAVAgent {
         this.atem.destroy();
       }
     } catch {}
+
+    console.log('🛑 All timers cleared, connections closed.');
   }
 
   // ─── OBS CONNECTION ───────────────────────────────────────────────────────
@@ -1147,7 +1197,7 @@ class ChurchAVAgent {
       // Stats poll — registered ONCE, checks connected flag before each call
       if (!this._obsStatsPollStarted) {
         this._obsStatsPollStarted = true;
-        setInterval(async () => {
+        this._track(setInterval(async () => {
           if (!this.status.obs.connected) return;
           try {
             const stats = await this.obs.call('GetStats');
@@ -1175,7 +1225,7 @@ class ChurchAVAgent {
               this.sendAlert(`⚠️ Low stream FPS: ${this.status.obs.fps}fps`, 'warning');
             }
           } catch { /* ignore poll errors */ }
-        }, 15_000);
+        }, 15_000));
       }
     }
 
@@ -1224,7 +1274,7 @@ class ChurchAVAgent {
 
   _startEncoderPoll(intervalMs) {
     if (this._encoderPollTimer) clearInterval(this._encoderPollTimer);
-    this._encoderPollTimer = setInterval(() => this._pollEncoder(), intervalMs);
+    this._encoderPollTimer = this._track(setInterval(() => this._pollEncoder(), intervalMs));
   }
 
   async _pollEncoder() {
@@ -1341,8 +1391,9 @@ class ChurchAVAgent {
       console.log('⚠️  Companion not available (optional)');
     }
 
-    // Periodically refresh companion status
-    setInterval(async () => {
+    // Periodically refresh companion status (guard against duplicate intervals on re-entry)
+    if (this._companionPollTimer) clearInterval(this._companionPollTimer);
+    this._companionPollTimer = this._track(setInterval(async () => {
       try {
         const wasConnected = this.status.companion.connected;
         const avail = await this.companion.isAvailable();
@@ -1356,7 +1407,7 @@ class ChurchAVAgent {
         if (avail && !wasConnected) { this.health.companion.reconnects++; console.log('✅ Companion connected'); }
         if (!avail && wasConnected) console.log('⚠️  Companion disconnected');
       } catch { /* ignore */ }
-    }, 30_000);
+    }, 30_000));
   }
 
   // ─── PREVIEW SCREENSHOTS ────────────────────────────────────────────────
@@ -1392,7 +1443,7 @@ class ChurchAVAgent {
     this.stopPreview();
     console.log(`📸 Preview started (every ${intervalMs}ms)`);
     this.status.previewActive = true;
-    this._previewTimer = setInterval(async () => {
+    this._previewTimer = this._track(setInterval(async () => {
       const frame = await this.capturePreviewFrame();
       if (frame) {
         // Safety: skip if frame > 150KB base64
@@ -1409,7 +1460,7 @@ class ChurchAVAgent {
           data: frame.data,
         });
       }
-    }, intervalMs);
+    }, intervalMs));
   }
 
   stopPreview() {
@@ -1515,7 +1566,8 @@ class ChurchAVAgent {
     this._updateHyperDeckStatus();
     this.sendStatus();
 
-    setInterval(async () => {
+    if (this._hyperdeckPollTimer) clearInterval(this._hyperdeckPollTimer);
+    this._hyperdeckPollTimer = this._track(setInterval(async () => {
       if (!Array.isArray(this.hyperdecks) || this.hyperdecks.length === 0) return;
       await Promise.all(this.hyperdecks.map(async (deck) => {
         try {
@@ -1533,7 +1585,7 @@ class ChurchAVAgent {
       }));
       this._updateHyperDeckStatus();
       this.sendStatus();
-    }, 15_000);
+    }, 15_000));
   }
 
   _updateHyperDeckStatus() {
@@ -1585,8 +1637,9 @@ class ChurchAVAgent {
     } catch { /* optional */ }
     await this._updateProPresenterStatus();
 
-    // Periodically refresh ProPresenter status
-    setInterval(() => this._updateProPresenterStatus(), 30_000);
+    // Periodically refresh ProPresenter status (guard against duplicate intervals on re-entry)
+    if (this._proPollTimer) clearInterval(this._proPollTimer);
+    this._proPollTimer = this._track(setInterval(() => this._updateProPresenterStatus(), 30_000));
   }
 
   async _updateProPresenterStatus() {
@@ -1641,8 +1694,9 @@ class ChurchAVAgent {
       this.status.resolume = { connected: false, host: cfg.host, port: cfg.port || 8080, version: null };
     }
 
-    // Periodically refresh Resolume status
-    setInterval(async () => {
+    // Periodically refresh Resolume status (guard against duplicate intervals on re-entry)
+    if (this._resolumePollTimer) clearInterval(this._resolumePollTimer);
+    this._resolumePollTimer = this._track(setInterval(async () => {
       if (!this.resolume) return;
       try {
         const running = await this.resolume.isRunning();
@@ -1654,7 +1708,7 @@ class ChurchAVAgent {
           this.sendStatus();
         }
       } catch { /* ignore */ }
-    }, 30_000);
+    }, 30_000));
   }
 
   // ─── VMIX CONNECTION ──────────────────────────────────────────────────────
@@ -1687,8 +1741,9 @@ class ChurchAVAgent {
       this.status.vmix = { connected: false, streaming: false, recording: false, edition: null, version: null };
     }
 
-    // Poll vMix status every 30s
-    setInterval(async () => {
+    // Poll vMix status every 30s (guard against duplicate intervals on re-entry)
+    if (this._vmixPollTimer) clearInterval(this._vmixPollTimer);
+    this._vmixPollTimer = this._track(setInterval(async () => {
       if (!this.vmix) return;
       try {
         const status = await this.vmix.getStatus();
@@ -1717,7 +1772,7 @@ class ChurchAVAgent {
         }
         this.sendStatus();
       } catch { /* ignore */ }
-    }, 30_000);
+    }, 30_000));
   }
 
   // ─── MIXER CONNECTION ─────────────────────────────────────────────────────
@@ -1747,8 +1802,9 @@ class ChurchAVAgent {
       this.status.mixer = { connected: false, type: mixerConfig.type, model: null, mainMuted: false };
     }
 
-    // Poll every 30s — alert if master gets muted during service
-    setInterval(async () => {
+    // Poll every 30s — alert if master gets muted during service (guard against duplicate intervals)
+    if (this._mixerPollTimer) clearInterval(this._mixerPollTimer);
+    this._mixerPollTimer = this._track(setInterval(async () => {
       if (!this.mixer) return;
       try {
         const status = await this.mixer.getStatus();
@@ -1768,7 +1824,7 @@ class ChurchAVAgent {
         if (wasMuted && !status.mainMuted) this.sendAlert('✅ Audio master unmuted', 'info');
         this.sendStatus();
       } catch { /* ignore poll errors */ }
-    }, 30_000);
+    }, 30_000));
   }
 
   // ─── PTZ CONNECTION ───────────────────────────────────────────────────────
@@ -1786,7 +1842,8 @@ class ChurchAVAgent {
     this.status.ptz = this.ptzManager.getStatus();
     this.sendStatus();
 
-    setInterval(async () => {
+    if (this._ptzPollTimer) clearInterval(this._ptzPollTimer);
+    this._ptzPollTimer = this._track(setInterval(async () => {
       if (!this.ptzManager) return;
       try {
         const prevPtz = this.status.ptz || [];
@@ -1798,7 +1855,7 @@ class ChurchAVAgent {
         }
         this.sendStatus();
       } catch { /* ignore */ }
-    }, 30_000);
+    }, 30_000));
   }
 
   // ─── HELPERS ──────────────────────────────────────────────────────────────
