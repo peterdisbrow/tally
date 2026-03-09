@@ -613,6 +613,8 @@ async function callAnthropic(messages, timeout = 15000, systemPrompt = '') {
   const MAX_RETRIES = 2;
   const RETRY_DELAYS = [1000, 2500]; // ms before each retry
 
+  const callStartMs = Date.now();
+
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -652,7 +654,8 @@ async function callAnthropic(messages, timeout = 15000, systemPrompt = '') {
       const raw = data?.content?.[0]?.text?.trim();
 
       if (!raw) throw new Error('Anthropic returned empty response');
-      return { text: raw, usage: data.usage || null };
+      const latencyMs = Date.now() - callStartMs;
+      return { text: raw, usage: data.usage || null, latencyMs };
 
     } finally {
       clearTimeout(timeoutId);
@@ -821,8 +824,8 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   const promptTokenEst = Math.round(systemPrompt.length / 4);
   try {
     console.log(`[ai-parser] Calling Haiku (${messages.length} msg, ~${promptTokenEst} prompt tokens) for: "${text.slice(0, 60)}"`);
-    const { text: raw, usage } = await callAnthropic(messages, 15000, systemPrompt);
-    console.log(`[ai-parser] Raw response: ${raw.slice(0, 300)}`);
+    const { text: raw, usage, latencyMs } = await callAnthropic(messages, 15000, systemPrompt);
+    console.log(`[ai-parser] Raw response (${latencyMs}ms): ${raw.slice(0, 300)}`);
 
     // Log AI usage
     if (_logAiUsage && usage) {
@@ -832,6 +835,8 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
         model: 'claude-haiku-4-5-20251001',
         inputTokens: usage.input_tokens || 0,
         outputTokens: usage.output_tokens || 0,
+        latencyMs,
+        intent: 'command',
       });
     }
 

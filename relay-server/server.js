@@ -88,6 +88,8 @@ const { ResellerSystem } = require('./src/reseller');
 const { AutoPilot } = require('./src/autoPilot');
 const { ChatEngine } = require('./src/chatEngine');
 const { ENGINEER_SYSTEM_PROMPT } = require('./src/engineer-knowledge');
+const { classifyIntent } = require('./src/intent-classifier');
+const { buildDiagnosticContext } = require('./src/diagnostic-context');
 const { LifecycleEmails } = require('./src/lifecycleEmails');
 
 const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS } = require('./src/billing');
@@ -406,6 +408,9 @@ const _schemaMigrations = [
   // Self-service password reset
   "ALTER TABLE churches ADD COLUMN password_reset_token TEXT",
   "ALTER TABLE churches ADD COLUMN password_reset_expires TEXT",
+  // AI routing tracking columns
+  "ALTER TABLE ai_usage_log ADD COLUMN latency_ms INTEGER",
+  "ALTER TABLE ai_usage_log ADD COLUMN intent TEXT",
   // Signal failover settings
   "ALTER TABLE churches ADD COLUMN failover_enabled INTEGER DEFAULT 0",
   "ALTER TABLE churches ADD COLUMN failover_black_threshold_s INTEGER DEFAULT 5",
@@ -656,15 +661,16 @@ const MODEL_PRICING = {
   'claude-haiku-4-5-20251001':  { input: 1.00,  output: 5.00  },  // $/M tokens
   'claude-3-haiku-20240307':    { input: 0.25,  output: 1.25  },
   'claude-sonnet-4-20250514':   { input: 3.00,  output: 15.00 },
+  'claude-sonnet-4-6-20250627':  { input: 3.00,  output: 15.00 },
 };
-function logAiUsage({ churchId, feature, model, inputTokens, outputTokens, cached }) {
+function logAiUsage({ churchId, feature, model, inputTokens, outputTokens, cached, latencyMs, intent }) {
   const m = model || 'claude-haiku-4-5-20251001';
   const pricing = MODEL_PRICING[m] || MODEL_PRICING['claude-haiku-4-5-20251001'];
   const cost = ((inputTokens || 0) * pricing.input / 1_000_000) + ((outputTokens || 0) * pricing.output / 1_000_000);
   try {
     db.prepare(
-      'INSERT INTO ai_usage_log (church_id, feature, model, input_tokens, output_tokens, cost_usd, cached, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(churchId || null, feature, m, inputTokens || 0, outputTokens || 0, cost, cached ? 1 : 0, new Date().toISOString());
+      'INSERT INTO ai_usage_log (church_id, feature, model, input_tokens, output_tokens, cost_usd, cached, created_at, latency_ms, intent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(churchId || null, feature, m, inputTokens || 0, outputTokens || 0, cost, cached ? 1 : 0, new Date().toISOString(), latencyMs || null, intent || null);
   } catch (err) {
     console.error('[AI Usage] Failed to log:', err.message);
   }
@@ -955,7 +961,7 @@ if (TALLY_BOT_TOKEN) {
     botToken: TALLY_BOT_TOKEN,
     adminChatId: ANDREW_TELEGRAM_CHAT_ID,
     db,
-    relay: { churches },
+    relay: { churches, callDiagnosticAI },
     onCallRotation,
     guestTdMode,
     presetLibrary,
@@ -1939,41 +1945,90 @@ function formatResultForChat(result) {
   }
 }
 
-// ─── ENGINEER AI (question answering) ─────────────────────────────────────
+// ─── DIAGNOSTIC AI (Sonnet) — deep troubleshooting + question answering ──────
+// Commands stay on Haiku (lean context). Diagnostics go to Sonnet (full context).
 
-const QUESTION_STARTERS = /^(how|what|why|where|when|which|who|explain|tell me|can (you|i|we|tally)|could (you|i|we)|would (you|it)|does|do|is there|is it|is the|is my|help me|i need help|i'm having|im having|any idea|do you know|what's|whats|where's|where is|walk me through|show me how|describe|should (i|we)|i don't understand|i dont understand|i'm confused|im confused|troubleshoot|diagnose)/i;
-const COMMAND_STARTERS = /^(cut|switch|take|go|start|stop|mute|unmute|fade|set|recall|save|run|press|play|record|route|clear|toggle|upload|snap|check|scan|test|turn|apply|load)\b/i;
+const DIAGNOSTIC_MODEL = 'claude-sonnet-4-6-20250627';
+const DIAGNOSTIC_TIMEOUT = 25000; // Sonnet is slower — 25s acceptable for diagnostics
 
-function isEngineerQuestion(message) {
-  if (!message || typeof message !== 'string') return false;
-  const trimmed = message.trim();
-  if (!trimmed) return false;
-  // Short messages (1-2 words) are likely commands, not questions
-  if (trimmed.split(/\s+/).length <= 2 && !trimmed.includes('?')) return false;
-  // Messages starting with command verbs are commands, not questions
-  if (COMMAND_STARTERS.test(trimmed)) return false;
-  // Messages starting with question words or containing ? are questions
-  if (QUESTION_STARTERS.test(trimmed)) return true;
-  if (trimmed.includes('?')) return true;
-  return false;
-}
-
-async function callEngineerAI(churchId, question) {
+async function callDiagnosticAI(churchId, question) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return 'AI is not configured (ANTHROPIC_API_KEY missing).';
 
-  const church = churches.get(churchId);
-  const churchRow = stmtGet.get(churchId);
-  let engineerProfile = {};
-  try { engineerProfile = JSON.parse(churchRow?.engineer_profile || '{}'); } catch {}
-
-  const statusContext = church?.status ? JSON.stringify(church.status) : '{}';
-  const profileContext = Object.keys(engineerProfile).length > 0
-    ? '\n\nEngineer profile: ' + JSON.stringify(engineerProfile)
-    : '';
-
+  const diagnosticContext = buildDiagnosticContext(churchId, db, churches, signalFailover);
   const conversationHistory = chatEngine.getRecentConversation(churchId);
 
+  const systemPrompt = ENGINEER_SYSTEM_PROMPT
+    + '\n\n── DIAGNOSTIC CONTEXT ──\n' + diagnosticContext;
+
+  const startMs = Date.now();
+
+  try {
+    console.log(`[DiagnosticAI] Calling Sonnet for ${churchId}: "${question.slice(0, 60)}"`);
+    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: DIAGNOSTIC_MODEL,
+        system: systemPrompt,
+        messages: [
+          ...(Array.isArray(conversationHistory) ? conversationHistory : []),
+          { role: 'user', content: question },
+        ],
+        temperature: 0.4,
+        max_tokens: 1200,
+      }),
+      signal: AbortSignal.timeout(DIAGNOSTIC_TIMEOUT),
+    });
+
+    const latencyMs = Date.now() - startMs;
+
+    if (!aiRes.ok) {
+      const errBody = await aiRes.text().catch(() => '');
+      console.error(`[DiagnosticAI] Anthropic error: ${aiRes.status} ${errBody.slice(0, 200)}`);
+      // Fallback to Haiku if Sonnet fails
+      console.log('[DiagnosticAI] Falling back to Haiku...');
+      return _callHaikuDiagnosticFallback(churchId, question, conversationHistory);
+    }
+
+    const data = await aiRes.json();
+    const reply = data?.content?.[0]?.text || 'No response.';
+
+    if (data?.usage) {
+      logAiUsage({
+        churchId,
+        feature: 'diagnostic_chat',
+        model: DIAGNOSTIC_MODEL,
+        inputTokens: data.usage.input_tokens || 0,
+        outputTokens: data.usage.output_tokens || 0,
+        latencyMs,
+        intent: 'diagnostic',
+      });
+    }
+
+    console.log(`[DiagnosticAI] Sonnet responded in ${latencyMs}ms (${(data?.usage?.input_tokens || 0) + (data?.usage?.output_tokens || 0)} tokens)`);
+    return reply;
+  } catch (err) {
+    console.error(`[DiagnosticAI] Error: ${err.message}`);
+    // Fallback to Haiku on timeout or other errors
+    console.log('[DiagnosticAI] Falling back to Haiku...');
+    return _callHaikuDiagnosticFallback(churchId, question, conversationHistory);
+  }
+}
+
+/** Haiku fallback when Sonnet is unavailable — best-effort diagnostic with lean context */
+async function _callHaikuDiagnosticFallback(churchId, question, conversationHistory) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return 'AI is not configured.';
+
+  const church = churches.get(churchId);
+  const statusContext = church?.status ? JSON.stringify(church.status) : '{}';
+
+  const startMs = Date.now();
   try {
     const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1984,9 +2039,7 @@ async function callEngineerAI(churchId, question) {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        system: ENGINEER_SYSTEM_PROMPT
-          + '\n\nCurrent church status: ' + statusContext
-          + profileContext,
+        system: ENGINEER_SYSTEM_PROMPT + '\n\nCurrent church status: ' + statusContext,
         messages: [
           ...(Array.isArray(conversationHistory) ? conversationHistory : []),
           { role: 'user', content: question },
@@ -1997,11 +2050,9 @@ async function callEngineerAI(churchId, question) {
       signal: AbortSignal.timeout(15000),
     });
 
-    if (!aiRes.ok) {
-      const errBody = await aiRes.text().catch(() => '');
-      console.error(`[EngineerAI] Anthropic error: ${aiRes.status} ${errBody.slice(0, 200)}`);
-      return 'Sorry, I couldn\'t process that question right now. Try again in a moment.';
-    }
+    const latencyMs = Date.now() - startMs;
+
+    if (!aiRes.ok) return 'Sorry, I could not process that question right now. Try again in a moment.';
 
     const data = await aiRes.json();
     const reply = data?.content?.[0]?.text || 'No response.';
@@ -2009,17 +2060,19 @@ async function callEngineerAI(churchId, question) {
     if (data?.usage) {
       logAiUsage({
         churchId,
-        feature: 'engineer_chat',
+        feature: 'diagnostic_chat_fallback',
         model: 'claude-haiku-4-5-20251001',
         inputTokens: data.usage.input_tokens || 0,
         outputTokens: data.usage.output_tokens || 0,
+        latencyMs,
+        intent: 'diagnostic',
       });
     }
 
     return reply;
   } catch (err) {
-    console.error(`[EngineerAI] Error: ${err.message}`);
-    return 'Sorry, I couldn\'t process that question right now. Try again in a moment.';
+    console.error(`[DiagnosticAI/Fallback] Error: ${err.message}`);
+    return 'Sorry, I could not process that question right now. Try again in a moment.';
   }
 }
 
@@ -2395,9 +2448,12 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     return;
   }
 
-  // ─── Engineer AI: answer questions before trying command parsing ──────────
-  if (isEngineerQuestion(rawMessage)) {
-    const reply = await callEngineerAI(churchId, rawMessage);
+  // ─── Intent classification: route diagnostics to Sonnet, commands to Haiku ──
+  const classification = classifyIntent(rawMessage);
+  console.log(`[Router] "${rawMessage.slice(0, 50)}" → ${classification.intent} (${classification.confidence}, ${classification.reason})`);
+
+  if (classification.intent === 'diagnostic') {
+    const reply = await callDiagnosticAI(churchId, rawMessage);
     postSystemChatMessage(churchId, reply);
     return;
   }
@@ -2492,6 +2548,13 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
   }
 
   if (aiResult.type === 'chat') {
+    // Ambiguous intent: Haiku couldn't resolve a command — escalate to Sonnet
+    if (classification.intent === 'ambiguous') {
+      console.log(`[Router] Ambiguous escalation to Sonnet for: "${rawMessage.slice(0, 50)}"`);
+      const reply = await callDiagnosticAI(churchId, rawMessage);
+      postSystemChatMessage(churchId, reply);
+      return;
+    }
     postSystemChatMessage(churchId, aiResult.text || 'I could not map that to a command.');
     return;
   }

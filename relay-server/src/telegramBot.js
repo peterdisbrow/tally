@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { aiParseCommand } = require('./ai-parser');
 const { isStreamActive, isRecordingActive } = require('./status-utils');
 const { smartParse } = require('./smart-parser');
+const { classifyIntent } = require('./intent-classifier');
 const { checkStreamSafety, checkWorkflowSafety, hasForceBypass } = require('./stream-guard');
 const { parseRundownDescription, editRundownCues, formatRundownPreview } = require('./rundown-ai');
 
@@ -987,7 +988,16 @@ class TallyBot {
       }
     }
 
-    // ── AI fallback: Anthropic parser ──────────────────────────────────────────
+    // ── Intent classification: route diagnostics to Sonnet, commands to Haiku ──
+    const classification = classifyIntent(text);
+
+    // Diagnostic intent → Sonnet (deep reasoning with full context)
+    if (classification.intent === 'diagnostic' && this.relay?.callDiagnosticAI) {
+      const reply = await this.relay.callDiagnosticAI(church.churchId, text);
+      return this.sendMessage(chatId, reply, { parse_mode: 'Markdown' });
+    }
+
+    // ── AI fallback: Anthropic parser (Haiku — lean command context) ─────────
     const ctx = {
       churchId: church.churchId,
       churchName: church.name,
@@ -1037,11 +1047,16 @@ class TallyBot {
 
     // Conversational reply from AI
     if (aiResult.type === 'chat') {
+      // Ambiguous intent: Haiku couldn't resolve a command — escalate to Sonnet
+      if (classification.intent === 'ambiguous' && this.relay?.callDiagnosticAI) {
+        const reply = await this.relay.callDiagnosticAI(church.churchId, text);
+        return this.sendMessage(chatId, reply, { parse_mode: 'Markdown' });
+      }
       return this.sendMessage(chatId, aiResult.text);
     }
 
     // AI unavailable or parse failed — fall back to help nudge
-    return this.sendMessage(chatId, "🤔 I didn't understand that. Try `help` for a list of commands.", { parse_mode: 'Markdown' });
+    return this.sendMessage(chatId, "I didn't understand that. Try `help` for a list of commands.", { parse_mode: 'Markdown' });
   }
 
   // ─── ADMIN COMMAND HANDLER ────────────────────────────────────────────
