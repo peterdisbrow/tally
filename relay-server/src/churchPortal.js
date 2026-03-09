@@ -1955,16 +1955,20 @@ function buildChurchPortalHtml(church) {
     }
 
     // ── Rundown Card ─────────────────────────────────────────────────────────
+    var TRIGGER_ICONS = { manual: '✋', time_absolute: '🕐', time_relative: '⏱', delay: '⏳', event: '⚡' };
+
     async function loadRundown() {
       var body = document.getElementById('rundown-body');
       var badge = document.getElementById('rundown-status-badge');
       if (!body) return;
       try {
-        var active = await api('GET', '/api/church/rundown/active');
-        if (active && active.active) {
-          badge.className = 'badge badge-green';
-          badge.textContent = 'Step ' + ((active.stepIndex || 0) + 1) + ' / ' + (active.totalSteps || '?');
-          renderActiveRundown(body, active);
+        var status = await api('GET', '/api/church/scheduler/status');
+        if (status && status.active) {
+          var stateColor = status.state === 'running' ? 'badge-green' : (status.state === 'paused' ? 'badge-yellow' : 'badge-gray');
+          badge.className = 'badge ' + stateColor;
+          badge.textContent = status.state === 'completed' ? 'Done' : ('Cue ' + (status.currentCue + 1) + '/' + status.totalCues);
+          var active = await api('GET', '/api/church/rundown/active');
+          renderActiveRundown(body, active, status);
         } else {
           badge.className = 'badge badge-gray';
           badge.textContent = 'Inactive';
@@ -1978,11 +1982,27 @@ function buildChurchPortalHtml(church) {
       }
     }
 
-    function renderActiveRundown(container, data) {
+    function renderActiveRundown(container, data, schedulerStatus) {
       var steps = data.rundown ? data.rundown.steps : [];
-      var currentIdx = data.stepIndex || 0;
-      var html = '<div style="font-size:14px;font-weight:600;color:#F8FAFC;margin-bottom:12px">' + escapeHtml(data.rundownName || 'Rundown') + '</div>';
-      html += '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px">';
+      var currentIdx = schedulerStatus ? schedulerStatus.currentCue : (data.stepIndex || 0);
+      var state = schedulerStatus ? schedulerStatus.state : 'running';
+      var progress = schedulerStatus ? schedulerStatus.progress : 0;
+      var rundownName = schedulerStatus ? schedulerStatus.rundownName : (data.rundownName || 'Rundown');
+
+      var html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+      html += '<div style="font-size:14px;font-weight:600;color:#F8FAFC">' + escapeHtml(rundownName) + '</div>';
+      var stateIcon = state === 'running' ? '▶️' : (state === 'paused' ? '⏸️' : '✅');
+      html += '<span style="font-size:12px;color:#94A3B8">' + stateIcon + ' ' + state.toUpperCase() + '</span>';
+      html += '</div>';
+
+      html += '<div style="height:4px;background:#1E293B;border-radius:2px;margin-bottom:12px;overflow:hidden">';
+      html += '<div style="height:100%;width:' + progress + '%;background:#22c55e;border-radius:2px;transition:width 0.3s"></div></div>';
+
+      if (schedulerStatus && state !== 'completed') {
+        html += '<div style="font-size:11px;color:#94A3B8;margin-bottom:10px">' + escapeHtml(schedulerStatus.nextTriggerInfo) + '</div>';
+      }
+
+      html += '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px;max-height:240px;overflow-y:auto">';
       steps.forEach(function(step, i) {
         var isCurrent = i === currentIdx;
         var isPast = i < currentIdx;
@@ -1991,21 +2011,31 @@ function buildChurchPortalHtml(church) {
         var nameColor = isCurrent ? '#22c55e' : (isPast ? '#475569' : '#94A3B8');
         var icon = isPast ? '✓' : (isCurrent ? '▶' : (i + 1));
         var iconColor = isPast ? '#22c55e' : (isCurrent ? '#22c55e' : '#475569');
-        var stepName = step.label || step.name || ('Step ' + (i + 1));
+        var stepName = step.label || step.name || ('Cue ' + (i + 1));
+        var trigger = step.trigger || { type: 'manual' };
+        var triggerIcon = TRIGGER_ICONS[trigger.type] || '✋';
         var cmdCount = (step.commands || []).length;
-        var cmdLabel = cmdCount > 0 ? ' (' + cmdCount + ' cmd' + (cmdCount !== 1 ? 's' : '') + ')' : '';
-        html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:' + bg + ';border:' + border + ';border-radius:6px">';
+        var cmdLabel = cmdCount > 0 ? cmdCount + ' cmd' + (cmdCount !== 1 ? 's' : '') : '';
+        html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:' + bg + ';border:' + border + ';border-radius:6px;cursor:pointer" onclick="portalJumpToCue(' + i + ')">';
         html += '<span style="color:' + iconColor + ';font-size:13px;width:20px;text-align:center;font-weight:700">' + icon + '</span>';
-        html += '<span style="color:' + nameColor + ';font-size:13px;flex:1">' + escapeHtml(stepName) + '<span style="color:#475569;font-size:11px">' + cmdLabel + '</span></span>';
-        if (isCurrent && cmdCount > 0) html += '<button class="btn-sm" onclick="portalExecuteStep()" style="font-size:10px;padding:3px 8px">Execute</button>';
+        html += '<span style="font-size:12px" title="' + trigger.type + '">' + triggerIcon + '</span>';
+        html += '<span style="color:' + nameColor + ';font-size:13px;flex:1">' + escapeHtml(stepName) + '</span>';
+        if (cmdLabel) html += '<span style="color:#475569;font-size:10px">' + cmdLabel + '</span>';
         html += '</div>';
       });
       html += '</div>';
+
       html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
-      if (currentIdx < steps.length - 1) html += '<button class="btn-primary" onclick="portalAdvanceStep()" style="font-size:12px;padding:6px 14px">Next Step ▶</button>';
-      else html += '<button class="btn-primary" disabled style="font-size:12px;padding:6px 14px;opacity:0.5">Last Step</button>';
-      html += '<button class="btn-secondary" onclick="portalEndRundown()" style="font-size:12px;padding:6px 12px">End Rundown</button>';
+      if (state !== 'completed') {
+        html += '<button class="btn-primary" onclick="portalSchedulerGo()" style="font-size:12px;padding:6px 14px">Go ▶</button>';
+        html += '<button class="btn-secondary" onclick="portalSchedulerSkip()" style="font-size:12px;padding:6px 10px">Skip ⏭</button>';
+        html += '<button class="btn-secondary" onclick="portalSchedulerBack()" style="font-size:12px;padding:6px 10px">⏮ Back</button>';
+        if (state === 'running') html += '<button class="btn-secondary" onclick="portalSchedulerPause()" style="font-size:12px;padding:6px 10px">⏸ Pause</button>';
+        else if (state === 'paused') html += '<button class="btn-secondary" onclick="portalSchedulerResume()" style="font-size:12px;padding:6px 10px;border-color:#22c55e;color:#22c55e">▶ Resume</button>';
+      }
+      html += '<button class="btn-secondary" onclick="portalEndRundown()" style="font-size:12px;padding:6px 10px;border-color:#ef4444;color:#ef4444">End</button>';
       html += '</div>';
+
       if (steps[currentIdx] && steps[currentIdx].notes) {
         html += '<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,0.08);border-radius:6px;font-size:12px;color:#f59e0b">💡 ' + escapeHtml(steps[currentIdx].notes) + '</div>';
       }
@@ -2014,16 +2044,17 @@ function buildChurchPortalHtml(church) {
 
     function renderRundownPicker(container, rundowns) {
       if (!rundowns || !rundowns.length) {
-        container.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">No rundowns created yet. Create one in the Tally desktop app or portal Rundowns tab.</div>';
+        container.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">No rundowns yet. Create one via Telegram or the API.</div>';
         return;
       }
       var html = '<div style="display:flex;flex-direction:column;gap:6px">';
       rundowns.forEach(function(r) {
         var stepCount = (r.steps || []).length;
+        var autoLabel = r.auto_activate ? ' <span style="color:#f59e0b;font-size:10px">AUTO</span>' : '';
         html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#09090B;border-radius:6px">';
-        html += '<div><span style="color:#F8FAFC;font-size:13px">' + escapeHtml(r.name) + '</span>';
-        html += ' <span style="color:#475569;font-size:11px">' + stepCount + ' steps</span></div>';
-        html += '<button class="btn-sm" onclick="portalActivateRundown(&apos;' + r.id + '&apos;)">Activate</button>';
+        html += '<div><span style="color:#F8FAFC;font-size:13px">' + escapeHtml(r.name) + '</span>' + autoLabel;
+        html += ' <span style="color:#475569;font-size:11px">' + stepCount + ' cues</span></div>';
+        html += '<button class="btn-sm" onclick="portalActivateRundown(&apos;' + r.id + '&apos;)">Start</button>';
         html += '</div>';
       });
       html += '</div>';
@@ -2031,22 +2062,35 @@ function buildChurchPortalHtml(church) {
     }
 
     async function portalActivateRundown(rundownId) {
-      try { await api('POST', '/api/church/rundowns/' + rundownId + '/activate'); toast('Rundown activated'); loadRundown(); }
+      try { await api('POST', '/api/church/scheduler/activate', { rundownId: rundownId }); toast('Rundown started'); loadRundown(); }
       catch (e) { toast(e.message, true); }
     }
-    async function portalAdvanceStep() {
-      try { await api('POST', '/api/church/rundown/advance'); toast('Advanced to next step'); loadRundown(); }
+    async function portalSchedulerGo() {
+      try { await api('POST', '/api/church/scheduler/advance'); toast('Cue fired'); loadRundown(); }
       catch (e) { toast(e.message, true); }
     }
-    async function portalExecuteStep() {
-      try {
-        var r = await api('POST', '/api/church/rundown/execute');
-        var sent = (r.results || []).filter(function(x) { return x.sent; }).length;
-        toast(sent + ' command' + (sent !== 1 ? 's' : '') + ' sent');
-      } catch (e) { toast(e.message, true); }
+    async function portalSchedulerSkip() {
+      try { await api('POST', '/api/church/scheduler/skip'); toast('Cue skipped'); loadRundown(); }
+      catch (e) { toast(e.message, true); }
+    }
+    async function portalSchedulerBack() {
+      try { await api('POST', '/api/church/scheduler/back'); toast('Back one cue'); loadRundown(); }
+      catch (e) { toast(e.message, true); }
+    }
+    async function portalJumpToCue(index) {
+      try { await api('POST', '/api/church/scheduler/jump', { cueIndex: index }); toast('Jumped to cue ' + (index + 1)); loadRundown(); }
+      catch (e) { toast(e.message, true); }
+    }
+    async function portalSchedulerPause() {
+      try { await api('POST', '/api/church/scheduler/pause'); toast('Rundown paused'); loadRundown(); }
+      catch (e) { toast(e.message, true); }
+    }
+    async function portalSchedulerResume() {
+      try { await api('POST', '/api/church/scheduler/resume'); toast('Rundown resumed'); loadRundown(); }
+      catch (e) { toast(e.message, true); }
     }
     async function portalEndRundown() {
-      try { await api('POST', '/api/church/rundown/deactivate'); toast('Rundown ended'); loadRundown(); }
+      try { await api('POST', '/api/church/scheduler/deactivate'); toast('Rundown ended'); loadRundown(); }
       catch (e) { toast(e.message, true); }
     }
 
@@ -4395,7 +4439,7 @@ function buildChurchPortalHtml(church) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler } = {}) {
   const express = require('express');
   log.info('Setup started');
 
@@ -5069,6 +5113,82 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
       res.json(rundownEngine.deactivateRundown(req.church.churchId));
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // ── Scheduler routes (church portal) ────────────────────────────────────────
+  app.post('/api/church/scheduler/activate', authMiddleware, (req, res) => {
+    try {
+      if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
+      const result = scheduler.activate(req.church.churchId, req.body.rundownId);
+      if (result.error) return res.status(400).json(result);
+      res.json(result);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.post('/api/church/scheduler/advance', authMiddleware, async (req, res) => {
+    try {
+      if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
+      const result = await scheduler.advance(req.church.churchId);
+      if (result?.error) return res.status(400).json(result);
+      res.json(result || { error: 'Could not advance' });
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.post('/api/church/scheduler/skip', authMiddleware, (req, res) => {
+    try {
+      if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
+      const result = scheduler.skip(req.church.churchId);
+      if (result.error) return res.status(400).json(result);
+      res.json(result);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.post('/api/church/scheduler/back', authMiddleware, (req, res) => {
+    try {
+      if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
+      const result = scheduler.goBack(req.church.churchId);
+      if (result.error) return res.status(400).json(result);
+      res.json(result);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.post('/api/church/scheduler/jump', authMiddleware, (req, res) => {
+    try {
+      if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
+      const result = scheduler.jumpToCue(req.church.churchId, Number(req.body.cueIndex));
+      if (result.error) return res.status(400).json(result);
+      res.json(result);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.post('/api/church/scheduler/pause', authMiddleware, (req, res) => {
+    try {
+      if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
+      res.json(scheduler.pause(req.church.churchId));
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.post('/api/church/scheduler/resume', authMiddleware, (req, res) => {
+    try {
+      if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
+      const result = scheduler.resume(req.church.churchId);
+      if (result.error) return res.status(400).json(result);
+      res.json(result);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.post('/api/church/scheduler/deactivate', authMiddleware, (req, res) => {
+    try {
+      if (!scheduler) return res.status(503).json({ error: 'Scheduler not available' });
+      res.json(scheduler.deactivate(req.church.churchId));
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  app.get('/api/church/scheduler/status', authMiddleware, (req, res) => {
+    try {
+      if (!scheduler) return res.json({ active: false });
+      res.json(scheduler.getStatus(req.church.churchId));
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 

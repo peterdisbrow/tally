@@ -722,6 +722,15 @@ class BillingSystem {
       return { allowed: false, reason: 'AI Autopilot requires Pro or Enterprise plan.' };
     }
 
+    // Rundown scheduler: manual rundowns for Plus+, auto-triggers for Pro+
+    if (feature === 'scheduler' && tier === 'connect') {
+      return { allowed: false, reason: 'Service rundowns require Plus or higher plan.' };
+    }
+
+    if (feature === 'scheduler_auto' && (tier === 'connect' || tier === 'plus')) {
+      return { allowed: false, reason: 'Auto-triggered rundown cues require Pro or Enterprise plan.' };
+    }
+
     if (feature === 'reseller_api' && tier !== 'managed') {
       return { allowed: false, reason: 'Reseller API requires Enterprise plan.' };
     }

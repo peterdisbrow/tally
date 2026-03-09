@@ -9,6 +9,7 @@ const { aiParseCommand } = require('./ai-parser');
 const { isStreamActive, isRecordingActive } = require('./status-utils');
 const { smartParse } = require('./smart-parser');
 const { checkStreamSafety, checkWorkflowSafety, hasForceBypass } = require('./stream-guard');
+const { parseRundownDescription, editRundownCues, formatRundownPreview } = require('./rundown-ai');
 
 function isValidSlackWebhookUrl(url) {
   try {
@@ -372,7 +373,7 @@ class TallyBot {
    * @param {object} [opts.preServiceCheck] - PreServiceCheck instance (optional)
    * @param {object} [opts.resellerSystem]  - ResellerSystem instance for white-labeling (optional)
    */
-  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem, autoPilot, chatEngine }) {
+  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem, autoPilot, chatEngine, scheduler }) {
     this.token = botToken;
     this.adminChatId = adminChatId;
     this.db = db;
@@ -385,6 +386,7 @@ class TallyBot {
     this.resellerSystem  = resellerSystem  || null;
     this.autoPilot       = autoPilot       || null;
     this.chatEngine      = chatEngine      || null;
+    this.scheduler       = scheduler       || null;
     this._apiBase = `https://api.telegram.org/bot${botToken}`;
 
     // Ensure church_tds table
@@ -428,6 +430,10 @@ class TallyBot {
         if (now > pending.expiresAt) this._pendingConfirmations.delete(chatId);
       }
     }, 120_000);
+
+    // ─── AI Rundown Builder: pending drafts awaiting confirmation ──────
+    // chatId → { church, parsed: { name, service_day, auto_activate, cues }, expiresAt }
+    this._pendingRundowns = new Map();
   }
 
   // ─── WEBHOOK HANDLER ───────────────────────────────────────────────────
@@ -684,6 +690,29 @@ class TallyBot {
   async handleTDCommand(church, chatId, text) {
     const ltext = text.trim().toLowerCase();
 
+    // ── Pending rundown draft handler (save/edit/cancel) ─────────────────
+    const pendingRundown = this._pendingRundowns.get(chatId);
+    if (pendingRundown && Date.now() < pendingRundown.expiresAt) {
+      if (ltext === 'save' || ltext === 'confirm' || ltext === 'yes') {
+        return this._saveRundownDraft(church, chatId, pendingRundown);
+      }
+      if (ltext === 'cancel' || ltext === 'discard' || ltext === 'no') {
+        this._pendingRundowns.delete(chatId);
+        return this.sendMessage(chatId, '🗑️ Rundown draft discarded.');
+      }
+      if (ltext.startsWith('edit ')) {
+        return this._editRundownDraft(church, chatId, pendingRundown, text.slice(5).trim());
+      }
+      if (ltext === 'auto' || ltext === 'make auto' || ltext === 'auto activate') {
+        pendingRundown.parsed.auto_activate = true;
+        const preview = formatRundownPreview(pendingRundown.parsed);
+        return this.sendMessage(chatId, `✅ Auto-activate enabled.\n\n${preview}`, { parse_mode: 'Markdown' });
+      }
+    } else if (pendingRundown) {
+      // Expired — clean up silently
+      this._pendingRundowns.delete(chatId);
+    }
+
     // ── Chat message ─────────────────────────────────────────────────────
     const chatMsgMatch = text.match(/^(?:\/chat|msg)\s+(.+)$/is);
     if (chatMsgMatch && this.chatEngine) {
@@ -807,6 +836,84 @@ class TallyBot {
         `🤖 *Autopilot — ${church.name}*\n\nStatus: ${paused ? '⏸️ Paused' : '▶️ Active'}\nRules: ${enabled} enabled / ${rules.length} total\n\nCommands:\n• \`pause autopilot\`\n• \`resume autopilot\``,
         { parse_mode: 'Markdown' }
       );
+    }
+
+    // ── Rundown Scheduler commands ──────────────────────────────────────────
+    if (this.scheduler) {
+      // "start rundown [name]" — fuzzy-match activate
+      const startRundownMatch = text.match(/^(?:start|activate)\s+rundown\s+(.+)$/i);
+      if (startRundownMatch) {
+        return this._handleStartRundown(church, chatId, startRundownMatch[1].trim());
+      }
+
+      // "next cue" / "go" — fire current + advance
+      if (/^(?:next\s+cue|go|advance)$/i.test(ltext)) {
+        const result = await this.scheduler.advance(church.churchId);
+        if (result?.error) return this.sendMessage(chatId, `❌ ${result.error}`);
+        if (!result) return this.sendMessage(chatId, '❌ Could not advance cue.');
+        return this.sendMessage(chatId, `▶️ Fired cue ${result.cueIndex + 1}: *${result.label}*`, { parse_mode: 'Markdown' });
+      }
+
+      // "skip cue" / "skip"
+      if (/^(?:skip\s+cue|skip)$/i.test(ltext)) {
+        const result = this.scheduler.skip(church.churchId);
+        if (result.error) return this.sendMessage(chatId, `❌ ${result.error}`);
+        return this.sendMessage(chatId, `⏭️ Skipped cue ${result.cueIndex + 1}: *${result.label}*`, { parse_mode: 'Markdown' });
+      }
+
+      // "back" / "prev cue"
+      if (/^(?:back|prev\s+cue|previous\s+cue)$/i.test(ltext)) {
+        const result = this.scheduler.goBack(church.churchId);
+        if (result.error) return this.sendMessage(chatId, `❌ ${result.error}`);
+        return this.sendMessage(chatId, `⏮️ Back to cue ${result.cueIndex + 1}: *${result.label}*`, { parse_mode: 'Markdown' });
+      }
+
+      // "cue 5" / "go to cue 5"
+      const jumpCueMatch = text.match(/^(?:cue|go\s+to\s+cue)\s+(\d+)$/i);
+      if (jumpCueMatch) {
+        const idx = parseInt(jumpCueMatch[1]) - 1; // 1-indexed for user, 0-indexed internal
+        const result = this.scheduler.jumpToCue(church.churchId, idx);
+        if (result.error) return this.sendMessage(chatId, `❌ ${result.error}`);
+        return this.sendMessage(chatId, `🎯 Jumped to cue ${result.cueIndex + 1}: *${result.label}*`, { parse_mode: 'Markdown' });
+      }
+
+      // "rundown status" / "rundown"
+      if (/^(?:rundown\s+status|rundown|cue\s+status)$/i.test(ltext)) {
+        return this._handleRundownStatus(church, chatId);
+      }
+
+      // "pause rundown"
+      if (/^pause\s+rundown$/i.test(ltext)) {
+        this.scheduler.pause(church.churchId);
+        return this.sendMessage(chatId, `⏸️ Rundown paused for *${church.name}*. Auto-triggers are stopped.`, { parse_mode: 'Markdown' });
+      }
+
+      // "resume rundown"
+      if (/^resume\s+rundown$/i.test(ltext)) {
+        const result = this.scheduler.resume(church.churchId);
+        if (result.error) return this.sendMessage(chatId, `❌ ${result.error}`);
+        return this.sendMessage(chatId, `▶️ Rundown resumed for *${church.name}*.`, { parse_mode: 'Markdown' });
+      }
+
+      // "end rundown"
+      if (/^(?:end|stop|deactivate)\s+rundown$/i.test(ltext)) {
+        this.scheduler.deactivate(church.churchId);
+        return this.sendMessage(chatId, `🛑 Rundown ended for *${church.name}*.`, { parse_mode: 'Markdown' });
+      }
+
+      // ── AI Rundown Builder — "create rundown ..." / "set up a rundown for ..." ──
+      const createRundownMatch = text.match(
+        /^(?:create|set\s*up|build|make|design|plan)\s+(?:a\s+)?(?:new\s+)?rundown\b(.*)$/i
+      );
+      if (createRundownMatch) {
+        return this._handleCreateRundownAI(church, chatId, text);
+      }
+
+      // Also catch "rundown for Sunday morning" without a verb prefix
+      const rundownForMatch = text.match(/^rundown\s+for\s+(.+)$/i);
+      if (rundownForMatch) {
+        return this._handleCreateRundownAI(church, chatId, text);
+      }
     }
 
     // ── Support commands ───────────────────────────────────────────────────
@@ -1225,6 +1332,167 @@ class TallyBot {
   }
 
   // ─── PRESET HANDLERS ─────────────────────────────────────────────────────
+
+  // ── Rundown Scheduler helpers ──────────────────────────────────────────────
+
+  async _handleStartRundown(church, chatId, nameQuery) {
+    const rundowns = this.scheduler.rundownEngine.getRundowns(church.churchId);
+    if (!rundowns.length) {
+      return this.sendMessage(chatId, `📋 No rundowns found for *${church.name}*.\nCreate one in the Church Portal.`, { parse_mode: 'Markdown' });
+    }
+
+    // Fuzzy match by name (case-insensitive substring)
+    const query = nameQuery.toLowerCase();
+    const match = rundowns.find(r => r.name.toLowerCase().includes(query));
+    if (!match) {
+      const names = rundowns.map(r => `• ${r.name}`).join('\n');
+      return this.sendMessage(chatId, `❌ No rundown matching "${nameQuery}".\n\nAvailable:\n${names}`, { parse_mode: 'Markdown' });
+    }
+
+    const result = this.scheduler.activate(church.churchId, match.id);
+    if (result.error) return this.sendMessage(chatId, `❌ ${result.error}`);
+
+    const cues = match.steps || [];
+    return this.sendMessage(chatId,
+      `📋 *Rundown Started: ${match.name}*\n\n` +
+      `Cues: ${cues.length}\n` +
+      `Current: ${cues[0]?.label || 'Cue 1'}\n\n` +
+      `Commands:\n• \`go\` — fire current cue\n• \`skip\` — skip cue\n• \`back\` — previous cue\n• \`rundown\` — show status\n• \`end rundown\` — stop`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  async _handleRundownStatus(church, chatId) {
+    const status = this.scheduler.getStatus(church.churchId);
+    if (!status.active) {
+      return this.sendMessage(chatId, `📋 No active rundown for *${church.name}*.`, { parse_mode: 'Markdown' });
+    }
+
+    const stateIcon = status.state === 'running' ? '▶️' : status.state === 'paused' ? '⏸️' : '✅';
+    const progressBar = '█'.repeat(Math.floor(status.progress / 10)) + '░'.repeat(10 - Math.floor(status.progress / 10));
+
+    return this.sendMessage(chatId,
+      `📋 *Rundown: ${status.rundownName}*\n\n` +
+      `${stateIcon} ${status.state.toUpperCase()}\n` +
+      `Cue ${status.currentCue + 1}/${status.totalCues}: *${status.currentCueLabel}*\n` +
+      (status.currentCueNotes ? `📝 ${status.currentCueNotes}\n` : '') +
+      `${status.nextTriggerInfo}\n` +
+      `Progress: [${progressBar}] ${status.progress}%` +
+      (status.nextCueLabel ? `\n\nNext: ${status.nextCueLabel}` : ''),
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  async _handleCreateRundownAI(church, chatId, text) {
+    // Billing check — scheduler feature required
+    const dbChurch = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(church.churchId);
+    if (dbChurch) {
+      const access = this.relay.billing?.checkAccess(dbChurch, 'scheduler');
+      if (access && !access.allowed) {
+        return this.sendMessage(chatId, `❌ ${access.reason}`);
+      }
+    }
+
+    await this.sendMessage(chatId, '🤖 Building your rundown…');
+
+    try {
+      const churchRuntime = this.relay.churches.get(church.churchId);
+      const ctx = {
+        churchName: church.name,
+        status: churchRuntime?.status || {},
+      };
+
+      const parsed = await parseRundownDescription(text, ctx);
+
+      // Store as pending draft for confirmation
+      this._pendingRundowns.set(chatId, {
+        parsed,
+        church,
+        expiresAt: Date.now() + 5 * 60_000, // 5 min expiry
+      });
+
+      const preview = formatRundownPreview(parsed);
+      return this.sendMessage(chatId, preview, { parse_mode: 'Markdown' });
+    } catch (e) {
+      console.error(`[telegramBot] AI rundown parse error:`, e.message);
+      return this.sendMessage(chatId,
+        `❌ Could not build rundown: ${e.message}\n\nTry describing it more specifically, e.g.:\n_"Set up a Sunday rundown: start recording at 9:55, go live at 10, cam 1 for worship, cam 2 for sermon"_`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+  }
+
+  async _saveRundownDraft(church, chatId, pending) {
+    try {
+      const { parsed } = pending;
+
+      // Create rundown in DB
+      const rundown = this.scheduler.rundownEngine.createRundown(
+        church.churchId,
+        parsed.name,
+        parsed.cues
+      );
+
+      // Set scheduler-specific columns (service_day, auto_activate)
+      const sets = [];
+      const vals = [];
+      if (parsed.service_day !== undefined) {
+        sets.push('service_day = ?');
+        vals.push(parsed.service_day);
+      }
+      if (parsed.auto_activate) {
+        sets.push('auto_activate = ?');
+        vals.push(1);
+      }
+      if (sets.length) {
+        vals.push(rundown.id);
+        this.scheduler.rundownEngine.db.prepare(
+          `UPDATE rundowns SET ${sets.join(', ')} WHERE id = ?`
+        ).run(...vals);
+      }
+
+      this._pendingRundowns.delete(chatId);
+
+      const { DAY_NAMES } = require('./rundown-ai');
+      const dayName = DAY_NAMES[parsed.service_day] || 'Sunday';
+      return this.sendMessage(chatId,
+        `✅ Rundown *${parsed.name}* saved!\n\n` +
+        `📅 ${dayName} • ${parsed.cues.length} cues${parsed.auto_activate ? ' • Auto-start' : ''}\n\n` +
+        `Use \`start rundown ${parsed.name}\` to activate it.`,
+        { parse_mode: 'Markdown' }
+      );
+    } catch (e) {
+      console.error(`[telegramBot] Save rundown draft error:`, e.message);
+      return this.sendMessage(chatId, `❌ Failed to save rundown: ${e.message}`);
+    }
+  }
+
+  async _editRundownDraft(church, chatId, pending, editText) {
+    await this.sendMessage(chatId, '🤖 Editing rundown…');
+
+    try {
+      const churchRuntime = this.relay.churches.get(church.churchId);
+      const ctx = {
+        churchName: church.name,
+        status: churchRuntime?.status || {},
+      };
+
+      const result = await editRundownCues(editText, pending.parsed.cues, ctx);
+
+      // Update the pending draft with new cues
+      pending.parsed.cues = result.cues;
+      pending.expiresAt = Date.now() + 5 * 60_000; // refresh expiry
+
+      const preview = formatRundownPreview(pending.parsed);
+      return this.sendMessage(chatId,
+        `✏️ ${result.description}\n\n${preview}`,
+        { parse_mode: 'Markdown' }
+      );
+    } catch (e) {
+      console.error(`[telegramBot] AI rundown edit error:`, e.message);
+      return this.sendMessage(chatId, `❌ Could not apply edit: ${e.message}\n\nTry again or type \`cancel\` to discard.`);
+    }
+  }
 
   async _handleListPresets(church, chatId) {
     const presets = this.presetLibrary.list(church.churchId);

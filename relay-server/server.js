@@ -94,6 +94,8 @@ const { buildResellerPortalHtml } = require('./src/dashboard');
 const { setupSyncMonitor } = require('./src/syncMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
 const { RundownEngine } = require('./src/rundownEngine');
+const { RundownScheduler } = require('./src/scheduler');
+const setupSchedulerRoutes = require('./src/routes/scheduler');
 const { setupResellerPortal } = require('./src/resellerPortal');
 const { setupStatusPage } = require('./src/statusPage');
 const { setupDocsPortal } = require('./src/docsPortal');
@@ -769,6 +771,32 @@ _intervals.push(setInterval(() => {
   }
 }, 60000));
 
+// ─── RUNDOWN SCHEDULER ───────────────────────────────────────────────────────
+
+const scheduler = new RundownScheduler(db, {
+  rundownEngine, scheduleEngine, billing, presetLibrary, autoPilot,
+});
+
+// Command executor (same pattern as AutoPilot)
+scheduler.setCommandExecutor(async (churchId, command, params, source) => {
+  const church = churches.get(churchId);
+  if (!church) throw new Error('Church not found');
+  const sender = makeCommandSender(church);
+  return await sender(command, params);
+});
+
+// Hook service window transitions for auto-activate / deactivate
+scheduleEngine.addWindowOpenCallback((churchId) => {
+  try { scheduler.onServiceWindowOpen(churchId); } catch {}
+});
+scheduleEngine.addWindowCloseCallback((churchId) => {
+  try { scheduler.onServiceWindowClose(churchId); } catch {}
+});
+
+// Start the 15-second tick loop
+scheduler.start();
+console.log('[Server] ✓ Rundown Scheduler initialized');
+
 // ─── CHAT ENGINE ─────────────────────────────────────────────────────────────
 
 const chatEngine = new ChatEngine(db, { sessionRecap });
@@ -928,8 +956,20 @@ if (TALLY_BOT_TOKEN) {
     resellerSystem,
     autoPilot,
     chatEngine,
+    scheduler,
   });
   log('Telegram bot initialized');
+
+  // Wire scheduler TD notifications through the Telegram bot
+  scheduler.setTDNotifier((churchId, message) => {
+    try {
+      const tds = db.prepare('SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1').all(churchId);
+      for (const td of tds) {
+        tallyBot.sendMessage(String(td.telegram_chat_id), message, { parse_mode: 'Markdown' }).catch(() => {});
+      }
+    } catch { /* table may not exist yet */ }
+  });
+
   // Non-blocking webhook setup (fires after app is ready)
   if (TALLY_BOT_WEBHOOK_URL) {
     const webhookPayload = { url: TALLY_BOT_WEBHOOK_URL };
@@ -1137,7 +1177,7 @@ scheduleEngine.addWindowCloseCallback(async (churchId) => {
 });
 
 // Church Portal — self-service login for individual churches
-setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine });
+setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler });
 console.log('[Server] ✓ Church Portal routes registered');
 
 // Reseller Portal — self-service login for integrators/resellers
@@ -1816,7 +1856,7 @@ const routeCtx = {
   stmtGet, stmtInsert, stmtDelete, stmtFindByName, stmtUpdateRegistrationCode,
   resellerSystem, planningCenter, streamOAuth, eventMode,
   scheduleEngine, alertEngine, weeklyDigest, sessionRecap,
-  monthlyReport, autoPilot, presetLibrary, onCallRotation,
+  monthlyReport, autoPilot, presetLibrary, onCallRotation, rundownEngine, scheduler,
   guestTdMode, chatEngine, buildResellerPortalHtml,
   logAiUsage, isOnTopic, OFF_TOPIC_RESPONSE, runManualDbSnapshot,
   jwt, JWT_SECRET, ADMIN_ROLES, ADMIN_API_KEY, uuidv4,
@@ -1833,6 +1873,7 @@ require('./src/routes/planningCenter')(app, routeCtx);
 require('./src/routes/streamPlatforms')(app, routeCtx);
 require('./src/routes/reseller')(app, routeCtx);
 require('./src/routes/automation')(app, routeCtx);
+require('./src/routes/scheduler')(app, routeCtx);
 require('./src/routes/churchOps')(app, routeCtx);
 console.log('[Server] ✓ Route modules registered');
 
@@ -3004,12 +3045,17 @@ function handleChurchMessage(church, msg) {
     }
 
     case 'propresenter_slide_change': {
-      // Forward slide change to autopilot for trigger evaluation
-      autoPilot.onSlideChange(church.churchId, {
+      const slideData = {
         presentationName: msg.presentationName || '',
         slideIndex: msg.slideIndex ?? 0,
         slideCount: msg.slideCount ?? 0,
-      }).catch(e => console.error(`[AutoPilot] Slide change error:`, e.message));
+      };
+      // Forward slide change to autopilot for trigger evaluation
+      autoPilot.onSlideChange(church.churchId, slideData)
+        .catch(e => console.error(`[AutoPilot] Slide change error:`, e.message));
+      // Forward to scheduler for event-triggered cues
+      scheduler.onSlideChange(church.churchId, slideData)
+        .catch(e => console.error(`[Scheduler] Slide change error:`, e.message));
       break;
     }
 
