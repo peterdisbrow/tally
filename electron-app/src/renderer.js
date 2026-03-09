@@ -1688,9 +1688,82 @@ async function sendChatMessage() {
   }
 }
 
+// ─── QUICK CHAT (Status tab) ───────────────────────────────────────────────
+
+async function sendQuickChat() {
+  const input = document.getElementById('quick-chat-input');
+  const message = input.value.trim();
+  if (!message) return;
+  input.value = '';
+  const responseEl = document.getElementById('quick-chat-response');
+  responseEl.style.display = 'block';
+  responseEl.innerHTML = '<div class="chat-label">Tally</div>Thinking…';
+  try {
+    const resp = await api.sendChat({ message });
+    if (resp?.error) {
+      responseEl.innerHTML = `<div class="chat-label">Tally</div>❌ ${resp.error}`;
+      input.value = message;
+    } else if (resp?.message) {
+      responseEl.innerHTML = `<div class="chat-label">Tally</div>${resp.message}`;
+      // Also push into engineer chat so it stays in history
+      chatMessages.push(resp);
+      chatLastTimestamp = resp.timestamp;
+    }
+  } catch (e) {
+    responseEl.innerHTML = `<div class="chat-label">Tally</div>❌ ${e.message}`;
+    input.value = message;
+  }
+}
+
 // ─── EQUIPMENT ─────────────────────────────────────────────────────────────
 
 // Equipment state is managed by deviceState in equipment-ui.js
+
+function setEquipMode(mode) {
+  const simplePane = document.getElementById('equip-simple-mode');
+  const advancedPane = document.getElementById('equip-advanced-mode');
+  const btnSimple = document.getElementById('mode-btn-simple');
+  const btnAdvanced = document.getElementById('mode-btn-advanced');
+  if (mode === 'advanced') {
+    simplePane.style.display = 'none';
+    advancedPane.style.display = 'block';
+    btnSimple.classList.remove('active');
+    btnAdvanced.classList.add('active');
+  } else {
+    simplePane.style.display = 'block';
+    advancedPane.style.display = 'none';
+    btnSimple.classList.add('active');
+    btnAdvanced.classList.remove('active');
+  }
+}
+
+function renderSimpleDeviceList(eq) {
+  const container = document.getElementById('simple-device-list');
+  if (!container) return;
+  const items = [];
+  if (eq.atemIp) items.push({ icon: '🎛️', name: 'ATEM Switcher', detail: eq.atemIp });
+  const encType = eq.encoderType || eq.encoder_type || '';
+  const encIp = eq.encoderIp || eq.encoder_ip || '';
+  if (encIp) {
+    const nameMap = { blackmagic: 'Blackmagic Encoder', obs: 'OBS Studio', vmix_encoder: 'vMix Encoder' };
+    items.push({ icon: '📡', name: nameMap[encType] || 'Encoder', detail: encIp });
+  }
+  if (eq.companionUrl) items.push({ icon: '🎮', name: 'Companion', detail: eq.companionUrl.replace(/^https?:\/\//, '') });
+  if (eq.propresenterIp) items.push({ icon: '⛪', name: 'ProPresenter', detail: eq.propresenterIp });
+  if (eq.vmixIp) items.push({ icon: '🎬', name: 'vMix', detail: eq.vmixIp });
+  if (eq.ndiSource) items.push({ icon: '📺', name: 'NDI Source', detail: eq.ndiSource });
+  if (eq.audioMixerIp) items.push({ icon: '🔊', name: 'Audio Mixer', detail: eq.audioMixerIp });
+  if (items.length === 0) {
+    container.innerHTML = '<div style="color:var(--muted); font-size:12px; padding:12px;">No devices configured yet. Scan your network to get started.</div>';
+    return;
+  }
+  container.innerHTML = items.map(d => `
+    <div class="simple-device-item">
+      <span class="device-icon">${d.icon}</span>
+      <div class="device-info"><div class="device-name">${d.name}</div><div class="device-ip">${d.detail}</div></div>
+      <span class="device-dot"></span>
+    </div>`).join('');
+}
 
 async function loadEquipment() {
   const eq = await api.getEquipment();
@@ -1777,6 +1850,7 @@ async function loadEquipment() {
   // ── Render dynamic catalog + summary ──
   renderDeviceCatalog();
   renderActiveSummary();
+  renderSimpleDeviceList(eq);
   _equipDirty = false; // fresh load from server — nothing unsaved
 
   // ── Streaming keys (static DOM — not in catalog) ──
@@ -1921,6 +1995,9 @@ async function updateOAuthUI() {
       ytBtn.className = 'btn-oauth';
       ytBtn.onclick = connectYouTube;
     }
+    // Sync to simple mode
+    const ytSimple = document.getElementById('oauth-yt-status-simple');
+    if (ytSimple) { ytSimple.textContent = ytStatus.textContent; ytSimple.style.color = ytStatus.style.color; }
 
     // Facebook
     const fbStatus = document.getElementById('oauth-fb-status');
@@ -1939,6 +2016,9 @@ async function updateOAuthUI() {
       fbBtn.className = 'btn-oauth';
       fbBtn.onclick = connectFacebook;
     }
+    // Sync to simple mode
+    const fbSimple = document.getElementById('oauth-fb-status-simple');
+    if (fbSimple) { fbSimple.textContent = fbStatus.textContent; fbSimple.style.color = fbStatus.style.color; }
   } catch { /* relay may be unreachable */ }
 }
 

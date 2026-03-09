@@ -403,6 +403,16 @@
       </div>
     </div>
 
+    <!-- Quick Chat -->
+    <div class="quick-chat" id="quick-chat">
+      <div class="quick-chat-response" id="quick-chat-response" style="display:none;"></div>
+      <div class="quick-chat-input-row">
+        <span class="quick-chat-icon">💬</span>
+        <input type="text" id="quick-chat-input" placeholder="Ask Tally something…" onkeydown="if(event.key==='Enter')sendQuickChat()">
+        <button class="quick-chat-send" onclick="sendQuickChat()">Send</button>
+      </div>
+    </div>
+
     <!-- Activity Feed -->
     <div class="section">
       <h2>Activity</h2>
@@ -414,6 +424,49 @@
 
   <!-- ══════════ EQUIPMENT TAB ══════════ -->
   <div class="content tab-content" id="tab-equipment" style="flex:1; overflow-y:auto;">
+
+    <!-- Mode Toggle -->
+    <div class="equip-mode-bar">
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="mode-btn-simple" onclick="setEquipMode('simple')">Simple</button>
+        <button class="mode-btn" id="mode-btn-advanced" onclick="setEquipMode('advanced')">Advanced</button>
+      </div>
+    </div>
+
+    <!-- ── SIMPLE MODE ── -->
+    <div id="equip-simple-mode">
+      <div class="section-label" style="margin: 12px 0 8px;">YOUR DEVICES</div>
+      <div id="simple-device-list"><div style="color:var(--muted); font-size:12px; padding:12px;">No devices configured yet. Scan your network to get started.</div></div>
+
+      <button class="scan-btn" style="width:100%; margin:12px 0;" onclick="startNetworkScan()">🔍 Scan Network</button>
+
+      <div class="section-label" style="margin:16px 0 8px;">STREAM PLATFORMS</div>
+      <!-- YouTube OAuth (Simple) -->
+      <div class="oauth-row" id="oauth-youtube-row-simple">
+        <div style="display:flex; align-items:center; gap:8px; flex:1;">
+          <span style="font-size:14px;">&#9654;</span>
+          <span style="font-size:12px; font-weight:600; color:var(--white); font-family:var(--font);">YouTube</span>
+          <span class="oauth-status" id="oauth-yt-status-simple" style="font-size:11px; color:var(--muted); font-family:var(--mono);">Not connected</span>
+        </div>
+        <button class="btn-oauth" onclick="connectYouTube()">Connect</button>
+      </div>
+      <!-- Facebook OAuth (Simple) -->
+      <div class="oauth-row" id="oauth-facebook-row-simple" style="margin-top:8px;">
+        <div style="display:flex; align-items:center; gap:8px; flex:1;">
+          <span style="font-size:14px;">&#9673;</span>
+          <span style="font-size:12px; font-weight:600; color:var(--white); font-family:var(--font);">Facebook</span>
+          <span class="oauth-status" id="oauth-fb-status-simple" style="font-size:11px; color:var(--muted); font-family:var(--mono);">Not connected</span>
+        </div>
+        <button class="btn-oauth" onclick="connectFacebook()">Connect</button>
+      </div>
+
+      <div style="margin-top:16px; text-align:center;">
+        <a class="portal-link" href="#" onclick="setEquipMode('advanced'); return false;">Need more options? Switch to Advanced →</a>
+      </div>
+    </div>
+
+    <!-- ── ADVANCED MODE ── -->
+    <div id="equip-advanced-mode" style="display:none;">
 
     <!-- A. Active Devices Summary (chip bar) -->
     <div class="equip-active-summary" id="equip-active-summary"></div>
@@ -505,6 +558,8 @@
         </div>
       </div>
     </div>
+
+    </div><!-- /equip-advanced-mode -->
 
     <!-- Sticky Save -->
     <div class="save-bar-sticky">
