@@ -2951,6 +2951,10 @@ function handleChurchMessage(church, msg) {
       // ── Check device firmware / software versions (once per device per WS session) ──
       _checkDeviceVersions(church, msg.status);
 
+      // ── Feed equipment state to scheduler for event-triggered cues ──
+      scheduler.onEquipmentStateChange(church.churchId, church.status)
+        .catch(e => console.error(`[Scheduler] Equipment state change error:`, e.message));
+
       {
         const statusEvent = {
           type: 'status_update',
