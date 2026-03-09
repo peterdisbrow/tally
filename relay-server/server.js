@@ -2745,6 +2745,9 @@ function handleChurchConnection(ws, url, clientIp) {
     log(`[onboarding] Milestone tracking error: ${e.message}`);
   }
 
+  // Acknowledge connection to the church client
+  safeSend(ws, { type: 'connected', churchId: church.churchId, name: church.name });
+
   // Drain any queued messages
   drainQueue(church.churchId, ws);
 
@@ -3243,7 +3246,10 @@ function requireAdminJwt(...allowedRoles) {
 }
 
 function requireAdmin(req, res, next) {
-  // Alias for JWT-based admin auth
+  // Accept x-api-key for backward compat (CLI, integration tests, internal calls)
+  const apiKey = resolveAdminKey(req);
+  if (apiKey && safeCompareKey(apiKey, ADMIN_API_KEY)) return next();
+  // Fall back to JWT-based admin auth
   return requireAdminJwt()(req, res, next);
 }
 

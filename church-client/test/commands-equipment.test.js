@@ -164,9 +164,9 @@ test('hyperdeck.status returns formatted status', async () => {
   };
   const agent = { hyperdecks: [mockDeck] };
   const result = await commandHandlers['hyperdeck.status'](agent, {});
-  assert.ok(result.includes('HyperDeck 1'));
+  assert.ok(result.includes('TestDeck'));
   assert.ok(result.includes('Studio Mini'));
-  assert.ok(result.includes('🔴 Yes'));
+  assert.ok(result.includes('Recording: Active'));
 });
 
 test('propresenter.version returns version string', async () => {
