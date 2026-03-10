@@ -33,6 +33,15 @@ class GuestTdMode {
         usedByChat TEXT DEFAULT ''
       )
     `);
+    // Migration: clean up orphaned portal tokens (gtd_ prefix) that used an incompatible schema.
+    // These tokens were non-functional — they couldn't be registered via Telegram.
+    try {
+      const legacy = this.db.prepare("SELECT token FROM guest_tokens WHERE token LIKE 'gtd_%'").all();
+      if (legacy.length) {
+        this.db.prepare("DELETE FROM guest_tokens WHERE token LIKE 'gtd_%'").run();
+        console.log(`[GuestTdMode] Cleaned up ${legacy.length} legacy portal token(s)`);
+      }
+    } catch {}
   }
 
   /** Remove expired tokens (called on startup and daily) */
@@ -159,6 +168,38 @@ class GuestTdMode {
     return this.db.prepare(`
       SELECT * FROM guest_tokens WHERE expiresAt > ? ORDER BY createdAt DESC
     `).all(new Date().toISOString());
+  }
+
+  /**
+   * List active tokens for a specific church (portal use).
+   * @param {string} churchId
+   * @returns {object[]}
+   */
+  listTokensForChurch(churchId) {
+    return this.db.prepare(
+      'SELECT * FROM guest_tokens WHERE churchId = ? AND expiresAt > ? ORDER BY createdAt DESC'
+    ).all(churchId, new Date().toISOString());
+  }
+
+  /**
+   * Generate a token with custom expiry. Used by the church portal.
+   * @param {string} churchId
+   * @param {string} churchName
+   * @param {{ label?: string, expiresInHours?: number }} options
+   * @returns {{ token: string, name: string, expiresAt: string }}
+   */
+  generateTokenWithOptions(churchId, churchName, { label, expiresInHours = 24 } = {}) {
+    const token = 'GUEST-' + crypto.randomBytes(12).toString('hex').toUpperCase();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + expiresInHours * 60 * 60 * 1000);
+    const name = label || (churchName + ' Guest');
+
+    this.db.prepare(
+      'INSERT INTO guest_tokens (token, churchId, name, createdAt, expiresAt, usedByChat) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(token, churchId, name, now.toISOString(), expiresAt.toISOString(), '');
+
+    console.log(`[GuestTdMode] Generated token ${token.slice(0, 4)}**** for ${churchName} (${expiresInHours}h)`);
+    return { token, name, expiresAt: expiresAt.toISOString() };
   }
 
   /**

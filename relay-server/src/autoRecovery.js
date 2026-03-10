@@ -1,10 +1,11 @@
 /**
- * Auto Recovery — Alert classification for known failure patterns
+ * Auto Recovery — Alert classification and recovery for known failure patterns
  *
- * NOTE: Automatic command dispatch is DISABLED. All alerts go straight to
- * the alert engine escalation ladder (Telegram → TD → Andrew). The playbook
- * is retained for classification and future use when auto-recovery is
- * re-enabled per-church.
+ * Checks per-church auto_recovery_enabled flag. When enabled:
+ * - Classifies alerts against the 24-type playbook
+ * - Tracks attempt counts (max 3 per failure type per session)
+ * - Returns enriched context to the alert engine for escalation
+ * - Signal failover commands are handled by signalFailover.js (not here)
  */
 
 const RECOVERY_PLAYBOOK = {
@@ -49,17 +50,66 @@ class AutoRecovery {
     this.attemptCounts.delete(this._key(churchId, failureType));
   }
 
+  /** Clear all attempt counts for a church (call on stream session end). */
+  clearAllAttempts(churchId) {
+    for (const key of this.attemptCounts.keys()) {
+      if (key.startsWith(churchId + ':')) {
+        this.attemptCounts.delete(key);
+      }
+    }
+  }
+
   /**
-   * Auto-recovery is currently disabled globally.
-   * All alerts pass through to the alert engine for TD notification.
+   * Check per-church auto_recovery_enabled flag.
+   * Defaults to enabled (fail-open — don't break alert flow).
+   */
+  _isEnabled(churchId) {
+    try {
+      const row = this.db?.prepare(
+        'SELECT auto_recovery_enabled FROM churches WHERE churchId = ?'
+      ).get(churchId);
+      return row ? row.auto_recovery_enabled !== 0 : true;
+    } catch {
+      return true; // fail-open
+    }
+  }
+
+  /**
+   * Classify and attempt recovery for a failure.
+   * @param {object} church — church runtime object
+   * @param {string} failureType — alert type from client
+   * @param {object} currentStatus — live status snapshot
+   * @returns {{ attempted: boolean, success?: boolean, reason: string, command: string|null, event: string }}
    */
   async attempt(church, failureType, currentStatus) {
     const playbook = RECOVERY_PLAYBOOK[failureType];
     const event = playbook ? playbook.onFail : 'escalate_to_td';
-    return { attempted: false, reason: 'auto_recovery_disabled', command: null, event };
+
+    // Check per-church opt-in
+    if (!this._isEnabled(church.churchId)) {
+      return { attempted: false, reason: 'auto_recovery_disabled', command: null, event };
+    }
+
+    // Signal failover handles its own execution path — don't double-execute
+    if (event === 'execute_failover') {
+      return { attempted: false, reason: 'handled_by_failover', command: null, event };
+    }
+
+    // Track attempts per failure type to prevent loops
+    const key = this._key(church.churchId, failureType);
+    const count = (this.attemptCounts.get(key) || 0) + 1;
+    this.attemptCounts.set(key, count);
+
+    // Max 3 attempts per failure type per session — after that, always escalate
+    if (count > 3) {
+      return { attempted: true, success: false, reason: 'max_attempts_exceeded', command: null, event };
+    }
+
+    // Classified alert — escalate to TD with enriched playbook context
+    return { attempted: true, success: false, reason: 'no_auto_command', command: null, event };
   }
 
-  /** Kept for future use when auto-recovery is re-enabled */
+  /** Dispatch a command to the church client via WebSocket. */
   async dispatchCommand(church, command, params) {
     const { WebSocket } = require('ws');
     if (!church.ws || church.ws.readyState !== WebSocket.OPEN) {

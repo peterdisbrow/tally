@@ -50,8 +50,14 @@ const AI_RATE_LIMITS = {
 const AI_RATE_WINDOW = 60 * 60 * 1000; // 1 hour
 const aiCallCounts = new Map(); // churchId → { count, windowStart }
 
+// Incident bypass hook — set by server.js to check signalFailover state
+let _incidentBypassCheck = null;
+function setIncidentBypassCheck(fn) { _incidentBypassCheck = fn; }
+
 function checkAiRateLimit(churchId, tier) {
   if (!churchId) return true;
+  // Active incident bypass: during CONFIRMED_OUTAGE / FAILOVER_ACTIVE, skip limits
+  if (_incidentBypassCheck && _incidentBypassCheck(churchId)) return true;
   const limit = AI_RATE_LIMITS[tier] || AI_RATE_LIMITS.default;
   const now = Date.now();
   let bucket = aiCallCounts.get(churchId);
@@ -704,7 +710,7 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   if (!checkAiRateLimit(churchId, tier)) {
     const limit = AI_RATE_LIMITS[tier] || AI_RATE_LIMITS.default;
     console.warn(`[ai-parser] Rate limit hit for ${churchId} (${limit}/hr, tier: ${tier})`);
-    return { type: 'chat', text: `AI rate limit reached (${limit}/hr). Try direct commands like "cam 2" or "status".` };
+    return { type: 'rate_limited', text: `AI parsing temporarily at capacity. Try direct commands like "cam 2" or "status".` };
   }
 
   // ── Cache check: skip API call for repeated single messages (no history context) ──
@@ -899,4 +905,4 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   }
 }
 
-module.exports = { aiParseCommand, getAvailableCommandNames, setAiUsageLogger, buildSystemPrompt };
+module.exports = { aiParseCommand, getAvailableCommandNames, setAiUsageLogger, setIncidentBypassCheck, checkAiRateLimit, buildSystemPrompt };

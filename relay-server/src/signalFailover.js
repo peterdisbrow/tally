@@ -42,6 +42,7 @@ class SignalFailover {
     this.autoRecovery = autoRecovery;
     this.db = db;
     this._states = new Map(); // churchId → per-church failover state
+    this._transitionListeners = []; // fn(churchId, from, to, trigger, snapshot) — fire-and-forget
   }
 
   // ─── Per-church config from DB ──────────────────────────────────────────────
@@ -214,10 +215,10 @@ class SignalFailover {
         // Source may be recovering — notify TD, don't auto-switch-back
         const elapsed = s.outageStartedAt ? Math.round((Date.now() - s.outageStartedAt) / 1000) : 0;
         this._sendAlert(church, 'failover_source_recovering',
-          `✅ *Source Recovering* — ${church.name}\n` +
-          `Encoder bitrate returning to normal (${data.bitrateKbps || '?'} kbps).\n` +
-          `Source may be back online (outage lasted ${elapsed}s).\n\n` +
-          `Reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back.`
+          `✅ *Looks Like It's Back* — ${church.name}\n` +
+          `The video source seems to be working again.\n` +
+          `Outage lasted about ${elapsed}s.\n\n` +
+          `When you're ready, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back to the main source.`
         );
         this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'source_recovering');
         break;
@@ -236,10 +237,10 @@ class SignalFailover {
           s.state = STATES.ATEM_LOST;
           s.outageStartedAt = Date.now();
           this._sendAlert(church, 'failover_atem_lost',
-            `⚠️ *ATEM Connection Lost* — ${church.name}\n` +
-            `Network issue between Tally and ATEM.\n` +
-            `Encoder still streaming normally.\n\n` +
-            `Check booth network connection.`
+            `⚠️ *Lost Connection to the Switcher* — ${church.name}\n` +
+            `Tally can't reach the ATEM, but the stream is still going.\n` +
+            `This is usually a network issue.\n\n` +
+            `Check the network cable at the booth.`
           );
         } else {
           // Simultaneous loss — skip timer, go straight to confirmed
@@ -287,11 +288,10 @@ class SignalFailover {
     const actionDesc = this._describeAction(config.action);
 
     this._sendAlert(church, 'failover_confirmed_outage',
-      `🔴 *Stream Outage Detected* — ${church.name}\n` +
-      `Type: ${trigger.replace(/_/g, ' ')}\n` +
-      `Duration: ${elapsed}s\n` +
-      `Failover (${actionDesc}) in ${ackTimeout}s unless acknowledged.\n\n` +
-      `Reply /ack_${s.failoverAlertId.slice(0, 8)} to take manual control.`
+      `🔴 *Stream Problem* — ${church.name}\n` +
+      `The video feed went down ${elapsed}s ago.\n` +
+      `Tally will automatically switch to a safe source in ${ackTimeout}s.\n\n` +
+      `If you're handling it, reply /ack_${s.failoverAlertId.slice(0, 8)} and Tally will stand by.`
     );
 
     // Start ack countdown
@@ -336,13 +336,13 @@ class SignalFailover {
       this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.HEALTHY, 'td_confirmed_recovery');
       const origDesc = this._describeSource(s.originalSource, config.action);
       this._sendAlert(church, 'failover_recovery_executed',
-        `✅ *Recovery Executed* — ${church.name}\nSwitched back to ${origDesc}.`
+        `✅ *All Good* — ${church.name}\nSwitched back to ${origDesc}. You're back to normal.`
       );
       this._resetState(churchId);
     } catch (e) {
       console.error(`[SignalFailover] Recovery command failed for ${churchId}:`, e.message);
       this._sendAlert(church, 'failover_recovery_failed',
-        `❌ *Recovery Failed* — ${church.name}\n${e.message}\nManual intervention required.`
+        `❌ *Couldn't Switch Back* — ${church.name}\nSomething went wrong: ${e.message}\nYou'll need to switch it back manually at the booth.`
       );
     }
   }
@@ -365,17 +365,18 @@ class SignalFailover {
       console.log(`[SignalFailover] ✅ Failover executed for ${churchId}: ${actionDesc}`);
 
       this._sendAlert(church, 'failover_executed',
-        `🔄 *Failover Executed* — ${church.name}\n` +
-        `${actionDesc}\n` +
-        `Outage duration: ${elapsed}s. Stream maintained.\n\n` +
-        `When source recovers, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back.`
+        `🔄 *Switched to Backup* — ${church.name}\n` +
+        `The stream went down for ${elapsed}s, so Tally switched to a safe source.\n` +
+        `The stream is still live.\n\n` +
+        `When things look good, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back.`
       );
     } catch (e) {
       console.error(`[SignalFailover] ❌ Failover command failed for ${churchId}:`, e.message);
       this._sendAlert(church, 'failover_command_failed',
-        `❌ *Failover Failed* — ${church.name}\n` +
-        `Command error: ${e.message}\n` +
-        `Manual intervention required immediately.`
+        `❌ *Couldn't Switch Automatically* — ${church.name}\n` +
+        `Tally tried to switch to the backup but it didn't work.\n` +
+        `Error: ${e.message}\n\n` +
+        `Someone needs to switch it manually at the booth right away.`
       );
     }
   }
@@ -488,6 +489,18 @@ class SignalFailover {
     // Keep log bounded
     if (s.stateLog.length > 50) s.stateLog.shift();
     console.log(`[SignalFailover] ${churchId}: ${from} → ${to} (${trigger})`);
+
+    // Fire-and-forget: notify listeners (never block state machine)
+    const snapshot = { state: to, outageStartedAt: s.outageStartedAt, stateLog: s.stateLog.slice(-10) };
+    for (const fn of this._transitionListeners) {
+      try {
+        Promise.resolve(fn(churchId, from, to, trigger, snapshot)).catch(e =>
+          console.error(`[SignalFailover] Transition listener error:`, e.message)
+        );
+      } catch (e) {
+        console.error(`[SignalFailover] Transition listener sync error:`, e.message);
+      }
+    }
   }
 
   // ─── Status / Debug ─────────────────────────────────────────────────────────
@@ -501,6 +514,15 @@ class SignalFailover {
       bitrateBaseline: s.bitrateBaseline,
       stateLog: s.stateLog.slice(-10),
     };
+  }
+
+  /**
+   * Register a listener for state transitions. Called fire-and-forget —
+   * listener errors are caught and logged, never propagate.
+   * @param {function(churchId, from, to, trigger, stateSnapshot): void} fn
+   */
+  onTransition(fn) {
+    this._transitionListeners.push(fn);
   }
 
   /** Clean up timers for a disconnecting church */

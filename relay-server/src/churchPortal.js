@@ -1291,9 +1291,9 @@ function buildChurchPortalHtml(church) {
         </div>
         <div class="table-wrap">
         <table>
-          <thead><tr><th><span class="tip" data-tip="Share this code with the guest — they enter it in the Tally app or Telegram bot">Token</span></th><th>Label</th><th>Created</th><th><span class="tip" data-tip="Token stops working after this date. Revoke early if needed.">Expires</span></th><th></th></tr></thead>
+          <thead><tr><th><span class="tip" data-tip="Share this code with the guest — they enter it in the Tally app or Telegram bot">Token</span></th><th>Label</th><th><span class="tip" data-tip="Shows whether a guest TD has claimed this token via Telegram">Status</span></th><th>Created</th><th><span class="tip" data-tip="Token stops working after this date. Revoke early if needed.">Expires</span></th><th></th></tr></thead>
           <tbody id="guests-tbody">
-            <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
+            <tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
         </table>
         </div>
@@ -3704,13 +3704,14 @@ function buildChurchPortalHtml(church) {
         const tokens = await api('GET', '/api/church/guest-tokens');
         const tbody = document.getElementById('guests-tbody');
         if (!tokens.length) {
-          tbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">No guest tokens.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No guest tokens.</td></tr>';
           return;
         }
         tbody.innerHTML = tokens.map(t => \`
           <tr>
             <td><code style="font-size:11px;color:#22c55e">\${t.token.slice(0,16)}…</code></td>
             <td style="color:#94A3B8">\${t.label || '—'}</td>
+            <td style="color:\${t.registered ? '#22c55e' : '#64748B'};font-size:12px">\${t.registered ? '\\u2713 Claimed' : 'Unclaimed'}</td>
             <td style="color:#94A3B8;font-size:12px">\${new Date(t.createdAt).toLocaleDateString()}</td>
             <td style="color:#94A3B8;font-size:12px">\${t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : 'No expiry'}</td>
             <td><button class="btn-danger" onclick="revokeToken('\${t.token}')">Revoke</button></td>
@@ -3814,6 +3815,19 @@ function buildChurchPortalHtml(church) {
           if (f[1]) html += '<div style="color:#94A3B8">\\u2713 ' + f[0] + '</div>';
         });
         html += '</div></div>';
+
+        // AI Diagnostics usage progress bar
+        if (b.aiUsage && b.aiUsage.diagnosticLimit !== Infinity && b.aiUsage.diagnosticLimit !== null) {
+          var aiPct = Math.min(100, Math.round((b.aiUsage.diagnosticUsage / b.aiUsage.diagnosticLimit) * 100));
+          var aiBarColor = aiPct >= 80 ? '#eab308' : '#22c55e';
+          html += '<div class="card" style="margin-bottom:16px">';
+          html += '<h3 style="font-size:14px;color:#F8FAFC;margin:0 0 8px">AI Diagnostics</h3>';
+          html += '<div style="color:#94A3B8;font-size:13px;margin-bottom:8px">' + b.aiUsage.diagnosticUsage + ' / ' + b.aiUsage.diagnosticLimit + ' messages this month</div>';
+          html += '<div style="background:#1F2937;border-radius:4px;height:6px;overflow:hidden">';
+          html += '<div style="background:' + aiBarColor + ';height:100%;width:' + aiPct + '%;border-radius:4px;transition:width 0.3s"></div></div>';
+          html += '<div style="color:#64748B;font-size:11px;margin-top:4px">Resets ' + (b.aiUsage.diagnosticResetDate || '1st of next month') + '</div>';
+          html += '</div>';
+        }
 
         // Upgrade cards for locked features
         var currentTier = (b.tier || 'connect').toLowerCase();
@@ -4698,7 +4712,7 @@ function buildChurchPortalHtml(church) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode } = {}) {
   const express = require('express');
   log.info('Setup started');
 
@@ -5631,26 +5645,32 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── GET /api/church/guest-tokens ──────────────────────────────────────────────
+  // Uses GuestTdMode for unified token management (tokens work with Telegram /register)
   app.get('/api/church/guest-tokens', authMiddleware, (req, res) => {
-    res.json(db.prepare('SELECT * FROM guest_tokens WHERE churchId = ? ORDER BY createdAt DESC').all(req.church.churchId));
+    if (!guestTdMode) return res.json([]);
+    const tokens = guestTdMode.listTokensForChurch(req.church.churchId);
+    res.json(tokens.map(t => ({
+      token: t.token, label: t.name, createdAt: t.createdAt,
+      expiresAt: t.expiresAt, registered: !!t.usedByChat,
+    })));
   });
 
   // ── POST /api/church/guest-tokens ─────────────────────────────────────────────
   app.post('/api/church/guest-tokens', authMiddleware, (req, res) => {
+    if (!guestTdMode) return res.status(503).json({ error: 'Guest tokens not configured' });
     const { label, expiresInDays } = req.body;
-    const { v4: uuidv4 } = require('uuid');
-    const token = 'gtd_' + require('crypto').randomBytes(20).toString('hex');
-    const expiresAt = expiresInDays
-      ? new Date(Date.now() + expiresInDays * 86400000).toISOString()
-      : null;
-    db.prepare('INSERT INTO guest_tokens (token, churchId, label, createdAt, expiresAt) VALUES (?, ?, ?, ?, ?)')
-      .run(token, req.church.churchId, label || null, new Date().toISOString(), expiresAt);
-    res.json({ token, label, expiresAt });
+    const expiresInHours = expiresInDays ? expiresInDays * 24 : 24;
+    const church = req.church;
+    const result = guestTdMode.generateTokenWithOptions(church.churchId, church.name, { label, expiresInHours });
+    res.json({ token: result.token, label: result.name, expiresAt: result.expiresAt });
   });
 
   // ── DELETE /api/church/guest-tokens/:token ────────────────────────────────────
   app.delete('/api/church/guest-tokens/:tok', authMiddleware, (req, res) => {
-    db.prepare('DELETE FROM guest_tokens WHERE token = ? AND churchId = ?').run(req.params.tok, req.church.churchId);
+    if (!guestTdMode) return res.status(503).json({ error: 'Guest tokens not configured' });
+    const existing = db.prepare('SELECT churchId FROM guest_tokens WHERE token = ?').get(req.params.tok);
+    if (!existing || existing.churchId !== req.church.churchId) return res.status(404).json({ error: 'Token not found' });
+    guestTdMode.revokeToken(req.params.tok);
     res.json({ ok: true });
   });
 
@@ -5685,6 +5705,12 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         }
       } catch (e) { log.error(`Billing portal session: ${e.message}`); }
 
+      // AI usage stats for portal dashboard
+      let aiUsage = null;
+      try {
+        if (aiRateLimiter) aiUsage = aiRateLimiter.getUsageStats(church.churchId, tier);
+      } catch (e) { log.error(`AI usage stats: ${e.message}`); }
+
       res.json({
         tier,
         tierName: TIER_NAMES[tier] || tier,
@@ -5694,6 +5720,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         trialEndsAt: trialEnds,
         trialDaysRemaining,
         portalUrl,
+        aiUsage,
         features: {
           autopilot: !['connect', 'plus'].includes(tier),
           planningCenter: !['connect', 'plus'].includes(tier),

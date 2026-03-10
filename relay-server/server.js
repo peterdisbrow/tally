@@ -66,9 +66,11 @@ const { AlertEngine } = require('./src/alertEngine');
 const { VersionConfig } = require('./src/versionConfig');
 const { AutoRecovery } = require('./src/autoRecovery');
 const { SignalFailover } = require('./src/signalFailover');
+const { IncidentSummarizer } = require('./src/incidentSummarizer');
+const { AiRateLimiter } = require('./src/aiRateLimiter');
 const { WeeklyDigest } = require('./src/weeklyDigest');
 const { TallyBot, parseCommand } = require('./src/telegramBot');
-const { aiParseCommand, setAiUsageLogger: setParserLogger } = require('./src/ai-parser');
+const { aiParseCommand, setAiUsageLogger: setParserLogger, setIncidentBypassCheck } = require('./src/ai-parser');
 const { smartParse } = require('./src/smart-parser');
 const { detectSetupIntent, detectIntentWithAttachment, parsePatchList, generateMixerSetup, parseCameraPlot, buildCameraCommands, setAiUsageLogger: setSetupLogger } = require('./src/ai-setup-assistant');
 const { isOnTopic, OFF_TOPIC_RESPONSE, containsSensitiveData, SENSITIVE_RESPONSE } = require('./src/chat-guard');
@@ -737,9 +739,16 @@ scheduleEngine.addWindowOpenCallback((churchId) => {
 
 scheduleEngine.addWindowCloseCallback(async (churchId) => {
   try {
+    // Clear auto-recovery attempt counts for the ended session
+    autoRecovery.clearAllAttempts(churchId);
     const sessionData = await sessionRecap.endSession(churchId);
-    // Write production notes back to Planning Center
     if (sessionData) {
+      // Fire-and-forget post-service narrative (never blocks session end)
+      incidentSummarizer.generatePostServiceNarrative(churchId, sessionData).then(narrative => {
+        if (narrative) postSystemChatMessage(churchId, `📋 Post-Service Summary\n${narrative}`);
+      }).catch(e => console.error(`[IncidentSummarizer] Narrative error for ${churchId}:`, e.message));
+
+      // Write production notes back to Planning Center
       planningCenter.writeServiceNotes(churchId, sessionData).catch(e =>
         console.warn(`[PlanningCenter] Write-back error for ${churchId}:`, e.message)
       );
@@ -811,6 +820,32 @@ console.log('[Server] ✓ Rundown Scheduler initialized');
 // ─── CHAT ENGINE ─────────────────────────────────────────────────────────────
 
 const chatEngine = new ChatEngine(db, { sessionRecap });
+
+// ─── INCIDENT SUMMARIZER ─────────────────────────────────────────────────────
+
+const incidentSummarizer = new IncidentSummarizer({
+  db, churches, chatEngine, alertEngine, weeklyDigest, sessionRecap, signalFailover,
+});
+incidentSummarizer.setAiUsageLogger(logAiUsage);
+
+// Fire-and-forget transition handler — summaries never block the state machine
+signalFailover.onTransition((churchId, from, to, trigger, snapshot) => {
+  incidentSummarizer.handleTransition(churchId, from, to, trigger, snapshot);
+});
+console.log('[Server] ✓ Incident Summarizer initialized');
+
+// ─── AI RATE LIMITER ─────────────────────────────────────────────────────────
+
+const aiRateLimiter = new AiRateLimiter({ db, signalFailover });
+aiRateLimiter.setAiUsageLogger(logAiUsage);
+
+// Hook incident bypass into ai-parser's per-hour rate limiter
+setIncidentBypassCheck((churchId) => aiRateLimiter.isActiveIncident(churchId));
+
+// Wire template fallback logging into incident summarizer
+incidentSummarizer._aiRateLimiter = aiRateLimiter;
+
+console.log('[Server] ✓ AI Rate Limiter initialized');
 
 // ─── PLANNING CENTER ──────────────────────────────────────────────────────────
 
@@ -968,6 +1003,7 @@ if (TALLY_BOT_TOKEN) {
     autoPilot,
     chatEngine,
     scheduler,
+    signalFailover,
   });
   log('Telegram bot initialized');
 
@@ -1188,7 +1224,7 @@ scheduleEngine.addWindowCloseCallback(async (churchId) => {
 });
 
 // Church Portal — self-service login for individual churches
-setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler });
+setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode });
 console.log('[Server] ✓ Church Portal routes registered');
 
 // Reseller Portal — self-service login for integrators/resellers
@@ -2451,6 +2487,21 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
   console.log(`[Router] "${rawMessage.slice(0, 50)}" → ${classification.intent} (${classification.confidence}, ${classification.reason})`);
 
   if (classification.intent === 'diagnostic') {
+    // Category 2: Monthly Sonnet diagnostic limit
+    const churchRow_d = stmtGet.get(churchId);
+    const tier_d = churchRow_d?.billing_tier || 'connect';
+    const limitCheck = aiRateLimiter.checkDiagnosticLimit(churchId, tier_d);
+
+    if (!limitCheck.allowed) {
+      const resetStr = limitCheck.resetDate || '1st of next month';
+      postSystemChatMessage(churchId, `You've used ${limitCheck.usage}/${limitCheck.limit} AI diagnostic messages this month. Resets ${resetStr}.\n\nDirect commands like "cam 2" and "status" are always available.`);
+      return;
+    }
+
+    if (limitCheck.warning80) {
+      postSystemChatMessage(churchId, `📊 AI Usage: ${limitCheck.usage}/${limitCheck.limit} diagnostic messages used this month. Upgrade for more → Settings > Billing`);
+    }
+
     const reply = await callDiagnosticAI(churchId, rawMessage);
     postSystemChatMessage(churchId, reply);
     return;
@@ -2540,17 +2591,35 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     documentContext: docContext,
   }, conversationHistory);
 
-  if (aiResult.type === 'error') {
-    postSystemChatMessage(churchId, `❌ ${aiResult.message || 'AI parser failed.'}`);
+  if (aiResult.type === 'error' || aiResult.type === 'rate_limited') {
+    // Soft fallback: suggest direct commands instead of scary error
+    const isRateLimit = aiResult.type === 'rate_limited';
+    const msg = isRateLimit
+      ? (aiResult.text || 'AI parsing temporarily at capacity. Try direct commands like "cam 2" or "status".')
+      : 'AI is temporarily unavailable. Try direct commands like "cam 2", "status", or "start stream".';
+    postSystemChatMessage(churchId, msg);
+    aiRateLimiter.logEvent(churchId, 'command', isRateLimit ? 'limit_hit' : 'api_failure_fallback', aiResult.message || '');
     return;
   }
 
   if (aiResult.type === 'chat') {
-    // Ambiguous intent: Haiku couldn't resolve a command — escalate to Sonnet
+    // Ambiguous intent: Haiku couldn't resolve a command — escalate to Sonnet (with diagnostic limit check)
     if (classification.intent === 'ambiguous') {
-      console.log(`[Router] Ambiguous escalation to Sonnet for: "${rawMessage.slice(0, 50)}"`);
-      const reply = await callDiagnosticAI(churchId, rawMessage);
-      postSystemChatMessage(churchId, reply);
+      const tier_a = churchRow?.billing_tier || 'connect';
+      const limitCheck2 = aiRateLimiter.checkDiagnosticLimit(churchId, tier_a);
+
+      if (limitCheck2.allowed) {
+        console.log(`[Router] Ambiguous escalation to Sonnet for: "${rawMessage.slice(0, 50)}"`);
+        const reply = await callDiagnosticAI(churchId, rawMessage);
+        postSystemChatMessage(churchId, reply);
+
+        if (limitCheck2.warning80) {
+          postSystemChatMessage(churchId, `📊 AI Usage: ${limitCheck2.usage}/${limitCheck2.limit} this month. Upgrade for more → Settings > Billing`);
+        }
+      } else {
+        // Over diagnostic limit — show Haiku's chat response instead of escalating
+        postSystemChatMessage(churchId, aiResult.text || 'I could not map that to a command.');
+      }
       return;
     }
     postSystemChatMessage(churchId, aiResult.text || 'I could not map that to a command.');
@@ -2892,7 +2961,7 @@ function handleChurchConnection(ws, url, clientIp) {
 }
 
 function handleControllerConnection(ws, url, req) {
-  const apiKey = url.searchParams.get('apikey');
+  const apiKey = url.searchParams.get('apikey') || req.headers['x-api-key'];
   if (!safeCompareKey(apiKey, ADMIN_API_KEY)) return ws.close(1008, 'invalid api key');
 
   const clientIp = req.socket?.remoteAddress || 'unknown';

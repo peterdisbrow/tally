@@ -374,7 +374,7 @@ class TallyBot {
    * @param {object} [opts.preServiceCheck] - PreServiceCheck instance (optional)
    * @param {object} [opts.resellerSystem]  - ResellerSystem instance for white-labeling (optional)
    */
-  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem, autoPilot, chatEngine, scheduler }) {
+  constructor({ botToken, adminChatId, db, relay, onCallRotation, guestTdMode, preServiceCheck, presetLibrary, planningCenter, resellerSystem, autoPilot, chatEngine, scheduler, signalFailover }) {
     this.token = botToken;
     this.adminChatId = adminChatId;
     this.db = db;
@@ -388,6 +388,7 @@ class TallyBot {
     this.autoPilot       = autoPilot       || null;
     this.chatEngine      = chatEngine      || null;
     this.scheduler       = scheduler       || null;
+    this.signalFailover  = signalFailover  || null;
     this._apiBase = `https://api.telegram.org/bot${botToken}`;
 
     // Ensure church_tds table
@@ -712,6 +713,25 @@ class TallyBot {
     } else if (pendingRundown) {
       // Expired — clean up silently
       this._pendingRundowns.delete(chatId);
+    }
+
+    // ── Failover ack/recover commands ─────────────────────────────────────
+    const ackMatch = text.match(/^\/ack_([a-f0-9]+)/i);
+    if (ackMatch && this.signalFailover) {
+      this.signalFailover.onTdAcknowledge(church.churchId);
+      return this.sendMessage(chatId,
+        `✅ Got it — Tally will stand by and let you handle it.\nWhen you're ready to switch back, reply /recover_${ackMatch[1]}`
+      );
+    }
+
+    const recoverMatch = text.match(/^\/recover_([a-f0-9]+)/i);
+    if (recoverMatch && this.signalFailover) {
+      try {
+        await this.signalFailover.onTdConfirmRecovery(church.churchId);
+        return this.sendMessage(chatId, '✅ Switched back to the main source. You\'re all set.');
+      } catch (e) {
+        return this.sendMessage(chatId, `❌ Couldn't switch back automatically.\n${e.message}\nYou'll need to do it manually at the booth.`);
+      }
     }
 
     // ── Chat message ─────────────────────────────────────────────────────
