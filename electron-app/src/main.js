@@ -28,7 +28,7 @@ const MAX_RECENT_LOG_LINES = 2000;
 let tray = null;
 let mainWindow = null;
 let agentProcess = null;
-let agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
+let agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {}, failover: null };
 let lastNotifiedState = {};
 const recentLogLines = [];
 let agentCrashCount = 0;
@@ -515,6 +515,42 @@ function startAgent() {
       agentStatus.audio = { ...(agentStatus.audio || {}), masterMuted: false }; statusChanged = true;
     }
 
+    // Parse SignalFailover state transitions
+    const failoverMatch = text.match(/\[SignalFailover\]\s+(\S+):\s+(\w+)\s*→\s*(\w+)\s*\(([^)]+)\)(?:\s*\[([^\]]+)\])?/);
+    if (failoverMatch) {
+      const [, churchId, fromState, toState, trigger, diagType] = failoverMatch;
+      const ts = new Date().toISOString();
+      if (!agentStatus.failover) agentStatus.failover = { state: 'HEALTHY', transitions: [] };
+      agentStatus.failover.state = toState;
+      if (diagType) agentStatus.failover.diagnosisType = diagType;
+      agentStatus.failover.transitions.unshift({ from: fromState, to: toState, trigger, ts });
+      if (agentStatus.failover.transitions.length > 5) agentStatus.failover.transitions.length = 5;
+      if (toState !== 'HEALTHY') agentStatus.failover.outageStartedAt = agentStatus.failover.outageStartedAt || ts;
+      else agentStatus.failover.outageStartedAt = null;
+      statusChanged = true;
+      mainWindow?.webContents.send('failover-state', agentStatus.failover);
+    }
+    // Parse failover diagnosis messages
+    if (text.includes('[SignalFailover]') && text.includes('Diagnosis:')) {
+      const diagMatch = text.match(/Diagnosis:\s*(.+)/);
+      if (diagMatch) {
+        if (!agentStatus.failover) agentStatus.failover = { state: 'HEALTHY', transitions: [] };
+        agentStatus.failover.diagnosisMessage = diagMatch[1].trim();
+        mainWindow?.webContents.send('failover-state', agentStatus.failover);
+      }
+    }
+    // Parse failover recovery
+    if (text.includes('[SignalFailover]') && text.includes('Recovery executed')) {
+      if (agentStatus.failover) {
+        agentStatus.failover.state = 'HEALTHY';
+        agentStatus.failover.outageStartedAt = null;
+        agentStatus.failover.diagnosisMessage = null;
+        agentStatus.failover.diagnosisType = null;
+        statusChanged = true;
+        mainWindow?.webContents.send('failover-state', agentStatus.failover);
+      }
+    }
+
     // Parse ATEM model, program/preview inputs, recording from status logs
     const atemModelMatch = text.match(/ATEM model detected:\s*(.+)/i);
     if (atemModelMatch && agentStatus.atem && typeof agentStatus.atem === 'object') {
@@ -586,7 +622,7 @@ function startAgent() {
     const wasManualStop = agentProcess === null; // stopAgent() sets this to null before kill
     agentProcess = null;
     const savedEncoderType = agentStatus.encoderType;
-    agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: savedEncoderType, audio: {} };
+    agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: savedEncoderType, audio: {}, failover: null };
     mainWindow?.webContents.send('status', agentStatus);
     updateTray();
     console.log(`Agent exited with code ${code}`);
@@ -1153,6 +1189,58 @@ ipcMain.handle('get-equipment', () => {
     encoderStatusUrl: config.encoder?.statusUrl || '',
     rtmpUrl: config.rtmpUrl || '',
   };
+});
+
+// ─── SIGNAL FAILOVER IPC ─────────────────────────────────────────────────────
+
+ipcMain.handle('get-failover-config', async () => {
+  const config = loadConfig();
+  if (!config.token) return { enabled: false };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const res = await fetch(`${relayHttp}/api/church/failover`, {
+      headers: { 'Authorization': `Bearer ${config.token}` },
+    });
+    if (!res.ok) return { enabled: false };
+    return await res.json();
+  } catch {
+    return { enabled: false };
+  }
+});
+
+ipcMain.handle('save-failover-config', async (_, failoverConfig) => {
+  const config = loadConfig();
+  if (!config.token) return { ok: false, error: 'Not authenticated' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const res = await fetch(`${relayHttp}/api/church/failover`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${config.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(failoverConfig),
+    });
+    return { ok: res.ok };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-failover-state', () => {
+  return agentStatus.failover || { state: 'HEALTHY', transitions: [] };
+});
+
+ipcMain.handle('get-failover-sources', async () => {
+  const config = loadConfig();
+  if (!config.token) return { atem: [], videohub: [], obs: [] };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const res = await fetch(`${relayHttp}/api/church/failover/sources`, {
+      headers: { 'Authorization': `Bearer ${config.token}` },
+    });
+    if (!res.ok) return { atem: [], videohub: [], obs: [] };
+    return await res.json();
+  } catch {
+    return { atem: [], videohub: [], obs: [] };
+  }
 });
 
 // ─── PROBLEM FINDER IPC ──────────────────────────────────────────────────────

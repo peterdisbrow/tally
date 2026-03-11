@@ -416,6 +416,8 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN failover_black_threshold_s INTEGER DEFAULT 5",
   "ALTER TABLE churches ADD COLUMN failover_ack_timeout_s INTEGER DEFAULT 30",
   "ALTER TABLE churches ADD COLUMN failover_action TEXT",
+  "ALTER TABLE churches ADD COLUMN failover_auto_recover INTEGER DEFAULT 0",
+  "ALTER TABLE churches ADD COLUMN failover_audio_trigger INTEGER DEFAULT 0",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -831,6 +833,14 @@ incidentSummarizer.setAiUsageLogger(logAiUsage);
 // Fire-and-forget transition handler — summaries never block the state machine
 signalFailover.onTransition((churchId, from, to, trigger, snapshot) => {
   incidentSummarizer.handleTransition(churchId, from, to, trigger, snapshot);
+
+  // Broadcast failover state to the church's connected client (for Electron app display)
+  const church = churches.get(churchId);
+  if (church?.ws?.readyState === 1) {
+    try {
+      church.ws.send(JSON.stringify({ type: 'failover_state', ...snapshot }));
+    } catch { /* best effort */ }
+  }
 });
 console.log('[Server] ✓ Incident Summarizer initialized');
 
@@ -1224,7 +1234,7 @@ scheduleEngine.addWindowCloseCallback(async (churchId) => {
 });
 
 // Church Portal — self-service login for individual churches
-setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode });
+setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover });
 console.log('[Server] ✓ Church Portal routes registered');
 
 // Reseller Portal — self-service login for integrators/resellers

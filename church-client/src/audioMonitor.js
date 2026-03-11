@@ -15,6 +15,7 @@
 
 const SILENCE_THRESHOLD_DB  = -40;        // dBFS: below this = silence
 const SILENCE_DURATION_MS   = 15_000;     // 15 seconds of sustained silence = alert
+const SILENCE_FAILOVER_MS   = 30_000;     // 30 seconds of silence = send signal_event for failover
 const DEDUP_WINDOW_MS        = 5 * 60_000; // don't re-alert same issue within 5 min
 const TICK_INTERVAL_MS       = 2_000;     // check every 2 seconds
 
@@ -24,6 +25,7 @@ class AudioMonitor {
     this._tickInterval = null;
     this._silenceStartTime = null;     // when silence was first detected
     this._lastAlertTimes  = new Map(); // alertKey → timestamp
+    this._failoverSignalSent = false;  // prevent re-sending signal_event
   }
 
   /** Start monitoring. Must be called with the ChurchAVAgent instance. */
@@ -44,6 +46,7 @@ class AudioMonitor {
     }
     this.agent = null;
     this._silenceStartTime = null;
+    this._failoverSignalSent = false;
     console.log('[AudioMonitor] Stopped');
   }
 
@@ -100,15 +103,42 @@ class AudioMonitor {
         // Audio below threshold — start or continue silence timer
         if (!this._silenceStartTime) {
           this._silenceStartTime = Date.now();
-        } else if (Date.now() - this._silenceStartTime >= SILENCE_DURATION_MS) {
-          this._sendAlert(
-            'atem_audio_silence',
-            `Audio silence detected on ATEM master output (${levelDb.toFixed(1)} dBFS for 15+ seconds). Check microphone and mixer.`
-          );
+        } else {
+          const silenceDuration = Date.now() - this._silenceStartTime;
+
+          // 15s: send alert
+          if (silenceDuration >= SILENCE_DURATION_MS) {
+            this._sendAlert(
+              'atem_audio_silence',
+              `Audio silence detected on ATEM master output (${levelDb.toFixed(1)} dBFS for 15+ seconds). Check microphone and mixer.`
+            );
+          }
+
+          // 30s: send signal_event for failover correlation
+          if (silenceDuration >= SILENCE_FAILOVER_MS && !this._failoverSignalSent) {
+            this._failoverSignalSent = true;
+            if (this.agent) {
+              this.agent.sendToRelay({
+                type: 'signal_event',
+                signal: 'audio_silence_sustained',
+                durationSec: Math.floor(silenceDuration / 1000),
+              });
+            }
+          }
         }
       } else {
         // Audio present — reset silence timer
+        if (this._silenceStartTime && this._failoverSignalSent) {
+          // Audio came back after we sent a failover signal — notify relay
+          if (this.agent) {
+            this.agent.sendToRelay({
+              type: 'signal_event',
+              signal: 'audio_silence_cleared',
+            });
+          }
+        }
         this._silenceStartTime = null;
+        this._failoverSignalSent = false;
       }
     } catch (e) {
       // ATEM state is not always available; safe to ignore

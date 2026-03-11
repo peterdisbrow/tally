@@ -238,6 +238,7 @@
     <div class="status-chip"><div class="dot" id="dot-encoder"></div><span id="dot-encoder-label">Encoder</span></div>
     <div class="status-chip"><div class="dot" id="dot-companion"></div><span>Companion</span></div>
     <div class="status-chip" id="dot-ndi-chip" style="display:none;"><div class="dot" id="dot-ndi"></div><span>NDI</span></div>
+    <div class="status-chip" id="failover-chip" style="display:none;"><div class="dot" id="dot-failover"></div><span>Failover</span></div>
   </div>
 
   <!-- Offline / disconnection banner -->
@@ -320,6 +321,35 @@
           <div class="value muted" id="val-audio">—</div>
         </div>
       </div>
+    </div>
+
+    <!-- Signal Failover Status (hidden when failover not enabled) -->
+    <div class="section failover-section" id="failover-status-section" style="display:none;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+        <h2>Signal Failover</h2>
+        <div class="failover-state-badge" id="failover-state-badge">HEALTHY</div>
+      </div>
+      <div class="failover-diagnosis" id="failover-diagnosis" style="display:none;"></div>
+      <div class="failover-countdown" id="failover-countdown" style="display:none;"></div>
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="label">State</div>
+          <div class="value muted" id="val-failover-state">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Safe Source</div>
+          <div class="value muted" id="val-failover-safe-source">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Outage Duration</div>
+          <div class="value muted" id="val-failover-outage-duration">—</div>
+        </div>
+        <div class="info-card">
+          <div class="label">Auto-Recover</div>
+          <div class="value muted" id="val-failover-auto-recover">—</div>
+        </div>
+      </div>
+      <div class="failover-timeline" id="failover-timeline" style="margin-top:8px;"></div>
     </div>
 
     <!-- NDI Decoder Status (hidden when not configured) -->
@@ -554,6 +584,71 @@
               <div class="equip-detail" id="equip-keys-detail" style="margin-top:8px;"></div>
             </div>
           </details>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- E. Signal Failover -->
+    <div class="equip-group" data-group="failover">
+      <div class="equip-group-header" onclick="toggleEquipGroup('failover')">
+        <span class="group-title">Signal Failover</span>
+        <span class="group-chevron">&#9660;</span>
+      </div>
+      <div class="equip-group-body">
+        <div class="equip-section">
+          <div class="equip-detail" style="margin-bottom:12px;">Automatically detect signal loss and switch to a safe source. Alerts your TD via Telegram and can auto-recover when the source comes back.</div>
+
+          <div class="equip-row" style="margin-bottom:10px;">
+            <label style="flex:1;">Enable Signal Failover</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="failover-enabled">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div id="failover-config-fields" style="display:none;">
+            <label>Failover Action</label>
+            <select id="failover-action-type" style="width:100%; margin-bottom:10px;">
+              <option value="atem_switch">ATEM Input Switch</option>
+              <option value="videohub_route">VideoHub Route</option>
+              <option value="obs_scene">OBS Scene Switch</option>
+            </select>
+
+            <label>Safe Source</label>
+            <select id="failover-safe-input" style="width:100%; margin-bottom:10px;">
+              <option value="">Loading sources...</option>
+            </select>
+
+            <label>Black Threshold (seconds)</label>
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+              <input type="range" id="failover-black-threshold" min="3" max="15" value="5" style="flex:1;" oninput="document.getElementById('failover-threshold-val').textContent=this.value+'s'">
+              <span id="failover-threshold-val" style="font-size:11px; color:var(--muted); font-family:var(--mono); min-width:24px;">5s</span>
+            </div>
+
+            <label>Ack Timeout (seconds)</label>
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+              <input type="range" id="failover-ack-timeout" min="15" max="60" value="30" style="flex:1;" oninput="document.getElementById('failover-ack-val').textContent=this.value+'s'">
+              <span id="failover-ack-val" style="font-size:11px; color:var(--muted); font-family:var(--mono); min-width:24px;">30s</span>
+            </div>
+
+            <div class="equip-row" style="margin-bottom:10px;">
+              <label style="flex:1;">Auto-Recover (switch back when source stable)</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="failover-auto-recover">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="equip-row" style="margin-bottom:10px;">
+              <label style="flex:1;">Audio Silence Trigger</label>
+              <label class="toggle-switch">
+                <input type="checkbox" id="failover-audio-trigger">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="equip-detail">Include sustained audio silence (30s+) as a failover signal. Audio silence alone alerts your TD; combined with video loss it escalates faster.</div>
+          </div>
 
         </div>
       </div>

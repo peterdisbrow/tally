@@ -210,8 +210,8 @@ describe('Playbook completeness', () => {
     }
   });
 
-  it('has exactly 23 playbook entries', () => {
-    expect(Object.keys(RECOVERY_PLAYBOOK)).toHaveLength(23);
+  it('has exactly 24 playbook entries', () => {
+    expect(Object.keys(RECOVERY_PLAYBOOK)).toHaveLength(24);
   });
 
   it('only failover_confirmed_outage uses execute_failover', () => {

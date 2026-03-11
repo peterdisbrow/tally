@@ -275,6 +275,20 @@ class VideoHub extends EventEmitter {
 
   /** Summary for status reporting */
   toStatus() {
+    // Serialize route map for failover source capture
+    const routes = {};
+    for (const [output, input] of this._routes) {
+      routes[String(output)] = input;
+    }
+    const inputLabels = {};
+    for (const [index, label] of this._inputLabels) {
+      inputLabels[String(index)] = label;
+    }
+    const outputLabels = {};
+    for (const [index, label] of this._outputLabels) {
+      outputLabels[String(index)] = label;
+    }
+
     return {
       ip: this.ip,
       name: this.name,
@@ -282,6 +296,9 @@ class VideoHub extends EventEmitter {
       routeCount: this._routes.size,
       inputCount: this._inputLabels.size,
       outputCount: this._outputLabels.size,
+      routes,
+      inputLabels,
+      outputLabels,
     };
   }
 }

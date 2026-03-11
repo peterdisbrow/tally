@@ -1,16 +1,23 @@
 /**
  * Signal Failover — Multi-signal failure detection state machine
  *
- * Correlates ATEM connection status and encoder bitrate to detect stream
- * outages and auto-failover to a configured safe source if the TD doesn't
- * acknowledge within a timeout window.
+ * Thinks like a real AV engineer: correlates multiple signals (encoder bitrate,
+ * ATEM connection, audio levels) to diagnose failures before acting. Takes the
+ * safest action first, verifies stability before switching back.
  *
  * States:
- *   HEALTHY          — both signals normal
- *   SUSPECTED_BLACK  — encoder bitrate dropped, 5s confirmation timer running
+ *   HEALTHY          — all signals normal
+ *   SUSPECTED_BLACK  — encoder bitrate dropped, confirmation timer running
  *   ATEM_LOST        — ATEM disconnected, encoder still ok (network issue)
- *   CONFIRMED_OUTAGE — outage confirmed, waiting for TD ack (30s)
- *   FAILOVER_ACTIVE  — failover executed, manual recovery required
+ *   CONFIRMED_OUTAGE — outage confirmed, waiting for TD ack
+ *   FAILOVER_ACTIVE  — failover executed, waiting for recovery
+ *
+ * Diagnosis types (multi-signal correlation):
+ *   source_dead   — encoder loss + ATEM connected → camera/feed died → switch to safe source
+ *   network_outage — encoder loss + ATEM disconnected → network/power issue → alert only
+ *   cascading      — encoder loss + audio silence → multiple systems failing → switch immediately
+ *   audio_only     — audio silence alone → mic/mixer issue → alert TD
+ *   atem_only      — ATEM disconnect alone → network issue → alert TD
  */
 
 const STATES = {
@@ -27,6 +34,7 @@ const DEFAULTS = {
   bitrateDropRatio: 0.2,     // below 20% of baseline = loss
   bitrateRecoverRatio: 0.5,  // above 50% of baseline = recovered
   baselineSamples: 3,        // samples needed to establish baseline
+  stabilityTimerS: 10,       // seconds to verify source is stable before auto-recover
 };
 
 class SignalFailover {
@@ -50,7 +58,9 @@ class SignalFailover {
   _getConfig(churchId) {
     try {
       const row = this.db.prepare(
-        'SELECT failover_enabled, failover_black_threshold_s, failover_ack_timeout_s, failover_action FROM churches WHERE churchId = ?'
+        `SELECT failover_enabled, failover_black_threshold_s, failover_ack_timeout_s,
+                failover_action, failover_auto_recover, failover_audio_trigger
+         FROM churches WHERE churchId = ?`
       ).get(churchId);
       if (!row || !row.failover_enabled) return null;
 
@@ -63,6 +73,8 @@ class SignalFailover {
         blackThresholdS: row.failover_black_threshold_s || DEFAULTS.blackThresholdS,
         ackTimeoutS: row.failover_ack_timeout_s || DEFAULTS.ackTimeoutS,
         action,
+        autoRecover: !!row.failover_auto_recover,
+        audioTrigger: !!row.failover_audio_trigger,
       };
     } catch {
       return null;
@@ -77,12 +89,15 @@ class SignalFailover {
         state: STATES.HEALTHY,
         blackTimer: null,
         ackTimer: null,
-        originalSource: null,    // source before failover (input ID or route)
+        stabilityTimer: null,      // auto-recover: verify source is stable before switching back
+        originalSource: null,      // source before failover (input ID or route)
         bitrateBaseline: null,
         bitrateSamples: [],
-        bitrateInLoss: false,    // true when we've signaled bitrate_loss
+        bitrateInLoss: false,      // true when we've signaled bitrate_loss
+        audioSilence: false,       // true when sustained audio silence is active
         outageStartedAt: null,
         failoverAlertId: null,
+        diagnosis: null,           // { type, confidence, signals } — current failure diagnosis
         stateLog: [],
       });
     }
@@ -93,14 +108,114 @@ class SignalFailover {
     const s = this._getState(churchId);
     if (s.blackTimer) clearTimeout(s.blackTimer);
     if (s.ackTimer) clearTimeout(s.ackTimer);
+    if (s.stabilityTimer) clearTimeout(s.stabilityTimer);
     s.state = STATES.HEALTHY;
     s.blackTimer = null;
     s.ackTimer = null;
+    s.stabilityTimer = null;
     s.originalSource = null;
     s.outageStartedAt = null;
     s.failoverAlertId = null;
     s.bitrateInLoss = false;
+    s.audioSilence = false;
+    s.diagnosis = null;
     // keep bitrateBaseline and bitrateSamples across resets (same stream session)
+  }
+
+  // ─── Multi-Signal Diagnosis ─────────────────────────────────────────────────
+
+  /**
+   * Diagnose the failure by correlating all available signals.
+   * A real AV engineer checks multiple things before deciding what to do.
+   *
+   * Uses both the live status AND the state machine's tracked signal events,
+   * because signal_events arrive before the church status is updated.
+   *
+   * @param {object} opts — { encoderLost, atemLost } override flags from signal events
+   * @returns {{ type: string, confidence: number, signals: string[], switchWillHelp: boolean }}
+   */
+  _diagnoseFailure(churchId, church, opts = {}) {
+    const status = church.status || {};
+    const s = this._getState(churchId);
+    const signals = [];
+
+    // Use signal event flags (from state machine) OR live status, whichever shows a problem
+    const encoderDead = opts.encoderLost || !this._isEncoderHealthy(church);
+    const atemConnected = opts.atemLost ? false : (status.atem?.connected !== false);
+    const audioSilent = s.audioSilence;
+
+    if (encoderDead) signals.push('encoder_loss');
+    if (!atemConnected) signals.push('atem_disconnected');
+    if (audioSilent) signals.push('audio_silence');
+
+    // ── Cascading failure: encoder + audio both dead ──
+    // Multiple systems failing = high confidence something upstream died
+    if (encoderDead && audioSilent && atemConnected) {
+      return {
+        type: 'cascading',
+        confidence: 0.95,
+        signals,
+        switchWillHelp: true,
+        message: 'Video and audio both went dead — likely a source or input failure',
+      };
+    }
+
+    // ── Network/power outage: encoder + ATEM both dead ──
+    // If both ATEM and encoder are gone, switching inputs won't help
+    if (encoderDead && !atemConnected) {
+      return {
+        type: 'network_outage',
+        confidence: 0.85,
+        signals,
+        switchWillHelp: false,
+        message: 'Both the switcher and encoder are unreachable — likely a network or power issue',
+      };
+    }
+
+    // ── Source dead: encoder gone but ATEM still connected ──
+    // The switcher is fine, so a camera or feed source died — switching will help
+    if (encoderDead && atemConnected) {
+      return {
+        type: 'source_dead',
+        confidence: audioSilent ? 0.9 : 0.75,
+        signals,
+        switchWillHelp: true,
+        message: audioSilent
+          ? 'Video feed and audio are both down — source likely died'
+          : 'Video feed dropped but the switcher is fine — source likely died',
+      };
+    }
+
+    // ── ATEM-only: switcher disconnected but encoder is fine ──
+    if (!atemConnected && !encoderDead) {
+      return {
+        type: 'atem_only',
+        confidence: 0.8,
+        signals,
+        switchWillHelp: false,
+        message: 'Lost connection to the switcher but the stream is still going — network issue at the booth',
+      };
+    }
+
+    // ── Audio-only: silence with everything else OK ──
+    if (audioSilent && !encoderDead && atemConnected) {
+      return {
+        type: 'audio_only',
+        confidence: 0.6,
+        signals,
+        switchWillHelp: false,
+        message: 'Audio went silent but video looks fine — check the mic and mixer',
+      };
+    }
+
+    // ── Unknown / healthy ──
+    return {
+      type: 'unknown',
+      confidence: 0,
+      signals,
+      switchWillHelp: false,
+      message: 'No clear failure pattern detected',
+    };
   }
 
   // ─── Signal Events (from church client) ─────────────────────────────────────
@@ -108,8 +223,8 @@ class SignalFailover {
   /**
    * Handle a signal event from the church client.
    * @param {string} churchId
-   * @param {string} signal — 'atem_lost' | 'atem_restored' | 'encoder_bitrate_loss' | 'encoder_bitrate_recovered'
-   * @param {object} data — { bitrateKbps, baselineKbps, church }
+   * @param {string} signal — signal type
+   * @param {object} data — { bitrateKbps, baselineKbps, church, durationSec }
    */
   onSignalEvent(churchId, signal, data) {
     const config = this._getConfig(churchId);
@@ -131,6 +246,12 @@ class SignalFailover {
         break;
       case 'atem_restored':
         this._onAtemRestored(churchId, s, config, church);
+        break;
+      case 'audio_silence_sustained':
+        this._onAudioSilence(churchId, s, config, church, data);
+        break;
+      case 'audio_silence_cleared':
+        this._onAudioSilenceCleared(churchId, s, config, church);
         break;
     }
   }
@@ -176,6 +297,18 @@ class SignalFailover {
   _onEncoderLoss(churchId, s, config, church, data) {
     switch (s.state) {
       case STATES.HEALTHY: {
+        // Diagnose before acting — like a real engineer, check all signals
+        const diagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true });
+        s.diagnosis = diagnosis;
+
+        // Audio silence + encoder loss = cascading → skip timer, escalate fast
+        if (diagnosis.type === 'cascading') {
+          s.outageStartedAt = Date.now();
+          this._logTransition(churchId, STATES.HEALTHY, STATES.CONFIRMED_OUTAGE, 'cascading_failure');
+          this._escalateToConfirmed(churchId, s, config, church, 'cascading_failure');
+          return;
+        }
+
         // Start suspected black timer
         this._logTransition(churchId, STATES.HEALTHY, STATES.SUSPECTED_BLACK, 'encoder_bitrate_loss');
         s.state = STATES.SUSPECTED_BLACK;
@@ -184,7 +317,17 @@ class SignalFailover {
         s.blackTimer = setTimeout(() => {
           s.blackTimer = null;
           if (s.state === STATES.SUSPECTED_BLACK) {
-            this._escalateToConfirmed(churchId, s, config, church, 'black_timeout');
+            // Re-diagnose at timeout — signals may have changed
+            const freshDiagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true });
+            s.diagnosis = freshDiagnosis;
+
+            if (freshDiagnosis.switchWillHelp) {
+              this._escalateToConfirmed(churchId, s, config, church, 'black_timeout');
+            } else {
+              // Network outage — switching won't help, alert TD instead
+              this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.CONFIRMED_OUTAGE, 'black_timeout_no_switch');
+              this._escalateToConfirmed(churchId, s, config, church, 'black_timeout_network_issue');
+            }
           }
         }, config.blackThresholdS * 1000);
         break;
@@ -192,6 +335,7 @@ class SignalFailover {
 
       case STATES.ATEM_LOST: {
         // ATEM already lost + encoder drops = correlated failure, skip timer
+        s.diagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true, atemLost: true });
         this._logTransition(churchId, STATES.ATEM_LOST, STATES.CONFIRMED_OUTAGE, 'correlated_loss');
         this._escalateToConfirmed(churchId, s, config, church, 'correlated_atem_and_encoder');
         break;
@@ -203,24 +347,50 @@ class SignalFailover {
   _onEncoderRecovered(churchId, s, config, church, data) {
     switch (s.state) {
       case STATES.SUSPECTED_BLACK: {
-        // Recovered within the threshold window — cancel
+        // Recovered within the threshold window — cancel (brief glitch, like a real engineer would ignore)
         if (s.blackTimer) { clearTimeout(s.blackTimer); s.blackTimer = null; }
         this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.HEALTHY, 'encoder_recovered');
         s.state = STATES.HEALTHY;
         s.outageStartedAt = null;
+        s.diagnosis = null;
         break;
       }
 
       case STATES.FAILOVER_ACTIVE: {
-        // Source may be recovering — notify TD, don't auto-switch-back
         const elapsed = s.outageStartedAt ? Math.round((Date.now() - s.outageStartedAt) / 1000) : 0;
-        this._sendAlert(church, 'failover_source_recovering',
-          `✅ *Looks Like It's Back* — ${church.name}\n` +
-          `The video source seems to be working again.\n` +
-          `Outage lasted about ${elapsed}s.\n\n` +
-          `When you're ready, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back to the main source.`
-        );
-        this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'source_recovering');
+
+        if (config.autoRecover) {
+          // Auto-recover: start stability timer — watch it for 10s like a real engineer would
+          // before trusting that the source is actually back
+          if (s.stabilityTimer) clearTimeout(s.stabilityTimer);
+
+          this._sendAlert(church, 'failover_source_recovering_auto',
+            `✅ *Source Looks Like It's Back* — ${church.name}\n` +
+            `Outage lasted about ${elapsed}s.\n` +
+            `Watching for 10 seconds to make sure it's stable before switching back...`
+          );
+          this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'source_recovering_auto');
+
+          s.stabilityTimer = setTimeout(() => {
+            s.stabilityTimer = null;
+            // Re-read church from map — status may have changed during the stability window
+            const currentChurch = this.churches.get(churchId);
+            if (s.state === STATES.FAILOVER_ACTIVE && currentChurch && this._isEncoderHealthy(currentChurch)) {
+              // Source stayed healthy for 10s — auto-recover
+              const currentConfig = this._getConfig(churchId);
+              if (currentConfig) this._autoRecover(churchId, s, currentConfig, currentChurch);
+            }
+          }, DEFAULTS.stabilityTimerS * 1000);
+        } else {
+          // Manual recover: notify TD, stay on safe source
+          this._sendAlert(church, 'failover_source_recovering',
+            `✅ *Looks Like It's Back* — ${church.name}\n` +
+            `The video source seems to be working again.\n` +
+            `Outage lasted about ${elapsed}s.\n\n` +
+            `When you're ready, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back to the main source.`
+          );
+          this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'source_recovering');
+        }
         break;
       }
     }
@@ -232,7 +402,9 @@ class SignalFailover {
         // Check if encoder is also in loss (simultaneous)
         const encoderOk = this._isEncoderHealthy(church);
         if (encoderOk) {
-          // ATEM-only loss — network issue
+          // ATEM-only loss — network issue, alert but don't switch
+          s.diagnosis = { type: 'atem_only', confidence: 0.8, signals: ['atem_disconnected'], switchWillHelp: false,
+            message: 'Lost connection to the switcher but the stream is still going' };
           this._logTransition(churchId, STATES.HEALTHY, STATES.ATEM_LOST, 'atem_lost');
           s.state = STATES.ATEM_LOST;
           s.outageStartedAt = Date.now();
@@ -243,8 +415,9 @@ class SignalFailover {
             `Check the network cable at the booth.`
           );
         } else {
-          // Simultaneous loss — skip timer, go straight to confirmed
+          // Simultaneous loss — diagnose and skip timer
           s.outageStartedAt = Date.now();
+          s.diagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true, atemLost: true });
           this._logTransition(churchId, STATES.HEALTHY, STATES.CONFIRMED_OUTAGE, 'simultaneous_loss');
           this._escalateToConfirmed(churchId, s, config, church, 'simultaneous_atem_and_encoder');
         }
@@ -254,6 +427,7 @@ class SignalFailover {
       case STATES.SUSPECTED_BLACK: {
         // Already suspected black + ATEM drops = correlated, skip remaining timer
         if (s.blackTimer) { clearTimeout(s.blackTimer); s.blackTimer = null; }
+        s.diagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true, atemLost: true });
         this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.CONFIRMED_OUTAGE, 'atem_lost_during_black');
         this._escalateToConfirmed(churchId, s, config, church, 'correlated_atem_during_black');
         break;
@@ -267,10 +441,49 @@ class SignalFailover {
         this._logTransition(churchId, STATES.ATEM_LOST, STATES.HEALTHY, 'atem_restored');
         s.state = STATES.HEALTHY;
         s.outageStartedAt = null;
+        s.diagnosis = null;
         break;
       }
       // In other states (CONFIRMED, FAILOVER) — ATEM restore alone doesn't change state
     }
+  }
+
+  // ─── Audio Silence Handlers ─────────────────────────────────────────────────
+
+  _onAudioSilence(churchId, s, config, church, data) {
+    s.audioSilence = true;
+
+    // Only act on audio if this church opted in
+    if (!config.audioTrigger) return;
+
+    switch (s.state) {
+      case STATES.HEALTHY: {
+        // Audio silence alone — alert TD, don't auto-switch
+        // (could be a quiet moment, a prayer, etc.)
+        const diagnosis = this._diagnoseFailure(churchId, church);
+        if (diagnosis.type === 'audio_only') {
+          this._sendAlert(church, 'failover_audio_silence',
+            `🔇 *Audio Went Silent* — ${church.name}\n` +
+            `No audio detected for ${data.durationSec || 30}+ seconds.\n` +
+            `Video looks fine — check the mic and mixer levels.`
+          );
+        }
+        break;
+      }
+
+      case STATES.SUSPECTED_BLACK: {
+        // Encoder already suspected + audio dies = cascading, escalate immediately
+        if (s.blackTimer) { clearTimeout(s.blackTimer); s.blackTimer = null; }
+        s.diagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true });
+        this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.CONFIRMED_OUTAGE, 'audio_silence_during_black');
+        this._escalateToConfirmed(churchId, s, config, church, 'cascading_encoder_and_audio');
+        break;
+      }
+    }
+  }
+
+  _onAudioSilenceCleared(churchId, s, config, church) {
+    s.audioSilence = false;
   }
 
   // ─── Escalation ─────────────────────────────────────────────────────────────
@@ -285,11 +498,25 @@ class SignalFailover {
 
     const elapsed = Math.round((Date.now() - s.outageStartedAt) / 1000);
     const ackTimeout = config.ackTimeoutS;
-    const actionDesc = this._describeAction(config.action);
+    const diagnosis = s.diagnosis || this._diagnoseFailure(churchId, church);
+    s.diagnosis = diagnosis;
+
+    // If diagnosis says switching won't help (network outage), don't auto-switch
+    if (!diagnosis.switchWillHelp) {
+      this._sendAlert(church, 'failover_confirmed_no_switch',
+        `🔴 *Stream Problem* — ${church.name}\n` +
+        `${diagnosis.message}.\n` +
+        `Auto-switching won't help here — someone needs to check the physical setup.\n\n` +
+        `Outage started ${elapsed}s ago.`
+      );
+      this._logTransition(churchId, s.state, STATES.CONFIRMED_OUTAGE, 'no_switch_available');
+      // No ack timer — we won't auto-switch for network outages
+      return;
+    }
 
     this._sendAlert(church, 'failover_confirmed_outage',
       `🔴 *Stream Problem* — ${church.name}\n` +
-      `The video feed went down ${elapsed}s ago.\n` +
+      `${diagnosis.message}.\n` +
       `Tally will automatically switch to a safe source in ${ackTimeout}s.\n\n` +
       `If you're handling it, reply /ack_${s.failoverAlertId.slice(0, 8)} and Tally will stand by.`
     );
@@ -331,6 +558,9 @@ class SignalFailover {
     const config = this._getConfig(churchId);
     if (!config) return;
 
+    // Cancel any pending auto-recover stability timer
+    if (s.stabilityTimer) { clearTimeout(s.stabilityTimer); s.stabilityTimer = null; }
+
     try {
       await this._executeRecovery(churchId, s, config, church);
       this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.HEALTHY, 'td_confirmed_recovery');
@@ -343,6 +573,33 @@ class SignalFailover {
       console.error(`[SignalFailover] Recovery command failed for ${churchId}:`, e.message);
       this._sendAlert(church, 'failover_recovery_failed',
         `❌ *Couldn't Switch Back* — ${church.name}\nSomething went wrong: ${e.message}\nYou'll need to switch it back manually at the booth.`
+      );
+    }
+  }
+
+  // ─── Auto-Recovery ──────────────────────────────────────────────────────────
+
+  /**
+   * Automatically switch back after the stability timer confirms the source is stable.
+   * Like a real engineer: watch the source for a few seconds before trusting it.
+   */
+  async _autoRecover(churchId, s, config, church) {
+    try {
+      await this._executeRecovery(churchId, s, config, church);
+      this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.HEALTHY, 'auto_recovered');
+      const origDesc = this._describeSource(s.originalSource, config.action);
+      this._sendAlert(church, 'failover_auto_recovered',
+        `✅ *Switched Back Automatically* — ${church.name}\n` +
+        `Source was stable for 10 seconds, so Tally switched back to ${origDesc}.\n` +
+        `Everything looks good.`
+      );
+      this._resetState(churchId);
+    } catch (e) {
+      console.error(`[SignalFailover] Auto-recovery command failed for ${churchId}:`, e.message);
+      this._sendAlert(church, 'failover_auto_recovery_failed',
+        `⚠️ *Auto Switch-Back Failed* — ${church.name}\n` +
+        `Source recovered but Tally couldn't switch back: ${e.message}\n` +
+        `Reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to try again, or switch manually.`
       );
     }
   }
@@ -368,7 +625,9 @@ class SignalFailover {
         `🔄 *Switched to Backup* — ${church.name}\n` +
         `The stream went down for ${elapsed}s, so Tally switched to a safe source.\n` +
         `The stream is still live.\n\n` +
-        `When things look good, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back.`
+        (config.autoRecover
+          ? `Tally will automatically switch back when the source is stable.`
+          : `When things look good, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back.`)
       );
     } catch (e) {
       console.error(`[SignalFailover] ❌ Failover command failed for ${churchId}:`, e.message);
@@ -415,10 +674,14 @@ class SignalFailover {
     switch (action.type) {
       case 'atem_switch':
         return church.status?.atem?.programInput || null;
-      case 'videohub_route':
-        // Can't easily capture current VideoHub route from status — store the action's output
-        // The recovery will route back to whatever was there (TD confirms this is correct)
+      case 'videohub_route': {
+        const hubs = church.status?.videoHubs || [];
+        const hub = hubs[action.hubIndex || 0];
+        if (hub?.routes && action.output !== undefined) {
+          return hub.routes[String(action.output)] ?? null;
+        }
         return null;
+      }
       default:
         return null;
     }
@@ -484,14 +747,14 @@ class SignalFailover {
 
   _logTransition(churchId, from, to, trigger) {
     const s = this._getState(churchId);
-    const entry = { ts: new Date().toISOString(), from, to, trigger };
+    const entry = { ts: new Date().toISOString(), from, to, trigger, diagnosis: s.diagnosis?.type || null };
     s.stateLog.push(entry);
     // Keep log bounded
     if (s.stateLog.length > 50) s.stateLog.shift();
-    console.log(`[SignalFailover] ${churchId}: ${from} → ${to} (${trigger})`);
+    console.log(`[SignalFailover] ${churchId}: ${from} → ${to} (${trigger})${s.diagnosis ? ` [${s.diagnosis.type}]` : ''}`);
 
     // Fire-and-forget: notify listeners (never block state machine)
-    const snapshot = { state: to, outageStartedAt: s.outageStartedAt, stateLog: s.stateLog.slice(-10) };
+    const snapshot = { state: to, diagnosis: s.diagnosis, outageStartedAt: s.outageStartedAt, stateLog: s.stateLog.slice(-10) };
     for (const fn of this._transitionListeners) {
       try {
         Promise.resolve(fn(churchId, from, to, trigger, snapshot)).catch(e =>
@@ -510,6 +773,7 @@ class SignalFailover {
     if (!s) return { state: STATES.HEALTHY };
     return {
       state: s.state,
+      diagnosis: s.diagnosis,
       outageStartedAt: s.outageStartedAt,
       bitrateBaseline: s.bitrateBaseline,
       stateLog: s.stateLog.slice(-10),
@@ -531,6 +795,7 @@ class SignalFailover {
     if (s) {
       if (s.blackTimer) clearTimeout(s.blackTimer);
       if (s.ackTimer) clearTimeout(s.ackTimer);
+      if (s.stabilityTimer) clearTimeout(s.stabilityTimer);
       this._states.delete(churchId);
     }
   }

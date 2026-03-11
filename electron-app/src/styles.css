@@ -1203,6 +1203,141 @@ body.ready { opacity: 1; }
   margin-bottom: 4px;
 }
 
+/* ── Signal Failover ──────────────────────────────────────────── */
+
+.failover-state-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: var(--r-chip);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: var(--mono);
+  background: rgba(34,197,94,0.15);
+  color: var(--green);
+  border: 1px solid rgba(34,197,94,0.3);
+}
+.failover-state-badge.suspected {
+  background: rgba(234,179,8,0.14);
+  color: #fde68a;
+  border-color: rgba(250,204,21,0.45);
+}
+.failover-state-badge.confirmed {
+  background: rgba(239,68,68,0.12);
+  color: #fca5a5;
+  border-color: rgba(239,68,68,0.45);
+  animation: failover-pulse 1.5s ease-in-out infinite;
+}
+.failover-state-badge.active-failover {
+  background: rgba(249,115,22,0.14);
+  color: #fed7aa;
+  border-color: rgba(249,115,22,0.45);
+}
+.failover-state-badge.atem-lost {
+  background: rgba(239,68,68,0.12);
+  color: #fca5a5;
+  border-color: rgba(239,68,68,0.45);
+}
+
+@keyframes failover-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.failover-diagnosis {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: var(--mono);
+  line-height: 1.5;
+  margin-bottom: 8px;
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.25);
+  color: #fca5a5;
+}
+.failover-diagnosis.warn {
+  background: rgba(234,179,8,0.08);
+  border-color: rgba(234,179,8,0.25);
+  color: #fde68a;
+}
+
+.failover-countdown {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--mono);
+  text-align: center;
+  margin-bottom: 8px;
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.3);
+  color: #fca5a5;
+}
+
+.failover-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.failover-timeline-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--dim);
+  padding: 3px 0;
+}
+.failover-timeline-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.failover-timeline-dot.green { background: var(--green); }
+.failover-timeline-dot.yellow { background: var(--warn); }
+.failover-timeline-dot.red { background: var(--danger); }
+.failover-timeline-dot.orange { background: #f97316; }
+
+/* Toggle switch for failover config */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--dim);
+  border-radius: 20px;
+  transition: 0.2s;
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background: var(--white);
+  border-radius: 50%;
+  transition: 0.2s;
+}
+.toggle-switch input:checked + .toggle-slider {
+  background: var(--green);
+}
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(16px);
+}
+
 /* ── Wizard Validation Toast ─────────────────────────────────── */
 @keyframes fadeInOut {
   0%   { opacity: 0; transform: translateX(-50%) translateY(-8px); }

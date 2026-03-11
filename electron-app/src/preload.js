@@ -71,6 +71,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pfSetCamerasVerified: (v) => ipcRenderer.invoke('pf-set-cameras-verified', v),
   pfGetCamerasVerified: () => ipcRenderer.invoke('pf-get-cameras-verified'),
   onPfUpdate: (cb) => ipcRenderer.on('pf-update', (_, data) => cb(data)),
+  // Signal Failover
+  getFailoverConfig: () => ipcRenderer.invoke('get-failover-config'),
+  saveFailoverConfig: (config) => ipcRenderer.invoke('save-failover-config', config),
+  getFailoverState: () => ipcRenderer.invoke('get-failover-state'),
+  getFailoverSources: () => ipcRenderer.invoke('get-failover-sources'),
+  onFailoverStateChange: (cb) => ipcRenderer.on('failover-state', (_, data) => cb(data)),
   // Window visibility (pause polling when hidden to tray)
   onWindowVisibility: (cb) => ipcRenderer.on('window-visibility', (_, visible) => cb(visible)),
 });

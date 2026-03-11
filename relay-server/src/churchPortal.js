@@ -4712,7 +4712,7 @@ function buildChurchPortalHtml(church) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover } = {}) {
   const express = require('express');
   log.info('Setup started');
 
@@ -4974,7 +4974,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.get('/api/church/failover', authMiddleware, (req, res) => {
     try {
       const row = db.prepare(
-        'SELECT failover_enabled, failover_black_threshold_s, failover_ack_timeout_s, failover_action FROM churches WHERE churchId = ?'
+        `SELECT failover_enabled, failover_black_threshold_s, failover_ack_timeout_s,
+                failover_action, failover_auto_recover, failover_audio_trigger
+         FROM churches WHERE churchId = ?`
       ).get(req.church.churchId);
       if (!row) return res.status(404).json({ error: 'Church not found' });
       let action = null;
@@ -4984,16 +4986,73 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         blackThresholdS: row.failover_black_threshold_s || 5,
         ackTimeoutS: row.failover_ack_timeout_s || 30,
         action,
+        autoRecover: !!row.failover_auto_recover,
+        audioTrigger: !!row.failover_audio_trigger,
       });
     } catch (e) {
       res.status(500).json({ error: 'Failed to load failover settings' });
     }
   });
 
+  // ── GET /api/church/failover/state ─────────────────────────────────────────────
+  app.get('/api/church/failover/state', authMiddleware, (req, res) => {
+    try {
+      const state = signalFailover.getState(req.church.churchId);
+      res.json(state);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to get failover state' });
+    }
+  });
+
+  // ── GET /api/church/failover/sources ──────────────────────────────────────────
+  // Returns available failover sources from live device status (ATEM inputs,
+  // VideoHub routes, OBS scenes) so the Electron app can populate a dropdown.
+  app.get('/api/church/failover/sources', authMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const church = churches.get(churchId);
+      if (!church) return res.json({ atem: [], videohub: [], obs: [] });
+
+      const status = church.status || {};
+      const sources = { atem: [], videohub: [], obs: [] };
+
+      // ATEM inputs from labels
+      const labels = status.atem?.inputLabels || {};
+      for (const [id, name] of Object.entries(labels)) {
+        sources.atem.push({ id: Number(id), name: String(name) });
+      }
+      // Fallback: if no labels but ATEM is connected, show generic inputs 1-8
+      if (sources.atem.length === 0 && status.atem?.connected) {
+        for (let i = 1; i <= 8; i++) sources.atem.push({ id: i, name: `Input ${i}` });
+      }
+
+      // VideoHub routes from each connected hub
+      const hubs = status.videoHubs || [];
+      for (const hub of hubs) {
+        if (!hub.connected) continue;
+        const hubInputLabels = hub.inputLabels || {};
+        for (const [idx, label] of Object.entries(hubInputLabels)) {
+          sources.videohub.push({ id: Number(idx), name: label, hub: hub.name || hub.ip });
+        }
+      }
+
+      // OBS scenes (if OBS is the encoder)
+      if (status.obs?.scenes && Array.isArray(status.obs.scenes)) {
+        for (const scene of status.obs.scenes) {
+          sources.obs.push({ name: scene.name || scene });
+        }
+      }
+
+      res.json(sources);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to get failover sources' });
+    }
+  });
+
   // ── PUT /api/church/failover ─────────────────────────────────────────────────
   app.put('/api/church/failover', authMiddleware, (req, res) => {
     try {
-      const { enabled, blackThresholdS, ackTimeoutS, action } = req.body;
+      const { enabled, blackThresholdS, ackTimeoutS, action, autoRecover, audioTrigger } = req.body;
       const churchId = req.church.churchId;
 
       // Validate thresholds
@@ -5016,8 +5075,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       }
 
       db.prepare(
-        'UPDATE churches SET failover_enabled = ?, failover_black_threshold_s = ?, failover_ack_timeout_s = ?, failover_action = ? WHERE churchId = ?'
-      ).run(enabled ? 1 : 0, blackS, ackS, actionJson, churchId);
+        `UPDATE churches SET failover_enabled = ?, failover_black_threshold_s = ?, failover_ack_timeout_s = ?,
+                failover_action = ?, failover_auto_recover = ?, failover_audio_trigger = ?
+         WHERE churchId = ?`
+      ).run(enabled ? 1 : 0, blackS, ackS, actionJson, autoRecover ? 1 : 0, audioTrigger ? 1 : 0, churchId);
 
       res.json({ ok: true });
     } catch (e) {

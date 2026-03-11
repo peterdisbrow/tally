@@ -470,6 +470,8 @@ describe('IncidentSummarizer', () => {
       db.exec("ALTER TABLE churches ADD COLUMN failover_black_threshold_s INTEGER DEFAULT 5");
       db.exec("ALTER TABLE churches ADD COLUMN failover_ack_timeout_s INTEGER DEFAULT 30");
       db.exec("ALTER TABLE churches ADD COLUMN failover_action TEXT DEFAULT ''");
+      db.exec("ALTER TABLE churches ADD COLUMN failover_auto_recover INTEGER DEFAULT 0");
+      db.exec("ALTER TABLE churches ADD COLUMN failover_audio_trigger INTEGER DEFAULT 0");
 
       db.prepare(`
         UPDATE churches SET failover_enabled = 1, failover_black_threshold_s = 5,
@@ -507,6 +509,8 @@ describe('IncidentSummarizer', () => {
       db.exec("ALTER TABLE churches ADD COLUMN failover_black_threshold_s INTEGER DEFAULT 5");
       db.exec("ALTER TABLE churches ADD COLUMN failover_ack_timeout_s INTEGER DEFAULT 30");
       db.exec("ALTER TABLE churches ADD COLUMN failover_action TEXT DEFAULT ''");
+      db.exec("ALTER TABLE churches ADD COLUMN failover_auto_recover INTEGER DEFAULT 0");
+      db.exec("ALTER TABLE churches ADD COLUMN failover_audio_trigger INTEGER DEFAULT 0");
 
       db.prepare(`
         UPDATE churches SET failover_enabled = 1, failover_black_threshold_s = 5,

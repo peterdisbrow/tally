@@ -1169,7 +1169,258 @@ function updateStatusUI(status) {
 
   // NDI Decoder status (independent of encoder)
   updateNdiStatus(status);
+
+  // Signal Failover status
+  if (status.failover) updateFailoverUI(status.failover);
 }
+
+// ─── SIGNAL FAILOVER UI ──────────────────────────────────────────────────────
+
+const FAILOVER_STATE_LABELS = {
+  HEALTHY: 'Healthy',
+  SUSPECTED_BLACK: 'Suspected',
+  CONFIRMED_OUTAGE: 'Confirmed Outage',
+  FAILOVER_ACTIVE: 'Failover Active',
+  ATEM_LOST: 'ATEM Lost',
+};
+
+const FAILOVER_STATE_CSS = {
+  HEALTHY: '',
+  SUSPECTED_BLACK: 'suspected',
+  CONFIRMED_OUTAGE: 'confirmed',
+  FAILOVER_ACTIVE: 'active-failover',
+  ATEM_LOST: 'atem-lost',
+};
+
+const FAILOVER_STATE_DOT = {
+  HEALTHY: 'green',
+  SUSPECTED_BLACK: 'yellow',
+  CONFIRMED_OUTAGE: 'red',
+  FAILOVER_ACTIVE: 'yellow',
+  ATEM_LOST: 'red',
+};
+
+function updateFailoverUI(fo) {
+  const section = document.getElementById('failover-status-section');
+  const chip = document.getElementById('failover-chip');
+  if (!section || !chip) return;
+
+  // Show section and chip
+  section.style.display = '';
+  chip.style.display = '';
+
+  const state = fo.state || 'HEALTHY';
+  const isHealthy = state === 'HEALTHY';
+
+  // Status bar chip
+  const dotEl = document.getElementById('dot-failover');
+  if (dotEl) dotEl.className = `dot ${FAILOVER_STATE_DOT[state] || ''}`;
+  chip.classList.remove('active', 'ok', 'warn', 'err');
+  if (state === 'HEALTHY') chip.classList.add('active', 'ok');
+  else if (state === 'SUSPECTED_BLACK') chip.classList.add('warn');
+  else chip.classList.add('err');
+
+  // State badge
+  const badge = document.getElementById('failover-state-badge');
+  if (badge) {
+    badge.textContent = FAILOVER_STATE_LABELS[state] || state;
+    badge.className = `failover-state-badge ${FAILOVER_STATE_CSS[state] || ''}`;
+  }
+
+  // Info cards
+  setStatusValue('val-failover-state', FAILOVER_STATE_LABELS[state] || state, isHealthy);
+  setStatusValue('val-failover-auto-recover', fo.autoRecover ? 'On' : 'Off', fo.autoRecover);
+
+  // Safe source
+  if (fo.safeSource) {
+    setStatusValue('val-failover-safe-source', `Input ${fo.safeSource}`, true);
+  } else {
+    setStatusValue('val-failover-safe-source', '—', false);
+  }
+
+  // Outage duration
+  if (fo.outageStartedAt && !isHealthy) {
+    const elapsed = Math.round((Date.now() - new Date(fo.outageStartedAt).getTime()) / 1000);
+    const mins = Math.floor(elapsed / 60);
+    const secs = elapsed % 60;
+    setStatusValue('val-failover-outage-duration', mins > 0 ? `${mins}m ${secs}s` : `${secs}s`, false);
+  } else {
+    setStatusValue('val-failover-outage-duration', '—', true);
+  }
+
+  // Diagnosis card
+  const diagEl = document.getElementById('failover-diagnosis');
+  if (diagEl) {
+    if (fo.diagnosisMessage && !isHealthy) {
+      diagEl.textContent = fo.diagnosisMessage;
+      diagEl.className = `failover-diagnosis ${state === 'SUSPECTED_BLACK' ? 'warn' : ''}`;
+      diagEl.style.display = '';
+    } else {
+      diagEl.style.display = 'none';
+    }
+  }
+
+  // Countdown
+  const countdownEl = document.getElementById('failover-countdown');
+  if (countdownEl) {
+    if (state === 'CONFIRMED_OUTAGE') {
+      countdownEl.style.display = '';
+      countdownEl.textContent = 'Waiting for TD acknowledgment before auto-switch...';
+    } else {
+      countdownEl.style.display = 'none';
+    }
+  }
+
+  // Timeline (last 5 transitions)
+  const timelineEl = document.getElementById('failover-timeline');
+  if (timelineEl && fo.transitions && fo.transitions.length > 0) {
+    timelineEl.innerHTML = fo.transitions.map(t => {
+      const time = new Date(t.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const dotColor = FAILOVER_STATE_DOT[t.to] || '';
+      return `<div class="failover-timeline-entry">
+        <div class="failover-timeline-dot ${dotColor}"></div>
+        <span>${time}</span>
+        <span style="color:var(--muted);">${t.from} → ${t.to}</span>
+        <span style="color:var(--dim);">(${t.trigger})</span>
+      </div>`;
+    }).join('');
+  } else if (timelineEl) {
+    timelineEl.innerHTML = '';
+  }
+}
+
+// ─── FAILOVER EQUIPMENT CONFIG ──────────────────────────────────────────────
+
+let _failoverConfigLoaded = false;
+let _failoverSources = { atem: [], videohub: [], obs: [] };
+
+async function loadFailoverSources(selectedValue) {
+  if (!api.getFailoverSources) return;
+  try {
+    _failoverSources = await api.getFailoverSources();
+  } catch {
+    _failoverSources = { atem: [], videohub: [], obs: [] };
+  }
+  populateFailoverSourceDropdown(selectedValue);
+}
+
+function populateFailoverSourceDropdown(selectedValue) {
+  const select = document.getElementById('failover-safe-input');
+  if (!select) return;
+  const actionType = document.getElementById('failover-action-type')?.value || 'atem_switch';
+  select.innerHTML = '';
+
+  if (actionType === 'atem_switch') {
+    const sources = _failoverSources.atem || [];
+    if (sources.length === 0) {
+      select.innerHTML = '<option value="">No ATEM inputs found</option>';
+    } else {
+      for (const src of sources) {
+        const opt = document.createElement('option');
+        opt.value = src.id;
+        opt.textContent = `${src.id}: ${src.name}`;
+        select.appendChild(opt);
+      }
+    }
+  } else if (actionType === 'videohub_route') {
+    const sources = _failoverSources.videohub || [];
+    if (sources.length === 0) {
+      select.innerHTML = '<option value="">No VideoHub inputs found</option>';
+    } else {
+      for (const src of sources) {
+        const opt = document.createElement('option');
+        opt.value = src.id;
+        opt.textContent = `${src.id}: ${src.name}${src.hub ? ` (${src.hub})` : ''}`;
+        select.appendChild(opt);
+      }
+    }
+  } else if (actionType === 'obs_scene') {
+    const sources = _failoverSources.obs || [];
+    if (sources.length === 0) {
+      select.innerHTML = '<option value="">No OBS scenes found</option>';
+    } else {
+      for (const src of sources) {
+        const opt = document.createElement('option');
+        opt.value = src.name;
+        opt.textContent = src.name;
+        select.appendChild(opt);
+      }
+    }
+  }
+
+  if (selectedValue != null) select.value = String(selectedValue);
+}
+
+async function loadFailoverConfig() {
+  if (!api.getFailoverConfig) return;
+  try {
+    const config = await api.getFailoverConfig();
+    const enabledCb = document.getElementById('failover-enabled');
+    if (enabledCb) enabledCb.checked = !!config.enabled;
+
+    const fieldsDiv = document.getElementById('failover-config-fields');
+    if (fieldsDiv) fieldsDiv.style.display = config.enabled ? '' : 'none';
+
+    const actionType = document.getElementById('failover-action-type');
+    if (actionType && config.action?.type) actionType.value = config.action.type;
+
+    // Load sources then select the saved value
+    await loadFailoverSources(config.action?.input);
+
+    const threshold = document.getElementById('failover-black-threshold');
+    if (threshold && config.blackThresholdS) {
+      threshold.value = config.blackThresholdS;
+      const label = document.getElementById('failover-threshold-val');
+      if (label) label.textContent = config.blackThresholdS + 's';
+    }
+
+    const ackTimeout = document.getElementById('failover-ack-timeout');
+    if (ackTimeout && config.ackTimeoutS) {
+      ackTimeout.value = config.ackTimeoutS;
+      const label = document.getElementById('failover-ack-val');
+      if (label) label.textContent = config.ackTimeoutS + 's';
+    }
+
+    const autoRecover = document.getElementById('failover-auto-recover');
+    if (autoRecover) autoRecover.checked = !!config.autoRecover;
+
+    const audioTrigger = document.getElementById('failover-audio-trigger');
+    if (audioTrigger) audioTrigger.checked = !!config.audioTrigger;
+
+    _failoverConfigLoaded = true;
+  } catch { /* ignore — failover may not be available */ }
+}
+
+function getFailoverConfigFromUI() {
+  const enabled = document.getElementById('failover-enabled')?.checked || false;
+  const actionType = document.getElementById('failover-action-type')?.value || 'atem_switch';
+  const safeRaw = document.getElementById('failover-safe-input')?.value || '';
+  const safeInput = actionType === 'obs_scene' ? safeRaw : (parseInt(safeRaw) || 0);
+  const blackThresholdS = parseInt(document.getElementById('failover-black-threshold')?.value) || 5;
+  const ackTimeoutS = parseInt(document.getElementById('failover-ack-timeout')?.value) || 30;
+  const autoRecover = document.getElementById('failover-auto-recover')?.checked || false;
+  const audioTrigger = document.getElementById('failover-audio-trigger')?.checked || false;
+  return { enabled, action: { type: actionType, input: safeInput }, blackThresholdS, ackTimeoutS, autoRecover, audioTrigger };
+}
+
+function initFailoverConfigUI() {
+  const enabledCb = document.getElementById('failover-enabled');
+  if (enabledCb) {
+    enabledCb.addEventListener('change', () => {
+      const fieldsDiv = document.getElementById('failover-config-fields');
+      if (fieldsDiv) fieldsDiv.style.display = enabledCb.checked ? '' : 'none';
+    });
+  }
+  // Re-populate sources when action type changes
+  const actionType = document.getElementById('failover-action-type');
+  if (actionType) {
+    actionType.addEventListener('change', () => {
+      populateFailoverSourceDropdown(null);
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function setStatusValue(id, text, active) {
   const el = document.getElementById(id);
@@ -1357,6 +1608,12 @@ function addAlert(text) {
 api.onStatus((status) => {
   updateStatusUI(status);
 });
+
+// Signal Failover state listener
+if (api.onFailoverStateChange) {
+  api.onFailoverStateChange((fo) => updateFailoverUI(fo));
+}
+initFailoverConfigUI();
 
 // Periodically refresh pre-service panel (every 5 minutes when dashboard is visible)
 let _preServiceRefreshTimer = null;
@@ -1851,6 +2108,7 @@ async function loadEquipment() {
   renderDeviceCatalog();
   renderActiveSummary();
   renderSimpleDeviceList(eq);
+  loadFailoverConfig();
   _equipDirty = false; // fresh load from server — nothing unsaved
 
   // ── Streaming keys (static DOM — not in catalog) ──
@@ -2283,6 +2541,10 @@ async function _doSaveEquipment() {
 
   try {
     await api.saveEquipment(config);
+    // Save failover config separately (stored on relay server)
+    if (_failoverConfigLoaded && api.saveFailoverConfig) {
+      await api.saveFailoverConfig(getFailoverConfigFromUI()).catch(() => {});
+    }
     if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
     if (confirmEl) {
       confirmEl.style.display = 'inline';

@@ -14,6 +14,8 @@ function createTestDb() {
       failover_black_threshold_s INTEGER DEFAULT 5,
       failover_ack_timeout_s INTEGER DEFAULT 30,
       failover_action TEXT,
+      failover_auto_recover INTEGER DEFAULT 0,
+      failover_audio_trigger INTEGER DEFAULT 0,
       td_telegram_chat_id TEXT
     )
   `);

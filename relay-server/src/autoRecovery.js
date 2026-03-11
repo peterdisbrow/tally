@@ -32,6 +32,7 @@ const RECOVERY_PLAYBOOK = {
   'failover_confirmed_outage': { onFail: 'execute_failover' },
   'failover_executed':         { onFail: 'escalate_to_td' },
   'failover_command_failed':   { onFail: 'escalate_to_td' },
+  'audio_silence_sustained':   { onFail: 'alert_td_audio' },
 };
 
 class AutoRecovery {
