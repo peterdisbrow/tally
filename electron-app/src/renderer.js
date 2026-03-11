@@ -1958,16 +1958,16 @@ async function sendQuickChat() {
   try {
     const resp = await api.sendChat({ message });
     if (resp?.error) {
-      responseEl.innerHTML = `<div class="chat-label">Tally</div>❌ ${resp.error}`;
+      responseEl.innerHTML = `<div class="chat-label">Tally</div>❌ ${escapeHtml(resp.error)}`;
       input.value = message;
     } else if (resp?.message) {
-      responseEl.innerHTML = `<div class="chat-label">Tally</div>${resp.message}`;
+      responseEl.innerHTML = `<div class="chat-label">Tally</div>${escapeHtml(resp.message)}`;
       // Also push into engineer chat so it stays in history
       chatMessages.push(resp);
       chatLastTimestamp = resp.timestamp;
     }
   } catch (e) {
-    responseEl.innerHTML = `<div class="chat-label">Tally</div>❌ ${e.message}`;
+    responseEl.innerHTML = `<div class="chat-label">Tally</div>❌ ${escapeHtml(e.message)}`;
     input.value = message;
   }
 }
@@ -2175,7 +2175,7 @@ async function connectFacebook() {
       // Show page selector
       const selector = document.getElementById('fb-page-selector');
       const select = document.getElementById('fb-page-select');
-      select.innerHTML = result.pages.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      select.innerHTML = result.pages.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('');
       selector.style.display = 'block';
       status.textContent = 'Select a page below';
       status.style.color = 'var(--yellow)';
@@ -2731,7 +2731,7 @@ async function startNetworkScan() {
 function addScanResult(container, label, useFn) {
   const item = document.createElement('div');
   item.className = 'scan-result-item';
-  item.innerHTML = `<span>✅ ${label}</span>`;
+  item.innerHTML = `<span>✅ ${escapeHtml(label)}</span>`;
   const btn = document.createElement('button');
   btn.className = 'btn-use';
   btn.textContent = 'Add';

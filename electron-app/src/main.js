@@ -694,7 +694,22 @@ const { loadConfig, saveConfig, loadConfigForUI, isMockValue, stripMockConfig } 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
 
 ipcMain.handle('get-config', () => loadConfigForUI());
-ipcMain.handle('save-config', (_, config) => { saveConfig(config); return true; });
+ipcMain.handle('save-config', (_, config) => {
+  // Whitelist allowed config keys to prevent injection of arbitrary values
+  const ALLOWED_CONFIG_KEYS = new Set([
+    'token', 'relay', 'name', 'atemIp', 'companionUrl', 'obsUrl', 'obsPassword',
+    'liveStreamUrl', 'setupComplete', 'encoderType', 'encoderHost', 'encoderPort',
+    'encoderPassword', 'encoderLabel', 'encoderStatusUrl', 'encoderSource',
+    'youtubeApiKey', 'facebookToken', 'rtmpUrl', 'rtmpKey',
+  ]);
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return false;
+  const sanitized = {};
+  for (const [k, v] of Object.entries(config)) {
+    if (ALLOWED_CONFIG_KEYS.has(k)) sanitized[k] = v;
+  }
+  saveConfig(sanitized);
+  return true;
+});
 ipcMain.handle('get-status', () => agentStatus);
 ipcMain.handle('start-agent', () => { agentCrashCount = 0; startAgent(); });
 ipcMain.handle('stop-agent', () => stopAgent());
@@ -1067,36 +1082,54 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
 
 
 ipcMain.handle('save-equipment', (_, equipConfig) => {
+  if (!equipConfig || typeof equipConfig !== 'object' || Array.isArray(equipConfig)) return;
+
+  // Sanitize IP/hostname: strip anything that isn't alphanumeric, dots, hyphens, colons
+  const sanitizeHost = (v) => typeof v === 'string' ? v.replace(/[^a-zA-Z0-9.\-:]/g, '').slice(0, 255) : '';
+  // Sanitize port: coerce to integer within valid range
+  const sanitizePort = (v, fallback) => {
+    const n = parseInt(v);
+    return (Number.isFinite(n) && n >= 1 && n <= 65535) ? n : (fallback || null);
+  };
+  // Sanitize URL: must start with http/https/ws/wss or be empty
+  const sanitizeUrl = (v) => {
+    if (typeof v !== 'string') return '';
+    const trimmed = v.trim();
+    if (!trimmed) return '';
+    if (/^(https?|wss?):\/\//i.test(trimmed)) return trimmed.slice(0, 2048);
+    return '';
+  };
+
   const config = loadConfig();
-  if (equipConfig.atemIp !== undefined) config.atemIp = equipConfig.atemIp;
-  if (equipConfig.companionUrl !== undefined) config.companionUrl = equipConfig.companionUrl;
-  if (equipConfig.obsUrl !== undefined) config.obsUrl = equipConfig.obsUrl;
-  if (equipConfig.obsPassword !== undefined) config.obsPassword = equipConfig.obsPassword;
+  if (equipConfig.atemIp !== undefined) config.atemIp = sanitizeHost(equipConfig.atemIp);
+  if (equipConfig.companionUrl !== undefined) config.companionUrl = sanitizeUrl(equipConfig.companionUrl);
+  if (equipConfig.obsUrl !== undefined) config.obsUrl = sanitizeUrl(equipConfig.obsUrl);
+  if (equipConfig.obsPassword !== undefined) config.obsPassword = typeof equipConfig.obsPassword === 'string' ? equipConfig.obsPassword.slice(0, 512) : '';
   if (equipConfig.hyperdecks !== undefined) config.hyperdecks = equipConfig.hyperdecks;
   if (equipConfig.videoHubs !== undefined) config.videoHubs = equipConfig.videoHubs;
   if (equipConfig.ptz !== undefined) config.ptz = equipConfig.ptz;
   if (equipConfig.proPresenterHost !== undefined) {
     config.proPresenter = equipConfig.proPresenterHost
-      ? { host: equipConfig.proPresenterHost, port: equipConfig.proPresenterPort || 1025 }
+      ? { host: sanitizeHost(equipConfig.proPresenterHost), port: sanitizePort(equipConfig.proPresenterPort, 1025) }
       : null;
   }
-  if (equipConfig.danteNmosHost !== undefined) config.dante = { nmosHost: equipConfig.danteNmosHost, nmosPort: equipConfig.danteNmosPort || 8080 };
+  if (equipConfig.danteNmosHost !== undefined) config.dante = { nmosHost: sanitizeHost(equipConfig.danteNmosHost), nmosPort: sanitizePort(equipConfig.danteNmosPort, 8080) };
   if (equipConfig.vmixHost !== undefined) {
     config.vmix = equipConfig.vmixHost
-      ? { host: equipConfig.vmixHost, port: equipConfig.vmixPort || 8088 }
+      ? { host: sanitizeHost(equipConfig.vmixHost), port: sanitizePort(equipConfig.vmixPort, 8088) }
       : null;
   }
   if (equipConfig.resolumeHost !== undefined) {
     config.resolume = equipConfig.resolumeHost
-      ? { host: equipConfig.resolumeHost, port: equipConfig.resolumePort || 8080 }
+      ? { host: sanitizeHost(equipConfig.resolumeHost), port: sanitizePort(equipConfig.resolumePort, 8080) }
       : null;
   }
   if (equipConfig.mixerHost !== undefined) {
     config.mixer = equipConfig.mixerHost && equipConfig.mixerType
       ? {
-          type: equipConfig.mixerType,
-          host: equipConfig.mixerHost,
-          port: equipConfig.mixerPort || null,
+          type: typeof equipConfig.mixerType === 'string' ? equipConfig.mixerType.slice(0, 64) : '',
+          host: sanitizeHost(equipConfig.mixerHost),
+          port: sanitizePort(equipConfig.mixerPort, null),
         }
       : null;
   }
