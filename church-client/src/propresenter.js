@@ -1,23 +1,37 @@
 /**
  * ProPresenter 7 Integration
  * REST API (port 1025) + WebSocket (port 1026) for real-time events.
+ * Supports presentation & playlist trigger modes, library browsing,
+ * slide thumbnails, and optional backup PP mirroring.
  */
 
 const { EventEmitter } = require('events');
 const WebSocket = require('ws');
 
 class ProPresenter extends EventEmitter {
-  constructor({ host = 'localhost', port = 1025 } = {}) {
+  constructor({ host = 'localhost', port = 1025, triggerMode = 'presentation', backupHost, backupPort } = {}) {
     super();
     this.host = host;
     this.port = port;
     this.wsPort = port + 1; // 1026 by default
+    this.triggerMode = triggerMode; // 'presentation' or 'playlist'
     this.connected = false;
     this.running = false;
     this._ws = null;
     this._reconnectTimer = null;
     this._reconnectDelay = 5000;
     this._currentSlide = null;
+    this._version = null;
+    this._activeLook = null;
+    this._activeTimers = [];
+    this._screenStatus = null;
+    this._playlistFocused = null;
+
+    // Backup PP instance (fire-and-forget mirroring, no status polling)
+    this._backup = null;
+    if (backupHost) {
+      this._backup = new ProPresenter({ host: backupHost, port: backupPort || 1025 });
+    }
   }
 
   get baseUrl() {
@@ -36,6 +50,12 @@ class ProPresenter extends EventEmitter {
     } catch {
       return null;
     }
+  }
+
+  /** Mirror a command to the backup PP instance (fire-and-forget). */
+  _mirror(path, options = {}) {
+    if (!this._backup) return;
+    this._backup._fetch(path, options).catch(() => {});
   }
 
   // ─── PUBLIC API ───────────────────────────────────────────────────────
@@ -57,43 +77,54 @@ class ProPresenter extends EventEmitter {
   async getVersion() {
     const data = await this._fetch('/v1/version');
     if (!data) return null;
-    if (typeof data === 'string') return data;
-    return data.version || data.appVersion || data.product || null;
+    if (typeof data === 'string') { this._version = data; return data; }
+    const v = data.version || data.appVersion || data.product || null;
+    this._version = v;
+    return v;
   }
 
   async getCurrentSlide() {
     const data = await this._fetch('/v1/presentation/active');
     if (!data) return null;
-    // ProPresenter 7 API returns presentation info
     const result = {
       presentationName: data.presentation?.name || data.name || 'Unknown',
+      presentationUUID: data.presentation?.uuid || data.uuid || null,
       slideIndex: data.slideIndex ?? data.presentation?.slideIndex ?? 0,
       slideTotal: data.slideCount ?? data.presentation?.slideCount ?? 0,
-      slideNotes: data.notes || '',
+      slideNotes: data.notes || data.presentation?.notes || '',
     };
     this._currentSlide = result;
     return result;
   }
 
   async nextSlide() {
-    await this._fetch('/v1/trigger/next', { method: 'GET' });
+    const path = this.triggerMode === 'playlist'
+      ? '/v1/trigger/next'
+      : '/v1/presentation/focused/next/trigger';
+    await this._fetch(path, { method: 'GET' });
+    this._mirror(path, { method: 'GET' });
     return true;
   }
 
   async previousSlide() {
-    await this._fetch('/v1/trigger/previous', { method: 'GET' });
+    const path = this.triggerMode === 'playlist'
+      ? '/v1/trigger/previous'
+      : '/v1/presentation/focused/previous/trigger';
+    await this._fetch(path, { method: 'GET' });
+    this._mirror(path, { method: 'GET' });
     return true;
   }
 
   async goToSlide(index) {
-    await this._fetch(`/v1/presentation/active/${index}/trigger`, { method: 'GET' });
+    const path = `/v1/presentation/active/${index}/trigger`;
+    await this._fetch(path, { method: 'GET' });
+    this._mirror(`/v1/presentation/focused/${index}/trigger`, { method: 'GET' });
     return true;
   }
 
   async getPlaylist() {
     const data = await this._fetch('/v1/playlists');
     if (!data) return [];
-    // Flatten playlist items
     const items = [];
     const extract = (list) => {
       if (Array.isArray(list)) {
@@ -107,18 +138,125 @@ class ProPresenter extends EventEmitter {
     return items;
   }
 
+  // ─── RICH STATUS METHODS ──────────────────────────────────────────────
+
+  async getActiveLook() {
+    const data = await this._fetch('/v1/looks/current');
+    if (!data) return null;
+    const look = { id: data.id?.uuid || data.uuid || null, name: data.id?.name || data.name || 'Unknown' };
+    const prev = this._activeLook;
+    this._activeLook = look;
+    if (prev && prev.name !== look.name) this.emit('lookChanged', look);
+    return look;
+  }
+
+  async getTimerStatus() {
+    const data = await this._fetch('/v1/timers/current');
+    if (!data) return [];
+    const list = (Array.isArray(data) ? data : data.timers || []).map(t => ({
+      id: t.id?.uuid || t.id || t.uuid,
+      name: t.id?.name || t.name || 'Untitled',
+      time: t.time || '00:00',
+      state: t.state || 'Stopped', // Running, Stopped, Overrun
+    }));
+    const prev = this._activeTimers;
+    this._activeTimers = list;
+    // Emit if any timer state changed
+    if (JSON.stringify(prev.map(t => `${t.id}:${t.state}`)) !== JSON.stringify(list.map(t => `${t.id}:${t.state}`))) {
+      this.emit('timerUpdate', list);
+    }
+    return list;
+  }
+
+  async getAudienceScreenStatus() {
+    const data = await this._fetch('/v1/status/screens');
+    if (!data) {
+      // Fallback to audience_screens endpoint
+      const fallback = await this._fetch('/v1/status/audience_screens');
+      if (!fallback) return null;
+      const status = { audience: !!fallback.audience, stage: !!fallback.stage };
+      const prev = this._screenStatus;
+      this._screenStatus = status;
+      if (prev && (prev.audience !== status.audience || prev.stage !== status.stage)) {
+        this.emit('screenStateChanged', status);
+      }
+      return status;
+    }
+    const status = { audience: !!data.audience, stage: !!data.stage };
+    const prev = this._screenStatus;
+    this._screenStatus = status;
+    if (prev && (prev.audience !== status.audience || prev.stage !== status.stage)) {
+      this.emit('screenStateChanged', status);
+    }
+    return status;
+  }
+
+  async getPlaylistFocused() {
+    const data = await this._fetch('/v1/playlist/focused');
+    if (!data) return null;
+    this._playlistFocused = {
+      name: data.id?.name || data.name || null,
+      uuid: data.id?.uuid || data.uuid || null,
+      index: data.index ?? null,
+    };
+    return this._playlistFocused;
+  }
+
+  // ─── LIBRARY BROWSING ────────────────────────────────────────────────
+
+  async getLibraries() {
+    const data = await this._fetch('/v1/libraries');
+    if (!data) return [];
+    const libraries = data.libraries || data || [];
+    const result = [];
+    for (const lib of (Array.isArray(libraries) ? libraries : [])) {
+      const libId = lib.id?.uuid || lib.id;
+      const libName = lib.id?.name || lib.name || 'Untitled';
+      try {
+        const items = await this._fetch(`/v1/library/${encodeURIComponent(libId)}`);
+        result.push({
+          id: libId,
+          name: libName,
+          presentations: ((items?.items || items || [])).map(p => ({
+            id: p.id?.uuid || p.id,
+            name: p.id?.name || p.name || 'Untitled',
+          })),
+        });
+      } catch {
+        result.push({ id: libId, name: libName, presentations: [] });
+      }
+    }
+    return result;
+  }
+
+  // ─── THUMBNAILS ──────────────────────────────────────────────────────
+
+  async getThumbnail(presentationUUID, slideIndex) {
+    try {
+      const resp = await fetch(
+        `${this.baseUrl}/v1/presentation/${encodeURIComponent(presentationUUID)}/thumbnail/${slideIndex}`,
+        { signal: AbortSignal.timeout(5000) }
+      );
+      if (!resp.ok) return null;
+      const buffer = await resp.arrayBuffer();
+      return Buffer.from(buffer).toString('base64');
+    } catch {
+      return null;
+    }
+  }
+
   // ─── EXTENDED PP7 API ────────────────────────────────────────────────
 
   async clearAll() {
-    await this._fetch('/v1/clear/layer/slide', { method: 'GET' });
-    await this._fetch('/v1/clear/layer/media', { method: 'GET' });
-    await this._fetch('/v1/clear/layer/props', { method: 'GET' });
-    await this._fetch('/v1/clear/layer/messages', { method: 'GET' });
+    const layers = ['slide', 'media', 'props', 'messages'];
+    await Promise.all(layers.map(l => this._fetch(`/v1/clear/layer/${l}`, { method: 'GET' })));
+    for (const l of layers) this._mirror(`/v1/clear/layer/${l}`, { method: 'GET' });
     return true;
   }
 
   async clearSlide() {
     await this._fetch('/v1/clear/layer/slide', { method: 'GET' });
+    this._mirror('/v1/clear/layer/slide', { method: 'GET' });
     return true;
   }
 
@@ -132,7 +270,6 @@ class ProPresenter extends EventEmitter {
   }
 
   async triggerMessage(idOrName, tokens = []) {
-    // Try by name first — list messages, find matching
     const messages = await this.getMessages();
     let msgId = idOrName;
     if (messages.length > 0) {
@@ -143,15 +280,15 @@ class ProPresenter extends EventEmitter {
       if (found) msgId = found.id;
     }
     const body = tokens.length > 0 ? JSON.stringify(tokens) : undefined;
-    await this._fetch(`/v1/message/${encodeURIComponent(msgId)}/trigger`, {
-      method: 'GET',
-      ...(body ? { body, headers: { 'Content-Type': 'application/json' } } : {}),
-    });
+    const fetchOpts = { method: 'GET', ...(body ? { body, headers: { 'Content-Type': 'application/json' } } : {}) };
+    await this._fetch(`/v1/message/${encodeURIComponent(msgId)}/trigger`, fetchOpts);
+    this._mirror(`/v1/message/${encodeURIComponent(msgId)}/trigger`, fetchOpts);
     return true;
   }
 
   async clearMessages() {
     await this._fetch('/v1/clear/layer/messages', { method: 'GET' });
+    this._mirror('/v1/clear/layer/messages', { method: 'GET' });
     return true;
   }
 
@@ -171,11 +308,10 @@ class ProPresenter extends EventEmitter {
       l.id === nameOrId
     );
     if (!found) throw new Error(`Look "${nameOrId}" not found. Available: ${looks.map(l => l.name).join(', ')}`);
-    await this._fetch('/v1/looks/current', {
-      method: 'PUT',
-      body: JSON.stringify({ id: { uuid: found.id, name: found.name } }),
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const body = JSON.stringify({ id: { uuid: found.id, name: found.name } });
+    const headers = { 'Content-Type': 'application/json' };
+    await this._fetch('/v1/looks/current', { method: 'PUT', body, headers });
+    this._mirror('/v1/looks/current', { method: 'PUT', body, headers });
     return found.name;
   }
 
@@ -197,6 +333,7 @@ class ProPresenter extends EventEmitter {
     );
     if (!found) throw new Error(`Timer "${nameOrId}" not found. Available: ${timers.map(t => t.name).join(', ')}`);
     await this._fetch(`/v1/timer/${encodeURIComponent(found.id)}/start`, { method: 'GET' });
+    this._mirror(`/v1/timer/${encodeURIComponent(found.id)}/start`, { method: 'GET' });
     return found.name;
   }
 
@@ -208,7 +345,24 @@ class ProPresenter extends EventEmitter {
     );
     if (!found) throw new Error(`Timer "${nameOrId}" not found. Available: ${timers.map(t => t.name).join(', ')}`);
     await this._fetch(`/v1/timer/${encodeURIComponent(found.id)}/stop`, { method: 'GET' });
+    this._mirror(`/v1/timer/${encodeURIComponent(found.id)}/stop`, { method: 'GET' });
     return found.name;
+  }
+
+  // ─── AUDIENCE SCREENS ───────────────────────────────────────────────
+
+  async setAudienceScreens(on) {
+    await this._fetch('/v1/status/audience_screens', {
+      method: 'PUT',
+      body: JSON.stringify({ audience: !!on }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    this._mirror('/v1/status/audience_screens', {
+      method: 'PUT',
+      body: JSON.stringify({ audience: !!on }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return on ? 'Audience screens ON' : 'Audience screens OFF';
   }
 
   // ─── WEBSOCKET CONNECTION ─────────────────────────────────────────────
@@ -257,6 +411,11 @@ class ProPresenter extends EventEmitter {
       console.error('ProPresenter WS connection failed:', err.message);
       this._scheduleReconnect();
     }
+
+    // Also connect backup if configured (no status, just ready for mirroring)
+    if (this._backup) {
+      this._backup.connect().catch(() => {});
+    }
   }
 
   _handleWSMessage(msg) {
@@ -288,15 +447,32 @@ class ProPresenter extends EventEmitter {
       this._ws = null;
     }
     this.connected = false;
+    if (this._backup) this._backup.disconnect();
   }
 
   toStatus() {
     return {
       connected: this.connected,
       running: this.running,
+      version: this._version || null,
+      // Slide info
       currentSlide: this._currentSlide?.presentationName || null,
+      presentationUUID: this._currentSlide?.presentationUUID || null,
       slideIndex: this._currentSlide?.slideIndex ?? null,
       slideTotal: this._currentSlide?.slideTotal ?? null,
+      slideNotes: this._currentSlide?.slideNotes || null,
+      // Active look
+      activeLook: this._activeLook || null,
+      // Timers
+      timers: this._activeTimers || [],
+      // Audience screens
+      screens: this._screenStatus || null,
+      // Playlist position
+      playlistFocused: this._playlistFocused || null,
+      // Trigger mode
+      triggerMode: this.triggerMode,
+      // Backup status
+      backup: this._backup ? { connected: this._backup.connected, running: this._backup.running } : null,
     };
   }
 }

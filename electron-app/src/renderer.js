@@ -1145,6 +1145,9 @@ function updateStatusUI(status) {
   if (ppIdentity) setStatusValue('val-id-propresenter', ppIdentity, getStatusActive(status.proPresenter));
   else setStatusValue('val-id-propresenter', '—', false);
 
+  // ProPresenter detail section
+  updateProPresenterSection(status.proPresenter);
+
   const vmixData = status.vmix && typeof status.vmix === 'object' ? status.vmix : {};
   const vmixIdentity = vmixData.edition ? `${vmixData.edition}${vmixData.version ? ` ${vmixData.version}` : ''}` : '';
   if (vmixIdentity) setStatusValue('val-id-vmix', vmixIdentity, getStatusActive(vmixData));
@@ -1199,6 +1202,31 @@ const FAILOVER_STATE_DOT = {
   FAILOVER_ACTIVE: 'yellow',
   ATEM_LOST: 'red',
 };
+
+function updateProPresenterSection(pp) {
+  const section = document.getElementById('section-propresenter');
+  if (!section) return;
+  if (!pp || (!pp.connected && !pp.running)) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+  setStatusValue('val-pp-presentation', pp.currentSlide || '—', pp.connected);
+  setStatusValue('val-pp-slide', pp.slideIndex != null ? `${pp.slideIndex + 1} / ${pp.slideTotal}` : '—', pp.connected);
+  setStatusValue('val-pp-look', pp.activeLook?.name || '—', !!pp.activeLook);
+
+  // Timers: show name + countdown for running timers
+  const timerText = (pp.timers || [])
+    .filter(t => t.state === 'Running' || t.state === 'Overrun')
+    .map(t => `${t.name}: ${t.time}${t.state === 'Overrun' ? ' (OVERRUN)' : ''}`)
+    .join('\n') || 'None running';
+  setStatusValue('val-pp-timers', timerText, (pp.timers || []).some(t => t.state === 'Running'));
+
+  setStatusValue('val-pp-screen', pp.screens?.audience ? 'ON' : 'OFF', pp.screens?.audience);
+
+  const notes = pp.slideNotes || '—';
+  setStatusValue('val-pp-notes', notes.length > 300 ? notes.substring(0, 300) + '...' : notes, !!pp.slideNotes);
+}
 
 function updateFailoverUI(fo) {
   const section = document.getElementById('failover-status-section');
@@ -2063,7 +2091,11 @@ async function loadEquipment() {
   window._encoderConfig = { _type: primaryEnc.encoderType || '', ...primaryEnc };
 
   const ppConfigured = !!eq.proPresenterConfigured || !!(eq.proPresenterHost && String(eq.proPresenterHost).trim());
-  deviceState.propresenter = { host: eq.proPresenterHost || '', port: String(eq.proPresenterPort || '1025'), configured: ppConfigured };
+  deviceState.propresenter = {
+    host: eq.proPresenterHost || '', port: String(eq.proPresenterPort || '1025'), configured: ppConfigured,
+    triggerMode: eq.proPresenterTriggerMode || 'presentation',
+    backupHost: eq.proPresenterBackupHost || '', backupPort: String(eq.proPresenterBackupPort || '1025'),
+  };
   const vmixConfigured = !!eq.vmixConfigured || !!(eq.vmixHost && String(eq.vmixHost).trim());
   deviceState.vmix = { host: eq.vmixHost || '', port: String(eq.vmixPort || '8088'), configured: vmixConfigured };
   const resolumeConfigured = !!eq.resolumeConfigured || !!(eq.resolumeHost && String(eq.resolumeHost).trim());
@@ -2512,6 +2544,9 @@ async function _doSaveEquipment() {
     // Optional single devices
     proPresenterHost: deviceState.propresenter.configured ? ((deviceState.propresenter.host || '').trim() || 'localhost') : '',
     proPresenterPort: parseInt(deviceState.propresenter.port) || 1025,
+    proPresenterTriggerMode: deviceState.propresenter.triggerMode || 'presentation',
+    proPresenterBackupHost: (deviceState.propresenter.backupHost || '').trim(),
+    proPresenterBackupPort: parseInt(deviceState.propresenter.backupPort) || 1025,
     vmixHost: deviceState.vmix.configured ? (deviceState.vmix.host || '').trim() : '',
     vmixPort: parseInt(deviceState.vmix.port) || 8088,
     resolumeHost: deviceState.resolume.configured ? (deviceState.resolume.host || '').trim() : '',

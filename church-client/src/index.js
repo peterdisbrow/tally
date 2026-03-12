@@ -353,7 +353,12 @@ class ChurchAVAgent {
       videoHubs: [],
       hyperdeck: { connected: false, recording: false, decks: [] },
       hyperdecks: [],
-      proPresenter: { connected: false, running: false, version: null, currentSlide: null, slideIndex: null, slideTotal: null },
+      proPresenter: {
+        connected: false, running: false, version: null,
+        currentSlide: null, presentationUUID: null, slideIndex: null, slideTotal: null, slideNotes: null,
+        activeLook: null, timers: [], screens: null, playlistFocused: null,
+        triggerMode: 'presentation', backup: null,
+      },
       resolume: { connected: false, host: null, port: null, version: null },
       vmix: { connected: false, streaming: false, recording: false, edition: null, version: null },
       mixer: { connected: false, type: null, model: null, firmware: null, mainMuted: false },
@@ -1607,8 +1612,17 @@ class ChurchAVAgent {
       return;
     }
 
-    console.log(`⛪ Connecting to ProPresenter at ${ppConfig.host}:${ppConfig.port || 1025}...`);
-    this.proPresenter = new ProPresenter({ host: ppConfig.host, port: ppConfig.port || 1025 });
+    const ppOpts = {
+      host: ppConfig.host,
+      port: ppConfig.port || 1025,
+      triggerMode: ppConfig.triggerMode || 'presentation',
+    };
+    if (ppConfig.backupHost) {
+      ppOpts.backupHost = ppConfig.backupHost;
+      ppOpts.backupPort = ppConfig.backupPort || 1025;
+    }
+    console.log(`⛪ Connecting to ProPresenter at ${ppOpts.host}:${ppOpts.port} (${ppOpts.triggerMode} mode)...`);
+    this.proPresenter = new ProPresenter(ppOpts);
 
     this.proPresenter.on('connected', () => {
       this.status.proPresenter.connected = true;
@@ -1627,6 +1641,10 @@ class ChurchAVAgent {
       this._sendSlideChangeEvent(data);
     });
 
+    this.proPresenter.on('lookChanged', () => this.sendStatus());
+    this.proPresenter.on('timerUpdate', () => this.sendStatus());
+    this.proPresenter.on('screenStateChanged', () => this.sendStatus());
+
     await this.proPresenter.connect();
     try {
       const version = await this.proPresenter.getVersion?.();
@@ -1637,9 +1655,9 @@ class ChurchAVAgent {
     } catch { /* optional */ }
     await this._updateProPresenterStatus();
 
-    // Periodically refresh ProPresenter status (guard against duplicate intervals on re-entry)
+    // Poll every 3s for rich status (timers, looks, screens, slide)
     if (this._proPollTimer) clearInterval(this._proPollTimer);
-    this._proPollTimer = this._track(setInterval(() => this._updateProPresenterStatus(), 30_000));
+    this._proPollTimer = this._track(setInterval(() => this._updateProPresenterStatus(), 3_000));
   }
 
   async _updateProPresenterStatus() {
@@ -1648,14 +1666,19 @@ class ChurchAVAgent {
       const running = await this.proPresenter.isRunning();
       this.status.proPresenter.running = running;
       if (running) {
-        const slide = await this.proPresenter.getCurrentSlide();
-        if (slide) {
-          this.status.proPresenter.currentSlide = slide.presentationName;
-          this.status.proPresenter.slideIndex = slide.slideIndex;
-          this.status.proPresenter.slideTotal = slide.slideTotal;
-        }
+        // Fetch all status in parallel — one failure doesn't block others
+        const [slideRes, lookRes, timerRes, screenRes, playlistRes] = await Promise.allSettled([
+          this.proPresenter.getCurrentSlide(),
+          this.proPresenter.getActiveLook(),
+          this.proPresenter.getTimerStatus(),
+          this.proPresenter.getAudienceScreenStatus(),
+          this.proPresenter.getPlaylistFocused(),
+        ]);
+        // Spread the full toStatus() so all fields flow through automatically
+        Object.assign(this.status.proPresenter, this.proPresenter.toStatus());
+      } else {
+        this.status.proPresenter.connected = this.proPresenter.connected;
       }
-      this.status.proPresenter.connected = this.proPresenter.connected;
     } catch { /* ignore */ }
   }
 
