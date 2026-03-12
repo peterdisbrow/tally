@@ -1279,9 +1279,9 @@ function updateFailoverUI(fo) {
       const dotColor = FAILOVER_STATE_DOT[t.to] || '';
       return `<div class="failover-timeline-entry">
         <div class="failover-timeline-dot ${dotColor}"></div>
-        <span>${time}</span>
-        <span style="color:var(--muted);">${t.from} → ${t.to}</span>
-        <span style="color:var(--dim);">(${t.trigger})</span>
+        <span>${escapeHtml(time)}</span>
+        <span style="color:var(--muted);">${escapeHtml(t.from)} → ${escapeHtml(t.to)}</span>
+        <span style="color:var(--dim);">(${escapeHtml(t.trigger)})</span>
       </div>`;
     }).join('');
   } else if (timelineEl) {
@@ -2016,8 +2016,8 @@ function renderSimpleDeviceList(eq) {
   }
   container.innerHTML = items.map(d => `
     <div class="simple-device-item">
-      <span class="device-icon">${d.icon}</span>
-      <div class="device-info"><div class="device-name">${d.name}</div><div class="device-ip">${d.detail}</div></div>
+      <span class="device-icon">${escapeHtml(d.icon)}</span>
+      <div class="device-info"><div class="device-name">${escapeHtml(d.name)}</div><div class="device-ip">${escapeHtml(d.detail)}</div></div>
       <span class="device-dot"></span>
     </div>`).join('');
 }

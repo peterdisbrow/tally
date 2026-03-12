@@ -23,6 +23,24 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 
 const cookieParser = require('cookie-parser');
+const Sentry = require('@sentry/node');
+
+// ─── ERROR TRACKING ─────────────────────────────────────────────────────────
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'production',
+    tracesSampleRate: 0.1,
+    beforeSend(event) {
+      // Scrub sensitive headers
+      if (event.request?.headers) {
+        delete event.request.headers.authorization;
+        delete event.request.headers.cookie;
+      }
+      return event;
+    },
+  });
+}
 
 const app = express();
 app.set('trust proxy', 1); // Railway runs behind a single reverse proxy
@@ -658,12 +676,49 @@ db.exec(`
 db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_church ON ai_usage_log(church_id, created_at DESC)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_date ON ai_usage_log(created_at)');
 
+// ─── AUDIT LOG TABLE ──────────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_user_id TEXT,
+    admin_email   TEXT NOT NULL,
+    action        TEXT NOT NULL,
+    target_type   TEXT,
+    target_id     TEXT,
+    details       TEXT DEFAULT '{}',
+    ip_address    TEXT,
+    created_at    TEXT NOT NULL
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at DESC)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action, created_at DESC)');
+
+/** Log an admin action to the audit table. Fire-and-forget — never throws. */
+function logAudit({ adminUserId, adminEmail, action, targetType, targetId, details, ip }) {
+  try {
+    db.prepare(
+      'INSERT INTO audit_log (admin_user_id, admin_email, action, target_type, target_id, details, ip_address, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      adminUserId || null,
+      adminEmail || 'unknown',
+      action,
+      targetType || null,
+      targetId || null,
+      typeof details === 'object' ? JSON.stringify(details) : (details || '{}'),
+      ip || null,
+      new Date().toISOString()
+    );
+  } catch (err) {
+    console.error('[AuditLog] Failed to log:', err.message);
+  }
+}
+
 /** Log an AI API call to the usage table. Fire-and-forget — never throws. */
 const MODEL_PRICING = {
   'claude-haiku-4-5-20251001':  { input: 1.00,  output: 5.00  },  // $/M tokens
-  'claude-3-haiku-20240307':    { input: 0.25,  output: 1.25  },
   'claude-sonnet-4-20250514':   { input: 3.00,  output: 15.00 },
   'claude-sonnet-4-6-20250627':  { input: 3.00,  output: 15.00 },
+  'claude-opus-4-6-20250805':   { input: 15.00, output: 75.00 },
 };
 function logAiUsage({ churchId, feature, model, inputTokens, outputTokens, cached, latencyMs, intent }) {
   const m = model || 'claude-haiku-4-5-20251001';
@@ -1115,7 +1170,7 @@ alertEngine.resellerSystem = resellerSystem;
 
 // ─── ADMIN + RESELLER PORTALS ─────────────────────────────────────────────────
 const { setupAdminPanel } = require('./src/adminPanel');
-setupAdminPanel(app, db, churches, resellerSystem, { jwt, JWT_SECRET, lifecycleEmails });
+setupAdminPanel(app, db, churches, resellerSystem, { jwt, JWT_SECRET, lifecycleEmails, logAudit });
 
 // Pre-service check — created before portal so portal can trigger manual checks
 preServiceCheck = new PreServiceCheck({
@@ -1838,6 +1893,8 @@ app.post('/api/churches/register', requireAdmin, rateLimit(10, 60_000), (req, re
     registrationCode,
   });
 
+  const admin = req.adminUser || {};
+  logAudit({ adminUserId: admin.id, adminEmail: admin.email || 'api', action: 'church_created', targetType: 'church', targetId: churchId, details: { name, tier: resolvedTier }, ip: req.ip });
   log(`Registered church: ${name} (${churchId})`);
   res.json({
     churchId,
@@ -1915,7 +1972,7 @@ const routeCtx = {
   scheduleEngine, alertEngine, weeklyDigest, sessionRecap,
   monthlyReport, autoPilot, presetLibrary, onCallRotation, rundownEngine, scheduler,
   guestTdMode, chatEngine,
-  logAiUsage, isOnTopic, OFF_TOPIC_RESPONSE, runManualDbSnapshot,
+  logAiUsage, logAudit, isOnTopic, OFF_TOPIC_RESPONSE, runManualDbSnapshot,
   jwt, JWT_SECRET, ADMIN_ROLES, ADMIN_API_KEY, uuidv4,
   CHURCH_APP_TOKEN_TTL, REQUIRE_ACTIVE_BILLING, TRIAL_PERIOD_DAYS,
   BILLING_TIERS, BILLING_STATUSES, QUEUE_TTL_MS, totalMessagesRelayed,
@@ -3544,7 +3601,7 @@ app.post('/api/chat/stream', async (req, res) => {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-3-haiku-20240307',
+        model: 'claude-haiku-4-5-20251001',
         system: system || '',
         messages,
         max_tokens: Math.min(max_tokens, 250),
@@ -3568,7 +3625,7 @@ app.post('/api/chat/stream', async (req, res) => {
       logAiUsage({
         churchId: null,
         feature: 'landing_chat',
-        model: 'claude-3-haiku-20240307',
+        model: 'claude-haiku-4-5-20251001',
         inputTokens: data.usage.input_tokens || 0,
         outputTokens: data.usage.output_tokens || 0,
       });
@@ -3600,6 +3657,11 @@ app.post('/api/chat/stream', async (req, res) => {
     try { res.end(); } catch {}
   }
 });
+
+// ─── SENTRY ERROR HANDLER (must be after all routes) ─────────────────────────
+if (process.env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 // ─── START ────────────────────────────────────────────────────────────────────
 
