@@ -208,9 +208,39 @@ app.use((req, res, next) => {
 
 // ─── LOGGING ──────────────────────────────────────────────────────────────────
 
-function log(msg) {
-  const ts = new Date().toISOString().replace('T', ' ').substring(0, 19);
-  console.log(`[${ts}] ${msg}`);
+const LOG_JSON = process.env.LOG_FORMAT === 'json';
+
+function log(msg, meta) {
+  if (LOG_JSON) {
+    const entry = { ts: new Date().toISOString(), level: 'info', msg };
+    if (meta) Object.assign(entry, meta);
+    console.log(JSON.stringify(entry));
+  } else {
+    const ts = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    console.log(`[${ts}] ${msg}`);
+  }
+}
+
+function logError(msg, meta) {
+  if (LOG_JSON) {
+    const entry = { ts: new Date().toISOString(), level: 'error', msg };
+    if (meta) Object.assign(entry, meta);
+    console.error(JSON.stringify(entry));
+  } else {
+    const ts = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    console.error(`[${ts}] ERROR: ${msg}`);
+  }
+}
+
+function logWarn(msg, meta) {
+  if (LOG_JSON) {
+    const entry = { ts: new Date().toISOString(), level: 'warn', msg };
+    if (meta) Object.assign(entry, meta);
+    console.warn(JSON.stringify(entry));
+  } else {
+    const ts = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    console.warn(`[${ts}] WARN: ${msg}`);
+  }
 }
 
 // ─── SECURITY: CONSTANT-TIME KEY COMPARISON ──────────────────────────────────
@@ -2923,7 +2953,7 @@ function handleChurchConnection(ws, url, clientIp) {
   church.ws = ws;
   church.lastSeen = new Date().toISOString();
   church.disconnectedAt = null;
-  log(`Church "${church.name}" connected from ${clientIp}`);
+  log(`Church "${church.name}" connected from ${clientIp}`, { event: 'church_connect', churchId: church.churchId, church: church.name, ip: clientIp });
 
   // ─── Onboarding milestone: first app connection ───────────────────────
   try {
@@ -3008,7 +3038,7 @@ function handleChurchConnection(ws, url, clientIp) {
     // Reset device status so dashboard doesn't show stale connected states
     church.status = { connected: false, atem: null, obs: null };
     church._versionCheckedDevices = null; // allow re-check on next connect
-    log(`Church "${church.name}" disconnected`);
+    log(`Church "${church.name}" disconnected`, { event: 'church_disconnect', churchId: church.churchId, church: church.name });
     const disconnectEvent = {
       type: 'church_disconnected',
       churchId: church.churchId,
