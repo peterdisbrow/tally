@@ -9,14 +9,21 @@ const https = require('https');
 const { EventEmitter } = require('events');
 
 class CompanionBridge extends EventEmitter {
-  constructor({ companionUrl = 'http://localhost:8888' } = {}) {
+  constructor({ companionUrl = 'http://localhost:8888', buttonPollPages = [1] } = {}) {
     super();
     this.baseUrl = companionUrl.replace(/\/$/, '');
     this.connected = false;
     this.connectionCount = 0;
     this.connections = [];
     this._pollTimer = null;
+    this._buttonPollTimer = null;
     this._lastButtonStates = new Map();
+
+    // Button state mirroring
+    this._buttonStates = new Map();       // key "page/row/col" → { page, row, column, text, pressed, style }
+    this._recentButtonPresses = [];       // last N press events (audit trail)
+    this._recentButtonPressLimit = 10;
+    this._buttonPollPages = buttonPollPages;
 
     // Button name cache: Map<lowercaseName, { page, row, col, text }>
     this._buttonIndex = new Map();
@@ -230,6 +237,11 @@ class CompanionBridge extends EventEmitter {
             this.connections = [{ id: 'companion', label: 'Companion', moduleId: 'companion', enabled: true, status: 'ok', hasError: false }];
             this.connectionCount = 1;
           }
+
+          // Poll button states alongside connection state
+          try {
+            await this.pollButtonStates();
+          } catch { /* ignore button poll errors */ }
         } else {
           this.connections = [];
           this.connectionCount = 0;
@@ -284,18 +296,122 @@ class CompanionBridge extends EventEmitter {
     return [];
   }
 
+  // ─── Button state mirroring ─────────────────────────────────────────────
+
+  /**
+   * Poll button states for configured pages and detect changes.
+   * Emits 'companion_button_pressed' and 'companion_button_released' events.
+   */
+  async pollButtonStates() {
+    if (!this.connected) return;
+
+    for (const page of this._buttonPollPages) {
+      let grid;
+      try {
+        grid = await this.getButtonGrid(page);
+      } catch {
+        // Companion unreachable or API not available — skip silently
+        continue;
+      }
+
+      for (const row of grid) {
+        for (const btn of row) {
+          const key = `${page}/${btn.row}/${btn.col}`;
+          const prev = this._buttonStates.get(key);
+          const pressed = !!btn.pressed;
+
+          const state = {
+            page,
+            row: btn.row,
+            column: btn.col,
+            text: btn.text || '',
+            pressed,
+            style: btn.color || null,
+          };
+
+          this._buttonStates.set(key, state);
+
+          // Detect transitions
+          const wasPressed = prev ? prev.pressed : false;
+          if (pressed && !wasPressed) {
+            const event = { ...state, timestamp: Date.now() };
+            this.emit('companion_button_pressed', event);
+            this._recordButtonPress(event);
+          } else if (!pressed && wasPressed) {
+            this.emit('companion_button_released', { ...state, timestamp: Date.now() });
+          }
+        }
+      }
+    }
+  }
+
+  _recordButtonPress(event) {
+    this._recentButtonPresses.push(event);
+    if (this._recentButtonPresses.length > this._recentButtonPressLimit) {
+      this._recentButtonPresses.shift();
+    }
+  }
+
+  /**
+   * Returns a map of all tracked button states keyed by "page/row/col".
+   */
+  getButtonStates() {
+    const result = {};
+    for (const [key, state] of this._buttonStates) {
+      result[key] = { ...state };
+    }
+    return result;
+  }
+
+  /**
+   * Returns recent button press events for audit trail.
+   * @param {number} limit - Maximum events to return (default 10)
+   */
+  getRecentButtonPresses(limit = 10) {
+    const count = Math.min(limit, this._recentButtonPresses.length);
+    return this._recentButtonPresses.slice(-count).map(e => ({ ...e }));
+  }
+
+  /**
+   * Start polling button states at the given interval.
+   * Can run independently of connection polling.
+   */
+  startButtonPolling(intervalMs = 1000) {
+    this.stopButtonPolling();
+    this._buttonPollTimer = setInterval(() => {
+      this.pollButtonStates().catch(() => { /* ignore poll errors */ });
+    }, intervalMs);
+  }
+
+  stopButtonPolling() {
+    if (this._buttonPollTimer) {
+      clearInterval(this._buttonPollTimer);
+      this._buttonPollTimer = null;
+    }
+  }
+
   stopPolling() {
     if (this._pollTimer) {
       clearInterval(this._pollTimer);
       this._pollTimer = null;
     }
+    this.stopButtonPolling();
   }
 
   getStatus() {
+    const pressedButtons = [];
+    for (const [, state] of this._buttonStates) {
+      if (state.pressed) pressedButtons.push({ ...state });
+    }
     return {
       connected: this.connected,
       connectionCount: this.connectionCount,
       connections: this.connections.map(c => ({ id: c.id, label: c.label, moduleId: c.moduleId, status: c.status })),
+      buttons: {
+        tracked: this._buttonStates.size,
+        pressed: pressedButtons,
+        recentPresses: this.getRecentButtonPresses(),
+      },
     };
   }
 }

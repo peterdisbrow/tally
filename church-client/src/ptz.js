@@ -12,6 +12,7 @@
  */
 
 const crypto = require('node:crypto');
+const { EventEmitter } = require('node:events');
 const net = require('node:net');
 const dgram = require('node:dgram');
 
@@ -585,11 +586,182 @@ class OnvifPtzCamera extends BasePtzCamera {
   }
 }
 
+// ─── Preset Management & Position Tracking ──────────────────────────────────
+
+class PresetManager extends EventEmitter {
+  constructor() {
+    super();
+    // presets: Map<cameraId, Map<presetId, { name, position: {pan, tilt, zoom}, savedAt }>>
+    this._presets = new Map();
+    // recallHistory: Map<cameraId, Array<{ presetId, name, position, recalledAt, verified?, drift? }>>
+    this._recallHistory = new Map();
+    // lastKnownPosition: Map<cameraId, { pan, tilt, zoom, timestamp, source }>
+    this._lastKnownPosition = new Map();
+    // positionHistory: Map<cameraId, Array<{ pan, tilt, zoom, timestamp, source }>>
+    this._positionHistory = new Map();
+  }
+
+  savePreset(cameraId, presetId, name, position) {
+    const cid = String(cameraId);
+    const pid = String(presetId);
+    if (!position || typeof position.pan !== 'number' || typeof position.tilt !== 'number' || typeof position.zoom !== 'number') {
+      throw new Error('Position must include numeric pan, tilt, and zoom values');
+    }
+    if (!this._presets.has(cid)) {
+      this._presets.set(cid, new Map());
+    }
+    const preset = {
+      name: name || `Preset ${pid}`,
+      position: { pan: position.pan, tilt: position.tilt, zoom: position.zoom },
+      savedAt: new Date().toISOString(),
+    };
+    this._presets.get(cid).set(pid, preset);
+    return preset;
+  }
+
+  recallPreset(cameraId, presetId) {
+    const cid = String(cameraId);
+    const pid = String(presetId);
+    const cameraPresets = this._presets.get(cid);
+    if (!cameraPresets || !cameraPresets.has(pid)) {
+      throw new Error(`Preset ${pid} not found for camera ${cid}`);
+    }
+    const preset = cameraPresets.get(pid);
+    const entry = {
+      presetId: pid,
+      name: preset.name,
+      position: { ...preset.position },
+      recalledAt: new Date().toISOString(),
+    };
+    if (!this._recallHistory.has(cid)) {
+      this._recallHistory.set(cid, []);
+    }
+    this._recallHistory.get(cid).push(entry);
+    return preset;
+  }
+
+  verifyPresetPosition(cameraId, presetId, actualPosition, tolerance = 0.05) {
+    const cid = String(cameraId);
+    const pid = String(presetId);
+    const cameraPresets = this._presets.get(cid);
+    if (!cameraPresets || !cameraPresets.has(pid)) {
+      throw new Error(`Preset ${pid} not found for camera ${cid}`);
+    }
+    const expected = cameraPresets.get(pid).position;
+    const drift = {
+      pan: Math.abs(actualPosition.pan - expected.pan),
+      tilt: Math.abs(actualPosition.tilt - expected.tilt),
+      zoom: Math.abs(actualPosition.zoom - expected.zoom),
+    };
+    const verified = drift.pan <= tolerance && drift.tilt <= tolerance && drift.zoom <= tolerance;
+
+    // Update the most recent recall history entry with verification data
+    const history = this._recallHistory.get(cid);
+    if (history) {
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].presetId === pid) {
+          history[i].verified = verified;
+          history[i].drift = { ...drift };
+          history[i].actual = { ...actualPosition };
+          break;
+        }
+      }
+    }
+
+    return {
+      verified,
+      expected: { ...expected },
+      actual: { pan: actualPosition.pan, tilt: actualPosition.tilt, zoom: actualPosition.zoom },
+      drift,
+    };
+  }
+
+  listPresets(cameraId) {
+    const cid = String(cameraId);
+    const cameraPresets = this._presets.get(cid);
+    if (!cameraPresets) return [];
+    const result = [];
+    for (const [pid, preset] of cameraPresets) {
+      result.push({
+        presetId: pid,
+        name: preset.name,
+        position: { ...preset.position },
+        savedAt: preset.savedAt,
+      });
+    }
+    return result;
+  }
+
+  getPresetRecallHistory(cameraId, limit = 20) {
+    const cid = String(cameraId);
+    const history = this._recallHistory.get(cid);
+    if (!history || history.length === 0) return [];
+    // Return most recent first, limited
+    return history.slice(-limit).reverse().map((e) => ({ ...e }));
+  }
+
+  // ─── Position Tracking ──────────────────────────────────────────────────────
+
+  updatePosition(cameraId, position, source = 'command') {
+    const cid = String(cameraId);
+    const entry = {
+      pan: position.pan,
+      tilt: position.tilt,
+      zoom: position.zoom,
+      timestamp: Date.now(),
+      source,
+    };
+
+    const previous = this._lastKnownPosition.get(cid);
+    this._lastKnownPosition.set(cid, entry);
+
+    if (!this._positionHistory.has(cid)) {
+      this._positionHistory.set(cid, []);
+    }
+    const hist = this._positionHistory.get(cid);
+    hist.push(entry);
+    // Keep history bounded
+    if (hist.length > 500) hist.splice(0, hist.length - 500);
+
+    // Detect manual move: if source is 'poll' and previous source was 'command',
+    // and position changed significantly, emit event.
+    if (source === 'poll' && previous && previous.source !== 'poll') {
+      const movedPan = Math.abs(position.pan - previous.pan);
+      const movedTilt = Math.abs(position.tilt - previous.tilt);
+      const movedZoom = Math.abs(position.zoom - previous.zoom);
+      const manualThreshold = 0.01;
+      if (movedPan > manualThreshold || movedTilt > manualThreshold || movedZoom > manualThreshold) {
+        this.emit('ptz_manual_move_detected', {
+          cameraId: cid,
+          previous: { pan: previous.pan, tilt: previous.tilt, zoom: previous.zoom },
+          current: { pan: position.pan, tilt: position.tilt, zoom: position.zoom },
+          delta: { pan: movedPan, tilt: movedTilt, zoom: movedZoom },
+          timestamp: entry.timestamp,
+        });
+      }
+    }
+
+    return entry;
+  }
+
+  getLastKnownPosition(cameraId) {
+    return this._lastKnownPosition.get(String(cameraId)) || null;
+  }
+
+  getPositionHistory(cameraId, limit = 50) {
+    const cid = String(cameraId);
+    const hist = this._positionHistory.get(cid);
+    if (!hist || hist.length === 0) return [];
+    return hist.slice(-limit).map((e) => ({ ...e }));
+  }
+}
+
 class PTZManager {
   constructor(entries = [], logger = null) {
     this.entries = Array.isArray(entries) ? entries : [];
     this.logger = logger || (() => {});
     this.cameras = [];
+    this.presetManager = new PresetManager();
   }
 
   hasCameras() {
@@ -831,6 +1003,7 @@ class PTZManager {
 
 module.exports = {
   PTZManager,
+  PresetManager,
   normalizeProtocol,
   defaultPortForProtocol,
 };

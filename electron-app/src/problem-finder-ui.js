@@ -89,6 +89,19 @@ function initProblemFinderListener() {
       if (tab && tab.classList.contains('active')) {
         renderPfReport(data.report, data.goNoGo);
       }
+      // Update issue badge on Status tab (from renderer.js globals)
+      if (typeof _pfAutoRunIssueCount !== 'undefined' && typeof updatePfBadge === 'function') {
+        const issues = data.report.diagnostics?.issues || [];
+        const realIssues = issues.filter(i => i.id !== 'no_issues_detected');
+        _pfAutoRunIssueCount = realIssues.length;
+        // Only show badge when Status tab is active (not engineer tab)
+        const statusTab = document.getElementById('tab-status');
+        if (statusTab && statusTab.classList.contains('active')) {
+          // User is already viewing status — don't show badge
+        } else {
+          updatePfBadge();
+        }
+      }
     }
     if (data.runEntry) {
       const history = document.getElementById('pf-run-history');

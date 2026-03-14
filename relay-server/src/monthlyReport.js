@@ -17,6 +17,7 @@ class MonthlyReport {
     this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN;
     this.andrewChatId = andrewChatId || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this.tallyBot = null;
+    this.lifecycleEmails = null;
     this._timer = null;
     this._lastReportMonth = null; // 'YYYY-MM' of last run, to avoid double-sending
   }
@@ -148,8 +149,8 @@ class MonthlyReport {
     const msg = this.generate(churchId, month);
     if (!msg) return;
 
+    // ── Telegram delivery ──
     const botToken = this.defaultBotToken;
-    if (!botToken) return;
 
     let tds = [];
     try {
@@ -158,21 +159,100 @@ class MonthlyReport {
       ).all(churchId);
     } catch { /* table may not exist */ }
 
-    const targets = new Set(tds.map(td => String(td.telegram_chat_id)).filter(Boolean));
-    if (this.andrewChatId) targets.add(String(this.andrewChatId));
+    if (botToken) {
+      const targets = new Set(tds.map(td => String(td.telegram_chat_id)).filter(Boolean));
+      if (this.andrewChatId) targets.add(String(this.andrewChatId));
 
-    for (const chatId of targets) {
-      try {
-        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text: msg }),
-          signal: AbortSignal.timeout(5000),
-        });
-      } catch (e) {
-        console.error('[MonthlyReport] Telegram send error:', e.message);
+      for (const chatId of targets) {
+        try {
+          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text: msg }),
+            signal: AbortSignal.timeout(5000),
+          });
+        } catch (e) {
+          console.error('[MonthlyReport] Telegram send error:', e.message);
+        }
       }
     }
+
+    // ── Email delivery ──
+    if (this.lifecycleEmails) {
+      try {
+        const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+        if (church) {
+          const [year, mon] = month.split('-').map(Number);
+          const startDate = new Date(year, mon - 1, 1).toISOString();
+          const endDate = new Date(year, mon, 1).toISOString();
+
+          // Compute report data for email template
+          const events = this.db.prepare(
+            'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? AND timestamp < ?'
+          ).all(churchId, startDate, endDate);
+
+          let alerts = [];
+          try {
+            alerts = this.db.prepare(
+              'SELECT * FROM alerts WHERE church_id = ? AND created_at >= ? AND created_at < ?'
+            ).all(churchId, startDate, endDate);
+          } catch { /* alerts table may not exist */ }
+
+          const uniqueDates = new Set(events.map(e => e.timestamp.slice(0, 10)));
+          const autoRecovered = events.filter(e => e.auto_resolved).length;
+          const escalated = alerts.filter(a => a.escalated).length;
+
+          const typeCounts = {};
+          for (const e of events) {
+            typeCounts[e.event_type] = (typeCounts[e.event_type] || 0) + 1;
+          }
+          let mostCommon = null;
+          for (const [type, count] of Object.entries(typeCounts)) {
+            if (!mostCommon || count > typeCounts[mostCommon]) mostCommon = type;
+          }
+
+          const criticalTypes = ['stream_stopped', 'atem_disconnected', 'recording_failed', 'multiple_systems_down'];
+          const unresolvedCritical = events.filter(
+            e => !e.resolved && criticalTypes.includes(e.event_type)
+          ).length;
+          const daysInMonth = new Date(year, mon, 0).getDate();
+          const totalMinutes = daysInMonth * 24 * 60;
+          const downtimeMin = unresolvedCritical * 30;
+          const uptime = Math.max(0, Math.min(100, ((totalMinutes - downtimeMin) / totalMinutes) * 100));
+          const monthLabel = new Date(year, mon - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+          const reportData = {
+            month,
+            monthLabel,
+            servicesMonitored: uniqueDates.size,
+            alertsTriggered: alerts.length,
+            autoRecovered,
+            escalated,
+            mostCommonIssue: mostCommon ? mostCommon.replace(/_/g, ' ') : null,
+            uptime,
+          };
+
+          // Send to leadership emails
+          const leadershipEmails = (church.leadership_emails || '').split(',').map(e => e.trim()).filter(e => e && e.includes('@'));
+          // Also send to portal_email if set
+          const recipients = new Set(leadershipEmails);
+          if (church.portal_email) recipients.add(church.portal_email);
+
+          for (const email of recipients) {
+            this.lifecycleEmails.sendMonthlyReportEmail(church, reportData, email).catch(err => {
+              console.error(`[MonthlyReport] Email error for ${email}:`, err.message);
+            });
+          }
+        }
+      } catch (e) {
+        console.error(`[MonthlyReport] Email delivery error for ${churchId}:`, e.message);
+      }
+    }
+  }
+
+  /** Attach lifecycle emails engine for monthly report emails */
+  setLifecycleEmails(engine) {
+    this.lifecycleEmails = engine;
   }
 
   /** Alias for server.js API route compatibility */

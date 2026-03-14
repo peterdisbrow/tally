@@ -28,6 +28,7 @@ const { StreamHealthMonitor } = require('./streamHealthMonitor');
 const { encryptConfig, decryptConfig, findUnencryptedFields } = require('./secureStorage');
 const { MixerBridge } = require('./mixerBridge');
 const { PTZManager, normalizeProtocol } = require('./ptz');
+const { getSystemHealth } = require('./systemHealth');
 
 // ExternalPortType enum → human-readable label (used for audio source detection)
 const PORT_TYPE_NAMES = { 1: 'SDI', 2: 'HDMI', 4: 'Component', 8: 'Composite',
@@ -571,6 +572,16 @@ class ChurchAVAgent {
 
     this._track(setInterval(() => this.sendStatus(), 10_000));
     this._track(setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000));
+
+    // System health monitoring (CPU, RAM, disk) — poll every 30s
+    this._track(setInterval(async () => {
+      try {
+        const health = await getSystemHealth();
+        Object.assign(this.status.system, health);
+      } catch { /* ignore */ }
+    }, 30_000));
+    // Initial system health snapshot
+    getSystemHealth().then(health => Object.assign(this.status.system, health)).catch(() => {});
 
     // Watchdog
     this.watchdogActive = this.config.watchdog !== false;

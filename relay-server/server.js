@@ -107,6 +107,7 @@ const { EventMode } = require('./src/eventMode');
 const { ResellerSystem } = require('./src/reseller');
 const { AutoPilot } = require('./src/autoPilot');
 const { ChatEngine } = require('./src/chatEngine');
+const { ensureTable: ensureOnboardingTable } = require('./src/onboardingChat');
 const { ENGINEER_SYSTEM_PROMPT } = require('./src/engineer-knowledge');
 const { classifyIntent } = require('./src/intent-classifier');
 const { buildDiagnosticContext } = require('./src/diagnostic-context');
@@ -907,6 +908,7 @@ console.log('[Server] ✓ Rundown Scheduler initialized');
 // ─── CHAT ENGINE ─────────────────────────────────────────────────────────────
 
 const chatEngine = new ChatEngine(db, { sessionRecap });
+ensureOnboardingTable(db);
 
 // ─── INCIDENT SUMMARIZER ─────────────────────────────────────────────────────
 
@@ -3568,6 +3570,7 @@ function makeCommandSender(church) {
 // Chat endpoints (extracted)
 require('./src/routes/chat')(app, {
   db, chatEngine, requireAdmin, requireChurchAppAuth, handleChatCommandMessage, rateLimit, log,
+  churches, scheduleEngine,
 });
 
 // Slack integration API (extracted)

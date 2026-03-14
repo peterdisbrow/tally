@@ -1,11 +1,69 @@
 const api = window.electronAPI;
-const TOTAL_STEPS = 3;
-let currentStep = 1;
+let _onboardingScanResults = {};
+let _onboardingSending = false;
 let isRunning = false;
 let alertCount = 0;
 let pendingDiscoveryNic = '';
 let _audioViaAtem = false; // synced from relay — true if church routes audio directly into ATEM
 const DEFAULT_RELAY_URL = 'wss://api.tallyconnect.app';
+
+// ─── OFFLINE MODE CACHING ──────────────────────────────────────────────────
+let _cachedStatus = null;         // last-known status snapshot
+let _cachedStatusTime = null;     // Date when status was last received
+let _relayDisconnectedAt = null;  // Date when relay went offline
+let _reconnectAttempt = 0;        // exponential backoff counter
+let _reconnectCountdownTimer = null;
+
+// ─── PROBLEM FINDER AUTO-RUN ───────────────────────────────────────────────
+let _pfAutoRunDone = false;       // only auto-run once per session
+let _pfAutoRunIssueCount = 0;     // cached count for badge
+
+// ─── FRIENDLY ERROR MESSAGES ───────────────────────────────────────────────
+function friendlyError(err) {
+  const msg = typeof err === 'string' ? err : (err?.message || err?.error || String(err));
+  const lower = msg.toLowerCase();
+
+  // Connection refused patterns
+  if (lower.includes('connection refused') || lower.includes('econnrefused')) {
+    if (lower.includes('9910') || lower.includes('atem') || lower.includes('switcher')) {
+      return "Can't reach your ATEM switcher. Make sure it's powered on and connected to the same network.";
+    }
+    return "Connection failed -- is the device powered on?";
+  }
+
+  // Timeout patterns
+  if (lower.includes('etimedout') || lower.includes('timed out') || lower.includes('timeout')) {
+    return "Device didn't respond -- check the network cable and make sure it's on the same subnet.";
+  }
+
+  // WebSocket errors
+  if (lower.includes('websocket') || lower.includes('ws error') || lower.includes('ws close')) {
+    return "Lost connection to relay server -- reconnecting...";
+  }
+
+  // DNS / host not found
+  if (lower.includes('enotfound') || lower.includes('getaddrinfo')) {
+    return "Can't find that address -- check the hostname or IP is correct.";
+  }
+
+  // Network unreachable
+  if (lower.includes('enetunreach') || lower.includes('network is unreachable')) {
+    return "Network unreachable -- check your Wi-Fi or Ethernet connection.";
+  }
+
+  // Connection reset
+  if (lower.includes('econnreset') || lower.includes('connection reset')) {
+    return "Connection was interrupted -- the device may have restarted.";
+  }
+
+  // Permission / auth
+  if (lower.includes('eacces') || lower.includes('permission denied')) {
+    return "Permission denied -- check your credentials or firewall settings.";
+  }
+
+  // Generic fallback: clean up technical prefix
+  return msg.replace(/^Error:\s*/i, '');
+}
 
 // Well-known ATEM input IDs → human-readable fallback names
 const ATEM_INPUT_NAMES = {
@@ -149,7 +207,12 @@ async function init() {
         if (config.name) document.getElementById('church-name').textContent = config.name;
         if (config.setupComplete) {
           showDashboard();
-          try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`❌ Agent start failed: ${e.message}`); }
+          // Auto-start agent if config says so (default: true for backwards compat)
+          const autoStartResult = await api.getAutoStart();
+          const shouldAutoStart = autoStartResult.enabled !== false; // default true if not set
+          if (shouldAutoStart) {
+            try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`Agent start failed: ${e.message}`); }
+          }
           updateToggleBtn();
         } else {
           showEquipmentWizard();
@@ -173,12 +236,23 @@ async function init() {
     updateToggleBtn();
     const status = await api.getStatus();
     updateStatusUI(status);
+    updateMultiEncoderUI(status);
     // Load pre-service check hero panel
     loadPreServiceCheck();
+    // Load pre-service readiness widget
+    loadPreServiceReadiness();
+    // Load session recap card
+    loadSessionRecap();
     // Load rundown panel
     loadRundownPanel();
+    // Load auto-start setting
+    loadAutoStartSetting();
     // Initialize Problem Finder real-time listener
     if (typeof initProblemFinderListener === 'function') initProblemFinderListener();
+    // Auto-run problem finder after agent connects (background, delayed)
+    if (isRunning && getStatusActive(status.relay)) {
+      setTimeout(() => pfAutoRun(), 3000);
+    }
   } catch (err) {
     console.error('Init failed:', err);
     showFatalInitError(err?.message || 'Unknown initialization error');
@@ -220,10 +294,7 @@ function showSignInMessage(msg, color) {
 function showEquipmentWizard() {
   hideAllViews();
   document.getElementById('wizard').classList.add('active');
-  renderStepIndicator();
-  goToStep(1);
-  // Auto-start network scan when wizard opens
-  wizardAutoScan();
+  initOnboarding();
 }
 
 function showWizard() {
@@ -324,10 +395,10 @@ async function doSignIn() {
         showEquipmentWizard();
       }
     } else {
-      showSignInMessage(`Sign-in failed: ${result.error || result.data?.error || 'connection issue'}`, 'var(--warn)');
+      showSignInMessage(`Sign-in failed: ${friendlyError(result.error || result.data?.error || 'connection issue')}`, 'var(--warn)');
     }
   } catch (e) {
-    showSignInMessage(`Sign-in error: ${e.message}`, 'var(--danger)');
+    showSignInMessage(`Sign-in error: ${friendlyError(e)}`, 'var(--danger)');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Sign In';
@@ -348,399 +419,406 @@ async function doSignOut() {
 }
 
 function renderStepIndicator() {
-  const el = document.getElementById('step-indicator');
-  el.innerHTML = '';
-  for (let i = 1; i <= TOTAL_STEPS; i++) {
-    const dot = document.createElement('div');
-    dot.className = 'step-dot' + (i === currentStep ? ' active' : '') + (i < currentStep ? ' done' : '');
-    el.appendChild(dot);
-  }
+  // Legacy — no-op (replaced by onboarding chat progress)
 }
 
 function goToStep(n) {
-  currentStep = n;
-  document.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active'));
-  const step = document.querySelector(`.wizard-step[data-step="${n}"]`);
-  if (step) step.classList.add('active');
-  renderStepIndicator();
-
-  const back = document.getElementById('wiz-back');
-  const next = document.getElementById('wiz-next');
-  back.style.display = n > 1 ? '' : 'none';
-  next.textContent = n === TOTAL_STEPS ? 'Finish & Connect' : 'Next →';
-
-  // Render dynamic encoder fields when step 1 manual config is visible
+  // Legacy — no-op, replaced by onboarding chat
   if (n === 1 && typeof onWizEncoderTypeChanged === 'function') {
     onWizEncoderTypeChanged();
   }
 }
 
-function isValidIpOrHostname(value) {
-  if (!value) return true; // empty = skipped, OK
-  const ipv4 = /^(\d{1,3}\.){3}\d{1,3}$/;
-  if (ipv4.test(value)) {
-    return value.split('.').every(n => parseInt(n) >= 0 && parseInt(n) <= 255);
-  }
-  // Accept hostnames like "localhost", "my-obs.local", etc.
-  return /^[a-zA-Z0-9._-]+$/.test(value);
-}
+// ─── ONBOARDING CHAT ────────────────────────────────────────────────────────
 
-function showWizardHint(msg) {
-  // Non-blocking inline validation hint (replaces alert())
-  const existing = document.querySelector('.wizard-hint-toast');
-  if (existing) existing.remove();
-  const toast = document.createElement('div');
-  toast.className = 'wizard-hint-toast';
-  toast.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;background:rgba(234,179,8,0.15);border:1px solid rgba(234,179,8,0.4);color:#fde68a;padding:8px 18px;border-radius:8px;font-size:12px;font-family:var(--font);max-width:340px;text-align:center;animation:fadeInOut 3s ease forwards;';
-  toast.textContent = msg;
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 3200);
-}
+let _obScanDone = false;
 
-function wizardValidateStep(step) {
-  if (step === 1) {
-    // Validate manual ATEM IP if provided
-    const ip = document.getElementById('wiz-atem').value.trim();
-    if (ip && !isValidIpOrHostname(ip)) {
-      showWizardHint('Please enter a valid IP address (e.g. 192.168.1.10) or leave blank to skip.');
-      return false;
-    }
-    // Validate manual encoder host if provided
-    const type = document.getElementById('wiz-encoder-type')?.value;
-    const hostEl = document.getElementById('wiz-encoder-host');
-    const needsHost = ['obs', 'vmix', 'blackmagic', 'aja', 'epiphan', 'teradek', 'tricaster', 'birddog', 'custom'].includes(type);
-    if (needsHost && hostEl) {
-      const host = hostEl.value.trim();
-      if (host && !isValidIpOrHostname(host)) {
-        showWizardHint('Please enter a valid encoder IP or hostname.');
-        return false;
+async function initOnboarding() {
+  const messagesEl = document.getElementById('ob-messages');
+  if (!messagesEl) return;
+  messagesEl.innerHTML = '';
+  _obScanDone = false;
+
+  // Check for resume state — rebuild previous conversation (#8, #9)
+  try {
+    const state = await api.onboardingState();
+    if (state && state.state && state.state !== 'complete' && state.state !== 'intro') {
+      // Restore previous messages (#9)
+      if (state.messages?.length > 0) {
+        for (const msg of state.messages) {
+          appendObBubble(msg.role, msg.text);
+        }
       }
+      updateOnboardingProgress(state.progress);
+      // Smart resume message based on collected data (#8)
+      const done = state.progress?.completed || [];
+      const left = state.progress?.remaining || [];
+      const doneStr = done.length > 0 ? done.join(', ') : 'nothing yet';
+      const leftStr = left.length > 0 ? left.join(', ') : 'nothing';
+      appendObBubble('ai', `Welcome back! You've set up: ${doneStr}. Still need: ${leftStr}. What's next?`);
+      renderQuickReplies(left.map(s => {
+        const labels = { gear: 'Set up gear', schedule: 'Set service times', tds: 'Add team', stream: 'Configure streaming' };
+        return labels[s] || s;
+      }).concat(['Skip to dashboard']));
+      return;
     }
-  }
-  return true;
-}
+  } catch { /* fresh start */ }
 
-async function wizardNext() {
-  if (currentStep < TOTAL_STEPS) {
-    if (!wizardValidateStep(currentStep)) return;
-
-    // Step 1 → 2: Apply discovered/manual devices before advancing
-    if (currentStep === 1) {
-      applyWizardDevices();
-    }
-
-    goToStep(currentStep + 1);
-
-    if (currentStep === TOTAL_STEPS) {
-      // Step 3 (Done) — save equipment config, engineer profile, mark setup complete
-      const encType = document.getElementById('wiz-encoder-type')?.value || '';
-      const encHostEl = document.getElementById('wiz-encoder-host');
-      const encPortEl = document.getElementById('wiz-encoder-port');
-      const encPwEl = document.getElementById('wiz-encoder-password');
-      const encLabelEl = document.getElementById('wiz-encoder-label');
-      const encStatusUrlEl = document.getElementById('wiz-encoder-status-url');
-      const encSourceEl = document.getElementById('wiz-encoder-source');
-
-      const equipConfig = {
-        atemIp: document.getElementById('wiz-atem')?.value.trim() || '',
-        companionUrl: (() => {
-          const h = (document.getElementById('wiz-companion-host')?.value || '').trim();
-          const p = (document.getElementById('wiz-companion-port')?.value || '').trim() || '8888';
-          return h ? `http://${h}:${p}` : '';
-        })(),
-        name: (document.getElementById('wiz-name')?.value || '').trim(),
-        liveStreamUrl: (document.getElementById('wiz-livestream')?.value || '').trim(),
-        encoderType: encType,
-        encoderHost: encHostEl ? encHostEl.value.trim() : '',
-        encoderPort: encPortEl ? parseInt(encPortEl.value) || 0 : 0,
-        encoderPassword: encPwEl ? encPwEl.value : '',
-        encoderLabel: encLabelEl ? encLabelEl.value.trim() : '',
-        encoderStatusUrl: encStatusUrlEl ? encStatusUrlEl.value.trim() : '',
-        encoderSource: encSourceEl ? encSourceEl.value.trim() : '',
-        obsPassword: encType === 'obs' && encPwEl ? encPwEl.value : '',
-        setupComplete: true,
-      };
-      await api.saveConfig(equipConfig);
-
-      // Save engineer profile to relay server
-      const engineerProfile = {
-        streamPlatform: document.getElementById('wiz-stream-platform')?.value || '',
-        expectedViewers: document.getElementById('wiz-expected-viewers')?.value || '',
-        operatorLevel: document.getElementById('wiz-operator-level')?.value || '',
-        backupEncoder: document.getElementById('wiz-backup-encoder')?.value || '',
-        backupSwitcher: document.getElementById('wiz-backup-switcher')?.value || '',
-        specialNotes: (document.getElementById('wiz-special-notes')?.value || '').trim(),
-      };
-      api.saveEngineerProfile(engineerProfile).catch(() => {
-        console.warn('Engineer profile save failed — will retry on next session');
-      });
-
-      // Test connection
-      const config = await api.getConfig();
-      const el = document.getElementById('test-result');
-      el.innerHTML = '<span class="spinner-inline"></span> Testing connection\u2026';
-      el.style.color = 'var(--muted)';
-      const result = await api.testConnection({ url: config.relay, token: config.token });
-      if (result.success) {
-        el.innerHTML = '\u25CF Connected to relay server!';
-        el.style.color = 'var(--green)';
-      } else {
-        el.textContent = `\u26A0 Could not reach relay: ${result.error}`;
-        el.style.color = 'var(--warn)';
-      }
-    }
-  } else {
-    // Finish — go to dashboard and start agent
-    showDashboard();
-    const config = await api.getConfig();
-    if (config.name) document.getElementById('church-name').textContent = config.name;
-    try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`\u274C Agent start failed: ${e.message}`); }
-    updateToggleBtn();
-  }
-}
-
-
-function wizardBack() {
-  if (currentStep > 1) goToStep(currentStep - 1);
-}
-
-function onWizEncoderTypeChanged() {
-  const type = document.getElementById('wiz-encoder-type').value;
-  const container = document.getElementById('wiz-encoder-fields');
-  const saved = window._encoderConfig || {};
-
-  const apiTypes = ['obs', 'vmix', 'blackmagic', 'aja', 'epiphan', 'teradek', 'tricaster', 'birddog', 'tally-encoder', 'custom'];
-
-  if (type === 'atem-streaming') {
-    container.innerHTML = `<div style="margin-top:10px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px; font-size:11px; color:var(--muted); line-height:1.5;">
-      Streaming is handled by the ATEM Mini's built-in encoder.<br>Stream status is monitored through your ATEM connection — no extra configuration needed.
-    </div>`;
-    return;
-  }
-
-  if (type === 'ecamm') {
-    container.innerHTML = `<div style="margin-top:10px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px; font-size:11px; color:var(--muted); line-height:1.5;">
-      Ecamm Live runs locally on your Mac. Port is auto-detected via Bonjour (fallback 65194).<br>No configuration needed — just make sure Ecamm Live is running.
-    </div>`;
-    return;
-  }
-
-  if (apiTypes.includes(type)) {
-    const defaults = {
-      obs:              { host: 'localhost', port: '4455', pw: true, note: 'WebSocket v5 — status, start/stop, scenes' },
-      vmix:             { host: 'localhost', port: '8088', note: 'HTTP API — streaming, recording, inputs' },
-      blackmagic:       { host: '', port: '80', note: 'REST API — start/stop, platform config, bitrate' },
-      aja:              { host: '', port: '80', pw: true, note: 'REST API — stream/record, profiles, inputs, presets' },
-      epiphan:          { host: '', port: '80', pw: true, note: 'REST API v2 — channels, publishers, recorders, layouts' },
-      teradek:          { host: '', port: '80', pw: true, note: 'CGI API — broadcast, recording, battery, video input' },
-      tricaster:        { host: '', port: '5951', pw: true, note: 'Shortcut API — stream/record transport and production state' },
-      birddog:          { host: '', port: '8080', source: true, note: 'BirdDog API + optional NDI source monitoring' },
-      'tally-encoder':  { host: '', port: '7070', note: 'Streams to relay server for tally monitoring' },
-      custom:           { host: '', port: '80', statusUrl: true, note: 'Custom HTTP status endpoint' },
-    };
-    const d = defaults[type] || { host: '', port: '' };
-    const useSaved = (saved._type || '') === type;
-    const h = useSaved ? (saved.host || d.host) : d.host;
-    const p = useSaved ? (saved.port || d.port) : d.port;
-    let html = '';
-    if (d.note) {
-      html += `<div style="margin-top:8px; font-size:10px; color:var(--dim); font-family:var(--mono);">${d.note}</div>`;
-    }
-    html += `<div style="display:flex; gap:8px; margin-top:8px;">
-      <input type="text" id="wiz-encoder-host" placeholder="${d.host || 'IP address'}" value="${h}" style="flex:1;">
-      <input type="text" id="wiz-encoder-port" placeholder="${d.port}" value="${p}" style="max-width:80px;">
-    </div>`;
-    if (d.pw) {
-      html += `<div style="margin-top:6px;">
-        <input type="password" id="wiz-encoder-password" placeholder="Password (optional)" value="${saved.password || ''}" style="width:100%;">
-      </div>`;
-    }
-    if (d.statusUrl) {
-      html += `<div style="margin-top:6px;">
-        <input type="text" id="wiz-encoder-status-url" placeholder="Status endpoint (e.g. /status)" value="${saved.statusUrl || '/status'}" style="width:100%;">
-      </div>
-      <div style="margin-top:6px;">
-        <input type="text" id="wiz-encoder-label" placeholder="Device label (optional)" value="${saved.label || ''}" style="width:100%;">
-      </div>`;
-    } else if (d.source) {
-      html += `<div style="margin-top:6px;">
-        <input type="text" id="wiz-encoder-source" placeholder="NDI source name (optional)" value="${saved.source || ''}" style="width:100%;">
-      </div>
-      <div style="margin-top:6px;">
-        <input type="text" id="wiz-encoder-label" placeholder="Device label (optional)" value="${saved.label || ''}" style="width:100%;">
-      </div>`;
-    }
-    container.innerHTML = html;
-    return;
-  }
-
-  if (type === 'yolobox') {
-    container.innerHTML = `<div style="margin-top:10px; padding:10px; background:var(--card); border:1px solid var(--border); border-radius:6px; font-size:11px; color:var(--muted); line-height:1.5;">
-      YoloBox streams directly to your CDN and has no public control API.<br>
-      Optional: enter YoloBox IP/port for reachability checks (no transport control).
-    </div>
-    <div style="display:flex; gap:8px; margin-top:8px;">
-      <input type="text" id="wiz-encoder-host" placeholder="YoloBox IP (optional)" value="">
-      <input type="text" id="wiz-encoder-port" placeholder="80" value="80" style="max-width:80px;">
-    </div>
-    <div style="margin-top:6px;">
-      <input type="text" id="wiz-encoder-label" placeholder="Device label (optional)" style="width:100%;">
-    </div>`;
-    return;
-  }
-
-  container.innerHTML = '';
-}
-
-// ─── WIZARD AUTO-DISCOVERY ─────────────────────────────────────────────────
-
-let _wizScanResults = null;
-let _wizCheckedDevices = {};
-
-const DEVICE_TYPE_LABELS = {
-  atem: 'ATEM Switcher', companion: 'Companion', obs: 'OBS Studio', hyperdeck: 'HyperDeck',
-  propresenter: 'ProPresenter', vmix: 'vMix', resolume: 'Resolume', tricaster: 'TriCaster',
-  birddog: 'BirdDog', videohub: 'VideoHub', mixers: 'Audio Mixer', encoders: 'Encoder',
-  ptz: 'PTZ Camera', ndi: 'NDI Source',
-};
-
-async function wizardAutoScan() {
-  const fill = document.getElementById('wiz-scan-fill');
-  const status = document.getElementById('wiz-scan-status');
-  const devicesEl = document.getElementById('wiz-discovered-devices');
-  const rescanBtn = document.getElementById('btn-scan');
-  const progressEl = document.getElementById('wiz-scan-progress');
-  const wizSelect = document.getElementById('wiz-scan-nic');
-  const selectedInterface = wizSelect?.value || pendingDiscoveryNic || '';
-
-  if (fill) fill.style.width = '0%';
-  if (status) status.textContent = 'Scanning your network for devices...';
-  if (progressEl) progressEl.style.display = '';
-  if (devicesEl) devicesEl.style.display = 'none';
-  if (rescanBtn) rescanBtn.style.display = 'none';
-
-  // Listen for scan progress updates
-  const removeScanListener = api.onScanProgress(({ percent, message }) => {
-    if (fill) fill.style.width = `${percent}%`;
-    if (status) status.textContent = message || `Scanning... ${percent}%`;
+  // Scan network FIRST, then greet — fixes race condition (#2)
+  scanNetworkForOnboarding().then(() => {
+    _obScanDone = true;
   });
+  // Show a scan indicator while we wait
+  appendObBubble('ai', 'Scanning your network for production gear...');
+  const scanTyping = showObTyping();
+
+  // Wait for scan (max 8 seconds, then proceed anyway)
+  const scanStart = Date.now();
+  while (!_obScanDone && Date.now() - scanStart < 8000) {
+    await new Promise(r => setTimeout(r, 200));
+  }
+  removeObTyping(scanTyping);
+
+  // Remove the "scanning" bubble and replace with real greeting
+  const firstBubble = messagesEl.querySelector('.ob-bubble');
+  if (firstBubble) firstBubble.remove();
+
+  // Send initial greeting — now with scan results available
+  await sendOnboardingMessage('hi');
+}
+
+async function scanNetworkForOnboarding() {
+  try {
+    const results = await api.scanNetwork({});
+    _onboardingScanResults = results || {};
+  } catch {
+    _onboardingScanResults = {};
+  }
+}
+
+function setObInputEnabled(enabled) {
+  const input = document.getElementById('ob-input');
+  const btn = document.getElementById('ob-send');
+  if (input) { input.disabled = !enabled; input.classList.toggle('ob-disabled', !enabled); }
+  if (btn) { btn.disabled = !enabled; btn.classList.toggle('ob-disabled', !enabled); }
+}
+
+async function sendOnboardingMessage(msgOverride) {
+  if (_onboardingSending) return;
+  const input = document.getElementById('ob-input');
+  const message = msgOverride || (input?.value || '').trim();
+  if (!message) return;
+
+  _onboardingSending = true;
+  setObInputEnabled(false); // (#6) visually disable
+  if (input && !msgOverride) { input.value = ''; }
+
+  // Clear any existing quick-reply chips
+  clearQuickReplies();
+
+  // Show user bubble (except for initial 'hi')
+  if (message !== 'hi') {
+    appendObBubble('user', message);
+  }
+
+  // Show typing indicator
+  const typing = showObTyping();
 
   try {
-    const options = selectedInterface ? { interfaceName: selectedInterface } : {};
-    const results = await api.scanNetwork(options);
-    _wizScanResults = results;
+    // Only send scan results during gear phase (#15)
+    const payload = { message };
+    if (_onboardingScanResults && Object.keys(_onboardingScanResults).length > 0) {
+      payload.scanResults = _onboardingScanResults;
+    }
 
-    if (fill) fill.style.width = '100%';
-    renderDiscoveredDevices(results);
+    const result = await api.onboardingChat(payload);
+
+    removeObTyping(typing);
+
+    if (result.error) {
+      appendObBubble('ai', 'Sorry, I had trouble processing that. Could you try again?');
+      _onboardingSending = false;
+      setObInputEnabled(true);
+      return;
+    }
+
+    // Show AI reply
+    appendObBubble('ai', result.reply);
+
+    // Show quick-reply chips (#7)
+    if (result.quickReplies?.length > 0) {
+      renderQuickReplies(result.quickReplies);
+    }
+
+    // Show action cards
+    if (result.actions?.length > 0) {
+      for (const action of result.actions) {
+        renderActionCard(action);
+      }
+    }
+
+    // Update progress
+    if (result.progress) {
+      updateOnboardingProgress(result.progress);
+    }
+
+    // After gear phase is done, stop sending scan results (#15)
+    if (result.progress?.completed?.includes('gear')) {
+      _onboardingScanResults = {};
+    }
+
+    // Check if onboarding complete
+    if (result.state === 'complete' || result.state === 'review') {
+      showCompletionControls(); // (#12) show button instead of auto-redirect
+    }
   } catch (err) {
-    if (status) status.textContent = `Scan failed: ${err.message}`;
-    if (rescanBtn) rescanBtn.style.display = '';
-  } finally {
-    if (removeScanListener) removeScanListener();
+    removeObTyping(typing);
+    appendObBubble('ai', 'Connection issue. Please check your internet and try again.');
   }
+
+  _onboardingSending = false;
+  setObInputEnabled(true);
+  // Refocus input for quick typing
+  const inp = document.getElementById('ob-input');
+  if (inp && !inp.disabled) inp.focus();
 }
 
-function renderDiscoveredDevices(results) {
-  const devicesEl = document.getElementById('wiz-discovered-devices');
-  const statusEl = document.getElementById('wiz-scan-status');
-  const progressEl = document.getElementById('wiz-scan-progress');
-  const rescanBtn = document.getElementById('btn-scan');
-  if (!devicesEl) return;
+function appendObBubble(type, text) {
+  const messagesEl = document.getElementById('ob-messages');
+  if (!messagesEl) return;
+  const bubble = document.createElement('div');
+  bubble.className = `ob-bubble ${type}`;
+  bubble.textContent = text;
+  messagesEl.appendChild(bubble);
+  scrollObToBottom();
+}
 
-  // Count total discovered devices
-  let totalDevices = 0;
-  const deviceRows = [];
+function showObTyping() {
+  const messagesEl = document.getElementById('ob-messages');
+  if (!messagesEl) return null;
+  const typing = document.createElement('div');
+  typing.className = 'ob-typing';
+  typing.innerHTML = '<span></span><span></span><span></span>';
+  messagesEl.appendChild(typing);
+  scrollObToBottom();
+  return typing;
+}
 
-  for (const [category, devices] of Object.entries(results)) {
-    if (!Array.isArray(devices) || devices.length === 0) continue;
-    for (const device of devices) {
-      totalDevices++;
-      const label = DEVICE_TYPE_LABELS[category] || category;
-      const ip = device.ip || device.host || '';
-      const name = device.name || device.model || '';
-      const key = `${category}-${ip}-${name}`;
-      if (_wizCheckedDevices[key] === undefined) _wizCheckedDevices[key] = true; // default checked
-      deviceRows.push({ category, label, ip, name, key, device });
+function removeObTyping(el) {
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+}
+
+function scrollObToBottom() {
+  const scroll = document.getElementById('ob-scroll');
+  if (scroll) setTimeout(() => { scroll.scrollTop = scroll.scrollHeight; }, 50);
+}
+
+// ─── QUICK-REPLY CHIPS (#7) ─────────────────────────────────────────────────
+
+function renderQuickReplies(options) {
+  if (!options || options.length === 0) return;
+  clearQuickReplies();
+  const messagesEl = document.getElementById('ob-messages');
+  if (!messagesEl) return;
+  const container = document.createElement('div');
+  container.className = 'ob-quick-replies';
+  for (const text of options) {
+    const chip = document.createElement('button');
+    chip.className = 'ob-chip';
+    chip.textContent = text;
+    chip.onclick = () => {
+      clearQuickReplies();
+      if (text === 'Skip to dashboard') {
+        skipToManualSetup();
+      } else {
+        sendOnboardingMessage(text);
+      }
+    };
+    container.appendChild(chip);
+  }
+  messagesEl.appendChild(container);
+  scrollObToBottom();
+}
+
+function clearQuickReplies() {
+  const existing = document.querySelectorAll('.ob-quick-replies');
+  existing.forEach(el => el.remove());
+}
+
+// ─── ACTION CARDS ────────────────────────────────────────────────────────────
+
+function renderActionCard(action) {
+  const messagesEl = document.getElementById('ob-messages');
+  if (!messagesEl) return;
+
+  const card = document.createElement('div');
+  card.className = 'ob-action-card';
+
+  const title = document.createElement('h4');
+  title.textContent = action.confirmLabel || action.type;
+  card.appendChild(title);
+
+  if (action.confirmItems?.length > 0) {
+    const ul = document.createElement('ul');
+    for (const item of action.confirmItems) {
+      const li = document.createElement('li');
+      li.textContent = item;
+      ul.appendChild(li);
     }
+    card.appendChild(ul);
   }
 
-  if (totalDevices === 0) {
-    if (statusEl) statusEl.textContent = 'No devices found on this network.';
-    devicesEl.style.display = 'none';
-    if (rescanBtn) rescanBtn.style.display = '';
-    // Open manual config automatically
-    const manual = document.getElementById('wiz-manual-config');
-    if (manual) manual.open = true;
-    return;
-  }
+  const btns = document.createElement('div');
+  btns.className = 'ob-action-btns';
 
-  if (progressEl) progressEl.style.display = 'none';
-  if (statusEl) statusEl.textContent = `Found ${totalDevices} device${totalDevices !== 1 ? 's' : ''} on your network`;
+  const confirmBtn = document.createElement('button');
+  confirmBtn.className = 'ob-confirm-btn';
+  confirmBtn.textContent = 'Confirm';
+  confirmBtn.onclick = () => confirmAction(action, card);
 
-  let html = '<div style="display:flex; flex-direction:column; gap:4px;">';
-  for (const row of deviceRows) {
-    const checked = _wizCheckedDevices[row.key] ? 'checked' : '';
-    html += `<label style="display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--card); border:1px solid var(--border); border-radius:6px; cursor:pointer; font-family:var(--mono); font-size:12px;">
-      <input type="checkbox" ${checked} onchange="toggleWizDevice('${row.key}')" style="accent-color:var(--green);">
-      <span style="color:var(--green); font-weight:700; min-width:110px;">${escapeText(row.label)}</span>
-      <span style="color:var(--muted);">${escapeText(row.ip)}</span>
-      ${row.name ? `<span style="color:var(--dim); font-size:10px;">${escapeText(row.name)}</span>` : ''}
-    </label>`;
-  }
-  html += '</div>';
+  const skipBtn = document.createElement('button');
+  skipBtn.className = 'ob-skip-btn';
+  skipBtn.textContent = 'Skip';
+  skipBtn.onclick = () => {
+    card.style.opacity = '0.5';
+    card.querySelector('.ob-action-btns').innerHTML = '<span style="color:var(--dim);font-size:11px;">Skipped</span>';
+    // Notify the AI that the user skipped (#10)
+    sendOnboardingMessage('I want to skip that for now');
+  };
 
-  devicesEl.innerHTML = html;
-  devicesEl.style.display = '';
-  if (rescanBtn) rescanBtn.style.display = '';
+  btns.appendChild(confirmBtn);
+  btns.appendChild(skipBtn);
+  card.appendChild(btns);
+
+  messagesEl.appendChild(card);
+  scrollObToBottom();
 }
 
-function toggleWizDevice(key) {
-  _wizCheckedDevices[key] = !_wizCheckedDevices[key];
-}
+async function confirmAction(action, cardEl) {
+  const btnsEl = cardEl.querySelector('.ob-action-btns');
+  if (btnsEl) btnsEl.innerHTML = '<span style="color:var(--muted);font-size:11px;">Saving...</span>';
 
-function wizardRescan() {
-  _wizScanResults = null;
-  _wizCheckedDevices = {};
-  wizardAutoScan();
-}
+  try {
+    const result = await api.onboardingConfirm({ action });
+    if (result.ok) {
+      if (btnsEl) btnsEl.innerHTML = '<span style="color:var(--green);font-size:11px;">\u2713 Saved</span>';
+      cardEl.style.borderColor = 'var(--border)';
 
-function applyWizardDevices() {
-  if (!_wizScanResults) return;
-  // Apply checked scan results to manual fields (for config save)
-  for (const [category, devices] of Object.entries(_wizScanResults)) {
-    if (!Array.isArray(devices) || devices.length === 0) continue;
-    for (const device of devices) {
-      const ip = device.ip || device.host || '';
-      const name = device.name || device.model || '';
-      const key = `${category}-${ip}-${name}`;
-      if (!_wizCheckedDevices[key]) continue; // unchecked, skip
-
-      // Apply primary device to wizard fields
-      if (category === 'atem' && ip) {
-        const el = document.getElementById('wiz-atem');
-        if (el && !el.value.trim()) el.value = ip;
+      // Write local config for Electron agent (#5)
+      if (result.localConfig && Object.keys(result.localConfig).length > 0) {
+        api.saveConfig(result.localConfig).catch(() => {});
       }
-      if (category === 'companion' && ip) {
-        const el = document.getElementById('wiz-companion-host');
-        if (el && !el.value.trim()) el.value = ip;
-      }
-      if (category === 'obs' && ip) {
-        const typeEl = document.getElementById('wiz-encoder-type');
-        if (typeEl && !typeEl.value) { typeEl.value = 'obs'; onWizEncoderTypeChanged(); }
-        const hostEl = document.getElementById('wiz-encoder-host');
-        if (hostEl && !hostEl.value.trim()) hostEl.value = ip;
-      }
-
-      // Apply to equipment-ui device state (if equipment-ui is loaded)
-      if (typeof addFromScan === 'function') {
-        addFromScan(category, device);
-      }
+    } else {
+      if (btnsEl) btnsEl.innerHTML = `<span style="color:var(--danger);font-size:11px;">${escapeText(result.message || 'Failed')}</span>`;
     }
+  } catch {
+    if (btnsEl) btnsEl.innerHTML = '<span style="color:var(--danger);font-size:11px;">Error saving</span>';
   }
 }
 
-// Legacy alias for backward compat
-async function scanForATEM() { wizardRescan(); }
+function updateOnboardingProgress(progress) {
+  if (!progress) return;
+  const stages = document.querySelectorAll('.ob-stage');
+  stages.forEach(el => {
+    const stage = el.dataset.stage;
+    el.classList.remove('active', 'done');
+    if (progress.completed?.includes(stage)) {
+      el.classList.add('done');
+    } else if (progress.remaining?.[0] === stage) {
+      el.classList.add('active');
+    }
+  });
+}
+
+// ─── COMPLETION (#12, #13) ──────────────────────────────────────────────────
+
+function showCompletionControls() {
+  const messagesEl = document.getElementById('ob-messages');
+  if (!messagesEl) return;
+
+  // Hide input area — they're done chatting
+  const inputArea = document.querySelector('.ob-input-area');
+  if (inputArea) inputArea.style.display = 'none';
+
+  const card = document.createElement('div');
+  card.className = 'ob-action-card';
+  card.style.textAlign = 'center';
+
+  const heading = document.createElement('h4');
+  heading.textContent = 'SETUP COMPLETE';
+  heading.style.marginBottom = '8px';
+  card.appendChild(heading);
+
+  const msg = document.createElement('p');
+  msg.style.cssText = 'color:var(--muted);font-size:12px;margin-bottom:12px;';
+  msg.textContent = 'Your system is configured and ready to go. Tally will run in your system tray and connect automatically on startup.';
+  card.appendChild(msg);
+
+  // Connection test result area (#13)
+  const testResult = document.createElement('div');
+  testResult.id = 'ob-test-result';
+  testResult.style.cssText = 'font-size:11px;font-family:var(--mono);margin-bottom:12px;color:var(--muted);';
+  testResult.textContent = 'Testing connection...';
+  card.appendChild(testResult);
+
+  const btn = document.createElement('button');
+  btn.className = 'ob-confirm-btn';
+  btn.style.cssText = 'width:100%;padding:10px;font-size:14px;border-radius:8px;cursor:pointer;';
+  btn.textContent = 'Go to Dashboard \u2192';
+  btn.onclick = () => finishOnboarding();
+  card.appendChild(btn);
+
+  messagesEl.appendChild(card);
+  scrollObToBottom();
+
+  // Run connection test (#13)
+  runOnboardingConnectionTest(testResult);
+}
+
+async function runOnboardingConnectionTest(el) {
+  try {
+    const config = await api.getConfig();
+    const result = await api.testConnection({ url: config.relay, token: config.token });
+    if (result.success) {
+      el.innerHTML = '<span style="color:var(--green);">\u25CF Connected to relay server</span>';
+    } else {
+      el.innerHTML = `<span style="color:var(--warn);">\u26A0 ${escapeText(result.error || 'Could not reach relay')}</span>`;
+    }
+  } catch {
+    el.innerHTML = '<span style="color:var(--dim);">Could not test connection</span>';
+  }
+}
+
+async function finishOnboarding() {
+  await api.saveConfig({ setupComplete: true });
+  showDashboard();
+  const config = await api.getConfig();
+  if (config.name) document.getElementById('church-name').textContent = config.name;
+  try { await api.startAgent(); isRunning = true; } catch {}
+  updateToggleBtn();
+}
+
+// Keep old name as alias
+async function completeOnboarding() {
+  showCompletionControls();
+}
+
+function skipToManualSetup() {
+  api.saveConfig({ setupComplete: true }).then(() => {
+    showDashboard();
+    const equipTab = document.querySelector('[data-tab="equipment"]');
+    if (equipTab) equipTab.click();
+  });
+}
+
+// Legacy stubs for backward compat
+function wizardNext() {}
+function wizardBack() {}
+function wizardRescan() {}
+function onWizEncoderTypeChanged() {}
+async function scanForATEM() {}
+function wizardAutoScan() {}
+function wizardValidateStep() { return true; }
 
 // ─── PRE-SERVICE CHECK HERO ────────────────────────────────────────────────
 
@@ -902,6 +980,44 @@ async function loadRundownPanel() {
   }
 }
 
+// Step type icon lookup for rundown
+const RUNDOWN_STEP_ICONS = {
+  camera: '🎥',
+  'camera-switch': '🎥',
+  'camera_switch': '🎥',
+  audio: '🔊',
+  'audio-cue': '🔊',
+  'audio_cue': '🔊',
+  graphics: '🖼',
+  graphic: '🖼',
+  lower_third: '🖼',
+  'lower-third': '🖼',
+  video: '📹',
+  playback: '▶',
+  music: '🎵',
+  lighting: '💡',
+  light: '💡',
+  transition: '🔄',
+  prayer: '🙏',
+  sermon: '📖',
+  worship: '🎤',
+  announcement: '📢',
+  offering: '💰',
+  scripture: '📜',
+  baptism: '💧',
+  communion: '🍞',
+  welcome: '👋',
+  stream: '📡',
+  recording: '⏺',
+  default: '▪',
+};
+
+function getRundownStepIcon(step) {
+  if (!step) return RUNDOWN_STEP_ICONS.default;
+  const type = (step.type || step.action || '').toLowerCase().replace(/\s+/g, '-');
+  return RUNDOWN_STEP_ICONS[type] || RUNDOWN_STEP_ICONS.default;
+}
+
 function renderRundownPanel(data) {
   const panel = document.getElementById('rundown-panel');
   if (!panel) return;
@@ -922,37 +1038,71 @@ function renderRundownPanel(data) {
   const currentStep = steps[currentIdx] || null;
   const nextStep = steps[currentIdx + 1] || null;
 
-  // Progress
+  // Progress text
   const progressEl = document.getElementById('rundown-progress');
   if (progressEl) {
     progressEl.textContent = `${escapeText(data.rundownName || data.rundown?.name || 'Rundown')} \u2014 Step ${currentIdx + 1} of ${steps.length}`;
   }
 
-  // Current step card
+  // Visual progress indicator (pip dots)
+  const indicatorEl = document.getElementById('rundown-progress-indicator');
+  if (indicatorEl) {
+    indicatorEl.innerHTML = steps.map((_, i) => {
+      const cls = i < currentIdx ? 'done' : i === currentIdx ? 'current' : '';
+      return `<div class="rundown-pip ${cls}"></div>`;
+    }).join('');
+  }
+
+  // Current step card with icon
   const currentEl = document.getElementById('rundown-current-step');
   if (currentEl && currentStep) {
-    currentEl.innerHTML = `<div class="step-label">${escapeText(currentStep.label || 'Step ' + (currentIdx + 1))}</div>`
+    const icon = getRundownStepIcon(currentStep);
+    currentEl.innerHTML = `<div class="step-label">${icon} ${escapeText(currentStep.label || 'Step ' + (currentIdx + 1))}</div>`
       + (currentStep.notes ? `<div class="step-notes">${escapeText(currentStep.notes)}</div>` : '');
   }
 
   // Next up preview
   const nextEl = document.getElementById('rundown-next');
   if (nextEl) {
-    nextEl.textContent = nextStep ? `Next: ${nextStep.label || 'Step ' + (currentIdx + 2)}` : 'Last step';
+    if (nextStep) {
+      const nextIcon = getRundownStepIcon(nextStep);
+      nextEl.textContent = `Next: ${nextIcon} ${nextStep.label || 'Step ' + (currentIdx + 2)}`;
+    } else {
+      nextEl.textContent = 'Last step';
+    }
   }
 
   // Disable advance on last step
   const advBtn = document.getElementById('rundown-advance-btn');
   if (advBtn) advBtn.disabled = currentIdx >= steps.length - 1;
 
-  // Steps sidebar list
+  // Steps list with icons, click-to-jump, and checked state
   const listEl = document.getElementById('rundown-steps-list');
   if (listEl) {
     listEl.innerHTML = steps.map((s, i) => {
       const cls = i < currentIdx ? 'done' : i === currentIdx ? 'current' : '';
-      const icon = i < currentIdx ? '\u2713' : i === currentIdx ? '\u25B6' : '\u25CB';
-      return `<div class="rundown-step-item ${cls}">${icon} ${escapeText(s.label || 'Step ' + (i + 1))}</div>`;
+      const icon = getRundownStepIcon(s);
+      const checkMark = i < currentIdx ? '<span class="rundown-step-check">\u2713</span>' : '';
+      return `<div class="rundown-step-item ${cls}" onclick="jumpToRundownStep(${i})" title="Jump to step ${i + 1}">
+        <span class="rundown-step-icon">${icon}</span>
+        <span class="rundown-step-label">${escapeText(s.label || 'Step ' + (i + 1))}</span>
+        ${checkMark}
+      </div>`;
     }).join('');
+  }
+}
+
+async function jumpToRundownStep(idx) {
+  try {
+    if (api.jumpToRundownStep) {
+      await api.jumpToRundownStep(idx);
+    } else {
+      // Fallback: advance step by step
+      await api.advanceRundownStep();
+    }
+    loadRundownPanel();
+  } catch (e) {
+    console.warn('Jump to rundown step failed:', e);
   }
 }
 
@@ -997,22 +1147,51 @@ async function endRundown() {
 // ─── DASHBOARD ─────────────────────────────────────────────────────────────
 
 function updateStatusUI(status) {
+  // ── Cache status for offline mode ─────────────────────────────────────
+  const relayOk = getStatusActive(status.relay);
+  if (relayOk) {
+    _cachedStatus = JSON.parse(JSON.stringify(status));
+    _cachedStatusTime = new Date();
+    _relayDisconnectedAt = null;
+    _reconnectAttempt = 0;
+    clearReconnectCountdown();
+    document.getElementById('dashboard')?.classList.remove('dashboard-stale');
+  } else if (!relayOk && _cachedStatus && !_relayDisconnectedAt) {
+    // Relay just went offline — start tracking
+    _relayDisconnectedAt = new Date();
+    _reconnectAttempt++;
+    startReconnectCountdown();
+    document.getElementById('dashboard')?.classList.add('dashboard-stale');
+  }
+
   setDot('relay', status.relay);
   setDot('atem', status.atem);
   setDot('companion', status.companion);
 
   // ── Offline / disconnection banner ──────────────────────────────────────
-  const relayOk = getStatusActive(status.relay);
   const offlineBanner = document.getElementById('offline-banner');
+  const offlineBannerText = document.getElementById('offline-banner-text');
+  const offlineBannerStale = document.getElementById('offline-banner-stale');
   if (offlineBanner) {
     if (!relayOk && !navigator.onLine) {
-      offlineBanner.textContent = '⚠ No internet — check your Wi-Fi or network cable. Monitoring is paused.';
+      if (offlineBannerText) offlineBannerText.textContent = 'No internet -- check your Wi-Fi or network cable';
       offlineBanner.style.display = '';
+      if (offlineBannerStale && _cachedStatusTime) {
+        const agoText = formatTimeAgo(_cachedStatusTime);
+        offlineBannerStale.textContent = `Showing cached data. Last update: ${agoText}`;
+        offlineBannerStale.style.display = '';
+      }
     } else if (!relayOk) {
-      offlineBanner.textContent = '⚠ Can\'t reach the server — this usually resolves on its own. Monitoring is paused.';
+      if (offlineBannerText) offlineBannerText.textContent = friendlyError('WebSocket error');
       offlineBanner.style.display = '';
+      if (offlineBannerStale && _cachedStatusTime) {
+        const agoText = formatTimeAgo(_cachedStatusTime);
+        offlineBannerStale.textContent = `Showing cached data. Last update: ${agoText}`;
+        offlineBannerStale.style.display = '';
+      }
     } else {
       offlineBanner.style.display = 'none';
+      if (offlineBannerStale) offlineBannerStale.style.display = 'none';
     }
   }
 
@@ -1075,9 +1254,25 @@ function updateStatusUI(status) {
     setStatusValue('val-companion', '—', false);
   }
 
-  // ── Streaming encoder status cards ──────────────────────────────────────
-  if (typeof streaming === 'boolean') {
-    setStatusValue('val-stream', streaming ? '● LIVE' : 'Off', streaming);
+  // ── Streaming encoder status cards (Stream Health Indicator) ────────────
+  if (typeof streaming === 'boolean' && streaming) {
+    // Color-coded stream health based on bitrate
+    const br = typeof bitrate === 'number' ? bitrate : 0;
+    const brMbps = br >= 1000 ? (br / 1000) : (br / 1000);
+    let healthLabel, healthClass;
+    if (br >= 4000) { healthLabel = 'Excellent'; healthClass = 'excellent'; }
+    else if (br >= 2000) { healthLabel = 'Fair'; healthClass = 'fair'; }
+    else if (br > 0) { healthLabel = 'Poor'; healthClass = 'poor'; }
+    else { healthLabel = 'LIVE'; healthClass = 'excellent'; }
+    const brDisplay = br > 0 ? ` ${brMbps.toFixed(1)} Mbps` : '';
+    const streamEl = document.getElementById('val-stream');
+    if (streamEl) {
+      streamEl.innerHTML = `<span class="stream-health-dot ${healthClass}"></span>${healthLabel}${brDisplay}`;
+      streamEl.classList.toggle('active', true);
+      streamEl.classList.toggle('muted', false);
+    }
+  } else if (typeof streaming === 'boolean') {
+    setStatusValue('val-stream', 'Off', false);
   } else if (!encoderConnected) {
     setStatusValue('val-stream', '—', false);
   }
@@ -1564,8 +1759,12 @@ async function testConn() {
   const config = await api.getConfig();
   const relay = config.relay || DEFAULT_RELAY_URL;
   const token = config.token || '';
-  const result = await api.testConnection({ url: relay, token });
-  addAlert(result.success ? '✅ Relay connection OK' : `❌ Relay unreachable: ${result.error}`);
+  try {
+    const result = await api.testConnection({ url: relay, token });
+    addAlert(result.success ? '✅ Relay connection OK' : `❌ ${friendlyError(result.error)}`);
+  } catch (e) {
+    addAlert(`❌ ${friendlyError(e)}`);
+  }
 }
 
 async function exportLogs() {
@@ -1628,13 +1827,219 @@ function addActivity(type, text) {
 }
 
 function addAlert(text) {
-  addActivity(detectActivityType(text), text);
+  // Apply friendly error transformation to error/alert messages
+  let friendlyText = text;
+  if (detectActivityType(text) === 'alert') {
+    friendlyText = friendlyError(text);
+  }
+  addActivity(detectActivityType(friendlyText), friendlyText);
+}
+
+// ─── OFFLINE MODE HELPERS ───────────────────────────────────────────────────
+
+function formatTimeAgo(date) {
+  if (!date) return 'unknown';
+  const diffMs = Date.now() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  return `${diffHr}h ${diffMin % 60}m ago`;
+}
+
+function getReconnectDelay() {
+  // Exponential backoff: 2s, 4s, 8s, 16s, 30s max
+  const base = 2000;
+  const delay = Math.min(base * Math.pow(2, _reconnectAttempt - 1), 30000);
+  return delay;
+}
+
+function startReconnectCountdown() {
+  clearReconnectCountdown();
+  const countdownEl = document.getElementById('offline-banner-countdown');
+  if (!countdownEl) return;
+
+  const delay = getReconnectDelay();
+  const endTime = Date.now() + delay;
+
+  countdownEl.style.display = 'inline';
+  const update = () => {
+    const remaining = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
+    if (remaining > 0) {
+      countdownEl.textContent = `Reconnecting in ${remaining}s...`;
+    } else {
+      countdownEl.textContent = 'Reconnecting...';
+      clearReconnectCountdown();
+    }
+  };
+  update();
+  _reconnectCountdownTimer = setInterval(update, 1000);
+}
+
+function clearReconnectCountdown() {
+  if (_reconnectCountdownTimer) {
+    clearInterval(_reconnectCountdownTimer);
+    _reconnectCountdownTimer = null;
+  }
+  const countdownEl = document.getElementById('offline-banner-countdown');
+  if (countdownEl) countdownEl.style.display = 'none';
+}
+
+// ─── MULTI-ENCODER VISIBILITY ──────────────────────────────────────────────
+
+function updateMultiEncoderUI(status) {
+  const eq = window._savedEquipment || {};
+  const encoders = Array.isArray(eq.encoders) ? eq.encoders : [];
+  const multiBar = document.getElementById('multi-encoder-bar');
+  const multiCards = document.getElementById('multi-encoder-cards');
+  const encoderDotLabel = document.getElementById('dot-encoder-label');
+
+  // If only one or zero encoders, keep existing layout
+  if (encoders.length <= 1) {
+    if (multiBar) multiBar.style.display = 'none';
+    if (multiCards) multiCards.style.display = 'none';
+    return;
+  }
+
+  // Multiple encoders: show status chips and mini cards
+  if (multiBar) {
+    multiBar.style.display = 'flex';
+    multiBar.innerHTML = encoders.map((enc, i) => {
+      const label = enc.label || enc.type || `Encoder ${i + 1}`;
+      // Try to derive connected state from status
+      const connected = getEncoderConnected(status, enc, i);
+      const dotClass = connected ? 'green' : 'red';
+      const chipClass = connected ? 'active' : '';
+      const statusSymbol = connected ? '\u2713' : '\u2717';
+      return `<div class="encoder-status-chip ${chipClass}" title="${escapeHtml(label)}">
+        <span class="enc-dot ${dotClass}"></span>
+        <span>${escapeHtml(label)} ${statusSymbol}</span>
+      </div>`;
+    }).join('');
+  }
+
+  // Update the top status bar encoder dot label
+  if (encoderDotLabel && encoders.length > 1) {
+    const connectedCount = encoders.filter((enc, i) => getEncoderConnected(status, enc, i)).length;
+    encoderDotLabel.textContent = `Encoders (${connectedCount}/${encoders.length})`;
+  }
+
+  if (multiCards) {
+    multiCards.style.display = 'block';
+    multiCards.innerHTML = encoders.map((enc, i) => {
+      const label = enc.label || enc.type || `Encoder ${i + 1}`;
+      const connected = getEncoderConnected(status, enc, i);
+      const dotClass = connected ? 'green' : 'red';
+      const encType = enc.type || 'Unknown';
+      // Extract per-encoder bitrate/health if available
+      const encStatus = getEncoderStatus(status, enc, i);
+      return `<div class="encoder-mini-card">
+        <div class="enc-card-header">
+          <span class="enc-dot ${dotClass}" style="width:7px;height:7px;border-radius:50%;display:inline-block;"></span>
+          <span class="enc-card-name">${escapeHtml(label)}</span>
+        </div>
+        <div class="enc-card-row">
+          <span>Type: <span class="enc-card-val">${escapeHtml(encType)}</span></span>
+          <span>Bitrate: <span class="enc-card-val">${encStatus.bitrate || '--'}</span></span>
+          <span>Health: <span class="enc-card-val" style="color:${encStatus.healthColor};">${encStatus.health || '--'}</span></span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+}
+
+function getEncoderConnected(status, enc, idx) {
+  // Check if this encoder is connected based on status data
+  if (status.encoders && Array.isArray(status.encoders) && status.encoders[idx]) {
+    return getStatusActive(status.encoders[idx]);
+  }
+  // Fallback: if only primary encoder status exists
+  if (idx === 0) {
+    return !!(status.encoder || getStatusActive(status.obs));
+  }
+  return false;
+}
+
+function getEncoderStatus(status, enc, idx) {
+  const result = { bitrate: '--', health: '--', healthColor: 'var(--dim)' };
+  let encData = null;
+  if (status.encoders && Array.isArray(status.encoders) && status.encoders[idx]) {
+    encData = status.encoders[idx];
+  } else if (idx === 0) {
+    encData = status;
+  }
+  if (!encData) return result;
+  const br = encData.bitrate ?? null;
+  if (typeof br === 'number' && br > 0) {
+    result.bitrate = br >= 1000 ? `${(br / 1000).toFixed(1)} Mbps` : `${br} Kbps`;
+  }
+  if (typeof br === 'number') {
+    if (br >= 4000) { result.health = 'Excellent'; result.healthColor = 'var(--green)'; }
+    else if (br >= 2000) { result.health = 'Fair'; result.healthColor = 'var(--warn)'; }
+    else if (br > 0) { result.health = 'Poor'; result.healthColor = 'var(--danger)'; }
+    else { result.health = 'Idle'; result.healthColor = 'var(--dim)'; }
+  }
+  return result;
+}
+
+// ─── PROBLEM FINDER AUTO-RUN ───────────────────────────────────────────────
+
+async function pfAutoRun() {
+  if (_pfAutoRunDone) return;
+  _pfAutoRunDone = true;
+
+  try {
+    const api = window.electronAPI;
+    if (!api || !api.pfAvailable || !api.pfAnalyze) return;
+    const available = await api.pfAvailable();
+    if (!available) return;
+
+    // Run in background — don't block the UI
+    const result = await api.pfAnalyze();
+    if (result?.report) {
+      const issues = result.report.diagnostics?.issues || [];
+      const realIssues = issues.filter(i => i.id !== 'no_issues_detected');
+      _pfAutoRunIssueCount = realIssues.length;
+
+      // Update problem finder state
+      if (typeof _pfLastReport !== 'undefined') {
+        _pfLastReport = result.report;
+        _pfLastGoNoGo = result.goNoGo || null;
+      }
+
+      // Show badge on Status tab if issues found
+      updatePfBadge();
+    }
+  } catch {
+    // Silent fail — auto-run should never block the user
+  }
+}
+
+function updatePfBadge() {
+  const badge = document.getElementById('status-issue-badge');
+  if (!badge) return;
+  if (_pfAutoRunIssueCount > 0) {
+    badge.textContent = `${_pfAutoRunIssueCount} issue${_pfAutoRunIssueCount !== 1 ? 's' : ''}`;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
 }
 
 // ─── IPC listeners ─────────────────────────────────────────────────────────
 
 api.onStatus((status) => {
   updateStatusUI(status);
+
+  // Multi-encoder update
+  updateMultiEncoderUI(status);
+
+  // Trigger auto-run after first successful relay connection
+  if (getStatusActive(status.relay) && !_pfAutoRunDone && isRunning) {
+    // Delay slightly to let agent stabilize
+    setTimeout(() => pfAutoRun(), 5000);
+  }
 });
 
 // Signal Failover state listener
@@ -1650,9 +2055,20 @@ function startPreServiceRefresh() {
   _preServiceRefreshTimer = setInterval(() => {
     const panel = document.getElementById('preservice-panel');
     if (panel) loadPreServiceCheck();
+    loadPreServiceReadiness();
   }, 5 * 60 * 1000);
 }
 startPreServiceRefresh();
+
+// Update stale timestamp display every 30s while disconnected
+setInterval(() => {
+  if (_relayDisconnectedAt && _cachedStatusTime) {
+    const staleEl = document.getElementById('offline-banner-stale');
+    if (staleEl && staleEl.style.display !== 'none') {
+      staleEl.textContent = `Showing cached data. Last update: ${formatTimeAgo(_cachedStatusTime)}`;
+    }
+  }
+}, 30000);
 
 api.onLog((text) => {
   const t = text.trim();
@@ -1691,11 +2107,13 @@ async function requestPreview() {
 
 async function stopPreview() {
   const container = document.getElementById('preview-container');
-  container.classList.remove('has-image');
-  document.getElementById('preview-img').style.display = 'none';
-  document.getElementById('preview-placeholder').style.display = 'flex';
-  document.getElementById('preview-placeholder').textContent = 'No preview yet';
-  document.getElementById('preview-ts').textContent = '';
+  if (container) container.classList.remove('has-image');
+  const img = document.getElementById('preview-img');
+  if (img) img.style.display = 'none';
+  const placeholder = document.getElementById('preview-placeholder');
+  if (placeholder) { placeholder.style.display = 'flex'; placeholder.textContent = 'No preview yet'; }
+  const tsEl = document.getElementById('preview-ts');
+  if (tsEl) tsEl.textContent = '';
   addAlert('⏹ Preview stopped');
   try {
     await api.requestPreview('stop');
@@ -1710,19 +2128,20 @@ function handlePreviewFrame(data) {
   const tsEl = document.getElementById('preview-ts');
   const container = document.getElementById('preview-container');
 
+  if (!img || !container) return; // elements may not exist in current layout
+
   img.src = 'data:image/jpeg;base64,' + data.data;
   img.style.display = 'block';
-  placeholder.style.display = 'none';
+  if (placeholder) placeholder.style.display = 'none';
   container.classList.add('has-image');
   lastPreviewTime = Date.now();
-  tsEl.textContent = new Date(data.timestamp).toLocaleTimeString();
+  if (tsEl) tsEl.textContent = new Date(data.timestamp).toLocaleTimeString();
 
   clearTimeout(previewTimeout);
   previewTimeout = setTimeout(() => {
     if (Date.now() - lastPreviewTime > 14000) {
       img.style.display = 'none';
-      placeholder.style.display = 'flex';
-      placeholder.textContent = 'Preview unavailable (timeout)';
+      if (placeholder) { placeholder.style.display = 'flex'; placeholder.textContent = 'Preview unavailable (timeout)'; }
       container.classList.remove('has-image');
     }
   }, 15000);
@@ -1732,6 +2151,7 @@ function handlePreviewFrame(data) {
 async function setupLiveStreamLink() {
   const config = await api.getConfig();
   const el = document.getElementById('live-stream-link');
+  if (!el) return; // element may not exist in current layout
   if (config.liveStreamUrl) {
     const link = document.createElement('a');
     link.href = '#';
@@ -1791,6 +2211,11 @@ async function switchTab(name) {
   if (name === 'equipment') { loadEquipment(); updateOAuthUI(); }
   if (name === 'engineer') { loadProblemFinder(); startChatPolling(); }
   else stopChatPolling();
+  // Clear issue badge when user views the Status tab
+  if (name === 'status') {
+    _pfAutoRunIssueCount = 0;
+    updatePfBadge();
+  }
 }
 
 // ─── CHAT ───────────────────────────────────────────────────────────────────
@@ -2795,6 +3220,138 @@ function addScanResult(container, label, useFn) {
   item.appendChild(btn);
   container.appendChild(item);
 }
+
+// ─── PRE-SERVICE READINESS WIDGET ────────────────────────────────────────────
+
+async function loadPreServiceReadiness() {
+  try {
+    const data = await api.getPreServiceStatus();
+    const widget = document.getElementById('preservice-readiness');
+    if (!widget) return;
+
+    if (data.error || !data.nextServiceMinutes || data.nextServiceMinutes > 60) {
+      widget.style.display = 'none';
+      return;
+    }
+
+    const bar = document.getElementById('readiness-bar');
+    const icon = document.getElementById('readiness-icon');
+    const text = document.getElementById('readiness-text');
+
+    const mins = Math.round(data.nextServiceMinutes);
+    const hasIssues = data.issues && data.issues > 0;
+
+    bar.classList.remove('go', 'issues');
+
+    if (hasIssues) {
+      bar.classList.add('issues');
+      icon.textContent = '\u26A0\uFE0F';
+      text.textContent = `Next Service in ${mins}m \u2014 ${data.issues} Issue${data.issues !== 1 ? 's' : ''} Found`;
+    } else {
+      bar.classList.add('go');
+      icon.textContent = '\u2705';
+      text.textContent = `Next Service in ${mins}m \u2014 All Systems Go`;
+    }
+
+    widget.style.display = '';
+  } catch (e) {
+    console.warn('Pre-service readiness load failed:', e);
+  }
+}
+
+// ─── SESSION RECAP CARD ─────────────────────────────────────────────────────
+
+async function loadSessionRecap() {
+  try {
+    const data = await api.getSessionLatest();
+    const card = document.getElementById('session-recap');
+    if (!card) return;
+
+    if (data.error || !data.duration) {
+      card.style.display = 'none';
+      return;
+    }
+
+    // Duration formatting
+    const durMins = Math.round((data.duration || 0) / 60);
+    const durText = durMins >= 60 ? `${Math.floor(durMins / 60)}h ${durMins % 60}m` : `${durMins}m`;
+    setStatusValue('val-recap-duration', durText, true);
+
+    // Alerts
+    const alerts = data.alerts || 0;
+    setStatusValue('val-recap-alerts', String(alerts), alerts === 0);
+
+    // Auto-recoveries
+    const recoveries = data.autoRecoveries || 0;
+    setStatusValue('val-recap-recoveries', String(recoveries), true);
+
+    // Grade
+    const grade = data.grade || '--';
+    const gradeEl = document.getElementById('val-recap-grade');
+    if (gradeEl) {
+      gradeEl.textContent = grade;
+      gradeEl.className = 'value';
+      const g = grade.toUpperCase().charAt(0);
+      if (g === 'A') gradeEl.classList.add('active', 'grade-a');
+      else if (g === 'B') gradeEl.classList.add('active', 'grade-b');
+      else if (g === 'C') gradeEl.classList.add('grade-c');
+      else if (g === 'D') gradeEl.classList.add('grade-d');
+      else if (g === 'F') gradeEl.classList.add('grade-f');
+      else gradeEl.classList.add('muted');
+    }
+
+    // Peak viewers
+    const viewers = data.peakViewers || 0;
+    setStatusValue('val-recap-viewers', String(viewers), viewers > 0);
+
+    card.style.display = '';
+  } catch (e) {
+    console.warn('Session recap load failed:', e);
+  }
+}
+
+function toggleSessionRecap() {
+  const body = document.getElementById('session-recap-body');
+  const chevron = document.getElementById('session-recap-chevron');
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  if (chevron) chevron.classList.toggle('open', !isOpen);
+}
+
+// ─── AUTO-START TOGGLE ──────────────────────────────────────────────────────
+
+async function loadAutoStartSetting() {
+  try {
+    const result = await api.getAutoStart();
+    const cb = document.getElementById('autostart-checkbox');
+    if (cb) cb.checked = !!result.enabled;
+  } catch {}
+}
+
+async function toggleAutoStart(enabled) {
+  try {
+    await api.setAutoStart(enabled);
+  } catch (e) {
+    addAlert(`Auto-start save failed: ${e.message}`);
+  }
+}
+
+// ─── KEYBOARD SHORTCUTS ─────────────────────────────────────────────────────
+
+document.addEventListener('keydown', (e) => {
+  // Don't fire when input fields, textareas, or selects are focused
+  const tag = document.activeElement?.tagName?.toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  if (document.activeElement?.isContentEditable) return;
+
+  const mod = e.metaKey || e.ctrlKey;
+  if (!mod) return;
+
+  if (e.key === '1') { e.preventDefault(); switchTab('status'); }
+  else if (e.key === '2') { e.preventDefault(); switchTab('equipment'); }
+  else if (e.key === '3') { e.preventDefault(); switchTab('engineer'); }
+});
 
 // External link handler
 document.addEventListener('click', (e) => {

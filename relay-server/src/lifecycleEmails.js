@@ -214,8 +214,9 @@ class LifecycleEmails {
     const autoRecovered = digestData.autoRecovered || 0;
     const sessionCount = digestData.sessionCount || 0;
     const patterns = digestData.patterns || [];
+    const topAlertType = digestData.topAlertType || null;
 
-    const subject = `Weekly Report: ${churchName} — Week of ${dateLabel}`;
+    const subject = `Your Week in Review — ${church.name || 'Your Church'}`;
     const patternRows = patterns.length > 0
       ? patterns.map(p => `<li style="margin-bottom:6px;">${this._esc(p.pattern)} <span style="color:#475569;">— ${this._esc(p.timeWindow || '')}</span>${p.recommendation ? `<br><span style="color:#22c55e; font-size:12px;">&rarr; ${this._esc(p.recommendation)}</span>` : ''}</li>`).join('')
       : '<li style="color:#22c55e;">No recurring issues this week</li>';
@@ -228,7 +229,8 @@ class LifecycleEmails {
           <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Services This Week</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${sessionCount}</td></tr>
           <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Reliability</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600; color: ${reliabilityColor};">${typeof reliability === 'number' ? reliability + '%' : reliability}</td></tr>
           <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Total Events</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${totalEvents}</td></tr>
-          <tr><td style="padding: 8px 12px; color: #94A3B8;">Auto-Recovered</td><td style="padding: 8px 12px; text-align: right; font-weight: 600;">${autoRecovered}</td></tr>
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Auto-Recovered</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${autoRecovered}</td></tr>
+          <tr><td style="padding: 8px 12px; color: #94A3B8;">Top Alert Type</td><td style="padding: 8px 12px; text-align: right; font-weight: 600;">${topAlertType ? this._esc(topAlertType) : '<span style="color:#22c55e;">None</span>'}</td></tr>
         </table>
         <h3 style="font-size: 14px; margin: 20px 0 8px; color: #86efac;">Recurring Patterns</h3>
         <ul style="padding-left: 20px; color: #F8FAFC; font-size: 13px;">${patternRows}</ul>
@@ -240,6 +242,65 @@ class LifecycleEmails {
     `;
 
     return this.sendEmail({ churchId: church.churchId, emailType, to: toEmail, subject, html });
+  }
+
+  // ─── MONTHLY REPORT EMAIL ──────────────────────────────────────────────────
+
+  /**
+   * Send a monthly production report email to a leadership or TD email address.
+   * Uses month-specific dedup key so each month sends once per recipient.
+   */
+  async sendMonthlyReportEmail(church, reportData, toEmail) {
+    const month = reportData.month || 'unknown';
+    const emailType = `monthly-report-email-${month}`;
+    const churchName = this._esc(church.name || 'Your Church');
+
+    const servicesMonitored = reportData.servicesMonitored || 0;
+    const alertsTriggered = reportData.alertsTriggered || 0;
+    const autoRecovered = reportData.autoRecovered || 0;
+    const escalated = reportData.escalated || 0;
+    const uptime = reportData.uptime != null ? reportData.uptime : 'N/A';
+    const uptimeColor = typeof uptime === 'number' && uptime >= 99 ? '#22c55e' : typeof uptime === 'number' && uptime >= 95 ? '#eab308' : '#ef4444';
+    const mostCommonIssue = reportData.mostCommonIssue || null;
+    const monthLabel = reportData.monthLabel || month;
+
+    const subject = `Monthly Production Report — ${church.name || 'Your Church'}`;
+
+    const html = `
+      <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; background: #09090B; color: #F8FAFC; padding: 32px; border-radius: 12px;">
+        <h1 style="font-size: 20px; margin-bottom: 4px;">Monthly Production Report</h1>
+        <p style="color: #94A3B8; margin: 0 0 24px;">${churchName} &middot; ${this._esc(monthLabel)}</p>
+        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Services Monitored</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${servicesMonitored}</td></tr>
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Alerts Triggered</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${alertsTriggered}</td></tr>
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Auto-Recovered</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${autoRecovered}</td></tr>
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Escalated</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${escalated}</td></tr>
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Most Common Issue</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${mostCommonIssue ? this._esc(mostCommonIssue) : '<span style="color:#22c55e;">None</span>'}</td></tr>
+          <tr><td style="padding: 8px 12px; color: #94A3B8;">Uptime Estimate</td><td style="padding: 8px 12px; text-align: right; font-weight: 600; color: ${uptimeColor};">${typeof uptime === 'number' ? uptime.toFixed(1) + '%' : uptime}</td></tr>
+        </table>
+        <div style="text-align: center; margin-top: 24px;">
+          <a href="${this.appUrl}/church-portal" style="display:inline-block; background:#22c55e; color:#000; padding:10px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">View Portal</a>
+        </div>
+        <p style="text-align: center; margin-top: 20px; color: #475569; font-size: 11px;">Sent by Tally &middot; <a href="${this.appUrl}" style="color:#475569;">tallyconnect.app</a></p>
+      </div>
+    `;
+
+    const text = `Monthly Production Report — ${church.name || 'Your Church'}
+
+${monthLabel}
+
+Services Monitored: ${servicesMonitored}
+Alerts Triggered: ${alertsTriggered}
+Auto-Recovered: ${autoRecovered}
+Escalated: ${escalated}
+Most Common Issue: ${mostCommonIssue || 'None'}
+Uptime Estimate: ${typeof uptime === 'number' ? uptime.toFixed(1) + '%' : uptime}
+
+View your portal at ${this.appUrl}/church-portal
+
+Tally — ${this.appUrl.replace('https://', '')}`;
+
+    return this.sendEmail({ churchId: church.churchId, emailType, to: toEmail, subject, html, text });
   }
 
   /** HTML escape helper */
@@ -588,14 +649,14 @@ class LifecycleEmails {
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Need help getting Tally set up?</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
         Hi! You signed up for Tally at <strong>${church.name}</strong> but we haven't seen your booth computer connect yet.
-        Setup takes about 10 minutes &mdash; here's a quick refresher:
+        Setup takes about 5 minutes &mdash; our AI assistant handles most of it for you:
       </p>
 
       <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
         <div style="font-size: 14px; color: #333; line-height: 2;">
           <strong>1.</strong> <a href="${downloadUrl}" style="color: #22c55e; text-decoration: none;">Download the Tally app</a> on your booth computer<br>
           <strong>2.</strong> Sign in with your registration code<br>
-          <strong>3.</strong> Tally auto-discovers your ATEM, OBS, and other gear
+          <strong>3.</strong> Chat with our setup assistant &mdash; tell it your gear and service times, and it configures everything
         </div>
       </div>
 
@@ -614,10 +675,10 @@ class LifecycleEmails {
 
 Hi! You signed up for Tally at ${church.name} but we haven't seen your booth computer connect yet.
 
-Setup takes about 10 minutes:
+Setup takes about 5 minutes — our AI assistant handles most of it:
 1. Download the Tally app: ${downloadUrl}
 2. Sign in with your registration code
-3. Tally auto-discovers your ATEM, OBS, and other gear
+3. Chat with our setup assistant — tell it your gear and service times
 
 Once connected, you'll see your gear status at ${this.appUrl}/portal
 
@@ -1360,12 +1421,12 @@ Tally — ${this.appUrl.replace('https://', '')}`;
           <strong>1.</strong> Verify your email (check your inbox)<br>
           <strong>2.</strong> <a href="${downloadUrl}" style="color: #22c55e; text-decoration: none;">Download the Tally app</a> on your booth computer<br>
           <strong>3.</strong> Sign in with your registration code<br>
-          <strong>4.</strong> Tally auto-discovers your ATEM, OBS, and other gear
+          <strong>4.</strong> Our AI setup assistant will walk you through the rest &mdash; just tell it about your gear, service times, and team in a quick conversation
         </div>
       </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        Once connected, you'll have real-time monitoring, automatic recovery, and pre-service health checks &mdash; all running in the background.
+        The setup assistant scans your network, finds your equipment, and configures everything automatically. Once connected, you'll have real-time monitoring, automatic recovery, and pre-service health checks &mdash; all running in the background.
       </p>
 
       ${this._cta('Open Your Portal', portalUrl)}
@@ -1375,7 +1436,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Welcome to Tally!\n\n${church.name} has been registered and your 14-day free trial is active.\n\nQuick start:\n1. Verify your email\n2. Download the Tally app: ${downloadUrl}\n3. Sign in with your registration code\n4. Tally auto-discovers your gear\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    const text = `Welcome to Tally!\n\n${church.name} has been registered and your 14-day free trial is active.\n\nQuick start:\n1. Verify your email\n2. Download the Tally app: ${downloadUrl}\n3. Sign in with your registration code\n4. Our AI setup assistant walks you through the rest — just tell it about your gear and service times\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }

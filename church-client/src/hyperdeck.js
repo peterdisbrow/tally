@@ -29,7 +29,11 @@ class HyperDeck extends EventEmitter {
       protocolVersion: null,
       lastResponseCode: null,
       lastSeen: null,
+      diskSpace: null,
     };
+
+    /** Default recording bitrate in bytes/sec (50 Mbps typical ProRes proxy) */
+    this._recordingBitrateBytes = 50_000_000 / 8;
   }
 
   async connect(timeoutMs = 5000) {
@@ -160,6 +164,19 @@ class HyperDeck extends EventEmitter {
       if (version) this._status.protocolVersion = version;
     }
 
+    if (block.title.includes('slot info')) {
+      const total = parseIntOrNull(block.fields['volume total']);
+      const free = parseIntOrNull(block.fields['volume free']);
+      if (total !== null && free !== null) {
+        const used = total - free;
+        const percentUsed = total > 0 ? Math.round((used / total) * 1000) / 10 : 0;
+        const estimatedMinutesRemaining = this._recordingBitrateBytes > 0
+          ? Math.round((free / this._recordingBitrateBytes) / 60 * 10) / 10
+          : null;
+        this._status.diskSpace = { total, used, free, percentUsed, estimatedMinutesRemaining };
+      }
+    }
+
     if (block.title.includes('transport info')) {
       const transport = String(block.fields.status || '').trim().toLowerCase();
       if (transport) this._status.transport = transport;
@@ -240,7 +257,60 @@ class HyperDeck extends EventEmitter {
   async refreshStatus() {
     if (!this.connected) return this.getStatus();
     await this._sendAndWait('transport info', [208, 508]);
+    // Best-effort disk space query (slot info may not be supported on all firmware)
+    try {
+      const slotId = this._status.slotId || 1;
+      await this.queryDiskSpace(slotId);
+    } catch { /* ignore — disk query is optional */ }
     return this.getStatus();
+  }
+
+  /**
+   * Query disk space for a specific slot.
+   * HyperDeck protocol: "slot info: slot id: N" returns volume total/free in bytes.
+   * @param {number} slotId - Slot number (1 or 2)
+   */
+  async queryDiskSpace(slotId = 1) {
+    if (!this.connected) return null;
+    await this._sendAndWait(`slot info: slot id: ${slotId}`, [202, 502]);
+    return this._status.diskSpace;
+  }
+
+  /**
+   * Set the assumed recording bitrate for estimated-time calculations.
+   * @param {number} bitsPerSecond - Recording bitrate in bits/sec
+   */
+  setRecordingBitrate(bitsPerSecond) {
+    this._recordingBitrateBytes = Math.max(1, Number(bitsPerSecond) || 0) / 8;
+  }
+
+  /**
+   * Get disk space warnings based on current disk status.
+   * Returns an array of { type, message } warning objects.
+   */
+  getDiskWarnings() {
+    const warnings = [];
+    const ds = this._status.diskSpace;
+    if (!ds) return warnings;
+
+    if (ds.estimatedMinutesRemaining !== null && ds.estimatedMinutesRemaining < 5 || ds.percentUsed > 95) {
+      warnings.push({
+        type: 'recording_disk_full',
+        message: `HyperDeck "${this.name}" disk nearly full: ${ds.percentUsed}% used, ~${ds.estimatedMinutesRemaining} min remaining`,
+      });
+    } else if (ds.estimatedMinutesRemaining !== null && ds.estimatedMinutesRemaining < 30) {
+      warnings.push({
+        type: 'recording_disk_critical',
+        message: `HyperDeck "${this.name}" disk critical: ~${ds.estimatedMinutesRemaining} min recording time remaining`,
+      });
+    } else if (ds.estimatedMinutesRemaining !== null && ds.estimatedMinutesRemaining < 120) {
+      warnings.push({
+        type: 'recording_disk_low',
+        message: `HyperDeck "${this.name}" disk low: ~${ds.estimatedMinutesRemaining} min recording time remaining`,
+      });
+    }
+
+    return warnings;
   }
 
   async play() {
@@ -285,6 +355,8 @@ class HyperDeck extends EventEmitter {
       clipId: this._status.clipId,
       slotId: this._status.slotId,
       lastSeen: this._status.lastSeen,
+      diskSpace: this._status.diskSpace,
+      diskWarnings: this.getDiskWarnings(),
     };
   }
 }

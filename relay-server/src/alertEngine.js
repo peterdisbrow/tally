@@ -4,6 +4,15 @@
 
 const { v4: uuidv4 } = require('uuid');
 
+// Alert types that always bypass deduplication and send immediately
+const CRITICAL_BYPASS_TYPES = new Set([
+  'stream_stopped',
+  'signal_loss',
+  'encoder_offline',
+]);
+
+const DEFAULT_DEDUP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
 const ALERT_CLASSIFICATIONS = {
   'stream_started': 'INFO',
   'recording_started': 'INFO',
@@ -206,6 +215,13 @@ class AlertEngine {
     this.onCallRotation = options.onCallRotation || null;
     // Optional: ResellerSystem for white-labeling brand names
     this.resellerSystem = options.resellerSystem || null;
+
+    // ─── Deduplication state ──────────────────────────────────────────────────
+    // dedupState: Map<"churchId::alertType" → { count, firstSeen, lastContext, timer }>
+    this.dedupState = new Map();
+    // Per-church, per-alertType dedup windows: Map<"churchId::alertType" → milliseconds>
+    this.dedupWindows = new Map();
+
     this._ensureColumns();
     this._ensureAlertsTable();
   }
@@ -271,6 +287,117 @@ class AlertEngine {
     };
   }
 
+  // ─── DEDUPLICATION ──────────────────────────────────────────────────────
+
+  /**
+   * Set a custom dedup window for a specific church + alert type.
+   * @param {string} churchId
+   * @param {string} alertType
+   * @param {number} minutes — window in minutes
+   */
+  setDedupWindow(churchId, alertType, minutes) {
+    const key = `${churchId}::${alertType}`;
+    this.dedupWindows.set(key, minutes * 60 * 1000);
+  }
+
+  /**
+   * Get the dedup window (ms) for a church + alert type combo.
+   */
+  _getDedupWindowMs(churchId, alertType) {
+    const key = `${churchId}::${alertType}`;
+    return this.dedupWindows.get(key) ?? DEFAULT_DEDUP_WINDOW_MS;
+  }
+
+  /**
+   * Clear all dedup state for a church (e.g. on disconnect / cleanup).
+   */
+  clearDedupState(churchId) {
+    for (const [key, entry] of this.dedupState.entries()) {
+      if (key.startsWith(`${churchId}::`)) {
+        if (entry.timer) clearTimeout(entry.timer);
+        this.dedupState.delete(key);
+      }
+    }
+    // Also remove any custom windows for this church
+    for (const key of this.dedupWindows.keys()) {
+      if (key.startsWith(`${churchId}::`)) {
+        this.dedupWindows.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Returns true if the alert should bypass dedup and send immediately.
+   */
+  _shouldBypassDedup(alertType) {
+    if (CRITICAL_BYPASS_TYPES.has(alertType)) return true;
+    const severity = this.classifyAlert(alertType);
+    return severity === 'EMERGENCY';
+  }
+
+  /**
+   * Check dedup state. Returns:
+   *   { action: 'send' }         — first occurrence or bypass, proceed to send
+   *   { action: 'deduplicated' } — suppressed, counter incremented
+   */
+  _checkDedup(church, alertType, context) {
+    if (this._shouldBypassDedup(alertType)) {
+      return { action: 'send' };
+    }
+
+    const key = `${church.churchId}::${alertType}`;
+    const existing = this.dedupState.get(key);
+
+    if (existing) {
+      // Already within window — increment counter
+      existing.count += 1;
+      existing.lastContext = context;
+      return { action: 'deduplicated' };
+    }
+
+    // First occurrence — set up dedup entry with a flush timer
+    const windowMs = this._getDedupWindowMs(church.churchId, alertType);
+    const entry = {
+      count: 1,
+      firstSeen: Date.now(),
+      lastContext: context,
+      church,
+      timer: null,
+    };
+
+    entry.timer = setTimeout(() => {
+      this._flushDedupEntry(key);
+    }, windowMs);
+
+    this.dedupState.set(key, entry);
+    return { action: 'send' };
+  }
+
+  /**
+   * Called when a dedup window expires. If count > 1, send a batched summary.
+   */
+  async _flushDedupEntry(key) {
+    const entry = this.dedupState.get(key);
+    if (!entry) return;
+    this.dedupState.delete(key);
+
+    if (entry.count <= 1) return; // Only one occurrence — already sent immediately
+
+    const [churchId, alertType] = key.split('::');
+    const windowMs = this._getDedupWindowMs(churchId, alertType);
+    const windowMin = Math.round(windowMs / 60000);
+    const icon = '🔴';
+    const summary = `${icon} ${alertType.replace(/_/g, ' ')} (${entry.count} occurrences in last ${windowMin} min)`;
+
+    const botToken = entry.church.alert_bot_token || this.defaultBotToken;
+    if (!botToken) return;
+
+    const tdChatId = entry.church.td_telegram_chat_id;
+    if (tdChatId) {
+      await this.sendTelegramMessage(tdChatId, botToken, summary);
+    }
+  }
+
   async sendAlert(church, alertType, context = {}, sessionId = null, recoveryResult = null) {
     const severity = this.classifyAlert(alertType, context);
     const alertId = uuidv4();
@@ -298,6 +425,13 @@ class AlertEngine {
     if (severity !== 'EMERGENCY' && this.scheduleEngine && !this.scheduleEngine.isServiceWindow(church.churchId)) {
       console.log(`  ↳ Outside service window — logged only`);
       return { alertId, severity, action: 'logged_outside_window' };
+    }
+
+    // ─── Deduplication check ────────────────────────────────────────────────
+    const dedupResult = this._checkDedup(church, alertType, context);
+    if (dedupResult.action === 'deduplicated') {
+      console.log(`  ↳ Deduplicated — suppressed (count incremented)`);
+      return { alertId, severity, action: 'deduplicated' };
     }
 
     const botToken = church.alert_bot_token || this.defaultBotToken;
@@ -498,4 +632,4 @@ class AlertEngine {
   }
 }
 
-module.exports = { AlertEngine, ALERT_CLASSIFICATIONS, DIAGNOSIS_TEMPLATES };
+module.exports = { AlertEngine, ALERT_CLASSIFICATIONS, DIAGNOSIS_TEMPLATES, CRITICAL_BYPASS_TYPES, DEFAULT_DEDUP_WINDOW_MS };

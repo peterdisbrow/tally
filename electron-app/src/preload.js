@@ -51,6 +51,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   oauthStatus: () => ipcRenderer.invoke('oauth-status'),
   oauthStreamKeys: () => ipcRenderer.invoke('oauth-stream-keys'),
   onOauthUpdate: (cb) => ipcRenderer.on('oauth-update', (_, data) => cb(data)),
+  // Pre-Service Status (readiness widget)
+  getPreServiceStatus: () => ipcRenderer.invoke('preservice-status'),
+  // Session Recap
+  getSessionLatest: () => ipcRenderer.invoke('get-session-latest'),
+  // Auto-Start Config
+  getAutoStart: () => ipcRenderer.invoke('get-autostart'),
+  setAutoStart: (enabled) => ipcRenderer.invoke('set-autostart', enabled),
   // Pre-Service Check
   getPreServiceCheck: () => ipcRenderer.invoke('get-preservice-check'),
   runPreServiceCheck: () => ipcRenderer.invoke('run-preservice-check'),
@@ -59,6 +66,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getActiveRundown: () => ipcRenderer.invoke('get-active-rundown'),
   executeRundownStep: () => ipcRenderer.invoke('execute-rundown-step'),
   advanceRundownStep: () => ipcRenderer.invoke('advance-rundown-step'),
+  jumpToRundownStep: (idx) => ipcRenderer.invoke('jump-to-rundown-step', idx),
   deactivateRundown: () => ipcRenderer.invoke('deactivate-rundown'),
   // Problem Finder
   pfAnalyze: () => ipcRenderer.invoke('pf-analyze'),
@@ -79,4 +87,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onFailoverStateChange: (cb) => ipcRenderer.on('failover-state', (_, data) => cb(data)),
   // Window visibility (pause polling when hidden to tray)
   onWindowVisibility: (cb) => ipcRenderer.on('window-visibility', (_, visible) => cb(visible)),
+  // Onboarding chat
+  onboardingChat: (payload) => ipcRenderer.invoke('onboarding-chat', payload),
+  onboardingConfirm: (payload) => ipcRenderer.invoke('onboarding-confirm', payload),
+  onboardingState: () => ipcRenderer.invoke('onboarding-state'),
 });

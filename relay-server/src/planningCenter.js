@@ -261,6 +261,337 @@ class PlanningCenter {
     };
   }
 
+  // ─── WRITE-BACK — Push session recaps & data to Planning Center ──────────
+
+  /**
+   * Internal helper: build auth headers for a church's PC credentials.
+   * @param {object} church - DB row with pc_app_id and pc_secret
+   * @returns {{Authorization: string, 'Content-Type': string}}
+   */
+  _authHeaders(church) {
+    const credentials = Buffer.from(`${church.pc_app_id}:${church.pc_secret}`).toString('base64');
+    return {
+      Authorization: `Basic ${credentials}`,
+      'Content-Type': 'application/json',
+    };
+  }
+
+  /**
+   * Internal helper: load and validate a church for write-back operations.
+   * @param {string} churchId
+   * @returns {{church: object}|{error: {written: boolean, reason: string}}}
+   */
+  _loadChurchForWriteback(churchId) {
+    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    if (!church) return { error: { written: false, reason: 'Church not found' } };
+    if (!church.pc_writeback_enabled) return { error: { written: false, reason: 'Write-back disabled' } };
+    if (!church.pc_app_id || !church.pc_secret || !church.pc_service_type_id) {
+      return { error: { written: false, reason: 'PC credentials not configured' } };
+    }
+    return { church };
+  }
+
+  /**
+   * Internal helper: make a PC API request with error handling for rate limits and auth failures.
+   * @param {string} url
+   * @param {object} headers
+   * @param {object} [options] - Additional fetch options (method, body, etc.)
+   * @returns {Promise<Response>}
+   * @throws {Error} With descriptive message for rate limits, auth failures, etc.
+   */
+  async _pcFetch(url, headers, options = {}) {
+    const resp = await fetch(url, {
+      headers,
+      signal: AbortSignal.timeout(10000),
+      ...options,
+    });
+
+    if (!resp.ok) {
+      const body = await resp.text();
+      if (resp.status === 429) {
+        throw new Error(`Planning Center rate limit exceeded (429): ${body.slice(0, 100)}`);
+      }
+      if (resp.status === 401 || resp.status === 403) {
+        throw new Error(`Planning Center auth failure (${resp.status}): ${body.slice(0, 100)}`);
+      }
+      if (resp.status === 404) {
+        throw new Error(`Planning Center resource not found (404): ${body.slice(0, 100)}`);
+      }
+      throw new Error(`Planning Center API error (${resp.status}): ${body.slice(0, 100)}`);
+    }
+
+    return resp;
+  }
+
+  /**
+   * Push a full session recap to a Planning Center plan as a production note.
+   * Includes: stream duration, alert count, auto-recoveries, grade,
+   * peak viewers, recording status, and any incidents.
+   *
+   * @param {string} churchId
+   * @param {string} planId  - The specific plan to write to
+   * @param {object} recapData - Finalized session object from SessionRecap.endSession()
+   * @returns {Promise<{written: boolean, planId?: string, reason?: string}>}
+   */
+  async pushSessionRecap(churchId, planId, recapData) {
+    const loaded = this._loadChurchForWriteback(churchId);
+    if (loaded.error) return loaded.error;
+    const { church } = loaded;
+    const headers = this._authHeaders(church);
+
+    try {
+      // Verify the plan exists
+      const planUrl = `${PC_API_BASE}/service_types/${church.pc_service_type_id}/plans/${planId}`;
+      await this._pcFetch(planUrl, headers);
+
+      // Build comprehensive note text
+      const grade = recapData.grade || 'N/A';
+      const durationMin = recapData.durationMinutes || recapData.duration_minutes || 0;
+      const hours = Math.floor(durationMin / 60);
+      const mins = durationMin % 60;
+      const durationStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+      const alerts = recapData.alertCount || recapData.alert_count || 0;
+      const autoFixed = recapData.autoRecovered || recapData.auto_recovered_count || 0;
+      const escalated = recapData.escalated || recapData.escalated_count || 0;
+      const peakViewers = recapData.peakViewers || recapData.peak_viewers;
+      const streamTotal = recapData.streamTotalMinutes || recapData.stream_runtime_minutes || 0;
+      const streamRan = recapData.streaming !== undefined ? recapData.streaming : (recapData.stream_ran || streamTotal > 0);
+      const recordingConfirmed = recapData.recordingConfirmed || recapData.recording_confirmed || false;
+      const audioSilence = recapData.audioSilenceCount || recapData.audio_silence_count || 0;
+      const tdName = recapData.tdName || recapData.td_name || 'Unknown';
+
+      const streamLine = streamRan ? `Yes (${streamTotal} min)` : 'No';
+      const viewersLine = peakViewers != null ? `${peakViewers}` : 'N/A';
+
+      const lines = [
+        `--- Tally Production Report ---`,
+        `Grade: ${grade}`,
+        `Duration: ${durationStr}`,
+        `TD: ${tdName}`,
+        `Stream: ${streamLine}`,
+        `Peak Viewers: ${viewersLine}`,
+        `Recording: ${recordingConfirmed ? 'Confirmed' : 'Not confirmed'}`,
+        `Alerts: ${alerts} (${autoFixed} auto-recovered, ${escalated} escalated)`,
+        `Audio silences: ${audioSilence}`,
+      ];
+
+      // Append incident details if any
+      const alertTypes = recapData.alertTypes || {};
+      if (Object.keys(alertTypes).length > 0) {
+        lines.push('');
+        lines.push('Incidents:');
+        for (const [type, count] of Object.entries(alertTypes)) {
+          lines.push(`  - ${type}: ${count}`);
+        }
+      }
+
+      lines.push(`---`);
+
+      const noteText = lines.join('\n');
+
+      // POST the note to the plan
+      const noteUrl = `${PC_API_BASE}/service_types/${church.pc_service_type_id}/plans/${planId}/notes`;
+      await this._pcFetch(noteUrl, headers, {
+        method: 'POST',
+        body: JSON.stringify({
+          data: {
+            type: 'PlanNote',
+            attributes: {
+              content: noteText,
+              category_name: 'Production',
+            },
+          },
+        }),
+      });
+
+      console.log(`[PlanningCenter] Session recap pushed to plan ${planId} for ${church.name || churchId}`);
+      return { written: true, planId };
+    } catch (e) {
+      console.warn(`[PlanningCenter] pushSessionRecap failed for ${church.name || churchId}: ${e.message}`);
+      return { written: false, reason: e.message };
+    }
+  }
+
+  /**
+   * Update a Planning Center plan with actual start/end times (vs scheduled).
+   *
+   * @param {string} churchId
+   * @param {string} planId
+   * @param {{actualStart: string|Date, actualEnd: string|Date}} actualTimes
+   * @returns {Promise<{updated: boolean, planId?: string, reason?: string}>}
+   */
+  async updateServiceTimes(churchId, planId, actualTimes) {
+    const loaded = this._loadChurchForWriteback(churchId);
+    if (loaded.error) return { updated: false, reason: loaded.error.reason };
+    const { church } = loaded;
+    const headers = this._authHeaders(church);
+
+    try {
+      const actualStart = actualTimes.actualStart instanceof Date
+        ? actualTimes.actualStart.toISOString()
+        : actualTimes.actualStart;
+      const actualEnd = actualTimes.actualEnd instanceof Date
+        ? actualTimes.actualEnd.toISOString()
+        : actualTimes.actualEnd;
+
+      const startTime = new Date(actualStart);
+      const endTime = new Date(actualEnd);
+      const startStr = startTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      const endStr = endTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+      // Post actual times as a note (PC API doesn't have a direct "actual time" field on plans)
+      const noteUrl = `${PC_API_BASE}/service_types/${church.pc_service_type_id}/plans/${planId}/notes`;
+      await this._pcFetch(noteUrl, headers, {
+        method: 'POST',
+        body: JSON.stringify({
+          data: {
+            type: 'PlanNote',
+            attributes: {
+              content: `--- Actual Service Times ---\nStart: ${startStr} (${actualStart})\nEnd: ${endStr} (${actualEnd})\n---`,
+              category_name: 'Production',
+            },
+          },
+        }),
+      });
+
+      console.log(`[PlanningCenter] Service times updated on plan ${planId} for ${church.name || churchId}`);
+      return { updated: true, planId };
+    } catch (e) {
+      console.warn(`[PlanningCenter] updateServiceTimes failed for ${church.name || churchId}: ${e.message}`);
+      return { updated: false, reason: e.message };
+    }
+  }
+
+  /**
+   * Sync volunteer/TD attendance to a Planning Center plan.
+   * Matches active guest tokens against plan team members by name
+   * and confirms their attendance.
+   *
+   * @param {string} churchId
+   * @param {string} planId
+   * @param {Array<{token: string, name: string, churchId: string}>} activeTokens - Currently active guest tokens
+   * @returns {Promise<{synced: boolean, matched: number, total: number, reason?: string}>}
+   */
+  async syncVolunteerAttendance(churchId, planId, activeTokens) {
+    const loaded = this._loadChurchForWriteback(churchId);
+    if (loaded.error) return { synced: false, matched: 0, total: 0, reason: loaded.error.reason };
+    const { church } = loaded;
+    const headers = this._authHeaders(church);
+
+    try {
+      // Fetch team members for this plan
+      const teamUrl = `${PC_API_BASE}/service_types/${church.pc_service_type_id}/plans/${planId}/team_members`;
+      const teamResp = await this._pcFetch(teamUrl, headers);
+      const teamData = await teamResp.json();
+      const teamMembers = teamData.data || [];
+
+      if (!teamMembers.length) {
+        return { synced: true, matched: 0, total: 0 };
+      }
+
+      // Build a set of active volunteer names (lowercase for matching)
+      const activeNames = new Set(
+        activeTokens
+          .filter(t => t.churchId === churchId)
+          .map(t => (t.name || '').toLowerCase().trim())
+          .filter(Boolean)
+      );
+
+      let matched = 0;
+
+      for (const member of teamMembers) {
+        const memberName = (member.attributes?.name || '').toLowerCase().trim();
+        if (!memberName) continue;
+
+        // Check if this team member was active (match by name)
+        const isActive = activeNames.has(memberName) ||
+          [...activeNames].some(n => memberName.includes(n) || n.includes(memberName));
+
+        if (isActive) {
+          // Confirm attendance via PATCH
+          try {
+            const memberUrl = `${PC_API_BASE}/service_types/${church.pc_service_type_id}/plans/${planId}/team_members/${member.id}`;
+            await this._pcFetch(memberUrl, headers, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                data: {
+                  type: 'TeamMember',
+                  id: member.id,
+                  attributes: {
+                    status: 'C', // Confirmed
+                  },
+                },
+              }),
+            });
+            matched++;
+          } catch (e) {
+            console.warn(`[PlanningCenter] Could not confirm attendance for ${member.attributes?.name}: ${e.message}`);
+          }
+        }
+      }
+
+      console.log(`[PlanningCenter] Volunteer attendance synced: ${matched}/${teamMembers.length} matched for plan ${planId}`);
+      return { synced: true, matched, total: teamMembers.length };
+    } catch (e) {
+      console.warn(`[PlanningCenter] syncVolunteerAttendance failed for ${church.name || churchId}: ${e.message}`);
+      return { synced: false, matched: 0, total: 0, reason: e.message };
+    }
+  }
+
+  /**
+   * Fetch upcoming plans with service type info for a church.
+   *
+   * @param {string} churchId
+   * @param {number} [days=7] - Number of days to look ahead
+   * @returns {Promise<{plans: Array<{planId, date, title, serviceTypeName, dayName, startTime}>, reason?: string}>}
+   */
+  async getUpcomingPlans(churchId, days = 7) {
+    const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    if (!church) throw new Error('Church not found');
+    if (!church.pc_app_id || !church.pc_secret || !church.pc_service_type_id) {
+      throw new Error('Planning Center credentials not configured for this church');
+    }
+
+    const headers = this._authHeaders(church);
+
+    // Fetch the service type name
+    let serviceTypeName = 'Unknown';
+    try {
+      const stUrl = `${PC_API_BASE}/service_types/${church.pc_service_type_id}`;
+      const stResp = await this._pcFetch(stUrl, headers);
+      const stData = await stResp.json();
+      serviceTypeName = stData.data?.attributes?.name || 'Unknown';
+    } catch {
+      // Non-fatal — continue with 'Unknown' service type name
+    }
+
+    // Fetch future plans
+    const url = `${PC_API_BASE}/service_types/${church.pc_service_type_id}/plans?filter=future&per_page=25&order=sort_date`;
+    const resp = await this._pcFetch(url, headers);
+    const data = await resp.json();
+    const plans = data.data || [];
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() + days);
+
+    return plans
+      .map(plan => {
+        const sortDate = plan.attributes?.sort_date;
+        if (!sortDate) return null;
+        const date = new Date(sortDate);
+        if (date > cutoff) return null;
+        return {
+          planId:          plan.id,
+          date:            date.toISOString(),
+          title:           plan.attributes?.title || `Service (${date.toLocaleDateString()})`,
+          serviceTypeName,
+          dayName:         DAYS[date.getDay()],
+          startTime:       `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`,
+        };
+      })
+      .filter(Boolean);
+  }
+
   // ─── WRITE-BACK — Push production notes to Planning Center ────────────────
 
   /**

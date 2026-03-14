@@ -347,7 +347,26 @@ class WeeklyDigest {
             const sessionCount = this.db.prepare(
               'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?'
             ).get(church.churchId, weekAgo.toISOString())?.cnt || 0;
-            const digestData = { reliability, patterns, totalEvents: events.length, autoRecovered, sessionCount };
+            // Top alert type
+            const typeCounts = {};
+            for (const ev of events) {
+              typeCounts[ev.event_type] = (typeCounts[ev.event_type] || 0) + 1;
+            }
+            let topAlertType = null;
+            let topAlertCount = 0;
+            for (const [type, count] of Object.entries(typeCounts)) {
+              if (count > topAlertCount) { topAlertType = type; topAlertCount = count; }
+            }
+
+            const digestData = {
+              reliability,
+              patterns,
+              totalEvents: events.length,
+              autoRecovered: autoResolved,
+              sessionCount,
+              topAlertType: topAlertType ? topAlertType.replace(/_/g, ' ') : null,
+              topAlertCount,
+            };
             for (const leaderEmail of leaderEmails) {
               this.lifecycleEmails.sendWeeklyDigestEmail(fullChurch, digestData, leaderEmail).catch(err => {
                 console.error(`[WeeklyDigest] Leadership email error for ${leaderEmail}:`, err.message);

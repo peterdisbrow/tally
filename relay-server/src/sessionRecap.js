@@ -630,6 +630,544 @@ Church profile:
   getAllActiveSessions() {
     return Array.from(this.activeSessions.keys()).map(id => this.getActiveSession(id));
   }
+
+  // ─── AI INSIGHTS ────────────────────────────────────────────────────────────
+
+  /**
+   * Tier constants for insight gating.
+   * Basic (all tiers): performanceHighlights, areasForImprovement
+   * Pro+ (pro_plus, enterprise): incidentTimeline, comparisonToAverage, tdResponseAnalysis, equipmentReliability
+   */
+  static BASIC_TIERS = ['connect', 'pro', 'pro_plus', 'enterprise'];
+  static PRO_PLUS_TIERS = ['pro_plus', 'enterprise'];
+
+  /**
+   * Check if a tier qualifies for detailed (Pro+) insights.
+   * @param {string} tier
+   * @returns {boolean}
+   */
+  _isProPlus(tier) {
+    return SessionRecap.PRO_PLUS_TIERS.includes(tier || 'connect');
+  }
+
+  /**
+   * Generate detailed post-session insights.
+   * Returns tier-gated results: basic tiers get highlights + improvements only;
+   * Pro+ tiers get the full analysis.
+   *
+   * @param {object} sessionData  Finalized session object (from endSession)
+   * @param {string} [tier='connect']  Church billing tier
+   * @returns {object} Insight object
+   */
+  generateDetailedInsights(sessionData, tier = 'connect') {
+    const highlights = this._generatePerformanceHighlights(sessionData);
+    const improvements = this._generateAreasForImprovement(sessionData);
+
+    const result = {
+      performanceHighlights: highlights,
+      areasForImprovement: improvements,
+    };
+
+    if (this._isProPlus(tier)) {
+      result.incidentTimeline = this._generateIncidentTimeline(sessionData);
+      result.comparisonToAverage = this._generateComparisonToAverage(sessionData);
+      result.tdResponseAnalysis = this._generateTdResponseAnalysis(sessionData);
+      result.equipmentReliability = this._generateEquipmentReliability(sessionData);
+    }
+
+    return result;
+  }
+
+  /**
+   * Generate positive callouts for a session.
+   * @param {object} session
+   * @returns {string[]}
+   */
+  _generatePerformanceHighlights(session) {
+    const highlights = [];
+
+    if (session.audioSilenceCount === 0) {
+      highlights.push('Zero audio issues');
+    }
+
+    if (session.alertCount === 0) {
+      highlights.push('No alerts triggered');
+    }
+
+    if (session.streamTotalMinutes > 0 && session.durationMinutes > 0) {
+      const uptimePercent = Math.min(100, Math.round((session.streamTotalMinutes / session.durationMinutes) * 100));
+      if (uptimePercent >= 99) {
+        highlights.push('100% stream uptime');
+      } else if (uptimePercent >= 90) {
+        highlights.push(`${uptimePercent}% stream uptime`);
+      }
+    }
+
+    if (session.recordingConfirmed) {
+      highlights.push('Recording confirmed');
+    }
+
+    if (session.alertCount > 0 && session.autoRecovered === session.alertCount && session.escalated === 0) {
+      highlights.push('All alerts auto-resolved');
+    }
+
+    if (session.peakViewers !== null && session.peakViewers !== undefined && session.peakViewers > 0) {
+      highlights.push(`Peak viewers: ${session.peakViewers}`);
+    }
+
+    if (session.escalated === 0 && session.alertCount > 0) {
+      highlights.push('Zero escalations');
+    }
+
+    return highlights;
+  }
+
+  /**
+   * Generate specific, actionable improvement items.
+   * @param {object} session
+   * @returns {string[]}
+   */
+  _generateAreasForImprovement(session) {
+    const items = [];
+
+    if (session.audioSilenceCount > 0) {
+      items.push(`${session.audioSilenceCount} audio silence event${session.audioSilenceCount !== 1 ? 's' : ''} detected — check mic placement and input levels`);
+    }
+
+    if (!session.recordingConfirmed) {
+      items.push('Recording was not confirmed — enable auto-record or add a pre-service checklist item');
+    }
+
+    if (session.streamTotalMinutes === 0 && session.durationMinutes > 0) {
+      items.push('Stream did not run — verify encoder and stream key configuration');
+    } else if (session.streamTotalMinutes > 0 && session.durationMinutes > 0) {
+      const uptimePercent = Math.round((session.streamTotalMinutes / session.durationMinutes) * 100);
+      if (uptimePercent < 90) {
+        items.push(`Stream was only up ${uptimePercent}% of the session — investigate disconnections`);
+      }
+    }
+
+    if (session.escalated > 0) {
+      items.push(`${session.escalated} alert${session.escalated !== 1 ? 's' : ''} required manual intervention — review auto-recovery settings`);
+    }
+
+    const alertTypes = session.alertTypes || {};
+    for (const [type, count] of Object.entries(alertTypes)) {
+      if (count >= 3) {
+        items.push(`Recurring alert: "${type.replace(/_/g, ' ')}" fired ${count} times — investigate root cause`);
+      }
+    }
+
+    // Check for unused cameras if device stats exist
+    if (session.deviceStats) {
+      for (const [device, stats] of Object.entries(session.deviceStats)) {
+        if (stats.uptimeMinutes === 0) {
+          items.push(`${device} was unused — consider repositioning or removing`);
+        }
+      }
+    }
+
+    return items;
+  }
+
+  /**
+   * Generate chronological incident timeline with duration and resolution method.
+   * Pro+ only.
+   * @param {object} session
+   * @returns {Array<{time: string, eventType: string, duration: number|null, resolution: string}>}
+   */
+  _generateIncidentTimeline(session) {
+    const sessionId = session.sessionId;
+    if (!sessionId) return [];
+
+    try {
+      const events = this.db.prepare(
+        'SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC'
+      ).all(sessionId);
+
+      return events.map(e => {
+        const time = new Date(e.timestamp);
+        let durationMinutes = null;
+        let resolution = 'unresolved';
+
+        if (e.resolved && e.resolved_at) {
+          const resolvedAt = new Date(e.resolved_at);
+          durationMinutes = Math.round((resolvedAt - time) / 60000);
+          resolution = e.auto_resolved ? 'auto' : 'manual';
+        } else if (e.auto_resolved) {
+          resolution = 'auto';
+          durationMinutes = 0;
+        }
+
+        return {
+          time: time.toISOString(),
+          eventType: e.event_type,
+          details: e.details || null,
+          duration: durationMinutes,
+          resolution,
+        };
+      });
+    } catch (e) {
+      console.error('[SessionRecap] Incident timeline error:', e.message);
+      return [];
+    }
+  }
+
+  /**
+   * Compare this session to the church's historical average.
+   * Pro+ only.
+   * @param {object} session
+   * @returns {object} Per-metric comparison: { metric: { value, average, verdict } }
+   */
+  _generateComparisonToAverage(session) {
+    const churchId = session.churchId;
+    if (!churchId) return {};
+
+    try {
+      const avgRow = this.db.prepare(`
+        SELECT
+          AVG(alert_count) as avg_alerts,
+          AVG(auto_recovered_count) as avg_auto_recovered,
+          AVG(escalated_count) as avg_escalated,
+          AVG(audio_silence_count) as avg_silence,
+          AVG(stream_runtime_minutes) as avg_stream_runtime,
+          AVG(duration_minutes) as avg_duration,
+          COUNT(*) as session_count
+        FROM service_sessions
+        WHERE church_id = ? AND ended_at IS NOT NULL
+      `).get(churchId);
+
+      if (!avgRow || avgRow.session_count < 2) {
+        return { _note: 'Not enough historical sessions for comparison' };
+      }
+
+      const compare = (label, current, average, lowerIsBetter = true) => {
+        const avg = Math.round(average * 10) / 10;
+        let verdict = 'same';
+        if (lowerIsBetter) {
+          if (current < avg) verdict = 'better';
+          else if (current > avg) verdict = 'worse';
+        } else {
+          if (current > avg) verdict = 'better';
+          else if (current < avg) verdict = 'worse';
+        }
+        return { value: current, average: avg, verdict };
+      };
+
+      return {
+        alerts: compare('Alerts', session.alertCount, avgRow.avg_alerts, true),
+        escalations: compare('Escalations', session.escalated, avgRow.avg_escalated, true),
+        audioSilence: compare('Audio silence', session.audioSilenceCount, avgRow.avg_silence, true),
+        streamRuntime: compare('Stream runtime', session.streamTotalMinutes, avgRow.avg_stream_runtime, false),
+      };
+    } catch (e) {
+      console.error('[SessionRecap] Comparison error:', e.message);
+      return {};
+    }
+  }
+
+  /**
+   * Analyse TD response times to alerts during the session.
+   * Pro+ only.
+   * @param {object} session
+   * @returns {object} { averageResponseMinutes, fastest, slowest, totalAcknowledged }
+   */
+  _generateTdResponseAnalysis(session) {
+    const sessionId = session.sessionId;
+    if (!sessionId) return { averageResponseMinutes: null, fastest: null, slowest: null, totalAcknowledged: 0 };
+
+    try {
+      const alerts = this.db.prepare(
+        'SELECT created_at, acknowledged_at FROM alerts WHERE session_id = ? AND acknowledged_at IS NOT NULL'
+      ).all(sessionId);
+
+      if (!alerts.length) {
+        return { averageResponseMinutes: null, fastest: null, slowest: null, totalAcknowledged: 0 };
+      }
+
+      const responseTimes = alerts.map(a => {
+        const created = new Date(a.created_at);
+        const acked = new Date(a.acknowledged_at);
+        return Math.round((acked - created) / 60000 * 10) / 10; // 1 decimal place
+      });
+
+      const avg = Math.round((responseTimes.reduce((s, v) => s + v, 0) / responseTimes.length) * 10) / 10;
+      const fastest = Math.min(...responseTimes);
+      const slowest = Math.max(...responseTimes);
+
+      return {
+        averageResponseMinutes: avg,
+        fastest,
+        slowest,
+        totalAcknowledged: alerts.length,
+      };
+    } catch (e) {
+      console.error('[SessionRecap] TD response analysis error:', e.message);
+      return { averageResponseMinutes: null, fastest: null, slowest: null, totalAcknowledged: 0 };
+    }
+  }
+
+  /**
+   * Calculate per-device uptime during the session, ranked best to worst.
+   * Pro+ only. Uses service_events to identify device-specific issues.
+   * @param {object} session
+   * @returns {Array<{device: string, uptimePercent: number, issueCount: number}>}
+   */
+  _generateEquipmentReliability(session) {
+    const sessionId = session.sessionId;
+    if (!sessionId || !session.durationMinutes) return [];
+
+    try {
+      const events = this.db.prepare(
+        'SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC'
+      ).all(sessionId);
+
+      if (!events.length) return [];
+
+      // Group events by device (inferred from event_type)
+      const deviceMap = new Map(); // device → { downtimeMinutes, issueCount }
+
+      for (const e of events) {
+        const device = this._inferDevice(e.event_type, e.details);
+        if (!device) continue;
+
+        if (!deviceMap.has(device)) {
+          deviceMap.set(device, { downtimeMinutes: 0, issueCount: 0 });
+        }
+
+        const entry = deviceMap.get(device);
+        entry.issueCount++;
+
+        if (e.resolved && e.resolved_at) {
+          const start = new Date(e.timestamp);
+          const end = new Date(e.resolved_at);
+          entry.downtimeMinutes += Math.round((end - start) / 60000);
+        } else if (!e.resolved) {
+          // Unresolved — assume 5 min downtime per unresolved event
+          entry.downtimeMinutes += 5;
+        }
+      }
+
+      const totalMinutes = session.durationMinutes;
+      const result = [];
+
+      for (const [device, stats] of deviceMap) {
+        const uptimePercent = Math.max(0, Math.round(((totalMinutes - stats.downtimeMinutes) / totalMinutes) * 100));
+        result.push({
+          device,
+          uptimePercent,
+          issueCount: stats.issueCount,
+        });
+      }
+
+      // Sort: worst uptime first (most problematic devices first)
+      result.sort((a, b) => a.uptimePercent - b.uptimePercent);
+      return result;
+    } catch (e) {
+      console.error('[SessionRecap] Equipment reliability error:', e.message);
+      return [];
+    }
+  }
+
+  /**
+   * Infer device name from event type and details.
+   * @param {string} eventType
+   * @param {string} details
+   * @returns {string|null}
+   */
+  _inferDevice(eventType, details) {
+    const type = (eventType || '').toLowerCase();
+    const det = (details || '').toLowerCase();
+
+    if (type.includes('atem')) return 'ATEM Switcher';
+    if (type.includes('camera') || type.includes('cam')) {
+      // Try to extract camera number from details
+      const camMatch = det.match(/camera\s*(\d+)/i) || type.match(/cam(?:era)?\s*(\d+)/i);
+      return camMatch ? `Camera ${camMatch[1]}` : 'Camera';
+    }
+    if (type.includes('audio') || type.includes('silence')) return 'Audio System';
+    if (type.includes('stream')) return 'Stream Encoder';
+    if (type.includes('recording') || type.includes('rec')) return 'Recording System';
+    if (type.includes('network') || type.includes('disconnect')) return 'Network';
+    if (type.includes('cpu') || type.includes('gpu')) return 'Encoding Hardware';
+
+    return null;
+  }
+
+  // ─── WEEKLY SUMMARY ─────────────────────────────────────────────────────────
+
+  /**
+   * Generate aggregate insights across multiple sessions (Pro+ only).
+   * @param {Array<object>} sessions  Array of finalized session objects
+   * @param {string} [tier='connect']  Church billing tier
+   * @returns {object|null}  Weekly summary or null if not Pro+
+   */
+  generateWeeklySummaryInsights(sessions, tier = 'connect') {
+    if (!this._isProPlus(tier)) return null;
+    if (!sessions || sessions.length === 0) return { _note: 'No sessions this week' };
+
+    return {
+      trendingMetrics: this._computeTrendingMetrics(sessions),
+      recurringIssues: this._computeRecurringIssues(sessions),
+      bestWorstSession: this._computeBestWorstSession(sessions),
+      volunteerPatterns: this._computeVolunteerPatterns(sessions),
+    };
+  }
+
+  /**
+   * Compute trending metrics (improving or declining) across sessions.
+   * @param {Array<object>} sessions  Ordered chronologically
+   * @returns {Array<{metric: string, trend: string, values: number[]}>}
+   */
+  _computeTrendingMetrics(sessions) {
+    if (sessions.length < 2) return [];
+
+    const metrics = [
+      { key: 'alertCount', label: 'Alerts', lowerIsBetter: true },
+      { key: 'escalated', label: 'Escalations', lowerIsBetter: true },
+      { key: 'audioSilenceCount', label: 'Audio silence events', lowerIsBetter: true },
+      { key: 'streamTotalMinutes', label: 'Stream runtime', lowerIsBetter: false },
+    ];
+
+    const results = [];
+
+    for (const m of metrics) {
+      const values = sessions.map(s => s[m.key] ?? 0);
+      // Simple linear trend: compare first half average to second half average
+      const mid = Math.floor(values.length / 2);
+      const firstHalf = values.slice(0, mid);
+      const secondHalf = values.slice(mid);
+      const firstAvg = firstHalf.reduce((s, v) => s + v, 0) / firstHalf.length;
+      const secondAvg = secondHalf.reduce((s, v) => s + v, 0) / secondHalf.length;
+
+      let trend = 'stable';
+      const diff = secondAvg - firstAvg;
+      const threshold = Math.max(0.5, firstAvg * 0.2); // 20% change or 0.5 absolute
+
+      if (Math.abs(diff) > threshold) {
+        if (m.lowerIsBetter) {
+          trend = diff < 0 ? 'improving' : 'declining';
+        } else {
+          trend = diff > 0 ? 'improving' : 'declining';
+        }
+      }
+
+      results.push({ metric: m.label, trend, values });
+    }
+
+    return results;
+  }
+
+  /**
+   * Identify recurring issues — alert types appearing in >50% of sessions.
+   * @param {Array<object>} sessions
+   * @returns {Array<{alertType: string, frequency: number, sessionCount: number}>}
+   */
+  _computeRecurringIssues(sessions) {
+    if (sessions.length === 0) return [];
+
+    const typeCounts = {}; // alertType → number of sessions it appeared in
+
+    for (const s of sessions) {
+      const types = s.alertTypes || {};
+      for (const type of Object.keys(types)) {
+        typeCounts[type] = (typeCounts[type] || 0) + 1;
+      }
+    }
+
+    const threshold = sessions.length / 2;
+    const recurring = [];
+
+    for (const [type, count] of Object.entries(typeCounts)) {
+      if (count > threshold) {
+        recurring.push({
+          alertType: type,
+          frequency: Math.round((count / sessions.length) * 100),
+          sessionCount: count,
+        });
+      }
+    }
+
+    // Sort by frequency descending
+    recurring.sort((a, b) => b.frequency - a.frequency);
+    return recurring;
+  }
+
+  /**
+   * Identify the best and worst session of the week.
+   * @param {Array<object>} sessions
+   * @returns {{best: object|null, worst: object|null}}
+   */
+  _computeBestWorstSession(sessions) {
+    if (sessions.length === 0) return { best: null, worst: null };
+
+    // Score each session: lower is better
+    const scored = sessions.map(s => {
+      const score = (s.alertCount || 0) * 2
+        + (s.escalated || 0) * 5
+        + (s.audioSilenceCount || 0) * 1
+        + (s.recordingConfirmed ? 0 : 3)
+        + (s.streamTotalMinutes > 0 ? 0 : 10);
+      return { session: s, score };
+    });
+
+    scored.sort((a, b) => a.score - b.score);
+
+    const best = scored[0];
+    const worst = scored[scored.length - 1];
+
+    const summarize = (entry) => ({
+      sessionId: entry.session.sessionId,
+      grade: entry.session.grade || this.gradeSession(entry.session),
+      alertCount: entry.session.alertCount,
+      escalated: entry.session.escalated,
+      tdName: entry.session.tdName,
+      score: entry.score,
+    });
+
+    return {
+      best: summarize(best),
+      worst: scored.length > 1 ? summarize(worst) : null,
+    };
+  }
+
+  /**
+   * Analyse volunteer (TD) performance patterns across sessions.
+   * @param {Array<object>} sessions
+   * @returns {Array<{tdName: string, sessionsWorked: number, avgAlerts: number, avgEscalations: number, cleanRate: number}>}
+   */
+  _computeVolunteerPatterns(sessions) {
+    const tdMap = new Map(); // tdName → { sessions[], totalAlerts, totalEscalated, cleanCount }
+
+    for (const s of sessions) {
+      const name = s.tdName || 'Unknown';
+      if (!tdMap.has(name)) {
+        tdMap.set(name, { sessionsWorked: 0, totalAlerts: 0, totalEscalated: 0, cleanCount: 0 });
+      }
+      const entry = tdMap.get(name);
+      entry.sessionsWorked++;
+      entry.totalAlerts += s.alertCount || 0;
+      entry.totalEscalated += s.escalated || 0;
+
+      const grade = s.grade || this.gradeSession(s);
+      if (grade.includes('Clean')) entry.cleanCount++;
+    }
+
+    const results = [];
+    for (const [name, data] of tdMap) {
+      results.push({
+        tdName: name,
+        sessionsWorked: data.sessionsWorked,
+        avgAlerts: Math.round((data.totalAlerts / data.sessionsWorked) * 10) / 10,
+        avgEscalations: Math.round((data.totalEscalated / data.sessionsWorked) * 10) / 10,
+        cleanRate: Math.round((data.cleanCount / data.sessionsWorked) * 100),
+      });
+    }
+
+    // Sort by clean rate descending
+    results.sort((a, b) => b.cleanRate - a.cleanRate);
+    return results;
+  }
 }
 
 module.exports = { SessionRecap };

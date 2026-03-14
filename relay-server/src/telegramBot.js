@@ -360,6 +360,35 @@ Powered by ${brandName}`;
 // Backward-compat constant
 const HELP_TEXT = getHelpText('Tally');
 
+// ─── RISKY COMMAND TYPES ─────────────────────────────────────────────────────
+// Commands that require inline-keyboard confirmation before execution
+const RISKY_COMMANDS = new Set([
+  'stop_stream', 'stop_recording', 'fade_to_black', 'mute_all', 'restart_encoder',
+]);
+
+// Map actual command strings to risky command types
+const RISKY_COMMAND_MAP = {
+  'obs.stopStream':        'stop_stream',
+  'vmix.stopStream':       'stop_stream',
+  'encoder.stopStream':    'stop_stream',
+  'obs.stopRecording':     'stop_recording',
+  'atem.stopRecording':    'stop_recording',
+  'vmix.stopRecording':    'stop_recording',
+  'encoder.stopRecording': 'stop_recording',
+  'atem.fadeToBlack':      'fade_to_black',
+  'mixer.activateMuteGroup': 'mute_all',
+  'encoder.restart':       'restart_encoder',
+};
+
+// Human-readable labels for risky actions
+const RISKY_LABELS = {
+  stop_stream:      'Stop stream',
+  stop_recording:   'Stop recording',
+  fade_to_black:    'Fade to black',
+  mute_all:         'Mute all',
+  restart_encoder:  'Restart encoder',
+};
+
 // ─── TELEGRAM BOT CLASS ─────────────────────────────────────────────────────
 
 class TallyBot {
@@ -436,11 +465,32 @@ class TallyBot {
     // ─── AI Rundown Builder: pending drafts awaiting confirmation ──────
     // chatId → { church, parsed: { name, service_day, auto_activate, cues }, expiresAt }
     this._pendingRundowns = new Map();
+
+    // ─── Risky action confirmations (inline keyboard) ────────────────
+    // confirmationId → { command, params, church, chatId, expiresAt }
+    this._riskyConfirmations = new Map();
+    this._riskyCleanupTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [id, pending] of this._riskyConfirmations) {
+        if (now > pending.expiresAt) this._riskyConfirmations.delete(id);
+      }
+    }, 15_000);
+
+    // ─── Command history (per church, in-memory) ─────────────────────
+    // churchId → [{ command, text, timestamp }]  (max 50, show last 10)
+    this._commandHistory = new Map();
   }
 
   // ─── WEBHOOK HANDLER ───────────────────────────────────────────────────
 
   async handleUpdate(update) {
+    // ── Handle inline keyboard callback queries (risky action confirm/cancel) ──
+    if (update.callback_query) {
+      return this._handleCallbackQuery(update.callback_query).catch(err => {
+        console.error('[TallyBot] Error processing callback query:', err.message);
+      });
+    }
+
     const msg = update.message;
     if (!msg || !msg.text) return;
 
@@ -504,6 +554,23 @@ class TallyBot {
     if (text === '/help' || text.toLowerCase() === 'help') {
       const brandName = this._getBrandNameForUser(userId);
       return this.sendMessage(chatId, getHelpText(brandName), { parse_mode: 'Markdown' });
+    }
+
+    // 3b. /menu — quick-access button keyboard
+    if (text === '/menu') {
+      return this._sendMenuKeyboard(chatId);
+    }
+
+    // 3c. /hidemenu — remove persistent keyboard
+    if (text === '/hidemenu') {
+      return this.sendMessage(chatId, 'Keyboard hidden.', {
+        reply_markup: { remove_keyboard: true },
+      });
+    }
+
+    // 3d. /history — last 10 commands for this user's church
+    if (text === '/history') {
+      return this._handleHistory(userId, chatId);
     }
 
     // 4. /confirmswap — TD confirming an on-call swap
@@ -957,6 +1024,11 @@ class TallyBot {
     const forceBypassed = hasForceBypass(text);
 
     if (parsed) {
+      // Risky action: require inline-keyboard confirmation
+      const riskyType = this._getRiskyType(parsed.command);
+      if (riskyType && !forceBypassed) {
+        return this._sendRiskyConfirmation(chatId, church, parsed.command, parsed.params, riskyType);
+      }
       // Stream guard: warn if dangerous while live
       if (!forceBypassed) {
         const safety = checkStreamSafety(parsed.command, parsed.params, liveStatus);
@@ -965,6 +1037,7 @@ class TallyBot {
           return this.sendMessage(chatId, safety.warning);
         }
       }
+      this._recordCommand(church.churchId, parsed.command, parsed.params);
       return this._dispatchCommand(church, chatId, parsed.command, parsed.params);
     }
 
@@ -973,6 +1046,10 @@ class TallyBot {
 
     if (smartResult) {
       if (smartResult.type === 'command') {
+        const smartRiskyType = this._getRiskyType(smartResult.command);
+        if (smartRiskyType && !forceBypassed) {
+          return this._sendRiskyConfirmation(chatId, church, smartResult.command, smartResult.params, smartRiskyType);
+        }
         if (!forceBypassed) {
           const safety = checkStreamSafety(smartResult.command, smartResult.params, liveStatus);
           if (safety) {
@@ -980,6 +1057,7 @@ class TallyBot {
             return this.sendMessage(chatId, safety.warning);
           }
         }
+        this._recordCommand(church.churchId, smartResult.command, smartResult.params);
         return this._dispatchCommand(church, chatId, smartResult.command, smartResult.params);
       }
       if (smartResult.type === 'commands' && Array.isArray(smartResult.steps) && smartResult.steps.length > 0) {
@@ -1030,6 +1108,10 @@ class TallyBot {
 
     // Single command
     if (aiResult.type === 'command') {
+      const aiRiskyType = this._getRiskyType(aiResult.command);
+      if (aiRiskyType && !forceBypassed) {
+        return this._sendRiskyConfirmation(chatId, church, aiResult.command, aiResult.params, aiRiskyType);
+      }
       if (!forceBypassed) {
         const safety = checkStreamSafety(aiResult.command, aiResult.params, liveStatus);
         if (safety) {
@@ -1037,6 +1119,7 @@ class TallyBot {
           return this.sendMessage(chatId, safety.warning);
         }
       }
+      this._recordCommand(church.churchId, aiResult.command, aiResult.params);
       return this._dispatchCommand(church, chatId, aiResult.command, aiResult.params);
     }
 
@@ -2200,6 +2283,187 @@ class TallyBot {
     }
   }
 
+  // ─── RISKY ACTION CONFIRMATION (inline keyboard) ─────────────────────
+
+  /**
+   * Check if a command is risky and needs inline-keyboard confirmation.
+   * Returns the risky type string, or null if not risky.
+   */
+  _getRiskyType(command) {
+    return RISKY_COMMAND_MAP[command] || null;
+  }
+
+  /**
+   * Send a confirmation prompt with inline keyboard for a risky command.
+   * Returns the sendMessage promise.
+   */
+  _sendRiskyConfirmation(chatId, church, command, params, riskyType) {
+    const confirmId = crypto.randomBytes(8).toString('hex');
+    this._riskyConfirmations.set(confirmId, {
+      command,
+      params,
+      church,
+      chatId,
+      expiresAt: Date.now() + 30_000, // 30s timeout
+    });
+
+    // Auto-cancel after 30s
+    setTimeout(() => {
+      if (this._riskyConfirmations.has(confirmId)) {
+        this._riskyConfirmations.delete(confirmId);
+        this.answerCallbackQuery(null); // no-op, just cleanup
+      }
+    }, 30_000);
+
+    const label = RISKY_LABELS[riskyType] || riskyType;
+    return this.sendMessage(chatId, `\u26a0\ufe0f ${label}?`, {
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '\u2705 Confirm', callback_data: `risky_confirm:${confirmId}` },
+          { text: '\u274c Cancel', callback_data: `risky_cancel:${confirmId}` },
+        ]],
+      },
+    });
+  }
+
+  /**
+   * Handle an inline keyboard callback query (confirm / cancel risky action).
+   */
+  async _handleCallbackQuery(callbackQuery) {
+    const data = callbackQuery.data;
+    const chatId = String(callbackQuery.message?.chat?.id || callbackQuery.from?.id);
+    const callbackQueryId = callbackQuery.id;
+
+    if (!data) return;
+
+    // Parse callback data
+    const [action, confirmId] = data.split(':');
+    if (!confirmId || !['risky_confirm', 'risky_cancel'].includes(action)) {
+      return this.answerCallbackQuery(callbackQueryId, 'Unknown action.');
+    }
+
+    const pending = this._riskyConfirmations.get(confirmId);
+
+    // Expired or not found
+    if (!pending) {
+      await this.answerCallbackQuery(callbackQueryId, 'Expired or already handled.');
+      return this.editMessageText(chatId, callbackQuery.message?.message_id, '\u23f0 Confirmation expired.');
+    }
+
+    this._riskyConfirmations.delete(confirmId);
+
+    if (action === 'risky_cancel') {
+      await this.answerCallbackQuery(callbackQueryId, 'Cancelled.');
+      return this.editMessageText(chatId, callbackQuery.message?.message_id, '\u2705 Cancelled \u2014 nothing was changed.');
+    }
+
+    // Confirmed — execute the command
+    await this.answerCallbackQuery(callbackQueryId, 'Confirmed!');
+    await this.editMessageText(chatId, callbackQuery.message?.message_id, '\u2705 Confirmed \u2014 executing...');
+
+    // Record in command history
+    this._recordCommand(pending.church.churchId, pending.command, pending.params);
+
+    return this._dispatchCommand(pending.church, chatId, pending.command, pending.params);
+  }
+
+  /**
+   * Answer a Telegram callback query (acknowledge the button press).
+   */
+  async answerCallbackQuery(callbackQueryId, text) {
+    if (!callbackQueryId) return;
+    try {
+      await fetch(`${this._apiBase}/answerCallbackQuery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (e) {
+      console.error('[TallyBot] answerCallbackQuery error:', e.message);
+    }
+  }
+
+  /**
+   * Edit an existing message's text (used to update confirmation prompts).
+   */
+  async editMessageText(chatId, messageId, text) {
+    if (!messageId) return;
+    try {
+      await fetch(`${this._apiBase}/editMessageText`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, message_id: messageId, text }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (e) {
+      console.error('[TallyBot] editMessageText error:', e.message);
+    }
+  }
+
+  // ─── QUICK-ACCESS MENU (reply keyboard) ─────────────────────────────
+
+  _sendMenuKeyboard(chatId) {
+    return this.sendMessage(chatId, 'Quick actions:', {
+      reply_markup: {
+        keyboard: [
+          [{ text: '\ud83d\udcf7 Cam 1' }, { text: '\ud83d\udcf7 Cam 2' }, { text: '\ud83d\udcf7 Cam 3' }],
+          [{ text: '\ud83d\udd34 Start Stream' }, { text: '\u23f9 Stop Stream' }],
+          [{ text: '\ud83c\udfac Start Recording' }, { text: '\u23f9 Stop Recording' }],
+          [{ text: '\ud83d\udcca Status' }, { text: '\ud83d\udd27 Pre-Check' }],
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: false,
+      },
+    });
+  }
+
+  // ─── COMMAND HISTORY ────────────────────────────────────────────────
+
+  /**
+   * Record a command execution in the per-church history.
+   */
+  _recordCommand(churchId, command, params) {
+    if (!this._commandHistory.has(churchId)) {
+      this._commandHistory.set(churchId, []);
+    }
+    const history = this._commandHistory.get(churchId);
+    history.push({
+      command,
+      params: params || {},
+      timestamp: new Date().toISOString(),
+    });
+    // Keep max 50 entries
+    if (history.length > 50) history.splice(0, history.length - 50);
+  }
+
+  /**
+   * Handle /history — show last 10 commands for the user's church.
+   */
+  async _handleHistory(userId, chatId) {
+    const td = this._stmtFindTD.get(userId);
+    if (!td) {
+      return this.sendMessage(chatId, 'You are not registered. Use `/register YOUR_CODE` first.', { parse_mode: 'Markdown' });
+    }
+
+    const history = this._commandHistory.get(td.church_id) || [];
+    if (!history.length) {
+      return this.sendMessage(chatId, 'No command history yet.');
+    }
+
+    const recent = history.slice(-10).reverse();
+    const lines = recent.map((h, i) => {
+      const time = new Date(h.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      const paramStr = Object.keys(h.params).length ? ` (${JSON.stringify(h.params)})` : '';
+      return `${i + 1}. \`${h.command}\`${paramStr} — ${time}`;
+    });
+
+    return this.sendMessage(chatId,
+      `*Recent Commands*\n\n${lines.join('\n')}`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
   async setWebhook(payloadOrUrl) {
     const payload = typeof payloadOrUrl === 'string'
       ? { url: payloadOrUrl }
@@ -2221,4 +2485,4 @@ class TallyBot {
   }
 }
 
-module.exports = { TallyBot, parseCommand };
+module.exports = { TallyBot, parseCommand, RISKY_COMMANDS, RISKY_COMMAND_MAP, RISKY_LABELS };

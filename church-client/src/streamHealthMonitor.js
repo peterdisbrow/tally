@@ -24,6 +24,11 @@ const DEDUP_WINDOW_MS        = 5 * 60_000; // don't re-alert same issue within 5
 const BITRATE_DROP_THRESHOLD = 0.5;        // 50% drop from baseline triggers alert
 const BASELINE_SAMPLES       = 3;          // samples needed before baseline is set
 
+// Quality tier history retention (30 minutes)
+const TIER_HISTORY_WINDOW_MS = 30 * 60_000;
+// Duration threshold for critical alert (Poor tier for > 60s)
+const POOR_TIER_CRITICAL_MS  = 60_000;
+
 class StreamHealthMonitor {
   constructor() {
     this.agent = null;
@@ -34,6 +39,12 @@ class StreamHealthMonitor {
     this._baselineBitrate = null; // kbps baseline established early in stream
     this._bitrateKbps     = []; // rolling window of kbps samples
     this._lastBitrateSource = null; // which source provided the last reading
+
+    // Quality tier tracking
+    this._tierHistory = [];         // [{ tier, score, details, timestamp }]
+    this._lastTier = null;          // most recent tier string
+    this._poorTierSince = null;     // timestamp when Poor tier started (null if not Poor)
+    this._criticalEmitted = false;  // whether critical alert was already emitted for current Poor streak
   }
 
   /** Start monitoring. Must be called with the ChurchAVAgent instance. */
@@ -249,6 +260,201 @@ class StreamHealthMonitor {
     }
   }
 
+  // ─── Quality Tier Classification ──────────────────────────────────────────
+
+  /**
+   * Classify the stream quality into a tier based on current metrics.
+   * @param {number|null|undefined} bitrate   - Current bitrate in bps (bits per second)
+   * @param {string|null|undefined} resolution - e.g. '1920x1080', '1280x720'
+   * @param {number|null|undefined} fps        - Frames per second
+   * @param {number|null|undefined} frameDropRate - Fraction of frames dropped (0.0 – 1.0)
+   * @returns {{ tier: string, score: number, details: string }}
+   */
+  getStreamQualityTier(bitrate, resolution, fps, frameDropRate) {
+    // Handle missing / invalid data
+    if (bitrate == null || bitrate <= 0) {
+      return { tier: 'poor', score: 0, details: 'No bitrate data available' };
+    }
+
+    const bitrateMbps = bitrate / 1_000_000;
+    const dropPct = (frameDropRate != null && frameDropRate >= 0)
+      ? frameDropRate * 100
+      : 0;
+
+    // Parse resolution height
+    let height = 0;
+    if (resolution && typeof resolution === 'string') {
+      const parts = resolution.split('x');
+      if (parts.length === 2) height = parseInt(parts[1], 10) || 0;
+    }
+
+    const effectiveFps = (fps != null && fps > 0) ? fps : 0;
+
+    // ── Score components ──────────────────────────────────────────────────
+    // Bitrate score (0-40)
+    let bitrateScore;
+    if (bitrateMbps >= 4)       bitrateScore = 40;
+    else if (bitrateMbps >= 2.5) bitrateScore = 32;
+    else if (bitrateMbps >= 2)   bitrateScore = 26;
+    else if (bitrateMbps >= 1.5) bitrateScore = 20;
+    else if (bitrateMbps >= 1)   bitrateScore = 14;
+    else                         bitrateScore = Math.max(0, Math.round(bitrateMbps * 14));
+
+    // Resolution score (0-25)
+    let resolutionScore;
+    if (height >= 1080)      resolutionScore = 25;
+    else if (height >= 720)  resolutionScore = 18;
+    else if (height >= 480)  resolutionScore = 10;
+    else if (height > 0)     resolutionScore = 5;
+    else                     resolutionScore = 0;
+
+    // FPS score (0-15)
+    let fpsScore;
+    if (effectiveFps >= 60)      fpsScore = 15;
+    else if (effectiveFps >= 30) fpsScore = 10;
+    else if (effectiveFps > 0)   fpsScore = 5;
+    else                         fpsScore = 0;
+
+    // Frame drop penalty (0-20 points deducted)
+    let dropPenalty;
+    if (dropPct <= 1)       dropPenalty = 0;
+    else if (dropPct <= 3)  dropPenalty = 6;
+    else if (dropPct <= 10) dropPenalty = 14;
+    else                    dropPenalty = 20;
+
+    let rawScore = bitrateScore + resolutionScore + fpsScore - dropPenalty;
+
+    // ── Tier determination based on spec rules ────────────────────────────
+    // Apply the spec constraints — these override the score when metrics
+    // clearly place the stream into a specific tier.
+    let tier;
+
+    if (dropPct > 10 || bitrateMbps < 1) {
+      // Poor: <1 Mbps OR >10% frame drops
+      tier = 'poor';
+      rawScore = Math.min(rawScore, 39);
+    } else if (dropPct >= 10 || bitrateMbps < 1) {
+      // This branch can't actually trigger (covered above), kept for clarity
+      tier = 'poor';
+      rawScore = Math.min(rawScore, 39);
+    } else if (
+      dropPct < 1 &&
+      (
+        (bitrateMbps > 4 && height >= 1080 && effectiveFps >= 60) ||
+        (bitrateMbps > 2.5 && height >= 720 && effectiveFps >= 30)
+      )
+    ) {
+      tier = 'excellent';
+      rawScore = Math.max(rawScore, 85);
+    } else if (
+      dropPct < 3 &&
+      (
+        (bitrateMbps > 2 && height >= 1080) ||
+        (bitrateMbps > 1.5 && height >= 720)
+      )
+    ) {
+      tier = 'good';
+      rawScore = Math.max(rawScore, 65);
+      rawScore = Math.min(rawScore, 84);
+    } else if (bitrateMbps >= 1 && dropPct < 10) {
+      tier = 'fair';
+      rawScore = Math.max(rawScore, 40);
+      rawScore = Math.min(rawScore, 64);
+    } else {
+      tier = 'poor';
+      rawScore = Math.min(rawScore, 39);
+    }
+
+    const score = Math.max(0, Math.min(100, rawScore));
+
+    // Build details string
+    const details = `${bitrateMbps.toFixed(1)}Mbps ${resolution || 'unknown'}@${effectiveFps || '?'}fps, ${dropPct.toFixed(1)}% drops`;
+
+    const result = { tier, score, details };
+
+    // ── Track tier history and emit transition events ──────────────────────
+    this._recordTierChange(result);
+
+    return result;
+  }
+
+  /**
+   * Record a tier result and emit events on significant transitions.
+   */
+  _recordTierChange(result) {
+    const now = Date.now();
+    const { tier } = result;
+
+    // Add to history
+    this._tierHistory.push({ ...result, timestamp: now });
+
+    // Prune history older than 30 minutes
+    const cutoff = now - TIER_HISTORY_WINDOW_MS;
+    this._tierHistory = this._tierHistory.filter(e => e.timestamp >= cutoff);
+
+    // ── Tier transition events ────────────────────────────────────────────
+    const tierOrder = ['excellent', 'good', 'fair', 'poor'];
+    const prevIndex = this._lastTier ? tierOrder.indexOf(this._lastTier) : -1;
+    const currIndex = tierOrder.indexOf(tier);
+
+    if (this._lastTier && prevIndex >= 0 && currIndex >= 0) {
+      const tierDrop = currIndex - prevIndex; // positive = degradation
+      if (tierDrop >= 2) {
+        this._emitQualityEvent('stream_quality_degraded', {
+          from: this._lastTier,
+          to: tier,
+          score: result.score,
+          details: result.details,
+        });
+      }
+    }
+
+    // ── Poor-tier duration tracking ───────────────────────────────────────
+    if (tier === 'poor') {
+      if (this._poorTierSince === null) {
+        this._poorTierSince = now;
+        this._criticalEmitted = false;
+      }
+      const poorDuration = now - this._poorTierSince;
+      if (poorDuration > POOR_TIER_CRITICAL_MS && !this._criticalEmitted) {
+        this._criticalEmitted = true;
+        this._emitQualityEvent('stream_quality_critical', {
+          tier,
+          score: result.score,
+          poorDurationMs: poorDuration,
+          details: result.details,
+        });
+      }
+    } else {
+      this._poorTierSince = null;
+      this._criticalEmitted = false;
+    }
+
+    this._lastTier = tier;
+  }
+
+  /**
+   * Emit a quality event through the agent relay.
+   */
+  _emitQualityEvent(eventType, data) {
+    console.log(`[StreamHealthMonitor] Quality event: ${eventType}`, JSON.stringify(data));
+    if (this.agent) {
+      this.agent.sendToRelay({
+        type: 'alert',
+        alertType: eventType,
+        ...data,
+        severity: eventType === 'stream_quality_critical' ? 'critical' : 'warning',
+      });
+    }
+  }
+
+  /**
+   * Get tier history (last 30 minutes of tier changes).
+   */
+  getTierHistory() {
+    return [...this._tierHistory];
+  }
+
   // ─── Alert helper ─────────────────────────────────────────────────────────
 
   _sendAlert(alertKey, message) {
@@ -272,6 +478,10 @@ class StreamHealthMonitor {
   // ─── Status ───────────────────────────────────────────────────────────────
 
   getStatus() {
+    const lastTierEntry = this._tierHistory.length
+      ? this._tierHistory[this._tierHistory.length - 1]
+      : null;
+
     return {
       monitoring: !!this._interval,
       streamSource: this._lastBitrateSource,
@@ -279,8 +489,20 @@ class StreamHealthMonitor {
       recentBitrate: this._bitrateKbps.length
         ? `${(this._bitrateKbps.reduce((a, b) => a + b, 0) / this._bitrateKbps.length).toFixed(0)} kbps`
         : null,
+      qualityTier: lastTierEntry ? lastTierEntry.tier : null,
+      qualityScore: lastTierEntry ? lastTierEntry.score : null,
+      tierHistory: this._tierHistory.length,
     };
   }
 }
 
-module.exports = { StreamHealthMonitor };
+/**
+ * Standalone convenience wrapper — creates a temporary monitor instance to
+ * classify quality without needing the full monitoring lifecycle.
+ */
+function getStreamQualityTier(bitrate, resolution, fps, frameDropRate) {
+  const monitor = new StreamHealthMonitor();
+  return monitor.getStreamQualityTier(bitrate, resolution, fps, frameDropRate);
+}
+
+module.exports = { StreamHealthMonitor, getStreamQualityTier };

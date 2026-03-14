@@ -4,6 +4,9 @@
  * Checks per-church auto_recovery_enabled flag. When enabled:
  * - Classifies alerts against the 24-type playbook
  * - Tracks attempt counts (max 3 per failure type per session)
+ * - Dispatches recovery commands to church clients via WebSocket
+ * - Enforces cooldown (30s) between attempts for the same failure type
+ * - Skips auto-recovery outside service hours unless explicitly enabled
  * - Returns enriched context to the alert engine for escalation
  * - Signal failover commands are handled by signalFailover.js (not here)
  */
@@ -35,12 +38,41 @@ const RECOVERY_PLAYBOOK = {
   'audio_silence_sustained':   { onFail: 'alert_td_audio' },
 };
 
+/**
+ * Maps failure types to the recovery command + params to dispatch.
+ * Only failure types listed here get automatic recovery; all others escalate.
+ */
+const RECOVERY_COMMANDS = {
+  'stream_stopped':         { command: 'restart_stream',    params: {} },
+  'atem_stream_stopped':    { command: 'restart_stream',    params: { source: 'atem' } },
+  'vmix_stream_stopped':    { command: 'restart_stream',    params: { source: 'vmix' } },
+  'encoder_stream_stopped': { command: 'restart_stream',    params: { source: 'encoder' } },
+  'encoder_disconnected':   { command: 'restart_encoder',   params: {} },
+  'recording_not_started':  { command: 'restart_recording', params: {} },
+  'audio_silence':          { command: 'reset_audio',       params: {} },
+  'audio_silence_sustained':{ command: 'reset_audio',       params: {} },
+  'connection_lost':        { command: 'reconnect_device',  params: {} },
+};
+
+/** Minimum silence duration (ms) before audio_silence triggers auto-recovery. */
+const AUDIO_SILENCE_THRESHOLD_MS = 60_000;
+
+/** Cooldown between recovery attempts for the same failure type (ms). */
+const COOLDOWN_MS = 30_000;
+
+/** Maximum recovery attempts per failure type per session. */
+const MAX_ATTEMPTS = 3;
+
 class AutoRecovery {
-  constructor(churches, alertEngine, db) {
+  constructor(churches, alertEngine, db, options = {}) {
     this.churches = churches;
     this.alertEngine = alertEngine;
     this.db = db || null;
     this.attemptCounts = new Map();
+    /** Tracks last attempt timestamp per key for cooldown enforcement. */
+    this.lastAttemptTime = new Map();
+    /** Optional schedule engine for service-hours gating. */
+    this.scheduleEngine = options.scheduleEngine || null;
   }
 
   _key(churchId, failureType) {
@@ -48,7 +80,9 @@ class AutoRecovery {
   }
 
   resetAttempts(churchId, failureType) {
-    this.attemptCounts.delete(this._key(churchId, failureType));
+    const key = this._key(churchId, failureType);
+    this.attemptCounts.delete(key);
+    this.lastAttemptTime.delete(key);
   }
 
   /** Clear all attempt counts for a church (call on stream session end). */
@@ -56,6 +90,11 @@ class AutoRecovery {
     for (const key of this.attemptCounts.keys()) {
       if (key.startsWith(churchId + ':')) {
         this.attemptCounts.delete(key);
+      }
+    }
+    for (const key of this.lastAttemptTime.keys()) {
+      if (key.startsWith(churchId + ':')) {
+        this.lastAttemptTime.delete(key);
       }
     }
   }
@@ -73,6 +112,36 @@ class AutoRecovery {
     } catch {
       return true; // fail-open
     }
+  }
+
+  /**
+   * Check whether recovery should be allowed based on service hours.
+   * Returns true if:
+   *   - No schedule engine is configured (fail-open)
+   *   - Currently inside a service window
+   *   - Church has recovery_outside_service_hours enabled
+   */
+  _isServiceHoursAllowed(churchId) {
+    if (!this.scheduleEngine) return true;
+    try {
+      if (this.scheduleEngine.isServiceWindow(churchId)) return true;
+      // Check per-church opt-in for off-hours recovery
+      const row = this.db?.prepare(
+        'SELECT recovery_outside_service_hours FROM churches WHERE churchId = ?'
+      ).get(churchId);
+      return row?.recovery_outside_service_hours === 1;
+    } catch {
+      return true; // fail-open
+    }
+  }
+
+  /**
+   * Check cooldown — returns true if enough time has passed since last attempt.
+   */
+  _isCooldownElapsed(key, now) {
+    const last = this.lastAttemptTime.get(key);
+    if (!last) return true;
+    return (now - last) >= COOLDOWN_MS;
   }
 
   /**
@@ -96,18 +165,60 @@ class AutoRecovery {
       return { attempted: false, reason: 'handled_by_failover', command: null, event };
     }
 
-    // Track attempts per failure type to prevent loops
     const key = this._key(church.churchId, failureType);
-    const count = (this.attemptCounts.get(key) || 0) + 1;
-    this.attemptCounts.set(key, count);
 
-    // Max 3 attempts per failure type per session — after that, always escalate
-    if (count > 3) {
+    // Max attempts per failure type per session — after that, always escalate
+    const currentCount = this.attemptCounts.get(key) || 0;
+    if (currentCount >= MAX_ATTEMPTS) {
       return { attempted: true, success: false, reason: 'max_attempts_exceeded', command: null, event };
     }
 
-    // Classified alert — escalate to TD with enriched playbook context
-    return { attempted: true, success: false, reason: 'no_auto_command', command: null, event };
+    // Look up the recovery command for this failure type
+    const recoveryDef = RECOVERY_COMMANDS[failureType];
+    if (!recoveryDef) {
+      // No auto-recovery command mapped — escalate to TD
+      // Don't consume an attempt since no command was available
+      return { attempted: true, success: false, reason: 'no_auto_command', command: null, event };
+    }
+
+    // Service hours gate — don't auto-recover outside service windows
+    // unless the church has explicitly opted in
+    if (!this._isServiceHoursAllowed(church.churchId)) {
+      return { attempted: true, success: false, reason: 'outside_service_hours', command: null, event };
+    }
+
+    // Cooldown gate — prevent hammering the same recovery in rapid succession
+    const now = Date.now();
+    if (!this._isCooldownElapsed(key, now)) {
+      return { attempted: true, success: false, reason: 'cooldown_active', command: null, event };
+    }
+
+    // Audio silence requires sustained duration before auto-recovery
+    if (failureType === 'audio_silence') {
+      const silenceDuration = currentStatus?.silenceDurationMs || currentStatus?.silence_duration_ms || 0;
+      if (silenceDuration < AUDIO_SILENCE_THRESHOLD_MS) {
+        return { attempted: true, success: false, reason: 'silence_not_sustained', command: null, event };
+      }
+    }
+
+    // Record attempt count and timestamp for cooldown tracking
+    // Only increment here — after all gates have passed
+    this.attemptCounts.set(key, currentCount + 1);
+    this.lastAttemptTime.set(key, now);
+
+    // Build params — merge any status-derived context into command params
+    const params = { ...recoveryDef.params };
+    if (failureType === 'connection_lost' && currentStatus?.deviceId) {
+      params.deviceId = currentStatus.deviceId;
+    }
+
+    // Dispatch the recovery command to the church client
+    try {
+      await this.dispatchCommand(church, recoveryDef.command, params);
+      return { attempted: true, success: true, reason: 'command_dispatched', command: recoveryDef.command, event };
+    } catch (err) {
+      return { attempted: true, success: false, reason: `dispatch_failed: ${err.message}`, command: recoveryDef.command, event };
+    }
   }
 
   /** Dispatch a command to the church client via WebSocket. */
@@ -142,4 +253,4 @@ class AutoRecovery {
   }
 }
 
-module.exports = { AutoRecovery, RECOVERY_PLAYBOOK };
+module.exports = { AutoRecovery, RECOVERY_PLAYBOOK, RECOVERY_COMMANDS, COOLDOWN_MS, MAX_ATTEMPTS, AUDIO_SILENCE_THRESHOLD_MS };

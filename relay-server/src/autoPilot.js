@@ -24,7 +24,100 @@ const { v4: uuidv4 } = require('uuid');
 const TRIGGER_TYPES = ['propresenter_slide_change', 'schedule_timer', 'equipment_state_match'];
 
 // Max rules per billing tier
-const MAX_RULES_PER_TIER = { connect: 0, plus: 0, pro: 10, managed: 25, event: 0 };
+const MAX_RULES_PER_TIER = { connect: 0, plus: 0, pro: 10, managed: 25, enterprise: 25, event: 0 };
+
+// ─── PRE-BUILT RULE TEMPLATES ──────────────────────────────────────────────
+// One-click templates that churches can activate without building rules from scratch.
+// Each template maps to a specific trigger→action pair with sensible defaults.
+
+const RULE_TEMPLATES = [
+  {
+    id: 'auto_start_recording',
+    name: 'Auto-Start Recording',
+    description: 'When stream starts, automatically start recording',
+    trigger: { type: 'equipment_state_match', config: { conditions: { 'obs.streaming': true } } },
+    action: [{ command: 'obs.startRecording', params: {} }],
+    conditions: {},
+    tier: 'plus',
+    category: 'recording',
+  },
+  {
+    id: 'auto_stop_recording',
+    name: 'Auto-Stop Recording',
+    description: 'When stream stops, stop recording after 30s delay',
+    trigger: { type: 'equipment_state_match', config: { conditions: { 'obs.streaming': false } } },
+    action: [{ command: 'obs.stopRecording', params: { delaySeconds: 30 } }],
+    conditions: {},
+    tier: 'plus',
+    category: 'recording',
+  },
+  {
+    id: 'silence_alert_escalation',
+    name: 'Silence Alert Escalation',
+    description: 'If audio silence >2min, mute stream audio and alert TD',
+    trigger: { type: 'equipment_state_match', config: { conditions: { 'audio.silenceDurationSec': 120 } } },
+    action: [
+      { command: 'audio.muteStream', params: {} },
+      { command: 'notify.alertTD', params: { message: 'Audio silence detected (>2 min). Stream audio muted.' } },
+    ],
+    conditions: {},
+    tier: 'pro',
+    category: 'audio',
+  },
+  {
+    id: 'camera_failover',
+    name: 'Camera Failover',
+    description: 'If primary camera input lost, switch to backup camera',
+    trigger: { type: 'equipment_state_match', config: { conditions: { 'camera.primary.signal': false } } },
+    action: [{ command: 'atem.switchInput', params: { input: 'backup' } }],
+    conditions: {},
+    tier: 'pro',
+    category: 'video',
+  },
+  {
+    id: 'auto_fade_to_black',
+    name: 'Auto Fade to Black',
+    description: 'When service window ends, fade to black after 5min grace period',
+    trigger: { type: 'schedule_timer', config: { minutesAfterWindowEnd: 5 } },
+    action: [{ command: 'atem.fadeToBlack', params: {} }],
+    conditions: {},
+    tier: 'plus',
+    category: 'video',
+  },
+  {
+    id: 'pre_service_camera_check',
+    name: 'Pre-Service Camera Check',
+    description: '15min before service, cycle through all camera inputs',
+    trigger: { type: 'schedule_timer', config: { minutesBeforeService: 15 } },
+    action: [{ command: 'camera.cycleInputs', params: { dwellSeconds: 5 } }],
+    conditions: {},
+    tier: 'pro',
+    category: 'video',
+  },
+  {
+    id: 'low_bitrate_recovery',
+    name: 'Low Bitrate Recovery',
+    description: 'If bitrate drops below threshold, restart encoder',
+    trigger: { type: 'equipment_state_match', config: { conditions: { 'encoder.bitrateLow': true } } },
+    action: [{ command: 'encoder.restart', params: {} }],
+    conditions: {},
+    tier: 'enterprise',
+    category: 'streaming',
+  },
+  {
+    id: 'propresenter_follow',
+    name: 'ProPresenter Follow',
+    description: 'When ProPresenter advances to specific slide, trigger camera switch',
+    trigger: { type: 'propresenter_slide_change', config: { presentationPattern: '', slideIndex: 0 } },
+    action: [{ command: 'atem.switchInput', params: { input: 1 } }],
+    conditions: {},
+    tier: 'pro',
+    category: 'integration',
+  },
+];
+
+// Tier hierarchy for template access gating
+const TIER_HIERARCHY = { plus: 1, pro: 2, enterprise: 3 };
 
 // Max total rule fires per service session before auto-pause
 const MAX_FIRES_PER_SESSION = 50;
@@ -88,7 +181,8 @@ class AutoPilot {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         last_fired_at TEXT,
-        fire_count INTEGER DEFAULT 0
+        fire_count INTEGER DEFAULT 0,
+        template_id TEXT
       )
     `);
   }
@@ -200,6 +294,122 @@ class AutoPilot {
       actions: JSON.parse(r.actions || '[]'),
       enabled: !!r.enabled,
     };
+  }
+
+  // ─── TEMPLATE MANAGEMENT ──────────────────────────────────────────────────
+
+  /**
+   * Get all templates available for a given billing tier.
+   * Higher tiers include all lower-tier templates.
+   * @param {string} tier - 'plus', 'pro', or 'enterprise'
+   * @returns {Array} templates available at that tier
+   */
+  getTemplates(tier) {
+    const tierLevel = TIER_HIERARCHY[tier] || 0;
+    return RULE_TEMPLATES.filter(t => (TIER_HIERARCHY[t.tier] || 0) <= tierLevel);
+  }
+
+  /**
+   * Activate a pre-built template for a church, creating an enabled rule from it.
+   * @param {string} churchId
+   * @param {string} templateId - ID of the template to activate
+   * @param {object} customParams - Optional overrides (e.g. custom trigger config, action params)
+   * @returns {object} the created rule
+   */
+  activateTemplate(churchId, templateId, customParams = {}) {
+    const template = RULE_TEMPLATES.find(t => t.id === templateId);
+    if (!template) {
+      throw new Error(`Template not found: ${templateId}`);
+    }
+
+    // Check if already activated
+    const existing = this.db.prepare(
+      'SELECT id FROM automation_rules WHERE church_id = ? AND template_id = ?'
+    ).get(churchId, templateId);
+    if (existing) {
+      throw new Error(`Template "${templateId}" is already active for this church`);
+    }
+
+    // Tier gating: check church has access
+    if (this.billing) {
+      const church = this.db.prepare('SELECT billing_tier FROM churches WHERE churchId = ?').get(churchId);
+      const churchTier = church?.billing_tier || 'connect';
+      const churchLevel = TIER_HIERARCHY[churchTier] || 0;
+      const requiredLevel = TIER_HIERARCHY[template.tier] || 0;
+      if (churchLevel < requiredLevel) {
+        throw new Error(`Template "${template.name}" requires ${template.tier} tier or higher. Current tier: ${churchTier}`);
+      }
+    }
+
+    // Merge custom params into template defaults
+    const triggerConfig = customParams.triggerConfig
+      ? { ...template.trigger.config, ...customParams.triggerConfig }
+      : { ...template.trigger.config };
+
+    const actions = customParams.actions
+      ? customParams.actions
+      : template.action.map(a => ({
+          command: a.command,
+          params: customParams.actionParams ? { ...a.params, ...customParams.actionParams } : { ...a.params },
+        }));
+
+    const id = uuidv4();
+    const now = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO automation_rules (id, church_id, name, trigger_type, trigger_config, actions, enabled, created_at, updated_at, template_id)
+      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+    `).run(
+      id, churchId, template.name, template.trigger.type,
+      JSON.stringify(triggerConfig), JSON.stringify(actions),
+      now, now, templateId
+    );
+
+    return {
+      id,
+      templateId,
+      name: template.name,
+      triggerType: template.trigger.type,
+      enabled: true,
+    };
+  }
+
+  /**
+   * Deactivate a template-based rule for a church.
+   * @param {string} churchId
+   * @param {string} templateId
+   * @returns {boolean} true if a rule was removed
+   */
+  deactivateTemplate(churchId, templateId) {
+    const result = this.db.prepare(
+      'DELETE FROM automation_rules WHERE church_id = ? AND template_id = ?'
+    ).run(churchId, templateId);
+    return result.changes > 0;
+  }
+
+  /**
+   * Get which templates are currently active for a church.
+   * @param {string} churchId
+   * @returns {Array} active template records with template metadata
+   */
+  getActiveTemplates(churchId) {
+    const rows = this.db.prepare(
+      'SELECT * FROM automation_rules WHERE church_id = ? AND template_id IS NOT NULL ORDER BY created_at ASC'
+    ).all(churchId);
+    return rows.map(r => {
+      const template = RULE_TEMPLATES.find(t => t.id === r.template_id);
+      return {
+        ruleId: r.id,
+        templateId: r.template_id,
+        name: r.name,
+        description: template?.description || '',
+        category: template?.category || '',
+        tier: template?.tier || '',
+        enabled: !!r.enabled,
+        triggerConfig: JSON.parse(r.trigger_config || '{}'),
+        actions: JSON.parse(r.actions || '[]'),
+        createdAt: r.created_at,
+      };
+    });
   }
 
   // ─── PAUSE/RESUME ─────────────────────────────────────────────────────────
@@ -408,4 +618,4 @@ class AutoPilot {
   }
 }
 
-module.exports = { AutoPilot, TRIGGER_TYPES };
+module.exports = { AutoPilot, TRIGGER_TYPES, RULE_TEMPLATES };

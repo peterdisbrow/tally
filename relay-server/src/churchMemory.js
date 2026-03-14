@@ -559,6 +559,246 @@ class ChurchMemory {
     }
   }
 
+  // ─── READ: PRE-SERVICE CONTEXT ──────────────────────────────────────────
+
+  /**
+   * Get memory context tailored for pre-service checks.
+   * Returns known issues, past failures, and equipment quirks so the
+   * pre-service check can call out areas that need extra attention.
+   * E.g., "OBS crashed twice last month — check OBS extra carefully"
+   * @param {string} churchId
+   * @returns {string}  Formatted text, max ~600 chars (~150 tokens)
+   */
+  getPreServiceContext(churchId) {
+    try {
+      const rows = this.db.prepare(`
+        SELECT summary, category, confidence, details FROM church_memory
+        WHERE church_id = ? AND active = 1
+          AND category IN ('equipment_quirk', 'fix_outcome', 'recurring_issue', 'user_note')
+        ORDER BY
+          CASE category
+            WHEN 'equipment_quirk' THEN 0
+            WHEN 'recurring_issue' THEN 1
+            WHEN 'fix_outcome' THEN 2
+            WHEN 'user_note' THEN 3
+          END,
+          confidence DESC, last_seen DESC
+        LIMIT 8
+      `).all(churchId);
+
+      if (!rows.length) return '';
+
+      const lines = [];
+      for (const r of rows) {
+        let prefix = '';
+        if (r.category === 'equipment_quirk') prefix = '[QUIRK] ';
+        else if (r.category === 'recurring_issue') prefix = '[RECURRING] ';
+        else if (r.category === 'fix_outcome') {
+          try {
+            const d = JSON.parse(r.details || '{}');
+            prefix = d.success === false ? '[PAST FAILURE] ' : '[FIX] ';
+          } catch { prefix = '[FIX] '; }
+        } else if (r.category === 'user_note') prefix = '[NOTE] ';
+        lines.push(`- ${prefix}${r.summary}`);
+      }
+
+      const text = `Pre-service watch list:\n${lines.join('\n')}`;
+      return text.length > 600 ? text.slice(0, 597) + '...' : text;
+    } catch (e) {
+      console.error(`[ChurchMemory] Pre-service context error for ${churchId}:`, e.message);
+      return '';
+    }
+  }
+
+  // ─── READ: SESSION CONTEXT ────────────────────────────────────────────────
+
+  /**
+   * Get memory context for session recap enrichment.
+   * Returns recurring patterns, known workarounds, and reliability trends
+   * so post-service AI recommendations can reference historical context.
+   * @param {string} churchId
+   * @returns {string}  Formatted text, max ~600 chars (~150 tokens)
+   */
+  getSessionContext(churchId) {
+    try {
+      const rows = this.db.prepare(`
+        SELECT summary, category, confidence, details FROM church_memory
+        WHERE church_id = ? AND active = 1
+          AND category IN ('recurring_issue', 'fix_outcome', 'reliability_trend', 'equipment_quirk')
+        ORDER BY confidence DESC, last_seen DESC
+        LIMIT 8
+      `).all(churchId);
+
+      if (!rows.length) return '';
+
+      const lines = [];
+      for (const r of rows) {
+        try {
+          const d = JSON.parse(r.details || '{}');
+          if (r.category === 'fix_outcome' && d.success) {
+            lines.push(`- Known fix: ${r.summary}`);
+          } else if (r.category === 'fix_outcome' && d.success === false) {
+            lines.push(`- Unresolved: ${r.summary}`);
+          } else if (r.category === 'recurring_issue') {
+            const rec = d.recommendation ? ` (tip: ${d.recommendation})` : '';
+            lines.push(`- Pattern: ${r.summary}${rec}`);
+          } else if (r.category === 'reliability_trend') {
+            lines.push(`- Trend: ${r.summary}`);
+          } else if (r.category === 'equipment_quirk') {
+            lines.push(`- Quirk: ${r.summary}`);
+          } else {
+            lines.push(`- ${r.summary}`);
+          }
+        } catch {
+          lines.push(`- ${r.summary}`);
+        }
+      }
+
+      const text = `Session history:\n${lines.join('\n')}`;
+      return text.length > 600 ? text.slice(0, 597) + '...' : text;
+    } catch (e) {
+      console.error(`[ChurchMemory] Session context error for ${churchId}:`, e.message);
+      return '';
+    }
+  }
+
+  // ─── READ: ONBOARDING CONTEXT ─────────────────────────────────────────────
+
+  /**
+   * Get memory context for onboarding conversations.
+   * Returns equipment preferences, past configurations, and user notes
+   * so the onboarding AI can reference what the church has used before.
+   * Useful when a church re-onboards or a new TD takes over.
+   * @param {string} churchId
+   * @returns {string}  Formatted text, max ~600 chars (~150 tokens)
+   */
+  getOnboardingContext(churchId) {
+    try {
+      const rows = this.db.prepare(`
+        SELECT summary, category, confidence, details FROM church_memory
+        WHERE church_id = ? AND active = 1
+          AND category IN ('user_note', 'equipment_quirk', 'fix_outcome', 'reliability_trend')
+        ORDER BY
+          CASE category
+            WHEN 'user_note' THEN 0
+            WHEN 'equipment_quirk' THEN 1
+            WHEN 'reliability_trend' THEN 2
+            WHEN 'fix_outcome' THEN 3
+          END,
+          confidence DESC, last_seen DESC
+        LIMIT 6
+      `).all(churchId);
+
+      if (!rows.length) return '';
+
+      const lines = [];
+      for (const r of rows) {
+        if (r.category === 'user_note') {
+          lines.push(`- Preference: ${r.summary}`);
+        } else if (r.category === 'equipment_quirk') {
+          lines.push(`- Equipment note: ${r.summary}`);
+        } else if (r.category === 'reliability_trend') {
+          lines.push(`- ${r.summary}`);
+        } else if (r.category === 'fix_outcome') {
+          lines.push(`- Past experience: ${r.summary}`);
+        }
+      }
+
+      const text = `Church history:\n${lines.join('\n')}`;
+      return text.length > 600 ? text.slice(0, 597) + '...' : text;
+    } catch (e) {
+      console.error(`[ChurchMemory] Onboarding context error for ${churchId}:`, e.message);
+      return '';
+    }
+  }
+
+  // ─── WRITE: INCIDENT LEARNING ─────────────────────────────────────────────
+
+  /**
+   * Store a new memory from an incident.
+   * E.g., "ATEM needed power cycle after firmware update"
+   * Can be called from alertEngine, manual TD reports, or post-service analysis.
+   * @param {string} churchId
+   * @param {object} incident
+   * @param {string} incident.type  Event type (e.g., 'atem_connection_lost', 'obs_crash')
+   * @param {string} incident.summary  Human-readable description of the learning
+   * @param {string} [incident.resolution]  What fixed it
+   * @param {string} [incident.device]  Device involved (e.g., 'ATEM', 'OBS')
+   * @param {object} [incident.metadata]  Additional structured data
+   * @returns {boolean}  true if a new memory was created
+   */
+  recordIncidentLearning(churchId, incident) {
+    try {
+      if (!incident || !incident.type || !incident.summary) {
+        console.warn('[ChurchMemory] recordIncidentLearning: missing type or summary');
+        return false;
+      }
+
+      const matchKey = `incident:${incident.type}:${(incident.device || 'unknown').toLowerCase()}`;
+      const summary = incident.summary.slice(0, 120);
+      const details = {
+        eventType: incident.type,
+        device: incident.device || null,
+        resolution: incident.resolution || null,
+        ...incident.metadata,
+      };
+
+      const isNew = this._upsertMemory(
+        churchId,
+        incident.resolution ? 'fix_outcome' : 'equipment_quirk',
+        matchKey,
+        summary,
+        details,
+        'incident_learning'
+      );
+
+      this._rebuildSummary(churchId);
+      return isNew;
+    } catch (e) {
+      console.error(`[ChurchMemory] Incident learning error for ${churchId}:`, e.message);
+      return false;
+    }
+  }
+
+  // ─── READ: RECENT INSIGHTS ────────────────────────────────────────────────
+
+  /**
+   * Get the most relevant active memories sorted by confidence.
+   * A general-purpose accessor for any system that needs top memories.
+   * @param {string} churchId
+   * @param {number} [limit=5]  Maximum number of memories to return
+   * @returns {Array<{ summary: string, category: string, confidence: number, lastSeen: string, observationCount: number, details: object }>}
+   */
+  getRecentInsights(churchId, limit = 5) {
+    try {
+      const rows = this.db.prepare(`
+        SELECT summary, category, confidence, last_seen, observation_count, details
+        FROM church_memory
+        WHERE church_id = ? AND active = 1
+        ORDER BY confidence DESC, last_seen DESC
+        LIMIT ?
+      `).all(churchId, limit);
+
+      return rows.map(r => {
+        let parsedDetails = {};
+        try { parsedDetails = JSON.parse(r.details || '{}'); } catch {}
+        // Remove internal _matchKey from public API
+        delete parsedDetails._matchKey;
+        return {
+          summary: r.summary,
+          category: r.category,
+          confidence: r.confidence,
+          lastSeen: r.last_seen,
+          observationCount: r.observation_count,
+          details: parsedDetails,
+        };
+      });
+    } catch (e) {
+      console.error(`[ChurchMemory] Recent insights error for ${churchId}:`, e.message);
+      return [];
+    }
+  }
+
   // ─── ADMIN / DEBUG ────────────────────────────────────────────────────────
 
   /**

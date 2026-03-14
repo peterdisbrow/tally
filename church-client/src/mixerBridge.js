@@ -14,19 +14,27 @@
  *   'yamaha'    → Yamaha CL / QL / TF (port 8765 or 49280)
  */
 
+const { EventEmitter }    = require('events');
 const { BehringerMixer }  = require('./mixers/behringer');
 const { AllenHeathMixer } = require('./mixers/allenheath');
 const { AvantisMixer }    = require('./mixers/avantis');
 const { YamahaMixer }     = require('./mixers/yamaha');
 
-class MixerBridge {
+// Default tolerance for fader level comparison (float values 0.0-1.0)
+const DEFAULT_FADER_TOLERANCE = 0.02;
+
+class MixerBridge extends EventEmitter {
   /**
    * @param {{ type: string, host: string, port?: number, model?: string }} config
    */
   constructor(config) {
+    super();
     this.config = config;
     this.type   = (config.type || '').toLowerCase();
     this._mixer = null;
+
+    // Scene state storage: { sceneId → { channels: [{ channel, fader, muted }] } }
+    this._expectedStates = new Map();
 
     this._mixer = this._create(config);
   }
@@ -146,6 +154,135 @@ class MixerBridge {
    * Clear all solos. Only Behringer X32/M32 support this; no-op on others.
    */
   async clearSolos()   { return this._mixer.clearSolos(); }
+
+  // ─── SCENE RECALL VERIFICATION ──────────────────────────────────────────────
+
+  /**
+   * Capture the current mixer state for specified channels.
+   * Returns a snapshot of fader levels and mute states.
+   *
+   * @param {number[]} channels  Array of 1-based channel numbers
+   * @returns {Promise<{ channels: Array<{ channel: number, fader: number, muted: boolean }> }>}
+   */
+  async captureCurrentState(channels) {
+    if (!channels || channels.length === 0) {
+      throw new Error('At least one channel must be specified');
+    }
+
+    const results = [];
+    for (const ch of channels) {
+      try {
+        const status = await this._mixer.getChannelStatus(ch);
+        results.push({
+          channel: ch,
+          fader: status.fader,
+          muted: status.muted,
+        });
+      } catch {
+        // If a channel can't be queried, record defaults
+        results.push({ channel: ch, fader: 0, muted: false });
+      }
+    }
+    return { channels: results };
+  }
+
+  /**
+   * Save an expected state for a scene, to be used for future verification.
+   *
+   * @param {string|number} sceneId  Scene identifier
+   * @param {{ channels: Array<{ channel: number, fader: number, muted: boolean }> }} state
+   */
+  saveExpectedState(sceneId, state) {
+    if (sceneId == null) throw new Error('sceneId is required');
+    if (!state || !Array.isArray(state.channels) || state.channels.length === 0) {
+      throw new Error('state must contain a non-empty channels array');
+    }
+    this._expectedStates.set(String(sceneId), state);
+  }
+
+  /**
+   * Retrieve a previously saved expected state for a scene.
+   *
+   * @param {string|number} sceneId
+   * @returns {{ channels: Array<{ channel: number, fader: number, muted: boolean }> } | undefined}
+   */
+  getExpectedState(sceneId) {
+    return this._expectedStates.get(String(sceneId));
+  }
+
+  /**
+   * Verify that a recalled scene actually applied correctly by comparing
+   * the current mixer state against an expected state.
+   *
+   * @param {string|number} sceneId  Scene identifier
+   * @param {{ channels: Array<{ channel: number, fader: number, muted: boolean }> }} expectedState
+   *   The expected state to verify against. If omitted, uses a previously
+   *   saved state from saveExpectedState().
+   * @param {{ tolerance?: number }} [options]
+   *   tolerance: fader level comparison tolerance (default 0.02)
+   * @returns {Promise<{ verified: boolean, mismatches: Array<{ channel: number, expected: *, actual: *, parameter: string }> }>}
+   */
+  async verifySceneRecall(sceneId, expectedState, options = {}) {
+    const tolerance = options.tolerance != null ? options.tolerance : DEFAULT_FADER_TOLERANCE;
+
+    // Resolve expected state: use provided or look up saved
+    const expected = expectedState || this._expectedStates.get(String(sceneId));
+    if (!expected || !Array.isArray(expected.channels) || expected.channels.length === 0) {
+      throw new Error(`No expected state provided or saved for scene "${sceneId}"`);
+    }
+
+    const mismatches = [];
+
+    for (const exp of expected.channels) {
+      let actual;
+      try {
+        actual = await this._mixer.getChannelStatus(exp.channel);
+      } catch {
+        // Can't query this channel — treat as a mismatch
+        mismatches.push({
+          channel: exp.channel,
+          expected: { fader: exp.fader, muted: exp.muted },
+          actual: null,
+          parameter: 'unreachable',
+        });
+        continue;
+      }
+
+      // Compare fader level (with tolerance for float imprecision)
+      if (exp.fader != null && Math.abs(actual.fader - exp.fader) > tolerance) {
+        mismatches.push({
+          channel: exp.channel,
+          expected: exp.fader,
+          actual: actual.fader,
+          parameter: 'fader',
+        });
+      }
+
+      // Compare mute state (exact boolean match)
+      if (exp.muted != null && actual.muted !== exp.muted) {
+        mismatches.push({
+          channel: exp.channel,
+          expected: exp.muted,
+          actual: actual.muted,
+          parameter: 'muted',
+        });
+      }
+    }
+
+    const verified = mismatches.length === 0;
+
+    // Emit event on mismatch
+    if (!verified) {
+      this.emit('mixer_scene_mismatch', {
+        sceneId,
+        mismatches,
+        type: this.type,
+        timestamp: Date.now(),
+      });
+    }
+
+    return { verified, mismatches };
+  }
 }
 
 module.exports = { MixerBridge };

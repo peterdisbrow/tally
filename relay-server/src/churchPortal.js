@@ -94,6 +94,199 @@ function requireChurchPortalOrAppAuth(db, jwtSecret) {
   };
 }
 
+// ─── Dashboard Stats ────────────────────────────────────────────────────────────
+
+const SCHEDULE_DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const SCHEDULE_DAY_LABELS_MAP = {
+  sunday: 'Sunday', monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
+  thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday',
+};
+
+/**
+ * Compute at-a-glance dashboard stats for a church.
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} churchId
+ * @param {Map} churches  In-memory runtime map (for equipment status)
+ * @param {Date} [now]  Injectable for testing
+ * @returns {object}
+ */
+function getDashboardStats(db, churchId, churches, now) {
+  if (!now) now = new Date();
+
+  // ── Time boundaries ─────────────────────────────────────────────────────
+  const dayOfWeek = now.getDay(); // 0=Sun
+  const thisWeekStart = new Date(now);
+  thisWeekStart.setDate(now.getDate() - dayOfWeek);
+  thisWeekStart.setHours(0, 0, 0, 0);
+  const thisWeekStartISO = thisWeekStart.toISOString();
+
+  const lastWeekStart = new Date(thisWeekStart);
+  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+  const lastWeekStartISO = lastWeekStart.toISOString();
+
+  // ── This week sessions ────────────────────────────────────────────────
+  let thisWeekSessions = { services: 0, alerts: 0, autoRecoveries: 0, totalDurationMin: 0, totalStreamMin: 0 };
+  try {
+    const row = db.prepare(`
+      SELECT
+        COUNT(*) AS services,
+        COALESCE(SUM(alert_count), 0) AS alerts,
+        COALESCE(SUM(auto_recovered_count), 0) AS autoRecoveries,
+        COALESCE(SUM(duration_minutes), 0) AS totalDurationMin,
+        COALESCE(SUM(stream_runtime_minutes), 0) AS totalStreamMin
+      FROM service_sessions
+      WHERE church_id = ? AND started_at >= ?
+    `).get(churchId, thisWeekStartISO);
+    if (row) {
+      thisWeekSessions = row;
+    }
+  } catch { /* table may not exist */ }
+
+  const uptimePercent = thisWeekSessions.totalDurationMin > 0
+    ? Math.round(Math.min(100, (thisWeekSessions.totalStreamMin / thisWeekSessions.totalDurationMin) * 100) * 10) / 10
+    : (thisWeekSessions.services > 0 ? 100 : 0);
+
+  // ── Last week alerts (for trend) ──────────────────────────────────────
+  let lastWeekAlerts = 0;
+  try {
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(alert_count), 0) AS alerts
+      FROM service_sessions
+      WHERE church_id = ? AND started_at >= ? AND started_at < ?
+    `).get(churchId, lastWeekStartISO, thisWeekStartISO);
+    if (row) lastWeekAlerts = row.alerts;
+  } catch { /* table may not exist */ }
+
+  const alertDiff = thisWeekSessions.alerts - lastWeekAlerts;
+  let alertsTrending = 'stable';
+  if (alertDiff > 0) alertsTrending = 'up';
+  else if (alertDiff < 0) alertsTrending = 'down';
+  const comparedToLastWeek = alertDiff > 0 ? `+${alertDiff}` : String(alertDiff);
+
+  // ── Equipment status (from in-memory runtime) ─────────────────────────
+  const equipmentStatus = { total: 0, healthy: 0, warning: 0, offline: 0 };
+  const runtime = churches ? churches.get(churchId) : null;
+  if (runtime && runtime.status) {
+    const st = runtime.status;
+    const devices = [];
+
+    // ATEM
+    if (st.atem) {
+      const connected = st.atem === true || !!(st.atem && st.atem.connected);
+      devices.push(connected ? 'healthy' : 'offline');
+    }
+    // OBS
+    if (st.obs) {
+      const connected = st.obs === true || !!(st.obs && st.obs.connected);
+      devices.push(connected ? 'healthy' : 'offline');
+    }
+    // Encoder
+    if (st.encoder) {
+      const enc = typeof st.encoder === 'object' ? st.encoder : {};
+      const connected = st.encoder === true || !!enc.connected;
+      devices.push(connected ? 'healthy' : 'offline');
+    }
+    // Mixer
+    if (st.mixer) {
+      const connected = !!(st.mixer && st.mixer.connected);
+      devices.push(connected ? 'healthy' : 'offline');
+    }
+    // HyperDecks
+    if (st.hyperdecks && Array.isArray(st.hyperdecks)) {
+      for (const hd of st.hyperdecks) {
+        devices.push(hd.connected ? 'healthy' : 'offline');
+      }
+    }
+    if (st.hyperdeck) {
+      devices.push(st.hyperdeck.connected ? 'healthy' : 'offline');
+    }
+    // PTZ cameras
+    if (st.ptzCameras && Array.isArray(st.ptzCameras)) {
+      for (const cam of st.ptzCameras) {
+        devices.push(cam.connected ? 'healthy' : 'offline');
+      }
+    }
+
+    equipmentStatus.total = devices.length;
+    equipmentStatus.healthy = devices.filter(d => d === 'healthy').length;
+    equipmentStatus.warning = devices.filter(d => d === 'warning').length;
+    equipmentStatus.offline = devices.filter(d => d === 'offline').length;
+  }
+
+  // ── Next service (from schedule) ──────────────────────────────────────
+  let nextService = null;
+  try {
+    const row = db.prepare('SELECT schedule FROM churches WHERE churchId = ?').get(churchId);
+    const sched = (row && row.schedule) ? JSON.parse(row.schedule) : {};
+    nextService = _findNextService(sched, now);
+  } catch { /* no schedule */ }
+
+  return {
+    thisWeek: {
+      services: thisWeekSessions.services,
+      alerts: thisWeekSessions.alerts,
+      autoRecoveries: thisWeekSessions.autoRecoveries,
+      uptimePercent,
+    },
+    trend: {
+      alertsTrending,
+      comparedToLastWeek,
+    },
+    equipmentStatus,
+    nextService,
+  };
+}
+
+/**
+ * Find the next upcoming service window from the schedule.
+ * @param {object} sched  { sunday: [{start, end, label}], ... }
+ * @param {Date} now
+ * @returns {object|null}  { time: ISO, label, minutesUntil }
+ */
+function _findNextService(sched, now) {
+  if (!sched || typeof sched !== 'object') return null;
+
+  const candidates = [];
+  const currentDayIndex = now.getDay(); // 0=Sun
+
+  // Check next 7 days (including today)
+  for (let offset = 0; offset < 7; offset++) {
+    const dayIndex = (currentDayIndex + offset) % 7;
+    const dayKey = SCHEDULE_DAY_NAMES[dayIndex];
+    const windows = sched[dayKey];
+    if (!Array.isArray(windows)) continue;
+
+    for (const w of windows) {
+      if (!w.start) continue;
+      // Parse start time (format: "HH:MM" or "H:MM")
+      const parts = w.start.split(':');
+      if (parts.length < 2) continue;
+      const hour = parseInt(parts[0], 10);
+      const minute = parseInt(parts[1], 10);
+      if (isNaN(hour) || isNaN(minute)) continue;
+
+      const candidate = new Date(now);
+      candidate.setDate(now.getDate() + offset);
+      candidate.setHours(hour, minute, 0, 0);
+
+      // Skip if in the past
+      if (candidate <= now) continue;
+
+      const minutesUntil = Math.round((candidate - now) / 60000);
+      const dayLabel = SCHEDULE_DAY_LABELS_MAP[dayKey] || dayKey;
+      const timeStr = candidate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      const label = w.label ? `${dayLabel} ${timeStr} — ${w.label}` : `${dayLabel} ${timeStr}`;
+
+      candidates.push({ time: candidate.toISOString(), label, minutesUntil });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  // Return the soonest
+  candidates.sort((a, b) => a.minutesUntil - b.minutesUntil);
+  return candidates[0];
+}
+
 // ─── HTML builders ─────────────────────────────────────────────────────────────
 
 function buildChurchLoginHtml(error = '') {
@@ -5631,6 +5824,17 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
   });
 
+  // ── GET /api/church/dashboard/stats ───────────────────────────────────────────
+  // Quick-stats card: this week summary, alert trend, equipment health, next service
+  app.get('/api/church/dashboard/stats', authMiddleware, (req, res) => {
+    try {
+      const stats = getDashboardStats(db, req.church.churchId, churches);
+      res.json(stats);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
   // ── GET /api/church/schedule ──────────────────────────────────────────────────
   // Accepts optional ?campusId=xxx to load a specific campus schedule
   app.get('/api/church/schedule', authMiddleware, (req, res) => {
@@ -6751,4 +6955,4 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   log.info('Setup complete — routes registered');
 }
 
-module.exports = { setupChurchPortal, _buildChurchPortalHtml: buildChurchPortalHtml };
+module.exports = { setupChurchPortal, _buildChurchPortalHtml: buildChurchPortalHtml, getDashboardStats, _findNextService };

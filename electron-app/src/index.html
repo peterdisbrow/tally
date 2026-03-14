@@ -53,7 +53,7 @@
   </div>
 </div>
 
-<!-- ═══════════════════════ SETUP WIZARD ═══════════════════════ -->
+<!-- ═══════════════════════ ONBOARDING CHAT ═══════════════════════ -->
 <div class="wizard" id="wizard">
   <div class="header">
     <div class="header-title">
@@ -63,161 +63,30 @@
     <p class="sub">by ATEM School</p>
   </div>
 
-  <div class="content">
-    <div class="step-indicator" id="step-indicator"></div>
-
-    <!-- Step 1: Auto-Discover Devices -->
-    <div class="wizard-step active" data-step="1">
-      <h2 class="wizard-headline">Discover Your Gear</h2>
-      <p style="color: var(--muted); font-size: 12px; margin-bottom: 12px; line-height: 1.5;">
-        Tally is scanning your network for production equipment...
-      </p>
-      <div class="form-group" style="margin-bottom:8px;">
-        <label>Network Interface</label>
-        <select id="wiz-scan-nic"></select>
-      </div>
-      <!-- Scan progress -->
-      <div id="wiz-scan-progress" style="margin-bottom:12px;">
-        <div style="height:4px; background:var(--border); border-radius:2px; overflow:hidden;">
-          <div id="wiz-scan-fill" style="width:0%; height:100%; background:var(--green); transition:width 0.3s;"></div>
-        </div>
-        <div id="wiz-scan-status" style="font-size:10px; color:var(--dim); margin-top:4px; font-family:var(--mono);">Preparing scan...</div>
-      </div>
-      <!-- Discovered devices list -->
-      <div id="wiz-discovered-devices" style="display:none; margin-bottom:12px;"></div>
-      <!-- Manual config fallback -->
-      <details id="wiz-manual-config" style="margin-top:8px;">
-        <summary style="color:var(--dim); font-size:12px; cursor:pointer; font-family:var(--mono);">Didn't find something? Configure manually</summary>
-        <div style="margin-top:10px;">
-          <div class="form-group">
-            <label>ATEM IP Address</label>
-            <input id="wiz-atem" type="text" placeholder="192.168.1.10">
-          </div>
-          <div class="form-group">
-            <label>Encoder Type</label>
-            <select id="wiz-encoder-type" onchange="onWizEncoderTypeChanged()" style="width:100%;">
-              <option value="">— None —</option>
-              <option value="blackmagic">Blackmagic Web Presenter</option>
-              <option value="obs">OBS Studio</option>
-              <option value="vmix">vMix</option>
-              <option value="atem-streaming">ATEM Mini (built-in)</option>
-              <option value="ecamm">Ecamm Live</option>
-              <option value="aja">AJA HELO</option>
-              <option value="epiphan">Epiphan Pearl</option>
-              <option value="teradek">Teradek</option>
-              <option value="tricaster">TriCaster</option>
-              <option value="birddog">BirdDog</option>
-              <option value="yolobox">YoloBox</option>
-              <option value="tally-encoder">Tally Encoder</option>
-              <option value="custom">Custom</option>
-            </select>
-          </div>
-          <div id="wiz-encoder-fields"></div>
-          <div class="form-group">
-            <label>Companion IP (optional)</label>
-            <div style="display:flex; gap:6px; align-items:center;">
-              <input id="wiz-companion-host" type="text" placeholder="localhost" style="flex:1;">
-              <span style="color:var(--dim); font-size:11px;">:</span>
-              <input id="wiz-companion-port" type="number" placeholder="8888" style="width:80px;">
-            </div>
-          </div>
-          <div class="form-group">
-            <label>System Name (optional)</label>
-            <input id="wiz-name" type="text" placeholder="e.g., Main Sanctuary">
-          </div>
-          <div class="form-group">
-            <label>Live Stream URL (optional)</label>
-            <input id="wiz-livestream" type="text" placeholder="https://youtube.com/live/...">
-          </div>
-        </div>
-      </details>
-      <button class="btn-small btn-secondary" id="btn-scan" onclick="wizardRescan()" style="margin-top:8px; display:none;">Re-Scan Network</button>
-      <div id="scan-result" style="margin-top:8px; font-size:11px; color: var(--muted); font-family: var(--mono);"></div>
+  <div class="content" style="padding: 0; display: flex; flex-direction: column; height: calc(100% - 60px);">
+    <!-- Progress bar -->
+    <div class="ob-progress" id="ob-progress">
+      <div class="ob-stage" data-stage="gear">Gear</div>
+      <div class="ob-stage" data-stage="schedule">Schedule</div>
+      <div class="ob-stage" data-stage="tds">Team</div>
+      <div class="ob-stage" data-stage="stream">Stream</div>
     </div>
 
-    <!-- Step 2: Stream Profile -->
-    <div class="wizard-step" data-step="2">
-      <h2 style="font-size: 14px; color: var(--white); font-weight: 700; letter-spacing: -0.01em; text-transform: none; font-family: var(--font); margin-bottom: 10px;">Train Your Tally Engineer</h2>
-      <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px; line-height: 1.5;">
-        Help Tally understand your setup so it can give smarter alerts and recommendations.
-      </p>
-      <div class="form-group">
-        <label>Stream Platform</label>
-        <select id="wiz-stream-platform">
-          <option value="">— Select —</option>
-          <option value="youtube">YouTube</option>
-          <option value="facebook">Facebook Live</option>
-          <option value="both">YouTube + Facebook</option>
-          <option value="churchonline">Church Online Platform</option>
-          <option value="resi">Resi</option>
-          <option value="boxcast">BoxCast</option>
-          <option value="other">Other</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Expected Viewers</label>
-        <select id="wiz-expected-viewers">
-          <option value="">— Select —</option>
-          <option value="<50">Under 50</option>
-          <option value="50-200">50–200</option>
-          <option value="200-500">200–500</option>
-          <option value="500+">500+</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Operator Experience Level</label>
-        <select id="wiz-operator-level">
-          <option value="">— Select —</option>
-          <option value="volunteer">Volunteer (minimal training)</option>
-          <option value="intermediate">Intermediate (comfortable with gear)</option>
-          <option value="pro">Pro (broadcast / production background)</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Backup Encoder Available?</label>
-        <select id="wiz-backup-encoder">
-          <option value="">— Select —</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Backup Switcher Available?</label>
-        <select id="wiz-backup-switcher">
-          <option value="">— Select —</option>
-          <option value="yes">Yes</option>
-          <option value="no">No</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Special Notes (optional)</label>
-        <input id="wiz-special-notes" type="text" placeholder="e.g., We use a splitter before the encoder">
-      </div>
-      <div style="margin-top:10px;">
-        <a href="#" style="color: var(--dim); font-size: 12px; text-decoration: none; font-family: var(--mono);"
-           onclick="event.preventDefault(); wizardNext();">
-          Skip — I'll do this later
-        </a>
-      </div>
+    <!-- Chat messages -->
+    <div class="ob-scroll" id="ob-scroll">
+      <div class="ob-messages" id="ob-messages"></div>
     </div>
 
-    <!-- Step 3: Done -->
-    <div class="wizard-step" data-step="3">
-      <div style="text-align:center; padding: 24px 0 16px;">
-        <div class="wizard-badge">Setup Complete</div>
-        <div class="wizard-headline">All Set!</div>
-        <p style="color: var(--muted); font-size: 13px; line-height: 1.6;">
-          Your system is now connected.<br>
-          The app will run in your system tray and connect automatically on startup.
-        </p>
-        <div id="test-result" style="margin-top: 16px; font-size: 12px; font-family: var(--mono);"></div>
-      </div>
+    <!-- Input area -->
+    <div class="ob-input-area">
+      <input type="text" id="ob-input" placeholder="Tell me about your setup..."
+             onkeydown="if(event.key==='Enter')sendOnboardingMessage()">
+      <button class="btn-save" id="ob-send" onclick="sendOnboardingMessage()">Send</button>
     </div>
-  </div>
 
-  <div class="actions">
-    <button class="btn-secondary" id="wiz-back" onclick="wizardBack()" style="display:none;">Back</button>
-    <button class="btn-save" id="wiz-next" onclick="wizardNext()">Get Started →</button>
+    <div class="ob-skip">
+      <a href="#" onclick="event.preventDefault(); skipToManualSetup();">Skip to manual setup</a>
+    </div>
   </div>
 </div>
 
@@ -233,27 +102,69 @@
   </div>
 
   <div class="status-bar">
-    <div class="status-chip"><div class="dot" id="dot-relay"></div><span>Relay</span></div>
-    <div class="status-chip"><div class="dot" id="dot-atem"></div><span>ATEM</span></div>
-    <div class="status-chip"><div class="dot" id="dot-encoder"></div><span id="dot-encoder-label">Encoder</span></div>
-    <div class="status-chip"><div class="dot" id="dot-companion"></div><span>Companion</span></div>
-    <div class="status-chip" id="dot-ndi-chip" style="display:none;"><div class="dot" id="dot-ndi"></div><span>NDI</span></div>
-    <div class="status-chip" id="failover-chip" style="display:none;"><div class="dot" id="dot-failover"></div><span>Failover</span></div>
+    <div class="status-chip" title="Connection to the TallyConnect relay server for remote monitoring"><div class="dot" id="dot-relay"></div><span>Relay</span></div>
+    <div class="status-chip" title="Blackmagic ATEM switcher connection status"><div class="dot" id="dot-atem"></div><span>ATEM</span></div>
+    <div class="status-chip" title="Streaming encoder connection and health"><div class="dot" id="dot-encoder"></div><span id="dot-encoder-label">Encoder</span></div>
+    <div class="status-chip" title="Bitfocus Companion connection for button triggers"><div class="dot" id="dot-companion"></div><span>Companion</span></div>
+    <div class="status-chip" id="dot-ndi-chip" style="display:none;" title="NDI video decoder status"><div class="dot" id="dot-ndi"></div><span>NDI</span></div>
+    <div class="status-chip" id="failover-chip" style="display:none;" title="Automatic signal failover protection status"><div class="dot" id="dot-failover"></div><span>Failover</span></div>
   </div>
 
   <!-- Offline / disconnection banner -->
   <div class="offline-banner" id="offline-banner" style="display:none;">
-    ⚠ Relay disconnected — monitoring is paused
+    <span id="offline-banner-text">Relay disconnected — monitoring is paused</span>
+    <span id="offline-banner-countdown" style="display:none; margin-left:8px; font-weight:400;"></span>
+    <div id="offline-banner-stale" style="display:none; font-weight:400; font-size:10px; margin-top:2px;"></div>
   </div>
 
   <div class="tab-bar">
-    <button class="tab-btn active" onclick="switchTab('status')">Status</button>
+    <button class="tab-btn active" onclick="switchTab('status')">Status <span class="tab-badge" id="status-issue-badge" style="display:none;"></span></button>
     <button class="tab-btn" onclick="switchTab('equipment')">Equipment</button>
     <button class="tab-btn" onclick="switchTab('engineer')">Tally Engineer</button>
   </div>
 
   <!-- ══════════ STATUS TAB ══════════ -->
   <div class="content tab-content active" id="tab-status" style="flex:1; overflow-y:auto;">
+
+    <!-- Pre-Service Readiness Widget -->
+    <div class="section preservice-readiness" id="preservice-readiness" style="display:none;">
+      <div class="readiness-bar" id="readiness-bar">
+        <span class="readiness-icon" id="readiness-icon"></span>
+        <span class="readiness-text" id="readiness-text">Checking...</span>
+      </div>
+    </div>
+
+    <!-- Session Recap Card -->
+    <div class="section session-recap" id="session-recap" style="display:none;">
+      <div class="session-recap-header" onclick="toggleSessionRecap()">
+        <h2>Last Service</h2>
+        <span class="session-recap-chevron" id="session-recap-chevron">&#9660;</span>
+      </div>
+      <div class="session-recap-body" id="session-recap-body" style="display:none;">
+        <div class="info-grid">
+          <div class="info-card" title="Total duration of the last service session">
+            <div class="label">Duration</div>
+            <div class="value muted" id="val-recap-duration">--</div>
+          </div>
+          <div class="info-card" title="Number of alerts triggered during the service">
+            <div class="label">Alerts</div>
+            <div class="value muted" id="val-recap-alerts">--</div>
+          </div>
+          <div class="info-card" title="Number of issues that were automatically recovered">
+            <div class="label">Auto-Recoveries</div>
+            <div class="value muted" id="val-recap-recoveries">--</div>
+          </div>
+          <div class="info-card" title="Overall service grade based on stream health and uptime">
+            <div class="label">Grade</div>
+            <div class="value muted" id="val-recap-grade">--</div>
+          </div>
+          <div class="info-card" title="Peak concurrent viewer count during the service">
+            <div class="label">Peak Viewers</div>
+            <div class="value muted" id="val-recap-viewers">--</div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Pre-Service Check Hero Panel -->
     <div class="section preservice-hero" id="preservice-panel" style="display:none;">
@@ -275,23 +186,23 @@
     <div class="section">
       <h2>ATEM Switcher</h2>
       <div class="info-grid">
-        <div class="info-card">
+        <div class="info-card" title="ATEM switcher model detected on the network">
           <div class="label">Model</div>
           <div class="value muted" id="val-atem-model">—</div>
         </div>
-        <div class="info-card">
+        <div class="info-card" title="Currently live program output source on the ATEM">
           <div class="label">Program</div>
           <div class="value muted" id="val-program">—</div>
         </div>
-        <div class="info-card">
+        <div class="info-card" title="Next source queued on preview bus">
           <div class="label">Preview</div>
           <div class="value muted" id="val-preview">—</div>
         </div>
-        <div class="info-card">
+        <div class="info-card" title="Whether the ATEM is currently recording to disk">
           <div class="label">Recording</div>
           <div class="value muted" id="val-recording">—</div>
         </div>
-        <div class="info-card">
+        <div class="info-card" title="Bitfocus Companion macro controller connection">
           <div class="label">Companion</div>
           <div class="value muted" id="val-companion">—</div>
         </div>
@@ -301,26 +212,31 @@
     </div>
 
     <!-- Streaming Encoder Status -->
-    <div class="section">
+    <div class="section" id="encoder-status-section">
       <h2 id="encoder-section-title">Streaming Encoder</h2>
-      <div class="info-grid">
-        <div class="info-card">
-          <div class="label">Stream</div>
+      <!-- Multi-encoder status bar (hidden when single encoder) -->
+      <div class="multi-encoder-bar" id="multi-encoder-bar" style="display:none;"></div>
+      <!-- Primary encoder info grid (always shown) -->
+      <div class="info-grid" id="encoder-info-grid">
+        <div class="info-card" title="Stream health indicator: green >4Mbps, yellow 2-4Mbps, red <2Mbps">
+          <div class="label">Stream Health</div>
           <div class="value muted" id="val-stream">—</div>
         </div>
-        <div class="info-card">
+        <div class="info-card" title="Current frames per second from the encoder; 24+ is healthy">
           <div class="label">FPS</div>
           <div class="value muted" id="val-fps">—</div>
         </div>
-        <div class="info-card">
+        <div class="info-card" title="Upload bitrate to the streaming platform; higher is better quality">
           <div class="label">Bitrate</div>
           <div class="value muted" id="val-bitrate">—</div>
         </div>
-        <div class="info-card">
+        <div class="info-card" title="Audio feed status: checks for mute, silence, and active signal">
           <div class="label">Audio</div>
           <div class="value muted" id="val-audio">—</div>
         </div>
       </div>
+      <!-- Per-encoder detail cards (only rendered when multiple encoders) -->
+      <div id="multi-encoder-cards" style="display:none; margin-top:8px;"></div>
     </div>
 
     <!-- Signal Failover Status (hidden when failover not enabled) -->
@@ -452,7 +368,10 @@
         <p style="color:var(--dim); font-size:12px; font-family:var(--mono);">No active rundown. Set one up in the <a href="#" class="ext-link" data-url="https://tallyconnect.app/church-portal" style="color:var(--green);">Church Portal</a>.</p>
       </div>
       <div id="rundown-active" style="display:none;">
-        <div class="rundown-progress" id="rundown-progress" style="font-size:10px; color:var(--dim); font-family:var(--mono); margin-bottom:8px;"></div>
+        <div class="rundown-header-row" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+          <div class="rundown-progress" id="rundown-progress" style="font-size:10px; color:var(--dim); font-family:var(--mono);"></div>
+          <div class="rundown-progress-indicator" id="rundown-progress-indicator"></div>
+        </div>
         <div class="rundown-current-step" id="rundown-current-step"></div>
         <div class="rundown-next" id="rundown-next" style="margin-top:8px;"></div>
         <div class="rundown-controls" style="display:flex; gap:6px; margin-top:10px;">
@@ -632,7 +551,7 @@
 
           <div class="equip-row" style="margin-bottom:10px;">
             <label style="flex:1;">Enable Signal Failover</label>
-            <label class="toggle-switch">
+            <label class="toggle-switch" title="When enabled, Tally automatically detects signal loss and switches to a safe backup source">
               <input type="checkbox" id="failover-enabled">
               <span class="toggle-slider"></span>
             </label>
@@ -807,6 +726,13 @@
 
   <div class="branding">
     Powered by <a href="#" class="ext-link" data-url="https://atemschool.com">ATEM School</a>
+  </div>
+
+  <div class="autostart-bar" id="autostart-bar">
+    <label class="autostart-label" title="When enabled, monitoring starts automatically after sign-in without needing to press Start">
+      <input type="checkbox" id="autostart-checkbox" onchange="toggleAutoStart(this.checked)">
+      <span>Start monitoring on launch</span>
+    </label>
   </div>
 
   <div class="actions">
