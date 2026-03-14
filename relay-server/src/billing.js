@@ -97,6 +97,13 @@ class BillingSystem {
   /** Warn at startup if Stripe is enabled but price IDs are still placeholders */
   _validatePriceIds() {
     if (!stripe) return; // Stripe not configured, skip
+
+    // Check for webhook secret
+    if (!process.env.STRIPE_WEBHOOK_SECRET) {
+      console.warn('\n⚠️  Stripe is enabled but STRIPE_WEBHOOK_SECRET is not set.');
+      console.warn('   Webhook signature verification will fail without it.\n');
+    }
+
     const missing = [];
     for (const [tier, intervals] of Object.entries(PRICES)) {
       for (const [interval, priceId] of Object.entries(intervals)) {

@@ -91,7 +91,7 @@
         ]
       },
       {
-        "from": "/Volumes/DataDisk/UserFolders/Documents/New project/problem-finder-lab",
+        "from": "../problem-finder-lab",
         "to": "problem-finder-lab",
         "filter": [
           "**/*",

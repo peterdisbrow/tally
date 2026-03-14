@@ -6,7 +6,7 @@
  */
 module.exports = function setupAdminAuthRoutes(app, ctx) {
   const { db, requireAdminJwt, rateLimit, hashPassword, verifyPassword,
-          ADMIN_ROLES, uuidv4, jwt, JWT_SECRET, log } = ctx;
+          ADMIN_ROLES, uuidv4, jwt, JWT_SECRET, log, logAudit } = ctx;
 
   // POST /api/admin/login
   app.post('/api/admin/login', rateLimit(5, 15 * 60 * 1000), (req, res) => {
@@ -18,6 +18,7 @@ module.exports = function setupAdminAuthRoutes(app, ctx) {
 
     const user = db.prepare('SELECT * FROM admin_users WHERE email = ?').get(cleanEmail);
     if (!user || !user.active || !verifyPassword(password, user.password_hash)) {
+      logAudit({ adminEmail: cleanEmail, action: 'admin_login_failed', targetType: 'admin_user', details: { reason: !user ? 'not_found' : !user.active ? 'inactive' : 'bad_password' }, ip: req.ip });
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -30,6 +31,7 @@ module.exports = function setupAdminAuthRoutes(app, ctx) {
       { expiresIn: '8h' }
     );
 
+    logAudit({ adminUserId: user.id, adminEmail: user.email, action: 'admin_login_success', targetType: 'admin_user', targetId: user.id, ip: req.ip });
     log(`[AdminLogin] ${user.email} (${user.role}) logged in`);
     res.json({
       token,
@@ -98,6 +100,7 @@ module.exports = function setupAdminAuthRoutes(app, ctx) {
       'INSERT INTO admin_users (id, email, password_hash, name, role, active, created_at, created_by) VALUES (?,?,?,?,?,?,?,?)'
     ).run(id, cleanEmail, hashPassword(password), name.trim(), role, 1, new Date().toISOString(), req.adminUser.id);
 
+    logAudit({ adminUserId: req.adminUser.id, adminEmail: req.adminUser.email, action: 'admin_user_created', targetType: 'admin_user', targetId: id, details: { email: cleanEmail, role }, ip: req.ip });
     log(`[AdminUsers] ${req.adminUser.email} created ${role} user: ${cleanEmail}`);
     res.status(201).json({ id, email: cleanEmail, name: name.trim(), role, active: 1 });
   });
@@ -170,6 +173,7 @@ module.exports = function setupAdminAuthRoutes(app, ctx) {
     db.prepare('UPDATE admin_users SET active = 0, updated_at = ? WHERE id = ?')
       .run(new Date().toISOString(), req.params.userId);
 
+    logAudit({ adminUserId: req.adminUser.id, adminEmail: req.adminUser.email, action: 'admin_user_deleted', targetType: 'admin_user', targetId: req.params.userId, details: { email: target.email }, ip: req.ip });
     log(`[AdminUsers] ${req.adminUser.email} deactivated user ${target.email}`);
     res.json({ ok: true });
   });

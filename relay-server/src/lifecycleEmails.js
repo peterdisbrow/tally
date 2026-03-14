@@ -711,7 +711,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
         <div style="font-size: 14px; font-weight: 700; color: #334155; margin-bottom: 12px;">During service:</div>
         <div style="font-size: 14px; color: #333; line-height: 2;">
-          &bull; If your stream drops, Tally auto-recovers it (usually in under 10 seconds)<br>
+          &bull; If your stream drops, Tally auto-recovers it automatically<br>
           &bull; If a device disconnects, you get an alert with diagnosis<br>
           &bull; Check your phone instead of being glued to the booth
         </div>
@@ -735,7 +735,7 @@ Before service:
 - No more walking into the booth wondering if everything's on
 
 During service:
-- If your stream drops, Tally auto-recovers it (usually in under 10 seconds)
+- If your stream drops, Tally auto-recovers it before anyone notices
 - If a device disconnects, you get an alert with diagnosis
 - Check your phone instead of being glued to the booth
 
@@ -1988,7 +1988,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
         <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">What Tally does:</div>
         <div style="font-size: 14px; color: #333; line-height: 2;">
-          &bull; <strong>Auto-recovers</strong> dropped streams in under 10 seconds<br>
+          &bull; <strong>Auto-recovers</strong> dropped streams before anyone notices<br>
           &bull; <strong>Pre-service checks</strong> 30 minutes before service starts<br>
           &bull; <strong>Real-time alerts</strong> to your tech director via Telegram<br>
           &bull; <strong>Weekly reports</strong> for church leadership
@@ -2023,7 +2023,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       <div style="margin: 24px 0;">
         <div style="padding: 16px 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca; margin-bottom: 12px;">
           <strong style="color: #dc2626;">1. Stream drops mid-service</strong>
-          <p style="font-size: 14px; color: #333; margin: 4px 0 0;">Tally detects it and auto-restarts OBS/stream in under 10 seconds. No one in the booth has to scramble.</p>
+          <p style="font-size: 14px; color: #333; margin: 4px 0 0;">Tally detects it and auto-restarts OBS/stream automatically. No one in the booth has to scramble.</p>
         </div>
         <div style="padding: 16px 20px; background: #fffbeb; border-radius: 10px; border: 1px solid #fde68a; margin-bottom: 12px;">
           <strong style="color: #b45309;">2. No one checks gear before service</strong>
@@ -2042,7 +2042,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Try It Free for 14 Days', signupUrl)}
     `);
 
-    const text = `3 problems Tally solves:\n\n1. Stream drops → auto-recovery in 10 seconds\n2. Gear not checked → pre-flight 30 min before service\n3. No leadership visibility → weekly reports\n\nTry free: ${signupUrl}`;
+    const text = `3 problems Tally solves:\n\n1. Stream drops → auto-recovery before anyone notices\n2. Gear not checked → pre-flight 30 min before service\n3. No leadership visibility → weekly reports\n\nTry free: ${signupUrl}`;
     return { html, text };
   }
 
