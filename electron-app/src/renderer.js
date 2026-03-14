@@ -1767,6 +1767,39 @@ async function testConn() {
   }
 }
 
+async function sendDiagnosticBundle() {
+  const btn = document.getElementById('btn-diagnostic-bundle');
+  const statusEl = document.getElementById('diagnostic-bundle-status');
+  if (!btn || !statusEl) return;
+
+  btn.disabled = true;
+  statusEl.style.display = 'block';
+  statusEl.textContent = 'Collecting diagnostics...';
+  statusEl.style.color = 'var(--muted)';
+
+  try {
+    const result = await api.sendDiagnosticBundle();
+    if (result?.error) {
+      statusEl.textContent = `Failed: ${friendlyError(result.error)}`;
+      statusEl.style.color = 'var(--danger)';
+    } else if (result?.id) {
+      statusEl.textContent = `Report sent! Reference: #${result.id.slice(0, 8)}`;
+      statusEl.style.color = 'var(--green)';
+      addAlert(`Diagnostic report sent (#${result.id.slice(0, 8)})`);
+    } else {
+      statusEl.textContent = 'Report sent!';
+      statusEl.style.color = 'var(--green)';
+    }
+  } catch (e) {
+    statusEl.textContent = `Failed: ${friendlyError(e)}`;
+    statusEl.style.color = 'var(--danger)';
+  }
+
+  btn.disabled = false;
+  // Auto-hide status after 10 seconds
+  setTimeout(() => { statusEl.style.display = 'none'; }, 10000);
+}
+
 async function exportLogs() {
   if (!api?.exportTestLogs) {
     addAlert('❌ Export logs is unavailable in this build.');

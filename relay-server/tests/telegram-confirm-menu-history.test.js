@@ -318,10 +318,11 @@ describe('Quick-access menu', () => {
     expect(kb[2][0].text).toContain('Start Recording');
     expect(kb[2][1].text).toContain('Stop Recording');
 
-    // Row 4: status/precheck
-    expect(kb[3]).toHaveLength(2);
+    // Row 4: status/precheck/troubleshoot
+    expect(kb[3]).toHaveLength(3);
     expect(kb[3][0].text).toContain('Status');
     expect(kb[3][1].text).toContain('Pre-Check');
+    expect(kb[3][2].text).toContain('Troubleshoot');
   });
 
   it('/menu sets resize_keyboard and persistent keyboard', async () => {

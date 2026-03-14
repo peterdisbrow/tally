@@ -663,6 +663,18 @@ db.exec(`
   )
 `);
 
+// ─── Diagnostic Bundles table ─────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS diagnostic_bundles (
+    id TEXT PRIMARY KEY,
+    churchId TEXT NOT NULL,
+    bundle TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_diagnostic_bundles_church ON diagnostic_bundles(churchId, created_at DESC)');
+
 db.exec('CREATE INDEX IF NOT EXISTS idx_support_triage_church ON support_triage_runs(church_id, created_at DESC)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_support_ticket_church ON support_tickets(church_id, created_at DESC)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_support_ticket_status ON support_tickets(status, updated_at DESC)');

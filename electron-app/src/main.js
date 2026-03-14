@@ -794,6 +794,28 @@ ipcMain.handle('open-external', (_, url) => {
   return true;
 });
 
+// ─── DIAGNOSTIC BUNDLE IPC ────────────────────────────────────────────────────
+ipcMain.handle('send-diagnostic-bundle', async () => {
+  const config = loadConfig();
+  if (!config.token) return { error: 'Not configured' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  const churchId = decodeChurchIdFromToken(config.token);
+  if (!churchId) return { error: 'Could not determine church ID' };
+  try {
+    const resp = await fetch(`${relayHttp}/api/church/${churchId}/diagnostic-bundle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+    });
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({}));
+      return { error: body.error || `Request failed (${resp.status})` };
+    }
+    return await resp.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
 // ─── CHAT IPC ──────────────────────────────────────────────────────────────────
 ipcMain.handle('send-chat', async (_, { message, senderName }) => {
   const config = loadConfig();

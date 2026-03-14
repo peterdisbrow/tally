@@ -1,5 +1,6 @@
 const { toInt } = require('./helpers');
 const { mixerBrandName } = require('./mixer');
+const { collectDiagnosticBundle } = require('../diagnosticBundle');
 
 async function danteScene(agent, params) {
   if (!agent.companion) throw new Error('Companion not configured — Dante scenes require Companion buttons prefixed with "Dante:"');
@@ -310,11 +311,16 @@ function systemGetServiceWindow(agent) {
   return { inWindow: agent.watchdogActive || false, watchdogActive: agent.watchdogActive || false };
 }
 
+async function systemDiagnosticBundle(agent) {
+  return await collectDiagnosticBundle(agent);
+}
+
 module.exports = {
   'status': getStatus,
   'system.preServiceCheck': preServiceCheck,
   'system.setWatchdogMode': systemSetWatchdogMode,
   'system.getServiceWindow': systemGetServiceWindow,
+  'system.diagnosticBundle': systemDiagnosticBundle,
   'preview.start': previewStart,
   'preview.stop': previewStop,
   'preview.snap': previewSnap,

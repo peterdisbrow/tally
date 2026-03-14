@@ -191,6 +191,120 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     return req.params.churchId || req.body?.churchId || req.query?.churchId || null;
   }
 
+  // ─── DIAGNOSTIC BUNDLES ──────────────────────────────────────────────────────
+
+  // Ensure diagnostic_bundles table exists (idempotent — also created in server.js)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS diagnostic_bundles (
+      id TEXT PRIMARY KEY,
+      churchId TEXT NOT NULL,
+      bundle TEXT NOT NULL,
+      requested_by TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+
+  app.post('/api/church/:churchId/diagnostic-bundle', requireSupportAccess, async (req, res) => {
+    const churchId = req.params.churchId || resolveSupportChurchId(req);
+    if (!churchId) return res.status(400).json({ error: 'churchId required' });
+
+    const church = stmtGet.get(churchId);
+    if (!church) return res.status(404).json({ error: 'Church not found' });
+
+    // Enforce: church users can only request their own bundle
+    if (req.supportActor?.type === 'church' && req.supportActor.churchId !== churchId) {
+      return res.status(403).json({ error: 'forbidden' });
+    }
+
+    const runtime = churches.get(churchId);
+    if (!runtime?.ws || runtime.ws.readyState !== WebSocket.OPEN) {
+      return res.status(503).json({ error: 'Church client is not connected' });
+    }
+
+    // Send command to church client and wait for response (10s timeout)
+    const commandId = uuidv4();
+    try {
+      const bundleData = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          runtime.ws.removeListener('message', handler);
+          reject(new Error('Diagnostic bundle timeout (10s)'));
+        }, 10000);
+
+        const handler = (data) => {
+          try {
+            const msg = JSON.parse(data.toString());
+            if (msg.type === 'command_result' && msg.id === commandId) {
+              clearTimeout(timeout);
+              runtime.ws.removeListener('message', handler);
+              if (msg.error) reject(new Error(msg.error));
+              else resolve(msg.result);
+            }
+          } catch { /* ignore parse errors */ }
+        };
+
+        runtime.ws.on('message', handler);
+        const payload = JSON.stringify({
+          type: 'command',
+          command: 'system.diagnosticBundle',
+          params: {},
+          id: commandId,
+        });
+        runtime.ws.send(payload);
+      });
+
+      // Store in database
+      const bundleId = uuidv4();
+      const createdAt = new Date().toISOString();
+      const requestedBy = req.supportActor?.type === 'church'
+        ? `church:${churchId}`
+        : `admin:${req.supportActor?.adminUser?.id || 'unknown'}`;
+
+      db.prepare(`
+        INSERT INTO diagnostic_bundles (id, churchId, bundle, requested_by, created_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(bundleId, churchId, JSON.stringify(bundleData), requestedBy, createdAt);
+
+      return res.status(201).json({
+        id: bundleId,
+        churchId,
+        bundle: bundleData,
+        requestedBy,
+        createdAt,
+      });
+    } catch (err) {
+      return res.status(504).json({ error: err.message || 'Failed to collect diagnostic bundle' });
+    }
+  });
+
+  app.get('/api/church/:churchId/diagnostic-bundles', requireSupportAccess, (req, res) => {
+    const churchId = req.params.churchId;
+    if (!churchId) return res.status(400).json({ error: 'churchId required' });
+
+    // Only admins can list bundles
+    if (req.supportActor?.type !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const church = stmtGet.get(churchId);
+    if (!church) return res.status(404).json({ error: 'Church not found' });
+
+    const rows = db.prepare(`
+      SELECT id, churchId, bundle, requested_by, created_at
+      FROM diagnostic_bundles
+      WHERE churchId = ?
+      ORDER BY created_at DESC
+      LIMIT 10
+    `).all(churchId);
+
+    return res.json(rows.map(row => ({
+      id: row.id,
+      churchId: row.churchId,
+      bundle: safeJsonParse(row.bundle, {}),
+      requestedBy: row.requested_by,
+      createdAt: row.created_at,
+    })));
+  });
+
   // ─── SUPPORT TRIAGE + TICKETS ────────────────────────────────────────────────
 
   app.post('/api/support/triage', requireSupportAccess, (req, res) => {

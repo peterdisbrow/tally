@@ -1720,3 +1720,284 @@ body.ready { opacity: 1; }
   font-weight: 600;
 }
 
+/* ── Guided Self-Service Troubleshooter ──────────────────────── */
+
+.troubleshoot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.troubleshoot-modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  max-width: 500px;
+  width: 92%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  animation: troubleshoot-slide-in 0.2s ease-out;
+}
+
+@keyframes troubleshoot-slide-in {
+  from { opacity: 0; transform: translateY(-16px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.troubleshoot-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.troubleshoot-modal-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--white);
+  font-family: var(--font);
+}
+
+.troubleshoot-close-btn {
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  font-family: var(--font);
+  transition: color 0.15s;
+}
+.troubleshoot-close-btn:hover {
+  color: var(--white);
+}
+
+.troubleshoot-progress {
+  padding: 10px 16px 6px;
+}
+
+.troubleshoot-progress-text {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--font);
+}
+
+.troubleshoot-progress-bar {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.troubleshoot-progress-fill {
+  height: 100%;
+  background: var(--green);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.troubleshoot-progress-fill-warn {
+  background: var(--warn);
+}
+
+.troubleshoot-body {
+  padding: 16px;
+}
+
+.troubleshoot-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.troubleshoot-question {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--white);
+  line-height: 1.5;
+  font-family: var(--font);
+}
+
+.troubleshoot-instruction {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-family: var(--font);
+}
+
+.troubleshoot-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.troubleshoot-option-btn {
+  padding: 8px 20px;
+  border: 1px solid var(--green);
+  border-radius: var(--r-input);
+  background: transparent;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 80px;
+}
+.troubleshoot-option-btn:hover {
+  background: var(--green);
+  color: #000;
+}
+.troubleshoot-option-btn:active {
+  transform: scale(0.97);
+}
+
+.troubleshoot-skip-btn {
+  border-color: var(--dim);
+  color: var(--dim);
+}
+.troubleshoot-skip-btn:hover {
+  background: var(--dim);
+  color: var(--white);
+}
+
+.troubleshoot-action {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: var(--r-input);
+  padding: 12px 16px;
+  width: 100%;
+}
+.troubleshoot-action p {
+  font-size: 12px;
+  color: var(--white);
+  line-height: 1.6;
+  font-family: var(--font);
+  margin: 0;
+}
+
+.troubleshoot-action-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.troubleshoot-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-family: var(--font);
+}
+
+.troubleshoot-spinner-ring {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(34, 197, 94, 0.2);
+  border-top-color: var(--green);
+  border-radius: 50%;
+  animation: troubleshoot-spin 0.8s linear infinite;
+}
+
+@keyframes troubleshoot-spin {
+  to { transform: rotate(360deg); }
+}
+
+.troubleshoot-success {
+  padding: 20px 0;
+}
+
+.troubleshoot-success-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(34, 197, 94, 0.15);
+  border: 2px solid var(--green);
+  color: var(--green);
+  font-size: 22px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font);
+}
+
+.troubleshoot-success-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--green);
+  font-family: var(--font);
+}
+
+.troubleshoot-fallback {
+  padding: 20px 0;
+}
+
+.troubleshoot-fallback-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(234, 179, 8, 0.15);
+  border: 2px solid var(--warn);
+  color: var(--warn);
+  font-size: 22px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font);
+}
+
+.troubleshoot-fallback-text {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-family: var(--font);
+}
+
+.troubleshoot-fallback-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.troubleshoot-report-btn {
+  border-color: var(--warn) !important;
+  color: var(--warn) !important;
+}
+.troubleshoot-report-btn:hover {
+  background: var(--warn) !important;
+  color: #000 !important;
+}
+
+.troubleshoot-fix-btn {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: var(--green);
+  color: var(--green);
+  font-weight: 700;
+}
+.troubleshoot-fix-btn:hover {
+  background: var(--green);
+  color: #000;
+}
+

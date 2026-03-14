@@ -29,6 +29,7 @@ const { encryptConfig, decryptConfig, findUnencryptedFields } = require('./secur
 const { MixerBridge } = require('./mixerBridge');
 const { PTZManager, normalizeProtocol } = require('./ptz');
 const { getSystemHealth } = require('./systemHealth');
+const { collectDiagnosticBundle } = require('./diagnosticBundle');
 
 // ExternalPortType enum → human-readable label (used for audio source detection)
 const PORT_TYPE_NAMES = { 1: 'SDI', 2: 'HDMI', 4: 'Component', 8: 'Composite',
@@ -390,6 +391,10 @@ class ChurchAVAgent {
     this._bitrateSamples = [];         // rolling samples for baseline calculation
     this._bitrateInLoss = false;       // true = loss signal sent, waiting for recovery
     this._fastEncoderPoll = false;     // true = 3s poll instead of 15s
+
+    // ── Recent alerts / commands for diagnostic bundles ─────────────────────────
+    this._recentAlerts = [];           // last 50 alerts (for diagnostic bundle)
+    this._recentCommands = [];         // last 20 commands sent/received
 
     // ── Interval tracking for clean shutdown ───────────────────────────────────
     this._intervals = [];              // all setInterval IDs for unified cleanup
@@ -862,6 +867,11 @@ class ChurchAVAgent {
     }
 
     this.sendToRelay({ type: 'command_result', id, command, result, error });
+
+    // Track recent commands for diagnostic bundles
+    this._recentCommands.push({ command, params, error: error || null, timestamp: Date.now() });
+    while (this._recentCommands.length > 20) this._recentCommands.shift();
+
     if (result && !error) console.log(`✅ ${typeof result === 'string' ? result : JSON.stringify(result)}`);
     if (error) console.error(`❌ ${error}`);
   }
@@ -1914,6 +1924,10 @@ class ChurchAVAgent {
   sendAlert(message, severity = 'warning') {
     console.log(`[ALERT] ${message}`);
     this.sendToRelay({ type: 'alert', message, severity });
+
+    // Track recent alerts for diagnostic bundles
+    this._recentAlerts.push({ message, severity, timestamp: Date.now() });
+    while (this._recentAlerts.length > 50) this._recentAlerts.shift();
   }
 }
 

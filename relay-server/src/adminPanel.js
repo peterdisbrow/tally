@@ -2355,6 +2355,19 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     res.redirect(302, ADMIN_UI_URL);
   });
 
+  // ── Audit helper ─────────────────────────────────────────────────────────
+  const _logAudit = opts.logAudit || (() => {});
+  function auditFromReq(req, action, targetType, targetId, details) {
+    const session = getSession(req);
+    const admin = req.adminUser || session || {};
+    _logAudit({
+      adminUserId: admin.userId || admin.id || null,
+      adminEmail: admin.email || 'api-key',
+      action, targetType, targetId, details,
+      ip: req.ip,
+    });
+  }
+
   // ── Admin API ─────────────────────────────────────────────────────────────
 
   app.get('/api/admin/overview', requireAdminSession, (req, res) => {
@@ -2425,6 +2438,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         _offlineAlertSent: false, church_type: type || 'recurring',
         event_expires_at: null, event_label: null, reseller_id: resellerId || null,
       });
+      auditFromReq(req, 'church_created', 'church', churchId, { name, type: type || 'recurring' });
       res.json({ churchId, name, token, registeredAt });
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
@@ -2467,6 +2481,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       db.prepare('UPDATE churches SET token=? WHERE churchId=?').run(token, id);
       const church = churches.get(id);
       if (church) church.token = token;
+      auditFromReq(req, 'token_regenerated', 'church', id, { name: row.name });
       res.json({ token });
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
@@ -2479,6 +2494,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     if (church?.ws?.readyState === WebSocket.OPEN) church.ws.close(1000, 'deleted by admin');
     db.prepare('DELETE FROM churches WHERE churchId=?').run(id);
     churches.delete(id);
+    auditFromReq(req, 'church_deleted', 'church', id, { name: row.name });
     res.json({ deleted: true, name: row.name });
   });
 
@@ -2609,6 +2625,355 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   });
 
   // AI usage endpoint moved to server.js (uses requireAdminJwt for tally-landing proxy compatibility)
+
+  // ── Admin Church Support View (Quick Actions) ─────────────────────────────
+
+  const { computeHealthScore } = require('./healthScore');
+  const chatEngine = opts.chatEngine || null;
+
+  const ALLOWED_ADMIN_COMMANDS = new Set([
+    'restart_stream', 'stop_stream', 'start_recording', 'stop_recording',
+    'reconnect_obs', 'reconnect_atem', 'reconnect_encoder', 'restart_encoder',
+    'system.diagnosticBundle', 'system.preServiceCheck',
+  ]);
+
+  // GET /api/admin/church/:churchId/support-view
+  // Returns a comprehensive support view for a single church.
+  app.get('/api/admin/church/:churchId/support-view', requireAdminSession, (req, res) => {
+    const { churchId } = req.params;
+    const churchRow = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
+    if (!churchRow) return res.status(404).json({ error: 'Church not found' });
+
+    const runtime = churches.get(churchId);
+    const online = runtime?.ws?.readyState === WebSocket.OPEN;
+
+    // ── Church info ──
+    const church = {
+      id: churchRow.churchId,
+      name: churchRow.name,
+      plan: churchRow.plan || null,
+      billing_status: churchRow.billing_status || null,
+      timezone: churchRow.timezone || null,
+      setup_complete: !!churchRow.setup_complete,
+    };
+
+    // ── Status ──
+    const deviceStatus = runtime?.status || {};
+    const connectedDevices = {
+      atem: !!deviceStatus.atem?.connected,
+      obs: !!deviceStatus.obs?.connected,
+      vmix: !!deviceStatus.vmix?.connected,
+      companion: !!deviceStatus.companion?.connected,
+      encoders: Array.isArray(deviceStatus.encoders) ? deviceStatus.encoders : [],
+      mixers: Array.isArray(deviceStatus.mixers) ? deviceStatus.mixers : [],
+      ptz: Array.isArray(deviceStatus.ptz) ? deviceStatus.ptz : [],
+      hyperdeck: Array.isArray(deviceStatus.hyperdeck) ? deviceStatus.hyperdeck : [],
+    };
+
+    let currentSession = null;
+    try {
+      const activeSession = db.prepare(
+        "SELECT * FROM service_sessions WHERE church_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1"
+      ).get(churchId);
+      if (activeSession) {
+        const startTime = new Date(activeSession.started_at).getTime();
+        currentSession = {
+          active: true,
+          startTime: activeSession.started_at,
+          duration: Math.floor((Date.now() - startTime) / 1000),
+        };
+      }
+    } catch { /* table may not exist */ }
+
+    const streamActive = !!deviceStatus.streaming || !!deviceStatus.obs?.streaming;
+
+    const status = {
+      online,
+      lastHeartbeat: runtime?.lastHeartbeat || null,
+      connectedDevices,
+      currentSession,
+      streamActive,
+    };
+
+    // ── Health Score ──
+    let healthScore = { score: 100, breakdown: {}, trend: 'stable' };
+    try {
+      healthScore = computeHealthScore(db, churchId);
+    } catch { /* tables may not exist */ }
+
+    // ── Recent Alerts (last 20) ──
+    let recentAlerts = [];
+    try {
+      recentAlerts = db.prepare(
+        `SELECT id, alert_type, severity, created_at, acknowledged_at, resolved
+         FROM alerts WHERE church_id = ?
+         ORDER BY created_at DESC LIMIT 20`
+      ).all(churchId).map(row => ({
+        id: row.id,
+        type: row.alert_type,
+        severity: row.severity,
+        timestamp: row.created_at,
+        resolved: !!row.resolved,
+      }));
+    } catch { /* alerts table may not exist */ }
+
+    // ── Recent Sessions (last 5) ──
+    let recentSessions = [];
+    try {
+      recentSessions = db.prepare(
+        `SELECT id, started_at, ended_at, duration_minutes, alert_count, grade
+         FROM service_sessions WHERE church_id = ?
+         ORDER BY started_at DESC LIMIT 5`
+      ).all(churchId).map(row => ({
+        id: row.id,
+        startedAt: row.started_at,
+        endedAt: row.ended_at,
+        duration: row.duration_minutes,
+        alerts: row.alert_count || 0,
+        grade: row.grade || null,
+      }));
+    } catch { /* table may not exist */ }
+
+    // ── Recent Tickets (last 5) ──
+    let recentTickets = [];
+    try {
+      recentTickets = db.prepare(
+        `SELECT id, title, status, severity, issue_category, created_at
+         FROM support_tickets WHERE church_id = ?
+         ORDER BY created_at DESC LIMIT 5`
+      ).all(churchId);
+    } catch { /* table may not exist */ }
+
+    // ── Last Diagnostic Bundle ──
+    let lastDiagnosticBundle = null;
+    try {
+      const bundle = db.prepare(
+        `SELECT created_at, summary FROM diagnostic_bundles WHERE church_id = ? ORDER BY created_at DESC LIMIT 1`
+      ).get(churchId);
+      if (bundle) {
+        lastDiagnosticBundle = { timestamp: bundle.created_at, summary: bundle.summary || null };
+      }
+    } catch { /* table may not exist */ }
+
+    // ── Chat History (last 20 messages) ──
+    let chatHistory = [];
+    try {
+      if (chatEngine) {
+        chatHistory = chatEngine.getMessages(churchId, { limit: 20 });
+      } else {
+        chatHistory = db.prepare(
+          `SELECT * FROM chat_messages WHERE church_id = ? ORDER BY timestamp DESC LIMIT 20`
+        ).all(churchId).reverse();
+      }
+    } catch { /* table may not exist */ }
+
+    // ── Config summary ──
+    let config = { autoRecovery: false, failover: false, autoPilotRulesCount: 0 };
+    try {
+      const settings = db.prepare('SELECT key, value FROM church_settings WHERE church_id = ?').all(churchId);
+      const settingsMap = {};
+      for (const s of settings) settingsMap[s.key] = s.value;
+      config.autoRecovery = settingsMap.auto_recovery === '1' || settingsMap.auto_recovery === 'true';
+      config.failover = settingsMap.failover === '1' || settingsMap.failover === 'true';
+    } catch { /* table may not exist */ }
+    try {
+      const apCount = db.prepare('SELECT COUNT(*) as cnt FROM autopilot_rules WHERE church_id = ?').get(churchId);
+      config.autoPilotRulesCount = apCount?.cnt || 0;
+    } catch { /* table may not exist */ }
+
+    res.json({
+      church,
+      status,
+      healthScore,
+      recentAlerts,
+      recentSessions,
+      recentTickets,
+      lastDiagnosticBundle,
+      chatHistory,
+      config,
+    });
+  });
+
+  // POST /api/admin/church/:churchId/send-command
+  // Sends an allowed command to the church client via WebSocket.
+  app.post('/api/admin/church/:churchId/send-command', requireAdminSession, (req, res) => {
+    const { churchId } = req.params;
+    const { command, params } = req.body || {};
+
+    if (!command) return res.status(400).json({ error: 'command required' });
+    if (!ALLOWED_ADMIN_COMMANDS.has(command)) {
+      return res.status(400).json({ error: `Unknown command: ${command}. Allowed: ${[...ALLOWED_ADMIN_COMMANDS].join(', ')}` });
+    }
+
+    const churchRow = db.prepare('SELECT churchId FROM churches WHERE churchId = ?').get(churchId);
+    if (!churchRow) return res.status(404).json({ error: 'Church not found' });
+
+    const runtime = churches.get(churchId);
+    if (!runtime?.ws || runtime.ws.readyState !== WebSocket.OPEN) {
+      return res.status(409).json({ error: 'Church client is not connected' });
+    }
+
+    const commandId = uuidv4();
+    try {
+      runtime.ws.send(JSON.stringify({
+        type: 'admin_command',
+        commandId,
+        command,
+        params: params || {},
+      }));
+      auditFromReq(req, 'admin_command_sent', 'church', churchId, { command, commandId });
+      res.json({ sent: true, commandId });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e, 'Failed to send command') });
+    }
+  });
+
+  // POST /api/admin/church/:churchId/send-message
+  // Pushes a support message to the church's app and/or Telegram.
+  app.post('/api/admin/church/:churchId/send-message', requireAdminSession, (req, res) => {
+    const { churchId } = req.params;
+    const { message, targets } = req.body || {};
+
+    if (!message || !message.trim()) return res.status(400).json({ error: 'message required' });
+
+    const churchRow = db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(churchId);
+    if (!churchRow) return res.status(404).json({ error: 'Church not found' });
+
+    const targetList = Array.isArray(targets) ? targets : ['app'];
+    const adminName = req.adminUser?.name || req.adminUser?.email || 'Admin';
+
+    // Save to chat via chatEngine if available
+    let savedMessage = null;
+    try {
+      if (chatEngine) {
+        savedMessage = chatEngine.saveMessage({
+          churchId,
+          senderName: adminName,
+          senderRole: 'admin',
+          source: 'dashboard',
+          message: message.trim(),
+        });
+        // Broadcast to app & telegram via chatEngine broadcasters
+        chatEngine.broadcastChat(savedMessage);
+      } else {
+        // Fallback: send directly via WebSocket to the church
+        const runtime = churches.get(churchId);
+        if (targetList.includes('app') && runtime?.ws?.readyState === WebSocket.OPEN) {
+          runtime.ws.send(JSON.stringify({
+            type: 'admin_message',
+            message: message.trim(),
+            senderName: adminName,
+            timestamp: new Date().toISOString(),
+          }));
+        }
+      }
+    } catch (e) {
+      return res.status(500).json({ error: safeErrorMessage(e, 'Failed to send message') });
+    }
+
+    auditFromReq(req, 'admin_message_sent', 'church', churchId, { targets: targetList });
+    res.json({ sent: true, messageId: savedMessage?.id || null, targets: targetList });
+  });
+
+  // GET /api/admin/churches/support-overview
+  // Quick dashboard of all churches sorted by "needs attention".
+  app.get('/api/admin/churches/support-overview', requireAdminSession, (req, res) => {
+    const rows = db.prepare('SELECT * FROM churches').all();
+    const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    const churchList = rows.map(row => {
+      const runtime = churches.get(row.churchId);
+      const online = runtime?.ws?.readyState === WebSocket.OPEN;
+
+      // Health score
+      let score = 100;
+      try {
+        const hs = computeHealthScore(db, row.churchId);
+        score = hs.score;
+      } catch { /* tables may not exist */ }
+
+      // Active alerts count
+      let activeAlerts = 0;
+      try {
+        activeAlerts = db.prepare(
+          "SELECT COUNT(*) as cnt FROM alerts WHERE church_id = ? AND resolved = 0"
+        ).get(row.churchId)?.cnt || 0;
+      } catch { /* table may not exist */ }
+
+      // Has unresolved critical alerts
+      let hasCriticalAlerts = false;
+      try {
+        const crit = db.prepare(
+          "SELECT COUNT(*) as cnt FROM alerts WHERE church_id = ? AND resolved = 0 AND severity = 'critical'"
+        ).get(row.churchId);
+        hasCriticalAlerts = (crit?.cnt || 0) > 0;
+      } catch { /* table may not exist */ }
+
+      // Open support tickets
+      let hasOpenTickets = false;
+      try {
+        const ot = db.prepare(
+          "SELECT COUNT(*) as cnt FROM support_tickets WHERE church_id = ? AND status IN ('open','in_progress')"
+        ).get(row.churchId);
+        hasOpenTickets = (ot?.cnt || 0) > 0;
+      } catch { /* table may not exist */ }
+
+      // Last session
+      let lastSession = null;
+      try {
+        const ls = db.prepare(
+          'SELECT started_at FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 1'
+        ).get(row.churchId);
+        lastSession = ls?.started_at || null;
+      } catch { /* table may not exist */ }
+
+      // Offline duration check
+      const offlineTooLong = !online && runtime?.lastSeen
+        ? (now - new Date(runtime.lastSeen).getTime()) > TWO_HOURS_MS
+        : !online;
+
+      // Determine needsAttention
+      let needsAttention = false;
+      let attentionReason = '';
+      if (offlineTooLong) {
+        needsAttention = true;
+        attentionReason = 'Offline for more than 2 hours';
+      } else if (score < 70) {
+        needsAttention = true;
+        attentionReason = `Low health score: ${score}`;
+      } else if (hasCriticalAlerts) {
+        needsAttention = true;
+        attentionReason = 'Unresolved critical alerts';
+      } else if (hasOpenTickets) {
+        needsAttention = true;
+        attentionReason = 'Open support tickets';
+      }
+
+      return {
+        id: row.churchId,
+        name: row.name,
+        online,
+        healthScore: score,
+        activeAlerts,
+        lastSession,
+        needsAttention,
+        attentionReason,
+      };
+    });
+
+    // Sort: offline first, then lowest health score, then most active alerts
+    churchList.sort((a, b) => {
+      // Offline first
+      if (a.online !== b.online) return a.online ? 1 : -1;
+      // Lowest health score first
+      if (a.healthScore !== b.healthScore) return a.healthScore - b.healthScore;
+      // Most active alerts first
+      return b.activeAlerts - a.activeAlerts;
+    });
+
+    res.json({ churches: churchList });
+  });
 
   // ── Email Dashboard API ────────────────────────────────────────────────────
 

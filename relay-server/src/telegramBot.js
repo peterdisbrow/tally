@@ -12,6 +12,161 @@ const { classifyIntent } = require('./intent-classifier');
 const { checkStreamSafety, checkWorkflowSafety, hasForceBypass } = require('./stream-guard');
 const { parseRundownDescription, editRundownCues, formatRundownPreview } = require('./rundown-ai');
 
+// ─── CANNED RESPONSES (troubleshooting guides for /fix command) ──────────────
+
+const CANNED_RESPONSES = {
+  'obs': {
+    title: '🔧 OBS Connection Troubleshooting',
+    text: `Here's how to fix OBS connection issues:
+
+1. Make sure OBS Studio is open
+2. Go to Tools → WebSocket Server Settings
+3. Check "Enable WebSocket server"
+4. Set port to 4455
+5. Click OK and restart OBS
+6. In Tally, go to Equipment and verify the OBS connection
+
+If it still won't connect, check that no firewall is blocking port 4455.`
+  },
+  'atem': {
+    title: '🔧 ATEM Connection Troubleshooting',
+    text: `Here's how to fix ATEM connection issues:
+
+1. Check the ATEM is powered on (front panel lights)
+2. Verify the ethernet cable is connected and link lights are active
+3. Open ATEM Software Control — can you connect there?
+4. If not, check the ATEM's IP:
+   - On Mini: hold the button on the front to see the IP on the multiview
+   - On larger models: check ATEM Setup utility
+5. Make sure the IP in Tally Equipment settings matches
+6. Both devices must be on the same subnet (e.g., 192.168.1.x)
+
+Common issue: ATEM defaults to 192.168.10.240 — your network might use a different range.`
+  },
+  'stream': {
+    title: '🔧 Stream Not Working',
+    text: `Steps to fix your stream:
+
+1. Check internet — can you load a website?
+2. In OBS: Settings → Stream — verify your stream key is correct
+3. Check your streaming platform dashboard — is the stream key still valid?
+4. Try stopping and restarting the stream in OBS
+5. If using an encoder: check the encoder dashboard for error messages
+
+If you recently changed your stream key on YouTube/Facebook, update it in OBS too.`
+  },
+  'audio': {
+    title: '🔧 Audio Issues',
+    text: `Steps to fix audio problems:
+
+1. Check the mixer/console is powered on
+2. Verify channel faders and master fader are up (not muted)
+3. Check the audio output to your stream:
+   - USB: make sure OBS has the correct USB audio device selected
+   - Dante: verify Dante routing in Dante Controller
+   - Analog/Aux: check the aux send level going to your encoder
+4. In OBS: check the audio mixer panel — are the meters showing signal?
+5. Click the speaker icon on each audio source to make sure nothing is muted
+
+If meters show signal in OBS but stream has no audio, check your streaming output audio settings.`
+  },
+  'encoder': {
+    title: '🔧 Encoder Troubleshooting',
+    text: `Steps to fix encoder issues:
+
+1. Check the encoder is powered on and showing activity
+2. Verify the network connection (ethernet cable, link lights)
+3. Reboot the encoder (power cycle, wait 60 seconds)
+4. Check the encoder's web dashboard for error messages
+5. Verify the IP address matches what's configured in Tally
+6. Make sure the stream key/destination is configured on the encoder
+
+For Blackmagic Web Presenter: access its web UI at its IP address in a browser.`
+  },
+  'recording': {
+    title: '🔧 Recording Issues',
+    text: `Steps to fix recording problems:
+
+1. Check disk space — you need at least 50GB free for a service
+2. In OBS: Settings → Output → Recording — verify the path exists
+3. Try starting recording manually in OBS
+4. If using HyperDeck: check the SSD is inserted and has space
+5. Check file permissions on the recording directory
+
+Common issue: the recording folder was on an external drive that isn't plugged in.`
+  },
+  'companion': {
+    title: '🔧 Companion Connection Issues',
+    text: `Steps to fix Bitfocus Companion:
+
+1. Check that Companion is running (it's a separate application)
+2. Try opening http://localhost:8000 in a browser
+3. If Companion is on another computer, check the IP in Tally Equipment settings
+4. Verify no firewall is blocking the connection
+5. Restart Companion if needed
+
+Companion must be running for button deck control to work.`
+  },
+  'network': {
+    title: '🔧 Network Troubleshooting',
+    text: `General network troubleshooting:
+
+1. Check your internet connection — load a website in a browser
+2. Verify all devices are on the same network/subnet
+3. Check your network switch — are all link lights active?
+4. Try pinging devices: open Terminal and type "ping [device IP]"
+5. Restart your network switch if multiple devices lost connection
+6. Check if a firewall or content filter is blocking connections
+
+If Tally shows "Relay Disconnected" — it's an internet issue between your building and our server.`
+  },
+  'preservice': {
+    title: '✅ Pre-Service Checklist',
+    text: `Quick pre-service checks:
+
+1. ✅ ATEM connected and on the right scene
+2. ✅ OBS connected, correct scene selected
+3. ✅ Audio levels showing signal on the mixer
+4. ✅ Stream key is set and platform is ready
+5. ✅ Recording drive has space
+6. ✅ All cameras powered on and framed
+7. ✅ ProPresenter/lyrics software loaded
+8. ✅ Test the stream — go live for 30 seconds, check on your phone
+
+Tally runs automated pre-service checks 30 minutes before your scheduled service time.`
+  },
+  'restart': {
+    title: '🔄 Full System Restart Guide',
+    text: `If things are really broken, here's the restart order:
+
+1. Stop the stream and recording
+2. Close OBS
+3. Power cycle the ATEM (wait 30 seconds)
+4. Power cycle any encoders (wait 60 seconds)
+5. Restart Companion
+6. Reopen OBS
+7. Wait for Tally to reconnect all devices (check the Status tab)
+8. Start the stream and recording
+
+This fixes most issues. The order matters — ATEM first, then encoders, then OBS.`
+  },
+};
+
+function _formatFixList() {
+  return `📋 *Available troubleshooting guides:*
+
+/fix obs — OBS connection issues
+/fix atem — ATEM switcher connection
+/fix stream — Stream not working
+/fix audio — Audio problems
+/fix encoder — Encoder issues
+/fix recording — Recording issues
+/fix companion — Companion connection
+/fix network — Network troubleshooting
+/fix preservice — Pre-service checklist
+/fix restart — Full system restart guide`;
+}
+
 function isValidSlackWebhookUrl(url) {
   try {
     const parsed = new URL(String(url || '').trim());
@@ -843,6 +998,27 @@ class TallyBot {
         `🎬 *Event Status — ${dbChurch.name}*${label}\n\n⏱ Time remaining: *${remaining}*\n🕐 Expires: ${expiresLocal}`,
         { parse_mode: 'Markdown' }
       );
+    }
+
+    // ── /fix — canned troubleshooting responses ──────────────────────────────
+    if (/^\ud83d\udee0\s*Troubleshoot$/i.test(text)) {
+      return this.sendMessage(chatId, _formatFixList(), { parse_mode: 'Markdown' });
+    }
+
+    const fixMatch = text.match(/^\/fix(?:\s+(.+))?$/i);
+    if (fixMatch) {
+      const topic = (fixMatch[1] || '').trim().toLowerCase();
+      if (!topic || topic === 'list') {
+        return this.sendMessage(chatId, _formatFixList(), { parse_mode: 'Markdown' });
+      }
+      const response = CANNED_RESPONSES[topic];
+      if (!response) {
+        return this.sendMessage(chatId,
+          `❌ Unknown topic: "${topic}"\n\n${_formatFixList()}`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+      return this.sendMessage(chatId, `*${response.title}*\n\n${response.text}`, { parse_mode: 'Markdown' });
     }
 
     // ── Preset commands ─────────────────────────────────────────────────────
@@ -2410,7 +2586,7 @@ class TallyBot {
           [{ text: '\ud83d\udcf7 Cam 1' }, { text: '\ud83d\udcf7 Cam 2' }, { text: '\ud83d\udcf7 Cam 3' }],
           [{ text: '\ud83d\udd34 Start Stream' }, { text: '\u23f9 Stop Stream' }],
           [{ text: '\ud83c\udfac Start Recording' }, { text: '\u23f9 Stop Recording' }],
-          [{ text: '\ud83d\udcca Status' }, { text: '\ud83d\udd27 Pre-Check' }],
+          [{ text: '\ud83d\udcca Status' }, { text: '\ud83d\udd27 Pre-Check' }, { text: '\ud83d\udee0 Troubleshoot' }],
         ],
         resize_keyboard: true,
         one_time_keyboard: false,
@@ -2485,4 +2661,4 @@ class TallyBot {
   }
 }
 
-module.exports = { TallyBot, parseCommand, RISKY_COMMANDS, RISKY_COMMAND_MAP, RISKY_LABELS };
+module.exports = { TallyBot, parseCommand, RISKY_COMMANDS, RISKY_COMMAND_MAP, RISKY_LABELS, CANNED_RESPONSES };
