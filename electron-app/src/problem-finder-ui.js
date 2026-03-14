@@ -13,6 +13,12 @@ let _pfLastGoNoGo = null;
 let _pfLoading = false;
 let _activeTroubleshoot = null; // { flowKey, stepIndex }
 
+// Named handler for backdrop click (avoids listener leak when reopening)
+function _troubleshootBackdropClick(e) {
+  const overlay = document.getElementById('troubleshoot-overlay');
+  if (e.target === overlay) closeTroubleshooter();
+}
+
 // ─── GUIDED TROUBLESHOOTER FLOWS ─────────────────────────────────────────────
 
 const TROUBLESHOOT_FLOWS = {
@@ -510,10 +516,9 @@ function launchTroubleshooter(issueType) {
     </div>
   `;
 
-  // Close on backdrop click
-  overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) closeTroubleshooter();
-  });
+  // Close on backdrop click (use named function to prevent listener leak)
+  overlay.removeEventListener('click', _troubleshootBackdropClick);
+  overlay.addEventListener('click', _troubleshootBackdropClick);
 
   renderTroubleshootStep(flow, 0);
 }

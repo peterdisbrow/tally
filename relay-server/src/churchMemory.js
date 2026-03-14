@@ -274,14 +274,14 @@ class ChurchMemory {
       // Upsert recurring issue memories from patterns
       for (const p of patterns) {
         // Strip count suffix like " (3x)" from pattern string before using as match key
-        const patternBase = (p.eventType || p.pattern || '').replace(/\s*\(\d+x\)\s*$/, '');
+        const patternBase = (p.pattern || '').replace(/\s*\(\d+x\)\s*$/, '').replace(/\s+/g, '_');
         const matchKey = `recurring:${patternBase}`;
         this._upsertMemory(
           churchId,
           'recurring_issue',
           matchKey,
-          `${(p.eventType || p.pattern || '').replace(/_/g, ' ')} ${p.frequency}x/week${p.timeWindow ? ` around ${p.timeWindow}` : ''}`,
-          { eventType: p.eventType || p.pattern, frequency: p.frequency, timeWindow: p.timeWindow, recommendation: p.recommendation },
+          `${(p.pattern || '').replace(/\s*\(\d+x\)\s*$/, '')} ${p.frequency}x/week${p.timeWindow ? ` around ${p.timeWindow}` : ''}`,
+          { eventType: patternBase, frequency: p.frequency, timeWindow: p.timeWindow, recommendation: p.recommendation },
           'weekly_digest'
         );
       }

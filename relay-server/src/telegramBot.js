@@ -1857,11 +1857,6 @@ class TallyBot {
       const sendCommand = (command, params) => {
         return new Promise((resolve, reject) => {
           const msgId = crypto.randomUUID();
-          const timer = setTimeout(() => {
-            const idx = (this._resultListeners || []).findIndex(h => h._presetMsgId === msgId);
-            if (idx !== -1) this._resultListeners.splice(idx, 1);
-            reject(new Error('Command timed out (10s)'));
-          }, 10000);
           const handler = (msg) => {
             if (msg.type === 'command_result' && msg.churchId === church.churchId && msg.messageId === msgId) {
               clearTimeout(timer);
@@ -1871,6 +1866,11 @@ class TallyBot {
               else resolve(msg.result);
             }
           };
+          const timer = setTimeout(() => {
+            const idx = (this._resultListeners || []).indexOf(handler);
+            if (idx !== -1) this._resultListeners.splice(idx, 1);
+            reject(new Error('Command timed out (10s)'));
+          }, 10000);
           handler._presetMsgId = msgId;
           if (!this._resultListeners) this._resultListeners = [];
           this._resultListeners.push(handler);

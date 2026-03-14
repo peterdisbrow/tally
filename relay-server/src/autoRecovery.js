@@ -170,7 +170,7 @@ class AutoRecovery {
     // Max attempts per failure type per session — after that, always escalate
     const currentCount = this.attemptCounts.get(key) || 0;
     if (currentCount >= MAX_ATTEMPTS) {
-      return { attempted: true, success: false, reason: 'max_attempts_exceeded', command: null, event };
+      return { attempted: false, success: false, reason: 'max_attempts_exceeded', command: null, event };
     }
 
     // Look up the recovery command for this failure type
@@ -232,6 +232,7 @@ class AutoRecovery {
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
+        church.ws.removeListener('message', handler);
         reject(new Error('Command timeout (15s)'));
       }, 15000);
 

@@ -824,8 +824,7 @@ async function completeOnboarding() {
 function skipToManualSetup() {
   api.saveConfig({ setupComplete: true }).then(() => {
     showDashboard();
-    const equipTab = document.querySelector('[data-tab="equipment"]');
-    if (equipTab) equipTab.click();
+    switchTab('equipment');
   });
 }
 
@@ -1892,11 +1891,9 @@ function addActivity(type, text) {
 
 function addAlert(text) {
   // Apply friendly error transformation to error/alert messages
-  let friendlyText = text;
-  if (detectActivityType(text) === 'alert') {
-    friendlyText = friendlyError(text);
-  }
-  addActivity(detectActivityType(friendlyText), friendlyText);
+  const type = detectActivityType(text);
+  const friendlyText = type === 'alert' ? friendlyError(text) : text;
+  addActivity(type, friendlyText);
 }
 
 // ─── OFFLINE MODE HELPERS ───────────────────────────────────────────────────
@@ -2170,13 +2167,13 @@ async function requestPreview() {
 }
 
 async function stopPreview() {
-  const container = document.getElementById('preview-container');
+  const container = document.getElementById('ndi-preview-container');
   if (container) container.classList.remove('has-image');
-  const img = document.getElementById('preview-img');
+  const img = document.getElementById('ndi-preview-img');
   if (img) img.style.display = 'none';
-  const placeholder = document.getElementById('preview-placeholder');
+  const placeholder = document.getElementById('ndi-preview-placeholder');
   if (placeholder) { placeholder.style.display = 'flex'; placeholder.textContent = 'No preview yet'; }
-  const tsEl = document.getElementById('preview-ts');
+  const tsEl = document.getElementById('ndi-preview-ts');
   if (tsEl) tsEl.textContent = '';
   addAlert('⏹ Preview stopped');
   try {
@@ -2187,10 +2184,10 @@ async function stopPreview() {
 }
 
 function handlePreviewFrame(data) {
-  const img = document.getElementById('preview-img');
-  const placeholder = document.getElementById('preview-placeholder');
-  const tsEl = document.getElementById('preview-ts');
-  const container = document.getElementById('preview-container');
+  const img = document.getElementById('ndi-preview-img');
+  const placeholder = document.getElementById('ndi-preview-placeholder');
+  const tsEl = document.getElementById('ndi-preview-ts');
+  const container = document.getElementById('ndi-preview-container');
 
   if (!img || !container) return; // elements may not exist in current layout
 
@@ -2226,7 +2223,7 @@ async function setupLiveStreamLink() {
     el.appendChild(link);
   }
 }
-setupLiveStreamLink();
+// setupLiveStreamLink() — disabled: no 'live-stream-link' element exists in index.html
 
 api.onPreviewFrame((data) => {
   handlePreviewFrame(data);
@@ -2677,7 +2674,7 @@ function showHideKey(id) {
 
 async function connectYouTube() {
   const isSimple = document.getElementById('equip-simple-mode')?.style.display !== 'none';
-  const btn = document.getElementById('btn-oauth-yt');
+  const btn = document.getElementById(isSimple ? 'btn-oauth-yt-simple' : 'btn-oauth-yt');
   const status = document.getElementById(isSimple ? 'oauth-yt-status-simple' : 'oauth-yt-status');
   if (btn) { btn.disabled = true; btn.textContent = 'Connecting...'; }
   if (status) { status.textContent = 'Opening browser...'; status.style.color = 'var(--yellow)'; }
@@ -2699,18 +2696,23 @@ async function connectYouTube() {
 
 async function connectFacebook() {
   const isSimple = document.getElementById('equip-simple-mode')?.style.display !== 'none';
-  const btn = document.getElementById('btn-oauth-fb');
+  const btn = document.getElementById(isSimple ? 'btn-oauth-fb-simple' : 'btn-oauth-fb');
   const status = document.getElementById(isSimple ? 'oauth-fb-status-simple' : 'oauth-fb-status');
   if (btn) { btn.disabled = true; btn.textContent = 'Connecting...'; }
   if (status) { status.textContent = 'Opening browser...'; status.style.color = 'var(--yellow)'; }
   try {
     const result = await api.oauthFacebookConnect();
     if (result.success && result.pages?.length) {
-      // Show page selector
+      // Show page selector in both Advanced and Simple mode
+      const pagesHtml = result.pages.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('');
       const selector = document.getElementById('fb-page-selector');
       const select = document.getElementById('fb-page-select');
-      if (select) select.innerHTML = result.pages.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('');
+      if (select) select.innerHTML = pagesHtml;
       if (selector) selector.style.display = 'block';
+      const selectorSimple = document.getElementById('fb-page-selector-simple');
+      const selectSimple = document.getElementById('fb-page-select-simple');
+      if (selectSimple) selectSimple.innerHTML = pagesHtml;
+      if (selectorSimple) selectorSimple.style.display = 'block';
       if (status) { status.textContent = 'Select a page below'; status.style.color = 'var(--yellow)'; }
       if (btn) btn.textContent = 'Connect Facebook';
     } else if (result.success && result.pages?.length === 0) {
@@ -2729,24 +2731,26 @@ async function connectFacebook() {
 }
 
 async function selectFbPage() {
-  const select = document.getElementById('fb-page-select');
-  const pageId = select.value;
+  const isSimple = document.getElementById('equip-simple-mode')?.style.display !== 'none';
+  const select = document.getElementById(isSimple ? 'fb-page-select-simple' : 'fb-page-select');
+  const pageId = select?.value;
   if (!pageId) return;
 
-  const status = document.getElementById('oauth-fb-status');
-  status.textContent = 'Setting up...';
+  const status = document.getElementById(isSimple ? 'oauth-fb-status-simple' : 'oauth-fb-status');
+  if (status) status.textContent = 'Setting up...';
   try {
     const result = await api.oauthFacebookSelectPage({ pageId });
     if (result.success) {
-      document.getElementById('fb-page-selector').style.display = 'none';
+      const selector = document.getElementById('fb-page-selector');
+      if (selector) selector.style.display = 'none';
+      const selectorSimple = document.getElementById('fb-page-selector-simple');
+      if (selectorSimple) selectorSimple.style.display = 'none';
       updateOAuthUI();
     } else {
-      status.textContent = result.error || 'Failed to select page';
-      status.style.color = 'var(--red, #f44)';
+      if (status) { status.textContent = result.error || 'Failed to select page'; status.style.color = 'var(--red, #f44)'; }
     }
   } catch (e) {
-    status.textContent = e.message;
-    status.style.color = 'var(--red, #f44)';
+    if (status) { status.textContent = e.message; status.style.color = 'var(--red, #f44)'; }
   }
 }
 

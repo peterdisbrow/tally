@@ -12,7 +12,8 @@ function createTestDb() {
       churchId TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       billing_status TEXT DEFAULT 'active',
-      billing_tier TEXT DEFAULT 'connect'
+      billing_tier TEXT DEFAULT 'connect',
+      service_times TEXT DEFAULT '[]'
     )
   `);
 
@@ -437,9 +438,9 @@ describe('HealthAlertMonitor — checkMissedServices', () => {
 
   it('detects missed services when schedule exists but sessions missing', async () => {
     // Schedule: 2 services per week
-    db.prepare('INSERT INTO church_schedules (church_id, schedule_json) VALUES (?, ?)').run(
-      'church-1',
-      JSON.stringify([{ day: 'Sunday', time: '10:00' }, { day: 'Wednesday', time: '19:00' }])
+    db.prepare('UPDATE churches SET service_times = ? WHERE churchId = ?').run(
+      JSON.stringify([{ day: 'Sunday', time: '10:00' }, { day: 'Wednesday', time: '19:00' }]),
+      'church-1'
     );
 
     // Expected: 6 sessions over 3 weeks, but only 2 actually happened
@@ -458,9 +459,9 @@ describe('HealthAlertMonitor — checkMissedServices', () => {
   });
 
   it('returns null when all scheduled services were attended', async () => {
-    db.prepare('INSERT INTO church_schedules (church_id, schedule_json) VALUES (?, ?)').run(
-      'church-1',
-      JSON.stringify([{ day: 'Sunday', time: '10:00' }])
+    db.prepare('UPDATE churches SET service_times = ? WHERE churchId = ?').run(
+      JSON.stringify([{ day: 'Sunday', time: '10:00' }]),
+      'church-1'
     );
 
     // 1 per week for 3 weeks = 3 expected. Add 3 sessions.

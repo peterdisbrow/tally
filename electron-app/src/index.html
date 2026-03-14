@@ -436,7 +436,7 @@
           <span style="font-size:12px; font-weight:600; color:var(--white); font-family:var(--font);">YouTube</span>
           <span class="oauth-status" id="oauth-yt-status-simple" style="font-size:11px; color:var(--muted); font-family:var(--mono);">Not connected</span>
         </div>
-        <button class="btn-oauth" onclick="connectYouTube()">Connect</button>
+        <button class="btn-oauth" id="btn-oauth-yt-simple" onclick="connectYouTube()">Connect</button>
       </div>
       <!-- Facebook OAuth (Simple) -->
       <div class="oauth-row" id="oauth-facebook-row-simple" style="margin-top:8px;">
@@ -445,7 +445,13 @@
           <span style="font-size:12px; font-weight:600; color:var(--white); font-family:var(--font);">Facebook</span>
           <span class="oauth-status" id="oauth-fb-status-simple" style="font-size:11px; color:var(--muted); font-family:var(--mono);">Not connected</span>
         </div>
-        <button class="btn-oauth" onclick="connectFacebook()">Connect</button>
+        <button class="btn-oauth" id="btn-oauth-fb-simple" onclick="connectFacebook()">Connect</button>
+      </div>
+      <!-- Facebook page selector for Simple mode (hidden until OAuth completes) -->
+      <div id="fb-page-selector-simple" style="display:none; margin-top:10px; padding:10px; background:var(--card); border-radius:6px;">
+        <label style="font-size:11px; color:var(--muted);">Select your Facebook Page:</label>
+        <select id="fb-page-select-simple" style="width:100%; margin-top:4px; padding:6px; background:var(--bg); color:var(--white); border:1px solid var(--border); border-radius:4px; font-family:var(--font); font-size:12px;"></select>
+        <button class="btn-oauth" style="margin-top:8px;" onclick="selectFbPage()">Use This Page</button>
       </div>
 
       <div style="margin-top:16px; text-align:center;">

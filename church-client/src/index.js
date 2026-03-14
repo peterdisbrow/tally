@@ -395,6 +395,7 @@ class ChurchAVAgent {
     // ── Recent alerts / commands for diagnostic bundles ─────────────────────────
     this._recentAlerts = [];           // last 50 alerts (for diagnostic bundle)
     this._recentCommands = [];         // last 20 commands sent/received
+    this._lastAlerts = new Map();      // alertType → timestamp (dedup for watchdog)
 
     // ── Interval tracking for clean shutdown ───────────────────────────────────
     this._intervals = [];              // all setInterval IDs for unified cleanup
@@ -590,7 +591,6 @@ class ChurchAVAgent {
 
     // Watchdog
     this.watchdogActive = this.config.watchdog !== false;
-    this._lastAlerts = new Map(); // alertType → timestamp (dedup)
     if (this.watchdogActive) {
       console.log('🐕 Watchdog enabled (30s interval)');
       this._track(setInterval(() => this.watchdogTick(), 30_000));
@@ -787,7 +787,11 @@ class ChurchAVAgent {
         doResolve();
 
         // Ping relay every 30s to measure latency
-        if (this._relayPingTimer) clearInterval(this._relayPingTimer);
+        if (this._relayPingTimer) {
+          clearInterval(this._relayPingTimer);
+          const oldIdx = this._intervals.indexOf(this._relayPingTimer);
+          if (oldIdx !== -1) this._intervals.splice(oldIdx, 1);
+        }
         this._relayPingTimer = this._track(setInterval(() => {
           if (this.relay?.readyState === WebSocket.OPEN) {
             this._relayPingSent = Date.now();
@@ -811,14 +815,16 @@ class ChurchAVAgent {
         if (this._relayPingTimer) clearInterval(this._relayPingTimer);
         this.health.relay.reconnects++;
         doResolve(); // Don't block startup if relay is down
-        if (!this._stopping) {
-          setTimeout(() => this.connectRelay(), this.reconnectDelay);
+        if (!this._stopping && !this._reconnectScheduled) {
+          this._reconnectScheduled = true;
+          setTimeout(() => { this._reconnectScheduled = false; this.connectRelay(); }, this.reconnectDelay);
           this.reconnectDelay = Math.min(this.reconnectDelay * 2, 60_000);
         }
       });
 
       this.relay.on('error', (err) => {
-        this._relayConnecting = false;
+        // Don't clear _relayConnecting here — the 'close' event always follows
+        // and handles reconnection scheduling.
         console.error('Relay error:', err.message);
         doResolve(); // Don't block startup on error
       });
@@ -849,6 +855,12 @@ class ChurchAVAgent {
         break;
       case 'pong':
         if (msg.ts) this.health.relay.latencyMs = Date.now() - msg.ts;
+        this._lastPongTime = Date.now();
+        break;
+      case 'failover_state':
+        this.log('Received failover state update from relay');
+        // Forward to any listeners (the electron app parses stdout)
+        this.log(`[SignalFailover] STATE_UPDATE: ${JSON.stringify(msg)}`);
         break;
       default:
         console.log('Relay msg:', msg.type);
@@ -1121,10 +1133,11 @@ class ChurchAVAgent {
     this.atemReconnecting = true;
     console.log(`   Reconnecting ATEM in ${this.atemReconnectDelay / 1000}s...`);
     setTimeout(async () => {
-      this.atemReconnecting = false;
       try {
         await this.atem.connect(this.config.atemIp);
+        this.atemReconnecting = false;
       } catch (e) {
+        this.atemReconnecting = false;
         console.warn(`⚠️  ATEM reconnect failed: ${e.message}`);
         this.atemReconnectDelay = Math.min(this.atemReconnectDelay * 2, 60_000);
         this.reconnectATEM();
@@ -1134,12 +1147,11 @@ class ChurchAVAgent {
 
   async atemCommand(fn, timeoutMs = 10000) {
     if (!this.atem || !this.status.atem.connected) throw new Error('ATEM not connected');
-    return Promise.race([
-      fn(),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('ATEM command timed out after ' + (timeoutMs / 1000) + 's')), timeoutMs)
-      ),
-    ]);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('ATEM command timed out after ' + (timeoutMs / 1000) + 's')), timeoutMs);
+      fn().then(result => { clearTimeout(timer); resolve(result); })
+          .catch(err => { clearTimeout(timer); reject(err); });
+    });
   }
 
   async stop() {
@@ -1162,27 +1174,42 @@ class ChurchAVAgent {
     // 4. Prevent pending ATEM reconnect from firing
     this.atemReconnecting = true;
 
-    // 5. Disconnect all devices
+    // 5. Disconnect all devices (each in its own try/catch so one failure doesn't skip the rest)
     try {
       if (this.obs && typeof this.obs.disconnect === 'function') {
         await this.obs.disconnect();
       }
+    } catch { /* ignore */ }
+
+    try {
       if (this.proPresenter && typeof this.proPresenter.disconnect === 'function') {
         this.proPresenter.disconnect();
       }
+    } catch { /* ignore */ }
+
+    try {
       if (this.mixer && typeof this.mixer.disconnect === 'function') {
         await this.mixer.disconnect();
       }
+    } catch { /* ignore */ }
+
+    try {
       if (Array.isArray(this.hyperdecks)) {
         await Promise.allSettled(this.hyperdecks.map((deck) => deck?.disconnect?.()));
       }
+    } catch { /* ignore */ }
+
+    try {
       if (this.atem && typeof this.atem.disconnect === 'function') {
         await this.atem.disconnect();
       }
+    } catch { /* ignore */ }
+
+    try {
       if (this.atem && typeof this.atem.destroy === 'function') {
         this.atem.destroy();
       }
-    } catch {}
+    } catch { /* ignore */ }
 
     // 6. Clean up Companion, StreamHealthMonitor, AudioMonitor
     if (this.companion?.stopPolling) this.companion.stopPolling();
@@ -1673,7 +1700,7 @@ class ChurchAVAgent {
 
   async connectProPresenter() {
     const ppConfig = this.config.proPresenter || {};
-    if (!ppConfig.host && ppConfig.host !== 'localhost') {
+    if (!ppConfig.host) {
       console.log('⛪ ProPresenter not configured (set via Equipment tab)');
       return;
     }

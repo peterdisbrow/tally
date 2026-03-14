@@ -467,6 +467,7 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN failover_action TEXT",
   "ALTER TABLE churches ADD COLUMN failover_auto_recover INTEGER DEFAULT 0",
   "ALTER TABLE churches ADD COLUMN failover_audio_trigger INTEGER DEFAULT 0",
+  "ALTER TABLE churches ADD COLUMN recovery_outside_service_hours INTEGER DEFAULT 1",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -1053,16 +1054,6 @@ function enforceGracePeriods() {
   }
 }
 
-// Run immediately on startup, then every hour
-checkExpiredTrials();
-enforceGracePeriods();
-_intervals.push(setInterval(checkExpiredTrials, 60 * 60 * 1000));
-_intervals.push(setInterval(enforceGracePeriods, 60 * 60 * 1000));
-
-// ─── CHAT LOG PRUNING (nightly, 30-day retention) ────────────────────────────
-chatEngine.pruneOldMessages(30); // run on startup
-_intervals.push(setInterval(() => chatEngine.pruneOldMessages(30), 24 * 60 * 60 * 1000));
-
 // ─── LIFECYCLE EMAILS ────────────────────────────────────────────────────────
 // Automated email sequences: setup nudge, first-sunday prep, check-in,
 // trial warnings, trial expired, payment failed, weekly digest.
@@ -1072,6 +1063,16 @@ const lifecycleEmails = new LifecycleEmails(db, {
   fromEmail: FROM_EMAIL,
   appUrl: APP_URL,
 });
+
+// Run immediately on startup, then every hour
+checkExpiredTrials();
+enforceGracePeriods();
+_intervals.push(setInterval(checkExpiredTrials, 60 * 60 * 1000));
+_intervals.push(setInterval(enforceGracePeriods, 60 * 60 * 1000));
+
+// ─── CHAT LOG PRUNING (nightly, 30-day retention) ────────────────────────────
+chatEngine.pruneOldMessages(30); // run on startup
+_intervals.push(setInterval(() => chatEngine.pruneOldMessages(30), 24 * 60 * 60 * 1000));
 billing.setLifecycleEmails(lifecycleEmails);
 sessionRecap.setLifecycleEmails(lifecycleEmails);
 weeklyDigest.setLifecycleEmails(lifecycleEmails);
@@ -3067,8 +3068,6 @@ function handleChurchConnection(ws, url, clientIp) {
   ws.on('error', (err) => {
     console.error(`WS error from church "${church.name}":`, err.message);
   });
-
-  safeSend(ws, { type: 'connected', churchId: church.churchId, name: church.name });
 }
 
 function handleControllerConnection(ws, url, req) {
@@ -3331,7 +3330,7 @@ function handleChurchMessage(church, msg) {
       }
       const saved = chatEngine.saveMessage({
         churchId: church.churchId,
-        senderName: msg.senderName || church.tdName || 'TD',
+        senderName: msg.senderName || church.td_name || 'TD',
         senderRole: msg.senderRole || 'td',
         source: 'app',
         message: msg.message.trim(),

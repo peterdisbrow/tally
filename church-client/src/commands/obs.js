@@ -162,7 +162,7 @@ async function obsSetSceneItemEnabled(agent, params) {
 }
 
 async function obsConfigureMonitorStream(agent, params) {
-  if (!agent.obs) throw new Error('OBS not connected');
+  const obs = ensureObs(agent);
 
   const { relayUrl, streamKey, bitrate = 3000, startStream = false } = params || {};
   if (!relayUrl)  throw new Error('relayUrl is required');
@@ -172,7 +172,7 @@ async function obsConfigureMonitorStream(agent, params) {
   const serverUrl = relayUrl.endsWith('/') ? relayUrl.slice(0, -1) : relayUrl;
 
   // Configure the stream service to Custom RTMP
-  await agent.obs.call('SetStreamServiceSettings', {
+  await obs.call('SetStreamServiceSettings', {
     streamServiceType: 'rtmp_custom',
     streamServiceSettings: {
       server:   serverUrl,
@@ -189,12 +189,12 @@ async function obsConfigureMonitorStream(agent, params) {
     // Check if already streaming to avoid duplicate start
     let alreadyStreaming = false;
     try {
-      const streamStatus = await agent.obs.call('GetStreamStatus');
+      const streamStatus = await obs.call('GetStreamStatus');
       alreadyStreaming = streamStatus?.outputActive || false;
     } catch { /* GetStreamStatus may not be available on all OBS versions */ }
 
     if (!alreadyStreaming) {
-      await agent.obs.call('StartStream');
+      await obs.call('StartStream');
       result += ' — stream started';
     } else {
       result += ' — already streaming (stream not restarted; use obs.stopStream then obs.startStream to apply)';
@@ -205,16 +205,16 @@ async function obsConfigureMonitorStream(agent, params) {
 }
 
 async function obsReduceBitrate(agent, params) {
-  if (!agent.obs || !agent.status.obs.connected) throw new Error('OBS not connected');
+  const obs = ensureObs(agent);
   const reductionPercent = params.reductionPercent || 20;
-  const settings = await agent.obs.call('GetStreamServiceSettings');
+  const settings = await obs.call('GetStreamServiceSettings');
   const currentBitrate = parseInt(settings.streamServiceSettings?.bitsPerSecond || settings.streamServiceSettings?.bitrate || '4500', 10);
   const newBitrate = Math.round(currentBitrate * (1 - reductionPercent / 100));
   const newSettings = { ...settings.streamServiceSettings };
   // OBS stores bitrate in different keys depending on service type
   if (newSettings.bitsPerSecond !== undefined) newSettings.bitsPerSecond = newBitrate;
   else newSettings.bitrate = String(newBitrate);
-  await agent.obs.call('SetStreamServiceSettings', {
+  await obs.call('SetStreamServiceSettings', {
     streamServiceType: settings.streamServiceType,
     streamServiceSettings: newSettings,
   });

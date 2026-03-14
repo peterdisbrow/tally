@@ -35,6 +35,9 @@ async function recoveryRestartStream(agent, params) {
 
   // vMix stream restart
   if (source === 'vmix' || (!source && agent.vmix && agent.status.vmix?.connected)) {
+    if (typeof agent.vmix.stopStream !== 'function' || typeof agent.vmix.startStream !== 'function') {
+      throw new Error('vMix instance does not support stopStream/startStream methods');
+    }
     try { await agent.vmix.stopStream(); } catch { /* may already be stopped */ }
     await new Promise(r => setTimeout(r, 2000));
     await agent.vmix.startStream();
@@ -68,6 +71,9 @@ async function recoveryRestartRecording(agent, params) {
 
   // vMix recording
   if (source === 'vmix' || (!source && agent.vmix && agent.status.vmix?.connected)) {
+    if (typeof agent.vmix.stopRecording !== 'function' || typeof agent.vmix.startRecording !== 'function') {
+      throw new Error('vMix instance does not support stopRecording/startRecording methods');
+    }
     try { await agent.vmix.stopRecording(); } catch { /* may already be stopped */ }
     await new Promise(r => setTimeout(r, 2000));
     await agent.vmix.startRecording();
@@ -166,11 +172,15 @@ async function recoveryResetAudio(agent) {
 
   // Try unmuting the mixer master output
   if (agent.mixer) {
-    try {
-      await agent.mixer.unmuteMaster();
-      results.push('Mixer master unmuted');
-    } catch (e) {
-      results.push(`Mixer unmute failed: ${e.message}`);
+    if (typeof agent.mixer.unmuteMaster === 'function') {
+      try {
+        await agent.mixer.unmuteMaster();
+        results.push('Mixer master unmuted');
+      } catch (e) {
+        results.push(`Mixer unmute failed: ${e.message}`);
+      }
+    } else {
+      results.push('Mixer does not support unmuteMaster');
     }
   }
 
@@ -197,11 +207,15 @@ async function recoveryResetAudio(agent) {
 
   // Try unmuting vMix master
   if (agent.vmix && agent.status.vmix?.connected) {
-    try {
-      await agent.vmix.unmuteMaster();
-      results.push('vMix master unmuted');
-    } catch (e) {
-      results.push(`vMix unmute failed: ${e.message}`);
+    if (typeof agent.vmix.unmuteMaster === 'function') {
+      try {
+        await agent.vmix.unmuteMaster();
+        results.push('vMix master unmuted');
+      } catch (e) {
+        results.push(`vMix unmute failed: ${e.message}`);
+      }
+    } else {
+      results.push('vMix does not support unmuteMaster');
     }
   }
 

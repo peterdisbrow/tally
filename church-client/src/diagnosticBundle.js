@@ -37,9 +37,7 @@ async function collectDiagnosticBundle(agent) {
   const WebSocket = require('ws');
   connections.relay = {
     connected: agent.relay?.readyState === WebSocket.OPEN,
-    lastHeartbeat: agent.health?.relay?.latencyMs != null
-      ? Date.now() - (agent.health.relay.latencyMs || 0)
-      : null,
+    lastHeartbeat: agent._lastPongTime || (agent.health?.relay?.latencyMs != null ? Date.now() : null),
     url: agent.config?.relay || null,
   };
 

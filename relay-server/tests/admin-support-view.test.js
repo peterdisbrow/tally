@@ -401,7 +401,7 @@ describe('Admin Support View (Quick Actions)', () => {
       expect(ws.send).toHaveBeenCalledOnce();
 
       const sentPayload = JSON.parse(ws.send.mock.calls[0][0]);
-      expect(sentPayload.type).toBe('admin_command');
+      expect(sentPayload.type).toBe('command');
       expect(sentPayload.command).toBe('restart_stream');
     });
 

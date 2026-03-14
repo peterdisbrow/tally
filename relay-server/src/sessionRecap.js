@@ -571,7 +571,7 @@ Church profile:
    * Must escape: _ * [ ] ( ) ~ ` > # + - = | { } . !
    */
   _escapeTelegramMd(text) {
-    return text.replace(/([_\[\]()~`>#+=|{}.!\\-])/g, '\\$1');
+    return text.replace(/([_*\[\]()~`>#+=|{}.!\\-])/g, '\\$1');
   }
 
   async _sendTelegram(chatId, botToken, text) {

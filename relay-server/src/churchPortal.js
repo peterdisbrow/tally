@@ -5164,7 +5164,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── GET /api/church/failover ─────────────────────────────────────────────────
-  app.get('/api/church/failover', authMiddleware, (req, res) => {
+  app.get('/api/church/failover', supportAuthMiddleware, (req, res) => {
     try {
       const row = db.prepare(
         `SELECT failover_enabled, failover_black_threshold_s, failover_ack_timeout_s,
@@ -5188,7 +5188,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── GET /api/church/failover/state ─────────────────────────────────────────────
-  app.get('/api/church/failover/state', authMiddleware, (req, res) => {
+  app.get('/api/church/failover/state', supportAuthMiddleware, (req, res) => {
     try {
       const state = signalFailover.getState(req.church.churchId);
       res.json(state);
@@ -5200,7 +5200,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // ── GET /api/church/failover/sources ──────────────────────────────────────────
   // Returns available failover sources from live device status (ATEM inputs,
   // VideoHub routes, OBS scenes) so the Electron app can populate a dropdown.
-  app.get('/api/church/failover/sources', authMiddleware, (req, res) => {
+  app.get('/api/church/failover/sources', supportAuthMiddleware, (req, res) => {
     try {
       const churchId = req.church.churchId;
       const church = churches.get(churchId);
@@ -5243,7 +5243,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── PUT /api/church/failover ─────────────────────────────────────────────────
-  app.put('/api/church/failover', authMiddleware, (req, res) => {
+  app.put('/api/church/failover', supportAuthMiddleware, (req, res) => {
     try {
       const { enabled, blackThresholdS, ackTimeoutS, action, autoRecover, audioTrigger } = req.body;
       const churchId = req.church.churchId;
@@ -5497,7 +5497,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── GET /api/church/preservice-check ──────────────────────────────────────────
   // Returns the latest pre-service check result for the authenticated church.
-  app.get('/api/church/preservice-check', authMiddleware, (req, res) => {
+  app.get('/api/church/preservice-check', supportAuthMiddleware, (req, res) => {
     try {
       const row = db.prepare(
         'SELECT * FROM preservice_check_results WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
@@ -5511,7 +5511,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── POST /api/church/preservice-check/run ───────────────────────────────────
   // Triggers a manual pre-service check via WebSocket command to the church client.
-  app.post('/api/church/preservice-check/run', authMiddleware, async (req, res) => {
+  app.post('/api/church/preservice-check/run', supportAuthMiddleware, async (req, res) => {
     try {
       if (!preServiceCheck) return res.status(503).json({ error: 'Pre-service check not available' });
       const result = await preServiceCheck.runManualCheck(req.church.churchId);
@@ -5524,7 +5524,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── POST /api/church/preservice-check/fix-all ────────────────────────────────
   // Sends fix commands for all auto-fixable failures from the latest pre-service check.
-  app.post('/api/church/preservice-check/fix-all', authMiddleware, async (req, res) => {
+  app.post('/api/church/preservice-check/fix-all', supportAuthMiddleware, async (req, res) => {
     try {
       const churchId = req.church.churchId;
       const churchRuntime = churches.get(churchId);
@@ -5645,7 +5645,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.get('/api/church/rundown/active', authMiddleware, (req, res) => {
+  app.get('/api/church/rundown/active', supportAuthMiddleware, (req, res) => {
     try {
       if (!rundownEngine) return res.json({ active: false });
       const active = rundownEngine.getActiveRundown(req.church.churchId);
@@ -5655,7 +5655,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/church/rundown/advance', authMiddleware, (req, res) => {
+  app.post('/api/church/rundown/advance', supportAuthMiddleware, (req, res) => {
     try {
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
       const result = rundownEngine.advanceStep(req.church.churchId);
@@ -5665,7 +5665,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/church/rundown/execute', authMiddleware, async (req, res) => {
+  app.post('/api/church/rundown/execute', supportAuthMiddleware, async (req, res) => {
     try {
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
       const current = rundownEngine.getCurrentStep(req.church.churchId);
@@ -5701,11 +5701,68 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
-  app.post('/api/church/rundown/deactivate', authMiddleware, (req, res) => {
+  app.post('/api/church/rundown/deactivate', supportAuthMiddleware, (req, res) => {
     try {
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
       res.json(rundownEngine.deactivateRundown(req.church.churchId));
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // ── POST /api/church/rundown/jump ──────────────────────────────────────────
+  // Jump to a specific step in the active rundown by index.
+  app.post('/api/church/rundown/jump', supportAuthMiddleware, (req, res) => {
+    try {
+      if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
+      const { stepIndex } = req.body;
+      if (stepIndex == null || typeof stepIndex !== 'number') {
+        return res.status(400).json({ error: 'stepIndex (number) required' });
+      }
+      const result = rundownEngine.goToStep(req.church.churchId, stepIndex);
+      if (!result) return res.status(400).json({ error: 'Cannot jump — invalid step or no active rundown' });
+      const current = rundownEngine.getCurrentStep(req.church.churchId);
+      res.json({ ...result, ...current });
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // ── POST /api/church/app/send-command ──────────────────────────────────────
+  // Sends a command to the church client via WebSocket, accessible with church
+  // app Bearer tokens (used by the Electron troubleshooter auto-actions).
+  app.post('/api/church/app/send-command', supportAuthMiddleware, (req, res) => {
+    const { command, params } = req.body || {};
+    if (!command) return res.status(400).json({ error: 'command required' });
+
+    const ALLOWED_APP_COMMANDS = new Set([
+      'restart_stream', 'stop_stream', 'start_recording', 'stop_recording',
+      'reconnect_obs', 'reconnect_atem', 'reconnect_encoder', 'restart_encoder',
+      'system.diagnosticBundle', 'system.preServiceCheck',
+      'mixer.unmute', 'mixer.mute', 'mixer.recallScene',
+      'atem.runMacro', 'obs.setScene', 'vmix.function', 'vmix.setProgram',
+    ]);
+
+    if (!ALLOWED_APP_COMMANDS.has(command)) {
+      return res.status(400).json({ error: `Unknown command: ${command}. Allowed: ${[...ALLOWED_APP_COMMANDS].join(', ')}` });
+    }
+
+    const churchId = req.church.churchId;
+    const runtime = churches.get(churchId);
+    if (!runtime?.ws || runtime.ws.readyState !== 1) {
+      return res.status(409).json({ error: 'Church client is not connected' });
+    }
+
+    const crypto = require('crypto');
+    const commandId = crypto.randomUUID();
+    try {
+      runtime.ws.send(JSON.stringify({
+        type: 'command',
+        id: commandId,
+        command,
+        params: params || {},
+        source: 'app',
+      }));
+      res.json({ sent: true, commandId });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e, 'Failed to send command') });
+    }
   });
 
   // ── Scheduler routes (church portal) ────────────────────────────────────────
@@ -6022,6 +6079,11 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         return res.status(400).json({ error: 'Already on this plan.' });
       }
 
+      const TIER_ORDER = { connect: 0, plus: 1, pro: 2, managed: 3 };
+      if (TIER_ORDER[newTier] < TIER_ORDER[currentTier]) {
+        return res.status(400).json({ error: 'Use the downgrade endpoint instead.' });
+      }
+
       const billingRow = db.prepare(
         'SELECT stripe_customer_id, stripe_subscription_id, billing_interval FROM billing_customers WHERE church_id = ? ORDER BY datetime(updated_at) DESC LIMIT 1'
       ).get(church.churchId);
@@ -6241,8 +6303,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       // Schedule
       try {
-        const sched = db.prepare('SELECT schedule_json FROM church_schedules WHERE church_id = ?').get(churchId);
-        if (sched) exportData.schedule = JSON.parse(sched.schedule_json);
+        const sched = db.prepare('SELECT service_times FROM churches WHERE churchId = ?').get(churchId);
+        if (sched && sched.service_times) exportData.schedule = JSON.parse(sched.service_times);
       } catch { /* */ }
 
       // Reviews
@@ -6313,7 +6375,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         { table: 'church_tds', column: 'church_id' },
         { table: 'church_schedules', column: 'church_id' },
         { table: 'church_reviews', column: 'church_id' },
-        { table: 'guest_tokens', column: 'church_id' },
+        { table: 'guest_tokens', column: 'churchId' },
         { table: 'maintenance_windows', column: 'churchId' },
         { table: 'email_sends', column: 'church_id' },
         { table: 'referrals', column: 'referrer_id' },
@@ -6691,7 +6753,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         equipment_auto_resolve_rates: equipAutoResolve,
       });
     } catch (e) {
-      log(`[Analytics] Error: ${e.message}`);
+      log.error(`[Analytics] Error: ${e.message}`);
       res.status(500).json({ error: 'Failed to load analytics' });
     }
   });

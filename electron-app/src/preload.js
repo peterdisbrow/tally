@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportTestLogs: () => ipcRenderer.invoke('export-test-logs'),
   testEquipmentConnection: (params) => ipcRenderer.invoke('test-equipment-connection', params),
   requestPreview: (action) => ipcRenderer.invoke('request-preview', action),
+  requestPreviewFrame: () => ipcRenderer.invoke('request-preview-frame'),
   scanNetwork: (options = {}) => ipcRenderer.invoke('scan-network', options),
   getNetworkInterfaces: () => ipcRenderer.invoke('get-network-interfaces'),
   saveEquipment: (config) => ipcRenderer.invoke('save-equipment', config),

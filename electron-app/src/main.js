@@ -821,10 +821,8 @@ ipcMain.handle('send-command', async (_, cmd, params) => {
   const config = loadConfig();
   if (!config.token) return { error: 'Not configured' };
   const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
-  const churchId = decodeChurchIdFromToken(config.token);
-  if (!churchId) return { error: 'Could not determine church ID' };
   try {
-    const resp = await fetch(`${relayHttp}/api/admin/church/${churchId}/send-command`, {
+    const resp = await fetch(`${relayHttp}/api/church/app/send-command`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
       body: JSON.stringify({ command: cmd, params: params || {} }),
@@ -931,7 +929,7 @@ ipcMain.handle('preservice-status', async () => {
   if (!config.token) return { error: 'Not configured' };
   const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
   try {
-    const resp = await fetch(`${relayHttp}/api/church/preservice/status`, {
+    const resp = await fetch(`${relayHttp}/api/church/preservice-check`, {
       headers: { 'Authorization': `Bearer ${config.token}` },
       signal: AbortSignal.timeout(8000),
     });
@@ -948,7 +946,7 @@ ipcMain.handle('get-session-latest', async () => {
   if (!config.token) return { error: 'Not configured' };
   const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
   try {
-    const resp = await fetch(`${relayHttp}/api/church/session/latest`, {
+    const resp = await fetch(`${relayHttp}/api/church/session/active`, {
       headers: { 'Authorization': `Bearer ${config.token}` },
       signal: AbortSignal.timeout(8000),
     });
@@ -1106,7 +1104,7 @@ ipcMain.handle('save-engineer-profile', async (_, profile) => {
   if (!config.token) return { error: 'Not configured' };
   const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
   try {
-    const resp = await fetch(`${relayHttp}/api/church/me`, {
+    const resp = await fetch(`${relayHttp}/api/church/app/me`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
       body: JSON.stringify({ engineerProfile: profile }),

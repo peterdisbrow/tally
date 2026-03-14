@@ -166,7 +166,7 @@ describe('Attempt counting', () => {
 
     // Attempt 4 — should be max_attempts_exceeded
     const r4 = await recovery.attempt(church, 'stream_stopped', {});
-    expect(r4.attempted).toBe(true);
+    expect(r4.attempted).toBe(false);
     expect(r4.success).toBe(false);
     expect(r4.reason).toBe('max_attempts_exceeded');
   });
@@ -324,14 +324,14 @@ describe('Recovery command dispatch', () => {
     await vi.waitFor(() => expect(church.ws._sent.length).toBeGreaterThan(0));
     const sent = church.ws._sent[0];
     expect(sent.type).toBe('command');
-    expect(sent.command).toBe('restart_stream');
+    expect(sent.command).toBe('recovery.restartStream');
     church.ws._respond(sent.id, { ok: true });
 
     const result = await attemptPromise;
     expect(result.attempted).toBe(true);
     expect(result.success).toBe(true);
     expect(result.reason).toBe('command_dispatched');
-    expect(result.command).toBe('restart_stream');
+    expect(result.command).toBe('recovery.restartStream');
   });
 
   it('dispatches restart_stream with source:atem for atem_stream_stopped', async () => {
@@ -339,7 +339,7 @@ describe('Recovery command dispatch', () => {
     const attemptPromise = recovery.attempt(church, 'atem_stream_stopped', {});
     await vi.waitFor(() => expect(church.ws._sent.length).toBeGreaterThan(0));
     const sent = church.ws._sent[0];
-    expect(sent.command).toBe('restart_stream');
+    expect(sent.command).toBe('recovery.restartStream');
     expect(sent.params.source).toBe('atem');
     church.ws._respond(sent.id, { ok: true });
     const result = await attemptPromise;
@@ -351,11 +351,11 @@ describe('Recovery command dispatch', () => {
     const attemptPromise = recovery.attempt(church, 'encoder_disconnected', {});
     await vi.waitFor(() => expect(church.ws._sent.length).toBeGreaterThan(0));
     const sent = church.ws._sent[0];
-    expect(sent.command).toBe('restart_encoder');
+    expect(sent.command).toBe('recovery.restartEncoder');
     church.ws._respond(sent.id, { ok: true });
     const result = await attemptPromise;
     expect(result.success).toBe(true);
-    expect(result.command).toBe('restart_encoder');
+    expect(result.command).toBe('recovery.restartEncoder');
   });
 
   it('dispatches restart_recording for recording_not_started', async () => {
@@ -363,11 +363,11 @@ describe('Recovery command dispatch', () => {
     const attemptPromise = recovery.attempt(church, 'recording_not_started', {});
     await vi.waitFor(() => expect(church.ws._sent.length).toBeGreaterThan(0));
     const sent = church.ws._sent[0];
-    expect(sent.command).toBe('restart_recording');
+    expect(sent.command).toBe('recovery.restartRecording');
     church.ws._respond(sent.id, { ok: true });
     const result = await attemptPromise;
     expect(result.success).toBe(true);
-    expect(result.command).toBe('restart_recording');
+    expect(result.command).toBe('recovery.restartRecording');
   });
 
   it('dispatches reconnect_device for connection_lost with deviceId', async () => {
@@ -375,12 +375,12 @@ describe('Recovery command dispatch', () => {
     const attemptPromise = recovery.attempt(church, 'connection_lost', { deviceId: 'ptz-cam-1' });
     await vi.waitFor(() => expect(church.ws._sent.length).toBeGreaterThan(0));
     const sent = church.ws._sent[0];
-    expect(sent.command).toBe('reconnect_device');
+    expect(sent.command).toBe('recovery.reconnectDevice');
     expect(sent.params.deviceId).toBe('ptz-cam-1');
     church.ws._respond(sent.id, { ok: true });
     const result = await attemptPromise;
     expect(result.success).toBe(true);
-    expect(result.command).toBe('reconnect_device');
+    expect(result.command).toBe('recovery.reconnectDevice');
   });
 
   it('returns dispatch_failed when WS is not connected', async () => {
@@ -389,7 +389,7 @@ describe('Recovery command dispatch', () => {
     expect(result.attempted).toBe(true);
     expect(result.success).toBe(false);
     expect(result.reason).toContain('dispatch_failed');
-    expect(result.command).toBe('restart_stream');
+    expect(result.command).toBe('recovery.restartStream');
   });
 
   it('returns dispatch_failed when command_result contains error', async () => {
@@ -448,11 +448,11 @@ describe('Audio silence threshold', () => {
     const attemptPromise = recovery.attempt(church, 'audio_silence', { silenceDurationMs: 65_000 });
     await vi.waitFor(() => expect(church.ws._sent.length).toBeGreaterThan(0));
     const sent = church.ws._sent[0];
-    expect(sent.command).toBe('reset_audio');
+    expect(sent.command).toBe('recovery.resetAudio');
     church.ws._respond(sent.id, { ok: true });
     const result = await attemptPromise;
     expect(result.success).toBe(true);
-    expect(result.command).toBe('reset_audio');
+    expect(result.command).toBe('recovery.resetAudio');
   });
 
   it('supports snake_case silence_duration_ms field', async () => {
@@ -640,41 +640,41 @@ describe('Service hours gate', () => {
 
 describe('RECOVERY_COMMANDS mapping', () => {
   it('maps stream_stopped to restart_stream', () => {
-    expect(RECOVERY_COMMANDS['stream_stopped'].command).toBe('restart_stream');
+    expect(RECOVERY_COMMANDS['stream_stopped'].command).toBe('recovery.restartStream');
   });
 
   it('maps encoder_disconnected to restart_encoder', () => {
-    expect(RECOVERY_COMMANDS['encoder_disconnected'].command).toBe('restart_encoder');
+    expect(RECOVERY_COMMANDS['encoder_disconnected'].command).toBe('recovery.restartEncoder');
   });
 
   it('maps recording_not_started to restart_recording', () => {
-    expect(RECOVERY_COMMANDS['recording_not_started'].command).toBe('restart_recording');
+    expect(RECOVERY_COMMANDS['recording_not_started'].command).toBe('recovery.restartRecording');
   });
 
   it('maps audio_silence to reset_audio', () => {
-    expect(RECOVERY_COMMANDS['audio_silence'].command).toBe('reset_audio');
+    expect(RECOVERY_COMMANDS['audio_silence'].command).toBe('recovery.resetAudio');
   });
 
   it('maps audio_silence_sustained to reset_audio', () => {
-    expect(RECOVERY_COMMANDS['audio_silence_sustained'].command).toBe('reset_audio');
+    expect(RECOVERY_COMMANDS['audio_silence_sustained'].command).toBe('recovery.resetAudio');
   });
 
   it('maps connection_lost to reconnect_device', () => {
-    expect(RECOVERY_COMMANDS['connection_lost'].command).toBe('reconnect_device');
+    expect(RECOVERY_COMMANDS['connection_lost'].command).toBe('recovery.reconnectDevice');
   });
 
   it('maps atem_stream_stopped to restart_stream with source atem', () => {
-    expect(RECOVERY_COMMANDS['atem_stream_stopped'].command).toBe('restart_stream');
+    expect(RECOVERY_COMMANDS['atem_stream_stopped'].command).toBe('recovery.restartStream');
     expect(RECOVERY_COMMANDS['atem_stream_stopped'].params.source).toBe('atem');
   });
 
   it('maps vmix_stream_stopped to restart_stream with source vmix', () => {
-    expect(RECOVERY_COMMANDS['vmix_stream_stopped'].command).toBe('restart_stream');
+    expect(RECOVERY_COMMANDS['vmix_stream_stopped'].command).toBe('recovery.restartStream');
     expect(RECOVERY_COMMANDS['vmix_stream_stopped'].params.source).toBe('vmix');
   });
 
   it('maps encoder_stream_stopped to restart_stream with source encoder', () => {
-    expect(RECOVERY_COMMANDS['encoder_stream_stopped'].command).toBe('restart_stream');
+    expect(RECOVERY_COMMANDS['encoder_stream_stopped'].command).toBe('recovery.restartStream');
     expect(RECOVERY_COMMANDS['encoder_stream_stopped'].params.source).toBe('encoder');
   });
 
@@ -756,11 +756,11 @@ describe('Multiple simultaneous failures of different types', () => {
     const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
 
     expect(r1.success).toBe(true);
-    expect(r1.command).toBe('restart_stream');
+    expect(r1.command).toBe('recovery.restartStream');
     expect(r2.success).toBe(true);
-    expect(r2.command).toBe('restart_encoder');
+    expect(r2.command).toBe('recovery.restartEncoder');
     expect(r3.success).toBe(true);
-    expect(r3.command).toBe('restart_recording');
+    expect(r3.command).toBe('recovery.restartRecording');
   });
 
   it('one failure succeeding does not affect another failing', async () => {
