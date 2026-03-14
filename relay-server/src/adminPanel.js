@@ -133,7 +133,7 @@ input:focus{border-color:var(--green)}
 <h1>Sign in to your account</h1>
 ${error ? '<div class="error">Invalid email or password</div>' : ''}
 <form method="POST" action="/admin/login">
-<div class="field"><label>Email</label><input type="email" name="email" placeholder="admin@atemschool.com" required autocomplete="email"></div>
+<div class="field"><label>Email</label><input type="email" name="email" placeholder="admin@tallyconnect.app" required autocomplete="email"></div>
 <div class="field"><label>Password</label><input type="password" name="password" placeholder="••••••••" required autocomplete="current-password"></div>
 <button class="btn" type="submit">Sign In</button>
 </form>
@@ -2813,10 +2813,11 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     const commandId = uuidv4();
     try {
       runtime.ws.send(JSON.stringify({
-        type: 'admin_command',
-        commandId,
+        type: 'command',
+        id: commandId,
         command,
         params: params || {},
+        source: 'admin',
       }));
       auditFromReq(req, 'admin_command_sent', 'church', churchId, { command, commandId });
       res.json({ sent: true, commandId });

@@ -324,9 +324,9 @@ class HealthAlertMonitor {
       let schedule;
       try {
         const row = this.db.prepare(
-          'SELECT schedule_json FROM church_schedules WHERE church_id = ?'
+          'SELECT service_times FROM churches WHERE churchId = ?'
         ).get(churchId);
-        schedule = row ? JSON.parse(row.schedule_json || '[]') : [];
+        schedule = row ? JSON.parse(row.service_times || '[]') : [];
       } catch {
         schedule = [];
       }

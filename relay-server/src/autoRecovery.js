@@ -43,15 +43,15 @@ const RECOVERY_PLAYBOOK = {
  * Only failure types listed here get automatic recovery; all others escalate.
  */
 const RECOVERY_COMMANDS = {
-  'stream_stopped':         { command: 'restart_stream',    params: {} },
-  'atem_stream_stopped':    { command: 'restart_stream',    params: { source: 'atem' } },
-  'vmix_stream_stopped':    { command: 'restart_stream',    params: { source: 'vmix' } },
-  'encoder_stream_stopped': { command: 'restart_stream',    params: { source: 'encoder' } },
-  'encoder_disconnected':   { command: 'restart_encoder',   params: {} },
-  'recording_not_started':  { command: 'restart_recording', params: {} },
-  'audio_silence':          { command: 'reset_audio',       params: {} },
-  'audio_silence_sustained':{ command: 'reset_audio',       params: {} },
-  'connection_lost':        { command: 'reconnect_device',  params: {} },
+  'stream_stopped':         { command: 'recovery.restartStream',    params: {} },
+  'atem_stream_stopped':    { command: 'recovery.restartStream',    params: { source: 'atem' } },
+  'vmix_stream_stopped':    { command: 'recovery.restartStream',    params: { source: 'vmix' } },
+  'encoder_stream_stopped': { command: 'recovery.restartStream',    params: { source: 'encoder' } },
+  'encoder_disconnected':   { command: 'recovery.restartEncoder',   params: {} },
+  'recording_not_started':  { command: 'recovery.restartRecording', params: {} },
+  'audio_silence':          { command: 'recovery.resetAudio',       params: {} },
+  'audio_silence_sustained':{ command: 'recovery.resetAudio',       params: {} },
+  'connection_lost':        { command: 'recovery.reconnectDevice',  params: {} },
 };
 
 /** Minimum silence duration (ms) before audio_silence triggers auto-recovery. */

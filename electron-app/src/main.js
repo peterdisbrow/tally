@@ -821,8 +821,10 @@ ipcMain.handle('send-command', async (_, cmd, params) => {
   const config = loadConfig();
   if (!config.token) return { error: 'Not configured' };
   const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  const churchId = decodeChurchIdFromToken(config.token);
+  if (!churchId) return { error: 'Could not determine church ID' };
   try {
-    const resp = await fetch(`${relayHttp}/api/church/command`, {
+    const resp = await fetch(`${relayHttp}/api/admin/church/${churchId}/send-command`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
       body: JSON.stringify({ command: cmd, params: params || {} }),

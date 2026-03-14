@@ -1598,7 +1598,7 @@ function buildChurchPortalHtml(church) {
         <div class="card-title">Support SLA</div>
         <p id="support-response-time" style="color:#475569;font-size:13px;margin-top:8px"></p>
         <p style="color:#94A3B8;font-size:13px;line-height:1.6;margin-top:8px">
-          Direct support: <a href="mailto:support@atemschool.com" style="color:#22c55e">support@atemschool.com</a>
+          Direct support: <a href="mailto:support@tallyconnect.app" style="color:#22c55e">support@tallyconnect.app</a>
         </p>
       </div>
       <div class="card" style="margin-bottom:16px">
@@ -4111,14 +4111,14 @@ function buildChurchPortalHtml(church) {
         html += '</div>';
 
         html += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #1a2e1f">';
-        html += '<p style="color:#475569;font-size:12px;line-height:1.6">Cancel anytime from the Stripe portal. Service continues through the end of your billing period. No partial-month refunds. Questions? <a href="mailto:support@atemschool.com" style="color:#22c55e">support@atemschool.com</a></p>';
+        html += '<p style="color:#475569;font-size:12px;line-height:1.6">Cancel anytime from the Stripe portal. Service continues through the end of your billing period. No partial-month refunds. Questions? <a href="mailto:support@tallyconnect.app" style="color:#22c55e">support@tallyconnect.app</a></p>';
         html += '</div>';
 
         document.getElementById('billing-content').innerHTML = html;
         updateBillingBanner(b);
         renderUpgradeBanner(b);
       } catch(e) {
-        document.getElementById('billing-content').innerHTML = '<div style="color:#475569;text-align:center;padding:30px">Billing info unavailable. <a href="mailto:support@atemschool.com" style="color:#22c55e">Contact support</a></div>';
+        document.getElementById('billing-content').innerHTML = '<div style="color:#475569;text-align:center;padding:30px">Billing info unavailable. <a href="mailto:support@tallyconnect.app" style="color:#22c55e">Contact support</a></div>';
       }
     }
 

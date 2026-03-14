@@ -280,7 +280,7 @@ class WeeklyDigest {
     const weekStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
     const churches = this.db.prepare(
-      "SELECT churchId, name, billing_tier FROM churches WHERE billing_tier IN ('pro_plus', 'enterprise')"
+      "SELECT churchId, name, billing_tier FROM churches WHERE billing_tier IN ('plus', 'pro', 'managed')"
     ).all();
 
     for (const church of churches) {

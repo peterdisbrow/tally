@@ -882,11 +882,14 @@ async function troubleshootSendReport() {
 
   try {
     const api = window.electronAPI;
-    if (api && api.pfAnalyze) {
-      // Trigger a fresh analysis which will automatically push to relay
-      await api.pfAnalyze();
+    if (api && api.sendDiagnosticBundle) {
+      const result = await api.sendDiagnosticBundle();
+      if (result?.error) {
+        if (btn) { btn.textContent = 'Send Failed - Try Again'; btn.disabled = false; }
+        return;
+      }
     }
-    if (btn) { btn.textContent = 'Report Sent'; }
+    if (btn) { btn.textContent = 'Diagnostic Report Sent'; }
   } catch {
     if (btn) { btn.textContent = 'Send Failed - Try Again'; btn.disabled = false; }
   }

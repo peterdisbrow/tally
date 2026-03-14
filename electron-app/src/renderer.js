@@ -473,7 +473,14 @@ async function initOnboarding() {
       }).concat(['Skip to dashboard']));
       return;
     }
-  } catch { /* fresh start */ }
+  } catch (obErr) {
+    console.warn('Onboarding state check failed:', obErr);
+    const messagesEl2 = document.getElementById('ob-messages');
+    if (messagesEl2) {
+      appendObBubble('ai', "Couldn't connect to Tally's setup assistant. You can set up your equipment manually in the Equipment tab.");
+    }
+    return;
+  }
 
   // Scan network FIRST, then greet — fixes race condition (#2)
   scanNetworkForOnboarding().then(() => {
@@ -3298,10 +3305,43 @@ async function loadPreServiceReadiness() {
     const widget = document.getElementById('preservice-readiness');
     if (!widget) return;
 
-    if (data.error || !data.nextServiceMinutes || data.nextServiceMinutes > 60) {
-      widget.style.display = 'none';
+    if (data.error) {
+      // Show widget in dimmed state instead of hiding
+      widget.style.display = '';
+      widget.style.opacity = '0.5';
+      const text = document.getElementById('readiness-text');
+      const icon = document.getElementById('readiness-icon');
+      if (icon) icon.textContent = '\u2014';
+      if (text) text.textContent = 'Pre-service check unavailable';
       return;
     }
+
+    if (!data.nextServiceMinutes) {
+      // No schedule configured
+      widget.style.display = '';
+      widget.style.opacity = '0.5';
+      const text = document.getElementById('readiness-text');
+      const icon = document.getElementById('readiness-icon');
+      if (icon) icon.textContent = '\u2014';
+      if (text) text.textContent = 'No service schedule set \u2014 configure in Equipment tab';
+      return;
+    }
+
+    if (data.nextServiceMinutes > 60) {
+      // Show collapsed/minimal state instead of hiding
+      widget.style.display = '';
+      widget.style.opacity = '0.6';
+      const text = document.getElementById('readiness-text');
+      const icon = document.getElementById('readiness-icon');
+      const hrs = Math.floor(data.nextServiceMinutes / 60);
+      const mins = Math.round(data.nextServiceMinutes % 60);
+      const timeStr = mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`;
+      if (icon) icon.textContent = '\u23F0';
+      if (text) text.textContent = `Next service in ${timeStr}`;
+      return;
+    }
+
+    widget.style.opacity = '1';
 
     const bar = document.getElementById('readiness-bar');
     const icon = document.getElementById('readiness-icon');
@@ -3325,6 +3365,15 @@ async function loadPreServiceReadiness() {
     widget.style.display = '';
   } catch (e) {
     console.warn('Pre-service readiness load failed:', e);
+    const widget = document.getElementById('preservice-readiness');
+    if (widget) {
+      widget.style.display = '';
+      widget.style.opacity = '0.5';
+      const text = document.getElementById('readiness-text');
+      const icon = document.getElementById('readiness-icon');
+      if (icon) icon.textContent = '\u2014';
+      if (text) text.textContent = 'Pre-service check unavailable';
+    }
   }
 }
 

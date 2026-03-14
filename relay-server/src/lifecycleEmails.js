@@ -14,13 +14,13 @@
  * Duplicate prevention via `email_sends` table — each email type sent once per church.
  */
 
-const GITHUB_RELEASES_URL = 'https://github.com/atemschool/tally/releases/latest';
+const GITHUB_RELEASES_URL = 'https://github.com/tallyconnect/tally/releases/latest';
 
 class LifecycleEmails {
   constructor(db, { resendApiKey, fromEmail, appUrl }) {
     this.db = db;
     this.resendApiKey = resendApiKey || '';
-    this.fromEmail = fromEmail || 'Tally <noreply@atemschool.com>';
+    this.fromEmail = fromEmail || 'Tally <noreply@tallyconnect.app>';
     this.appUrl = appUrl || 'https://tallyconnect.app';
     this._ensureSchema();
   }
@@ -186,7 +186,7 @@ class LifecycleEmails {
         </table>
         ${alerts === 0 ? '<p style="text-align:center; color:#22c55e; font-weight:600;">Smooth service — no issues detected.</p>' : ''}
         <div style="text-align: center; margin-top: 24px;">
-          <a href="${this.appUrl}/church-portal" style="display:inline-block; background:#22c55e; color:#000; padding:10px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">View Full Report</a>
+          <a href="${this.appUrl}/church-portal?church=${church.churchId}" style="display:inline-block; background:#22c55e; color:#000; padding:10px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">Sign In to View Report</a>
         </div>
         <p style="text-align: center; margin-top: 20px; color: #475569; font-size: 11px;">Sent by Tally &middot; <a href="${this.appUrl}" style="color:#475569;">tallyconnect.app</a></p>
       </div>
@@ -235,7 +235,7 @@ class LifecycleEmails {
         <h3 style="font-size: 14px; margin: 20px 0 8px; color: #86efac;">Recurring Patterns</h3>
         <ul style="padding-left: 20px; color: #F8FAFC; font-size: 13px;">${patternRows}</ul>
         <div style="text-align: center; margin-top: 24px;">
-          <a href="${this.appUrl}/church-portal" style="display:inline-block; background:#22c55e; color:#000; padding:10px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">View Portal</a>
+          <a href="${this.appUrl}/church-portal?church=${church.churchId}" style="display:inline-block; background:#22c55e; color:#000; padding:10px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">Sign In to View Report</a>
         </div>
         <p style="text-align: center; margin-top: 20px; color: #475569; font-size: 11px;">Sent by Tally &middot; <a href="${this.appUrl}" style="color:#475569;">tallyconnect.app</a></p>
       </div>
@@ -279,7 +279,7 @@ class LifecycleEmails {
           <tr><td style="padding: 8px 12px; color: #94A3B8;">Uptime Estimate</td><td style="padding: 8px 12px; text-align: right; font-weight: 600; color: ${uptimeColor};">${typeof uptime === 'number' ? uptime.toFixed(1) + '%' : uptime}</td></tr>
         </table>
         <div style="text-align: center; margin-top: 24px;">
-          <a href="${this.appUrl}/church-portal" style="display:inline-block; background:#22c55e; color:#000; padding:10px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">View Portal</a>
+          <a href="${this.appUrl}/church-portal?church=${church.churchId}" style="display:inline-block; background:#22c55e; color:#000; padding:10px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">Sign In to View Report</a>
         </div>
         <p style="text-align: center; margin-top: 20px; color: #475569; font-size: 11px;">Sent by Tally &middot; <a href="${this.appUrl}" style="color:#475569;">tallyconnect.app</a></p>
       </div>
@@ -296,7 +296,7 @@ Escalated: ${escalated}
 Most Common Issue: ${mostCommonIssue || 'None'}
 Uptime Estimate: ${typeof uptime === 'number' ? uptime.toFixed(1) + '%' : uptime}
 
-View your portal at ${this.appUrl}/church-portal
+View your portal at ${this.appUrl}/church-portal?church=${church.churchId}
 
 Tally — ${this.appUrl.replace('https://', '')}`;
 
@@ -667,7 +667,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Download Tally', downloadUrl)}
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
-        Need help? Reply to this email or reach out at support@atemschool.com &mdash; happy to walk you through it.
+        Need help? Reply to this email or reach out at support@tallyconnect.app &mdash; happy to walk you through it.
       </p>
     `);
 
@@ -682,7 +682,7 @@ Setup takes about 5 minutes — our AI assistant handles most of it:
 
 Once connected, you'll see your gear status at ${this.appUrl}/portal
 
-Need help? Reply to this email or reach out at support@atemschool.com
+Need help? Reply to this email or reach out at support@tallyconnect.app
 
 Tally — ${this.appUrl.replace('https://', '')}`;
 
@@ -926,7 +926,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Subscribe \u2014 Plans from $49/mo', billingUrl)}
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
-        Questions? Reply to this email or reach out at support@atemschool.com.
+        Questions? Reply to this email or reach out at support@tallyconnect.app.
       </p>
     `);
 
@@ -942,7 +942,7 @@ What you're missing:
 
 Your data and settings are safe for 30 days. Subscribe at ${billingUrl} to pick up where you left off.
 
-Questions? Reply to this email or reach out at support@atemschool.com.
+Questions? Reply to this email or reach out at support@tallyconnect.app.
 
 Tally — ${this.appUrl.replace('https://', '')}`;
 
@@ -1432,7 +1432,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Open Your Portal', portalUrl)}
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
-        Need help? Reply to this email or reach out at support@atemschool.com.
+        Need help? Reply to this email or reach out at support@tallyconnect.app.
       </p>
     `);
 
@@ -1655,13 +1655,13 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
-        If you didn't make this change, please contact support@atemschool.com immediately.
+        If you didn't make this change, please contact support@tallyconnect.app immediately.
       </p>
 
       ${this._cta('Open Your Portal', portalUrl)}
     `);
 
-    const text = `Email address updated\n\nThe portal email for ${church.name} has been changed from ${oldEmail || 'not set'} to ${newEmail}.\n\nIf you didn't make this change, contact support@atemschool.com.\n\nTally`;
+    const text = `Email address updated\n\nThe portal email for ${church.name} has been changed from ${oldEmail || 'not set'} to ${newEmail}.\n\nIf you didn't make this change, contact support@tallyconnect.app.\n\nTally`;
     return { html, text };
   }
 

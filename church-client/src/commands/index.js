@@ -22,6 +22,7 @@ const commandHandlers = {
   ...require('./encoder'),
   ...require('./videohub'),
   ...require('./system'),
+  ...require('./recovery'),
 };
 
 module.exports = { commandHandlers };
