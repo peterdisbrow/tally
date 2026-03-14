@@ -91,6 +91,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onboardingChat: (payload) => ipcRenderer.invoke('onboarding-chat', payload),
   onboardingConfirm: (payload) => ipcRenderer.invoke('onboarding-confirm', payload),
   onboardingState: () => ipcRenderer.invoke('onboarding-state'),
+  // Send command to relay (used by troubleshooter auto-actions)
+  sendCommand: (cmd, params) => ipcRenderer.invoke('send-command', cmd, params),
   // Diagnostic Bundle
   sendDiagnosticBundle: () => ipcRenderer.invoke('send-diagnostic-bundle'),
 });

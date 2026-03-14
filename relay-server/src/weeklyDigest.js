@@ -8,6 +8,7 @@ const path = require('path');
 class WeeklyDigest {
   constructor(db) {
     this.db = db;
+    this._lastDigestDate = null;
     this._ensureTable();
     this.digestDir = path.join(__dirname, '..', 'data', 'digests');
     if (!fs.existsSync(this.digestDir)) fs.mkdirSync(this.digestDir, { recursive: true });
@@ -454,6 +455,9 @@ class WeeklyDigest {
     setInterval(async () => {
       const now = new Date();
       if (now.getDay() === 1 && now.getHours() === 8 && now.getMinutes() < 5) {
+        const todayStr = now.toISOString().slice(0, 10);
+        if (this._lastDigestDate === todayStr) return;
+        this._lastDigestDate = todayStr;
         console.log('[WeeklyDigest] Monday 8am — generating digest');
         try {
           await this.saveDigest();

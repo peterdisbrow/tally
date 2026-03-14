@@ -329,12 +329,8 @@ class StreamHealthMonitor {
     // clearly place the stream into a specific tier.
     let tier;
 
-    if (dropPct > 10 || bitrateMbps < 1) {
-      // Poor: <1 Mbps OR >10% frame drops
-      tier = 'poor';
-      rawScore = Math.min(rawScore, 39);
-    } else if (dropPct >= 10 || bitrateMbps < 1) {
-      // This branch can't actually trigger (covered above), kept for clarity
+    if (dropPct >= 10 || bitrateMbps < 1) {
+      // Poor: <1 Mbps OR >=10% frame drops
       tier = 'poor';
       rawScore = Math.min(rawScore, 39);
     } else if (

@@ -178,26 +178,26 @@ class AutoRecovery {
     if (!recoveryDef) {
       // No auto-recovery command mapped — escalate to TD
       // Don't consume an attempt since no command was available
-      return { attempted: true, success: false, reason: 'no_auto_command', command: null, event };
+      return { attempted: false, reason: 'no_auto_command', command: null, event };
     }
 
     // Service hours gate — don't auto-recover outside service windows
     // unless the church has explicitly opted in
     if (!this._isServiceHoursAllowed(church.churchId)) {
-      return { attempted: true, success: false, reason: 'outside_service_hours', command: null, event };
+      return { attempted: false, reason: 'outside_service_hours', command: null, event };
     }
 
     // Cooldown gate — prevent hammering the same recovery in rapid succession
     const now = Date.now();
     if (!this._isCooldownElapsed(key, now)) {
-      return { attempted: true, success: false, reason: 'cooldown_active', command: null, event };
+      return { attempted: false, reason: 'cooldown_active', command: null, event };
     }
 
     // Audio silence requires sustained duration before auto-recovery
     if (failureType === 'audio_silence') {
       const silenceDuration = currentStatus?.silenceDurationMs || currentStatus?.silence_duration_ms || 0;
       if (silenceDuration < AUDIO_SILENCE_THRESHOLD_MS) {
-        return { attempted: true, success: false, reason: 'silence_not_sustained', command: null, event };
+        return { attempted: false, reason: 'silence_not_sustained', command: null, event };
       }
     }
 

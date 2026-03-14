@@ -684,8 +684,9 @@ function advanceTroubleshoot(flowKey, stepIndex, choice) {
   const step = flow.steps[stepIndex];
   if (!step) return;
 
-  // Build the handler key from the choice (e.g., "Yes" -> "onYes", "Not Sure" -> "onNotSure")
-  const handlerKey = 'on' + choice.replace(/\s+/g, '').replace(/^(.)/, (m) => m.toUpperCase());
+  // Build the handler key from the choice (e.g., "Yes" -> "onYes", "This computer" -> "onThisComputer")
+  const key = 'on' + choice.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
+  const handlerKey = key;
 
   let handler = step[handlerKey];
 

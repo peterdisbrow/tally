@@ -123,6 +123,9 @@ class HealthAlertMonitor {
       const currentScore = current.score;
       const previousScore = previous.score;
 
+      // If either score is null (new church / no data), skip comparison
+      if (currentScore === null || previousScore === null) return null;
+
       // Check for rapid drop (current week vs 2-week average as proxy for last week)
       const drop = previousScore - currentScore;
 
@@ -459,11 +462,15 @@ function startHealthAlerts(db, alertEngine, churches, options = {}) {
   const monitor = new HealthAlertMonitor(db, alertEngine, churches);
   const runHour = options.runHour ?? 7;
   const intervals = options._intervals || [];
+  let lastRunDate = null;
 
   // Check every 5 minutes if it's the target hour
   const intervalId = setInterval(async () => {
     const now = new Date();
     if (now.getHours() === runHour && now.getMinutes() < 5) {
+      const todayStr = now.toISOString().slice(0, 10);
+      if (lastRunDate === todayStr) return;
+      lastRunDate = todayStr;
       console.log(`[HealthAlerts] Daily check at ${now.toISOString()}`);
       try {
         const result = await monitor.runDailyCheck();

@@ -319,9 +319,14 @@ describe('Admin Support View (Quick Actions)', () => {
       const res = callRoute('get', routePath, req);
 
       expect(res._json.healthScore).toHaveProperty('score');
-      expect(typeof res._json.healthScore.score).toBe('number');
-      expect(res._json.healthScore.score).toBeGreaterThanOrEqual(0);
-      expect(res._json.healthScore.score).toBeLessThanOrEqual(100);
+      // Score can be null (new church with no data) or a number 0-100
+      if (res._json.healthScore.score !== null) {
+        expect(typeof res._json.healthScore.score).toBe('number');
+        expect(res._json.healthScore.score).toBeGreaterThanOrEqual(0);
+        expect(res._json.healthScore.score).toBeLessThanOrEqual(100);
+      } else {
+        expect(res._json.healthScore.score).toBeNull();
+      }
     });
 
     it('limits recent alerts to 20', () => {
@@ -618,7 +623,8 @@ describe('Admin Support View (Quick Actions)', () => {
       const res = callRoute('get', routePath, req);
 
       const c = res._json.churches[0];
-      expect(typeof c.healthScore).toBe('number');
+      // healthScore can be null (new church) or a number
+      expect(c.healthScore === null || typeof c.healthScore === 'number').toBe(true);
       expect(typeof c.activeAlerts).toBe('number');
       expect(c.activeAlerts).toBe(3);
     });

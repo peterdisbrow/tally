@@ -273,7 +273,9 @@ class ChurchMemory {
     try {
       // Upsert recurring issue memories from patterns
       for (const p of patterns) {
-        const matchKey = `recurring:${p.eventType || p.pattern}`;
+        // Strip count suffix like " (3x)" from pattern string before using as match key
+        const patternBase = (p.eventType || p.pattern || '').replace(/\s*\(\d+x\)\s*$/, '');
+        const matchKey = `recurring:${patternBase}`;
         this._upsertMemory(
           churchId,
           'recurring_issue',

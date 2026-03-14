@@ -24,7 +24,7 @@ const { v4: uuidv4 } = require('uuid');
 const TRIGGER_TYPES = ['propresenter_slide_change', 'schedule_timer', 'equipment_state_match'];
 
 // Max rules per billing tier
-const MAX_RULES_PER_TIER = { connect: 0, plus: 0, pro: 10, managed: 25, enterprise: 25, event: 0 };
+const MAX_RULES_PER_TIER = { connect: 0, plus: 5, pro: 10, managed: 25, enterprise: 25, event: 0 };
 
 // ─── PRE-BUILT RULE TEMPLATES ──────────────────────────────────────────────
 // One-click templates that churches can activate without building rules from scratch.

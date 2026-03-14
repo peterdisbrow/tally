@@ -58,12 +58,26 @@ function computeHealthScore(db, churchId, days = 7) {
     streamStability:    _computeStreamStability(db, churchId, since),
   };
 
-  // Weighted average
-  let score = 0;
-  for (const [key, weight] of Object.entries(WEIGHTS)) {
-    score += (breakdown[key] ?? 100) * weight;
+  // Check if ALL sub-scores had no data (all returned null)
+  const hasData = Object.values(breakdown).some(v => v !== null);
+  if (!hasData) {
+    return { score: null, status: 'new', message: 'Not enough data yet', breakdown, trend: 'stable', recommendations: [] };
   }
-  score = Math.round(Math.max(0, Math.min(100, score)));
+
+  // Weighted average — exclude null sub-scores and redistribute weight
+  let score = 0;
+  let totalWeight = 0;
+  for (const [key, weight] of Object.entries(WEIGHTS)) {
+    if (breakdown[key] !== null) {
+      score += breakdown[key] * weight;
+      totalWeight += weight;
+    }
+  }
+  score = totalWeight > 0 ? Math.round(Math.max(0, Math.min(100, score / totalWeight))) : null;
+
+  if (score === null) {
+    return { score: null, status: 'new', message: 'Not enough data yet', breakdown, trend: 'stable', recommendations: [] };
+  }
 
   const trend = _computeTrendFromDb(db, churchId);
   const recommendations = getHealthRecommendations(breakdown);
@@ -98,10 +112,14 @@ function getHealthTrend(db, churchId, weeks = 4) {
     };
 
     let score = 0;
+    let totalWeight = 0;
     for (const [key, weight] of Object.entries(WEIGHTS)) {
-      score += (breakdown[key] ?? 100) * weight;
+      if (breakdown[key] !== null) {
+        score += breakdown[key] * weight;
+        totalWeight += weight;
+      }
     }
-    score = Math.round(Math.max(0, Math.min(100, score)));
+    score = totalWeight > 0 ? Math.round(Math.max(0, Math.min(100, score / totalWeight))) : null;
 
     weeklyScores.push({
       weekStart: weekStart.toISOString().slice(0, 10),
@@ -167,10 +185,10 @@ function _computeUptime(db, churchId, since, until) {
        WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL`
     ).all(...params);
 
-    if (!sessions.length) return 100; // No sessions = no downtime data
+    if (!sessions.length) return null; // No sessions = no data
 
     const totalMinutes = sessions.reduce((sum, s) => sum + (s.duration_minutes || 0), 0);
-    if (totalMinutes === 0) return 100;
+    if (totalMinutes === 0) return null;
 
     // Estimate downtime: 5 minutes per unresolved critical alert (not auto-recovered)
     // plus count critical events from service_events table
@@ -201,7 +219,7 @@ function _computeUptime(db, churchId, since, until) {
     const uptime = Math.max(0, ((totalMinutes - totalDowntime) / totalMinutes) * 100);
     return Math.round(uptime * 10) / 10;
   } catch {
-    return 100;
+    return null;
   }
 }
 
@@ -235,7 +253,7 @@ function _computeAlertRate(db, churchId, since, until) {
     ).get(...sessionParams);
 
     const totalHours = (sessions?.total || 0) / 60;
-    if (totalHours === 0) return 100; // No sessions = no alerts expected
+    if (totalHours === 0) return null; // No sessions = no data
 
     const alertsPerHour = (alertCount?.cnt || 0) / totalHours;
 
@@ -243,7 +261,7 @@ function _computeAlertRate(db, churchId, since, until) {
     const score = Math.max(0, 100 - alertsPerHour * 20);
     return Math.round(score * 10) / 10;
   } catch {
-    return 100;
+    return null;
   }
 }
 
@@ -267,10 +285,10 @@ function _computeRecoveryRate(db, churchId, since, until) {
     const totalAlerts = row?.total_alerts || 0;
     const totalRecovered = row?.total_recovered || 0;
 
-    if (totalAlerts === 0) return 100; // No alerts = perfect recovery
+    if (totalAlerts === 0) return null; // No alerts = no data
     return Math.round((totalRecovered / totalAlerts) * 1000) / 10;
   } catch {
-    return 100;
+    return null;
   }
 }
 
@@ -294,10 +312,10 @@ function _computePreServicePassRate(db, churchId, since, until) {
        WHERE church_id = ? AND created_at >= ?${untilClause} AND pass = 1`
     ).get(...params);
 
-    if (!total?.cnt) return 100; // No checks = assume passing
+    if (!total?.cnt) return null; // No checks = no data
     return Math.round((passed.cnt / total.cnt) * 1000) / 10;
   } catch {
-    return 100;
+    return null;
   }
 }
 
@@ -334,7 +352,7 @@ function _computeStreamStability(db, churchId, since, until) {
     ).get(...sessionParams);
 
     const streamHours = (sessions?.stream_total || 0) / 60;
-    if (streamHours === 0) return 100; // No streaming = no instability
+    if (streamHours === 0) return null; // No streaming = no data
 
     const issuesPerHour = (qualityEvents?.cnt || 0) / streamHours;
 
@@ -342,7 +360,7 @@ function _computeStreamStability(db, churchId, since, until) {
     const score = Math.max(0, 100 - issuesPerHour * 25);
     return Math.round(score * 10) / 10;
   } catch {
-    return 100;
+    return null;
   }
 }
 
@@ -350,15 +368,17 @@ function _computeStreamStability(db, churchId, since, until) {
  * Determine trend direction from an array of weekly scores.
  */
 function _determineTrend(scores) {
-  if (scores.length < 2) return 'stable';
+  // Filter out null scores (weeks with no data)
+  const validScores = scores.filter(s => s !== null);
+  if (validScores.length < 2) return 'stable';
 
   // Use simple linear regression slope
-  const n = scores.length;
+  const n = validScores.length;
   let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
   for (let i = 0; i < n; i++) {
     sumX += i;
-    sumY += scores[i];
-    sumXY += i * scores[i];
+    sumY += validScores[i];
+    sumXY += i * validScores[i];
     sumX2 += i * i;
   }
   const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);

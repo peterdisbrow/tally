@@ -19,6 +19,16 @@ let _pfAutoRunDone = false;       // only auto-run once per session
 let _pfAutoRunIssueCount = 0;     // cached count for badge
 
 // ─── FRIENDLY ERROR MESSAGES ───────────────────────────────────────────────
+function _friendlyWithPrefix(raw, friendly) {
+  const colonIdx = raw.indexOf(':');
+  if (colonIdx > 0 && colonIdx < 40) {
+    const prefix = raw.substring(0, colonIdx).trim();
+    // Only keep the prefix if it looks like device context (not "Error")
+    if (!/^error$/i.test(prefix)) return `${prefix}: ${friendly}`;
+  }
+  return friendly;
+}
+
 function friendlyError(err) {
   const msg = typeof err === 'string' ? err : (err?.message || err?.error || String(err));
   const lower = msg.toLowerCase();
@@ -26,39 +36,39 @@ function friendlyError(err) {
   // Connection refused patterns
   if (lower.includes('connection refused') || lower.includes('econnrefused')) {
     if (lower.includes('9910') || lower.includes('atem') || lower.includes('switcher')) {
-      return "Can't reach your ATEM switcher. Make sure it's powered on and connected to the same network.";
+      return _friendlyWithPrefix(msg, "Can't reach your ATEM switcher. Make sure it's powered on and connected to the same network.");
     }
-    return "Connection failed -- is the device powered on?";
+    return _friendlyWithPrefix(msg, "Connection failed -- is the device powered on?");
   }
 
   // Timeout patterns
   if (lower.includes('etimedout') || lower.includes('timed out') || lower.includes('timeout')) {
-    return "Device didn't respond -- check the network cable and make sure it's on the same subnet.";
+    return _friendlyWithPrefix(msg, "Device didn't respond -- check the network cable and make sure it's on the same subnet.");
   }
 
   // WebSocket errors
   if (lower.includes('websocket') || lower.includes('ws error') || lower.includes('ws close')) {
-    return "Lost connection to relay server -- reconnecting...";
+    return _friendlyWithPrefix(msg, "Lost connection to relay server -- reconnecting...");
   }
 
   // DNS / host not found
   if (lower.includes('enotfound') || lower.includes('getaddrinfo')) {
-    return "Can't find that address -- check the hostname or IP is correct.";
+    return _friendlyWithPrefix(msg, "Can't find that address -- check the hostname or IP is correct.");
   }
 
   // Network unreachable
   if (lower.includes('enetunreach') || lower.includes('network is unreachable')) {
-    return "Network unreachable -- check your Wi-Fi or Ethernet connection.";
+    return _friendlyWithPrefix(msg, "Network unreachable -- check your Wi-Fi or Ethernet connection.");
   }
 
   // Connection reset
   if (lower.includes('econnreset') || lower.includes('connection reset')) {
-    return "Connection was interrupted -- the device may have restarted.";
+    return _friendlyWithPrefix(msg, "Connection was interrupted -- the device may have restarted.");
   }
 
   // Permission / auth
   if (lower.includes('eacces') || lower.includes('permission denied')) {
-    return "Permission denied -- check your credentials or firewall settings.";
+    return _friendlyWithPrefix(msg, "Permission denied -- check your credentials or firewall settings.");
   }
 
   // Generic fallback: clean up technical prefix
@@ -351,6 +361,7 @@ function shouldRetryLoginOnDefaultRelay(result) {
 }
 
 async function doSignIn() {
+  if (document.getElementById('si-btn').disabled) return;
   const email = document.getElementById('si-email').value.trim();
   const password = document.getElementById('si-password').value;
   const savedConfig = await api.getConfig();
@@ -939,12 +950,24 @@ async function runPreServiceCheck() {
     const result = await api.runPreServiceCheck();
     if (result && result.error) {
       console.warn('Pre-service check run error:', result.error);
+      if (btn) { btn.textContent = 'Check failed \u2014 try again'; }
+    } else {
+      if (btn) { btn.textContent = '\u2713 Check complete'; }
     }
     // Reload panel after a short delay (check runs async on server)
-    setTimeout(() => loadPreServiceCheck(), 2000);
+    try {
+      await new Promise(r => setTimeout(r, 2000));
+      await loadPreServiceCheck();
+    } catch (reloadErr) {
+      console.warn('Pre-service reload failed:', reloadErr);
+    }
   } catch (e) {
     console.warn('Pre-service check run failed:', e);
-    if (btn) { btn.disabled = false; btn.textContent = 'Run Check Now'; }
+    if (btn) { btn.textContent = 'Check failed \u2014 try again'; }
+  } finally {
+    if (btn) { btn.disabled = false; }
+    // Reset button text after brief feedback
+    setTimeout(() => { if (btn) btn.textContent = 'Run Check Now'; }, 3000);
   }
 }
 
@@ -1136,6 +1159,7 @@ async function advanceRundownStep() {
 }
 
 async function endRundown() {
+  if (!(await asyncConfirm('End this rundown? This cannot be undone.'))) return;
   try {
     await api.deactivateRundown();
     loadRundownPanel();
@@ -1258,7 +1282,7 @@ function updateStatusUI(status) {
   if (typeof streaming === 'boolean' && streaming) {
     // Color-coded stream health based on bitrate
     const br = typeof bitrate === 'number' ? bitrate : 0;
-    const brMbps = br >= 1000 ? (br / 1000) : (br / 1000);
+    const brMbps = br / 1000;
     let healthLabel, healthClass;
     if (br >= 4000) { healthLabel = 'Excellent'; healthClass = 'excellent'; }
     else if (br >= 2000) { healthLabel = 'Fair'; healthClass = 'fair'; }
@@ -1503,7 +1527,7 @@ function updateFailoverUI(fo) {
       return `<div class="failover-timeline-entry">
         <div class="failover-timeline-dot ${dotColor}"></div>
         <span>${escapeHtml(time)}</span>
-        <span style="color:var(--muted);">${escapeHtml(t.from)} → ${escapeHtml(t.to)}</span>
+        <span style="color:var(--muted);">${escapeHtml(FAILOVER_STATE_LABELS[t.from] || t.from)} \u2192 ${escapeHtml(FAILOVER_STATE_LABELS[t.to] || t.to)}</span>
         <span style="color:var(--dim);">(${escapeHtml(t.trigger)})</span>
       </div>`;
     }).join('');
@@ -2438,13 +2462,26 @@ async function sendQuickChat() {
   const message = input.value.trim();
   if (!message) return;
   input.value = '';
+  input.disabled = true;
   const responseEl = document.getElementById('quick-chat-response');
   responseEl.style.display = 'block';
-  responseEl.innerHTML = '<div class="chat-label">Tally</div>Thinking…';
+  responseEl.innerHTML = '<div class="chat-label">Tally</div>Thinking\u2026';
+
+  const timeoutMs = 15000;
+  let didTimeout = false;
+  const timer = setTimeout(() => {
+    didTimeout = true;
+    responseEl.innerHTML = '<div class="chat-label">Tally</div>Couldn\u2019t reach Tally \u2014 check your connection';
+    input.disabled = false;
+    input.value = message;
+  }, timeoutMs);
+
   try {
     const resp = await api.sendChat({ message });
+    clearTimeout(timer);
+    if (didTimeout) return;
     if (resp?.error) {
-      responseEl.innerHTML = `<div class="chat-label">Tally</div>❌ ${escapeHtml(resp.error)}`;
+      responseEl.innerHTML = `<div class="chat-label">Tally</div>\u274C ${escapeHtml(resp.error)}`;
       input.value = message;
     } else if (resp?.message) {
       responseEl.innerHTML = `<div class="chat-label">Tally</div>${escapeHtml(resp.message)}`;
@@ -2453,8 +2490,12 @@ async function sendQuickChat() {
       chatLastTimestamp = resp.timestamp;
     }
   } catch (e) {
-    responseEl.innerHTML = `<div class="chat-label">Tally</div>❌ ${escapeHtml(e.message)}`;
+    clearTimeout(timer);
+    if (didTimeout) return;
+    responseEl.innerHTML = `<div class="chat-label">Tally</div>\u274C ${escapeHtml(e.message)}`;
     input.value = message;
+  } finally {
+    if (!didTimeout) input.disabled = false;
   }
 }
 
@@ -2628,63 +2669,55 @@ function showHideKey(id) {
 // ─── STREAM PLATFORM OAUTH UI ──────────────────────────────────────────────
 
 async function connectYouTube() {
+  const isSimple = document.getElementById('equip-simple-mode')?.style.display !== 'none';
   const btn = document.getElementById('btn-oauth-yt');
-  const status = document.getElementById('oauth-yt-status');
-  btn.disabled = true;
-  btn.textContent = 'Connecting...';
-  status.textContent = 'Opening browser...';
-  status.style.color = 'var(--yellow)';
+  const status = document.getElementById(isSimple ? 'oauth-yt-status-simple' : 'oauth-yt-status');
+  if (btn) { btn.disabled = true; btn.textContent = 'Connecting...'; }
+  if (status) { status.textContent = 'Opening browser...'; status.style.color = 'var(--yellow)'; }
   try {
     const result = await api.oauthYouTubeConnect();
     if (result.success) {
       updateOAuthUI();
     } else {
-      status.textContent = result.error || 'Connection failed';
-      status.style.color = 'var(--red, #f44)';
-      btn.textContent = 'Connect YouTube';
+      if (status) { status.textContent = result.error || 'Connection failed'; status.style.color = 'var(--red, #f44)'; }
+      if (btn) btn.textContent = 'Connect YouTube';
     }
   } catch (e) {
-    status.textContent = e.message;
-    status.style.color = 'var(--red, #f44)';
-    btn.textContent = 'Connect YouTube';
+    if (status) { status.textContent = e.message; status.style.color = 'var(--red, #f44)'; }
+    if (btn) btn.textContent = 'Connect YouTube';
   } finally {
-    btn.disabled = false;
+    if (btn) btn.disabled = false;
   }
 }
 
 async function connectFacebook() {
+  const isSimple = document.getElementById('equip-simple-mode')?.style.display !== 'none';
   const btn = document.getElementById('btn-oauth-fb');
-  const status = document.getElementById('oauth-fb-status');
-  btn.disabled = true;
-  btn.textContent = 'Connecting...';
-  status.textContent = 'Opening browser...';
-  status.style.color = 'var(--yellow)';
+  const status = document.getElementById(isSimple ? 'oauth-fb-status-simple' : 'oauth-fb-status');
+  if (btn) { btn.disabled = true; btn.textContent = 'Connecting...'; }
+  if (status) { status.textContent = 'Opening browser...'; status.style.color = 'var(--yellow)'; }
   try {
     const result = await api.oauthFacebookConnect();
     if (result.success && result.pages?.length) {
       // Show page selector
       const selector = document.getElementById('fb-page-selector');
       const select = document.getElementById('fb-page-select');
-      select.innerHTML = result.pages.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('');
-      selector.style.display = 'block';
-      status.textContent = 'Select a page below';
-      status.style.color = 'var(--yellow)';
-      btn.textContent = 'Connect Facebook';
+      if (select) select.innerHTML = result.pages.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('');
+      if (selector) selector.style.display = 'block';
+      if (status) { status.textContent = 'Select a page below'; status.style.color = 'var(--yellow)'; }
+      if (btn) btn.textContent = 'Connect Facebook';
     } else if (result.success && result.pages?.length === 0) {
-      status.textContent = 'No Facebook Pages found';
-      status.style.color = 'var(--red, #f44)';
-      btn.textContent = 'Connect Facebook';
+      if (status) { status.textContent = 'No Facebook Pages found'; status.style.color = 'var(--red, #f44)'; }
+      if (btn) btn.textContent = 'Connect Facebook';
     } else {
-      status.textContent = result.error || 'Connection failed';
-      status.style.color = 'var(--red, #f44)';
-      btn.textContent = 'Connect Facebook';
+      if (status) { status.textContent = result.error || 'Connection failed'; status.style.color = 'var(--red, #f44)'; }
+      if (btn) btn.textContent = 'Connect Facebook';
     }
   } catch (e) {
-    status.textContent = e.message;
-    status.style.color = 'var(--red, #f44)';
-    btn.textContent = 'Connect Facebook';
+    if (status) { status.textContent = e.message; status.style.color = 'var(--red, #f44)'; }
+    if (btn) btn.textContent = 'Connect Facebook';
   } finally {
-    btn.disabled = false;
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -2957,6 +2990,9 @@ function updateNdiStatus(status) {
 async function saveEquipment() {
   const saveBtn = document.getElementById('btn-save-equip');
   if (saveBtn?.disabled) return; // Prevent double-click
+  if (isRunning) {
+    if (!(await asyncConfirm('Saving will briefly restart monitoring. Continue?'))) return;
+  }
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
   try { await _doSaveEquipment(); _equipDirty = false; } finally {
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save Equipment Config'; }

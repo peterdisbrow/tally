@@ -182,7 +182,7 @@ class LifecycleEmails {
           <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Peak Viewers</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${peakViewers}</td></tr>
           <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Alerts</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${alerts === 0 ? '<span style="color:#22c55e;">None</span>' : `<span style="color:#ef4444;">${alerts}</span>`}</td></tr>
           <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Auto-Fixed</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${autoFixed}</td></tr>
-          <tr><td style="padding: 8px 12px; color: #94A3B8;">Recording</td><td style="padding: 8px 12px; text-align: right; font-weight: 600;">${session.recordingDetected ? '<span style="color:#22c55e;">Yes</span>' : '<span style="color:#94A3B8;">No</span>'}</td></tr>
+          <tr><td style="padding: 8px 12px; color: #94A3B8;">Recording</td><td style="padding: 8px 12px; text-align: right; font-weight: 600;">${session.recordingConfirmed ? '<span style="color:#22c55e;">Yes</span>' : '<span style="color:#94A3B8;">No</span>'}</td></tr>
         </table>
         ${alerts === 0 ? '<p style="text-align:center; color:#22c55e; font-weight:600;">Smooth service — no issues detected.</p>' : ''}
         <div style="text-align: center; margin-top: 24px;">
@@ -589,15 +589,15 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       // alerts table might not exist
     }
 
-    // Session count from session_recaps table
+    // Session count from service_sessions table
     let totalSessions = 0;
     try {
       const sessionCount = this.db.prepare(
-        'SELECT COUNT(*) as cnt FROM session_recaps WHERE church_id = ? AND started_at >= ?'
+        'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?'
       ).get(churchId, sinceIso);
       totalSessions = sessionCount?.cnt || 0;
     } catch {
-      // session_recaps table might not exist
+      // service_sessions table might not exist
     }
 
     return { totalEvents, criticalEvents, autoRecoveries, totalAlerts, totalSessions };

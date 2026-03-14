@@ -368,9 +368,16 @@ class SessionRecap {
     const mins = session.durationMinutes % 60;
     const durationStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
 
-    const streamLine = session.streamTotalMinutes > 0
-      ? `✅ Ran ${session.streamTotalMinutes} min`
-      : '❌ Did not stream';
+    // Check if church has streaming configured (stream key or encoder config)
+    const hasStreamConfig = !!(church.stream_key || church.encoder_ip || church.rtmp_url || church.stream_platform);
+    let streamLine;
+    if (session.streamTotalMinutes > 0) {
+      streamLine = `✅ Ran ${session.streamTotalMinutes} min`;
+    } else if (!hasStreamConfig) {
+      streamLine = 'Not configured';
+    } else {
+      streamLine = '❌ Did not stream';
+    }
 
     const recordingLine = session.recordingConfirmed ? '✅ Confirmed' : '⚠️ Not confirmed';
 
@@ -447,7 +454,7 @@ class SessionRecap {
         const t = new Date(e.timestamp);
         const time = t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
         const type = (e.event_type || '').replace(/_/g, ' ');
-        const detail = e.details ? ` — ${typeof e.details === 'string' ? e.details.slice(0, 60) : ''}` : '';
+        const detail = e.details ? ` — ${typeof e.details === 'string' ? (e.details.length > 60 ? e.details.slice(0, 60) + '...' : e.details) : ''}` : '';
 
         if (e.auto_resolved) {
           return `${time}  🤖 ${type}${detail} (auto-fixed)`;

@@ -2770,14 +2770,11 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     // ── Config summary ──
     let config = { autoRecovery: false, failover: false, autoPilotRulesCount: 0 };
     try {
-      const settings = db.prepare('SELECT key, value FROM church_settings WHERE church_id = ?').all(churchId);
-      const settingsMap = {};
-      for (const s of settings) settingsMap[s.key] = s.value;
-      config.autoRecovery = settingsMap.auto_recovery === '1' || settingsMap.auto_recovery === 'true';
-      config.failover = settingsMap.failover === '1' || settingsMap.failover === 'true';
-    } catch { /* table may not exist */ }
+      const churchRow = db.prepare('SELECT auto_recovery_enabled FROM churches WHERE churchId = ?').get(churchId);
+      config.autoRecovery = churchRow?.auto_recovery_enabled === 1 || churchRow?.auto_recovery_enabled === '1';
+    } catch { /* column may not exist */ }
     try {
-      const apCount = db.prepare('SELECT COUNT(*) as cnt FROM autopilot_rules WHERE church_id = ?').get(churchId);
+      const apCount = db.prepare('SELECT COUNT(*) as cnt FROM automation_rules WHERE church_id = ?').get(churchId);
       config.autoPilotRulesCount = apCount?.cnt || 0;
     } catch { /* table may not exist */ }
 
@@ -2887,7 +2884,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       const online = runtime?.ws?.readyState === WebSocket.OPEN;
 
       // Health score
-      let score = 100;
+      let score = null;
       try {
         const hs = computeHealthScore(db, row.churchId);
         score = hs.score;
@@ -2939,7 +2936,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       if (offlineTooLong) {
         needsAttention = true;
         attentionReason = 'Offline for more than 2 hours';
-      } else if (score < 70) {
+      } else if (score !== null && score < 70) {
         needsAttention = true;
         attentionReason = `Low health score: ${score}`;
       } else if (hasCriticalAlerts) {

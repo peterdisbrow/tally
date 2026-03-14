@@ -137,15 +137,28 @@ async function collectDiagnosticBundle(agent) {
   const bitrateInfo = typeof agent._getStreamBitrate === 'function' ? agent._getStreamBitrate() : null;
   const fpsInfo = typeof agent._getStreamFps === 'function' ? agent._getStreamFps() : null;
 
-  let qualityTier = null;
-  if (bitrateInfo) {
-    const kbps = bitrateInfo.value;
-    if (kbps >= 4000) qualityTier = 'good';
-    else if (kbps >= 2000) qualityTier = 'fair';
-    else qualityTier = 'poor';
-  }
-
   const shStatus = agent.streamHealthMonitor?.getStatus?.() || {};
+
+  // Use StreamHealthMonitor's quality tier from getStatus() if available
+  let qualityTier = shStatus.qualityTier || null;
+  if (!qualityTier && bitrateInfo) {
+    // Fallback: use getStreamQualityTier if the monitor exposes it
+    if (typeof agent.streamHealthMonitor?.getStreamQualityTier === 'function') {
+      const result = agent.streamHealthMonitor.getStreamQualityTier(
+        (bitrateInfo.value || 0) * 1000, // convert kbps to bps
+        agent.status?.encoder?.resolution || null,
+        fpsInfo?.value || null,
+        agent.status?.encoder?.congestion || null
+      );
+      qualityTier = result?.tier || null;
+    } else {
+      // Simple bitrate-only classification when no monitor is available
+      const kbps = bitrateInfo.value;
+      if (kbps >= 4000) qualityTier = 'good';
+      else if (kbps >= 2000) qualityTier = 'fair';
+      else qualityTier = 'poor';
+    }
+  }
 
   const stream = {
     active: isStreaming,
@@ -155,10 +168,8 @@ async function collectDiagnosticBundle(agent) {
     resolution: agent.status?.encoder?.resolution || null,
     qualityTier,
     dropRate: agent.status?.encoder?.congestion || null,
-    uptimeSeconds: shStatus.uptimeSeconds || null,
-    recentQualityHistory: Array.isArray(shStatus.history)
-      ? shStatus.history.slice(-10)
-      : [],
+    qualityScore: shStatus.qualityScore || null,
+    recentQualityHistory: shStatus.tierHistory || 0,
   };
 
   // ── Alerts ──────────────────────────────────────────────────────────────────

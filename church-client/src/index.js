@@ -619,27 +619,30 @@ class ChurchAVAgent {
     }
 
     // ATEM disconnected
+    const churchName = this.config.name || 'Church';
     if (this.config.atemIp && !this.status.atem.connected) {
       issues.push('atem_disconnected');
-      this._sendWatchdogAlert('atem_disconnected', 'ATEM switcher disconnected');
+      this._sendWatchdogAlert('atem_disconnected', `${churchName}: ATEM disconnected (${this.config.atemIp || 'unknown IP'}) — will auto-reconnect`);
     }
 
     // OBS disconnected
-    if (obsMonitoringEnabled && !this.status.obs.connected) {
+    if (this.isObsMonitoringEnabled() && !this.status.obs.connected) {
       issues.push('obs_disconnected');
-      this._sendWatchdogAlert('obs_disconnected', 'OBS disconnected');
+      const obsHost = this.config.obsUrl || 'unknown host';
+      this._sendWatchdogAlert('obs_disconnected', `${churchName}: OBS disconnected (${obsHost}) — will auto-reconnect`);
     }
 
     // vMix disconnected
     if (this.vmix && !this.status.vmix?.connected) {
       issues.push('vmix_disconnected');
-      this._sendWatchdogAlert('vmix_disconnected', 'vMix disconnected');
+      this._sendWatchdogAlert('vmix_disconnected', `${churchName}: vMix disconnected`);
     }
 
     // Companion disconnected
     if (this.companion && !this.status.companion?.connected) {
       issues.push('companion_disconnected');
-      this._sendWatchdogAlert('companion_disconnected', 'Companion disconnected');
+      const companionHost = this.config.companionUrl || 'unknown host';
+      this._sendWatchdogAlert('companion_disconnected', `${churchName}: Companion disconnected (${companionHost})`);
     }
 
     // Encoder disconnected (hardware encoder managed by EncoderBridge)
@@ -677,9 +680,23 @@ class ChurchAVAgent {
       this._sendWatchdogAlert('propresenter_disconnected', 'ProPresenter disconnected');
     }
 
-    // Multiple systems down
+    // Multiple systems down — human-readable device names
     if (issues.length >= 3) {
-      this._sendWatchdogAlert('multiple_systems_down', `${issues.length} issues: ${issues.join(', ')}`);
+      const issueLabels = {
+        atem_disconnected: 'ATEM Switcher',
+        obs_disconnected: 'OBS Studio',
+        companion_disconnected: 'Companion',
+        vmix_disconnected: 'vMix',
+        encoder_disconnected: 'Encoder',
+        hyperdeck_disconnected: 'HyperDeck',
+        mixer_disconnected: 'Audio Console',
+        ptz_disconnected: 'PTZ Cameras',
+        propresenter_disconnected: 'ProPresenter',
+        fps_low: 'Low FPS',
+        bitrate_low: 'Low Bitrate',
+      };
+      const names = issues.map(k => issueLabels[k] || k);
+      this._sendWatchdogAlert('multiple_systems_down', `Multiple devices offline at ${churchName} — ${names.join(', ')}. Check network switch and power.`);
     }
 
     // Update audio monitor status in status object
@@ -1019,7 +1036,18 @@ class ChurchAVAgent {
         this._resolveAudioViaAtem();
       } catch { /* non-critical */ }
 
-      this.sendStatus();
+      // Only send status when program/preview input actually changed
+      // (stateChanged fires at very high frequency; periodic 10s interval covers the rest)
+      const me2 = state.video?.mixEffects?.[0];
+      if (me2) {
+        const pgmChanged = me2.programInput !== this._prevAtemPgm;
+        const pvwChanged = me2.previewInput !== this._prevAtemPvw;
+        if (pgmChanged || pvwChanged) {
+          this._prevAtemPgm = me2.programInput;
+          this._prevAtemPvw = me2.previewInput;
+          this.sendStatus();
+        }
+      }
     });
 
     // ── Camera Control Protocol (CCdP) — detect Blackmagic cameras ──────
@@ -1156,6 +1184,11 @@ class ChurchAVAgent {
       }
     } catch {}
 
+    // 6. Clean up Companion, StreamHealthMonitor, AudioMonitor
+    if (this.companion?.stopPolling) this.companion.stopPolling();
+    if (this.streamHealthMonitor?.stop) this.streamHealthMonitor.stop();
+    if (this.audioMonitor?.stop) this.audioMonitor.stop();
+
     console.log('🛑 All timers cleared, connections closed.');
   }
 
@@ -1239,17 +1272,29 @@ class ChurchAVAgent {
 
             const streamStatus = await this.obs.call('GetStreamStatus');
             this.status.obs.streaming = streamStatus.outputActive;
-            this.status.obs.bitrate = streamStatus.outputBytes
-              ? Math.round((streamStatus.outputBytes / 1024 / 15))
-              : null;
+            // Compute bitrate from byte deltas (not cumulative)
+            if (streamStatus.outputBytes != null) {
+              const now = Date.now();
+              if (this._prevObsBytes == null) {
+                this._prevObsBytes = streamStatus.outputBytes;
+                this._prevObsTime = now;
+                this.status.obs.bitrate = null;
+              } else {
+                const deltaBits = (streamStatus.outputBytes - this._prevObsBytes) * 8;
+                const deltaSec = (now - this._prevObsTime) / 1000;
+                this.status.obs.bitrate = deltaSec > 0 ? Math.round(deltaBits / deltaSec / 1000) : 0;
+                this._prevObsBytes = streamStatus.outputBytes;
+                this._prevObsTime = now;
+              }
+            } else {
+              this.status.obs.bitrate = null;
+            }
             if (!this._encoderManaged) {
               this.status.encoder.bitrateKbps = this.status.obs.bitrate;
               this.status.encoder.live = !!streamStatus.outputActive;
             }
 
-            if (this.status.obs.fps < 24 && this.status.obs.streaming) {
-              this.sendAlert(`⚠️ Low stream FPS: ${this.status.obs.fps}fps`, 'warning');
-            }
+            // Low FPS alert handled by watchdog with dedup — no direct alert here
           } catch { /* ignore poll errors */ }
         }, 15_000));
       }

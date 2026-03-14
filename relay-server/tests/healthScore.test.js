@@ -152,19 +152,23 @@ describe('computeHealthScore', () => {
     db?.close();
   });
 
-  it('returns a perfect score when no data exists', () => {
+  it('returns null score when no data exists', () => {
     const result = computeHealthScore(db, 'church-1');
-    expect(result.score).toBe(100);
-    expect(result.breakdown.uptime).toBe(100);
-    expect(result.breakdown.alertRate).toBe(100);
-    expect(result.breakdown.recoveryRate).toBe(100);
-    expect(result.breakdown.preServicePassRate).toBe(100);
-    expect(result.breakdown.streamStability).toBe(100);
+    expect(result.score).toBeNull();
+    expect(result.status).toBe('new');
+    expect(result.message).toBe('Not enough data yet');
+    expect(result.breakdown.uptime).toBeNull();
+    expect(result.breakdown.alertRate).toBeNull();
+    expect(result.breakdown.recoveryRate).toBeNull();
+    expect(result.breakdown.preServicePassRate).toBeNull();
+    expect(result.breakdown.streamStability).toBeNull();
     expect(result.trend).toBe('stable');
     expect(result.recommendations).toEqual([]);
   });
 
   it('returns correct structure with all required fields', () => {
+    // Add a session so we get actual scores (not null for new church)
+    addSession(db, 'church-1', { daysAgo: 1, durationMinutes: 90, alertCount: 0 });
     const result = computeHealthScore(db, 'church-1');
     expect(result).toHaveProperty('score');
     expect(result).toHaveProperty('breakdown');
@@ -243,9 +247,9 @@ describe('computeHealthScore', () => {
     expect(result.breakdown.preServicePassRate).toBeCloseTo(66.7, 0);
   });
 
-  it('pre-service pass rate is 100 with no checks', () => {
+  it('pre-service pass rate is null with no checks', () => {
     const result = computeHealthScore(db, 'church-1');
-    expect(result.breakdown.preServicePassRate).toBe(100);
+    expect(result.breakdown.preServicePassRate).toBeNull();
   });
 
   it('stream stability decreases with quality events', () => {
@@ -259,11 +263,11 @@ describe('computeHealthScore', () => {
     expect(result.breakdown.streamStability).toBeLessThan(100);
   });
 
-  it('stream stability is 100 when no streaming happened', () => {
+  it('stream stability is null when no streaming happened', () => {
     addSession(db, 'church-1', { daysAgo: 1, durationMinutes: 90, streamRan: 0, streamRuntimeMinutes: 0 });
 
     const result = computeHealthScore(db, 'church-1');
-    expect(result.breakdown.streamStability).toBe(100);
+    expect(result.breakdown.streamStability).toBeNull();
   });
 
   it('score is bounded between 0 and 100', () => {
@@ -289,12 +293,13 @@ describe('computeHealthScore', () => {
       addAlert(db, 'church-1', { daysAgo: 20, severity: 'CRITICAL' });
     }
 
-    // Default 7-day window should not see it
+    // Default 7-day window should not see it — returns null (no data)
     const result7 = computeHealthScore(db, 'church-1', 7);
-    expect(result7.score).toBe(100);
+    expect(result7.score).toBeNull();
 
-    // 30-day window should see it
+    // 30-day window should see it and produce an actual score
     const result30 = computeHealthScore(db, 'church-1', 30);
+    expect(result30.score).not.toBeNull();
     expect(result30.score).toBeLessThan(100);
   });
 
@@ -306,7 +311,7 @@ describe('computeHealthScore', () => {
     }
 
     const result = computeHealthScore(db, 'church-1');
-    expect(result.score).toBe(100); // church-1 has no data
+    expect(result.score).toBeNull(); // church-1 has no data
   });
 });
 
@@ -347,14 +352,19 @@ describe('getHealthTrend', () => {
   });
 
   it('each week entry has weekStart, score, and breakdown', () => {
+    // Add sessions so we get actual scores
+    addSession(db, 'church-1', { daysAgo: 1, durationMinutes: 90, alertCount: 0 });
+    addSession(db, 'church-1', { daysAgo: 8, durationMinutes: 90, alertCount: 0 });
     const result = getHealthTrend(db, 'church-1', 2);
     for (const week of result.weeks) {
       expect(week).toHaveProperty('weekStart');
       expect(week).toHaveProperty('score');
       expect(week).toHaveProperty('breakdown');
-      expect(typeof week.score).toBe('number');
-      expect(week.score).toBeGreaterThanOrEqual(0);
-      expect(week.score).toBeLessThanOrEqual(100);
+      if (week.score !== null) {
+        expect(typeof week.score).toBe('number');
+        expect(week.score).toBeGreaterThanOrEqual(0);
+        expect(week.score).toBeLessThanOrEqual(100);
+      }
     }
   });
 
@@ -376,9 +386,9 @@ describe('getHealthTrend', () => {
   it('returns stable when no data exists', () => {
     const result = getHealthTrend(db, 'church-1', 4);
     expect(result.trend).toBe('stable');
-    // All weeks should be 100 (no data = perfect)
+    // All weeks should be null (no data)
     for (const week of result.weeks) {
-      expect(week.score).toBe(100);
+      expect(week.score).toBeNull();
     }
   });
 
@@ -535,7 +545,8 @@ describe('End-to-end scoring', () => {
 
   it('handles a church with no sessions gracefully', () => {
     const result = computeHealthScore(db, 'nonexistent-church');
-    expect(result.score).toBe(100);
+    expect(result.score).toBeNull();
+    expect(result.status).toBe('new');
     expect(result.trend).toBe('stable');
   });
 
@@ -547,9 +558,14 @@ describe('End-to-end scoring', () => {
 
     const trend = getHealthTrend(db, 'church-1', 4);
     expect(trend.weeks).toHaveLength(4);
-    expect(trend.weeks[trend.weeks.length - 1].score).toBeGreaterThanOrEqual(
-      trend.weeks[0].score
-    ); // most recent should be >= oldest (trend improving or stable)
+    // Filter to weeks with actual scores (non-null) for comparison
+    const withScores = trend.weeks.filter(w => w.score !== null);
+    if (withScores.length >= 2) {
+      // most recent should be >= oldest (trend improving or stable)
+      expect(withScores[withScores.length - 1].score).toBeGreaterThanOrEqual(
+        withScores[0].score
+      );
+    }
   });
 });
 
@@ -682,13 +698,13 @@ describe('SQL injection safety', () => {
 
   it('handles churchId with SQL injection characters safely', () => {
     const maliciousId = "'; DROP TABLE churches; --";
-    // Should not throw, should return default scores
+    // Should not throw, should return null (no data)
     const result = computeHealthScore(db, maliciousId);
-    expect(result.score).toBe(100);
+    expect(result.score).toBeNull();
   });
 
   it('handles churchId with special characters', () => {
     const result = computeHealthScore(db, 'church-<script>alert(1)</script>');
-    expect(result.score).toBe(100);
+    expect(result.score).toBeNull();
   });
 });

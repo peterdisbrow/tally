@@ -128,9 +128,9 @@ describe('Attempt counting', () => {
     const r1 = await recovery.attempt(church, 'fps_low', {});
     const r2 = await recovery.attempt(church, 'fps_low', {});
     const r3 = await recovery.attempt(church, 'fps_low', {});
-    expect(r1.attempted).toBe(true);
-    expect(r2.attempted).toBe(true);
-    expect(r3.attempted).toBe(true);
+    expect(r1.attempted).toBe(false);
+    expect(r2.attempted).toBe(false);
+    expect(r3.attempted).toBe(false);
     expect(r3.reason).toBe('no_auto_command');
   });
 
@@ -254,7 +254,7 @@ describe('Playbook classification', () => {
 
   it('unknown failure type defaults to escalate_to_td', async () => {
     const result = await recovery.attempt(makeChurch(), 'unknown_alert_type', {});
-    expect(result.attempted).toBe(true);
+    expect(result.attempted).toBe(false);
     expect(result.event).toBe('escalate_to_td');
   });
 
@@ -409,8 +409,7 @@ describe('Recovery command dispatch', () => {
     const church = makeChurch('church-1', true);
     // obs_disconnected has no recovery command mapped
     const result = await recovery.attempt(church, 'obs_disconnected', {});
-    expect(result.attempted).toBe(true);
-    expect(result.success).toBe(false);
+    expect(result.attempted).toBe(false);
     expect(result.reason).toBe('no_auto_command');
     expect(result.command).toBeNull();
   });
@@ -434,8 +433,7 @@ describe('Audio silence threshold', () => {
   it('does not auto-recover audio_silence when duration < 60s', async () => {
     const church = makeChurch('church-1', true);
     const result = await recovery.attempt(church, 'audio_silence', { silenceDurationMs: 30_000 });
-    expect(result.attempted).toBe(true);
-    expect(result.success).toBe(false);
+    expect(result.attempted).toBe(false);
     expect(result.reason).toBe('silence_not_sustained');
   });
 
@@ -498,8 +496,7 @@ describe('Cooldown enforcement', () => {
 
     // Immediate second attempt — should be blocked by cooldown
     const r2 = await recovery.attempt(church, 'stream_stopped', {});
-    expect(r2.attempted).toBe(true);
-    expect(r2.success).toBe(false);
+    expect(r2.attempted).toBe(false);
     expect(r2.reason).toBe('cooldown_active');
   });
 
@@ -582,8 +579,7 @@ describe('Service hours gate', () => {
     const recovery = new AutoRecovery(new Map(), {}, db, { scheduleEngine });
 
     const result = await recovery.attempt(makeChurch('church-1', true), 'stream_stopped', {});
-    expect(result.attempted).toBe(true);
-    expect(result.success).toBe(false);
+    expect(result.attempted).toBe(false);
     expect(result.reason).toBe('outside_service_hours');
   });
 

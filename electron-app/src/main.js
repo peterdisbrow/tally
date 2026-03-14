@@ -816,6 +816,23 @@ ipcMain.handle('send-diagnostic-bundle', async () => {
   }
 });
 
+// ─── SEND COMMAND IPC (troubleshooter auto-actions) ────────────────────────────
+ipcMain.handle('send-command', async (_, cmd, params) => {
+  const config = loadConfig();
+  if (!config.token) return { error: 'Not configured' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const resp = await fetch(`${relayHttp}/api/church/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
+      body: JSON.stringify({ command: cmd, params: params || {} }),
+    });
+    return await resp.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
 // ─── CHAT IPC ──────────────────────────────────────────────────────────────────
 ipcMain.handle('send-chat', async (_, { message, senderName }) => {
   const config = loadConfig();

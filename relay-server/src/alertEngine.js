@@ -34,7 +34,7 @@ const ALERT_CLASSIFICATIONS = {
   'hyperdeck_disconnected': 'WARNING',
   'mixer_disconnected': 'WARNING',
   'ptz_disconnected': 'WARNING',
-  'propresenter_disconnected': 'INFO',
+  'propresenter_disconnected': 'WARNING',
   'audio_silence': 'WARNING',
   'audio_muted': 'CRITICAL',
   'firmware_outdated': 'WARNING',
@@ -386,7 +386,8 @@ class AlertEngine {
     const [churchId, alertType] = key.split('::');
     const windowMs = this._getDedupWindowMs(churchId, alertType);
     const windowMin = Math.round(windowMs / 60000);
-    const icon = '🔴';
+    const severity = ALERT_CLASSIFICATIONS[alertType] || 'WARNING';
+    const icon = severity === 'CRITICAL' || severity === 'EMERGENCY' ? '🔴' : severity === 'WARNING' ? '⚠️' : 'ℹ️';
     const summary = `${icon} ${alertType.replace(/_/g, ' ')} (${entry.count} occurrences in last ${windowMin} min)`;
 
     const botToken = entry.church.alert_bot_token || this.defaultBotToken;
@@ -496,18 +497,18 @@ class AlertEngine {
       const timer = setTimeout(async () => {
         const alert = this.activeAlerts.get(alertId);
         if (alert && !alert.acknowledged) {
-          console.log(`  ↳ No ack after 90s — escalating to Andrew`);
+          console.log(`  ↳ No ack after 5min — escalating to Andrew`);
           this.db.prepare('UPDATE alerts SET escalated = 1 WHERE id = ?').run(alertId);
           if (this.andrewChatId) {
             await this.sendTelegramMessage(this.andrewChatId, botToken,
-              `🚨 ESCALATED (no TD response in 90s)\n\n${msg}`);
+              `🚨 ESCALATED (no TD response in 5 min)\n\n${msg}`);
           }
           // Also send escalation email as backup
           if (this.lifecycleEmails) {
             this.lifecycleEmails.sendUrgentAlertEscalation(church, { alertType, context, alertId }).catch(() => {});
           }
         }
-      }, 90_000);
+      }, 300_000);
 
       this.activeAlerts.set(alertId, { church, alertType, context, severity, sentAt: now, escalationTimer: timer, acknowledged: false });
     }
@@ -551,6 +552,32 @@ class AlertEngine {
       });
     } catch (e) {
       console.error('Slack alert failed:', e.message);
+    }
+  }
+
+  async sendSlackAcknowledgment(church, alertType, responder) {
+    if (!church.slack_webhook_url) return;
+    const time = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const payload = {
+      username: 'Tally',
+      icon_emoji: ':satellite:',
+      channel: church.slack_channel || undefined,
+      attachments: [{
+        color: '#3b82f6',
+        title: `🔵 ACKNOWLEDGED: ${alertType.replace(/_/g, ' ')} — ${church.name}`,
+        text: `Acknowledged by ${responder || 'TD'} at ${time}`,
+        footer: `Tally | ${time}`,
+      }],
+    };
+    try {
+      await fetch(church.slack_webhook_url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (e) {
+      console.error('Slack acknowledgment failed:', e.message);
     }
   }
 
@@ -605,14 +632,14 @@ class AlertEngine {
       if (alert.escalationTimer) clearTimeout(alert.escalationTimer);
       this.activeAlerts.delete(alertId);
 
-      // Send Slack resolution on ack
+      // Send Slack acknowledgment on ack (not resolution — ack ≠ resolved)
       try {
         const dbChurch = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(alert.church.churchId);
         if (dbChurch?.slack_webhook_url) {
-          await this.sendSlackResolution({ ...alert.church, ...dbChurch }, alert.alertType);
+          await this.sendSlackAcknowledgment({ ...alert.church, ...dbChurch }, alert.alertType, responder);
         }
       } catch (e) {
-        console.warn('Slack ack resolution failed:', e.message);
+        console.warn('Slack ack notification failed:', e.message);
       }
     }
     this.db.prepare('UPDATE alerts SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ?')
