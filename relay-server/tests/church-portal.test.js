@@ -64,7 +64,8 @@ function createTestDb() {
       onboarding_dismissed INTEGER DEFAULT 0,
       registration_code TEXT,
       audio_via_atem INTEGER DEFAULT 0,
-      engineer_profile TEXT
+      engineer_profile TEXT,
+      campus_id TEXT
     )
   `);
   db.exec(`
@@ -199,6 +200,8 @@ function createTestDb() {
       church_id TEXT NOT NULL,
       stripe_customer_id TEXT,
       billing_interval TEXT,
+      current_period_end TEXT,
+      cancel_at_period_end INTEGER DEFAULT 0,
       updated_at TEXT
     )
   `);

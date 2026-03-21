@@ -137,7 +137,8 @@ describe('LifecycleEmails', () => {
 
     it('handles singular day correctly', () => {
       const church = mockChurch();
-      const result = emails._buildTrialEndingSoonEmail(church, 1);
+      // The 7-day email still shows the exact day count with singular/plural logic
+      const result = emails._buildTrialEnding7DaysEmail(church, 1);
 
       expect(result.html).toContain('1 day');
       // Should NOT say "1 days"
@@ -238,7 +239,7 @@ describe('LifecycleEmails', () => {
       const result = emails._buildTrialEndingSoonEmail(church, 3);
 
       expect(result.html).toContain('https://test.tallyconnect.app/portal');
-      expect(result.html).toContain('Subscribe Now');
+      expect(result.html).toContain('Keep Tally Running');
     });
 
     it('generates first-sunday email with church-specific content', () => {
