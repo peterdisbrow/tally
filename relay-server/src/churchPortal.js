@@ -2178,6 +2178,21 @@ function buildChurchPortalHtml(church) {
     </div>
   </div>
 
+  <!-- Cancel Subscription / Retention Offer Modal -->
+  <div class="modal-backdrop" id="modal-cancel-retention">
+    <div class="modal" style="max-width:460px">
+      <div class="modal-header">
+        <div class="modal-title" data-i18n="billing.cancel.modal.title">We&rsquo;d hate to see you go.</div>
+        <button class="modal-close" onclick="document.getElementById('modal-cancel-retention').classList.remove('open')">&times;</button>
+      </div>
+      <p style="font-size:14px;color:#CBD5E1;line-height:1.7;margin:12px 0 24px" data-i18n="billing.cancel.modal.body">Before you cancel, we&rsquo;d like to offer you 50% off for the next 3 months. No strings attached.</p>
+      <div class="modal-footer" style="flex-direction:column;gap:10px;align-items:stretch">
+        <button id="btn-accept-retention" class="btn-primary" onclick="acceptRetentionOffer()" data-i18n="billing.cancel.accept">Accept 50% Off</button>
+        <button id="btn-confirm-cancel" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:10px 16px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600" onclick="confirmCancellation()" data-i18n="billing.cancel.decline">No thanks, cancel my account</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Async Confirm / Prompt / Alert Modal -->
   <div class="modal-backdrop" id="modal-dialog">
     <div class="modal" style="max-width:420px">
@@ -2479,6 +2494,14 @@ function buildChurchPortalHtml(church) {
         // Billing
         'billing.sub': 'Manage your plan, payment method, and invoices',
         'billing.loading': 'Loading billing info...',
+        'billing.cancel_btn': 'Cancel Subscription',
+        'billing.cancel.modal.title': 'We\u2019d hate to see you go.',
+        'billing.cancel.modal.body': 'Before you cancel, we\u2019d like to offer you 50% off for the next 3 months. No strings attached.',
+        'billing.cancel.accept': 'Accept 50% Off',
+        'billing.cancel.decline': 'No thanks, cancel my account',
+        'billing.cancel.active_until': 'Your plan will remain active until',
+        'billing.cancel.retention.accepted': 'Discount applied! 50% off for the next 3 months. Thank you for staying.',
+        'billing.cancel.scheduled': 'Cancellation scheduled',
         // Support
         'support.page_sub': 'Run diagnostics, open tickets, and track platform status',
         'support.sla.title': 'Support SLA',
@@ -2773,6 +2796,14 @@ function buildChurchPortalHtml(church) {
         // Billing
         'billing.sub': 'Administra tu plan, m\u00e9todo de pago y facturas',
         'billing.loading': 'Cargando informaci\u00f3n de facturaci\u00f3n...',
+        'billing.cancel_btn': 'Cancelar Suscripci\u00f3n',
+        'billing.cancel.modal.title': '\u00a1Nos entristece verte ir!',
+        'billing.cancel.modal.body': 'Antes de cancelar, nos gustar\u00eda ofrecerte un 50% de descuento durante los pr\u00f3ximos 3 meses. Sin compromisos.',
+        'billing.cancel.accept': 'Aceptar 50% de Descuento',
+        'billing.cancel.decline': 'No gracias, cancelar mi cuenta',
+        'billing.cancel.active_until': 'Tu plan seguir\u00e1 activo hasta el',
+        'billing.cancel.retention.accepted': '\u00a1Descuento aplicado! 50% de descuento por los pr\u00f3ximos 3 meses. Gracias por quedarte.',
+        'billing.cancel.scheduled': 'Cancelaci\u00f3n programada',
         // Support
         'support.page_sub': 'Ejecuta diagn\u00f3sticos, abre tickets y revisa el estado de la plataforma',
         'support.sla.title': 'SLA de Soporte',
@@ -6097,8 +6128,17 @@ function buildChurchPortalHtml(church) {
         }
 
         if (b.portalUrl) {
-          html += '<a href="' + b.portalUrl + '" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none;margin-bottom:12px">Manage Subscription \\u2192</a>';
-          html += '<p style="color:#475569;font-size:12px">Update payment method, view invoices, or cancel your subscription via Stripe\\u2019s secure portal.</p>';
+          html += '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">';
+          html += '<a href="' + b.portalUrl + '" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none">Manage Subscription \\u2192</a>';
+          if (['active','trialing'].includes(b.status) && !b.cancelAtPeriodEnd) {
+            html += '<button onclick="cancelSubscription()" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:13px;padding:8px 16px;border-radius:8px;cursor:pointer;font-weight:600">Cancel Subscription</button>';
+          }
+          html += '</div>';
+          if (b.cancelAtPeriodEnd && b.currentPeriodEnd) {
+            var endLabel = new Date(b.currentPeriodEnd).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+            html += '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:13px;color:#eab308">Cancellation scheduled. Your plan will remain active until <strong>' + endLabel + '</strong>.</div>';
+          }
+          html += '<p style="color:#475569;font-size:12px">Update payment method and view invoices from the Stripe portal.</p>';
         }
 
         // Reactivation button for cancelled/expired/inactive churches
@@ -6134,7 +6174,7 @@ function buildChurchPortalHtml(church) {
         html += '</div>';
 
         html += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #1a2e1f">';
-        html += '<p style="color:#475569;font-size:12px;line-height:1.6">Cancel anytime from the Stripe portal. Service continues through the end of your billing period. No partial-month refunds. Questions? <a href="mailto:support@tallyconnect.app" style="color:#22c55e">support@tallyconnect.app</a></p>';
+        html += '<p style="color:#475569;font-size:12px;line-height:1.6">Cancel anytime. Service continues through the end of your billing period. No partial-month refunds. Questions? <a href="mailto:support@tallyconnect.app" style="color:#22c55e">support@tallyconnect.app</a></p>';
         html += '</div>';
 
         document.getElementById('billing-content').innerHTML = html;
@@ -6257,6 +6297,45 @@ function buildChurchPortalHtml(church) {
       } catch(e) {
         toast(e.message || 'Reactivation failed', true);
         if (btn) { btn.disabled = false; btn.textContent = 'Reactivate Now →'; }
+      }
+    }
+
+    // ── Cancel subscription (opens retention modal) ─────────────────────────
+    function cancelSubscription() {
+      document.getElementById('modal-cancel-retention').classList.add('open');
+    }
+
+    // ── Accept retention offer (50% off 3 months) ───────────────────────────
+    async function acceptRetentionOffer() {
+      var btn = document.getElementById('btn-accept-retention');
+      if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+      try {
+        await api('POST', '/api/church/billing/retention', {});
+        document.getElementById('modal-cancel-retention').classList.remove('open');
+        toast('Discount applied! 50% off for the next 3 months. Thank you for staying.');
+        await loadBilling();
+      } catch(e) {
+        toast('Could not apply discount: ' + (e.message || 'Please try again.'));
+        if (btn) { btn.disabled = false; btn.textContent = pt('billing.cancel.accept') || 'Accept 50% Off'; }
+      }
+    }
+
+    // ── Confirm cancellation (no thanks branch) ─────────────────────────────
+    async function confirmCancellation() {
+      var btn = document.getElementById('btn-confirm-cancel');
+      if (btn) { btn.disabled = true; btn.textContent = 'Cancelling…'; }
+      try {
+        var data = await api('POST', '/api/church/billing/cancel', {});
+        document.getElementById('modal-cancel-retention').classList.remove('open');
+        if (data.endDate) {
+          toast('Subscription cancelled. Your access continues until ' + data.endDate + '.');
+        } else {
+          toast('Subscription cancelled. Your access continues through the end of your billing period.');
+        }
+        await loadBilling();
+      } catch(e) {
+        toast('Cancellation failed: ' + (e.message || 'Please contact support.'));
+        if (btn) { btn.disabled = false; btn.textContent = pt('billing.cancel.decline') || 'No thanks, cancel my account'; }
       }
     }
 
@@ -8976,7 +9055,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const church = req.church;
       const tier = church.billing_tier || 'connect';
       const billingRow = db.prepare(
-        'SELECT stripe_customer_id, billing_interval FROM billing_customers WHERE church_id = ? ORDER BY datetime(updated_at) DESC LIMIT 1'
+        'SELECT stripe_customer_id, billing_interval, current_period_end, cancel_at_period_end FROM billing_customers WHERE church_id = ? ORDER BY datetime(updated_at) DESC LIMIT 1'
       ).get(church.churchId);
       const billingInterval = tier === 'event'
         ? 'one_time'
@@ -9016,6 +9095,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         trialEndsAt: trialEnds,
         trialDaysRemaining,
         portalUrl,
+        cancelAtPeriodEnd: !!(billingRow?.cancel_at_period_end),
+        currentPeriodEnd: billingRow?.current_period_end || null,
         aiUsage,
         features: {
           autopilot: !['connect', 'plus'].includes(tier),
@@ -9211,6 +9292,130 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) {
       log.error('Billing downgrade: ' + e.message);
       res.status(500).json({ error: safeErrorMessage(e, 'Downgrade failed') });
+    }
+  });
+
+  // ── POST /api/church/billing/cancel ─────────────────────────────────────────
+  // Schedule cancellation at period end. No immediate cut-off — transparent.
+  app.post('/api/church/billing/cancel', authMiddleware, billingRateLimit, async (req, res) => {
+    try {
+      const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
+      if (!STRIPE_KEY) return res.status(503).json({ error: 'Stripe not configured' });
+      const stripeClient = require('stripe')(STRIPE_KEY);
+
+      const church = req.church;
+      const billingRow = db.prepare(
+        'SELECT stripe_subscription_id, current_period_end FROM billing_customers WHERE church_id = ? AND stripe_subscription_id IS NOT NULL ORDER BY datetime(updated_at) DESC LIMIT 1'
+      ).get(church.churchId);
+
+      if (!billingRow?.stripe_subscription_id) {
+        return res.status(400).json({ error: 'No active subscription found.' });
+      }
+
+      // Schedule cancellation at period end — no immediate cut-off
+      await stripeClient.subscriptions.update(billingRow.stripe_subscription_id, {
+        cancel_at_period_end: true,
+      });
+
+      // Update local DB immediately so the UI reflects it
+      db.prepare(
+        'UPDATE billing_customers SET cancel_at_period_end = 1, updated_at = ? WHERE stripe_subscription_id = ?'
+      ).run(new Date().toISOString(), billingRow.stripe_subscription_id);
+
+      const periodEnd = billingRow.current_period_end;
+      const endDate = periodEnd
+        ? new Date(periodEnd).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+        : null;
+
+      log.info(`Church ${church.churchId} scheduled cancellation at period end (${periodEnd})`);
+
+      // Send cancellation confirmation email immediately
+      if (lifecycleEmails) {
+        // Use a date-stamped type so reactivate→cancel cycles each get an email
+        const cancelEmailType = `cancellation-scheduled-${new Date().toISOString().slice(0, 7)}`;
+        lifecycleEmails.sendEmail({
+          churchId: church.churchId,
+          emailType: cancelEmailType,
+          to: church.portal_email,
+          subject: 'Your Tally subscription has been cancelled',
+          html: lifecycleEmails._wrap(`
+            <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Tally subscription has been cancelled</h1>
+            <p style="font-size: 15px; color: #333; line-height: 1.6;">
+              We're sorry to see <strong>${lifecycleEmails._esc(church.name)}</strong> go.
+              Your subscription has been cancelled and will remain active until <strong>${endDate || 'the end of your billing period'}</strong>.
+            </p>
+
+            <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
+              <div style="font-size: 14px; color: #333; line-height: 2;">
+                &bull; Monitoring continues until your current period ends<br>
+                &bull; Your data and settings are preserved for 30 days after<br>
+                &bull; You can reactivate anytime from your Church Portal
+              </div>
+            </div>
+
+            <p style="font-size: 15px; color: #333; line-height: 1.6;">
+              Changed your mind? Reactivate your subscription before it expires:
+            </p>
+
+            ${lifecycleEmails._cta('Reactivate Here', lifecycleEmails.appUrl + '/portal')}
+
+            <p style="font-size: 14px; color: #666; line-height: 1.6;">
+              We'd love to know why you cancelled &mdash; reply to this email and let us know. Your feedback helps us improve.
+            </p>
+          `),
+          text: `Your Tally subscription has been cancelled\n\nYour subscription for ${church.name} has been cancelled and will remain active until ${endDate || 'the end of your billing period'}.\n\nYour data is preserved for 30 days. Reactivate anytime at ${lifecycleEmails.appUrl}/portal\n\nTally`,
+        }).catch(e => console.error('[Billing] Cancel confirmation email failed:', e.message));
+      }
+
+      res.json({ success: true, endDate });
+    } catch (e) {
+      log.error('Billing cancel: ' + e.message);
+      res.status(500).json({ error: safeErrorMessage(e, 'Cancellation failed') });
+    }
+  });
+
+  // ── POST /api/church/billing/retention ──────────────────────────────────────
+  // Apply 50% off for 3 months (retention offer) to the church's subscription.
+  app.post('/api/church/billing/retention', authMiddleware, billingRateLimit, async (req, res) => {
+    try {
+      const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
+      if (!STRIPE_KEY) return res.status(503).json({ error: 'Stripe not configured' });
+      const stripeClient = require('stripe')(STRIPE_KEY);
+
+      const church = req.church;
+      const billingRow = db.prepare(
+        'SELECT stripe_subscription_id FROM billing_customers WHERE church_id = ? AND stripe_subscription_id IS NOT NULL ORDER BY datetime(updated_at) DESC LIMIT 1'
+      ).get(church.churchId);
+
+      if (!billingRow?.stripe_subscription_id) {
+        return res.status(400).json({ error: 'No active subscription found.' });
+      }
+
+      // Get or create a fixed retention coupon in Stripe
+      const COUPON_ID = 'TALLY_RETENTION_50_3MO';
+      let coupon;
+      try {
+        coupon = await stripeClient.coupons.retrieve(COUPON_ID);
+      } catch {
+        coupon = await stripeClient.coupons.create({
+          id: COUPON_ID,
+          percent_off: 50,
+          duration: 'repeating',
+          duration_in_months: 3,
+          name: '50% off for 3 months (retention offer)',
+        });
+      }
+
+      // Apply coupon to subscription
+      await stripeClient.subscriptions.update(billingRow.stripe_subscription_id, {
+        coupon: coupon.id,
+      });
+
+      log.info(`Applied retention coupon to church ${church.churchId}`);
+      res.json({ success: true });
+    } catch (e) {
+      log.error('Billing retention: ' + e.message);
+      res.status(500).json({ error: safeErrorMessage(e, 'Could not apply discount') });
     }
   });
 
