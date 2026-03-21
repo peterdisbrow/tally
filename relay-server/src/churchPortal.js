@@ -4729,10 +4729,6 @@ function buildChurchPortalHtml(church) {
         }
 
         const tbody = document.getElementById('campuses-tbody');
-        if (!campusData.length) {
-          tbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">No linked campuses yet.</td></tr>';
-          return;
-        }
 
         // Cross-campus summary card
         var summaryEl = document.getElementById('campus-summary');
@@ -4749,7 +4745,28 @@ function buildChurchPortalHtml(church) {
           summaryEl.style.display = 'none';
         }
 
-        tbody.innerHTML = campusData.map(function(c) {
+        // Always render the main church as the first (non-removable) row
+        var mainChurchName = (profileData && profileData.name) || (document.getElementById('sidebar-church-name') || {}).textContent || 'Main Church';
+        var mainChurchRow =
+          '<tr>' +
+            '<td>' +
+              '<span style="font-weight:600">' + escapeHtml(mainChurchName) + '</span>' +
+              '<div style="color:#64748B;font-size:12px">Main Church</div>' +
+            '</td>' +
+            '<td>—</td>' +
+            '<td>—</td>' +
+            '<td>—</td>' +
+            '<td>' +
+              '<button class="btn-sm campus-rooms-btn" data-campus-id="' + CHURCH_ID + '">Rooms ▾</button>' +
+            '</td>' +
+          '</tr>' +
+          '<tr class="campus-rooms-row" id="campus-rooms-row-' + CHURCH_ID + '" style="display:none">' +
+            '<td colspan="5" style="padding:0">' +
+              '<div id="campus-rooms-panel-' + CHURCH_ID + '" style="padding:14px 16px;background:#080e18;border-top:1px solid #1e3045"></div>' +
+            '</td>' +
+          '</tr>';
+
+        var satelliteRows = campusData.map(function(c) {
           var status = c.connected ? 'Online' : 'Offline';
           var statusClass = c.connected ? 'badge-green' : 'badge-gray';
           var code = c.registrationCode || '\u2014';
@@ -4792,6 +4809,8 @@ function buildChurchPortalHtml(church) {
             '</td>' +
           '</tr>';
         }).join('');
+
+        tbody.innerHTML = mainChurchRow + satelliteRows;
 
         // Wire event listeners
         tbody.querySelectorAll('.campus-copy-code-btn').forEach(function(btn) {
@@ -8688,6 +8707,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // campus_id here is the churchId of the child campus record.
 
   function _verifyCampusOwnership(campusId, parentChurchId) {
+    // Allow the main church to manage rooms under its own ID (campus_id = churchId)
+    if (campusId === parentChurchId) return { churchId: campusId };
     return db.prepare('SELECT churchId FROM churches WHERE churchId = ? AND parent_church_id = ?')
       .get(campusId, parentChurchId);
   }
