@@ -859,12 +859,18 @@ class TallyBot {
 
     console.log(`[TallyBot] TD registered: ${name} → ${church.name}`);
 
-    // Onboarding milestone: first Telegram TD registration
+    // Onboarding milestone: Telegram TD registration covers steps 2 (notifications) and 4 (invite team)
     try {
-      const onbRow = this.db.prepare('SELECT onboarding_telegram_registered_at FROM churches WHERE churchId = ?').get(church.churchId);
+      const onbRow = this.db.prepare('SELECT onboarding_telegram_registered_at, onboarding_team_invited_at FROM churches WHERE churchId = ?').get(church.churchId);
+      const now = new Date().toISOString();
       if (onbRow && !onbRow.onboarding_telegram_registered_at) {
-        this.db.prepare('UPDATE churches SET onboarding_telegram_registered_at = ? WHERE churchId = ?').run(new Date().toISOString(), church.churchId);
+        this.db.prepare('UPDATE churches SET onboarding_telegram_registered_at = ? WHERE churchId = ?').run(now, church.churchId);
         console.log(`[onboarding] First Telegram TD registered for "${church.name}"`);
+      }
+      // "Invite your team" step: mark done when any TD registers (they've shared the code and someone joined)
+      if (onbRow && !onbRow.onboarding_team_invited_at) {
+        this.db.prepare('UPDATE churches SET onboarding_team_invited_at = ? WHERE churchId = ?').run(now, church.churchId);
+        console.log(`[onboarding] Team invite milestone reached for "${church.name}"`);
       }
     } catch (e) {
       console.error(`[onboarding] Telegram milestone error: ${e.message}`);

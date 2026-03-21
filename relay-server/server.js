@@ -494,6 +494,9 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN failover_auto_recover INTEGER DEFAULT 0",
   "ALTER TABLE churches ADD COLUMN failover_audio_trigger INTEGER DEFAULT 0",
   "ALTER TABLE churches ADD COLUMN recovery_outside_service_hours INTEGER DEFAULT 1",
+  // Onboarding checklist steps 3 & 4 (steps 1-2 use existing app/telegram columns)
+  "ALTER TABLE churches ADD COLUMN onboarding_failover_tested_at TEXT",
+  "ALTER TABLE churches ADD COLUMN onboarding_team_invited_at TEXT",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }

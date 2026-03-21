@@ -2907,10 +2907,34 @@ function buildChurchPortalHtml(church) {
       onboardingRegCode = d.registration_code || '';
 
       const steps = [
-        { key: 'account', done: true, label: 'Account created', detail: 'Your Tally account is set up' },
-        { key: 'app', done: !!d.onboarding_app_connected_at, label: 'Desktop app connected', detail: 'Download and run the Tally app on your booth computer', action: '<a href="/download" target="_blank" class="onboard-action-btn">⬇ Download App</a>' },
-        { key: 'atem', done: !!d.onboarding_atem_connected_at, label: 'ATEM connected', detail: 'The app will auto-discover your ATEM switcher on the network', action: '<span class="onboard-action-btn" onclick="showAtemTip()">💡 Network Tips</span>' },
-        { key: 'telegram', done: !!d.onboarding_telegram_registered_at, label: 'Telegram bot registered', detail: 'Send /register ' + escapeHtml(d.registration_code || 'CODE') + ' to @tallybot on Telegram', action: '<span class="onboard-action-btn" onclick="copyOnboardingCode()">📋 Copy Code</span> <a href="https://t.me/tallybot" target="_blank" class="onboard-action-btn">💬 Open Telegram</a>' },
+        {
+          key: 'device',
+          done: !!d.onboarding_app_connected_at,
+          label: 'Connect your first device',
+          detail: 'Download the Tally app and connect your ATEM, OBS, or ProPresenter',
+          action: '<a href="/download" target="_blank" class="onboard-action-btn">⬇ Download App</a>',
+        },
+        {
+          key: 'telegram',
+          done: !!d.onboarding_telegram_registered_at,
+          label: 'Set up Telegram notifications',
+          detail: 'Send /register ' + escapeHtml(d.registration_code || 'CODE') + ' to @TallyConnectBot on Telegram to receive alerts',
+          action: '<span class="onboard-action-btn" onclick="copyOnboardingCode()">📋 Copy Code</span> <a href="https://t.me/TallyConnectBot" target="_blank" class="onboard-action-btn">💬 Open Telegram</a>',
+        },
+        {
+          key: 'failover',
+          done: !!d.onboarding_failover_tested_at,
+          label: 'Run a test failover',
+          detail: 'Trigger a test to confirm Tally detects signal loss and sends an alert',
+          action: '<span class="onboard-action-btn" onclick="markFailoverTested()" id="failover-test-btn">▶ Run Test</span>',
+        },
+        {
+          key: 'team',
+          done: !!d.onboarding_team_invited_at,
+          label: 'Invite your team',
+          detail: 'Share the registration code so your AV volunteers can join on Telegram',
+          action: '<span class="onboard-action-btn" onclick="inviteTeam()">👥 Share Code</span>',
+        },
       ];
 
       const completed = steps.filter(s => s.done).length;
@@ -2965,6 +2989,35 @@ function buildChurchPortalHtml(church) {
 
     function showAtemTip() {
       toast('Ensure your ATEM and booth computer are on the same network subnet. The app scans automatically.');
+    }
+
+    async function markFailoverTested() {
+      const btn = document.getElementById('failover-test-btn');
+      if (btn) { btn.textContent = '⏳ Recording…'; btn.style.pointerEvents = 'none'; }
+      try {
+        await api('POST', '/api/church/onboarding/failover-tested');
+        toast('✅ Test failover recorded! Step 3 complete.');
+        loadOverview();
+      } catch (e) {
+        toast('Could not record test — please try again', true);
+        if (btn) { btn.textContent = '▶ Run Test'; btn.style.pointerEvents = ''; }
+      }
+    }
+
+    async function inviteTeam() {
+      if (!onboardingRegCode) { toast('No registration code available', true); return; }
+      const msg = 'Join me on Tally! Send this to @TallyConnectBot on Telegram: /register ' + onboardingRegCode;
+      try {
+        await navigator.clipboard.writeText(msg);
+        toast('Invite message copied to clipboard!');
+      } catch {
+        toast('Share this code: /register ' + onboardingRegCode);
+      }
+      // Mark team-invited step done
+      try {
+        await api('POST', '/api/church/onboarding/team-invited');
+        loadOverview();
+      } catch { /* non-critical */ }
     }
 
     async function dismissOnboarding() {
@@ -5371,6 +5424,30 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to restore onboarding' });
+    }
+  });
+
+  // ── POST /api/church/onboarding/failover-tested ──────────────────────────────
+  // Marks the "Run a test failover" onboarding step complete. Called when the
+  // user clicks the "Mark done" button on the onboarding checklist.
+  app.post('/api/church/onboarding/failover-tested', authMiddleware, (req, res) => {
+    try {
+      db.prepare('UPDATE churches SET onboarding_failover_tested_at = ? WHERE churchId = ?')
+        .run(new Date().toISOString(), req.church.churchId);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to record failover test' });
+    }
+  });
+
+  // ── POST /api/church/onboarding/team-invited ─────────────────────────────────
+  app.post('/api/church/onboarding/team-invited', authMiddleware, (req, res) => {
+    try {
+      db.prepare('UPDATE churches SET onboarding_team_invited_at = ? WHERE churchId = ?')
+        .run(new Date().toISOString(), req.church.churchId);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to record team invite' });
     }
   });
 
