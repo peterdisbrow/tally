@@ -994,6 +994,24 @@ function buildChurchPortalHtml(church) {
         </div>
       </div>
 
+      <!-- Pre-Service Check Card — prominent, always visible on dashboard -->
+      <div class="card" id="preservice-card-dashboard">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="card-title" style="margin:0"><span class="tip" data-tip="Tally runs a full system check ~30 min before your scheduled service. Run manually anytime.">🔧 Pre-Service Check</span></div>
+            <span id="psc-dash-badge" class="badge badge-gray">—</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-primary" id="psc-dash-fix-btn" onclick="fixAllPreServiceIssues()" style="display:none;font-size:12px;padding:5px 12px">Fix All Safe Issues</button>
+            <button class="btn-secondary" onclick="runPreServiceCheck()" style="font-size:12px;padding:5px 12px">Run Check Now</button>
+          </div>
+        </div>
+        <div id="psc-dash-body">
+          <div style="color:#475569;text-align:center;padding:14px;font-size:13px">Loading…</div>
+        </div>
+        <div id="psc-dash-time" style="font-size:11px;color:#64748b;margin-top:8px;text-align:right"></div>
+      </div>
+
       <!-- Multi-Campus Overview (shown only when campuses are linked) -->
       <div class="card" id="campus-overview-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -1109,20 +1127,7 @@ function buildChurchPortalHtml(church) {
         <div id="audio-detail-row" style="font-size:12px;color:#64748B;display:flex;gap:16px;flex-wrap:wrap"></div>
       </div>
 
-      <!-- Pre-Service Check Card -->
-      <div class="card" id="preservice-card" style="display:none">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Tally Engineer runs a systems check ~30 minutes before each service">🔧 Pre-Service Check</span></div>
-          <span id="preservice-time" style="font-size:11px;color:#64748b"></span>
-        </div>
-        <div id="preservice-body">
-          <div style="color:#475569;text-align:center;padding:12px;font-size:13px">Loading…</div>
-        </div>
-        <div style="display:flex;gap:8px;margin-top:12px">
-          <button class="btn-primary" id="preservice-fix-btn" onclick="fixAllPreServiceIssues()" style="display:none;font-size:12px;padding:6px 14px">Fix All Safe Issues</button>
-          <button class="btn-secondary" id="preservice-run-btn" onclick="runPreServiceCheck()" style="font-size:12px;padding:6px 14px">Run Check Now</button>
-        </div>
-      </div>
+      <!-- Pre-Service Check Card (legacy placeholder — real card is at top of overview) -->
 
       <!-- Service Rundown Card -->
       <div class="card" id="rundown-card">
@@ -2824,91 +2829,90 @@ function buildChurchPortalHtml(church) {
     // ── Pre-Service Check ────────────────────────────────────────────────
 
     async function loadPreServiceCheck() {
-      var card = document.getElementById('preservice-card');
-      var body = document.getElementById('preservice-body');
-      var timeEl = document.getElementById('preservice-time');
-      if (!card || !body) return;
+      var body = document.getElementById('psc-dash-body');
+      var badge = document.getElementById('psc-dash-badge');
+      var timeEl = document.getElementById('psc-dash-time');
+      if (!body) return;
 
       try {
         var data = await api('GET', '/api/church/preservice-check');
         if (!data || !data.checks_json) {
-          card.style.display = 'none';
+          body.innerHTML = '<div style="color:#475569;text-align:center;padding:14px;font-size:13px">No check data yet — click <strong>Run Check Now</strong> or wait for the automatic check 30 min before your next service.</div>';
+          if (badge) { badge.textContent = 'Not Run'; badge.className = 'badge badge-gray'; }
           return;
         }
 
-        card.style.display = '';
         var checks = [];
         try { checks = JSON.parse(data.checks_json || '[]'); } catch {}
-        if (!checks.length) {
-          body.innerHTML = '<div style="color:#475569;text-align:center;padding:12px;font-size:13px">No check data available</div>';
-          return;
-        }
 
         // Show relative time
         if (data.created_at && timeEl) {
           var ago = Math.round((Date.now() - new Date(data.created_at).getTime()) / 60000);
-          if (ago < 1) timeEl.textContent = 'just now';
-          else if (ago < 60) timeEl.textContent = ago + ' min ago';
-          else if (ago < 1440) timeEl.textContent = Math.round(ago / 60) + 'h ago';
-          else timeEl.textContent = Math.round(ago / 1440) + 'd ago';
-          if (data.trigger_type === 'manual') timeEl.textContent += ' (manual)';
+          var agoStr = ago < 1 ? 'just now' : ago < 60 ? ago + ' min ago' : ago < 1440 ? Math.round(ago / 60) + 'h ago' : Math.round(ago / 1440) + 'd ago';
+          timeEl.textContent = 'Last run ' + agoStr + (data.trigger_type === 'manual' ? ' · manual' : ' · automatic');
         }
-
-        // Render checks
-        var html = checks.map(function(c) {
-          var icon = c.pass ? '✅' : '⚠️';
-          var color = c.pass ? '#22c55e' : '#f59e0b';
-          var detail = c.detail ? '<span style="color:#64748b;font-size:12px;margin-left:8px">' + escapeHtml(c.detail) + '</span>' : '';
-          return '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;gap:8px">'
-            + '<span>' + icon + '</span>'
-            + '<span style="color:' + color + ';font-size:13px">' + escapeHtml(c.name || 'Check') + '</span>'
-            + detail
-            + '</div>';
-        }).join('');
 
         var passCount = checks.filter(function(c) { return c.pass; }).length;
         var failCount = checks.length - passCount;
-        var summaryColor = failCount === 0 ? '#22c55e' : '#f59e0b';
-        var summaryText = failCount === 0 ? 'All systems go' : failCount + ' issue' + (failCount !== 1 ? 's' : '') + ' found';
+        var allPass = failCount === 0;
 
-        body.innerHTML = '<div style="margin-bottom:8px;font-size:13px;font-weight:600;color:' + summaryColor + '">' + summaryText + '</div>' + html;
+        if (badge) {
+          badge.textContent = allPass ? '✅ All Clear' : '⚠️ ' + failCount + ' Issue' + (failCount !== 1 ? 's' : '');
+          badge.className = allPass ? 'badge badge-green' : 'badge badge-yellow';
+        }
+
+        // Two-column grid of checks
+        var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px">';
+        html += checks.map(function(c) {
+          var icon = c.pass ? '✅' : '⚠️';
+          var borderColor = c.pass ? '#16a34a' : '#d97706';
+          var bg = c.pass ? 'rgba(34,197,94,0.05)' : 'rgba(245,158,11,0.08)';
+          var detail = c.detail ? '<div style="color:#64748b;font-size:11px;margin-top:3px;line-height:1.4">' + escapeHtml(c.detail) + '</div>' : '';
+          return '<div style="padding:8px 10px;border-radius:6px;border:1px solid ' + borderColor + ';background:' + bg + '">'
+            + '<div style="display:flex;align-items:center;gap:6px;font-size:13px">'
+            + '<span>' + icon + '</span><span style="font-weight:500">' + escapeHtml(c.name || 'Check') + '</span>'
+            + '</div>' + detail + '</div>';
+        }).join('');
+        html += '</div>';
+
+        body.innerHTML = html;
 
         // Show fix-all button if there are auto-fixable failures
         var FIXABLE_CHECKS = ['Main Output'];
         var fixableFailures = checks.filter(function(c) { return !c.pass && FIXABLE_CHECKS.indexOf(c.name) !== -1; });
-        var fixBtn = document.getElementById('preservice-fix-btn');
+        var fixBtn = document.getElementById('psc-dash-fix-btn');
         if (fixBtn) {
           fixBtn.style.display = fixableFailures.length > 0 ? '' : 'none';
           fixBtn.textContent = 'Fix ' + fixableFailures.length + ' Safe Issue' + (fixableFailures.length !== 1 ? 's' : '');
         }
       } catch(e) {
-        // No results yet — hide the card
-        card.style.display = 'none';
+        if (body) body.innerHTML = '<div style="color:#475569;text-align:center;padding:14px;font-size:13px">No check data yet — click <strong>Run Check Now</strong> to start.</div>';
+        if (badge) { badge.textContent = 'Not Run'; badge.className = 'badge badge-gray'; }
       }
     }
 
     async function runPreServiceCheck() {
-      var btn = document.getElementById('preservice-run-btn');
-      var body = document.getElementById('preservice-body');
-      if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+      var body = document.getElementById('psc-dash-body');
+      var badge = document.getElementById('psc-dash-badge');
+      if (badge) { badge.textContent = 'Running…'; badge.className = 'badge badge-gray'; }
+      if (body) body.innerHTML = '<div style="color:#94A3B8;text-align:center;padding:14px;font-size:13px">⏳ Running system check…</div>';
 
       try {
         var data = await api('POST', '/api/church/preservice-check/run');
         if (data && data.result) {
-          // Reload the card to show new results
           await loadPreServiceCheck();
         } else {
-          if (body) body.innerHTML = '<div style="color:#f59e0b;text-align:center;padding:12px;font-size:13px">⚠️ Could not run check — is the Tally app connected?</div>';
+          if (body) body.innerHTML = '<div style="color:#f59e0b;text-align:center;padding:14px;font-size:13px">⚠️ Could not run check — is the Tally app connected?</div>';
+          if (badge) { badge.textContent = 'Offline'; badge.className = 'badge badge-yellow'; }
         }
       } catch(e) {
-        if (body) body.innerHTML = '<div style="color:#ef4444;text-align:center;padding:12px;font-size:13px">Error running check: ' + escapeHtml(e.message || 'unknown') + '</div>';
-      } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Run Check Now'; }
+        if (body) body.innerHTML = '<div style="color:#ef4444;text-align:center;padding:14px;font-size:13px">Error running check: ' + escapeHtml(e.message || 'unknown') + '</div>';
+        if (badge) { badge.textContent = 'Error'; badge.className = 'badge badge-red'; }
       }
     }
 
     async function fixAllPreServiceIssues() {
-      var btn = document.getElementById('preservice-fix-btn');
+      var btn = document.getElementById('psc-dash-fix-btn');
       if (btn) { btn.disabled = true; btn.textContent = 'Fixing…'; }
       try {
         var data = await api('POST', '/api/church/preservice-check/fix-all');
@@ -2919,7 +2923,6 @@ function buildChurchPortalHtml(church) {
         } else {
           toast('No fixable issues or client offline', true);
         }
-        // Re-run check to get fresh status
         await new Promise(function(r) { setTimeout(r, 2000); });
         await runPreServiceCheck();
       } catch(e) {
