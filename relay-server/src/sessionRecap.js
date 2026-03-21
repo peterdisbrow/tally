@@ -33,6 +33,11 @@ class SessionRecap {
     this.lifecycleEmails = engine;
   }
 
+  /** Attach post-service report generator */
+  setPostServiceReport(engine) {
+    this.postServiceReport = engine;
+  }
+
   _ensureTable() {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS service_sessions (
@@ -223,6 +228,17 @@ class SessionRecap {
       }
     } catch (e) {
       console.error(`[SessionRecap] First-service email error for ${churchId}:`, e.message);
+    }
+
+    // Generate post-service AI report (non-blocking)
+    try {
+      if (this.postServiceReport && church) {
+        this.postServiceReport.generate(church, finalSession).catch(e =>
+          console.error(`[SessionRecap] Post-service report error for ${churchId}:`, e.message)
+        );
+      }
+    } catch (e) {
+      console.error(`[SessionRecap] Post-service report error for ${churchId}:`, e.message);
     }
 
     // Write post-service memories (non-blocking, don't fail the session)

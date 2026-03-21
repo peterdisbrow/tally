@@ -1643,6 +1643,17 @@ function buildChurchPortalHtml(church) {
         </table>
         </div>
       </div>
+
+      <!-- Post-Service AI Reports Card -->
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="AI-generated summary reports automatically created after each service. Includes uptime, device health, failover events, and recommendations.">📊 Service Reports</span></div>
+          <span style="font-size:11px;color:#64748b">Auto-generated after each service</span>
+        </div>
+        <div id="service-reports-body">
+          <div style="color:#475569;text-align:center;padding:20px;font-size:13px">Loading…</div>
+        </div>
+      </div>
     </div>
 
     <!-- ANALYTICS -->
@@ -4345,21 +4356,79 @@ function buildChurchPortalHtml(church) {
         const tbody = document.getElementById('sessions-tbody');
         if (!sessions.length) {
           tbody.innerHTML = '<tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">No sessions recorded yet.</td></tr>';
+        } else {
+          tbody.innerHTML = sessions.map(s => {
+            const start = new Date(s.started_at);
+            const end = s.ended_at ? new Date(s.ended_at) : null;
+            const dur = end ? Math.round((end - start) / 60000) + 'm' : 'Active';
+            return \`<tr>
+              <td>\${start.toLocaleDateString()} <span style="color:#475569">\${start.toLocaleTimeString()}</span></td>
+              <td>\${dur}</td>
+              <td>\${s.peak_viewers || '—'}</td>
+              <td><span class="badge \${s.ended_at ? 'badge-gray' : 'badge-green'}">\${s.ended_at ? 'Ended' : 'Live'}</span></td>
+            </tr>\`;
+          }).join('');
+          document.getElementById('stat-sessions').textContent = sessions.length;
+        }
+      } catch(e) { toast('Failed to load sessions', true); }
+      // Also load AI reports
+      loadServiceReports();
+    }
+
+    async function loadServiceReports() {
+      var el = document.getElementById('service-reports-body');
+      if (!el) return;
+      try {
+        var reports = await api('GET', '/api/church/service-reports?limit=5');
+        if (!reports.length) {
+          el.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">No reports yet — reports are generated automatically after each service session ends.</div>';
           return;
         }
-        tbody.innerHTML = sessions.map(s => {
-          const start = new Date(s.started_at);
-          const end = s.ended_at ? new Date(s.ended_at) : null;
-          const dur = end ? Math.round((end - start) / 60000) + 'm' : 'Active';
-          return \`<tr>
-            <td>\${start.toLocaleDateString()} <span style="color:#475569">\${start.toLocaleTimeString()}</span></td>
-            <td>\${dur}</td>
-            <td>\${s.peak_viewers || '—'}</td>
-            <td><span class="badge \${s.ended_at ? 'badge-gray' : 'badge-green'}">\${s.ended_at ? 'Ended' : 'Live'}</span></td>
-          </tr>\`;
+        el.innerHTML = reports.map(function(r) {
+          var dateStr = new Date(r.created_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+          var grade = r.grade || '—';
+          var gradeColor = grade.startsWith('A') ? '#22c55e' : grade.startsWith('B') ? '#eab308' : '#ef4444';
+          var uptime = r.uptime_pct != null ? r.uptime_pct + '%' : '—';
+          var recs = (r.recommendations || []).filter(function(rc) { return rc.priority === 'high'; });
+          return '<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05)">'
+            + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+            + '<span style="font-weight:600;font-size:13px">' + dateStr + '</span>'
+            + '<div style="display:flex;align-items:center;gap:10px">'
+            + '<span style="color:#94A3B8;font-size:12px">' + (r.duration_minutes || 0) + ' min · ' + uptime + ' uptime</span>'
+            + '<span style="background:' + gradeColor + '22;color:' + gradeColor + ';border:1px solid ' + gradeColor + ';border-radius:6px;padding:2px 8px;font-size:13px;font-weight:700">' + grade + '</span>'
+            + '</div></div>'
+            + (r.ai_summary ? '<div style="font-size:12px;color:#94A3B8;line-height:1.5;margin-bottom:6px">' + escapeHtml(r.ai_summary) + '</div>' : '')
+            + (recs.length ? '<div style="font-size:11px;color:#ef4444">⚠️ ' + recs.length + ' high-priority recommendation' + (recs.length !== 1 ? 's' : '') + ' — <a href="#" onclick="viewServiceReport(\'' + r.id + '\')" style="color:#22c55e">View report</a></div>' : '<div style="font-size:11px;color:#22c55e">✅ No critical issues</div>')
+            + '</div>';
         }).join('');
-        document.getElementById('stat-sessions').textContent = sessions.length;
-      } catch(e) { toast('Failed to load sessions', true); }
+      } catch { el.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">Could not load reports.</div>'; }
+    }
+
+    async function viewServiceReport(reportId) {
+      try {
+        var r = await api('GET', '/api/church/service-reports/' + reportId);
+        var modal = document.createElement('div');
+        modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+        modal.onclick = function(e) { if (e.target === modal) document.body.removeChild(modal); };
+        var inner = document.createElement('div');
+        inner.style.cssText = 'background:#1a2433;border-radius:12px;width:100%;max-width:640px;max-height:85vh;overflow-y:auto';
+        inner.innerHTML = '<div style="position:sticky;top:0;background:#1a2433;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.08)">'
+          + '<span style="font-weight:600;color:#F8FAFC">Service Report</span>'
+          + '<button onclick="this.closest(\'[style*=position]\').remove()" style="background:none;border:none;color:#94A3B8;font-size:18px;cursor:pointer">✕</button>'
+          + '</div>'
+          + '<div style="padding:16px">'
+          + (r.ai_summary ? '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:14px;margin-bottom:16px"><div style="font-size:11px;font-weight:700;color:#22c55e;text-transform:uppercase;margin-bottom:6px">AI Summary</div><div style="font-size:13px;color:#F8FAFC;line-height:1.6">' + escapeHtml(r.ai_summary) + '</div></div>' : '')
+          + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">'
+          + '<div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:#F8FAFC">' + (r.duration_minutes || 0) + '<span style="font-size:11px;color:#64748B">m</span></div><div style="font-size:11px;color:#64748B;margin-top:2px">Duration</div></div>'
+          + '<div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:#F8FAFC">' + (r.uptime_pct != null ? r.uptime_pct + '%' : '—') + '</div><div style="font-size:11px;color:#64748B;margin-top:2px">Uptime</div></div>'
+          + '<div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:#F8FAFC">' + (r.alert_count || 0) + '</div><div style="font-size:11px;color:#64748B;margin-top:2px">Alerts</div></div>'
+          + '</div>'
+          + (r.recommendations && r.recommendations.length ? '<div style="margin-bottom:16px"><div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;margin-bottom:8px">Recommendations</div>' + r.recommendations.map(function(rc) { var c = rc.priority === 'high' ? '#ef4444' : rc.priority === 'medium' ? '#eab308' : '#22c55e'; return '<div style="padding:8px 10px;border-left:3px solid ' + c + ';background:rgba(255,255,255,0.03);margin-bottom:6px;border-radius:0 6px 6px 0;font-size:12px;color:#F8FAFC;line-height:1.5">' + escapeHtml(rc.text) + '</div>'; }).join('') + '</div>' : '')
+          + (r.failover_events && r.failover_events.length ? '<div><div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;margin-bottom:8px">Failover Events</div>' + r.failover_events.map(function(f) { return '<div style="padding:6px 10px;font-size:12px;color:#F8FAFC;border-bottom:1px solid rgba(255,255,255,0.05)">' + new Date(f.timestamp).toLocaleTimeString() + ' · ' + escapeHtml(f.type || 'failover') + ' · ' + (f.autoRecovered ? '✅ auto-recovered' : '⚠️ manual') + '</div>'; }).join('') + '</div>' : '')
+          + '</div>';
+        modal.appendChild(inner);
+        document.body.appendChild(modal);
+      } catch(e) { toast('Failed to load report', true); }
     }
 
     // ── Billing ───────────────────────────────────────────────────────────────
@@ -7054,6 +7123,41 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       ).all(req.church.churchId);
       res.json(sessions);
     } catch { res.json([]); }
+  });
+
+  // ── GET /api/church/service-reports ───────────────────────────────────────────
+  // Returns recent post-service AI reports.
+  app.get('/api/church/service-reports', authMiddleware, (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+      const reports = db.prepare(
+        `SELECT id, church_id, session_id, created_at, duration_minutes, uptime_pct,
+                grade, alert_count, auto_recovered_count, failover_count, peak_viewers,
+                stream_runtime_minutes, recommendations, ai_summary
+         FROM post_service_reports WHERE church_id = ? ORDER BY created_at DESC LIMIT ?`
+      ).all(req.church.churchId, limit);
+      res.json(reports.map(r => ({
+        ...r,
+        recommendations: (() => { try { return JSON.parse(r.recommendations || '[]'); } catch { return []; } })(),
+      })));
+    } catch { res.json([]); }
+  });
+
+  // ── GET /api/church/service-reports/:id ───────────────────────────────────────
+  // Returns the full HTML report for display or download.
+  app.get('/api/church/service-reports/:id', authMiddleware, (req, res) => {
+    try {
+      const report = db.prepare(
+        'SELECT * FROM post_service_reports WHERE id = ? AND church_id = ?'
+      ).get(req.params.id, req.church.churchId);
+      if (!report) return res.status(404).json({ error: 'Report not found' });
+      res.json({
+        ...report,
+        recommendations: (() => { try { return JSON.parse(report.recommendations || '[]'); } catch { return []; } })(),
+        failover_events: (() => { try { return JSON.parse(report.failover_events || '[]'); } catch { return []; } })(),
+        device_health: (() => { try { return JSON.parse(report.device_health || '{}'); } catch { return {}; } })(),
+      });
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   // ── GET /api/church/guest-tokens ──────────────────────────────────────────────
