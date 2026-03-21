@@ -4090,7 +4090,8 @@ function buildChurchPortalHtml(church) {
         var payload = await api('GET', '/api/church/campuses');
         var list = Array.isArray(payload) ? payload : (Array.isArray(payload.campuses) ? payload.campuses : []);
         if (!list.length) { picker.style.display = 'none'; return; }
-        sel.innerHTML = '<option value="">Main Campus</option>' + list.map(function(c) {
+        var mainName = (document.getElementById('sidebar-church-name') || {}).textContent || 'Main Campus';
+        sel.innerHTML = '<option value="">' + escapeHtml(mainName) + '</option>' + list.map(function(c) {
           return '<option value="' + c.churchId + '">' + escapeHtml(c.name || c.churchId) + '</option>';
         }).join('');
         picker.style.display = '';
@@ -5474,7 +5475,8 @@ function buildChurchPortalHtml(church) {
         var list = Array.isArray(payload) ? payload : (Array.isArray(payload.campuses) ? payload.campuses : []);
         if (!list.length) { picker.style.display = 'none'; return; }
         var prev = sel.value;
-        sel.innerHTML = '<option value="">Main Campus</option>' + list.map(function(c) {
+        var mainName = (document.getElementById('sidebar-church-name') || {}).textContent || 'Main Campus';
+        sel.innerHTML = '<option value="">' + escapeHtml(mainName) + '</option>' + list.map(function(c) {
           return '<option value="' + c.churchId + '">' + escapeHtml(c.name || c.churchId) + '</option>';
         }).join('');
         if (prev) sel.value = prev;
