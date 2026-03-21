@@ -441,6 +441,8 @@ function buildChurchPortalHtml(church) {
       position: fixed;
       top: 0; left: 0; bottom: 0;
       z-index: 10;
+      overflow-y: auto;
+      overflow-x: hidden;
     }
     .sidebar-logo {
       display: flex;
@@ -808,7 +810,7 @@ function buildChurchPortalHtml(church) {
     .grid-3col { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
     .grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    @media (max-width: 640px) {
+    @media (max-width: 768px) {
       #analytics-kpi { grid-template-columns: repeat(2, 1fr) !important; }
       .a-metric-grid { grid-template-columns: 1fr; }
       .a-bar-label { width: 60px; font-size: 11px; }
@@ -842,9 +844,9 @@ function buildChurchPortalHtml(church) {
     .tip:hover::after { opacity: 1; }
     .hamburger { display: none; position: fixed; top: 12px; left: 12px; z-index: 1001; background: #0D1117; border: 1px solid #1a2e1f; border-radius: 8px; width: 40px; height: 40px; color: #F8FAFC; font-size: 22px; cursor: pointer; align-items: center; justify-content: center; }
     .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999; }
-    @media (max-width: 640px) {
+    @media (max-width: 768px) {
       .hamburger { display: flex; }
-      .sidebar { display: none; position: fixed; z-index: 1000; top: 0; left: 0; bottom: 0; width: 220px; }
+      .sidebar { display: none; position: fixed; z-index: 1000; top: 0; left: 0; bottom: 0; width: 220px; overflow-y: auto; overflow-x: hidden; }
       .sidebar.open { display: flex; flex-direction: column; }
       .sidebar-overlay.open { display: block; }
       .main { margin-left: 0; padding: 16px; padding-top: 56px; }
