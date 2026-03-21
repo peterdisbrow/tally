@@ -17,29 +17,42 @@ const TIERS = [
     tier: 'connect',
     name: 'Tally Connect',
     description: 'Single-room church production monitoring with basic alerts and remote control.',
-    monthly: 4900,   // $49/mo
-    annual: 49000,   // $490/yr (2 months free)
+    monthly: 7900,   // $79/mo
+    annual: 71100,   // $711/yr (3 months free)
   },
   {
     tier: 'plus',
     name: 'Tally Plus',
     description: 'Multi-room monitoring with signal failover, AI diagnostics, and pre-service checks.',
     monthly: 9900,   // $99/mo
-    annual: 99000,   // $990/yr
+    annual: 89100,   // $891/yr (3 months free)
   },
   {
     tier: 'pro',
     name: 'Tally Pro',
     description: 'Full-featured monitoring for large churches with unlimited rooms and priority support.',
     monthly: 14900,  // $149/mo
-    annual: 149000,  // $1490/yr
+    annual: 134100,  // $1341/yr (3 months free)
   },
   {
     tier: 'managed',
     name: 'Tally Enterprise',
     description: 'Fully managed church production monitoring with dedicated support and SLA.',
     monthly: 49900,  // $499/mo
-    annual: 499000,  // $4990/yr
+    annual: 449100,  // $4491/yr (3 months free)
+  },
+];
+
+// Founding church promotional pricing for Connect — $49/mo (limited spots)
+// Apply STRIPE_PRICE_CONNECT_FOUNDING / STRIPE_PRICE_CONNECT_FOUNDING_ANNUAL env vars
+// or use the Stripe coupon "founding_church" (created below) to discount the standard price.
+const FOUNDING_TIERS = [
+  {
+    tier: 'connect_founding',
+    name: 'Tally Connect — Founding Church',
+    description: 'Founding Church rate for Tally Connect. Limited spots — locked in for life.',
+    monthly: 4900,   // $49/mo (founding rate)
+    annual: 44100,   // $441/yr (founding rate, 3 months free)
   },
 ];
 
@@ -48,7 +61,7 @@ const EVENT_TIERS = [
     tier: 'event',
     name: 'Tally Event — Single',
     description: 'One-time event monitoring for a single production.',
-    amount: 29900,   // $299
+    amount: 9900,    // $99
     envKey: 'STRIPE_PRICE_EVENT',
   },
 ];
@@ -135,6 +148,57 @@ async function main() {
       });
       envVars[annualEnv] = price.id;
       console.log(`    + Annual ($${t.annual / 100}/yr) — ${price.id}`);
+    }
+  }
+
+  // Create founding church subscription products + prices (Connect at $49/mo)
+  for (const t of FOUNDING_TIERS) {
+    let product = existingByTier[t.tier];
+    if (product) {
+      console.log(`  ✓ ${t.name} — product already exists (${product.id})`);
+    } else {
+      product = await stripe.products.create({
+        name: t.name,
+        description: t.description,
+        metadata: { tally_tier: t.tier },
+      });
+      console.log(`  + ${t.name} — created product ${product.id}`);
+    }
+
+    // Monthly price
+    const monthlyEnv = `STRIPE_PRICE_${t.tier.toUpperCase()}`;
+    const existingMonthly = await findPrice(stripe, product.id, 'month');
+    if (existingMonthly) {
+      envVars[monthlyEnv] = existingMonthly.id;
+      console.log(`    ✓ Monthly ($${t.monthly / 100}/mo founding) — ${existingMonthly.id}`);
+    } else {
+      const price = await stripe.prices.create({
+        product: product.id,
+        unit_amount: t.monthly,
+        currency: 'usd',
+        recurring: { interval: 'month' },
+        metadata: { tally_tier: t.tier, interval: 'monthly', promo: 'founding_church' },
+      });
+      envVars[monthlyEnv] = price.id;
+      console.log(`    + Monthly ($${t.monthly / 100}/mo founding) — ${price.id}`);
+    }
+
+    // Annual price
+    const annualEnv = `STRIPE_PRICE_${t.tier.toUpperCase()}_ANNUAL`;
+    const existingAnnual = await findPrice(stripe, product.id, 'year');
+    if (existingAnnual) {
+      envVars[annualEnv] = existingAnnual.id;
+      console.log(`    ✓ Annual ($${t.annual / 100}/yr founding) — ${existingAnnual.id}`);
+    } else {
+      const price = await stripe.prices.create({
+        product: product.id,
+        unit_amount: t.annual,
+        currency: 'usd',
+        recurring: { interval: 'year' },
+        metadata: { tally_tier: t.tier, interval: 'annual', promo: 'founding_church' },
+      });
+      envVars[annualEnv] = price.id;
+      console.log(`    + Annual ($${t.annual / 100}/yr founding) — ${price.id}`);
     }
   }
 

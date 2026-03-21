@@ -862,8 +862,14 @@ class BillingSystem {
       return;
     }
 
-    // Fixed referral credit amount — same for all tiers to prevent abuse
-    const REFERRAL_CREDIT_CENTS = 4900; // $49 credit regardless of tier
+    // Tier-based referral credit — one free month of each party's current plan
+    const TIER_MONTHLY_CENTS = {
+      connect: 7900,   // $79
+      plus:    9900,   // $99
+      pro:     14900,  // $149
+      managed: 49900,  // $499
+      event:   9900,   // $99
+    };
 
     // Get referrer's billing info
     const referrerBilling = this.db.prepare(
@@ -875,28 +881,40 @@ class BillingSystem {
       return;
     }
 
-    const creditAmountCents = REFERRAL_CREDIT_CENTS;
+    // Credit amounts: one free month for each party based on their own plan
+    const referrerCreditCents = TIER_MONTHLY_CENTS[referrerBilling.tier] || 7900;
+    const refereeCreditCents  = TIER_MONTHLY_CENTS[tier] || 7900;
     const now = new Date().toISOString();
 
     try {
-      // Add credit to referrer's Stripe customer balance (negative = credit)
+      // Credit referrer — one free month of their plan
       await stripe.customers.createBalanceTransaction(referrerBilling.stripe_customer_id, {
-        amount: -creditAmountCents, // negative = credit
+        amount: -referrerCreditCents, // negative = credit
         currency: 'usd',
-        description: `Referral credit: ${referral.referred_name || 'a friend'} signed up`,
+        description: `Referral credit: ${referral.referred_name || 'a friend'} signed up — 1 free month`,
       });
+
+      // Credit referee — one free month of their plan (stripeCustomerId passed in from checkout)
+      if (stripeCustomerId) {
+        await stripe.customers.createBalanceTransaction(stripeCustomerId, {
+          amount: -refereeCreditCents, // negative = credit
+          currency: 'usd',
+          description: `Welcome referral credit — 1 free month (referred by a friend)`,
+        });
+        console.log(`[Referral] ✅ Credited $${refereeCreditCents / 100} to referee ${referredChurchId}`);
+      }
 
       // Update referral record
       this.db.prepare(`
         UPDATE referrals SET status = 'credited', credit_amount = ?, converted_at = ?, credited_at = ? WHERE id = ?
-      `).run(creditAmountCents, now, now, referral.id);
+      `).run(referrerCreditCents, now, now, referral.id);
 
-      console.log(`[Referral] ✅ Credited ${creditAmountCents / 100} to referrer ${referral.referrer_id} for ${referral.referred_name}`);
+      console.log(`[Referral] ✅ Credited $${referrerCreditCents / 100} to referrer ${referral.referrer_id} for ${referral.referred_name}`);
     } catch (e) {
       // Mark as converted but not credited (manual follow-up needed)
       this.db.prepare(`
         UPDATE referrals SET status = 'converted', credit_amount = ?, converted_at = ? WHERE id = ?
-      `).run(creditAmountCents, now, referral.id);
+      `).run(referrerCreditCents, now, referral.id);
       console.error(`[Referral] Stripe credit failed: ${e.message}. Marked as converted for manual review.`);
     }
   }

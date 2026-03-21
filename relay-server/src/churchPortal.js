@@ -6091,9 +6091,9 @@ function buildChurchPortalHtml(church) {
           html += '<div style="font-size:13px;color:#94A3B8;margin-bottom:8px">Need fewer features?</div>';
           if (currentTier === 'managed' || currentTier === 'pro') {
             html += '<button onclick="downgradePlan(\\'plus\\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:8px">Downgrade to Plus ($99/mo)</button>';
-            html += '<button onclick="downgradePlan(\\'connect\\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
+            html += '<button onclick="downgradePlan(\\'connect\\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($79/mo)</button>';
           } else if (currentTier === 'plus') {
-            html += '<button onclick="downgradePlan(\\'connect\\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
+            html += '<button onclick="downgradePlan(\\'connect\\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($79/mo)</button>';
           }
           html += '</div>';
         }
