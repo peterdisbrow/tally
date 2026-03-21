@@ -7,7 +7,21 @@
 module.exports = function setupAdminChurchRoutes(app, ctx) {
   const { db, churches, requireAdmin, stmtGet, stmtDelete,
           billing, normalizeBillingInterval, messageQueues,
-          BILLING_TIERS, BILLING_STATUSES, safeErrorMessage, log } = ctx;
+          BILLING_TIERS, BILLING_STATUSES, safeErrorMessage, log, logAudit } = ctx;
+
+  function auditBilling(req, churchId, details) {
+    if (!logAudit) return;
+    const auth = req.headers['authorization'] || '';
+    logAudit({
+      adminUserId: req.adminUser?.id || null,
+      adminEmail: req.adminUser?.email || 'api',
+      action: 'billing_updated',
+      targetType: 'church',
+      targetId: churchId,
+      details,
+      ip: req.ip,
+    });
+  }
   const WebSocket = require('ws').WebSocket;
 
   // ─── Helper: cascade-delete all church data ──────────────────────────────────
@@ -109,6 +123,7 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
       `).run(`manual_${churchId}`, churchId, nextTier, nextInterval, nextStatus, row.portal_email || row.email || '', now, now);
     }
 
+    auditBilling(req, churchId, { tier: nextTier, status: nextStatus, interval: nextInterval });
     res.json({
       ok: true,
       churchId,

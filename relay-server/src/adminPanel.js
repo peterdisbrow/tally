@@ -15,8 +15,19 @@ function safeErrorMessage(err, fallback = 'Internal server error') {
 
 // ─── SESSION HELPERS ──────────────────────────────────────────────────────────
 
+function getSessionSecret() {
+  const s = process.env.SESSION_SECRET;
+  if (!s) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('[CONFIG] SESSION_SECRET is required in production');
+    }
+    return 'dev-session-secret-not-for-production';
+  }
+  return s;
+}
+
 function signSession(payload) {
-  const secret = process.env.SESSION_SECRET || 'fallback-secret';
+  const secret = getSessionSecret();
   const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64');
   const sig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64');
   return `${payloadB64}.${sig}`;
@@ -28,7 +39,7 @@ function verifySession(cookie) {
   if (lastDot === -1) return null;
   const payloadB64 = cookie.slice(0, lastDot);
   const sig = cookie.slice(lastDot + 1);
-  const secret = process.env.SESSION_SECRET || 'fallback-secret';
+  const secret = getSessionSecret();
   const expectedSig = crypto.createHmac('sha256', secret).update(payloadB64).digest('base64');
   try {
     const eSigBuf = Buffer.from(expectedSig);
@@ -56,7 +67,7 @@ function clearCookieHeader(res) {
 
 // Legacy SHA-256 hash (for verifying old stored hashes)
 function hashPortalPasswordLegacy(password) {
-  const secret = process.env.SESSION_SECRET || 'fallback-secret';
+  const secret = getSessionSecret();
   return crypto.createHash('sha256').update(secret + password).digest('hex');
 }
 
@@ -385,6 +396,14 @@ tr:hover td{background:rgba(34,197,94,.02)}
         </tr></thead>
         <tbody id="churches-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
       </table>
+      <div id="churches-pagination" style="display:flex;align-items:center;justify-content:space-between;padding:14px 0;font-size:13px;color:var(--muted)">
+        <span id="churches-count"></span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn-secondary" id="churches-prev" onclick="churchesChangePage(-1)" style="padding:5px 12px;font-size:12px">← Prev</button>
+          <span id="churches-page-label"></span>
+          <button class="btn-secondary" id="churches-next" onclick="churchesChangePage(1)" style="padding:5px 12px;font-size:12px">Next →</button>
+        </div>
+      </div>
     </div>
 
     <!-- RESELLERS PAGE -->
@@ -755,6 +774,9 @@ tr:hover td{background:rgba(34,197,94,.02)}
 // ─── State ────────────────────────────────────────────────────────────────────
 let currentPage = 'overview';
 let allChurches = [];
+let churchesTotal = 0;
+let churchesPage = 1;
+const CHURCHES_PAGE_SIZE = 50;
 let allResellers = [];
 let churchFilter = 'all';
 let regenChurchId = null;
@@ -839,16 +861,33 @@ async function loadOverview() {
 }
 
 // ─── Churches ─────────────────────────────────────────────────────────────────
-async function loadChurches() {
+async function loadChurches(page) {
+  if (page !== undefined) churchesPage = page;
   try {
-    const [cr, rr] = await Promise.all([fetch('/api/admin/churches'), fetch('/api/resellers')]);
-    allChurches = await cr.json();
+    const url = \`/api/admin/churches?page=\${churchesPage}&limit=\${CHURCHES_PAGE_SIZE}\`;
+    const [cr, rr] = await Promise.all([fetch(url), fetch('/api/resellers')]);
+    const data = await cr.json();
+    // Support both paginated ({ churches, total, page }) and legacy array responses
+    if (Array.isArray(data)) {
+      allChurches = data;
+      churchesTotal = data.length;
+    } else {
+      allChurches = data.churches || [];
+      churchesTotal = data.total || allChurches.length;
+      churchesPage = data.page || churchesPage;
+    }
     allResellers = await rr.json();
     populateResellerDropdown('cm-reseller');
     renderChurches();
   } catch(e) {
     document.getElementById('churches-tbody').innerHTML = '<tr><td colspan="7" style="color:var(--red);text-align:center;padding:24px">Failed to load churches</td></tr>';
   }
+}
+
+function churchesChangePage(delta) {
+  const totalPages = Math.ceil(churchesTotal / CHURCHES_PAGE_SIZE);
+  const newPage = Math.max(1, Math.min(totalPages, churchesPage + delta));
+  if (newPage !== churchesPage) loadChurches(newPage);
 }
 
 function renderChurches() {
@@ -883,6 +922,19 @@ function renderChurches() {
       </td>
     </tr>\`;
   }).join('');
+
+  // Update pagination controls
+  const totalPages = Math.ceil(churchesTotal / CHURCHES_PAGE_SIZE);
+  const countEl = document.getElementById('churches-count');
+  const pageEl  = document.getElementById('churches-page-label');
+  const prevBtn  = document.getElementById('churches-prev');
+  const nextBtn  = document.getElementById('churches-next');
+  if (countEl) countEl.textContent = \`\${churchesTotal} churches\`;
+  if (pageEl)  pageEl.textContent  = totalPages > 1 ? \`Page \${churchesPage} of \${totalPages}\` : '';
+  if (prevBtn) prevBtn.disabled    = churchesPage <= 1;
+  if (nextBtn) nextBtn.disabled    = churchesPage >= totalPages;
+  const pag = document.getElementById('churches-pagination');
+  if (pag) pag.style.display = totalPages > 1 ? 'flex' : 'none';
 }
 
 function filterChurches() { renderChurches(); }
@@ -1848,6 +1900,11 @@ async function signOut(e) {
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 loadOverview();
+// Auto-refresh every 30 seconds for the active page
+setInterval(() => {
+  if (currentPage === 'overview') loadOverview();
+  else if (currentPage === 'churches') loadChurches();
+}, 30000);
 </script>
 </body></html>`;
 }
@@ -2307,12 +2364,34 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   // ── Session middleware ────────────────────────────────────────────────────
 
   function requireAdminSession(req, res, next) {
-    // Allow programmatic access via x-api-key header only.
+    // Allow programmatic access via x-api-key header (timing-safe comparison to prevent brute-force timing attacks)
     const apiKey = req.headers['x-api-key'];
-    if (apiKey && apiKey === (process.env.ADMIN_API_KEY || '')) return next();
+    if (apiKey) {
+      const expected = process.env.ADMIN_API_KEY || '';
+      if (expected) {
+        // Use HMAC to normalize both values to equal length before timingSafeEqual
+        const hmac = k => crypto.createHmac('sha256', 'admin-key-compare').update(k).digest();
+        if (crypto.timingSafeEqual(hmac(apiKey), hmac(expected))) return next();
+      }
+    }
 
     const payload = getSession(req);
-    if (payload && payload.role === 'admin') return next();
+    if (payload && payload.role === 'admin') {
+      // Verify the admin is still active in the DB; reject if userId is absent (can't verify)
+      if (!payload.userId) {
+        const isApi = req.path.startsWith('/api/');
+        if (isApi) return res.status(401).json({ error: 'Session missing user identity — re-authenticate' });
+        return res.redirect('/admin/login');
+      }
+      const user = db.prepare('SELECT id, email, name, role, active FROM admin_users WHERE id = ? AND active = 1').get(payload.userId);
+      if (!user) {
+        const isApi = req.path.startsWith('/api/');
+        if (isApi) return res.status(401).json({ error: 'Account deactivated or not found' });
+        return res.redirect('/admin/login');
+      }
+      req.adminUser = { id: user.id, email: user.email, name: user.name, role: user.role };
+      return next();
+    }
 
     // JWT Bearer token fallback (tally-landing proxy sends this)
     const authHeader = req.headers['authorization'] || '';
@@ -2320,7 +2399,14 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       try {
         const jwtPayload = opts.jwt.verify(authHeader.slice(7), opts.JWT_SECRET);
         if (jwtPayload.type === 'admin') {
-          req.adminUser = { id: jwtPayload.userId, email: jwtPayload.email, name: jwtPayload.name, role: jwtPayload.role };
+          // Verify still active in DB
+          const user = db.prepare('SELECT id, email, name, role, active FROM admin_users WHERE id = ? AND active = 1').get(jwtPayload.userId);
+          if (!user) {
+            const isApi = req.path.startsWith('/api/');
+            if (isApi) return res.status(401).json({ error: 'Account deactivated or not found' });
+            return res.redirect('/admin/login');
+          }
+          req.adminUser = { id: user.id, email: user.email, name: user.name, role: user.role };
           return next();
         }
       } catch { /* fall through to 401 */ }
@@ -2396,7 +2482,13 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   });
 
   app.get('/api/admin/churches', requireAdminSession, (req, res) => {
-    const rows = db.prepare('SELECT * FROM churches').all();
+    const page  = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+    const offset = (page - 1) * limit;
+
+    const total = db.prepare('SELECT COUNT(*) AS cnt FROM churches').get().cnt;
+    const rows  = db.prepare('SELECT * FROM churches ORDER BY registeredAt DESC LIMIT ? OFFSET ?').all(limit, offset);
+
     const list = rows.map(row => {
       const runtime = churches.get(row.churchId);
       return {
@@ -2414,7 +2506,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         registrationCode: row.registration_code || null,
       };
     });
-    res.json(list);
+    res.json({ churches: list, total, page, limit, pages: Math.ceil(total / limit) });
   });
 
   app.post('/api/admin/churches', requireAdminSession, (req, res) => {
@@ -2468,6 +2560,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       if (resellerId !== undefined) church.reseller_id = resellerId || null;
       if (audioViaAtem !== undefined) church.audio_via_atem = audioViaAtem ? 1 : 0;
     }
+    auditFromReq(req, 'church_updated', 'church', id, { name, email, type, resellerId, audioViaAtem });
     res.json({ updated: true });
   });
 
@@ -2492,7 +2585,29 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     if (!row) return res.status(404).json({ error: 'Church not found' });
     const church = churches.get(id);
     if (church?.ws?.readyState === WebSocket.OPEN) church.ws.close(1000, 'deleted by admin');
-    db.prepare('DELETE FROM churches WHERE churchId=?').run(id);
+
+    // Cascade-delete all related records via FK introspection (same logic as adminChurches.js)
+    try {
+      const ident = /^[A-Za-z_][A-Za-z0-9_]*$/;
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
+      const tx = db.transaction((churchId) => {
+        for (const { name: table } of tables) {
+          if (!table || table === 'churches' || !ident.test(table)) continue;
+          const fks = db.prepare(`PRAGMA foreign_key_list(${table})`).all();
+          for (const fk of fks) {
+            if (fk.table !== 'churches') continue;
+            const col = fk.from;
+            if (!col || !ident.test(col)) continue;
+            db.prepare(`DELETE FROM ${table} WHERE ${col} = ?`).run(churchId);
+          }
+        }
+        db.prepare('DELETE FROM churches WHERE churchId = ?').run(churchId);
+      });
+      tx(id);
+    } catch (e) {
+      return res.status(500).json({ error: safeErrorMessage(e, 'Failed to delete church') });
+    }
+
     churches.delete(id);
     auditFromReq(req, 'church_deleted', 'church', id, { name: row.name });
     res.json({ deleted: true, name: row.name });
@@ -2516,6 +2631,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       const setClauses = fields.map(f => `${f}=?`).join(',');
       const vals = [...fields.map(f => patch[f]), id];
       db.prepare(`UPDATE resellers SET ${setClauses} WHERE id=?`).run(...vals);
+      auditFromReq(req, 'reseller_updated', 'reseller', id, { fields: Object.keys(patch) });
       res.json({ updated: true });
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
@@ -2530,6 +2646,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     try { db.exec('ALTER TABLE resellers ADD COLUMN portal_password TEXT'); } catch {}
     const hashed = hashPortalPassword(password);
     db.prepare('UPDATE resellers SET portal_password=? WHERE id=?').run(hashed, id);
+    auditFromReq(req, 'reseller_password_reset', 'reseller', id, {});
     res.json({ updated: true });
   });
 
@@ -2538,16 +2655,34 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     const row = resellerSystem.getResellerById(id);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
     db.prepare('UPDATE resellers SET active=0 WHERE id=?').run(id);
+    auditFromReq(req, 'reseller_deactivated', 'reseller', id, { name: row.name });
     res.json({ deactivated: true });
   });
 
   app.post('/api/admin/change-password', requireAdminSession, (req, res) => {
-    const { password } = req.body;
-    if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    // Note: This updates the ENV var at runtime (process.env) but won't persist across restarts.
-    // For persistence, user must update .env file.
-    process.env.ADMIN_PASSWORD = password;
-    res.json({ updated: true, note: 'Password changed for this session. Update .env to persist.' });
+    const { currentPassword, newPassword, password } = req.body;
+    const newPw = newPassword || password;
+    if (!newPw || newPw.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+    // Require a known user ID — only available when authenticated via JWT Bearer
+    const userId = req.adminUser?.id;
+    if (!userId) return res.status(400).json({ error: 'Cannot identify admin user. Authenticate with a JWT Bearer token.' });
+
+    const user = db.prepare('SELECT password_hash FROM admin_users WHERE id = ?').get(userId);
+    if (!user) return res.status(404).json({ error: 'Admin user not found' });
+
+    // Verify current password before allowing a change
+    if (!currentPassword) return res.status(400).json({ error: 'currentPassword required' });
+    if (!verifyPortalPassword(currentPassword, user.password_hash)) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+
+    const newHash = hashPortalPassword(newPw);
+    db.prepare('UPDATE admin_users SET password_hash = ?, updated_at = ? WHERE id = ?')
+      .run(newHash, new Date().toISOString(), userId);
+
+    auditFromReq(req, 'admin_password_changed', 'admin_user', userId, {});
+    res.json({ updated: true });
   });
 
   // ── Alerts API ─────────────────────────────────────────────────────────────
@@ -2584,6 +2719,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       const ackBy = req.adminUser?.name || req.adminUser?.email || 'admin';
       db.prepare('UPDATE alerts SET acknowledged_at = ?, acknowledged_by = ? WHERE id = ?')
         .run(new Date().toISOString(), ackBy, id);
+      auditFromReq(req, 'alert_acknowledged', 'alert', id, {});
       res.json({ acknowledged: true });
     } catch(e) {
       res.status(500).json({ error: safeErrorMessage(e) });
@@ -2621,6 +2757,36 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     } catch(e) {
       // billing table may not exist
       res.json([]);
+    }
+  });
+
+  // ── Audit Log API ──────────────────────────────────────────────────────────
+
+  app.get('/api/admin/audit-log', requireAdminSession, (req, res) => {
+    try {
+      const page       = Math.max(1, parseInt(req.query.page)  || 1);
+      const limit      = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+      const offset     = (page - 1) * limit;
+      const action     = req.query.action     || null;
+      const adminEmail = req.query.adminEmail || null;
+      const from       = req.query.from       || null;
+      const to         = req.query.to         || null;
+
+      let where = [];
+      const params = [];
+      if (action)     { where.push('action = ?');           params.push(action); }
+      if (adminEmail) { where.push('admin_email LIKE ?');   params.push('%' + adminEmail + '%'); }
+      if (from)       { where.push('created_at >= ?');      params.push(from); }
+      if (to)         { where.push('created_at <= ?');      params.push(to); }
+
+      const whereClause = where.length ? ' WHERE ' + where.join(' AND ') : '';
+      const total = db.prepare(`SELECT COUNT(*) AS cnt FROM audit_log${whereClause}`).get(...params).cnt;
+      const logs  = db.prepare(`SELECT * FROM audit_log${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+                      .all(...params, limit, offset);
+
+      res.json({ logs, total, page, limit, pages: Math.ceil(total / limit) });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e, 'Failed to load audit log') });
     }
   });
 
@@ -3051,6 +3217,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         html: preview.html,
         text: preview.text || '',
       });
+      if (result?.sent) auditFromReq(req, 'email_sent', 'church', churchId || null, { emailType, to: recipient });
       return res.json(result);
     }
 
@@ -3067,6 +3234,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       html,
       text: '',
     });
+    if (result?.sent) auditFromReq(req, 'email_sent', 'church', churchId || null, { emailType: 'custom', to, subject });
     res.json(result);
   });
 
