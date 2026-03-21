@@ -1727,8 +1727,8 @@ function buildChurchPortalHtml(church) {
     </div>
 
     <!-- Add Macro Modal -->
-    <div class="modal" id="modal-add-macro">
-      <div class="modal-inner" style="max-width:520px">
+    <div class="modal-backdrop" id="modal-add-macro">
+      <div class="modal" style="max-width:520px">
         <div class="modal-header">
           <div class="modal-title" id="macro-modal-title" data-i18n="macros.modal.title">New Macro</div>
           <button class="modal-close" onclick="closeMacroModal()">✕</button>
@@ -2491,7 +2491,7 @@ function buildChurchPortalHtml(church) {
         // Alerts
         'alerts.page_sub': 'Recent alerts from your services',
         // Migration
-        'migrate.page_sub': 'Switching from another system? We\'ll guide you through.',
+        'migrate.page_sub': "Switching from another system? We'll guide you through.",
         'migrate.question': 'What are you switching from?',
         // Billing
         'billing.sub': 'Manage your plan, payment method, and invoices',
@@ -3077,7 +3077,7 @@ function buildChurchPortalHtml(church) {
               var lastSeen = c.lastSeen ? timeAgo(c.lastSeen) : '—';
               var location = c.location ? ' <span style="color:#64748B;font-size:11px">('+escapeHtml(c.location)+')</span>' : '';
               return '<tr>' +
-                '<td style="cursor:pointer;color:#22c55e" onclick="showPage(\'campuses\', document.querySelector(\'[data-page=campuses]\'))">' +
+                '<td style="cursor:pointer;color:#22c55e" onclick="showPage(\\'campuses\\', document.querySelector(\\'[data-page=campuses]\\'))">' +
                   escapeHtml(c.name) + location +
                 '</td>' +
                 '<td>' + statusDot + '</td>' +
@@ -4831,7 +4831,7 @@ function buildChurchPortalHtml(church) {
                 return '<tr>' +
                   '<td>' + escapeHtml(s.name) + loc + '</td>' +
                   '<td>' + dot + '</td>' +
-                  '<td><button class="btn-danger" style="font-size:11px;padding:3px 8px" onclick="unlinkSatelliteCampus(\'' + escapeHtml(String(s.churchId)) + '\',\'' + escapeHtml(s.name) + '\')">Unlink</button></td>' +
+                  '<td><button class="btn-danger" style="font-size:11px;padding:3px 8px" onclick="unlinkSatelliteCampus(\\'' + escapeHtml(String(s.churchId)) + '\\',\\'' + escapeHtml(s.name) + '\\')">Unlink</button></td>' +
                   '</tr>';
               }).join('');
             }
@@ -5572,8 +5572,8 @@ function buildChurchPortalHtml(church) {
             + (m.description ? '<span style="color:#94A3B8;font-size:13px;margin-left:10px">' + escapeHtml(m.description) + '</span>' : '')
             + '</div>'
             + '<div style="display:flex;gap:6px">'
-            + '<button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="editMacro(\'' + escapeHtml(String(m.id)) + '\')">Edit</button>'
-            + '<button class="btn-danger" style="font-size:11px;padding:4px 10px" onclick="deleteMacro(\'' + escapeHtml(String(m.id)) + '\')">Delete</button>'
+            + '<button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="editMacro(\\'' + escapeHtml(String(m.id)) + '\\')">Edit</button>'
+            + '<button class="btn-danger" style="font-size:11px;padding:4px 10px" onclick="deleteMacro(\\'' + escapeHtml(String(m.id)) + '\\')">Delete</button>'
             + '</div></div>'
             + (steps.length ? '<div style="font-family:monospace;font-size:11px;color:#64748b;line-height:1.8">'
               + steps.map(function(s) { return '→ ' + escapeHtml(s); }).join('<br>') + '</div>' : '');
@@ -5692,9 +5692,9 @@ function buildChurchPortalHtml(church) {
           + '</div>'
           + '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">'
           +   '<span class="badge ' + enabledClass + '">' + escapeHtml(rule.enabled ? pt('status.enabled') : pt('status.disabled')) + '</span>'
-          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="testAutopilotRule(\'' + rule.id + '\')">' + escapeHtml(pt('autopilot.test')) + '</button>'
-          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="toggleAutopilotRule(\'' + rule.id + '\',' + !rule.enabled + ')">' + escapeHtml(rule.enabled ? pt('btn.disable') : pt('btn.enable')) + '</button>'
-          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px;color:#ef4444;border-color:rgba(239,68,68,0.4)" onclick="deleteAutopilotRule(\'' + rule.id + '\')">' + escapeHtml(pt('btn.delete')) + '</button>'
+          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="testAutopilotRule(\\'' + rule.id + '\\')">'+  escapeHtml(pt('autopilot.test')) + '</button>'
+          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="toggleAutopilotRule(\\'' + rule.id + '\\',' + !rule.enabled + ')">' + escapeHtml(rule.enabled ? pt('btn.disable') : pt('btn.enable')) + '</button>'
+          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px;color:#ef4444;border-color:rgba(239,68,68,0.4)" onclick="deleteAutopilotRule(\\'' + rule.id + '\\')">'+  escapeHtml(pt('btn.delete')) + '</button>'
           + '</div>'
           + '</div>';
       }).join('');
@@ -5837,7 +5837,7 @@ function buildChurchPortalHtml(church) {
             + '<span style="background:' + gradeColor + '22;color:' + gradeColor + ';border:1px solid ' + gradeColor + ';border-radius:6px;padding:2px 8px;font-size:13px;font-weight:700">' + grade + '</span>'
             + '</div></div>'
             + (r.ai_summary ? '<div style="font-size:12px;color:#94A3B8;line-height:1.5;margin-bottom:6px">' + escapeHtml(r.ai_summary) + '</div>' : '')
-            + (recs.length ? '<div style="font-size:11px;color:#ef4444">' + recs.length + ' high-priority recommendation' + (recs.length !== 1 ? 's' : '') + ' — <a href="#" onclick="viewServiceReport(\'' + r.id + '\')" style="color:#22c55e">View report</a></div>' : '<div style="font-size:11px;color:#22c55e">No critical issues</div>')
+            + (recs.length ? '<div style="font-size:11px;color:#ef4444">' + recs.length + ' high-priority recommendation' + (recs.length !== 1 ? 's' : '') + ' — <a href="#" onclick="viewServiceReport(\\'' + r.id + '\\')" style="color:#22c55e">View report</a></div>' : '<div style="font-size:11px;color:#22c55e">No critical issues</div>')
             + '</div>';
         }).join('');
       } catch { el.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">Could not load reports.</div>'; }
@@ -5853,7 +5853,7 @@ function buildChurchPortalHtml(church) {
         inner.style.cssText = 'background:#1a2433;border-radius:12px;width:100%;max-width:640px;max-height:85vh;overflow-y:auto';
         inner.innerHTML = '<div style="position:sticky;top:0;background:#1a2433;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.08)">'
           + '<span style="font-weight:600;color:#F8FAFC">Service Report</span>'
-          + '<button onclick="this.closest(\'[style*=position]\').remove()" style="background:none;border:none;color:#94A3B8;font-size:18px;cursor:pointer">✕</button>'
+          + '<button onclick="this.closest(\\'[style*=position]\\').remove()" style="background:none;border:none;color:#94A3B8;font-size:18px;cursor:pointer">✕</button>'
           + '</div>'
           + '<div style="padding:16px">'
           + (r.ai_summary ? '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:14px;margin-bottom:16px"><div style="font-size:11px;font-weight:700;color:#22c55e;text-transform:uppercase;margin-bottom:6px">AI Summary</div><div style="font-size:13px;color:#F8FAFC;line-height:1.6">' + escapeHtml(r.ai_summary) + '</div></div>' : '')
@@ -5877,7 +5877,7 @@ function buildChurchPortalHtml(church) {
     var MIGRATION_DATA = {
       'Planning Center': {
         icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path d="M5.75 7.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM5 10.75a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0ZM10.25 7.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM9.5 10.75a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0ZM7.75 7.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM7 10.75a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0Z"/><path fill-rule="evenodd" d="M4.75 1a.75.75 0 0 1 .75.75V3h5V1.75a.75.75 0 0 1 1.5 0V3h1A2.5 2.5 0 0 1 15.5 5.5v8a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 1.5 13.5v-8A2.5 2.5 0 0 1 4 3h.75V1.75A.75.75 0 0 1 4.75 1ZM3 6.5h10v7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7Z" clip-rule="evenodd"/></svg>',
-        intro: 'Planning Center is a great scheduling tool — Tally adds the live production monitoring and automation layer that PCO doesn\'t cover.',
+        intro: "Planning Center is a great scheduling tool — Tally adds the live production monitoring and automation layer that PCO doesn't cover.",
         features: [
           { feature: 'Service Planning & Scheduling', them: 'Full', us: 'PCO Sync (Pro plan)' },
           { feature: 'Live Stream Monitoring', them: 'None', us: 'Real-time, all platforms' },
@@ -5897,7 +5897,7 @@ function buildChurchPortalHtml(church) {
       },
       'ProPresenter Standalone': {
         icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path fill-rule="evenodd" d="M1.5 3A1.5 1.5 0 0 0 0 4.5v8A1.5 1.5 0 0 0 1.5 14h13A1.5 1.5 0 0 0 16 12.5v-8A1.5 1.5 0 0 0 14.5 3h-13Zm1 .5h1v1h-1V3.5Zm0 2h1v1h-1v-1Zm0 2h1v1h-1v-1Zm0 2h1v1h-1v-1Zm0 2h1v1h-1v-1Zm9 0h1v1h-1v-1Zm1-2h-1v1h1v-1Zm-1-2h1v1h-1v-1Zm1-2h-1v1h1v-1Zm-1-2h1v1h-1v-1Zm-7.5 1H10v6H4V3.5Z" clip-rule="evenodd"/></svg>',
-        intro: 'ProPresenter handles slides and graphics — Tally monitors your entire production stack and adds live stream recovery so your broadcast doesn\'t fail.',
+        intro: "ProPresenter handles slides and graphics — Tally monitors your entire production stack and adds live stream recovery so your broadcast doesn't fail.",
         features: [
           { feature: 'Slides / Graphics', them: 'Best in class', us: 'Works alongside PP7' },
           { feature: 'Live Stream Monitoring', them: 'None', us: 'Real-time' },
@@ -5907,7 +5907,7 @@ function buildChurchPortalHtml(church) {
           { feature: 'Pre-Service Checks', them: 'None', us: 'PP7 connection included' },
         ],
         steps: [
-          { title: 'Install Tally alongside ProPresenter', detail: 'Tally runs as a background app — it doesn\'t replace PP7, it adds monitoring around it.' },
+          { title: 'Install Tally alongside ProPresenter', detail: "Tally runs as a background app — it doesn't replace PP7, it adds monitoring around it." },
           { title: 'Enable ProPresenter connection in Tally', detail: 'In Equipment, add ProPresenter using its local IP and port 50000.' },
           { title: 'Add your streaming setup', detail: 'Connect OBS via WebSocket and/or your ATEM. Tally will monitor both.' },
           { title: 'Set Telegram alerts', detail: 'When Tally detects a PP7 disconnect or stream issue, your TD gets a Telegram alert immediately.' },
@@ -5927,7 +5927,7 @@ function buildChurchPortalHtml(church) {
         ],
         steps: [
           { title: 'Enable vMix Web Controller', detail: 'In vMix settings, enable Web Controller on port 8088. Tally uses this to monitor and control.' },
-          { title: 'Add vMix in Tally Equipment', detail: 'Enter your vMix computer\'s IP and port 8088. Tally will connect and start monitoring.' },
+          { title: 'Add vMix in Tally Equipment', detail: "Enter your vMix computer's IP and port 8088. Tally will connect and start monitoring." },
           { title: 'Connect your streaming outputs', detail: 'Add YouTube/Facebook OAuth in Tally for viewer count and stream health monitoring.' },
           { title: 'Set up TD alerts', detail: 'Register your tech director on Telegram using the Copy Invite Link button.' },
         ],
@@ -5953,7 +5953,7 @@ function buildChurchPortalHtml(church) {
       },
       'Companion Only': {
         icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path d="M3 4.5a3 3 0 0 1 3-3h4a3 3 0 0 1 3 3v.5h.5A1.5 1.5 0 0 1 15 6.5v3a1.5 1.5 0 0 1-1.5 1.5H13a3 3 0 0 1-2.83 2h-4.34A3 3 0 0 1 3 11h-.5A1.5 1.5 0 0 1 1 9.5v-3A1.5 1.5 0 0 1 2.5 5H3v-.5ZM6 5h4V4.5a1.5 1.5 0 0 0-1.5-1.5h-1A1.5 1.5 0 0 0 6 4.5V5ZM5 7.5H4V9h1V7.5ZM12 9V7.5h-1V9h1ZM7 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm2 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0Z"/></svg>',
-        intro: 'If you\'re already using Bitfocus Companion, you\'re halfway there — Tally integrates directly with Companion and adds monitoring, cloud dashboard, and AI recovery.',
+        intro: "If you're already using Bitfocus Companion, you're halfway there — Tally integrates directly with Companion and adds monitoring, cloud dashboard, and AI recovery.",
         features: [
           { feature: 'Button deck control', them: 'Best in class', us: 'Companion integration built-in' },
           { feature: 'Cloud portal / dashboard', them: 'None', us: 'Full web portal' },
@@ -5962,7 +5962,7 @@ function buildChurchPortalHtml(church) {
           { feature: 'Telegram alerts', them: 'Via HTTP action', us: 'Native, role-aware' },
         ],
         steps: [
-          { title: 'Add Companion in Tally Equipment', detail: 'Enter your Companion computer\'s IP and port 8000. Tally will connect to the Companion HTTP API.' },
+          { title: 'Add Companion in Tally Equipment', detail: "Enter your Companion computer's IP and port 8000. Tally will connect to the Companion HTTP API." },
           { title: 'Keep your existing Companion setup', detail: 'None of your existing Companion buttons or modules need to change.' },
           { title: 'Install Tally app for ATEM/OBS monitoring', detail: 'Tally adds visibility and AI recovery to the devices Companion already controls.' },
           { title: 'Enable Tally → Companion triggers', detail: 'In Autopilot, you can set rules that trigger Companion button presses on device events.' },
@@ -5971,11 +5971,11 @@ function buildChurchPortalHtml(church) {
       },
       'Nothing — New Setup': {
         icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path d="M8 1C4.686 1 2 3.686 2 7v1.5c0 .828.672 1.5 1.5 1.5H4v1a4 4 0 0 0 8 0v-1h.5c.828 0 1.5-.672 1.5-1.5V7c0-3.314-2.686-6-6-6Zm0 2a4 4 0 0 1 4 4H4a4 4 0 0 1 4-4Zm0 7a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2Z"/></svg>',
-        intro: 'You\'re starting fresh — great! Follow these steps to get Tally running for your first service.',
+        intro: "You're starting fresh — great! Follow these steps to get Tally running for your first service.",
         features: [],
         steps: [
           { title: 'Download the Tally desktop app', detail: 'Install on the computer that runs your production software (OBS, ProPresenter, etc.).' },
-          { title: 'Connect your ATEM switcher', detail: 'Enter your ATEM\'s IP address in Equipment → Add Device. Tally auto-detects the model.' },
+          { title: 'Connect your ATEM switcher', detail: "Enter your ATEM's IP address in Equipment → Add Device. Tally auto-detects the model." },
           { title: 'Connect OBS via WebSocket', detail: 'In OBS: Tools → WebSocket Server Settings. Enable it and note the port (default 4455).' },
           { title: 'Set up Telegram alerts', detail: 'Register your tech director using the Copy Invite Link button on the TDs page.' },
           { title: 'Run your first pre-service check', detail: 'Click "Run Check Now" on the dashboard 30 minutes before your service.' },
@@ -5984,12 +5984,12 @@ function buildChurchPortalHtml(church) {
       },
       'Other': {
         icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path fill-rule="evenodd" d="M9.66 1.2a5 5 0 0 0-5.956 6.437L1.146 10.2A.5.5 0 0 0 1 10.56V14a.5.5 0 0 0 .5.5h3.44a.5.5 0 0 0 .354-.146l2.563-2.558A5 5 0 0 0 13.8 6.34l-2.122 2.121a2.5 2.5 0 0 1-3.536-3.536L10.264 2.8A4.978 4.978 0 0 0 9.66 1.2Z" clip-rule="evenodd"/></svg>',
-        intro: 'Tally works alongside most production software. Here\'s the standard setup path.',
+        intro: "Tally works alongside most production software. Here's the standard setup path.",
         features: [],
         steps: [
           { title: 'Install the Tally app', detail: 'Download and install on your production computer.' },
           { title: 'Add your devices', detail: 'In Equipment, add your ATEM (by IP), OBS (WebSocket), encoders, and ProPresenter.' },
-          { title: 'Set up Telegram alerts', detail: 'Share the invite link with your tech director so they\'re connected for Sunday.' },
+          { title: 'Set up Telegram alerts', detail: "Share the invite link with your tech director so they're connected for Sunday." },
           { title: 'Set your service schedule', detail: 'Configure your Sunday service window so Tally knows when to send alerts.' },
           { title: 'Run a pre-service check', detail: 'Test the system by clicking Run Check Now before your next service.' },
         ],
@@ -6062,7 +6062,7 @@ function buildChurchPortalHtml(church) {
       }
 
       // CTA
-      html += '<div style="text-align:center;padding:8px 0 16px"><button class="btn-primary" onclick="showPage(\'tds\', document.querySelector(\'[data-page=tds]\'))" style="margin-right:8px">Set Up Tech Directors →</button><button class="btn-secondary" onclick="showPage(\'engineer\', document.querySelector(\'[data-page=engineer]\'))">Open Tally Engineer</button></div>';
+      html += '<div style="text-align:center;padding:8px 0 16px"><button class="btn-primary" onclick="showPage(\\'tds\\', document.querySelector(\\'[data-page=tds]\\'))" style="margin-right:8px">Set Up Tech Directors →</button><button class="btn-secondary" onclick="showPage(\\'engineer\\', document.querySelector(\\'[data-page=engineer]\\'))">Open Tally Engineer</button></div>';
 
       step2.innerHTML = html;
       step2.scrollIntoView({ behavior: 'smooth', block: 'start' });
