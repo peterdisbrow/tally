@@ -16,8 +16,18 @@
 const crypto = require('crypto');
 
 class GuestTdMode {
-  constructor(db) {
+  /**
+   * @param {object} db - better-sqlite3 database instance
+   * @param {object} [options]
+   * @param {string} [options.adminName] - Name shown to guests when their token expires or is revoked.
+   *   Defaults to 'the administrator'. Set to the church admin's name (e.g. 'Pastor Mike').
+   * @param {string} [options.botToken] - Telegram bot token for sending notifications.
+   *   Can also be set later via `guestTdMode.botToken = token`.
+   */
+  constructor(db, { adminName = 'the administrator', botToken = null } = {}) {
     this.db = db;
+    this.adminName = adminName;
+    this.botToken = botToken;
     this._ensureTable();
     this._cleanupExpired();
   }
@@ -113,7 +123,7 @@ class GuestTdMode {
   registerGuest(token, chatId, name) {
     const { valid, expired, guestRow } = this.validateToken(token);
     if (!valid) {
-      if (expired) return { success: false, message: 'This guest token has expired. Contact Andrew to get a new one.' };
+      if (expired) return { success: false, message: `This guest token has expired. Contact ${this.adminName} to get a new one.` };
       return { success: false, message: 'Invalid guest token. Check the token and try again.' };
     }
 
@@ -159,6 +169,62 @@ class GuestTdMode {
     const revoked = result.changes > 0;
     if (revoked) console.log(`[GuestTdMode] Revoked token ${token.slice(0, 4)}****`);
     return { revoked, token };
+  }
+
+  /**
+   * Revoke a guest token and notify the guest via Telegram if they claimed it.
+   * Uses this.botToken if set, or falls back to TALLY_BOT_TOKEN env var.
+   * @param {string} token
+   * @returns {{ revoked: boolean, token: string }}
+   */
+  async revokeAndNotify(token) {
+    const row = this.db.prepare('SELECT * FROM guest_tokens WHERE token = ?').get(token);
+    const result = this.revokeToken(token);
+    if (result.revoked && row?.usedByChat) {
+      const botToken = this.botToken || process.env.TALLY_BOT_TOKEN;
+      if (botToken) {
+        await this._notifyRevokedGuest(row, botToken);
+      }
+    }
+    return result;
+  }
+
+  /** Send a Telegram message to a guest whose token was revoked. */
+  async _notifyRevokedGuest(guestRow, botToken) {
+    if (!guestRow.usedByChat || !botToken) return;
+    try {
+      const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: guestRow.usedByChat,
+          text: `🚫 Your guest access has been revoked. Contact ${this.adminName} if you need continued access.`,
+        }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!resp.ok) console.warn(`[GuestTdMode] Revoke notify failed: ${resp.status}`);
+    } catch (e) {
+      console.error(`[GuestTdMode] Revoke notify error: ${e.message}`);
+    }
+  }
+
+  /**
+   * Format the time remaining until a token expires as a human-readable string.
+   * @param {string} expiresAt - ISO 8601 timestamp
+   * @returns {string} e.g. "5h 30m remaining", "2d remaining", "Expired"
+   */
+  static formatRemainingTime(expiresAt) {
+    const msLeft = new Date(expiresAt) - Date.now();
+    if (msLeft <= 0) return 'Expired';
+    const totalMinutes = Math.floor(msLeft / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours >= 48) {
+      const days = Math.floor(hours / 24);
+      return `${days}d remaining`;
+    }
+    if (hours >= 1) return `${hours}h ${minutes}m remaining`;
+    return `${minutes}m remaining`;
   }
 
   /**
@@ -214,7 +280,7 @@ class GuestTdMode {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: guestRow.usedByChat,
-          text: `⏰ Your guest access has expired. Contact Andrew to renew if needed.`,
+          text: `⏰ Your guest access has expired. Contact ${this.adminName} to renew if needed.`,
         }),
         signal: AbortSignal.timeout(5000),
       });
