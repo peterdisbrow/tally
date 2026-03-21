@@ -76,7 +76,8 @@ class SignalFailover {
         autoRecover: !!row.failover_auto_recover,
         audioTrigger: !!row.failover_audio_trigger,
       };
-    } catch {
+    } catch (e) {
+      console.warn('[SignalFailover] Failed to load config for church', churchId, ':', e.message);
       return null;
     }
   }

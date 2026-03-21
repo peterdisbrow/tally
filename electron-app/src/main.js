@@ -20,6 +20,18 @@ try {
 
 const CONFIG_PATH = path.join(os.homedir(), '.church-av', 'config.json');
 const CONFIG_DIR  = path.dirname(CONFIG_PATH);
+const PREFS_PATH  = path.join(CONFIG_DIR, 'prefs.json');
+
+function loadPrefs() {
+  try { return JSON.parse(fs.readFileSync(PREFS_PATH, 'utf8')); } catch { return {}; }
+}
+function savePrefs(updates) {
+  try {
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    const prefs = loadPrefs();
+    fs.writeFileSync(PREFS_PATH, JSON.stringify({ ...prefs, ...updates }, null, 2), 'utf8');
+  } catch { /* non-critical */ }
+}
 const DEFAULT_RELAY_URL = process.env.TALLY_DEFAULT_RELAY_URL || 'wss://api.tallyconnect.app';
 const LOG_DIR = path.join(CONFIG_DIR, 'logs');
 const APP_LOG_PATH = path.join(LOG_DIR, 'tally-app.log');
@@ -201,9 +213,10 @@ function computeTrayState() {
 // ─── WINDOW ───────────────────────────────────────────────────────────────────
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 900,
-    height: 820,
+  const savedBounds = loadPrefs().windowBounds || {};
+  const winOpts = {
+    width: savedBounds.width || 900,
+    height: savedBounds.height || 820,
     minWidth: 580,
     minHeight: 720,
     resizable: true,
@@ -216,9 +229,23 @@ function createWindow() {
     titleBarStyle: 'hiddenInset',
     title: 'Tally',
     show: false,
-  });
+  };
+  if (savedBounds.x != null) winOpts.x = savedBounds.x;
+  if (savedBounds.y != null) winOpts.y = savedBounds.y;
+  mainWindow = new BrowserWindow(winOpts);
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
+
+  // Persist window bounds across restarts (debounced)
+  let _saveBoundsTimer = null;
+  const _persistBounds = () => {
+    clearTimeout(_saveBoundsTimer);
+    _saveBoundsTimer = setTimeout(() => {
+      if (mainWindow) savePrefs({ windowBounds: mainWindow.getBounds() });
+    }, 400);
+  };
+  mainWindow.on('resize', _persistBounds);
+  mainWindow.on('move', _persistBounds);
 
   mainWindow.on('close', (e) => {
     if (app.isQuitting) {
@@ -227,6 +254,11 @@ function createWindow() {
     }
     e.preventDefault();
     mainWindow.hide();
+    // On first close, let the user know the app is still running in the tray
+    if (!loadPrefs().hasSeenTrayNotice) {
+      savePrefs({ hasSeenTrayNotice: true });
+      sendNotification('Tally Connect is still running', 'Tally Connect is still running in your system tray.');
+    }
   });
 
   // Notify renderer when window is hidden/shown so it can pause polling
@@ -285,7 +317,7 @@ function updateTray() {
     ...(billingLine ? [{ label: billingLine, enabled: false }] : []),
     { type: 'separator' },
     { label: 'Open Dashboard', click: () => mainWindow?.show() },
-    { label: connected ? 'Stop Agent' : 'Start Agent', click: () => connected ? stopAgent() : startAgent() },
+    { label: connected ? 'Stop Monitoring' : 'Start Monitoring', click: () => connected ? stopAgent() : startAgent() },
     { type: 'separator' },
     { label: 'Client Portal', click: () => shell.openExternal('https://tallyconnect.app/portal') },
     { label: 'Help & Support', click: () => shell.openExternal('https://tallyconnect.app/help') },
@@ -632,7 +664,7 @@ function startAgent() {
     } else {
       agentCrashCount++;
       if (agentCrashCount >= MAX_AGENT_CRASHES) {
-        const msg = `Agent crashed ${agentCrashCount} times. Auto-restart disabled — use the Start Agent button to retry.`;
+        const msg = `Agent crashed ${agentCrashCount} times. Auto-restart disabled — use the Start Monitoring button to retry.`;
         appendAppLog('SYSTEM', msg);
         mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
         sendNotification('Tally Agent Error', msg);

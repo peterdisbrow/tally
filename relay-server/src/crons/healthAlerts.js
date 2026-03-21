@@ -103,7 +103,8 @@ class HealthAlertMonitor {
       return this.db.prepare(
         "SELECT churchId, name, billing_status FROM churches WHERE billing_status IN ('active', 'trialing')"
       ).all();
-    } catch {
+    } catch (e) {
+      console.error('[healthAlerts] Failed to fetch active churches:', e.message);
       return [];
     }
   }
@@ -163,7 +164,8 @@ class HealthAlertMonitor {
       }
 
       return null;
-    } catch {
+    } catch (e) {
+      console.warn('[healthAlerts] checkHealthScoreDrop failed for', churchId, ':', e.message);
       return null;
     }
   }
@@ -221,7 +223,8 @@ class HealthAlertMonitor {
       }
 
       return null;
-    } catch {
+    } catch (e) {
+      console.warn('[healthAlerts] checkRecurringFailures failed for', churchId, ':', e.message);
       return null;
     }
   }
@@ -271,7 +274,8 @@ class HealthAlertMonitor {
       }
 
       return null;
-    } catch {
+    } catch (e) {
+      console.warn('[healthAlerts] checkPreServiceFailures failed for', churchId, ':', e.message);
       return null;
     }
   }
@@ -308,7 +312,8 @@ class HealthAlertMonitor {
         message: `No sessions for ${ALERT_THRESHOLDS.noSessionsWeeks}+ weeks (had ${olderSessions.cnt} sessions before that) — possible churn`,
         data: { weeksSilent: ALERT_THRESHOLDS.noSessionsWeeks, previousSessionCount: olderSessions.cnt },
       };
-    } catch {
+    } catch (e) {
+      console.warn('[healthAlerts] checkChurnRisk failed for', churchId, ':', e.message);
       return null;
     }
   }
@@ -357,7 +362,8 @@ class HealthAlertMonitor {
       }
 
       return null;
-    } catch {
+    } catch (e) {
+      console.warn('[healthAlerts] checkMissedServices failed for', churchId, ':', e.message);
       return null;
     }
   }
