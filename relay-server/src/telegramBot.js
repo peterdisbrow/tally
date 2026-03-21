@@ -515,6 +515,62 @@ Powered by ${brandName}`;
 // Backward-compat constant
 const HELP_TEXT = getHelpText('Tally');
 
+function getGuestHelpText(brandName = 'Tally') {
+  return `🎛️ *${brandName} — Guest Commands*
+
+You have limited guest access. Available commands:
+
+*Status*
+• status — system overview
+• pre-service check
+
+*ATEM*
+• cut to camera 2
+• camera 3 to preview
+• fade to black
+• auto transition
+
+*OBS*
+• start / stop stream
+• switch to scene \\[name\\]
+
+*PTZ*
+• ptz 1 preset 3
+• ptz 1 home
+
+*Utility*
+• /status — quick health check
+• /help — show this message
+
+_Contact your church administrator to upgrade to full access._
+Powered by ${brandName}`;
+}
+
+function getAdminHelpText(brandName = 'Tally') {
+  return `🔧 *${brandName} Admin Commands*
+
+*Church Targeting*
+• at \\[Church Name\\]: \\[command\\] — send command to any church
+• msg \\[Church Name\\]  \\[message\\] — post to church chat
+
+*Guest Access*
+• guest \\[church name\\] — generate guest token
+• revoke guest \\[GUEST-TOKEN\\] — revoke a guest token
+• list guests — show active guest tokens
+
+*On-Call Rotation*
+• set oncall \\[church\\] \\[TD name\\] — change on-call TD
+• list tds \\[church\\] — list TDs for a church
+
+*Planning Center*
+• sync planning center \\[church name\\] — pull schedule from PC
+
+*All standard TD commands also work for admin.*
+Type \`help td\` for the full TD command reference.
+
+Powered by ${brandName}`;
+}
+
 // ─── RISKY COMMAND TYPES ─────────────────────────────────────────────────────
 // Commands that require inline-keyboard confirmation before execution
 const RISKY_COMMANDS = new Set([
@@ -705,10 +761,36 @@ class TallyBot {
       return this._handleRegister(userId, chatId, text, from);
     }
 
-    // 3. /help
-    if (text === '/help' || text.toLowerCase() === 'help') {
+    // 3. /help — role-aware
+    if (text === '/help' || text.toLowerCase() === 'help' || text.toLowerCase() === 'help td') {
+      const showFullTd = text.toLowerCase() === 'help td';
       const brandName = this._getBrandNameForUser(userId);
-      return this.sendMessage(chatId, getHelpText(brandName), { parse_mode: 'Markdown' });
+
+      // Admin sees admin command reference (or TD reference if they ask for it)
+      if (chatId === this.adminChatId) {
+        const helpMsg = showFullTd ? getHelpText(brandName) : getAdminHelpText(brandName);
+        return this.sendMessage(chatId, helpMsg, { parse_mode: 'Markdown' });
+      }
+
+      // Registered TD sees full command reference
+      const tdRow = this._stmtFindTD.get(userId);
+      if (tdRow) {
+        return this.sendMessage(chatId, getHelpText(brandName), { parse_mode: 'Markdown' });
+      }
+
+      // Guest TD sees limited command reference
+      if (this.guestTdMode) {
+        const guest = this.guestTdMode.findActiveGuestByChatId(chatId);
+        if (guest) {
+          return this.sendMessage(chatId, getGuestHelpText(brandName), { parse_mode: 'Markdown' });
+        }
+      }
+
+      // Unregistered user — show onboarding instructions
+      return this.sendMessage(chatId,
+        `👋 *Getting started with ${brandName}*\n\nTo use this bot, register with your church code:\n\`/register YOUR_CODE\`\n\nYour church administrator will give you the registration code.`,
+        { parse_mode: 'Markdown' }
+      );
     }
 
     // 3b. /menu — quick-access button keyboard
