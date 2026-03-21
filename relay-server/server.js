@@ -146,19 +146,36 @@ const FROM_EMAIL = process.env.FROM_EMAIL || 'Tally <noreply@tallyconnect.app>';
 const APP_URL = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://tallyconnect.app';
 const ADMIN_UI_URL = (process.env.ADMIN_UI_URL || `${APP_URL.replace(/\/$/, '')}/admin`).trim();
 
-if (process.env.NODE_ENV === 'production') {
-  if (process.env.ADMIN_API_KEY === undefined || process.env.JWT_SECRET === undefined) {
-    throw new Error('ADMIN_API_KEY and JWT_SECRET are required in production.');
+// ─── STARTUP SECRET VALIDATION ───────────────────────────────────────────────
+// Fail loudly in any non-development, non-test environment if secrets are
+// missing or still set to insecure defaults. This prevents accidental staging
+// deploys with dev credentials — a leak of those secrets is an account takeover.
+const _isDevEnv = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test' || !!process.env.VITEST;
+if (!_isDevEnv) {
+  if (!process.env.ADMIN_API_KEY || !process.env.JWT_SECRET) {
+    throw new Error(
+      `[STARTUP] ADMIN_API_KEY and JWT_SECRET are required in ${process.env.NODE_ENV || 'non-development'} environments.\n` +
+      '  Generate secure values with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
+    );
   }
   if (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secret-change-me') {
-    throw new Error('Default development credentials detected in production! Change ADMIN_API_KEY and JWT_SECRET to secure values.');
+    throw new Error(
+      '[STARTUP] Default development credentials detected in a non-development environment! ' +
+      'Set ADMIN_API_KEY and JWT_SECRET to unique, cryptographically random values.'
+    );
   }
   if (!process.env.SESSION_SECRET) {
-    throw new Error('SESSION_SECRET is required in production. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+    throw new Error(
+      `[STARTUP] SESSION_SECRET is required in ${process.env.NODE_ENV || 'non-development'} environments.\n` +
+      '  Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
+    );
   }
   // Stripe: if secret key is set, webhook secret MUST also be set to prevent spoofed webhooks
   if (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_WEBHOOK_SECRET) {
-    throw new Error('STRIPE_WEBHOOK_SECRET is required when STRIPE_SECRET_KEY is set. Get it from Stripe Dashboard → Webhooks.');
+    throw new Error(
+      '[STARTUP] STRIPE_WEBHOOK_SECRET is required when STRIPE_SECRET_KEY is set. ' +
+      'Get it from Stripe Dashboard → Webhooks. Without it, spoofed webhook requests could manipulate billing state.'
+    );
   }
   // Email: warn (not fatal) — app works without it but users can't reset passwords
   if (!process.env.RESEND_API_KEY) {
@@ -166,8 +183,8 @@ if (process.env.NODE_ENV === 'production') {
     console.warn('   Users will NOT receive emails. Get a key from https://resend.com\n');
   }
 }
-if (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secret-change-me') {
-  console.warn('\n⚠️  WARNING: Using default dev keys! Set ADMIN_API_KEY and JWT_SECRET env vars for production.\n');
+if (_isDevEnv && (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secret-change-me')) {
+  console.warn('\n⚠️  WARNING: Using default dev keys! Set ADMIN_API_KEY and JWT_SECRET env vars before deploying.\n');
 }
 const DB_PATH       = process.env.DATABASE_PATH || './data/churches.db';
 
