@@ -475,7 +475,7 @@ function buildChurchPortalHtml(church) {
       background: rgba(34,197,94,0.08);
       color: #22c55e;
     }
-    .nav-item .icon { font-size: 15px; width: 18px; text-align: center; }
+    .nav-item .icon { font-size: 15px; width: 18px; text-align: center; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; }
     .sidebar-footer {
       margin-top: auto;
       padding: 16px 20px;
@@ -901,52 +901,52 @@ function buildChurchPortalHtml(church) {
       </div>
     </div>
     <button class="nav-item active" data-page="overview" onclick="showPage('overview', this)">
-      <span class="icon">⊙</span> <span data-i18n="nav.overview">Overview</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></svg></span> <span data-i18n="nav.overview">Overview</span>
     </button>
     <button class="nav-item" data-page="profile" onclick="showPage('profile', this)">
-      <span class="icon">⊞</span> <span data-i18n="nav.profile">Profile</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg></span> <span data-i18n="nav.profile">Profile</span>
     </button>
     <button class="nav-item" data-page="campuses" onclick="showPage('campuses', this)">
-      <span class="icon">⊚</span> <span data-i18n="nav.campuses">Campuses</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z"/></svg></span> <span data-i18n="nav.campuses">Campuses</span>
     </button>
     <button class="nav-item" data-page="tds" onclick="showPage('tds', this)">
-      <span class="icon">⊛</span> <span data-i18n="nav.tds">Tech Directors</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg></span> <span data-i18n="nav.tds">Tech Directors</span>
     </button>
     <button class="nav-item" data-page="schedule" onclick="showPage('schedule', this)">
-      <span class="icon">⊡</span> <span data-i18n="nav.schedule">Schedule</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg></span> <span data-i18n="nav.schedule">Schedule</span>
     </button>
     <button class="nav-item" data-page="notifications" onclick="showPage('notifications', this)">
-      <span class="icon">⊜</span> <span data-i18n="nav.notifications">Notifications</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/></svg></span> <span data-i18n="nav.notifications">Notifications</span>
     </button>
     <button class="nav-item" data-page="engineer" onclick="showPage('engineer', this)">
-      <span class="icon">⊘</span> <span data-i18n="nav.engineer">Tally Engineer</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z"/></svg></span> <span data-i18n="nav.engineer">Tally Engineer</span>
     </button>
     <button class="nav-item" data-page="guests" onclick="showPage('guests', this)">
-      <span class="icon">⊝</span> <span data-i18n="nav.guests">Guest Access</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 0 1 21.75 8.25Z"/></svg></span> <span data-i18n="nav.guests">Guest Access</span>
     </button>
     <button class="nav-item" data-page="macros" onclick="showPage('macros', this)">
-      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M9.5 1.5 5 9h4l-2.5 5.5L13 7H9l.5-5.5Z"/></svg></span> <span data-i18n="nav.macros">Macros</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"/></svg></span> <span data-i18n="nav.macros">Macros</span>
     </button>
     <button class="nav-item" data-page="autopilot" onclick="showPage('autopilot', this)">
-      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><rect x="3" y="5" width="10" height="7" rx="1.5" ry="1.5"/><circle cx="6" cy="8.5" r="1"/><circle cx="10" cy="8.5" r="1"/><rect x="6.5" y="2" width="3" height="3" rx=".5"/><path d="M5 5V4h1v1zm5 0V4h1v1z"/></svg></span> <span data-i18n="nav.autopilot">AutoPilot</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z"/></svg></span> <span data-i18n="nav.autopilot">AutoPilot</span>
     </button>
     <button class="nav-item" data-page="sessions" onclick="showPage('sessions', this)">
-      <span class="icon">⊟</span> <span data-i18n="nav.sessions">Sessions</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg></span> <span data-i18n="nav.sessions">Sessions</span>
     </button>
     <button class="nav-item" data-page="alerts" onclick="showPage('alerts',this)">
-      <span class="icon">⊗</span> <span data-i18n="nav.alerts">Alerts</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg></span> <span data-i18n="nav.alerts">Alerts</span>
     </button>
     <button class="nav-item" data-page="analytics" onclick="showPage('analytics', this)">
-      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v10a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1ZM8 5a1 1 0 0 1 1 1v7a1 1 0 0 1-2 0V6a1 1 0 0 1 1-1ZM4 8a1 1 0 0 1 1 1v4a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1Z"/></svg></span> <span data-i18n="nav.analytics">Analytics</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg></span> <span data-i18n="nav.analytics">Analytics</span>
     </button>
     <button class="nav-item" data-page="migrate" onclick="showPage('migrate', this)">
-      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M2 4.5h8.5l-1.3-1.3.7-.7 2.5 2.5-2.5 2.5-.7-.7L10.5 5.5H2v-1ZM2 11.5h8.5l-1.3-1.3.7-.7 2.5 2.5-2.5 2.5-.7-.7 1.3-1.3H2v-1Z"/></svg></span> <span data-i18n="nav.migrate">Migrate</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/></svg></span> <span data-i18n="nav.migrate">Migrate</span>
     </button>
     <button class="nav-item" data-page="billing" onclick="showPage('billing', this)">
-      <span class="icon">⊠</span> <span data-i18n="nav.billing">Billing</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z"/></svg></span> <span data-i18n="nav.billing">Billing</span>
     </button>
     <button class="nav-item" data-page="support" onclick="showPage('support',this)">
-      <span class="icon">⊕</span> <span data-i18n="nav.support">Help &amp; Support</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"/></svg></span> <span data-i18n="nav.support">Help &amp; Support</span>
     </button>
     <div class="sidebar-footer">
       <button id="btn-lang-toggle" class="btn-secondary" onclick="toggleLanguage()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
@@ -1128,7 +1128,7 @@ function buildChurchPortalHtml(church) {
       <!-- Audio Health Card -->
       <div class="card" id="audio-health-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Audio monitoring — mute detection, silence alerts, source information" data-i18n="overview.audio.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M13.74 4.28a2 2 0 0 1 0 7.44L8 14V2l5.74 2.28Z"/><path d="M7 3L2 6v4l5 3V3Z"/></svg> Audio Health</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Audio monitoring — mute detection, silence alerts, source information" data-i18n="overview.audio.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z"/></svg> Audio Health</span></div>
           <span id="audio-source-label" style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
         </div>
         <div class="grid-3col" style="margin-bottom:14px">
@@ -1164,7 +1164,7 @@ function buildChurchPortalHtml(church) {
       <!-- Activity Feed -->
       <div class="card" id="activity-feed-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time operational events — status changes, alerts, and auto-recovery actions" data-i18n="overview.activity.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M9.5 1.5 5 9h4l-2.5 5.5L13 7H9l.5-5.5Z"/></svg> Activity Feed</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time operational events — status changes, alerts, and auto-recovery actions" data-i18n="overview.activity.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/></svg> Activity Feed</span></div>
           <span id="activity-feed-count" style="font-size:11px;color:#475569"></span>
         </div>
         <div id="activity-feed-body" style="max-height:300px;overflow-y:auto">
@@ -1558,7 +1558,7 @@ function buildChurchPortalHtml(church) {
         <button class="btn-primary" onclick="saveFailoverSettings()" style="margin-top:8px" data-i18n="notif.failover.save">Save Failover Settings</button>
       </div>
       <div class="card" id="failover-drill-card">
-        <div class="card-title" data-i18n="notif.failover.drill.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M8 1a3.5 3.5 0 0 0-3.5 3.5v.984a2.5 2.5 0 0 1-.58 1.6L2.8 8.45A1 1 0 0 0 3.575 10H5.5a2.5 2.5 0 0 0 5 0h1.925a1 1 0 0 0 .776-1.55L12.08 7.084a2.5 2.5 0 0 1-.58-1.6V4.5A3.5 3.5 0 0 0 8 1Z"/></svg> Failover Drill</div>
+        <div class="card-title" data-i18n="notif.failover.drill.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5"/></svg> Failover Drill</div>
         <p class="help-box"><strong>THIS IS A DRILL.</strong> Running a drill simulates a device failure and walks through the entire failover flow — alerts, ack window, and recovery — without touching any real equipment. Use this to train your team and verify your setup before Sunday.</p>
         <div id="failover-drill-status" style="display:none;margin-bottom:12px;padding:12px 16px;border-radius:8px;font-size:13px;line-height:1.7"></div>
         <button class="btn-primary" id="btn-run-drill" onclick="runFailoverDrill()" style="background:#eab308;border-color:#ca8a04;color:#000" data-i18n="notif.failover.drill.run">Run Failover Drill</button>
@@ -1654,7 +1654,7 @@ function buildChurchPortalHtml(church) {
       </div>
       <div class="card" id="coaching-card" style="display:none;margin-top:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <div class="card-title" style="margin:0"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v10a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1ZM8 5a1 1 0 0 1 1 1v7a1 1 0 0 1-2 0V6a1 1 0 0 1 1-1ZM4 8a1 1 0 0 1 1 1v4a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1Z"/></svg> Weekly Engineer Notes</div>
+          <div class="card-title" style="margin:0"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z"/></svg> Weekly Engineer Notes</div>
           <span id="coaching-week" style="font-size:11px;color:#64748b"></span>
         </div>
         <div id="coaching-body">
@@ -1663,7 +1663,7 @@ function buildChurchPortalHtml(church) {
       </div>
       <div class="card" style="margin-top:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <div class="card-title" style="margin:0" data-i18n="engineer.chat.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v6A1.5 1.5 0 0 0 2.5 12H4v2.25a.75.75 0 0 0 1.28.53L7.56 12H13.5A1.5 1.5 0 0 0 15 10.5v-6A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg> Chat with Tally Engineer</div>
+          <div class="card-title" style="margin:0" data-i18n="engineer.chat.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/></svg> Chat with Tally Engineer</div>
           <button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="clearEngineerChat()" data-i18n="btn.clear">Clear</button>
         </div>
         <div id="engineer-chat-messages" style="min-height:200px;max-height:500px;overflow-y:auto;border:1px solid #1a2e1f;border-radius:8px;padding:12px;background:#09090B;margin-bottom:12px">
