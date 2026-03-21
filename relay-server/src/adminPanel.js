@@ -493,7 +493,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 
     <!-- AI USAGE PAGE -->
     <div id="page-aiusage" style="display:none">
-      <div class="summary-row" id="ai-summary" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
+      <div class="summary-row" id="ai-summary">
         <div class="summary-card"><div class="stat-num" id="ai-requests">—</div><div class="stat-label">Requests (30d)</div></div>
         <div class="summary-card"><div class="stat-num" id="ai-input-tok">—</div><div class="stat-label">Input Tokens</div></div>
         <div class="summary-card"><div class="stat-num" id="ai-output-tok">—</div><div class="stat-label">Output Tokens</div></div>
