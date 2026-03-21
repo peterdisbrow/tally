@@ -135,7 +135,7 @@ const { ENGINEER_SYSTEM_PROMPT } = require('./src/engineer-knowledge');
 const { classifyIntent } = require('./src/intent-classifier');
 const { buildDiagnosticContext } = require('./src/diagnostic-context');
 const { LifecycleEmails } = require('./src/lifecycleEmails');
-const { PostServiceReport } = require('./src/postServiceReport');
+const PostServiceReport = require('./src/postServiceReport');
 
 const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS } = require('./src/billing');
 const { setupSyncMonitor } = require('./src/syncMonitor');

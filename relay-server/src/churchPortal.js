@@ -1723,76 +1723,70 @@ function buildChurchPortalHtml(church) {
     </div>
 
     <!-- Add Rule Modal -->
-    <div class="modal" id="modal-add-rule">
-      <div class="modal-inner" style="max-width:560px">
+    <div class="modal-backdrop" id="modal-add-rule">
+      <div class="modal" style="max-width:560px;width:560px">
         <div class="modal-header">
           <div class="modal-title">New AutoPilot Rule</div>
           <button class="modal-close" onclick="document.getElementById('modal-add-rule').classList.remove('open')">&#x2715;</button>
         </div>
-        <div style="padding:20px">
-          <div class="field" style="margin-bottom:14px">
-            <label>Rule Name</label>
-            <input type="text" id="rule-name" placeholder="e.g. Auto-Start Recording">
-          </div>
-          <div class="field" style="margin-bottom:14px">
-            <label>Trigger Type</label>
-            <select id="rule-trigger-type" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:8px 12px;font-size:14px;width:100%">
-              <option value="">Select trigger&hellip;</option>
-              <option value="propresenter_slide_change">ProPresenter Slide Change</option>
-              <option value="schedule_timer">Schedule Timer</option>
-              <option value="equipment_state_match">Equipment State Match</option>
-            </select>
-          </div>
-          <div class="field" style="margin-bottom:14px">
-            <label>Trigger Config <span style="color:#64748b;font-size:11px">(JSON)</span></label>
-            <textarea id="rule-trigger-config" rows="3" placeholder='{"minutesIntoService": 5}' style="font-family:monospace;font-size:13px"></textarea>
-            <div style="font-size:11px;color:#94a3b8;margin-top:4px">Examples: <code>{"presentationPattern":"Sermon"}</code> &nbsp; <code>{"minutesIntoService":10}</code> &nbsp; <code>{"conditions":{"obs.streaming":true}}</code></div>
-          </div>
-          <div class="field" style="margin-bottom:14px">
-            <label>Actions <span style="color:#64748b;font-size:11px">(JSON array)</span></label>
-            <textarea id="rule-actions" rows="3" placeholder='[{"command":"obs.startRecording","params":{}}]' style="font-family:monospace;font-size:13px"></textarea>
-          </div>
-          <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button class="btn-secondary" onclick="document.getElementById('modal-add-rule').classList.remove('open')" data-i18n="btn.cancel">Cancel</button>
-            <button class="btn-primary" id="btn-save-rule" onclick="saveAutopilotRule()">Save Rule</button>
-          </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Rule Name</label>
+          <input type="text" id="rule-name" placeholder="e.g. Auto-Start Recording">
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Trigger Type</label>
+          <select id="rule-trigger-type" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:8px 12px;font-size:14px;width:100%">
+            <option value="">Select trigger&hellip;</option>
+            <option value="propresenter_slide_change">ProPresenter Slide Change</option>
+            <option value="schedule_timer">Schedule Timer</option>
+            <option value="equipment_state_match">Equipment State Match</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Trigger Config <span style="color:#64748b;font-size:11px">(JSON)</span></label>
+          <textarea id="rule-trigger-config" rows="3" placeholder='{"minutesIntoService": 5}' style="font-family:monospace;font-size:13px"></textarea>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px">Examples: <code>{"presentationPattern":"Sermon"}</code> &nbsp; <code>{"minutesIntoService":10}</code> &nbsp; <code>{"conditions":{"obs.streaming":true}}</code></div>
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Actions <span style="color:#64748b;font-size:11px">(JSON array)</span></label>
+          <textarea id="rule-actions" rows="3" placeholder='[{"command":"obs.startRecording","params":{}}]' style="font-family:monospace;font-size:13px"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="document.getElementById('modal-add-rule').classList.remove('open')" data-i18n="btn.cancel">Cancel</button>
+          <button class="btn-primary" id="btn-save-rule" onclick="saveAutopilotRule()">Save Rule</button>
         </div>
       </div>
     </div>
 
     <!-- Test Rule Result Modal -->
-    <div class="modal" id="modal-test-rule">
-      <div class="modal-inner" style="max-width:500px">
+    <div class="modal-backdrop" id="modal-test-rule">
+      <div class="modal" style="max-width:500px;width:500px">
         <div class="modal-header">
           <div class="modal-title" data-i18n="autopilot.test.title">Test Rule &mdash; Dry Run</div>
           <button class="modal-close" onclick="document.getElementById('modal-test-rule').classList.remove('open')">&#x2715;</button>
         </div>
-        <div style="padding:20px">
-          <div id="test-rule-result">
-            <div style="color:#475569;text-align:center;padding:16px" data-i18n="status.loading">Running\u2026</div>
-          </div>
-          <div style="display:flex;justify-content:flex-end;margin-top:16px">
-            <button class="btn-secondary" onclick="document.getElementById('modal-test-rule').classList.remove('open')" data-i18n="btn.cancel">Close</button>
-          </div>
+        <div id="test-rule-result">
+          <div style="color:#475569;text-align:center;padding:16px" data-i18n="status.loading">Running\u2026</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="document.getElementById('modal-test-rule').classList.remove('open')" data-i18n="btn.cancel">Close</button>
         </div>
       </div>
     </div>
 
     <!-- Rule Limit / Upgrade Modal -->
-    <div class="modal" id="modal-rule-limit">
-      <div class="modal-inner" style="max-width:440px">
+    <div class="modal-backdrop" id="modal-rule-limit">
+      <div class="modal" style="max-width:440px;width:440px;text-align:center">
         <div class="modal-header">
           <div class="modal-title" data-i18n="upgrade.rule_limit_title">Rule Limit Reached</div>
           <button class="modal-close" onclick="document.getElementById('modal-rule-limit').classList.remove('open')">&#x2715;</button>
         </div>
-        <div style="padding:24px">
-          <div style="font-size:32px;text-align:center;margin-bottom:12px">🚀</div>
-          <div style="font-size:15px;font-weight:700;color:#F8FAFC;text-align:center;margin-bottom:8px">You&rsquo;ve reached the rule limit for your plan</div>
-          <div style="font-size:13px;color:#94A3B8;text-align:center;line-height:1.6;margin-bottom:20px" id="rule-limit-body" data-i18n="upgrade.rule_limit_default">Upgrade to Pro for up to 10 automation rules, or Enterprise for 25.</div>
-          <div style="display:flex;gap:8px;justify-content:center">
-            <button class="btn-secondary" onclick="document.getElementById('modal-rule-limit').classList.remove('open')" data-i18n="upgrade.maybe_later">Maybe Later</button>
-            <button class="btn-primary" id="btn-rule-limit-upgrade" onclick="document.getElementById('modal-rule-limit').classList.remove('open');showPage('billing',document.querySelector('[data-page=billing]'))" data-i18n="upgrade.cta">Upgrade Plan &rarr;</button>
-          </div>
+        <div style="font-size:32px;margin-bottom:12px">🚀</div>
+        <div style="font-size:15px;font-weight:700;color:#F8FAFC;margin-bottom:8px">You&rsquo;ve reached the rule limit for your plan</div>
+        <div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:20px" id="rule-limit-body" data-i18n="upgrade.rule_limit_default">Upgrade to Pro for up to 10 automation rules, or Enterprise for 25.</div>
+        <div class="modal-footer" style="justify-content:center">
+          <button class="btn-secondary" onclick="document.getElementById('modal-rule-limit').classList.remove('open')" data-i18n="upgrade.maybe_later">Maybe Later</button>
+          <button class="btn-primary" id="btn-rule-limit-upgrade" onclick="document.getElementById('modal-rule-limit').classList.remove('open');showPage('billing',document.querySelector('[data-page=billing]'))" data-i18n="upgrade.cta">Upgrade Plan &rarr;</button>
         </div>
       </div>
     </div>
