@@ -295,7 +295,7 @@
         <div id="ndi-preview-placeholder" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:11px; font-family:var(--mono);">No NDI preview</div>
       </div>
       <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
-        <button class="btn-small btn-secondary" onclick="captureNdiFrame()">📸 Snapshot</button>
+        <button class="btn-small btn-secondary" onclick="captureNdiFrame()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path d="M10.5 6a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5H3.5a.5.5 0 0 1-.5-.5v-3a.5.5 0 0 1 .5-.5H10.5Z"/><path d="M11 7.5l3-1.5v5l-3-1.5V7.5Z"/><path fill-rule="evenodd" d="M1.5 4A1.5 1.5 0 0 0 0 5.5v5A1.5 1.5 0 0 0 1.5 12h11a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 12.5 4h-11Z" clip-rule="evenodd"/></svg> Snapshot</button>
         <span id="ndi-preview-ts" style="font-size:10px; color:var(--dim); margin-left:auto; font-family:var(--mono);"></span>
       </div>
     </div>
@@ -388,7 +388,7 @@
     <div class="quick-chat" id="quick-chat">
       <div class="quick-chat-response" id="quick-chat-response" style="display:none;"></div>
       <div class="quick-chat-input-row">
-        <span class="quick-chat-icon">💬</span>
+        <span class="quick-chat-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v7A1.5 1.5 0 0 0 2.5 13H5v1.75a.75.75 0 0 0 1.28.53L9.06 13H13.5A1.5 1.5 0 0 0 15 11.5v-7A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg></span>
         <input type="text" id="quick-chat-input" placeholder="Ask Tally something…" onkeydown="if(event.key==='Enter')sendQuickChat()">
         <button class="quick-chat-send" onclick="sendQuickChat()">Send</button>
       </div>
@@ -427,7 +427,7 @@
       <div class="section-label" style="margin: 12px 0 8px;">YOUR DEVICES</div>
       <div id="simple-device-list"><div style="color:var(--muted); font-size:12px; padding:12px;">No devices configured yet. Scan your network to get started.</div></div>
 
-      <button class="scan-btn" style="width:100%; margin:12px 0;" onclick="startNetworkScan()">🔍 Scan Network</button>
+      <button class="scan-btn" style="width:100%; margin:12px 0;" onclick="startNetworkScan()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:5px"><path fill-rule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clip-rule="evenodd"/></svg>Scan Network</button>
 
       <div class="section-label" style="margin:16px 0 8px;">STREAM PLATFORMS</div>
       <!-- YouTube OAuth (Simple) -->
@@ -472,7 +472,7 @@
         <label for="scan-nic">Interface</label>
         <select id="scan-nic"></select>
       </div>
-      <button class="scan-btn" id="scan-btn" onclick="startNetworkScan()">🔍 Scan Network</button>
+      <button class="scan-btn" id="scan-btn" onclick="startNetworkScan()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:5px"><path fill-rule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clip-rule="evenodd"/></svg>Scan Network</button>
     </div>
     <div class="equip-scan-panel" id="equip-scan-panel" style="display:none;">
       <div class="scan-progress" id="scan-progress">
@@ -682,7 +682,7 @@
         <!-- Quick actions -->
         <div style="display:flex; gap:8px; margin:12px 0;">
           <button class="btn-small btn-secondary" id="pf-run-verify" onclick="pfRunVerify()">▶ Check System</button>
-          <button class="btn-small btn-secondary" id="pf-run-preflight" onclick="pfRunPreflight()">🛫 Pre-Service Check</button>
+          <button class="btn-small btn-secondary" id="pf-run-preflight" onclick="pfRunPreflight()">Pre-Service Check</button>
         </div>
 
         <!-- Active Issues list -->
@@ -722,14 +722,14 @@
 
     <!-- Chat input (pinned to bottom) -->
     <div id="chat-attachment-badge" style="display:none; padding:4px 12px; background:var(--card); border-top:1px solid var(--border); font-size:11px; color:var(--muted);">
-      📎 <span id="chat-attachment-name"></span>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M10.5 2.5a2.121 2.121 0 0 1 3 3L5.22 13.78a3.5 3.5 0 0 1-4.95-4.95L7.5 1.6a.75.75 0 1 1 1.06 1.06L1.33 9.9A2 2 0 0 0 4.16 12.73l8.28-8.28a.621.621 0 0 0-.88-.88L3.22 11.85a.5.5 0 0 1-.7-.71l8.28-8.28A2.121 2.121 0 0 1 10.5 2.5Z" clip-rule="evenodd"/></svg> <span id="chat-attachment-name"></span>
       <a href="#" onclick="clearChatAttachment(); return false;" style="color:var(--red); margin-left:8px; text-decoration:none;">✕ Remove</a>
     </div>
     <div style="padding:8px 12px; border-top:1px solid var(--border); display:flex; gap:8px;">
       <button onclick="pickChatFile()" title="Attach a file (patch list, camera plot, image)"
         style="background:var(--card); color:var(--muted); border:1px solid var(--border); border-radius:6px;
                padding:8px 10px; font-size:14px; cursor:pointer; flex-shrink:0;">
-        📎
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M10.5 2.5a2.121 2.121 0 0 1 3 3L5.22 13.78a3.5 3.5 0 0 1-4.95-4.95L7.5 1.6a.75.75 0 1 1 1.06 1.06L1.33 9.9A2 2 0 0 0 4.16 12.73l8.28-8.28a.621.621 0 0 0-.88-.88L3.22 11.85a.5.5 0 0 1-.7-.71l8.28-8.28A2.121 2.121 0 0 1 10.5 2.5Z" clip-rule="evenodd"/></svg>
       </button>
       <input type="text" id="chat-input"
         placeholder="Ask Tally Engineer a question..."
@@ -757,10 +757,10 @@
 
   <div class="actions">
     <button class="btn-start" id="btn-toggle" onclick="toggleAgent()">Start Monitoring</button>
-    <button class="btn-secondary btn-small" onclick="testConn()">🔌 Test</button>
-    <button class="btn-secondary btn-small" onclick="exportLogs()">🧾 Logs</button>
+    <button class="btn-secondary btn-small" onclick="testConn()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M6 1.75A.75.75 0 0 1 6.75 1h2.5a.75.75 0 0 1 0 1.5h-.75v1.75h3A1.5 1.5 0 0 1 13 5.75v3.5A1.5 1.5 0 0 1 11.5 10.75H11V12a1 1 0 0 1-1 1H9v1.25a.75.75 0 0 1-1.5 0V13H6a1 1 0 0 1-1-1v-1.25H4.5A1.5 1.5 0 0 1 3 9.25v-3.5A1.5 1.5 0 0 1 4.5 4.25h3V2.5H6.75A.75.75 0 0 1 6 1.75Z" clip-rule="evenodd"/></svg> Test</button>
+    <button class="btn-secondary btn-small" onclick="exportLogs()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3Zm3.5 2.25a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-5ZM5.75 9a.75.75 0 0 0 0 1.5h3a.75.75 0 0 0 0-1.5h-3Z" clip-rule="evenodd"/></svg> Logs</button>
     <button class="btn-secondary btn-small" onclick="showEquipmentWizard()">⚙️ Setup</button>
-    <button class="btn-secondary btn-small" onclick="doSignOut()">🚪 Sign Out</button>
+    <button class="btn-secondary btn-small" onclick="doSignOut()">Sign Out</button>
   </div>
 
 </div><!-- /dashboard -->

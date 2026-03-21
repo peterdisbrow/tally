@@ -380,13 +380,13 @@ View full report in your church portal.`;
     const gradeColor = grade.startsWith('A') ? '#22c55e' : grade.startsWith('B') ? '#eab308' : '#ef4444';
 
     const deviceRows = Object.entries(deviceHealth).map(([device, stats]) => {
-      const health = stats.alerts === 0 ? '✅ Clean' : stats.critical > 0 ? `❌ ${stats.critical} critical` : `⚠️ ${stats.alerts} alerts`;
+      const health = stats.alerts === 0 ? '<span style="color:#22c55e">Clean</span>' : stats.critical > 0 ? `<span style="color:#ef4444">${stats.critical} critical</span>` : `<span style="color:#f59e0b">${stats.alerts} alerts</span>`;
       return `<tr><td style="padding:8px 12px;text-transform:capitalize">${device}</td><td style="padding:8px 12px">${health}</td><td style="padding:8px 12px;color:#94A3B8">${stats.autoFixed}/${stats.alerts} auto-fixed</td></tr>`;
     }).join('');
 
     const failoverRows = failoverEvents.map(f => {
       const t = new Date(f.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-      return `<tr><td style="padding:8px 12px">${t}</td><td style="padding:8px 12px">${f.type || 'Failover'}</td><td style="padding:8px 12px">${f.autoRecovered ? '✅ Auto-recovered' : '⚠️ Manual'}</td></tr>`;
+      return `<tr><td style="padding:8px 12px">${t}</td><td style="padding:8px 12px">${f.type || 'Failover'}</td><td style="padding:8px 12px">${f.autoRecovered ? '<span style="color:#22c55e">Auto-recovered</span>' : '<span style="color:#f59e0b">Manual</span>'}</td></tr>`;
     }).join('');
 
     const recItems = recommendations.map(r => {
@@ -427,11 +427,11 @@ View full report in your church portal.`;
 
     ${aiSummary ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:24px"><div style="font-size:12px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">AI Summary</div><p style="margin:0;color:#333;font-size:14px;line-height:1.6">${aiSummary}</p></div>` : ''}
 
-    ${failoverEvents.length > 0 ? `<div style="margin-bottom:24px"><div style="font-size:13px;font-weight:700;color:#09090B;margin-bottom:10px">⚡ Failover Events</div><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f1f5f9"><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569">Time</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569">Event</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569">Resolution</th></tr></thead><tbody>${failoverRows}</tbody></table></div>` : ''}
+    ${failoverEvents.length > 0 ? `<div style="margin-bottom:24px"><div style="font-size:13px;font-weight:700;color:#09090B;margin-bottom:10px">Failover Events</div><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f1f5f9"><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569">Time</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569">Event</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569">Resolution</th></tr></thead><tbody>${failoverRows}</tbody></table></div>` : ''}
 
-    ${Object.keys(deviceHealth).length > 0 ? `<div style="margin-bottom:24px"><div style="font-size:13px;font-weight:700;color:#09090B;margin-bottom:10px">🔧 Device Health</div><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f1f5f9"><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569">Device</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569">Status</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569">Auto-Fixed</th></tr></thead><tbody>${deviceRows}</tbody></table></div>` : ''}
+    ${Object.keys(deviceHealth).length > 0 ? `<div style="margin-bottom:24px"><div style="font-size:13px;font-weight:700;color:#09090B;margin-bottom:10px">Device Health</div><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f1f5f9"><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569">Device</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569">Status</th><th style="padding:8px 12px;text-align:left;font-weight:600;color:#475569">Auto-Fixed</th></tr></thead><tbody>${deviceRows}</tbody></table></div>` : ''}
 
-    ${recommendations.length > 0 ? `<div style="margin-bottom:24px"><div style="font-size:13px;font-weight:700;color:#09090B;margin-bottom:10px">📋 Recommendations for Next Service</div><ul style="margin:0;padding-left:20px">${recItems}</ul></div>` : ''}
+    ${recommendations.length > 0 ? `<div style="margin-bottom:24px"><div style="font-size:13px;font-weight:700;color:#09090B;margin-bottom:10px">Recommendations for Next Service</div><ul style="margin:0;padding-left:20px">${recItems}</ul></div>` : ''}
 
   </div>
 

@@ -249,7 +249,7 @@ async function pfRunVerify() {
   _pfLoading = true;
 
   const btn = document.getElementById('pf-run-verify');
-  if (btn) { btn.textContent = '⏳ Running…'; btn.disabled = true; }
+  if (btn) { btn.textContent = 'Running…'; btn.disabled = true; }
 
   try {
     const api = window.electronAPI;
@@ -277,7 +277,7 @@ async function pfRunPreflight() {
   _pfLoading = true;
 
   const btn = document.getElementById('pf-run-preflight');
-  if (btn) { btn.textContent = '⏳ Running…'; btn.disabled = true; }
+  if (btn) { btn.textContent = 'Running…'; btn.disabled = true; }
 
   try {
     const api = window.electronAPI;
@@ -295,7 +295,7 @@ async function pfRunPreflight() {
     showPfError(err.message || 'Preflight failed');
   } finally {
     _pfLoading = false;
-    if (btn) { btn.textContent = '🛫 Pre-Service Check'; btn.disabled = false; }
+    if (btn) { btn.textContent = 'Pre-Service Check'; btn.disabled = false; }
   }
 }
 
@@ -342,7 +342,7 @@ function renderPfGoStatus(goNoGo) {
   el.innerHTML = `
     <div style="display:flex; align-items:center; gap:8px;">
       <span style="font-size:18px; font-weight:800; color:${isGo ? 'var(--green)' : 'var(--danger)'};">
-        ${isGo ? '✅ GO' : '🚫 NO-GO'}
+        ${isGo ? 'GO' : 'NO-GO'}
       </span>
       <span style="color:var(--muted); font-size:11px;">
         ${goNoGo.triggerType} • ${formatTime(goNoGo.decisionAt)}
@@ -365,7 +365,7 @@ function renderPfIssues(issues) {
   const displayIssues = issues.filter((i) => i.id !== 'no_issues_detected');
 
   if (displayIssues.length === 0) {
-    el.innerHTML = '<p style="color:var(--green); font-size:12px;">✅ No issues detected — system looks healthy.</p>';
+    el.innerHTML = '<p style="color:var(--green); font-size:12px;">No issues detected — system looks healthy.</p>';
     return;
   }
 

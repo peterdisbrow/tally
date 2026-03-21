@@ -892,11 +892,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       <div style="margin: 24px 0; padding: 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca;">
         <div style="font-size: 14px; color: #333; line-height: 2.2;">
-          ❌ Real-time monitoring of your ATEM, OBS, encoders, and audio gear<br>
-          ❌ Automatic stream recovery when things go silent mid-service<br>
-          ❌ Telegram alerts to your TD when problems are detected<br>
-          ❌ Pre-service system checks 30 minutes before you go live<br>
-          ❌ AI-powered production assistant in Telegram
+          <span style="color:#dc2626">&#10007;</span> Real-time monitoring of your ATEM, OBS, encoders, and audio gear<br>
+          <span style="color:#dc2626">&#10007;</span> Automatic stream recovery when things go silent mid-service<br>
+          <span style="color:#dc2626">&#10007;</span> Telegram alerts to your TD when problems are detected<br>
+          <span style="color:#dc2626">&#10007;</span> Pre-service system checks 30 minutes before you go live<br>
+          <span style="color:#dc2626">&#10007;</span> AI-powered production assistant in Telegram
         </div>
       </div>
 
@@ -946,11 +946,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       <div style="margin: 24px 0; padding: 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca;">
         <div style="font-size: 14px; color: #333; line-height: 2.2;">
-          ❌ Real-time monitoring of your ATEM, OBS, encoders, and audio gear<br>
-          ❌ Automatic stream recovery when things go silent mid-service<br>
-          ❌ Telegram alerts to your TD when problems are detected<br>
-          ❌ Pre-service system checks 30 minutes before you go live<br>
-          ❌ AI-powered production assistant in Telegram
+          <span style="color:#dc2626">&#10007;</span> Real-time monitoring of your ATEM, OBS, encoders, and audio gear<br>
+          <span style="color:#dc2626">&#10007;</span> Automatic stream recovery when things go silent mid-service<br>
+          <span style="color:#dc2626">&#10007;</span> Telegram alerts to your TD when problems are detected<br>
+          <span style="color:#dc2626">&#10007;</span> Pre-service system checks 30 minutes before you go live<br>
+          <span style="color:#dc2626">&#10007;</span> AI-powered production assistant in Telegram
         </div>
       </div>
 
@@ -1053,10 +1053,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       <div style="margin: 24px 0; padding: 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca;">
         <div style="font-size: 14px; color: #333; line-height: 2.2;">
-          ❌ No auto-recovery if your stream drops during service<br>
-          ❌ No pre-service health checks<br>
-          ❌ No Telegram alerts or remote control<br>
-          ❌ No weekly reports for leadership
+          <span style="color:#dc2626">&#10007;</span> No auto-recovery if your stream drops during service<br>
+          <span style="color:#dc2626">&#10007;</span> No pre-service health checks<br>
+          <span style="color:#dc2626">&#10007;</span> No Telegram alerts or remote control<br>
+          <span style="color:#dc2626">&#10007;</span> No weekly reports for leadership
         </div>
       </div>
 
@@ -1172,7 +1172,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       const pct = Math.round((stats.autoRecoveries / stats.criticalEvents) * 100);
       insightLine = `<p style="font-size: 14px; color: #eab308; font-weight: 600; margin: 0 0 16px;">Tally auto-handled ${pct}% of issues this week without any manual intervention.</p>`;
     } else if (stats.criticalEvents > 0) {
-      insightLine = `<p style="font-size: 14px; color: #ef4444; font-weight: 600; margin: 0 0 16px;">⚠ ${stats.criticalEvents} critical event${stats.criticalEvents !== 1 ? 's' : ''} required attention this week. Check your portal for the full timeline.</p>`;
+      insightLine = `<p style="font-size: 14px; color: #ef4444; font-weight: 600; margin: 0 0 16px;">${stats.criticalEvents} critical event${stats.criticalEvents !== 1 ? 's' : ''} required attention this week. Check your portal for the full timeline.</p>`;
     }
 
     const html = this._wrap(`
@@ -1313,7 +1313,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const portalUrl = `${this.appUrl}/portal`;
 
     const html = this._wrap(`
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">⚠️ Tally monitoring has stopped</h1>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Tally monitoring has stopped</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
         The 7-day grace period for <strong>${church.name}</strong> has expired. Tally is no longer monitoring your production gear &mdash;
         which means your next service runs without a safety net.
@@ -1322,10 +1322,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       <div style="margin: 24px 0; padding: 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca;">
         <div style="font-size: 14px; font-weight: 700; color: #dc2626; margin-bottom: 8px;">While paused, you're missing:</div>
         <div style="font-size: 14px; color: #333; line-height: 2.2;">
-          ❌ Real-time monitoring &mdash; stream drops go undetected<br>
-          ❌ Auto-recovery &mdash; outages require manual intervention<br>
-          ❌ Pre-service checks &mdash; no green light before you go live<br>
-          ❌ Telegram alerts &mdash; your TD is flying blind
+          <span style="color:#dc2626">&#10007;</span> Real-time monitoring &mdash; stream drops go undetected<br>
+          <span style="color:#dc2626">&#10007;</span> Auto-recovery &mdash; outages require manual intervention<br>
+          <span style="color:#dc2626">&#10007;</span> Pre-service checks &mdash; no green light before you go live<br>
+          <span style="color:#dc2626">&#10007;</span> Telegram alerts &mdash; your TD is flying blind
         </div>
       </div>
 
@@ -1967,7 +1967,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         headers: { 'Authorization': `Bearer ${this.resendApiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           from: this.fromEmail, to: [to],
-          subject: `🚨 URGENT: ${alertType} at ${church.name}`,
+          subject: `URGENT: ${alertType} at ${church.name}`,
           html, text,
           tags: [{ name: 'category', value: 'urgent-alert-escalation' }],
         }),
@@ -1995,7 +1995,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     const html = this._wrap(`
       <div style="margin: 0 0 24px; padding: 16px 20px; background: #fef2f2; border-radius: 10px; border: 2px solid #ef4444;">
-        <span style="font-size: 20px;">🚨</span>
+        
         <strong style="font-size: 16px; color: #dc2626; margin-left: 8px;">CRITICAL ALERT — No Response</strong>
       </div>
 
@@ -2019,7 +2019,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('View Alert Status', portalUrl)}
     `);
 
-    const text = `🚨 CRITICAL ALERT — No Response\n\nAlert: ${alertType} at ${church.name}\nNo TD acknowledgment after 90 seconds.\n\nCheck status: ${portalUrl}\n\nTally`;
+    const text = `CRITICAL ALERT — No Response\n\nAlert: ${alertType} at ${church.name}\nNo TD acknowledgment after 90 seconds.\n\nCheck status: ${portalUrl}\n\nTally`;
     return { html, text };
   }
 
@@ -2379,7 +2379,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const featureList = tierFeatures.map(f => `&bull; ${f}`).join('<br>');
 
     const html = this._wrap(`
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">🎉 Welcome to ${tierName} &mdash; you're all set!</h1>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Welcome to ${tierName} &mdash; you're all set!</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
         Thanks for subscribing! <strong>${church.name}</strong> is now on the <strong>${tierName}</strong> plan${interval === 'annual' ? ' (annual)' : ''}.
         You're joining hundreds of church production teams who now spend Sunday morning watching the service, not fighting it.
@@ -2657,9 +2657,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
         <div style="font-size: 14px; color: #333; line-height: 2.5;">
-          ✅ Tally is monitoring your gear continuously<br>
-          ✅ Automatic pre-flight check runs 30 min before service<br>
-          ✅ Stream recovery is armed and ready<br>
+          <span style="color:#22c55e">&#10003;</span> Tally is monitoring your gear continuously<br>
+          <span style="color:#22c55e">&#10003;</span> Automatic pre-flight check runs 30 min before service<br>
+          <span style="color:#22c55e">&#10003;</span> Stream recovery is armed and ready<br>
           ☐ Telegram alerts set up? <a href="${portalUrl}" style="color: #22c55e; text-decoration: none;">Configure now →</a><br>
           ☐ Leadership recipients set? <a href="${portalUrl}" style="color: #22c55e; text-decoration: none;">Add them →</a>
         </div>
@@ -2673,7 +2673,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Open Your Portal', portalUrl)}
     `);
 
-    const text = `Two days to Sunday — you're ready\n\nTally has ${serviceLabel} on the schedule for ${church.name}.\n\nPre-service checklist:\n✅ Tally monitoring your gear\n✅ Pre-flight check runs 30 min before\n✅ Stream recovery armed\n☐ Telegram alerts set up? ${portalUrl}\n☐ Leadership recipients set? ${portalUrl}\n\nYou'll get a green-light confirmation 30 min before service starts.\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    const text = `Two days to Sunday — you're ready\n\nTally has ${serviceLabel} on the schedule for ${church.name}.\n\nPre-service checklist:\n[x] Tally monitoring your gear\n[x] Pre-flight check runs 30 min before\n[x] Stream recovery armed\n[ ] Telegram alerts set up? ${portalUrl}\n[ ] Leadership recipients set? ${portalUrl}\n\nYou'll get a green-light confirmation 30 min before service starts.\n\nTally — ${this.appUrl.replace('https://', '')}`;
     return { html, text };
   }
 
@@ -3061,7 +3061,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         churchId: church.churchId,
         emailType: 'first-year-anniversary',
         to: church.portal_email,
-        subject: `${church.name} just completed one year with Tally 🎉`,
+        subject: `${church.name} just completed one year with Tally`,
         html, text,
       });
     }
@@ -3081,7 +3081,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     } catch { /* tables may not exist */ }
 
     const html = this._wrap(`
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">One year with Tally 🎉</h1>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">One year with Tally</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
         <strong>${church.name}</strong> just hit one year on the ${tierName} plan. That's 52 Sundays with Tally watching your gear &mdash; thank you for your trust.
       </p>
@@ -3108,7 +3108,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `One year with Tally! 🎉\n\n${church.name} just hit one year on ${tierName}. Thank you for your trust.\n\n${yearStats.sessions > 0 ? `Year in numbers: ${yearStats.sessions} services monitored, ${yearStats.autoFixed} auto-resolved.\n\n` : ''}Know another church dealing with stream issues? Send them to tallyconnect.app/signup and mention your church name for a referral credit.\n\nView your year: ${portalUrl}\n\n— Andrew Disbrow, Founder`;
+    const text = `One year with Tally!\n\n${church.name} just hit one year on ${tierName}. Thank you for your trust.\n\n${yearStats.sessions > 0 ? `Year in numbers: ${yearStats.sessions} services monitored, ${yearStats.autoFixed} auto-resolved.\n\n` : ''}Know another church dealing with stream issues? Send them to tallyconnect.app/signup and mention your church name for a referral credit.\n\nView your year: ${portalUrl}\n\n— Andrew Disbrow, Founder`;
     return { html, text };
   }
 
@@ -3580,9 +3580,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       'grace-period-ending':     () => ({ ...this._buildGracePeriodEndingSoonEmail(sampleChurch, 2), subject: 'Tally will be paused in 2 days — update payment now' }),
       'invoice-upcoming':        () => ({ ...this._buildInvoiceUpcomingEmail(sampleChurch, { amount: 9900, dueDate: Math.floor(Date.now() / 1000) + 3 * 86400 }), subject: 'Upcoming invoice: $99.00 for Tally' }),
       'email-change-confirmation': () => ({ ...this._buildEmailChangeEmail(sampleChurch, { oldEmail: 'old@example.com', newEmail: 'new@example.com' }), subject: 'Your Tally email has been updated' }),
-      'first-service-completed': () => ({ ...this._buildFirstServiceCompletedEmail(sampleChurch, { grade: '🟢 Clean Service', durationMinutes: 72, alerts: [], recoveries: 0 }), subject: 'First service in the books — here\'s how it went' }),
+      'first-service-completed': () => ({ ...this._buildFirstServiceCompletedEmail(sampleChurch, { grade: 'Clean Service', durationMinutes: 72, alerts: [], recoveries: 0 }), subject: 'First service in the books — here\'s how it went' }),
       'dispute-alert':           () => ({ ...this._buildDisputeAlertEmail(sampleChurch, { amount: 9900, reason: 'product_not_received' }), subject: 'Payment dispute opened — action required' }),
-      'urgent-alert-escalation': () => ({ ...this._buildUrgentAlertEmail(sampleChurch, { alertType: 'stream_stopped', context: { source: 'OBS', duration: '90s' } }), subject: '🚨 URGENT: stream_stopped at Sample Church' }),
+      'urgent-alert-escalation': () => ({ ...this._buildUrgentAlertEmail(sampleChurch, { alertType: 'stream_stopped', context: { source: 'OBS', duration: '90s' } }), subject: 'URGENT: stream_stopped at Sample Church' }),
       'cancellation-survey':     () => ({ ...this._buildCancellationSurveyEmail(sampleChurch), subject: 'Quick question — what could we have done better?' }),
       // Lead nurture drip
       'lead-welcome':            () => ({ ...this._buildLeadWelcomeEmail({ email: 'lead@example.com', name: 'John Smith' }), subject: 'Every Sunday, something breaks in the booth' }),
@@ -3598,7 +3598,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       'annual-renewal-reminder': () => ({ ...this._buildAnnualRenewalReminderEmail({ ...sampleChurch, billing_tier: 'pro', current_period_end: new Date(Date.now() + 30 * 86400000).toISOString() }), subject: 'Your annual Tally subscription renews in 30 days' }),
       'telegram-setup-nudge':    () => ({ ...this._buildTelegramSetupNudgeEmail(sampleChurch), subject: "You're missing the best part of Tally" }),
       'nps-survey':              () => ({ ...this._buildNPSSurveyEmail(sampleChurch), subject: 'Quick question — how likely are you to recommend Tally?' }),
-      'first-year-anniversary':  () => ({ ...this._buildFirstYearAnniversaryEmail({ ...sampleChurch, billing_tier: 'pro' }), subject: 'Sample Church just completed one year with Tally 🎉' }),
+      'first-year-anniversary':  () => ({ ...this._buildFirstYearAnniversaryEmail({ ...sampleChurch, billing_tier: 'pro' }), subject: 'Sample Church just completed one year with Tally' }),
       'referral-invite':         () => ({ ...this._buildReferralInviteEmail(sampleChurch, { sessionCount: 24 }), subject: 'Know another church production team struggling with the same problems?' }),
       'inactivity-alert':        () => ({ ...this._buildInactivityAlertEmail(sampleChurch), subject: "We haven't seen any services lately — everything okay?" }),
       'feature-announcement':    () => ({ ...this._buildFeatureAnnouncementEmail(sampleChurch, { headline: 'New: AutoPilot scene recall', body: 'AutoPilot now supports ProPresenter scene recall during service transitions.', ctaText: 'See What\'s New', ctaUrl: this.appUrl + '/portal' }), subject: 'New: AutoPilot scene recall' }),

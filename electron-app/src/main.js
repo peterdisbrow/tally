@@ -353,15 +353,15 @@ function checkAndNotify() {
   const wasAtemConnected = lastNotifiedState.atem === true || (lastNotifiedState.atem && lastNotifiedState.atem.connected);
   const isAtemConnected = agentStatus.atem === true || (agentStatus.atem && agentStatus.atem.connected);
   if (wasAtemConnected && !isAtemConnected) {
-    _notifyOnce('atem-disconnect', '⚠️ ATEM Disconnected', 'The ATEM switcher has lost connection.');
+    _notifyOnce('atem-disconnect', 'ATEM Disconnected', 'The ATEM switcher has lost connection.');
   }
   // Stream drop
   if (lastNotifiedState.streaming === true && agentStatus.streaming === false) {
-    _notifyOnce('stream-drop', '🔴 Stream Stopped', 'The live stream has stopped unexpectedly.');
+    _notifyOnce('stream-drop', 'Stream Stopped', 'The live stream has stopped unexpectedly.');
   }
   // Low FPS — only notify once per minute
   if (agentStatus.fps && agentStatus.fps < 24 && agentStatus.streaming) {
-    _notifyOnce('low-fps', '⚠️ Low FPS Warning', `Stream FPS dropped to ${agentStatus.fps}`, 60000);
+    _notifyOnce('low-fps', 'Low FPS Warning', `Stream FPS dropped to ${agentStatus.fps}`, 60000);
   }
   lastNotifiedState = { ...agentStatus };
 }

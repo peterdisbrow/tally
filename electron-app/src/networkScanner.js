@@ -353,36 +353,36 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     if (open) {
       if (check.type === 'atem') {
         results.atem.push({ ip: '127.0.0.1', name: 'ATEM Switcher', model: 'Unknown' });
-        onProgress(3, 'Found ATEM on localhost ✅');
+        onProgress(3, 'Found ATEM on localhost (found)');
       } else if (check.type === 'obs') {
         results.obs.push({ ip: '127.0.0.1', port: 4455 });
-        onProgress(3, 'Found OBS on localhost ✅');
+        onProgress(3, 'Found OBS on localhost (found)');
       } else if (check.type === 'companion') {
         // Companion 4.x: simple HTTP probe — web UI always responds at root
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/`, 2000);
         if (resp.success) {
           results.companion.push({ ip: '127.0.0.1', port: check.port, connections: 0 });
-          onProgress(4, 'Found Companion on localhost ✅');
+          onProgress(4, 'Found Companion on localhost (found)');
         }
       } else if (check.type === 'propresenter') {
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/v1/version`, 2000);
         if (resp.success) {
           results.propresenter.push({ ip: '127.0.0.1', port: check.port });
-          onProgress(4, 'Found ProPresenter on localhost ✅');
+          onProgress(4, 'Found ProPresenter on localhost (found)');
         }
       } else if (check.type === 'vmix') {
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/api/?Function=GetShortXML`, 2000);
         const edition = isLikelyVmixXml(resp.body) ? (resp.body.match(/<edition>([^<]+)<\/edition>/i)?.[1] || 'vMix') : null;
         if (edition) {
           results.vmix.push({ ip: '127.0.0.1', port: check.port, edition });
-          onProgress(6, `Found vMix ${edition} on localhost ✅`);
+          onProgress(6, `Found vMix ${edition} on localhost (found)`);
         }
       } else if (check.type === 'resolume') {
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/api/v1/product`, 2000);
         if (isLikelyResolume(resp.data)) {
           const version = resp.data?.name || 'Resolume Arena';
           results.resolume.push({ ip: '127.0.0.1', port: check.port, version });
-          onProgress(5, `Found ${version} on localhost ✅`);
+          onProgress(5, `Found ${version} on localhost (found)`);
         }
       } else if (check.type === 'tricaster-control' || check.type === 'tricaster-http') {
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/v1/version`, 2000);
@@ -402,39 +402,39 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
           };
           results.tricaster.push(entry);
         }
-        onProgress(6, `Found TriCaster endpoint on localhost:${check.port} ✅`);
+        onProgress(6, `Found TriCaster endpoint on localhost:${check.port} (found)`);
       } else if (check.type === 'birddog') {
         const decodeResp = await tryHttpGet(`http://127.0.0.1:${check.port}/decodestatus?ChNum=1`, 2000);
         const aboutResp = !isLikelyBirdDog(decodeResp) ? await tryHttpGet(`http://127.0.0.1:${check.port}/about`, 2000) : null;
         if (isLikelyBirdDog(decodeResp) || isLikelyBirdDog(aboutResp)) {
           const source = extractBirdDogSource(isLikelyBirdDog(decodeResp) ? decodeResp : aboutResp);
           results.birddog.push({ ip: '127.0.0.1', port: check.port, source: source || null });
-          onProgress(6, 'Found BirdDog endpoint on localhost ✅');
+          onProgress(6, 'Found BirdDog endpoint on localhost (found)');
         }
       } else if (check.type === 'hyperdeck') {
         results.hyperdeck.push({ ip: '127.0.0.1' });
-        onProgress(5, 'Found HyperDeck on localhost ✅');
+        onProgress(5, 'Found HyperDeck on localhost (found)');
       } else if (check.type === 'mixer-behringer') {
         results.mixers.push({ ip: '127.0.0.1', port: check.port, type: 'behringer/midas (X32/M32)' });
-        onProgress(5, 'Found possible Behringer/Midas console on localhost ✅');
+        onProgress(5, 'Found possible Behringer/Midas console on localhost (found)');
       } else if (check.type === 'mixer-allenheath') {
         results.mixers.push({ ip: '127.0.0.1', port: check.port, type: 'allenheath (SQ/dLive)' });
-        onProgress(5, 'Found possible Allen & Heath console on localhost ✅');
+        onProgress(5, 'Found possible Allen & Heath console on localhost (found)');
       } else if (check.type === 'mixer-yamaha') {
         results.mixers.push({ ip: '127.0.0.1', port: check.port, type: 'yamaha (CL/QL)' });
-        onProgress(5, 'Found possible Yamaha console on localhost ✅');
+        onProgress(5, 'Found possible Yamaha console on localhost (found)');
       } else if (check.type === 'videohub') {
         // Verify with protocol fingerprint — port 9990 alone is too common
         const isReal = await tryVideohubFingerprint('127.0.0.1', check.port, 1500);
         if (isReal) {
           results.videohub.push({ ip: '127.0.0.1', port: check.port });
-          onProgress(5, 'Found Blackmagic Videohub on localhost ✅');
+          onProgress(5, 'Found Blackmagic Videohub on localhost (found)');
         }
       } else if (check.type === 'tally-encoder') {
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/health`, 2000);
         if (resp.success) {
           results.encoders.push({ ip: '127.0.0.1', port: check.port, type: 'tally-encoder', label: 'Tally Encoder' });
-          onProgress(5, 'Found Tally Encoder on localhost ✅');
+          onProgress(5, 'Found Tally Encoder on localhost (found)');
         }
       }
     }
@@ -480,39 +480,39 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
 
             if (type === 'atem' && !results.atem.find((d) => d.ip === ip)) {
               results.atem.push({ ip, name: 'ATEM Switcher', model: 'Unknown' });
-              onProgress(null, `Found ATEM at ${ip} ✅`);
+              onProgress(null, `Found ATEM at ${ip} (found)`);
             } else if (type === 'companion' && !results.companion.find((d) => d.ip === ip)) {
               // Companion 4.x: simple HTTP probe — web UI always responds at root
               const resp = await tryHttpGet(`http://${ip}:${port}/`, 2000);
               if (resp.success) {
                 results.companion.push({ ip, port, connections: 0 });
-                onProgress(null, `Found Companion at ${ip} ✅`);
+                onProgress(null, `Found Companion at ${ip} (found)`);
               }
             } else if (type === 'obs' && !results.obs.find((d) => d.ip === ip)) {
               results.obs.push({ ip, port: 4455 });
-              onProgress(null, `Found OBS at ${ip} ✅`);
+              onProgress(null, `Found OBS at ${ip} (found)`);
             } else if (type === 'hyperdeck' && !results.hyperdeck.find((d) => d.ip === ip)) {
               results.hyperdeck.push({ ip });
-              onProgress(null, `Found HyperDeck at ${ip} ✅`);
+              onProgress(null, `Found HyperDeck at ${ip} (found)`);
             } else if (type === 'propresenter' && !results.propresenter.find((d) => d.ip === ip)) {
               const vResp = await tryHttpGet(`http://${ip}:${port}/v1/version`, 2000);
               if (vResp.success && vResp.data && vResp.data.version) {
                 results.propresenter.push({ ip, port });
-                onProgress(null, `Found ProPresenter at ${ip} ✅`);
+                onProgress(null, `Found ProPresenter at ${ip} (found)`);
               }
             } else if (type === 'vmix' && !results.vmix.find((d) => d.ip === ip)) {
               const vResp = await tryHttpGet(`http://${ip}:${port}/api/?Function=GetShortXML`, 2000);
               const edition = isLikelyVmixXml(vResp.body) ? (vResp.body.match(/<edition>([^<]+)<\/edition>/i)?.[1] || 'vMix') : null;
               if (edition) {
                 results.vmix.push({ ip, port, edition });
-                onProgress(null, `Found vMix ${edition} at ${ip} ✅`);
+                onProgress(null, `Found vMix ${edition} at ${ip} (found)`);
               }
             } else if (type === 'resolume' && !results.resolume.find((d) => d.ip === ip)) {
               const rResp = await tryHttpGet(`http://${ip}:${port}/api/v1/product`, 2000);
               if (isLikelyResolume(rResp.data)) {
                 const version = rResp.data?.name || 'Resolume Arena';
                 results.resolume.push({ ip, port, version });
-                onProgress(null, `Found ${version} at ${ip} ✅`);
+                onProgress(null, `Found ${version} at ${ip} (found)`);
               }
             } else if (type === 'birddog' && !results.birddog.find((d) => d.ip === ip)) {
               // BirdDog: require positive fingerprint — port 8080 alone is too common
@@ -534,7 +534,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
                 const bestResp = isLikelyBirdDog(decodeResp) ? decodeResp : (aboutResp || versionResp || listResp);
                 const source = extractBirdDogSource(bestResp);
                 results.birddog.push({ ip, port, source: source || null });
-                onProgress(null, `Found BirdDog endpoint at ${ip}:${port} ✅`);
+                onProgress(null, `Found BirdDog endpoint at ${ip}:${port} (found)`);
               }
             } else if ((type === 'tricaster-control' || type === 'tricaster-http') && !results.tricaster.find((d) => d.ip === ip && d.port === port)) {
               const vResp = await tryHttpGet(`http://${ip}:${port}/v1/version`, 2000);
@@ -554,28 +554,28 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
                   mode: vResp.success ? 'http' : 'control',
                 });
               }
-              onProgress(null, `Found TriCaster endpoint at ${ip}:${port} ✅`);
+              onProgress(null, `Found TriCaster endpoint at ${ip}:${port} (found)`);
             } else if (type === 'mixer-behringer' && !results.mixers.find((d) => d.ip === ip && d.port === port)) {
               results.mixers.push({ ip, port, type: 'behringer/midas (X32/M32)' });
-              onProgress(null, `Found possible Behringer/Midas console at ${ip}:${port} ✅`);
+              onProgress(null, `Found possible Behringer/Midas console at ${ip}:${port} (found)`);
             } else if (type === 'mixer-allenheath' && !results.mixers.find((d) => d.ip === ip && d.port === port)) {
               results.mixers.push({ ip, port, type: 'allenheath (SQ/dLive)' });
-              onProgress(null, `Found possible Allen & Heath console at ${ip}:${port} ✅`);
+              onProgress(null, `Found possible Allen & Heath console at ${ip}:${port} (found)`);
             } else if (type === 'mixer-yamaha' && !results.mixers.find((d) => d.ip === ip && d.port === port)) {
               results.mixers.push({ ip, port, type: 'yamaha (CL/QL)' });
-              onProgress(null, `Found possible Yamaha console at ${ip}:${port} ✅`);
+              onProgress(null, `Found possible Yamaha console at ${ip}:${port} (found)`);
             } else if (type === 'videohub' && !results.videohub.find((d) => d.ip === ip)) {
               // Verify with protocol fingerprint — port 9990 alone is too common
               const isReal = await tryVideohubFingerprint(ip, port, 1500);
               if (isReal) {
                 results.videohub.push({ ip, port });
-                onProgress(null, `Found Blackmagic Videohub at ${ip} ✅`);
+                onProgress(null, `Found Blackmagic Videohub at ${ip} (found)`);
               }
             } else if (type === 'tally-encoder' && !results.encoders.find((d) => d.ip === ip)) {
               const eResp = await tryHttpGet(`http://${ip}:${port}/health`, 2000);
               if (eResp.success) {
                 results.encoders.push({ ip, port, type: 'tally-encoder', label: 'Tally Encoder' });
-                onProgress(null, `Found Tally Encoder at ${ip}:${port} ✅`);
+                onProgress(null, `Found Tally Encoder at ${ip}:${port} (found)`);
               }
             }
           })

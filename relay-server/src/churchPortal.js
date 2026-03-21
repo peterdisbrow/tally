@@ -885,7 +885,7 @@ function buildChurchPortalHtml(church) {
   </style>
 </head>
 <body>
-  <button class="hamburger" id="hamburger-btn" onclick="toggleMobileNav()">☰</button>
+  <button class="hamburger" id="hamburger-btn" onclick="toggleMobileNav()" aria-label="Toggle menu"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="20" height="20" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd"/></svg></button>
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileNav()"></div>
   <nav class="sidebar" id="sidebar-nav">
     <div class="sidebar-logo">
@@ -920,10 +920,10 @@ function buildChurchPortalHtml(church) {
       <span class="icon">⊝</span> <span data-i18n="nav.guests">Guest Access</span>
     </button>
     <button class="nav-item" data-page="macros" onclick="showPage('macros', this)">
-      <span class="icon">⚡</span> <span data-i18n="nav.macros">Macros</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M9.5 1.5 5 9h4l-2.5 5.5L13 7H9l.5-5.5Z"/></svg></span> <span data-i18n="nav.macros">Macros</span>
     </button>
     <button class="nav-item" data-page="autopilot" onclick="showPage('autopilot', this)">
-      <span class="icon">🤖</span> <span data-i18n="nav.autopilot">AutoPilot</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><rect x="3" y="5" width="10" height="7" rx="1.5" ry="1.5"/><circle cx="6" cy="8.5" r="1"/><circle cx="10" cy="8.5" r="1"/><rect x="6.5" y="2" width="3" height="3" rx=".5"/><path d="M5 5V4h1v1zm5 0V4h1v1z"/></svg></span> <span data-i18n="nav.autopilot">AutoPilot</span>
     </button>
     <button class="nav-item" data-page="sessions" onclick="showPage('sessions', this)">
       <span class="icon">⊟</span> <span data-i18n="nav.sessions">Sessions</span>
@@ -932,10 +932,10 @@ function buildChurchPortalHtml(church) {
       <span class="icon">⊗</span> <span data-i18n="nav.alerts">Alerts</span>
     </button>
     <button class="nav-item" data-page="analytics" onclick="showPage('analytics', this)">
-      <span class="icon">📊</span> <span data-i18n="nav.analytics">Analytics</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v10a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1ZM8 5a1 1 0 0 1 1 1v7a1 1 0 0 1-2 0V6a1 1 0 0 1 1-1ZM4 8a1 1 0 0 1 1 1v4a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1Z"/></svg></span> <span data-i18n="nav.analytics">Analytics</span>
     </button>
     <button class="nav-item" data-page="migrate" onclick="showPage('migrate', this)">
-      <span class="icon">🔀</span> <span data-i18n="nav.migrate">Migrate</span>
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M2 4.5h8.5l-1.3-1.3.7-.7 2.5 2.5-2.5 2.5-.7-.7L10.5 5.5H2v-1ZM2 11.5h8.5l-1.3-1.3.7-.7 2.5 2.5-2.5 2.5-.7-.7 1.3-1.3H2v-1Z"/></svg></span> <span data-i18n="nav.migrate">Migrate</span>
     </button>
     <button class="nav-item" data-page="billing" onclick="showPage('billing', this)">
       <span class="icon">⊠</span> <span data-i18n="nav.billing">Billing</span>
@@ -945,7 +945,7 @@ function buildChurchPortalHtml(church) {
     </button>
     <div class="sidebar-footer">
       <button id="btn-lang-toggle" class="btn-secondary" onclick="toggleLanguage()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
-      <button class="btn-secondary" onclick="startDemoMode()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.7" title="See a simulated service without hardware" data-i18n="demo.try">🎭 Try Demo Mode</button>
+      <button class="btn-secondary" onclick="startDemoMode()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.7" title="See a simulated service without hardware" data-i18n="demo.try">Try Demo Mode</button>
       <button class="btn-logout" onclick="logout()" data-i18n="btn.signout">Sign out</button>
     </div>
   </nav>
@@ -956,7 +956,7 @@ function buildChurchPortalHtml(church) {
 
     <!-- DEMO MODE BANNER -->
     <div id="demo-mode-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:2000;background:#7c3aed;color:#fff;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;letter-spacing:0.5px">
-      <span data-i18n="demo.banner">🎭 DEMO MODE — This is simulated data. No real hardware connected.</span>
+      <span data-i18n="demo.banner">DEMO MODE — This is simulated data. No real hardware connected.</span>
       <button onclick="stopDemoMode()" style="margin-left:16px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:12px" data-i18n="demo.exit">Exit Demo</button>
     </div>
 
@@ -983,7 +983,7 @@ function buildChurchPortalHtml(church) {
       </div>
       <!-- Resume Setup Guide (shown when dismissed but not all steps complete) -->
       <div id="onboarding-resume" style="display:none; margin-bottom:16px; text-align:center;">
-        <button onclick="undismissOnboarding()" style="background:none; border:none; color:#22c55e; font-size:12px; cursor:pointer; padding:4px 8px; opacity:0.7;" data-i18n="overview.resume_setup">📋 Resume Setup Guide</button>
+        <button onclick="undismissOnboarding()" style="background:none; border:none; color:#22c55e; font-size:12px; cursor:pointer; padding:4px 8px; opacity:0.7;" data-i18n="overview.resume_setup"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> Resume Setup Guide</button>
       </div>
 
       <!-- Upgrade Banner -->
@@ -1014,7 +1014,7 @@ function buildChurchPortalHtml(church) {
       <div class="card" id="preservice-card-dashboard">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
           <div style="display:flex;align-items:center;gap:10px">
-            <div class="card-title" style="margin:0"><span class="tip" data-tip="Tally runs a full system check ~30 min before your scheduled service. Run manually anytime." data-i18n="overview.preservice.title">🔧 Pre-Service Check</span></div>
+            <div class="card-title" style="margin:0"><span class="tip" data-tip="Tally runs a full system check ~30 min before your scheduled service. Run manually anytime." data-i18n="overview.preservice.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M9.66 1.2a5 5 0 0 0-5.956 6.437L1.146 10.2A.5.5 0 0 0 1 10.56V14a.5.5 0 0 0 .5.5h3.44a.5.5 0 0 0 .354-.146l2.563-2.558A5 5 0 0 0 13.8 6.34l-2.122 2.121a2.5 2.5 0 0 1-3.536-3.536L10.264 2.8A4.978 4.978 0 0 0 9.66 1.2Z" clip-rule="evenodd"/></svg> Pre-Service Check</span></div>
             <span id="psc-dash-badge" class="badge badge-gray">—</span>
           </div>
           <div style="display:flex;gap:8px">
@@ -1102,7 +1102,7 @@ function buildChurchPortalHtml(church) {
       <!-- ATEM Switcher Detail Card -->
       <div class="card" id="atem-detail-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="ATEM switcher state — program/preview inputs, recording & streaming status" data-i18n="overview.atem.title">🎛 ATEM Switcher</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="ATEM switcher state — program/preview inputs, recording & streaming status" data-i18n="overview.atem.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M3 3.5a.5.5 0 0 1 1 0V6a2 2 0 0 1 0 4v2.5a.5.5 0 0 1-1 0V10a2 2 0 0 1 0-4V3.5ZM8.5 3.5a.5.5 0 0 1 1 0v1A2 2 0 0 1 9.5 8.5v4a.5.5 0 0 1-1 0v-4a2 2 0 0 1 0-4v-1ZM12.5 5.5a.5.5 0 0 1 1 0v2a2 2 0 0 1 0 4v1a.5.5 0 0 1-1 0v-1a2 2 0 0 1 0-4v-2Z"/></svg> ATEM Switcher</span></div>
           <span id="atem-model-label" style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
         </div>
         <div class="grid-2col" style="gap:16px;margin-bottom:14px">
@@ -1123,7 +1123,7 @@ function buildChurchPortalHtml(church) {
       <!-- Audio Health Card -->
       <div class="card" id="audio-health-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Audio monitoring — mute detection, silence alerts, source information" data-i18n="overview.audio.title">🔊 Audio Health</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Audio monitoring — mute detection, silence alerts, source information" data-i18n="overview.audio.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M13.74 4.28a2 2 0 0 1 0 7.44L8 14V2l5.74 2.28Z"/><path d="M7 3L2 6v4l5 3V3Z"/></svg> Audio Health</span></div>
           <span id="audio-source-label" style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
         </div>
         <div class="grid-3col" style="margin-bottom:14px">
@@ -1148,7 +1148,7 @@ function buildChurchPortalHtml(church) {
       <!-- Service Rundown Card -->
       <div class="card" id="rundown-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Follow a step-by-step rundown during your service. Execute device commands directly from here." data-i18n="overview.rundown.title">📋 Service Rundown</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Follow a step-by-step rundown during your service. Execute device commands directly from here." data-i18n="overview.rundown.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> Service Rundown</span></div>
           <span id="rundown-status-badge" class="badge badge-gray">—</span>
         </div>
         <div id="rundown-body">
@@ -1159,7 +1159,7 @@ function buildChurchPortalHtml(church) {
       <!-- Activity Feed -->
       <div class="card" id="activity-feed-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time operational events — status changes, alerts, and auto-recovery actions" data-i18n="overview.activity.title">⚡ Activity Feed</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time operational events — status changes, alerts, and auto-recovery actions" data-i18n="overview.activity.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M9.5 1.5 5 9h4l-2.5 5.5L13 7H9l.5-5.5Z"/></svg> Activity Feed</span></div>
           <span id="activity-feed-count" style="font-size:11px;color:#475569"></span>
         </div>
         <div id="activity-feed-body" style="max-height:300px;overflow-y:auto">
@@ -1400,7 +1400,7 @@ function buildChurchPortalHtml(church) {
       <p class="help-box"><strong>How On-Call Routing Works:</strong> When Tally detects an issue during your service, it sends an alert to whichever TD is on-call that week. If no one responds within 90 seconds, it escalates to your primary TD. TDs can swap on-call duty via Telegram using <code style="color:#22c55e">/swap [name]</code>.</p>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
-          <button class="btn-secondary" id="btn-copy-invite-link" onclick="copyTdInviteLink()" title="Generate a Telegram link — TDs click it to register automatically" data-i18n="tds.invite_link">🔗 Copy Invite Link</button>
+          <button class="btn-secondary" id="btn-copy-invite-link" onclick="copyTdInviteLink()" title="Generate a Telegram link — TDs click it to register automatically" data-i18n="tds.invite_link">Copy Invite Link</button>
           <button class="btn-primary" onclick="document.getElementById('modal-add-td').classList.add('open')" data-i18n="tds.add_btn">+ Add TD</button>
         </div>
         <div class="table-wrap">
@@ -1553,10 +1553,10 @@ function buildChurchPortalHtml(church) {
         <button class="btn-primary" onclick="saveFailoverSettings()" style="margin-top:8px" data-i18n="notif.failover.save">Save Failover Settings</button>
       </div>
       <div class="card" id="failover-drill-card">
-        <div class="card-title" data-i18n="notif.failover.drill.title">🚨 Failover Drill</div>
+        <div class="card-title" data-i18n="notif.failover.drill.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M8 1a3.5 3.5 0 0 0-3.5 3.5v.984a2.5 2.5 0 0 1-.58 1.6L2.8 8.45A1 1 0 0 0 3.575 10H5.5a2.5 2.5 0 0 0 5 0h1.925a1 1 0 0 0 .776-1.55L12.08 7.084a2.5 2.5 0 0 1-.58-1.6V4.5A3.5 3.5 0 0 0 8 1Z"/></svg> Failover Drill</div>
         <p class="help-box"><strong>THIS IS A DRILL.</strong> Running a drill simulates a device failure and walks through the entire failover flow — alerts, ack window, and recovery — without touching any real equipment. Use this to train your team and verify your setup before Sunday.</p>
         <div id="failover-drill-status" style="display:none;margin-bottom:12px;padding:12px 16px;border-radius:8px;font-size:13px;line-height:1.7"></div>
-        <button class="btn-primary" id="btn-run-drill" onclick="runFailoverDrill()" style="background:#eab308;border-color:#ca8a04;color:#000" data-i18n="notif.failover.drill.run">▶ Run Failover Drill</button>
+        <button class="btn-primary" id="btn-run-drill" onclick="runFailoverDrill()" style="background:#eab308;border-color:#ca8a04;color:#000" data-i18n="notif.failover.drill.run">Run Failover Drill</button>
         <span id="drill-spinner" style="display:none;margin-left:10px;font-size:12px;color:#64748B">Running drill…</span>
       </div>
       <div class="card">
@@ -1649,7 +1649,7 @@ function buildChurchPortalHtml(church) {
       </div>
       <div class="card" id="coaching-card" style="display:none;margin-top:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <div class="card-title" style="margin:0">📊 Weekly Engineer Notes</div>
+          <div class="card-title" style="margin:0"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v10a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1ZM8 5a1 1 0 0 1 1 1v7a1 1 0 0 1-2 0V6a1 1 0 0 1 1-1ZM4 8a1 1 0 0 1 1 1v4a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1Z"/></svg> Weekly Engineer Notes</div>
           <span id="coaching-week" style="font-size:11px;color:#64748b"></span>
         </div>
         <div id="coaching-body">
@@ -1658,7 +1658,7 @@ function buildChurchPortalHtml(church) {
       </div>
       <div class="card" style="margin-top:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <div class="card-title" style="margin:0" data-i18n="engineer.chat.title">💬 Chat with Tally Engineer</div>
+          <div class="card-title" style="margin:0" data-i18n="engineer.chat.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v6A1.5 1.5 0 0 0 2.5 12H4v2.25a.75.75 0 0 0 1.28.53L7.56 12H13.5A1.5 1.5 0 0 0 15 10.5v-6A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg> Chat with Tally Engineer</div>
           <button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="clearEngineerChat()" data-i18n="btn.clear">Clear</button>
         </div>
         <div id="engineer-chat-messages" style="min-height:200px;max-height:500px;overflow-y:auto;border:1px solid #1a2e1f;border-radius:8px;padding:12px;background:#09090B;margin-bottom:12px">
@@ -1771,7 +1771,7 @@ function buildChurchPortalHtml(church) {
       <!-- Upgrade gate for Connect/Plus plans -->
       <div id="autopilot-upgrade-gate" style="display:none">
         <div class="card" style="text-align:center;padding:40px 24px">
-          <div style="font-size:40px;margin-bottom:16px">🤖</div>
+          <div style="margin-bottom:16px;color:#94A3B8"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="40" height="40" aria-hidden="true"><rect x="3" y="5" width="10" height="7" rx="1.5" ry="1.5"/><circle cx="6" cy="8.5" r="1"/><circle cx="10" cy="8.5" r="1"/><rect x="6.5" y="2" width="3" height="3" rx=".5"/><path d="M5 5V4h1v1zm5 0V4h1v1z"/></svg></div>
           <div style="font-size:18px;font-weight:700;color:#F8FAFC;margin-bottom:8px" data-i18n="autopilot.upgrade_gate_title">AutoPilot requires Pro or higher</div>
           <div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:20px" data-i18n="autopilot.upgrade_gate_body">Set up automation rules that run during your service windows — auto-start recording, switch cameras on slide change, and more.</div>
           <button class="btn-primary" onclick="showPage('billing', document.querySelector('[data-page=billing]'))" data-i18n="autopilot.upgrade_to_pro">Upgrade to Pro &rarr;</button>
@@ -1781,7 +1781,7 @@ function buildChurchPortalHtml(church) {
       <!-- AutoPilot content for Pro+ plans -->
       <div id="autopilot-content" style="display:none">
         <div id="autopilot-paused-banner" style="display:none;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308" data-i18n="autopilot.paused_banner">
-          ⏸ AutoPilot is paused — all rules are suspended.
+          AutoPilot is paused — all rules are suspended.
         </div>
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -1854,7 +1854,7 @@ function buildChurchPortalHtml(church) {
           <div class="modal-title" data-i18n="upgrade.rule_limit_title">Rule Limit Reached</div>
           <button class="modal-close" onclick="document.getElementById('modal-rule-limit').classList.remove('open')">&#x2715;</button>
         </div>
-        <div style="font-size:32px;margin-bottom:12px">🚀</div>
+        <div style="margin-bottom:12px;color:#94A3B8"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="32" height="32" aria-hidden="true"><path d="M8 1C4.686 1 2 3.686 2 7v1.5c0 .828.672 1.5 1.5 1.5H4v1a4 4 0 0 0 8 0v-1h.5c.828 0 1.5-.672 1.5-1.5V7c0-3.314-2.686-6-6-6Zm0 2a4 4 0 0 1 4 4H4a4 4 0 0 1 4-4Zm0 7a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2Z"/></svg></div>
         <div style="font-size:15px;font-weight:700;color:#F8FAFC;margin-bottom:8px">You&rsquo;ve reached the rule limit for your plan</div>
         <div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:20px" id="rule-limit-body" data-i18n="upgrade.rule_limit_default">Upgrade to Pro for up to 10 automation rules, or Enterprise for 25.</div>
         <div class="modal-footer" style="justify-content:center">
@@ -1888,7 +1888,7 @@ function buildChurchPortalHtml(church) {
       <!-- Post-Service AI Reports Card -->
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="AI-generated summary reports automatically created after each service. Includes uptime, device health, failover events, and recommendations." data-i18n="sessions.reports.title">📊 Service Reports</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="AI-generated summary reports automatically created after each service. Includes uptime, device health, failover events, and recommendations." data-i18n="sessions.reports.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v10a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1ZM8 5a1 1 0 0 1 1 1v7a1 1 0 0 1-2 0V6a1 1 0 0 1 1-1ZM4 8a1 1 0 0 1 1 1v4a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1Z"/></svg> Service Reports</span></div>
           <span style="font-size:11px;color:#64748b" data-i18n="sessions.reports.auto">Auto-generated after each service</span>
         </div>
         <div id="service-reports-body">
@@ -3238,15 +3238,15 @@ function buildChurchPortalHtml(church) {
           let badgeCls = 'badge-gray';
           let label = st;
           if (st === 'connected' || st === 'ok') badgeCls = 'badge-green';
-          else if (st === 'live' || st === 'streaming') { badgeCls = 'badge-green'; label = st === 'live' ? '🔴 Live' : 'Streaming'; }
-          else if (st === 'recording') { badgeCls = 'badge-green'; label = '⏺ Recording'; }
+          else if (st === 'live' || st === 'streaming') { badgeCls = 'badge-green'; label = st === 'live' ? '<span style="color:#ef4444">&#9679;</span> Live' : 'Streaming'; }
+          else if (st === 'recording') { badgeCls = 'badge-green'; label = 'Recording'; }
           else if (st === 'warning') badgeCls = 'badge-yellow';
-          else if (st === 'muted') { badgeCls = 'badge-yellow'; label = '🔇 Muted'; }
+          else if (st === 'muted') { badgeCls = 'badge-yellow'; label = 'Muted'; }
           else if (st === 'offline') { badgeCls = 'badge-gray'; label = 'Offline'; }
           var verHtml = '—';
           if (ver) {
             verHtml = ver.outdated
-              ? '<span style="color:#f59e0b">⚠️ ' + ver.text + '</span>'
+              ? '<span style="color:#f59e0b">! ' + ver.text + '</span>'
               : '<span style="color:#22c55e">' + ver.text + '</span>';
           }
           var detailHtml = '—';
@@ -3368,8 +3368,8 @@ function buildChurchPortalHtml(church) {
       // Health indicator
       var healthEl = document.getElementById('ss-health');
       if (healthEl) {
-        if (bitrate !== null && bitrate < 1000) { healthEl.textContent = '⚠️ Low'; healthEl.style.color = '#ef4444'; }
-        else if (fps !== null && fps < 24) { healthEl.textContent = '⚠️ FPS'; healthEl.style.color = '#f59e0b'; }
+        if (bitrate !== null && bitrate < 1000) { healthEl.textContent = 'Low'; healthEl.style.color = '#ef4444'; }
+        else if (fps !== null && fps < 24) { healthEl.textContent = 'FPS'; healthEl.style.color = '#f59e0b'; }
         else if (bitrate !== null || fps !== null) { healthEl.textContent = '✓ Good'; healthEl.style.color = '#22c55e'; }
         else { healthEl.textContent = '—'; healthEl.style.color = '#F8FAFC'; }
       }
@@ -3422,8 +3422,8 @@ function buildChurchPortalHtml(church) {
       var badges = document.getElementById('atem-status-badges');
       if (badges) {
         var parts = [];
-        if (atem.recording) parts.push('<span class="badge badge-green">⏺ Recording</span>');
-        if (atem.streaming) parts.push('<span class="badge badge-green">🔴 Streaming</span>');
+        if (atem.recording) parts.push('<span class="badge badge-green">Recording</span>');
+        if (atem.streaming) parts.push('<span class="badge badge-green"><span style="color:#ef4444">&#9679;</span> Streaming</span>');
         if (!atem.recording && !atem.streaming) parts.push('<span class="badge badge-gray">Standby</span>');
         if (atem.streamingCacheUsed > 80) parts.push('<span class="badge badge-yellow">Cache ' + Math.round(atem.streamingCacheUsed) + '%</span>');
         badges.innerHTML = parts.join(' ');
@@ -3448,13 +3448,13 @@ function buildChurchPortalHtml(church) {
 
       var muteEl = document.getElementById('audio-mute-status');
       if (muteEl) {
-        if (mixer.mainMuted) { muteEl.textContent = '🔇 MUTED'; muteEl.style.color = '#ef4444'; }
-        else { muteEl.textContent = '🔊 OK'; muteEl.style.color = '#22c55e'; }
+        if (mixer.mainMuted) { muteEl.textContent = 'MUTED'; muteEl.style.color = '#ef4444'; }
+        else { muteEl.textContent = 'OK'; muteEl.style.color = '#22c55e'; }
       }
 
       var silEl = document.getElementById('audio-silence-status');
       if (silEl) {
-        if (audio.silenceDetected) { silEl.textContent = '⚠ Silence'; silEl.style.color = '#eab308'; }
+        if (audio.silenceDetected) { silEl.textContent = 'Silence'; silEl.style.color = '#eab308'; }
         else { silEl.textContent = '✓ Signal'; silEl.style.color = '#22c55e'; }
       }
 
@@ -3476,7 +3476,7 @@ function buildChurchPortalHtml(church) {
     }
 
     // ── Rundown Card ─────────────────────────────────────────────────────────
-    var TRIGGER_ICONS = { manual: '✋', time_absolute: '🕐', time_relative: '⏱', delay: '⏳', event: '⚡' };
+    var TRIGGER_ICONS = { manual: 'M', time_absolute: 'T', time_relative: 'R', delay: 'D', event: 'E' };
 
     async function loadRundown() {
       var body = document.getElementById('rundown-body');
@@ -3512,7 +3512,7 @@ function buildChurchPortalHtml(church) {
 
       var html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
       html += '<div style="font-size:14px;font-weight:600;color:#F8FAFC">' + escapeHtml(rundownName) + '</div>';
-      var stateIcon = state === 'running' ? '▶️' : (state === 'paused' ? '⏸️' : '✅');
+      var stateIcon = state === 'running' ? '&#9654;' : (state === 'paused' ? '&#9646;&#9646;' : '&#10003;');
       html += '<span style="font-size:12px;color:#94A3B8">' + stateIcon + ' ' + state.toUpperCase() + '</span>';
       html += '</div>';
 
@@ -3534,7 +3534,7 @@ function buildChurchPortalHtml(church) {
         var iconColor = isPast ? '#22c55e' : (isCurrent ? '#22c55e' : '#475569');
         var stepName = step.label || step.name || ('Cue ' + (i + 1));
         var trigger = step.trigger || { type: 'manual' };
-        var triggerIcon = TRIGGER_ICONS[trigger.type] || '✋';
+        var triggerIcon = TRIGGER_ICONS[trigger.type] || '?';
         var cmdCount = (step.commands || []).length;
         var cmdLabel = cmdCount > 0 ? cmdCount + ' cmd' + (cmdCount !== 1 ? 's' : '') : '';
         html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:' + bg + ';border:' + border + ';border-radius:6px;cursor:pointer" onclick="portalJumpToCue(' + i + ')">';
@@ -3548,17 +3548,17 @@ function buildChurchPortalHtml(church) {
 
       html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
       if (state !== 'completed') {
-        html += '<button class="btn-primary" onclick="portalSchedulerGo()" style="font-size:12px;padding:6px 14px">Go ▶</button>';
-        html += '<button class="btn-secondary" onclick="portalSchedulerSkip()" style="font-size:12px;padding:6px 10px">Skip ⏭</button>';
-        html += '<button class="btn-secondary" onclick="portalSchedulerBack()" style="font-size:12px;padding:6px 10px">⏮ Back</button>';
-        if (state === 'running') html += '<button class="btn-secondary" onclick="portalSchedulerPause()" style="font-size:12px;padding:6px 10px">⏸ Pause</button>';
-        else if (state === 'paused') html += '<button class="btn-secondary" onclick="portalSchedulerResume()" style="font-size:12px;padding:6px 10px;border-color:#22c55e;color:#22c55e">▶ Resume</button>';
+        html += '<button class="btn-primary" onclick="portalSchedulerGo()" style="font-size:12px;padding:6px 14px">Go</button>';
+        html += '<button class="btn-secondary" onclick="portalSchedulerSkip()" style="font-size:12px;padding:6px 10px">Skip</button>';
+        html += '<button class="btn-secondary" onclick="portalSchedulerBack()" style="font-size:12px;padding:6px 10px">Back</button>';
+        if (state === 'running') html += '<button class="btn-secondary" onclick="portalSchedulerPause()" style="font-size:12px;padding:6px 10px">Pause</button>';
+        else if (state === 'paused') html += '<button class="btn-secondary" onclick="portalSchedulerResume()" style="font-size:12px;padding:6px 10px;border-color:#22c55e;color:#22c55e">Resume</button>';
       }
       html += '<button class="btn-secondary" onclick="portalEndRundown()" style="font-size:12px;padding:6px 10px;border-color:#ef4444;color:#ef4444">End</button>';
       html += '</div>';
 
       if (steps[currentIdx] && steps[currentIdx].notes) {
-        html += '<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,0.08);border-radius:6px;font-size:12px;color:#f59e0b">💡 ' + escapeHtml(steps[currentIdx].notes) + '</div>';
+        html += '<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,0.08);border-radius:6px;font-size:12px;color:#f59e0b"><strong>Tip:</strong> ' + escapeHtml(steps[currentIdx].notes) + '</div>';
       }
       container.innerHTML = html;
     }
@@ -3667,11 +3667,11 @@ function buildChurchPortalHtml(church) {
           var timeStr = item.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
           var dateStr = item.time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           var icon, color;
-          if (item.severity === 'auto_fixed') { icon = '🤖'; color = '#22c55e'; }
-          else if (item.severity === 'resolved') { icon = '✅'; color = '#22c55e'; }
-          else if (item.severity === 'CRITICAL' || item.severity === 'EMERGENCY') { icon = '🔴'; color = '#ef4444'; }
-          else if (item.severity === 'WARNING' || item.severity === 'active') { icon = '⚡'; color = '#f59e0b'; }
-          else { icon = 'ℹ️'; color = '#94A3B8'; }
+          if (item.severity === 'auto_fixed') { icon = '<span style="font-size:10px;font-weight:700">AI</span>'; color = '#22c55e'; }
+          else if (item.severity === 'resolved') { icon = '<span style="color:#22c55e">&#10003;</span>'; color = '#22c55e'; }
+          else if (item.severity === 'CRITICAL' || item.severity === 'EMERGENCY') { icon = '<span style="color:#ef4444">&#9679;</span>'; color = '#ef4444'; }
+          else if (item.severity === 'WARNING' || item.severity === 'active') { icon = '<span style="color:#f59e0b">!</span>'; color = '#f59e0b'; }
+          else { icon = '<span style="color:#94A3B8">i</span>'; color = '#94A3B8'; }
           return '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'
             + '<span style="font-size:11px;color:#475569;min-width:72px;flex-shrink:0">' + dateStr + '<br>' + timeStr + '</span>'
             + '<span style="font-size:13px">' + icon + '</span>'
@@ -3810,8 +3810,8 @@ function buildChurchPortalHtml(church) {
         // Meta line
         var parts = [];
         if (session.tdName) parts.push('TD: ' + session.tdName);
-        if (session.streaming) parts.push('🔴 Streaming');
-        if (session.peakViewers !== null) parts.push('👀 ' + session.peakViewers + ' peak viewers');
+        if (session.streaming) parts.push('<span style="color:#ef4444">&#9679;</span> Streaming');
+        if (session.peakViewers !== null) parts.push(session.peakViewers + ' peak viewers');
         if (metaEl) metaEl.textContent = parts.join(' · ');
 
         // Status dot color: green=clean, yellow=minor, red=escalated
@@ -3824,7 +3824,7 @@ function buildChurchPortalHtml(church) {
         // Events for this session
         var events = data.events || [];
         if (!events.length && session.alertCount === 0) {
-          body.innerHTML = '<div style="color:#22c55e;font-size:13px;padding:8px 0">✅ No issues — smooth sailing</div>';
+          body.innerHTML = '<div style="color:#22c55e;font-size:13px;padding:8px 0">No issues — smooth sailing</div>';
           return;
         }
 
@@ -3836,13 +3836,13 @@ function buildChurchPortalHtml(church) {
 
           var icon, statusLine;
           if (e.auto_resolved) {
-            icon = '🤖';
+            icon = '<span style="font-size:10px;font-weight:700;color:#22c55e">AI</span>';
             statusLine = '<span style="color:#22c55e;font-size:11px;margin-left:8px">(auto-fixed)</span>';
           } else if (e.resolved) {
-            icon = '✅';
+            icon = '<span style="color:#22c55e">&#10003;</span>';
             statusLine = '<span style="color:#22c55e;font-size:11px;margin-left:8px">(resolved)</span>';
           } else {
-            icon = '⚡';
+            icon = '<span style="color:#f59e0b">!</span>';
             statusLine = '<span style="color:#f59e0b;font-size:11px;margin-left:8px">(active)</span>';
           }
 
@@ -3867,7 +3867,7 @@ function buildChurchPortalHtml(church) {
             + '</div>';
         }).join('');
 
-        if (!html) html = '<div style="color:#22c55e;font-size:13px;padding:8px 0">✅ No incidents recorded yet</div>';
+        if (!html) html = '<div style="color:#22c55e;font-size:13px;padding:8px 0">No incidents recorded yet</div>';
         body.innerHTML = html;
       } catch(e) {
         card.style.display = 'none';
@@ -3905,14 +3905,14 @@ function buildChurchPortalHtml(church) {
         var allPass = failCount === 0;
 
         if (badge) {
-          badge.textContent = allPass ? '✅ All Clear' : '⚠️ ' + failCount + ' Issue' + (failCount !== 1 ? 's' : '');
+          badge.textContent = allPass ? 'All Clear' : failCount + ' Issue' + (failCount !== 1 ? 's' : '');
           badge.className = allPass ? 'badge badge-green' : 'badge badge-yellow';
         }
 
         // Two-column grid of checks
         var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px">';
         html += checks.map(function(c) {
-          var icon = c.pass ? '✅' : '⚠️';
+          var icon = c.pass ? '\u2713' : '!';
           var borderColor = c.pass ? '#16a34a' : '#d97706';
           var bg = c.pass ? 'rgba(34,197,94,0.05)' : 'rgba(245,158,11,0.08)';
           var detail = c.detail ? '<div style="color:#64748b;font-size:11px;margin-top:3px;line-height:1.4">' + escapeHtml(c.detail) + '</div>' : '';
@@ -3943,14 +3943,14 @@ function buildChurchPortalHtml(church) {
       var body = document.getElementById('psc-dash-body');
       var badge = document.getElementById('psc-dash-badge');
       if (badge) { badge.textContent = 'Running…'; badge.className = 'badge badge-gray'; }
-      if (body) body.innerHTML = '<div style="color:#94A3B8;text-align:center;padding:14px;font-size:13px">⏳ Running system check…</div>';
+      if (body) body.innerHTML = '<div style="color:#94A3B8;text-align:center;padding:14px;font-size:13px">Running system check…</div>';
 
       try {
         var data = await api('POST', '/api/church/preservice-check/run');
         if (data && data.result) {
           await loadPreServiceCheck();
         } else {
-          if (body) body.innerHTML = '<div style="color:#f59e0b;text-align:center;padding:14px;font-size:13px">⚠️ Could not run check — is the Tally app connected?</div>';
+          if (body) body.innerHTML = '<div style="color:#f59e0b;text-align:center;padding:14px;font-size:13px">Could not run check — is the Tally app connected?</div>';
           if (badge) { badge.textContent = 'Offline'; badge.className = 'badge badge-yellow'; }
         }
       } catch(e) {
@@ -4146,21 +4146,21 @@ function buildChurchPortalHtml(church) {
           done: !!d.onboarding_telegram_registered_at,
           label: 'Set up Telegram notifications',
           detail: 'Send /register ' + escapeHtml(d.registration_code || 'CODE') + ' to @TallyConnectBot on Telegram to receive alerts',
-          action: '<span class="onboard-action-btn" onclick="copyOnboardingCode()">📋 Copy Code</span> <a href="https://t.me/TallyConnectBot" target="_blank" class="onboard-action-btn">💬 Open Telegram</a>',
+          action: '<span class="onboard-action-btn" onclick="copyOnboardingCode()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> Copy Code</span> <a href="https://t.me/TallyConnectBot" target="_blank" class="onboard-action-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v6A1.5 1.5 0 0 0 2.5 12H4v2.25a.75.75 0 0 0 1.28.53L7.56 12H13.5A1.5 1.5 0 0 0 15 10.5v-6A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg> Open Telegram</a>',
         },
         {
           key: 'failover',
           done: !!d.onboarding_failover_tested_at,
           label: 'Run a test failover',
           detail: 'Trigger a test to confirm Tally detects signal loss and sends an alert',
-          action: '<span class="onboard-action-btn" onclick="markFailoverTested()" id="failover-test-btn">▶ Run Test</span>',
+          action: '<span class="onboard-action-btn" onclick="markFailoverTested()" id="failover-test-btn">Run Test</span>',
         },
         {
           key: 'team',
           done: !!d.onboarding_team_invited_at,
           label: 'Invite your team',
           detail: 'Share the registration code so your AV volunteers can join on Telegram',
-          action: '<span class="onboard-action-btn" onclick="inviteTeam()">👥 Share Code</span>',
+          action: '<span class="onboard-action-btn" onclick="inviteTeam()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12.735 14c.618 0 1.093-.561.872-1.139a6.002 6.002 0 0 0-11.215 0c-.22.578.254 1.139.872 1.139h9.47Z"/><path d="M2 5.5a2 2 0 1 1 4 0 2 2 0 0 1-4 0ZM2.5 14h-1a1 1 0 0 1-.897-1.447A4.5 4.5 0 0 1 4.5 10.5c.66 0 1.287.144 1.851.402C5.21 11.76 4.828 13.073 5.02 14H2.5ZM12 7.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4ZM13.5 14h-2.52c.192-.927-.19-2.24-.831-3.098A4.472 4.472 0 0 1 11.5 10.5a4.5 4.5 0 0 1 4.897 3.053A1 1 0 0 1 15.5 14h-2Z"/></svg> Share Code</span>',
         },
       ];
 
@@ -4172,7 +4172,7 @@ function buildChurchPortalHtml(church) {
         container.style.display = 'block';
         container.style.animation = 'none';
         container.style.borderColor = '#22c55e';
-        itemsEl.innerHTML = '<div style="text-align:center;padding:16px 0"><div style="font-size:28px;margin-bottom:8px;animation:onboardCheckPop 0.5s ease-out">🎉</div><div style="font-size:15px;font-weight:700;color:#22c55e">All set!</div><div style="font-size:12px;color:#94A3B8;margin-top:4px">Your Tally system is fully configured</div></div>';
+        itemsEl.innerHTML = '<div style="text-align:center;padding:16px 0"><div style="font-size:28px;margin-bottom:8px;animation:onboardCheckPop 0.5s ease-out">&#9733;</div><div style="font-size:15px;font-weight:700;color:#22c55e">All set!</div><div style="font-size:12px;color:#94A3B8;margin-top:4px">Your Tally system is fully configured</div></div>';
         if (resumeEl) resumeEl.style.display = 'none';
         setTimeout(function() { container.style.display = 'none'; }, 5000);
         return;
@@ -4220,14 +4220,14 @@ function buildChurchPortalHtml(church) {
 
     async function markFailoverTested() {
       const btn = document.getElementById('failover-test-btn');
-      if (btn) { btn.textContent = '⏳ Recording…'; btn.style.pointerEvents = 'none'; }
+      if (btn) { btn.textContent = 'Recording…'; btn.style.pointerEvents = 'none'; }
       try {
         await api('POST', '/api/church/onboarding/failover-tested');
-        toast('✅ Test failover recorded! Step 3 complete.');
+        toast('Test failover recorded! Step 3 complete.');
         loadOverview();
       } catch (e) {
         toast('Could not record test — please try again', true);
-        if (btn) { btn.textContent = '▶ Run Test'; btn.style.pointerEvents = ''; }
+        if (btn) { btn.textContent = 'Run Test'; btn.style.pointerEvents = ''; }
       }
     }
 
@@ -4424,7 +4424,7 @@ function buildChurchPortalHtml(church) {
         var role = m.sender_role || m.senderRole || 'td';
         var time = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         var nameColor = role === 'system' ? '#22c55e' : (role === 'admin' ? '#22c55e' : '#F8FAFC');
-        var icon = role === 'system' ? '🤖' : (role === 'admin' ? '🌐' : '💻');
+        var icon = role === 'system' ? 'SYS' : (role === 'admin' ? 'ADM' : 'ME');
         var msgText = escapeHtml(m.message);
         // Basic markdown: bold
         msgText = msgText.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
@@ -4568,7 +4568,7 @@ function buildChurchPortalHtml(church) {
           for (var i = 0; i < data.patterns.length; i++) {
             var p = data.patterns[i];
             html += '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px">'
-              + '<span style="color:#f59e0b">⚠️</span> '
+              + '<span style="color:#f59e0b">!</span> '
               + '<span style="color:#F8FAFC">' + escapeHtml(p.pattern) + '</span>'
               + ' <span style="color:#64748b;font-size:11px">' + escapeHtml(p.timeWindow) + '</span>';
             if (p.recommendation) {
@@ -4579,7 +4579,7 @@ function buildChurchPortalHtml(church) {
         }
 
         if (!html) {
-          html = '<div style="color:#22c55e;font-size:13px;padding:8px 0">✅ Clean week — no patterns detected</div>';
+          html = '<div style="color:#22c55e;font-size:13px;padding:8px 0">Clean week — no patterns detected</div>';
         }
 
         body.innerHTML = html;
@@ -4978,7 +4978,7 @@ function buildChurchPortalHtml(church) {
         const data = await api('GET', '/api/church/td-invite-link');
         await navigator.clipboard.writeText(data.link);
         toast('Invite link copied! Share with your TD — they click it and are registered automatically.');
-        if (btn) { btn.textContent = '✅ Copied!'; setTimeout(() => { btn.textContent = '🔗 Copy Invite Link'; }, 2500); }
+        if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy Invite Link'; }, 2500); }
       } catch(e) {
         // Fallback: show link in a prompt
         try {
@@ -5452,15 +5452,15 @@ function buildChurchPortalHtml(church) {
         statusEl.style.background = 'rgba(234,179,8,0.08)';
         statusEl.style.border = '1px solid rgba(234,179,8,0.25)';
         statusEl.style.color = '#eab308';
-        statusEl.innerHTML = '🚨 <strong>DRILL IN PROGRESS</strong> — Simulating encoder signal loss…';
+        statusEl.innerHTML = '<strong>DRILL IN PROGRESS</strong> — Simulating encoder signal loss…';
       }
 
       // Animate through drill steps with delays to simulate real failover timeline
       var steps = [
-        { delay: 800,  text: '🚨 <strong>DRILL IN PROGRESS</strong><br>Step 1/5 — Encoder bitrate dropped to 0 kbps (simulated)', color: '#eab308' },
-        { delay: 2000, text: '🚨 <strong>DRILL IN PROGRESS</strong><br>Step 2/5 — Black screen detected. Waiting for confirmation (simulated 5s threshold)…', color: '#eab308' },
-        { delay: 3500, text: '🚨 <strong>DRILL IN PROGRESS</strong><br>Step 3/5 — Outage confirmed. TD Telegram alert would fire now. Ack window open (30s)…', color: '#ef4444' },
-        { delay: 5000, text: '🚨 <strong>DRILL IN PROGRESS</strong><br>Step 4/5 — No TD ack received (simulated). Executing failover action…', color: '#ef4444' },
+        { delay: 800,  text: '<strong>DRILL IN PROGRESS</strong><br>Step 1/5 — Encoder bitrate dropped to 0 kbps (simulated)', color: '#eab308' },
+        { delay: 2000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 2/5 — Black screen detected. Waiting for confirmation (simulated 5s threshold)…', color: '#eab308' },
+        { delay: 3500, text: '<strong>DRILL IN PROGRESS</strong><br>Step 3/5 — Outage confirmed. TD Telegram alert would fire now. Ack window open (30s)…', color: '#ef4444' },
+        { delay: 5000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 4/5 — No TD ack received (simulated). Executing failover action…', color: '#ef4444' },
       ];
 
       for (var i = 0; i < steps.length; i++) {
@@ -5478,7 +5478,7 @@ function buildChurchPortalHtml(church) {
           statusEl.style.background = passed ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)';
           statusEl.style.border = '1px solid ' + (passed ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)');
           statusEl.style.color = passed ? '#22c55e' : '#ef4444';
-          statusEl.innerHTML = (passed ? '✅' : '❌') + ' <strong>DRILL COMPLETE</strong><br>' +
+          statusEl.innerHTML = (passed ? '&#10003;' : '&#10007;') + ' <strong>DRILL COMPLETE</strong><br>' +
             (result.report || (passed
               ? 'All failover steps completed successfully. Your setup is ready.'
               : 'Drill found issues — review your failover configuration above.')) +
@@ -5487,7 +5487,7 @@ function buildChurchPortalHtml(church) {
       } catch(e) {
         if (statusEl) {
           statusEl.style.color = '#ef4444';
-          statusEl.innerHTML = '❌ <strong>DRILL FAILED</strong><br>' + escapeHtml(e.message || 'Could not complete drill. Make sure failover is configured.');
+          statusEl.innerHTML = '&#10007; <strong>DRILL FAILED</strong><br>' + escapeHtml(e.message || 'Could not complete drill. Make sure failover is configured.');
         }
       }
 
@@ -5555,7 +5555,7 @@ function buildChurchPortalHtml(church) {
         var macros = await api('GET', '/api/church/macros');
         if (!macros.length) {
           el.innerHTML = '<div style="color:#475569;text-align:center;padding:24px;font-size:13px">'
-            + '<div style="font-size:24px;margin-bottom:8px">⚡</div>'
+            + '<div style="margin-bottom:8px;color:#94A3B8"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path d="M9.5 1.5 5 9h4l-2.5 5.5L13 7H9l.5-5.5Z"/></svg></div>'
             + '<div style="font-weight:600;margin-bottom:6px">No macros yet</div>'
             + '<div>Create your first macro to give your TDs one-tap shortcuts for common service sequences.</div>'
             + '</div>';
@@ -5668,7 +5668,7 @@ function buildChurchPortalHtml(church) {
       if (!el) return;
       if (!rules.length) {
         el.innerHTML = '<div style="color:#475569;text-align:center;padding:24px;font-size:13px">'
-          + '<div style="font-size:24px;margin-bottom:8px">🤖</div>'
+          + '<div style="margin-bottom:8px;color:#94A3B8"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><rect x="3" y="5" width="10" height="7" rx="1.5" ry="1.5"/><circle cx="6" cy="8.5" r="1"/><circle cx="10" cy="8.5" r="1"/><rect x="6.5" y="2" width="3" height="3" rx=".5"/><path d="M5 5V4h1v1zm5 0V4h1v1z"/></svg></div>'
           + '<div style="font-weight:600;margin-bottom:6px">' + escapeHtml(pt('autopilot.no_rules')) + '</div>'
           + '</div>';
         return;
@@ -5835,7 +5835,7 @@ function buildChurchPortalHtml(church) {
             + '<span style="background:' + gradeColor + '22;color:' + gradeColor + ';border:1px solid ' + gradeColor + ';border-radius:6px;padding:2px 8px;font-size:13px;font-weight:700">' + grade + '</span>'
             + '</div></div>'
             + (r.ai_summary ? '<div style="font-size:12px;color:#94A3B8;line-height:1.5;margin-bottom:6px">' + escapeHtml(r.ai_summary) + '</div>' : '')
-            + (recs.length ? '<div style="font-size:11px;color:#ef4444">⚠️ ' + recs.length + ' high-priority recommendation' + (recs.length !== 1 ? 's' : '') + ' — <a href="#" onclick="viewServiceReport(\'' + r.id + '\')" style="color:#22c55e">View report</a></div>' : '<div style="font-size:11px;color:#22c55e">✅ No critical issues</div>')
+            + (recs.length ? '<div style="font-size:11px;color:#ef4444">' + recs.length + ' high-priority recommendation' + (recs.length !== 1 ? 's' : '') + ' — <a href="#" onclick="viewServiceReport(\'' + r.id + '\')" style="color:#22c55e">View report</a></div>' : '<div style="font-size:11px;color:#22c55e">No critical issues</div>')
             + '</div>';
         }).join('');
       } catch { el.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">Could not load reports.</div>'; }
@@ -5861,7 +5861,7 @@ function buildChurchPortalHtml(church) {
           + '<div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:#F8FAFC">' + (r.alert_count || 0) + '</div><div style="font-size:11px;color:#64748B;margin-top:2px">Alerts</div></div>'
           + '</div>'
           + (r.recommendations && r.recommendations.length ? '<div style="margin-bottom:16px"><div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;margin-bottom:8px">Recommendations</div>' + r.recommendations.map(function(rc) { var c = rc.priority === 'high' ? '#ef4444' : rc.priority === 'medium' ? '#eab308' : '#22c55e'; return '<div style="padding:8px 10px;border-left:3px solid ' + c + ';background:rgba(255,255,255,0.03);margin-bottom:6px;border-radius:0 6px 6px 0;font-size:12px;color:#F8FAFC;line-height:1.5">' + escapeHtml(rc.text) + '</div>'; }).join('') + '</div>' : '')
-          + (r.failover_events && r.failover_events.length ? '<div><div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;margin-bottom:8px">Failover Events</div>' + r.failover_events.map(function(f) { return '<div style="padding:6px 10px;font-size:12px;color:#F8FAFC;border-bottom:1px solid rgba(255,255,255,0.05)">' + new Date(f.timestamp).toLocaleTimeString() + ' · ' + escapeHtml(f.type || 'failover') + ' · ' + (f.autoRecovered ? '✅ auto-recovered' : '⚠️ manual') + '</div>'; }).join('') + '</div>' : '')
+          + (r.failover_events && r.failover_events.length ? '<div><div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;margin-bottom:8px">Failover Events</div>' + r.failover_events.map(function(f) { return '<div style="padding:6px 10px;font-size:12px;color:#F8FAFC;border-bottom:1px solid rgba(255,255,255,0.05)">' + new Date(f.timestamp).toLocaleTimeString() + ' · ' + escapeHtml(f.type || 'failover') + ' · ' + (f.autoRecovered ? 'auto-recovered' : 'manual') + '</div>'; }).join('') + '</div>' : '')
           + '</div>';
         modal.appendChild(inner);
         document.body.appendChild(modal);
@@ -5874,15 +5874,15 @@ function buildChurchPortalHtml(church) {
 
     var MIGRATION_DATA = {
       'Planning Center': {
-        icon: '📅',
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path d="M5.75 7.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM5 10.75a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0ZM10.25 7.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM9.5 10.75a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0ZM7.75 7.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM7 10.75a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0Z"/><path fill-rule="evenodd" d="M4.75 1a.75.75 0 0 1 .75.75V3h5V1.75a.75.75 0 0 1 1.5 0V3h1A2.5 2.5 0 0 1 15.5 5.5v8a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 1.5 13.5v-8A2.5 2.5 0 0 1 4 3h.75V1.75A.75.75 0 0 1 4.75 1ZM3 6.5h10v7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-7Z" clip-rule="evenodd"/></svg>',
         intro: 'Planning Center is a great scheduling tool — Tally adds the live production monitoring and automation layer that PCO doesn\'t cover.',
         features: [
-          { feature: 'Service Planning & Scheduling', them: '✅ Full', us: '✅ PCO Sync (Pro plan)' },
-          { feature: 'Live Stream Monitoring', them: '❌ None', us: '✅ Real-time, all platforms' },
-          { feature: 'ATEM / OBS / Encoder Control', them: '❌ None', us: '✅ 26 device integrations' },
-          { feature: 'Auto-Recovery', them: '❌ None', us: '✅ AI-powered failover' },
-          { feature: 'Telegram Alerts', them: '❌ None', us: '✅ Real-time TD alerts' },
-          { feature: 'Pre-Service Checks', them: '❌ None', us: '✅ Auto 30 min before service' },
+          { feature: 'Service Planning & Scheduling', them: 'Full', us: 'PCO Sync (Pro plan)' },
+          { feature: 'Live Stream Monitoring', them: 'None', us: 'Real-time, all platforms' },
+          { feature: 'ATEM / OBS / Encoder Control', them: 'None', us: '26 device integrations' },
+          { feature: 'Auto-Recovery', them: 'None', us: 'AI-powered failover' },
+          { feature: 'Telegram Alerts', them: 'None', us: 'Real-time TD alerts' },
+          { feature: 'Pre-Service Checks', them: 'None', us: 'Auto 30 min before service' },
         ],
         steps: [
           { title: 'Connect PCO Sync', detail: 'Go to Integrations → Planning Center and authorize your PCO account. Tally will pull your service schedule automatically.' },
@@ -5894,15 +5894,15 @@ function buildChurchPortalHtml(church) {
         importNote: 'Your Planning Center service schedule can be imported automatically via the PCO Sync integration (Pro plan required).',
       },
       'ProPresenter Standalone': {
-        icon: '🎬',
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path fill-rule="evenodd" d="M1.5 3A1.5 1.5 0 0 0 0 4.5v8A1.5 1.5 0 0 0 1.5 14h13A1.5 1.5 0 0 0 16 12.5v-8A1.5 1.5 0 0 0 14.5 3h-13Zm1 .5h1v1h-1V3.5Zm0 2h1v1h-1v-1Zm0 2h1v1h-1v-1Zm0 2h1v1h-1v-1Zm0 2h1v1h-1v-1Zm9 0h1v1h-1v-1Zm1-2h-1v1h1v-1Zm-1-2h1v1h-1v-1Zm1-2h-1v1h1v-1Zm-1-2h1v1h-1v-1Zm-7.5 1H10v6H4V3.5Z" clip-rule="evenodd"/></svg>',
         intro: 'ProPresenter handles slides and graphics — Tally monitors your entire production stack and adds live stream recovery so your broadcast doesn\'t fail.',
         features: [
-          { feature: 'Slides / Graphics', them: '✅ Best in class', us: 'Works alongside PP7' },
-          { feature: 'Live Stream Monitoring', them: '❌ None', us: '✅ Real-time' },
-          { feature: 'OBS / ATEM Integration', them: '⚠️ Limited NDI', us: '✅ Full WebSocket + IP control' },
-          { feature: 'Auto-Recovery from stream drops', them: '❌ None', us: '✅ AI failover in seconds' },
-          { feature: 'ProPresenter Remote Control', them: '⚠️ Stage Display only', us: '✅ Full remote via Telegram' },
-          { feature: 'Pre-Service Checks', them: '❌ None', us: '✅ PP7 connection included' },
+          { feature: 'Slides / Graphics', them: 'Best in class', us: 'Works alongside PP7' },
+          { feature: 'Live Stream Monitoring', them: 'None', us: 'Real-time' },
+          { feature: 'OBS / ATEM Integration', them: 'Limited (NDI only)', us: 'Full WebSocket + IP control' },
+          { feature: 'Auto-Recovery from stream drops', them: 'None', us: 'AI failover in seconds' },
+          { feature: 'ProPresenter Remote Control', them: 'Stage Display only', us: 'Full remote via Telegram' },
+          { feature: 'Pre-Service Checks', them: 'None', us: 'PP7 connection included' },
         ],
         steps: [
           { title: 'Install Tally alongside ProPresenter', detail: 'Tally runs as a background app — it doesn\'t replace PP7, it adds monitoring around it.' },
@@ -5914,14 +5914,14 @@ function buildChurchPortalHtml(church) {
         importNote: 'No import needed — Tally works alongside ProPresenter. Both run simultaneously.',
       },
       'vMix': {
-        icon: '🖥',
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path fill-rule="evenodd" d="M0 3.5A1.5 1.5 0 0 1 1.5 2h13A1.5 1.5 0 0 1 16 3.5v8a1.5 1.5 0 0 1-1.5 1.5h-4.25l.5 2.25h1.5a.75.75 0 0 1 0 1.5H4.25a.75.75 0 0 1 0-1.5h1.5l.5-2.25H1.5A1.5 1.5 0 0 1 0 11.5v-8Z" clip-rule="evenodd"/></svg>',
         intro: 'vMix is powerful for complex productions — Tally connects to it via its web API and adds monitoring, alerts, and Telegram control.',
         features: [
-          { feature: 'Multi-camera production', them: '✅ Full', us: 'Connects to existing vMix setup' },
-          { feature: 'Stream health monitoring', them: '⚠️ Local only', us: '✅ Cloud dashboard + alerts' },
-          { feature: 'Telegram alerts', them: '❌ None', us: '✅ Real-time' },
-          { feature: 'Auto-recovery', them: '❌ Manual', us: '✅ AI-powered' },
-          { feature: 'Pre-service checks', them: '❌ None', us: '✅ vMix API check included' },
+          { feature: 'Multi-camera production', them: 'Full', us: 'Connects to existing vMix setup' },
+          { feature: 'Stream health monitoring', them: 'Local only', us: 'Cloud dashboard + alerts' },
+          { feature: 'Telegram alerts', them: 'None', us: 'Real-time' },
+          { feature: 'Auto-recovery', them: 'Manual', us: 'AI-powered' },
+          { feature: 'Pre-service checks', them: 'None', us: 'vMix API check included' },
         ],
         steps: [
           { title: 'Enable vMix Web Controller', detail: 'In vMix settings, enable Web Controller on port 8088. Tally uses this to monitor and control.' },
@@ -5932,14 +5932,14 @@ function buildChurchPortalHtml(church) {
         importNote: 'vMix settings and presets stay in vMix — Tally adds a monitoring and alert layer on top.',
       },
       'Wirecast': {
-        icon: '📡',
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path d="M2.5 1.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0ZM5.25 4a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM9 10.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0ZM11.75 13.5a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0ZM4.28 2.22a.75.75 0 0 0-1.06 1.06L5.44 5.5l-1.72 1.72a3.5 3.5 0 0 0 4.95 4.95L10.5 10.5l2.22 2.22a.75.75 0 1 0 1.06-1.06L10.5 9.44l1.72-1.72a3.5 3.5 0 0 0-4.95-4.95L5.5 4.44 4.28 2.22Z"/></svg>',
         intro: 'Wirecast handles encoding and streaming — Tally monitors the full production chain and alerts your team when issues occur.',
         features: [
-          { feature: 'Multi-source encoding', them: '✅ Full', us: 'Works alongside Wirecast' },
-          { feature: 'Stream health dashboard', them: '⚠️ Local only', us: '✅ Cloud, multi-platform' },
-          { feature: 'Auto-recovery', them: '❌ Manual restart', us: '✅ AI auto-recover' },
-          { feature: 'ATEM integration', them: '⚠️ NDI only', us: '✅ Full ATEM IP control' },
-          { feature: 'Telegram alerts', them: '❌ None', us: '✅ Real-time TD alerts' },
+          { feature: 'Multi-source encoding', them: 'Full', us: 'Works alongside Wirecast' },
+          { feature: 'Stream health dashboard', them: 'Local only', us: 'Cloud, multi-platform' },
+          { feature: 'Auto-recovery', them: 'Manual restart', us: 'AI auto-recover' },
+          { feature: 'ATEM integration', them: 'NDI only', us: 'Full ATEM IP control' },
+          { feature: 'Telegram alerts', them: 'None', us: 'Real-time TD alerts' },
         ],
         steps: [
           { title: 'Install Tally on your production computer', detail: 'Tally runs alongside Wirecast. Both can be open at the same time.' },
@@ -5950,14 +5950,14 @@ function buildChurchPortalHtml(church) {
         importNote: 'No import needed — Tally adds monitoring around your existing Wirecast setup.',
       },
       'Companion Only': {
-        icon: '🎮',
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path d="M3 4.5a3 3 0 0 1 3-3h4a3 3 0 0 1 3 3v.5h.5A1.5 1.5 0 0 1 15 6.5v3a1.5 1.5 0 0 1-1.5 1.5H13a3 3 0 0 1-2.83 2h-4.34A3 3 0 0 1 3 11h-.5A1.5 1.5 0 0 1 1 9.5v-3A1.5 1.5 0 0 1 2.5 5H3v-.5ZM6 5h4V4.5a1.5 1.5 0 0 0-1.5-1.5h-1A1.5 1.5 0 0 0 6 4.5V5ZM5 7.5H4V9h1V7.5ZM12 9V7.5h-1V9h1ZM7 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0Zm2 0a1 1 0 1 1 2 0 1 1 0 0 1-2 0Z"/></svg>',
         intro: 'If you\'re already using Bitfocus Companion, you\'re halfway there — Tally integrates directly with Companion and adds monitoring, cloud dashboard, and AI recovery.',
         features: [
-          { feature: 'Button deck control', them: '✅ Best in class', us: 'Companion integration built-in' },
-          { feature: 'Cloud portal / dashboard', them: '❌ None', us: '✅ Full web portal' },
-          { feature: 'Monitoring & alerts', them: '❌ None', us: '✅ Real-time' },
-          { feature: 'Auto-recovery', them: '❌ Manual', us: '✅ AI failover' },
-          { feature: 'Telegram alerts', them: '⚠️ Via HTTP action', us: '✅ Native, role-aware' },
+          { feature: 'Button deck control', them: 'Best in class', us: 'Companion integration built-in' },
+          { feature: 'Cloud portal / dashboard', them: 'None', us: 'Full web portal' },
+          { feature: 'Monitoring & alerts', them: 'None', us: 'Real-time' },
+          { feature: 'Auto-recovery', them: 'Manual', us: 'AI failover' },
+          { feature: 'Telegram alerts', them: 'Via HTTP action', us: 'Native, role-aware' },
         ],
         steps: [
           { title: 'Add Companion in Tally Equipment', detail: 'Enter your Companion computer\'s IP and port 8000. Tally will connect to the Companion HTTP API.' },
@@ -5968,7 +5968,7 @@ function buildChurchPortalHtml(church) {
         importNote: 'Your Companion configuration imports automatically when you connect Companion to Tally.',
       },
       'Nothing — New Setup': {
-        icon: '🚀',
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path d="M8 1C4.686 1 2 3.686 2 7v1.5c0 .828.672 1.5 1.5 1.5H4v1a4 4 0 0 0 8 0v-1h.5c.828 0 1.5-.672 1.5-1.5V7c0-3.314-2.686-6-6-6Zm0 2a4 4 0 0 1 4 4H4a4 4 0 0 1 4-4Zm0 7a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2Z"/></svg>',
         intro: 'You\'re starting fresh — great! Follow these steps to get Tally running for your first service.',
         features: [],
         steps: [
@@ -5981,7 +5981,7 @@ function buildChurchPortalHtml(church) {
         importNote: null,
       },
       'Other': {
-        icon: '🔧',
+        icon: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path fill-rule="evenodd" d="M9.66 1.2a5 5 0 0 0-5.956 6.437L1.146 10.2A.5.5 0 0 0 1 10.56V14a.5.5 0 0 0 .5.5h3.44a.5.5 0 0 0 .354-.146l2.563-2.558A5 5 0 0 0 13.8 6.34l-2.122 2.121a2.5 2.5 0 0 1-3.536-3.536L10.264 2.8A4.978 4.978 0 0 0 9.66 1.2Z" clip-rule="evenodd"/></svg>',
         intro: 'Tally works alongside most production software. Here\'s the standard setup path.',
         features: [],
         steps: [
@@ -6056,7 +6056,7 @@ function buildChurchPortalHtml(church) {
 
       // Import note
       if (data.importNote) {
-        html += '<div class="card" style="background:rgba(34,197,94,0.05);border-color:rgba(34,197,94,0.2)"><div style="display:flex;gap:10px;align-items:flex-start"><span style="font-size:18px">💾</span><div><div style="font-weight:600;font-size:13px;margin-bottom:4px">Import / Migration Note</div><div style="font-size:13px;color:#94A3B8;line-height:1.5">' + escapeHtml(data.importNote) + '</div></div></div></div>';
+        html += '<div class="card" style="background:rgba(34,197,94,0.05);border-color:rgba(34,197,94,0.2)"><div style="display:flex;gap:10px;align-items:flex-start"><span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="currentColor" width="18" height="18" aria-hidden="true"><path d="M3 2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5.414A1 1 0 0 0 15.707 5L13 2.293A1 1 0 0 0 12.586 2H3Zm0 1h9v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3Zm2 8a3 3 0 1 1 6 0 3 3 0 0 1-6 0Z"/></svg></span><div><div style="font-weight:600;font-size:13px;margin-bottom:4px">Import / Migration Note</div><div style="font-size:13px;color:#94A3B8;line-height:1.5">' + escapeHtml(data.importNote) + '</div></div></div></div>';
       }
 
       // CTA
@@ -6433,7 +6433,7 @@ function buildChurchPortalHtml(church) {
 
     // ── Delete account ──────────────────────────────────────────────────────
     async function deleteAccount() {
-      var churchName = await modalPrompt('This will permanently delete your account and all data. To confirm, type your church name:', '', { title: '⚠️ Delete Account' });
+      var churchName = await modalPrompt('This will permanently delete your account and all data. To confirm, type your church name:', '', { title: 'Delete Account' });
       if (!churchName) return;
       try {
         var data = await api('DELETE', '/api/church/account', { confirmName: churchName });
@@ -7174,7 +7174,7 @@ function buildChurchPortalHtml(church) {
           <p>The green dot means the Tally desktop app installed at your church is talking to this portal. If it's gray, check that your AV computer is on and the Tally app is running.</p>
           <h3>Equipment Status Table</h3>
           <p>Shows every device Tally is monitoring — your ATEM switcher, OBS (for recording/streaming), ProPresenter, and more. <strong>Green = connected and working. Yellow = warning. Red = problem.</strong></p>
-          <div class="tip-box">💡 <strong>Tip for Worship Pastors:</strong> You don't need to understand every row. Just check that everything is green before service starts. If anything is yellow or red, tap your TD on Telegram.</div>
+          <div class="tip-box"><strong>Tip:</strong> <strong>Tip for Worship Pastors:</strong> You don't need to understand every row. Just check that everything is green before service starts. If anything is yellow or red, tap your TD on Telegram.</div>
           <h3>Live Session</h3>
           <p>During a service, the "Live Session" card appears with real-time status. You can see if the stream is healthy and if any auto-recoveries have run.</p>
           <h3>Activity Feed</h3>
@@ -7189,7 +7189,7 @@ function buildChurchPortalHtml(church) {
           <p>Keep this accurate — it shows up in alerts sent to your tech team so they know which church it's for (important if your TD supports multiple campuses).</p>
           <h3>Notifications</h3>
           <p>Choose how you want to receive alerts. <strong>Telegram is required</strong> — it's how Tally reaches your tech director during service. Email and SMS are for non-urgent notifications like weekly summaries.</p>
-          <div class="tip-box">💡 Telegram is a free messaging app. Your TD downloads it once, clicks a setup link, and they're connected. Most TDs prefer it over text messages during service.</div>
+          <div class="tip-box"><strong>Tip:</strong> Telegram is a free messaging app. Your TD downloads it once, clicks a setup link, and they're connected. Most TDs prefer it over text messages during service.</div>
           <h3>Auto-Recovery</h3>
           <p>When enabled, Tally will try to fix common problems automatically (restart a dropped stream, reconnect a disconnected device) before alerting anyone. This handles the "5-second blip" situations automatically.</p>
         \`,
@@ -7207,7 +7207,7 @@ function buildChurchPortalHtml(church) {
             <li>Copy the registration code and send it to that campus's tech director</li>
             <li>They enter it in the Tally desktop app when setting up</li>
           </ol>
-          <div class="tip-box">💡 Think of each campus as its own "church account" that you can see from your main login. They don't share devices or alerts — each campus is independent.</div>
+          <div class="tip-box"><strong>Tip:</strong> Think of each campus as its own "church account" that you can see from your main login. They don't share devices or alerts — each campus is independent.</div>
           <h3>Plan Limits</h3>
           <p>The number of campuses you can add depends on your plan. The Connect plan is single-campus. Plus and Pro support multiple campuses.</p>
         \`,
@@ -7220,7 +7220,7 @@ function buildChurchPortalHtml(church) {
           <p><strong>Primary TD</strong> is your main tech person. They get escalated alerts if no one else responds.<br><strong>On-Call TD</strong> is whoever is running the board that week. They receive the first alert.</p>
           <h3>On-Call Rotation</h3>
           <p>TDs can swap on-call duty themselves via Telegram using <code style="color:#22c55e">/swap [name]</code>. No need to update the portal every week.</p>
-          <div class="tip-box">💡 <strong>For volunteer teams:</strong> Even if you only have one tech person, add them as both Primary and On-Call so they always get alerts. If you have a team, rotate so no one gets burned out.</div>
+          <div class="tip-box"><strong>Tip:</strong> <strong>For volunteer teams:</strong> Even if you only have one tech person, add them as both Primary and On-Call so they always get alerts. If you have a team, rotate so no one gets burned out.</div>
           <h3>Connecting via Telegram</h3>
           <p>After you add a TD, click "Copy Link" to get their Telegram deep link. They click it, Telegram opens, and they're connected automatically. That's it — no codes to memorize.</p>
         \`,
@@ -7236,7 +7236,7 @@ function buildChurchPortalHtml(church) {
             <li>Sunday 11:00 AM – 1:00 PM (second service)</li>
             <li>Wednesday 6:30 PM – 8:00 PM (midweek)</li>
           </ul>
-          <div class="tip-box">💡 Add a "buffer" window — if your service starts at 9 AM, set the window to start at 8:30 AM so Tally is watching during setup. Pre-service issues are caught before you go live.</div>
+          <div class="tip-box"><strong>Tip:</strong> Add a "buffer" window — if your service starts at 9 AM, set the window to start at 8:30 AM so Tally is watching during setup. Pre-service issues are caught before you go live.</div>
           <h3>Why This Matters</h3>
           <p>The AutoPilot features (Pro plan) use these windows to auto-start streaming and recording at the right time. Without a schedule, you'd have to manually trigger everything.</p>
         \`,
@@ -7253,7 +7253,7 @@ function buildChurchPortalHtml(church) {
             <li>Wait for them to tap a button to confirm they're on it</li>
             <li>If no response in 30 seconds, automatically switch your ATEM to a safe backup source (like your media player with a holding slide)</li>
           </ol>
-          <div class="tip-box">💡 <strong>Real example:</strong> Your camera feed dies mid-sermon. Tally detects the black signal, alerts your TD, and if they don't respond in 30 seconds, automatically switches to a "We'll be right back" slide. Your online congregation sees a clean transition instead of a black screen.</div>
+          <div class="tip-box"><strong>Tip:</strong> <strong>Real example:</strong> Your camera feed dies mid-sermon. Tally detects the black signal, alerts your TD, and if they don't respond in 30 seconds, automatically switches to a "We'll be right back" slide. Your online congregation sees a clean transition instead of a black screen.</div>
           <h3>Failover Drill</h3>
           <p>Use the Failover Drill button to simulate this scenario without affecting anything real. Run it before a big Sunday to make sure everything is configured correctly.</p>
         \`,
@@ -7271,7 +7271,7 @@ function buildChurchPortalHtml(church) {
           </ul>
           <h3>Training Your Engineer</h3>
           <p>The more you tell it about your setup, the better it gets. Fill in your equipment details (ATEM model, OBS settings, typical service flow) and Tally Engineer will give more accurate diagnoses.</p>
-          <div class="tip-box">💡 <strong>For non-technical staff:</strong> You can type exactly what you're seeing: "the stream keeps buffering for online viewers" and Tally Engineer will ask follow-up questions and walk you through the fix — no tech jargon required.</div>
+          <div class="tip-box"><strong>Tip:</strong> <strong>For non-technical staff:</strong> You can type exactly what you're seeing: "the stream keeps buffering for online viewers" and Tally Engineer will ask follow-up questions and walk you through the fix — no tech jargon required.</div>
         \`,
       },
       guests: {
@@ -7282,7 +7282,7 @@ function buildChurchPortalHtml(church) {
           <p>Generate a guest token and send the link to the substitute. They click it in Telegram and get temporary access for a set number of hours. When time expires, access is automatically revoked — no cleanup needed.</p>
           <h3>What Can Guests Do?</h3>
           <p>Guests have the same alert access as a regular TD — they can receive alerts and tap response buttons in Telegram. You can choose whether they can also run commands (like switching sources).</p>
-          <div class="tip-box">💡 <strong>Best practice:</strong> Generate the guest token 30 minutes before service and send it to your substitute. That gives them time to connect before you go live. Set expiry to match your service length plus 30 minutes.</div>
+          <div class="tip-box"><strong>Tip:</strong> <strong>Best practice:</strong> Generate the guest token 30 minutes before service and send it to your substitute. That gives them time to connect before you go live. Set expiry to match your service length plus 30 minutes.</div>
         \`,
       },
       sessions: {
@@ -7299,7 +7299,7 @@ function buildChurchPortalHtml(church) {
           </ul>
           <h3>Health Grade</h3>
           <p>Each session gets a letter grade (A–F) based on stream stability, alert frequency, and recovery time. Your goal is an A every week.</p>
-          <div class="tip-box">💡 Review sessions after service to spot patterns. If you're getting the same alert three weeks in a row, that's a setup problem worth fixing rather than just acknowledging every Sunday.</div>
+          <div class="tip-box"><strong>Tip:</strong> Review sessions after service to spot patterns. If you're getting the same alert three weeks in a row, that's a setup problem worth fixing rather than just acknowledging every Sunday.</div>
         \`,
       },
       alerts: {
@@ -7313,8 +7313,8 @@ function buildChurchPortalHtml(church) {
             <li><strong style="color:#22c55e">Info</strong> — Informational. Stream started, recording began, pre-service check passed.</li>
           </ul>
           <h3>Responding to Alerts</h3>
-          <p>When you get an alert in Telegram, you'll see buttons like "✅ On it" and "📊 Run Diagnostics." Tapping "On it" tells Tally you've seen it and are handling it — this prevents auto-failover from kicking in.</p>
-          <div class="tip-box">💡 The most important thing to know: <strong>always tap a response button when you get an alert</strong>. Tally is watching to see if a human is handling the situation. No response = auto-failover after 30 seconds.</div>
+          <p>When you get an alert in Telegram, you'll see response buttons like "On it" and "Run Diagnostics." Tapping "On it" tells Tally you've seen it and are handling it — this prevents auto-failover from kicking in.</p>
+          <div class="tip-box"><strong>Tip:</strong> The most important thing to know: <strong>always tap a response button when you get an alert</strong>. Tally is watching to see if a human is handling the situation. No response = auto-failover after 30 seconds.</div>
         \`,
       },
     };
@@ -7366,8 +7366,8 @@ function buildChurchPortalHtml(church) {
             { sys: 'Streaming Encoder', status: '● connected', version: '—', detail: 'Bitrate: — kbps' },
             { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'No slide active' },
           ]);
-          _demoAddActivity('🟢 ATEM Mini Pro connected (192.168.10.240)');
-          _demoAddActivity('🟢 OBS Studio connected (v30.2.2)');
+          _demoAddActivity('ATEM Mini Pro connected (192.168.10.240)');
+          _demoAddActivity('OBS Studio connected (v30.2.2)');
         }
       },
       // step 1: stream starts
@@ -7380,8 +7380,8 @@ function buildChurchPortalHtml(church) {
             { sys: 'Streaming Encoder', status: '● live', version: '—', detail: 'Bitrate: 4800 kbps · Health: Good' },
             { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'Worship — Slide 3/8' },
           ]);
-          _demoAddActivity('▶ Stream started — 4800 kbps · YouTube');
-          _demoAddActivity('🤖 AutoPilot: "Auto-Start Recording" rule triggered → OBS recording started');
+          _demoAddActivity('Stream started — 4800 kbps · YouTube');
+          _demoAddActivity('AutoPilot: "Auto-Start Recording" rule triggered → OBS recording started');
         }
       },
       // step 2: autopilot slide rule fires
@@ -7394,7 +7394,7 @@ function buildChurchPortalHtml(church) {
             { sys: 'Streaming Encoder', status: '● live', version: '—', detail: 'Bitrate: 4850 kbps · Health: Good' },
             { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'Message — "God is Good" Slide 1/4' },
           ]);
-          _demoAddActivity('🤖 AutoPilot: Sermon slide detected → Switched ATEM to Cam 3 (Wide)');
+          _demoAddActivity('AutoPilot: Sermon slide detected → Switched ATEM to Cam 3 (Wide)');
         }
       },
       // step 3: fake bitrate warning
@@ -7403,12 +7403,12 @@ function buildChurchPortalHtml(church) {
         fn: function() {
           _demoInjectEquipment([
             { sys: 'ATEM Mini Pro', status: '● live', version: '8.6', detail: 'Program: 3 (Wide) ● STREAMING' },
-            { sys: 'OBS Studio', status: '⚠ warning', version: '30.2.2', detail: 'Bitrate: 1200 kbps (LOW) · 29.97 fps · Recording' },
-            { sys: 'Streaming Encoder', status: '⚠ warning', version: '—', detail: 'Bitrate: 1200 kbps · Health: Poor' },
+            { sys: 'OBS Studio', status: 'warning', version: '30.2.2', detail: 'Bitrate: 1200 kbps (LOW) · 29.97 fps · Recording' },
+            { sys: 'Streaming Encoder', status: 'warning', version: '—', detail: 'Bitrate: 1200 kbps · Health: Poor' },
             { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'Message — Slide 3/4' },
           ]);
-          _demoAddActivity('⚠️ Stream health degraded — bitrate dropped to 1200 kbps');
-          _demoAddActivity('📱 Alert sent to TD via Telegram: "Stream health dropped — check your internet connection"');
+          _demoAddActivity('Stream health degraded — bitrate dropped to 1200 kbps');
+          _demoAddActivity('Alert sent to TD via Telegram: "Stream health dropped — check your internet connection"');
         }
       },
       // step 4: auto-recovery
@@ -7421,8 +7421,8 @@ function buildChurchPortalHtml(church) {
             { sys: 'Streaming Encoder', status: '● live', version: '—', detail: 'Bitrate: 4820 kbps · Health: Good' },
             { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'Closing — Slide 1/2' },
           ]);
-          _demoAddActivity('✅ Stream recovered — bitrate restored to 4820 kbps');
-          _demoAddActivity('🤖 Tally Engineer: Auto-recovery resolved bitrate issue (reconnected encoder)');
+          _demoAddActivity('Stream recovered — bitrate restored to 4820 kbps');
+          _demoAddActivity('Tally Engineer: Auto-recovery resolved bitrate issue (reconnected encoder)');
         }
       },
       // step 5: stream ends, recording stops
@@ -7436,8 +7436,8 @@ function buildChurchPortalHtml(church) {
             { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'No presentation active' },
           ]);
           _demoAddActivity('■ Stream ended — total uptime: 47 min');
-          _demoAddActivity('🤖 AutoPilot: "Auto-Stop Recording" rule triggered → OBS recording stopped (30s delay)');
-          _demoAddActivity('📊 Session recap generated and sent to pastor@demo.church');
+          _demoAddActivity('AutoPilot: "Auto-Stop Recording" rule triggered → OBS recording stopped (30s delay)');
+          _demoAddActivity('Session recap generated and sent to pastor@demo.church');
           // Loop back
           setTimeout(function() { if (_demoInterval !== null) { _demoStep = 0; _runDemoStep(); } }, 4000);
         }
@@ -7492,9 +7492,9 @@ function buildChurchPortalHtml(church) {
       var overviewBtn = document.querySelector('[data-page="overview"]');
       if (overviewBtn) showPage('overview', overviewBtn);
       var feedCard = document.getElementById('activity-feed-body');
-      if (feedCard) feedCard.innerHTML = '<div data-demo-loading style="color:#7c3aed;text-align:center;padding:16px;font-size:13px">🎭 Demo starting — simulated service beginning…</div>';
+      if (feedCard) feedCard.innerHTML = '<div data-demo-loading style="color:#7c3aed;text-align:center;padding:16px;font-size:13px">Demo starting — simulated service beginning…</div>';
 
-      toast('🎭 Demo Mode started — watch the dashboard come alive!');
+      toast('Demo Mode started — watch the dashboard come alive!');
       _runDemoStep();
     }
 
@@ -8041,7 +8041,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const passed = criticalIssues.length === 0 && validAction;
 
       const checkList = checks.map(c =>
-        (c.passed ? '✅' : (c.optional ? '⚠️' : '❌')) + ' ' + c.name
+        (c.passed ? '[ok]' : (c.optional ? '[warn]' : '[fail]')) + ' ' + c.name
       ).join('\n');
 
       const actionDesc = action

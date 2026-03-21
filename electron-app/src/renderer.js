@@ -260,7 +260,7 @@ function asyncStreamGuardConfirm(action, severity = 'critical') {
     const header = document.createElement('div');
     header.style.cssText = `background:${accentDim};border-bottom:1px solid ${accentColor};padding:10px 18px;display:flex;align-items:center;gap:8px;`;
     const icon = document.createElement('span');
-    icon.textContent = isCritical ? '🔴' : '🟡';
+    icon.innerHTML = isCritical ? '<span style="color:#ef4444">&#9679;</span>' : '<span style="color:#f59e0b">&#9679;</span>';
     icon.style.cssText = 'font-size:16px;flex-shrink:0;';
     const headerText = document.createElement('span');
     headerText.textContent = isCritical ? 'STREAM IS LIVE' : 'CAUTION — IN PRODUCTION';
@@ -553,7 +553,7 @@ async function doSignIn() {
 
       if (config.setupComplete) {
         showDashboard();
-        try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`❌ Agent start failed: ${e.message}`); }
+        try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`Agent start failed: ${e.message}`); }
         updateToggleBtn();
       } else {
         showEquipmentWizard();
@@ -578,7 +578,7 @@ async function doSignOut() {
     showSignIn();
     showSignInMessage('Signed out.', 'var(--muted)');
   } catch (e) {
-    addAlert(`❌ Sign-out failed: ${e.message}`);
+    addAlert(`Sign-out failed: ${e.message}`);
   }
 }
 
@@ -1164,33 +1164,33 @@ async function loadRundownPanel() {
 
 // Step type icon lookup for rundown
 const RUNDOWN_STEP_ICONS = {
-  camera: '🎥',
-  'camera-switch': '🎥',
-  'camera_switch': '🎥',
-  audio: '🔊',
-  'audio-cue': '🔊',
-  'audio_cue': '🔊',
-  graphics: '🖼',
-  graphic: '🖼',
-  lower_third: '🖼',
-  'lower-third': '🖼',
-  video: '📹',
-  playback: '▶',
-  music: '🎵',
-  lighting: '💡',
-  light: '💡',
-  transition: '🔄',
-  prayer: '🙏',
-  sermon: '📖',
-  worship: '🎤',
-  announcement: '📢',
-  offering: '💰',
-  scripture: '📜',
-  baptism: '💧',
-  communion: '🍞',
-  welcome: '👋',
-  stream: '📡',
-  recording: '⏺',
+  camera: '[cam]',
+  'camera-switch': '[cam]',
+  'camera_switch': '[cam]',
+  audio: '[aud]',
+  'audio-cue': '[aud]',
+  'audio_cue': '[aud]',
+  graphics: '[gfx]',
+  graphic: '[gfx]',
+  lower_third: '[gfx]',
+  'lower-third': '[gfx]',
+  video: '[vid]',
+  playback: '[play]',
+  music: '[mus]',
+  lighting: '[light]',
+  light: '[light]',
+  transition: '[fx]',
+  prayer: '[pry]',
+  sermon: '[srv]',
+  worship: '[wsp]',
+  announcement: '[ann]',
+  offering: '[$]',
+  scripture: '[scr]',
+  baptism: '[bpt]',
+  communion: '[com]',
+  welcome: '[hi]',
+  stream: '[str]',
+  recording: '[rec]',
   default: '▪',
 };
 
@@ -1499,9 +1499,9 @@ function updateStatusUI(status) {
   const mixerData = status.mixer && typeof status.mixer === 'object' ? status.mixer : {};
   const mixerConnected = mixerData.connected || false;
   if (audio.masterMuted || mixerData.mainMuted) {
-    setStatusValue('val-audio', '🔇 MUTED', false);
+    setStatusValue('val-audio', 'MUTED', false);
   } else if (audio.silenceDetected) {
-    setStatusValue('val-audio', '⚠ Silence', false);
+    setStatusValue('val-audio', 'Silence', false);
   } else if (mixerConnected || _audioViaAtem) {
     const atemSources = atemData.atemAudioSources || [];
     const portLabel = atemSources.length > 0 ? ` (${atemSources[0].portType})` : '';
@@ -1522,7 +1522,7 @@ function updateStatusUI(status) {
       : 0;
     if (progDelay && progDelay !== 0) {
       delayEl.style.display = 'block';
-      delayEl.textContent = `⚠ Cam ${progInput}: ${progDelay}ms audio delay`;
+      delayEl.textContent = `Cam ${progInput}: ${progDelay}ms audio delay`;
     } else {
       delayEl.style.display = 'none';
     }
@@ -1949,7 +1949,7 @@ async function toggleAgent() {
       isRunning = true;
     }
   } catch (e) {
-    addAlert(`❌ Agent ${isRunning ? 'stop' : 'start'} failed: ${e.message}`);
+    addAlert(`Agent ${isRunning ? 'stop' : 'start'} failed: ${e.message}`);
   } finally {
     btn.disabled = false;
     updateToggleBtn();
@@ -1962,9 +1962,9 @@ async function testConn() {
   const token = config.token || '';
   try {
     const result = await api.testConnection({ url: relay, token });
-    addAlert(result.success ? '✅ Relay connection OK' : `❌ ${friendlyError(result.error)}`);
+    addAlert(result.success ? 'Relay connection OK' : `${friendlyError(result.error)}`);
   } catch (e) {
-    addAlert(`❌ ${friendlyError(e)}`);
+    addAlert(`${friendlyError(e)}`);
   }
 }
 
@@ -2003,7 +2003,7 @@ async function sendDiagnosticBundle() {
 
 async function exportLogs() {
   if (!api?.exportTestLogs) {
-    addAlert('❌ Export logs is unavailable in this build.');
+    addAlert('Export logs is unavailable in this build.');
     return;
   }
 
@@ -2014,23 +2014,23 @@ async function exportLogs() {
       return;
     }
     if (result?.error) {
-      addAlert(`❌ Log export failed: ${result.error}`);
+      addAlert(`Log export failed: ${result.error}`);
       return;
     }
-    addAlert(`✅ Logs exported: ${result.filePath || 'saved'}`);
+    addAlert(`Logs exported: ${result.filePath || 'saved'}`);
   } catch (e) {
-    addAlert(`❌ Log export failed: ${e.message}`);
+    addAlert(`Log export failed: ${e.message}`);
   }
 }
 
 function detectActivityType(text) {
   const t = text.toLowerCase();
   // AI commands / Telegram executed
-  if (t.includes('🤖') || t.includes('[ai]') || t.includes('telegram') || t.includes('command executed') || t.includes('ai parsed') || t.includes('via telegram')) return 'ai';
+  if (t.includes('[ai]') || t.includes('telegram') || t.includes('command executed') || t.includes('ai parsed') || t.includes('via telegram')) return 'ai';
   // Hard alerts / errors
-  if (t.includes('❌') || t.includes('⚠️') || t.includes('alert') || t.includes('silence') || t.includes('drop') || t.includes('disconnect') || t.includes('unreachable') || t.includes('failed') || t.includes('error') || t.includes('offline') || t.includes('no audio')) return 'alert';
+  if (t.includes('alert') || t.includes('silence') || t.includes('drop') || t.includes('disconnect') || t.includes('unreachable') || t.includes('failed') || t.includes('error') || t.includes('offline') || t.includes('no audio')) return 'alert';
   // Confirmations / OK
-  if (t.includes('✅') || t.includes('ok') || t.includes('connected') || t.includes('recording started') || t.includes('stream started') || t.includes('started') || t.includes('confirmed') || t.includes('saved ✓') || t.includes('complete') || t.includes('preview requested')) return 'ok';
+  if (t.includes('ok') || t.includes('connected') || t.includes('recording started') || t.includes('stream started') || t.includes('started') || t.includes('confirmed') || t.includes('saved') || t.includes('complete') || t.includes('preview requested')) return 'ok';
   // System events (default)
   return 'sys';
 }
@@ -2306,13 +2306,13 @@ api.onLog((text) => {
   const t = text.trim();
   // Show important operational events in the activity feed
   if (
-    t.includes('ALERT') || t.includes('✅') || t.includes('⚠️') || t.includes('❌') ||
+    t.includes('ALERT') ||
     t.includes('Stream') || t.includes('Recording') ||
     t.includes('connected') || t.includes('disconnected') || t.includes('Connected') || t.includes('Disconnected') ||
     t.includes('MUTED') || t.includes('silence') || t.includes('Audio') ||
     t.includes('Encoder') || t.includes('Companion') || t.includes('ATEM') ||
     t.includes('Relay') || t.includes('error') || t.includes('failed') ||
-    t.includes('🤖') || t.includes('[AI]') || t.includes('Telegram') ||
+    t.includes('[AI]') || t.includes('Telegram') ||
     t.includes('Low FPS') || t.includes('bitrate')
   ) {
     addAlert(t);
@@ -2327,13 +2327,13 @@ let lastPreviewTime = 0;
 let previewTimeout = null;
 
 async function requestPreview() {
-  addAlert('📸 Preview requested');
+  addAlert('Preview requested');
   addAlert('Waiting for preview frames…');
   try {
     const result = await api.requestPreview('start');
     if (!result?.success) throw new Error(result?.error || 'preview command failed');
   } catch (e) {
-    addAlert(`⚠ Preview request failed: ${e.message}`);
+    addAlert(`Preview request failed: ${e.message}`);
   }
 }
 
@@ -2346,7 +2346,7 @@ async function stopPreview() {
   if (placeholder) { placeholder.style.display = 'flex'; placeholder.textContent = 'No preview yet'; }
   const tsEl = document.getElementById('ndi-preview-ts');
   if (tsEl) tsEl.textContent = '';
-  addAlert('⏹ Preview stopped');
+  addAlert('Preview stopped');
   try {
     await api.requestPreview('stop');
   } catch (e) {
@@ -2401,7 +2401,7 @@ api.onPreviewFrame((data) => {
 });
 
 api.onUpdateReady(() => {
-  addAlert('🔄 Update downloaded — restart to install');
+  addAlert('Update downloaded — restart to install');
 });
 
 // Pause chat polling when window is hidden to tray
@@ -2606,7 +2606,7 @@ async function sendChatMessage() {
       chatLastTimestamp = resp.timestamp;
       renderChat();
     } else if (resp?.error) {
-      chatMessages.push({ id: Date.now(), senderName: 'System', senderRole: 'system', message: `❌ ${resp.error}`, timestamp: new Date().toISOString() });
+      chatMessages.push({ id: Date.now(), senderName: 'System', senderRole: 'system', message: resp.error, timestamp: new Date().toISOString() });
       renderChat();
     }
     return;
@@ -2626,7 +2626,7 @@ async function sendChatMessage() {
     const resp = await api.sendChat({ message });
     if (resp?.error) {
       input.value = message; // Restore so user can retry
-      addAlert(`❌ Message failed: ${resp.error}`);
+      addAlert(`Message failed: ${resp.error}`);
     } else if (resp?.id) {
       chatMessages.push(resp);
       chatLastTimestamp = resp.timestamp;
@@ -2709,18 +2709,18 @@ function renderSimpleDeviceList(eq) {
   const container = document.getElementById('simple-device-list');
   if (!container) return;
   const items = [];
-  if (eq.atemIp) items.push({ icon: '🎛️', name: 'ATEM Switcher', detail: eq.atemIp });
+  if (eq.atemIp) items.push({ icon: '[sw]', name: 'ATEM Switcher', detail: eq.atemIp });
   const encType = eq.encoderType || eq.encoder_type || '';
   const encIp = eq.encoderIp || eq.encoder_ip || '';
   if (encIp) {
     const nameMap = { blackmagic: 'Blackmagic Encoder', obs: 'OBS Studio', vmix_encoder: 'vMix Encoder' };
-    items.push({ icon: '📡', name: nameMap[encType] || 'Encoder', detail: encIp });
+    items.push({ icon: '[enc]', name: nameMap[encType] || 'Encoder', detail: encIp });
   }
-  if (eq.companionUrl) items.push({ icon: '🎮', name: 'Companion', detail: eq.companionUrl.replace(/^https?:\/\//, '') });
+  if (eq.companionUrl) items.push({ icon: '[cmp]', name: 'Companion', detail: eq.companionUrl.replace(/^https?:\/\//, '') });
   if (eq.propresenterIp) items.push({ icon: '⛪', name: 'ProPresenter', detail: eq.propresenterIp });
-  if (eq.vmixIp) items.push({ icon: '🎬', name: 'vMix', detail: eq.vmixIp });
-  if (eq.ndiSource) items.push({ icon: '📺', name: 'NDI Source', detail: eq.ndiSource });
-  if (eq.audioMixerIp) items.push({ icon: '🔊', name: 'Audio Mixer', detail: eq.audioMixerIp });
+  if (eq.vmixIp) items.push({ icon: '[vmx]', name: 'vMix', detail: eq.vmixIp });
+  if (eq.ndiSource) items.push({ icon: '[ndi]', name: 'NDI Source', detail: eq.ndiSource });
+  if (eq.audioMixerIp) items.push({ icon: '[aud]', name: 'Audio Mixer', detail: eq.audioMixerIp });
   if (items.length === 0) {
     container.innerHTML = '<div style="color:var(--muted); font-size:12px; padding:12px;">No devices configured yet. Scan your network to get started.</div>';
     return;
@@ -3291,14 +3291,14 @@ async function _doSaveEquipment() {
     renderActiveSummary();
     // Auto-restart agent so new equipment config takes effect immediately
     if (isRunning) {
-      addAlert('🔄 Restarting agent with updated config…');
+      addAlert('Restarting agent with updated config…');
       try {
         await api.stopAgent();
         await new Promise(r => setTimeout(r, 1000));
         await api.startAgent();
-        addAlert('✅ Agent restarted with new config');
+        addAlert('Agent restarted with new config');
       } catch (e2) {
-        addAlert(`⚠ Agent restart failed: ${e2.message}. Stop and start manually.`);
+        addAlert(`Agent restart failed: ${e2.message}. Stop and start manually.`);
       }
     }
   } catch (e) {
@@ -3452,7 +3452,7 @@ async function startNetworkScan() {
 function addScanResult(container, label, useFn) {
   const item = document.createElement('div');
   item.className = 'scan-result-item';
-  item.innerHTML = `<span>✅ ${escapeHtml(label)}</span>`;
+  item.innerHTML = `<span style="color:var(--green)">&#10003; ${escapeHtml(label)}</span>`;
   const btn = document.createElement('button');
   btn.className = 'btn-use';
   btn.textContent = 'Add';
@@ -3470,12 +3470,12 @@ function addScanResult(container, label, useFn) {
       item.classList.add('added');
       btn.classList.add('added');
       btn.textContent = 'Added ✓';
-      addAlert(`✅ Added ${label}`);
+      addAlert(`Added ${label}`);
     } catch (e) {
       btn.disabled = false;
       btn.classList.remove('added');
       btn.textContent = 'Retry';
-      addAlert(`❌ Failed to add ${label}: ${e.message || 'unknown error'}`);
+      addAlert(`Failed to add ${label}: ${e.message || 'unknown error'}`);
     }
   });
   item.appendChild(btn);
