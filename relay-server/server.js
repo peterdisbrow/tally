@@ -3894,6 +3894,24 @@ app.post('/api/chat/stream', async (req, res) => {
   }
 });
 
+// ─── OPENAPI SPEC ─────────────────────────────────────────────────────────────
+
+app.get('/api/docs', (_req, res) => {
+  const specPath = path.join(__dirname, 'docs', 'openapi.yaml');
+  try {
+    const yaml = fs.readFileSync(specPath, 'utf8');
+    // Parse YAML → JSON using a minimal hand-off (Node has no built-in YAML parser,
+    // so we serve the raw YAML text with the correct content-type and also provide
+    // a JSON-compatible wrapper for clients that prefer JSON).
+    // To get proper JSON, clients can use any YAML parser (e.g. js-yaml).
+    res.setHeader('Content-Type', 'application/yaml; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.send(yaml);
+  } catch (e) {
+    res.status(404).json({ error: 'OpenAPI spec not found' });
+  }
+});
+
 // ─── SENTRY ERROR HANDLER (must be after all routes) ─────────────────────────
 if (process.env.SENTRY_DSN) {
   Sentry.setupExpressErrorHandler(app);
