@@ -266,18 +266,35 @@ class LifecycleEmails {
 
     const subject = `Monthly Production Report — ${church.name || 'Your Church'}`;
 
+    // Build narrative insight line
+    const recoveryRate = alertsTriggered > 0 ? Math.round((autoRecovered / alertsTriggered) * 100) : 100;
+    const prevServicesMonitored = reportData.prevServicesMonitored;
+    const trendLine = prevServicesMonitored != null && prevServicesMonitored > 0
+      ? (servicesMonitored > prevServicesMonitored
+          ? `<p style="color: #86efac; font-size: 13px; margin: 0 0 16px;">↑ Up from ${prevServicesMonitored} services last month &mdash; your most active month yet.</p>`
+          : servicesMonitored < prevServicesMonitored
+            ? `<p style="color: #94A3B8; font-size: 13px; margin: 0 0 16px;">↓ Down from ${prevServicesMonitored} services last month.</p>`
+            : `<p style="color: #94A3B8; font-size: 13px; margin: 0 0 16px;">Same as last month (${prevServicesMonitored} services).</p>`)
+      : '';
+    const roiLine = autoRecovered > 0
+      ? `<p style="color: #86efac; font-size: 14px; margin: 16px 0 0; font-weight: 600;">Tally auto-fixed ${autoRecovered} issue${autoRecovered !== 1 ? 's' : ''} this month &mdash; ${autoRecovered} Sunday moment${autoRecovered !== 1 ? 's' : ''} your congregation never saw.</p>`
+      : `<p style="color: #86efac; font-size: 14px; margin: 16px 0 0; font-weight: 600;">Clean month &mdash; no issues required auto-recovery.</p>`;
+
     const html = `
       <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; background: #09090B; color: #F8FAFC; padding: 32px; border-radius: 12px;">
         <h1 style="font-size: 20px; margin-bottom: 4px;">Monthly Production Report</h1>
         <p style="color: #94A3B8; margin: 0 0 24px;">${churchName} &middot; ${this._esc(monthLabel)}</p>
+        ${trendLine}
         <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
           <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Services Monitored</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${servicesMonitored}</td></tr>
           <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Alerts Triggered</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${alertsTriggered}</td></tr>
           <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Auto-Recovered</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${autoRecovered}</td></tr>
+          <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Recovery Rate</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600; color: ${recoveryRate >= 80 ? '#22c55e' : recoveryRate >= 50 ? '#eab308' : '#ef4444'};">${recoveryRate}%</td></tr>
           <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Escalated</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${escalated}</td></tr>
           <tr><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; color: #94A3B8;">Most Common Issue</td><td style="padding: 8px 12px; border-bottom: 1px solid #1a2e1f; text-align: right; font-weight: 600;">${mostCommonIssue ? this._esc(mostCommonIssue) : '<span style="color:#22c55e;">None</span>'}</td></tr>
           <tr><td style="padding: 8px 12px; color: #94A3B8;">Uptime Estimate</td><td style="padding: 8px 12px; text-align: right; font-weight: 600; color: ${uptimeColor};">${typeof uptime === 'number' ? uptime.toFixed(1) + '%' : uptime}</td></tr>
         </table>
+        ${roiLine}
         <div style="text-align: center; margin-top: 24px;">
           <a href="${this.appUrl}/church-portal?church=${church.churchId}" style="display:inline-block; background:#22c55e; color:#000; padding:10px 24px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px;">Sign In to View Report</a>
         </div>
@@ -312,17 +329,43 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   async runCheck() {
     try {
+      // ── Onboarding sequence ──
       await this._checkSetupReminders();
       await this._checkFirstSundayPrep();
       await this._checkWeekOneCheckin();
+      await this._checkActivationEscalation();   // GAP 2: Day 10 never-connected escalation
+      await this._checkTelegramSetupNudge();      // GAP 7: Day 5 no Telegram nudge
+      await this._checkPreServiceFriday();        // GAP 3: 48h before first scheduled service
+
+      // ── Trial sequence ──
       await this._checkTrialEnding7Days();
       await this._checkTrialEndingSoon();
       await this._checkTrialEndingTomorrow();
-      await this._checkWeeklyDigest();
-      await this._checkReviewRequest();
-      await this._checkWinBack();
+      await this._checkTrialToPaidOnboarding();   // GAP 4: 24h after first payment
+
+      // ── Billing ──
+      await this._checkGracePeriodEarlyWarning(); // GAP 13: Day 2 of grace (5 days before expiry)
       await this._checkGracePeriodEndingSoon();
+      await this._checkAnnualRenewalReminder();   // GAP 6: 30 days before annual renewal
+
+      // ── Engagement ──
+      await this._checkWeeklyDigest();
+      await this._checkInactivityAlert();          // GAP 11: 4+ weeks no sessions
+      await this._checkNPSSurvey();                // GAP 8: Day 60 NPS
+      await this._checkFirstYearAnniversary();     // GAP 9: 365 days active
+
+      // ── Retention / win-back ──
       await this._checkCancellationSurvey();
+      await this._checkEarlyWinBack();             // GAP 1: Day 7-14 post-cancel
+      await this._checkWinBack();                  // Day 14-30 post-cancel
+
+      // ── Referral ──
+      await this._checkReferralInvite();           // GAP 10: Day 90, 4+ sessions
+
+      // ── Reviews ──
+      await this._checkReviewRequest();
+
+      // ── Lead nurture ──
       await this._checkLeadNurture();
     } catch (e) {
       console.error(`[LifecycleEmails] runCheck error: ${e.message}`);
@@ -352,7 +395,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         churchId: church.churchId,
         emailType: 'setup-reminder',
         to: church.portal_email,
-        subject: 'Need help getting Tally set up?',
+        subject: "Your booth computer isn't connected yet \u2014 here's how to finish setup",
         html,
         text,
       });
@@ -389,11 +432,12 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     }
   }
 
-  // ─── SEQUENCE 3: WEEK ONE CHECK-IN (Day 7) ─────────────────────────────────
+  // ─── SEQUENCE 3: WEEK ONE CHECK-IN (Day 5) ─────────────────────────────────
+  // Shifted from Day 7 to Day 5 to avoid collision with Trial Ending 7 Days email.
 
   async _checkWeekOneCheckin() {
-    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const maxAge = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+    const cutoff = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+    const maxAge = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
 
     const churches = this.db.prepare(`
       SELECT churchId, name, portal_email
@@ -474,7 +518,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         churchId: church.churchId,
         emailType: 'trial-ending-soon',
         to: church.portal_email,
-        subject: `Your Tally trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`,
+        subject: daysLeft <= 3
+          ? `3 days left \u2014 don\u2019t lose your safety net this Sunday`
+          : `Your Tally trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`,
         html,
         text,
       });
@@ -577,7 +623,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         churchId: church.churchId,
         emailType,
         to: church.portal_email,
-        subject: `Tally Weekly Report \u2014 ${church.name}`,
+        subject: `Weekly Report \u2014 ${church.name}`,
         html,
         text,
       });
@@ -679,10 +725,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   _buildSetupReminderEmail(church) {
     const downloadUrl = GITHUB_RELEASES_URL;
     const html = this._wrap(`
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Need help getting Tally set up?</h1>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your booth computer isn't connected yet</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        Hi! You signed up for Tally at <strong>${church.name}</strong> but we haven't seen your booth computer connect yet.
-        Setup takes about 5 minutes &mdash; our AI assistant handles most of it for you:
+        We haven't seen your booth computer connect for <strong>${church.name}</strong> yet &mdash;
+        and your trial clock is ticking. Setup takes about 5 minutes, and our AI assistant handles most of it:
       </p>
 
       <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
@@ -785,8 +831,8 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">How's Tally working for you?</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        You've had Tally at <strong>${church.name}</strong> for about a week now.
-        I'd love to hear how your first Sunday went.
+        You've had Tally at <strong>${church.name}</strong> for about 5 days now.
+        I'd love to hear how your first Sunday went &mdash; or what's on your mind before the next one.
       </p>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -814,7 +860,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     const text = `How's Tally working for you?
 
-You've had Tally at ${church.name} for about a week now. I'd love to hear how your first Sunday went.
+You've had Tally at ${church.name} for about 5 days now. I'd love to hear how your first Sunday went — or what's on your mind before the next one.
 
 A few things you might not have tried yet:
 - Remote control via Telegram — type "cut to camera 2" or "start recording"
@@ -887,51 +933,58 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   _buildTrialEndingSoonEmail(church, daysLeft) {
     const billingUrl = `${this.appUrl}/portal`;
+    const headline = daysLeft <= 3
+      ? `3 days left &mdash; don\u2019t lose your safety net this Sunday`
+      : `Your Tally trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`;
 
     const html = this._wrap(`
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Tally trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}</h1>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">${headline}</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        Your free trial for <strong>${church.name}</strong> is wrapping up soon.
-        Here's what Tally has been doing for you:
+        Your free trial for <strong>${this._esc(church.name)}</strong> is almost up.
+        When it ends, here's exactly what stops working:
       </p>
 
-      <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
-        <div style="font-size: 14px; color: #333; line-height: 2;">
-          &bull; Real-time monitoring of your production gear<br>
-          &bull; Automatic recovery when things break<br>
-          &bull; Alerts before your team even notices a problem<br>
-          &bull; Pre-service checks so you know everything's ready
+      <div style="margin: 24px 0; padding: 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca;">
+        <div style="font-size: 14px; color: #333; line-height: 2.2;">
+          ❌ Real-time monitoring of your ATEM, OBS, encoders, and audio gear<br>
+          ❌ Automatic stream recovery when things go silent mid-service<br>
+          ❌ Telegram alerts to your TD when problems are detected<br>
+          ❌ Pre-service system checks 30 minutes before you go live<br>
+          ❌ AI-powered production assistant in Telegram
         </div>
       </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        To keep Tally running, subscribe from your Church Portal. Plans start at $49/month.
+        Sunday morning without Tally means manual checks, silent failures, and scrambling in the booth.
+        Subscribe now and keep the safety net in place.
       </p>
 
-      ${this._cta('Subscribe Now', billingUrl)}
+      ${this._cta('Keep Tally Running \u2192', billingUrl)}
 
       <p style="font-size: 13px; color: #666; line-height: 1.5;">
-        When your trial ends, monitoring and auto-recovery will stop. Your data and settings are preserved &mdash; just subscribe to pick up right where you left off.
+        Plans start at $49/month. Cancel anytime. Your settings and history are preserved &mdash; no reconfiguration needed.
       </p>
     `);
 
-    const text = `Your Tally trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}
+    const text = daysLeft <= 3
+      ? `3 days left — don't lose your safety net this Sunday`
+      : `Your Tally trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`;
 
-Your free trial for ${church.name} is wrapping up soon.
+    const fullText = `${text}
 
-Tally has been:
-- Monitoring your production gear in real-time
-- Automatically recovering when things break
-- Alerting you before your team notices a problem
-- Running pre-service checks
+Your free trial for ${church.name} ends soon. Here's what stops working:
 
-To keep Tally running, subscribe at ${billingUrl}. Plans start at $49/month.
+✗ Real-time monitoring of your gear
+✗ Automatic stream recovery
+✗ Telegram alerts for your TD
+✗ Pre-service system checks
+✗ AI production assistant
 
-When your trial ends, monitoring will stop. Your data and settings are preserved — just subscribe to pick up where you left off.
+Subscribe at ${billingUrl} to keep Tally running. Plans start at $49/month.
 
 Tally — ${this.appUrl.replace('https://', '')}`;
 
-    return { html, text };
+    return { html, text: fullText };
   }
 
   // ── 5. Trial Ending Tomorrow ──
@@ -990,16 +1043,20 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Tally trial has ended</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Your next Sunday is coming up &mdash; and without Tally, you're back to manual checks and hoping nothing breaks.
+        Without monitoring, a stream drop goes undetected for an average of 4 minutes before someone notices.
+      </p>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
         Your free trial for <strong>${church.name}</strong> has expired. Tally is no longer monitoring your production gear.
       </p>
 
-      <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
-        <div style="font-size: 14px; font-weight: 700; color: #334155; margin-bottom: 8px;">What you're missing:</div>
-        <div style="font-size: 14px; color: #333; line-height: 2;">
-          &bull; No auto-recovery if your stream drops during service<br>
-          &bull; No pre-service health checks<br>
-          &bull; No remote control or alerts<br>
-          &bull; No weekly reports for leadership
+      <div style="margin: 24px 0; padding: 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca;">
+        <div style="font-size: 14px; color: #333; line-height: 2.2;">
+          ❌ No auto-recovery if your stream drops during service<br>
+          ❌ No pre-service health checks<br>
+          ❌ No Telegram alerts or remote control<br>
+          ❌ No weekly reports for leadership
         </div>
       </div>
 
@@ -1016,13 +1073,15 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     const text = `Your Tally trial has ended
 
+Your next Sunday is coming up — and without Tally, you're back to manual checks and hoping nothing breaks.
+
 Your free trial for ${church.name} has expired. Tally is no longer monitoring your production gear.
 
 What you're missing:
-- No auto-recovery if your stream drops during service
-- No pre-service health checks
-- No remote control or alerts
-- No weekly reports for leadership
+✗ No auto-recovery if your stream drops during service
+✗ No pre-service health checks
+✗ No Telegram alerts or remote control
+✗ No weekly reports for leadership
 
 Your data and settings are safe for 30 days. Subscribe at ${billingUrl} to pick up where you left off.
 
@@ -1105,8 +1164,20 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ? 'No critical issues this week. Everything ran smoothly.'
       : `${stats.criticalEvents} critical event${stats.criticalEvents !== 1 ? 's' : ''} detected${stats.autoRecoveries > 0 ? `, ${stats.autoRecoveries} auto-recovered` : ''}.`;
 
+    // Generate a contextual insight line
+    let insightLine = '';
+    if (stats.criticalEvents === 0 && stats.totalSessions > 0) {
+      insightLine = `<p style="font-size: 14px; color: #22c55e; font-weight: 600; margin: 0 0 16px;">✓ Clean week &mdash; zero critical issues across ${stats.totalSessions} service${stats.totalSessions !== 1 ? 's' : ''}.</p>`;
+    } else if (stats.autoRecoveries > 0 && stats.criticalEvents > 0) {
+      const pct = Math.round((stats.autoRecoveries / stats.criticalEvents) * 100);
+      insightLine = `<p style="font-size: 14px; color: #eab308; font-weight: 600; margin: 0 0 16px;">Tally auto-handled ${pct}% of issues this week without any manual intervention.</p>`;
+    } else if (stats.criticalEvents > 0) {
+      insightLine = `<p style="font-size: 14px; color: #ef4444; font-weight: 600; margin: 0 0 16px;">⚠ ${stats.criticalEvents} critical event${stats.criticalEvents !== 1 ? 's' : ''} required attention this week. Check your portal for the full timeline.</p>`;
+    }
+
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Weekly Report &mdash; ${church.name}</h1>
+      ${insightLine}
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
         Here's what happened at <strong>${church.name}</strong> this past week:
       </p>
@@ -1126,7 +1197,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Tally Weekly Report — ${church.name}
+    const text = `Weekly Report — ${church.name}
 
 Here's what happened this past week:
 
@@ -1156,7 +1227,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Tally subscription has been cancelled</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        We're sorry to see <strong>${church.name}</strong> go. Your subscription has been cancelled and will remain active until <strong>${endDate}</strong>.
+        We're sorry to see you go. Your subscription for <strong>${church.name}</strong> has been cancelled and will remain active until <strong>${endDate}</strong>.
       </p>
 
       <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
@@ -1172,13 +1243,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
 
       ${this._cta('Reactivate Subscription', portalUrl)}
-
-      <p style="font-size: 14px; color: #666; line-height: 1.6;">
-        We'd love to know why you cancelled &mdash; reply to this email and let us know. Your feedback helps us improve.
-      </p>
     `);
 
-    const text = `Your Tally subscription has been cancelled\n\nYour subscription for ${church.name} has been cancelled and will remain active until ${endDate}.\n\nYour data is preserved for 30 days. Reactivate anytime at ${portalUrl}\n\nTally`;
+    const text = `Your Tally subscription has been cancelled\n\nWe're sorry to see you go. Your subscription for ${church.name} has been cancelled and will remain active until ${endDate}.\n\nYour data is preserved for 30 days. Reactivate anytime at ${portalUrl}\n\nTally`;
 
     return this.sendEmail({
       churchId: church.churchId,
@@ -1195,22 +1262,38 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
 
     const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise' };
+    const TIER_UNLOCKED = {
+      plus: ['Multi-campus monitoring', 'Weekly production digests', 'Extended 90-day session history'],
+      pro: ['AutoPilot automation rules', 'Analytics dashboard &amp; trends', 'Priority support &amp; onboarding call'],
+      managed: ['Dedicated success manager', 'Custom integrations &amp; SLA', 'Multi-campus fleet management'],
+    };
     const portalUrl = `${this.appUrl}/portal`;
+    const newTierName = TIER_NAMES[newTier] || newTier;
+    const oldTierName = TIER_NAMES[oldTier] || oldTier;
+    const unlockedFeatures = TIER_UNLOCKED[newTier] || [];
+    const unlockedHtml = unlockedFeatures.length
+      ? `<div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+          <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 8px;">What you just unlocked on ${newTierName}:</div>
+          <div style="font-size: 14px; color: #333; line-height: 2;">${unlockedFeatures.map(f => `&bull; ${f}`).join('<br>')}</div>
+        </div>`
+      : '';
 
     const html = this._wrap(`
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Plan upgraded to ${TIER_NAMES[newTier] || newTier}!</h1>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">You're now on ${newTierName}!</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        <strong>${church.name}</strong> has been upgraded from ${TIER_NAMES[oldTier] || oldTier} to <strong>${TIER_NAMES[newTier] || newTier}</strong>. Your new features are available immediately.
+        <strong>${church.name}</strong> has been upgraded from ${oldTierName} to <strong>${newTierName}</strong>. Your new features are available immediately &mdash; no restart needed.
       </p>
 
-      ${this._cta('Explore Your Portal', portalUrl)}
+      ${unlockedHtml}
+
+      ${this._cta('Get Started with ' + newTierName + ' \u2192', portalUrl)}
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
-        Your billing has been adjusted with proration. Check your portal for details.
+        Your billing has been adjusted with proration. Check your portal for details. Reply if you have any questions.
       </p>
     `);
 
-    const text = `Plan upgraded to ${TIER_NAMES[newTier] || newTier}!\n\n${church.name} has been upgraded from ${TIER_NAMES[oldTier] || oldTier} to ${TIER_NAMES[newTier] || newTier}.\n\nExplore your portal: ${portalUrl}`;
+    const text = `You're now on ${newTierName}!\n\n${church.name} has been upgraded from ${oldTierName} to ${newTierName}.\n\n${unlockedFeatures.length ? 'What you just unlocked:\n' + unlockedFeatures.map(f => `- ${f.replace(/&amp;/g, '&')}`).join('\n') + '\n\n' : ''}Get started: ${portalUrl}`;
 
     // Use a unique email type so it can be sent again on future upgrades
     return this.sendEmail({
@@ -1230,27 +1313,36 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const portalUrl = `${this.appUrl}/portal`;
 
     const html = this._wrap(`
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Tally has been paused</h1>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">⚠️ Tally monitoring has stopped</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        The 7-day grace period for <strong>${church.name}</strong> has expired. Tally is no longer monitoring your production gear.
+        The 7-day grace period for <strong>${church.name}</strong> has expired. Tally is no longer monitoring your production gear &mdash;
+        which means your next service runs without a safety net.
       </p>
 
       <div style="margin: 24px 0; padding: 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca;">
-        <div style="font-size: 14px; color: #333; line-height: 2;">
-          &bull; Real-time monitoring has <strong>stopped</strong><br>
-          &bull; Auto-recovery is <strong>disabled</strong><br>
-          &bull; Your data is safe for <strong>30 days</strong>
+        <div style="font-size: 14px; font-weight: 700; color: #dc2626; margin-bottom: 8px;">While paused, you're missing:</div>
+        <div style="font-size: 14px; color: #333; line-height: 2.2;">
+          ❌ Real-time monitoring &mdash; stream drops go undetected<br>
+          ❌ Auto-recovery &mdash; outages require manual intervention<br>
+          ❌ Pre-service checks &mdash; no green light before you go live<br>
+          ❌ Telegram alerts &mdash; your TD is flying blind
         </div>
       </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        Update your payment method to restore Tally immediately:
+        Update your payment method to restore Tally immediately &mdash; it reconnects within seconds.
+        Your data is safe for 30 days.
       </p>
 
-      ${this._cta('Update Payment & Reactivate', portalUrl)}
+      ${this._cta('Update Payment & Restore Now', portalUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        If this happened by mistake (expired card, bank block), just update your card and Tally restores instantly.
+        Reply to this email if you need help sorting it out.
+      </p>
     `);
 
-    const text = `Tally has been paused\n\nThe 7-day grace period for ${church.name} has expired. Update your payment at ${portalUrl} to restore Tally.\n\nYour data is safe for 30 days.`;
+    const text = `Tally monitoring has stopped\n\nThe 7-day grace period for ${church.name} has expired. Your next service runs without a safety net.\n\nWhile paused:\n✗ Stream drops go undetected\n✗ No auto-recovery\n✗ No pre-service checks\n✗ No Telegram alerts\n\nUpdate your payment at ${portalUrl} to restore Tally instantly. Your data is safe for 30 days.\n\nIf this was a mistake, just update your card — Tally reconnects within seconds. Reply if you need help.`;
 
     return this.sendEmail({
       churchId: church.churchId,
@@ -1300,13 +1392,14 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     });
   }
 
-  // ─── SEQUENCE 13: WIN-BACK (30 days after cancellation) ──────────────────
+  // ─── SEQUENCE 13: WIN-BACK (14 days after cancellation) ──────────────────
+  // Day 14 is peak win-back window — first missed Sunday reminds them of the pain.
 
   async _checkWinBack() {
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Find churches cancelled 30-60 days ago that haven't resubscribed
+    // Find churches cancelled 14-30 days ago that haven't resubscribed
     let cancelledChurches = [];
     try {
       cancelledChurches = this.db.prepare(`
@@ -1321,7 +1414,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
               AND bc.updated_at <= ?
               AND bc.updated_at >= ?
           )
-      `).all(thirtyDaysAgo, sixtyDaysAgo);
+      `).all(fourteenDaysAgo, thirtyDaysAgo);
     } catch { return; }
 
     for (const church of cancelledChurches) {
@@ -1337,50 +1430,42 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildWinBackEmail(church) {
-    const signupUrl = `${this.appUrl}/signup`;
+    const portalUrl = `${this.appUrl}/portal`;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">We miss you at Tally</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        It's been about a month since <strong>${church.name}</strong> cancelled. We wanted to check in and see if you'd like to come back.
+        It's been about two weeks since <strong>${church.name}</strong> cancelled. You've probably had a Sunday
+        or two without Tally by now &mdash; I hope it went well.
       </p>
-
-      <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
-        <div style="font-size: 14px; font-weight: 700; color: #334155; margin-bottom: 8px;">Since you left, we've added:</div>
-        <div style="font-size: 14px; color: #333; line-height: 2;">
-          &bull; Faster auto-recovery (under 5 seconds)<br>
-          &bull; Smarter pre-service checks<br>
-          &bull; Improved session reports<br>
-          &bull; More device integrations
-        </div>
-      </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        Your data and settings are still safe. Reactivate and pick up right where you left off:
+        If anything went sideways &mdash; a stream drop, a gear surprise, scrambling in the booth &mdash;
+        we'd love to have you back. Your settings are still saved, so reactivation takes seconds.
       </p>
 
-      ${this._cta('Reactivate Your Account', signupUrl)}
-
-      <p style="font-size: 14px; color: #666; line-height: 1.6;">
-        Questions? Reply to this email &mdash; I'd love to help.
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        And if things went great, I'd genuinely love to know that too. Reply and tell me &mdash; I read every response.
       </p>
+
+      ${this._cta('Reactivate Your Account', portalUrl)}
 
       <p style="font-size: 14px; color: #666;">
         &mdash; Andrew Disbrow<br>Founder, Tally
       </p>
     `);
 
-    const text = `We miss you at Tally\n\nIt's been about a month since ${church.name} cancelled. Your data is still safe — reactivate at ${signupUrl}\n\n— Andrew Disbrow, Founder`;
+    const text = `We miss you at Tally\n\nIt's been about two weeks since ${church.name} cancelled. If anything went sideways on Sunday without Tally, your settings are still saved — reactivation takes seconds.\n\nReactivate: ${portalUrl}\n\n— Andrew Disbrow, Founder`;
 
     return { html, text };
   }
 
   // ─── SEQUENCE 8: REVIEW REQUEST ─────────────────────────────────────────────
-  // Fires once for happy, paying customers: 30-180 days active, 4+ sessions, 2+ clean.
+  // Fires once for happy, paying customers: 30-90 days active, 4+ sessions, 2+ clean.
 
   async _checkReviewRequest() {
     const minAge = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const maxAge = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+    const maxAge = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
     const churches = this.db.prepare(`
       SELECT churchId, name, portal_email
@@ -1446,10 +1531,6 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       ${this._cta('Leave a Quick Review →', portalUrl)}
 
-      <p style="font-size: 13px; color: #888; line-height: 1.6;">
-        Your feedback helps other church production teams discover Tally &mdash; it means a lot.
-      </p>
-
       <p style="font-size: 14px; color: #666;">
         &mdash; Andrew Disbrow<br>Founder, Tally
       </p>
@@ -1493,19 +1574,18 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const downloadUrl = GITHUB_RELEASES_URL;
 
     const html = this._wrap(`
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Welcome to Tally!</h1>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Sunday production safety net starts here</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
         <strong>${church.name}</strong> has been registered and your 14-day free trial is active.
-        Here's everything you need to get started:
+        Check your inbox for a verification email, then follow these steps to get Tally running:
       </p>
 
       <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
         <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">Quick start:</div>
         <div style="font-size: 14px; color: #333; line-height: 2.2;">
-          <strong>1.</strong> Verify your email (check your inbox)<br>
-          <strong>2.</strong> <a href="${downloadUrl}" style="color: #22c55e; text-decoration: none;">Download the Tally app</a> on your booth computer<br>
-          <strong>3.</strong> Sign in with your registration code<br>
-          <strong>4.</strong> Our AI setup assistant will walk you through the rest &mdash; just tell it about your gear, service times, and team in a quick conversation
+          <strong>1.</strong> <a href="${downloadUrl}" style="color: #22c55e; text-decoration: none;">Download the Tally app</a> on your booth computer<br>
+          <strong>2.</strong> Sign in with your registration code<br>
+          <strong>3.</strong> Our AI setup assistant will walk you through the rest &mdash; just tell it about your gear, service times, and team in a quick conversation
         </div>
       </div>
 
@@ -1520,7 +1600,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Welcome to Tally!\n\n${church.name} has been registered and your 14-day free trial is active.\n\nQuick start:\n1. Verify your email\n2. Download the Tally app: ${downloadUrl}\n3. Sign in with your registration code\n4. Our AI setup assistant walks you through the rest — just tell it about your gear and service times\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    const text = `Your Sunday production safety net starts here\n\n${church.name} has been registered and your 14-day free trial is active.\n\nQuick start:\n1. Download the Tally app: ${downloadUrl}\n2. Sign in with your registration code\n3. Our AI setup assistant walks you through the rest — just tell it about your gear and service times\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -1610,12 +1690,21 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   _buildGracePeriodEndingSoonEmail(church, daysLeft) {
     const portalUrl = `${this.appUrl}/portal`;
 
+    // Calculate days until Sunday for urgency framing
+    const today = new Date();
+    const daysToSunday = (7 - today.getDay()) % 7 || 7;
+    const sundayNote = daysToSunday <= daysLeft
+      ? `<p style="font-size: 15px; color: #dc2626; font-weight: 600; line-height: 1.6;">Sunday is in ${daysToSunday} day${daysToSunday !== 1 ? 's' : ''} &mdash; if this isn't resolved by then, Tally won't be monitoring your service.</p>`
+      : '';
+
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your grace period ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
         We still haven't been able to process payment for <strong>${church.name}</strong>.
         If not resolved in the next ${daysLeft} day${daysLeft !== 1 ? 's' : ''}, Tally will be paused.
       </p>
+
+      ${sundayNote}
 
       <div style="margin: 24px 0; padding: 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca;">
         <div style="font-size: 14px; color: #333; line-height: 1.8;">
@@ -1632,9 +1721,13 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
 
       ${this._cta('Update Payment Method', portalUrl)}
+
+      <p style="font-size: 13px; color: #666; line-height: 1.5;">
+        If your card expired or your bank blocked the charge, updating takes 30 seconds and Tally continues automatically.
+      </p>
     `);
 
-    const text = `Your grace period ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}\n\nWe still can't process payment for ${church.name}. Update your payment at ${portalUrl} to avoid service interruption.\n\nTally`;
+    const text = `Your grace period ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}\n\nWe still can't process payment for ${church.name}. Update your payment at ${portalUrl} to avoid service interruption.\n\nSunday is in ${daysToSunday} days — resolve this before then to keep Tally monitoring your service.\n\nTally`;
     return { html, text };
   }
 
@@ -1789,9 +1882,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        ${alerts === 0
-          ? 'Everything ran smoothly &mdash; no issues detected. Tally was watching the whole time.'
-          : `Tally detected ${alerts} issue${alerts !== 1 ? 's' : ''}${recoveries ? ` and auto-recovered ${recoveries}` : ''}. Check your portal for the full timeline.`}
+        ${alerts === 0 && recoveries === 0
+          ? `No issues detected. Zero. Your production gear ran perfectly for ${duration} minutes &mdash; that's exactly what Tally is here for. Share this with your team.`
+          : alerts === 0
+            ? `Everything ran smoothly. Tally auto-handled ${recoveries} recovery${recoveries !== 1 ? 's' : ''} silently &mdash; no manual intervention needed.`
+            : `Tally detected ${alerts} issue${alerts !== 1 ? 's' : ''}${recoveries ? ` and auto-recovered ${recoveries}` : ''}. Check your portal for the full timeline.`}
       </p>
 
       ${this._cta('View Service Timeline', portalUrl)}
@@ -1887,7 +1982,16 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   _buildUrgentAlertEmail(church, { alertType, context }) {
     const portalUrl = `${this.appUrl}/portal`;
-    const contextStr = typeof context === 'object' ? JSON.stringify(context, null, 2) : (context || '');
+
+    // Format context as table rows rather than JSON dump
+    let contextRows = '';
+    if (context && typeof context === 'object') {
+      contextRows = Object.entries(context)
+        .map(([k, v]) => `<tr><td style="padding: 4px 0; color: #64748b;">${this._esc(k)}</td><td style="text-align: right; font-weight: 600;">${this._esc(String(v))}</td></tr>`)
+        .join('');
+    } else if (context) {
+      contextRows = `<tr><td colspan="2" style="padding: 4px 0; color: #333;">${this._esc(String(context))}</td></tr>`;
+    }
 
     const html = this._wrap(`
       <div style="margin: 0 0 24px; padding: 16px 20px; background: #fef2f2; border-radius: 10px; border: 2px solid #ef4444;">
@@ -1902,9 +2006,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
         <table style="width: 100%; font-size: 14px; color: #333;">
-          <tr><td style="padding: 4px 0;">Alert type</td><td style="text-align: right; font-weight: 700;">${alertType || 'Unknown'}</td></tr>
-          <tr><td style="padding: 4px 0;">Church</td><td style="text-align: right; font-weight: 700;">${church.name}</td></tr>
-          ${contextStr ? `<tr><td style="padding: 4px 0;" colspan="2"><pre style="margin: 8px 0 0; font-size: 12px; background: #f1f5f9; padding: 8px; border-radius: 4px; overflow-x: auto;">${contextStr}</pre></td></tr>` : ''}
+          <tr><td style="padding: 4px 0; color: #64748b;">Alert type</td><td style="text-align: right; font-weight: 700;">${this._esc(alertType || 'Unknown')}</td></tr>
+          <tr><td style="padding: 4px 0; color: #64748b;">Church</td><td style="text-align: right; font-weight: 700;">${this._esc(church.name)}</td></tr>
+          ${contextRows}
         </table>
       </div>
 
@@ -2062,15 +2166,18 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const name = lead.name ? lead.name.split(' ')[0] : 'there';
 
     const html = this._wrap(`
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Hey ${name} &mdash; thanks for your interest in Tally</h1>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Every Sunday, something breaks in the booth</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        Tally is the production monitoring system built specifically for churches.
-        It watches your ATEM switcher, OBS, streaming, and other gear &mdash;
-        and automatically fixes problems before your congregation notices.
+        Hey ${name} &mdash; every church production team knows this feeling: the stream drops mid-sermon,
+        nobody catches it for 4 minutes, and by the time someone scrambles to fix it, the online audience
+        is gone. We built Tally to fix that &mdash; automatically.
+      </p>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Tally watches your production gear 24/7 and handles problems before your congregation notices:
       </p>
 
       <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
-        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">What Tally does:</div>
         <div style="font-size: 14px; color: #333; line-height: 2;">
           &bull; <strong>Auto-recovers</strong> dropped streams before anyone notices<br>
           &bull; <strong>Pre-service checks</strong> 30 minutes before service starts<br>
@@ -2080,7 +2187,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        You get a 14-day free trial with full access &mdash; no credit card required to start.
+        14-day free trial, full access, no credit card required.
       </p>
 
       ${this._cta('Start Your Free Trial', signupUrl)}
@@ -2090,7 +2197,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Hey ${name} — thanks for your interest in Tally\n\nTally monitors your church production gear and auto-fixes problems.\n\n- Auto-recovers dropped streams\n- Pre-service health checks\n- Real-time alerts via Telegram\n- Weekly reports\n\nStart your free trial: ${signupUrl}\n\n— Andrew Disbrow`;
+    const text = `Every Sunday, something breaks in the booth\n\nHey ${name} — every church production team knows this: the stream drops mid-sermon, nobody catches it for 4 minutes, and the online audience is gone. We built Tally to fix that — automatically.\n\n- Auto-recovers dropped streams before anyone notices\n- Pre-service health checks 30 min before service\n- Real-time alerts via Telegram\n- Weekly reports for leadership\n\n14-day free trial, no credit card: ${signupUrl}\n\n— Andrew Disbrow`;
     return { html, text };
   }
 
@@ -2260,21 +2367,27 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const tierName = TIER_NAMES[tier] || tier || 'your plan';
     const portalUrl = `${this.appUrl}/portal`;
 
+    // Tier-specific feature highlights
+    const TIER_FEATURES = {
+      connect: ['24/7 real-time monitoring &amp; auto-recovery', 'Pre-service health checks', 'Telegram alerts &amp; remote control', 'Session timelines &amp; reports'],
+      plus: ['Everything in Connect', 'Multi-campus monitoring', 'Weekly production digests', 'Extended session history'],
+      pro: ['Everything in Plus', 'AutoPilot automation rules', 'Analytics dashboard', 'Priority support &amp; onboarding'],
+      managed: ['Everything in Pro', 'Dedicated success manager', 'Custom integrations &amp; SLA', 'Multi-campus fleet management'],
+      event: ['Single-event monitoring pass', 'Real-time alerts &amp; auto-recovery', 'Post-event recap report'],
+    };
+    const tierFeatures = TIER_FEATURES[tier] || TIER_FEATURES.connect;
+    const featureList = tierFeatures.map(f => `&bull; ${f}`).join('<br>');
+
     const html = this._wrap(`
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Payment confirmed &mdash; you're on ${tierName}!</h1>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">🎉 Welcome to ${tierName} &mdash; you're all set!</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
         Thanks for subscribing! <strong>${church.name}</strong> is now on the <strong>${tierName}</strong> plan${interval === 'annual' ? ' (annual)' : ''}.
+        You're joining hundreds of church production teams who now spend Sunday morning watching the service, not fighting it.
       </p>
 
       <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
-        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 8px;">What's included:</div>
-        <div style="font-size: 14px; color: #333; line-height: 2;">
-          &bull; 24/7 real-time monitoring &amp; auto-recovery<br>
-          &bull; Pre-service health checks<br>
-          &bull; Telegram alerts &amp; remote control<br>
-          &bull; Session timelines &amp; reports<br>
-          &bull; Priority support
-        </div>
+        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 8px;">What's included on ${tierName}:</div>
+        <div style="font-size: 14px; color: #333; line-height: 2;">${featureList}</div>
       </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -2284,7 +2397,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Open Your Portal', portalUrl)}
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
-        Thank you for trusting Tally with your production. We're here if you need anything.
+        Thank you for trusting Tally with your production. Reply to this email anytime &mdash; we're here if you need anything.
       </p>
     `);
 
@@ -2357,6 +2470,886 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       return { sent: false, reason: 'network-error' };
     }
   }
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NEW EMAILS — all 13 gaps from EMAIL_AUDIT.md
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ─── GAP 1: EARLY WIN-BACK (Day 7-14 post-cancel) ─────────────────────────
+  // Personal from Andrew, no feature list, empathy + reactivate link.
+
+  async _checkEarlyWinBack() {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+    let churches = [];
+    try {
+      churches = this.db.prepare(`
+        SELECT c.churchId, c.name, c.portal_email
+        FROM churches c
+        WHERE c.billing_status IN ('canceled', 'inactive')
+          AND c.portal_email IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM billing_customers bc
+            WHERE bc.church_id = c.churchId
+              AND bc.status = 'canceled'
+              AND bc.updated_at <= ?
+              AND bc.updated_at >= ?
+          )
+      `).all(sevenDaysAgo, fourteenDaysAgo);
+    } catch { return; }
+
+    for (const church of churches) {
+      const { html, text } = this._buildEarlyWinBackEmail(church);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'early-win-back',
+        to: church.portal_email,
+        subject: "How'd Sunday go without Tally?",
+        html, text,
+      });
+    }
+  }
+
+  _buildEarlyWinBackEmail(church) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">How'd Sunday go?</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        It's Andrew from Tally. <strong>${church.name}</strong> cancelled about a week ago,
+        which means you've had at least one Sunday without monitoring by now.
+      </p>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        I'm not going to pitch you anything &mdash; I'm just genuinely curious how it went.
+        If everything was fine, that's great to know. If anything went sideways &mdash; a stream drop,
+        a gear issue nobody caught in time &mdash; your settings are still saved and you can reactivate in seconds.
+      </p>
+
+      ${this._cta('Reactivate Tally', portalUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        Or just reply and tell me how Sunday went. I read every response.
+      </p>
+
+      <p style="font-size: 14px; color: #666;">
+        &mdash; Andrew Disbrow<br>Founder, Tally
+      </p>
+    `);
+
+    const text = `How'd Sunday go?\n\nIt's Andrew from Tally. ${church.name} cancelled about a week ago, which means you've had at least one Sunday without monitoring.\n\nIf anything went sideways, your settings are still saved and you can reactivate in seconds: ${portalUrl}\n\nOr just reply and tell me how it went.\n\n— Andrew Disbrow, Founder`;
+    return { html, text };
+  }
+
+  // ─── GAP 2: ACTIVATION ESCALATION (Day 10, never connected) ───────────────
+  // List 3 common blockers, invite reply.
+
+  async _checkActivationEscalation() {
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+    const churches = this.db.prepare(`
+      SELECT churchId, name, portal_email
+      FROM churches
+      WHERE onboarding_app_connected_at IS NULL
+        AND portal_email IS NOT NULL
+        AND registeredAt <= ?
+        AND registeredAt >= ?
+        AND billing_status IN ('trialing', 'active')
+    `).all(tenDaysAgo, fourteenDaysAgo);
+
+    for (const church of churches) {
+      const { html, text } = this._buildActivationEscalationEmail(church);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'activation-escalation',
+        to: church.portal_email,
+        subject: "Your Tally setup isn't complete \u2014 want us to help?",
+        html, text,
+      });
+    }
+  }
+
+  _buildActivationEscalationEmail(church) {
+    const downloadUrl = GITHUB_RELEASES_URL;
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your setup isn't complete yet</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Your trial at <strong>${church.name}</strong> is almost over and we still haven't seen your booth computer connect.
+        That means Tally hasn't been able to monitor anything yet.
+      </p>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        The most common reasons setup gets stuck:
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #fffbeb; border-radius: 10px; border: 1px solid #fde68a;">
+        <div style="font-size: 14px; color: #333; line-height: 2.2;">
+          <strong>1. The app downloaded but didn't run</strong> &mdash; look for Tally in your Applications folder and double-click it<br>
+          <strong>2. Registration code wasn't accepted</strong> &mdash; check your original signup email for the code, or reply and we'll resend it<br>
+          <strong>3. Firewall is blocking the connection</strong> &mdash; Tally needs outbound access to api.tallyconnect.app on port 443
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        <strong>Reply to this email</strong> with your setup question and I'll personally walk you through it.
+        Or download the app again and try the setup assistant fresh:
+      </p>
+
+      ${this._cta('Download Tally', downloadUrl)}
+
+      <p style="font-size: 14px; color: #666;">
+        &mdash; Andrew Disbrow<br>Founder, Tally
+      </p>
+    `);
+
+    const text = `Your setup isn't complete yet\n\nYour trial at ${church.name} is almost over and we haven't seen your booth computer connect yet.\n\nCommon blockers:\n1. App downloaded but didn't run — look in Applications and double-click Tally\n2. Registration code not accepted — reply and we'll resend it\n3. Firewall blocking the connection — Tally needs outbound port 443\n\nReply to this email with your question — I'll personally help. Or try again: ${downloadUrl}\n\n— Andrew Disbrow, Founder`;
+    return { html, text };
+  }
+
+  // ─── GAP 3: PRE-SERVICE FRIDAY EMAIL (48h before first scheduled service) ──
+  // Checklist format, contextual timing.
+
+  async _checkPreServiceFriday() {
+    const in48h = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    const in24h = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    let upcomingServices = [];
+    try {
+      upcomingServices = this.db.prepare(`
+        SELECT ss.church_id, ss.service_time, c.name, c.portal_email, c.churchId
+        FROM service_schedules ss
+        JOIN churches c ON c.churchId = ss.church_id
+        WHERE ss.service_time >= ?
+          AND ss.service_time <= ?
+          AND c.portal_email IS NOT NULL
+          AND c.billing_status IN ('trialing', 'active')
+          AND c.onboarding_app_connected_at IS NOT NULL
+      `).all(in24h, in48h);
+    } catch { return; } // service_schedules may not exist
+
+    for (const svc of upcomingServices) {
+      const church = { churchId: svc.churchId, name: svc.name, portal_email: svc.portal_email };
+      const serviceTime = new Date(svc.service_time);
+      const { html, text } = this._buildPreServiceFridayEmail(church, serviceTime);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: `pre-service-friday-${svc.service_time}`,
+        to: church.portal_email,
+        subject: 'Two days to Sunday \u2014 Tally is watching',
+        html, text,
+      });
+    }
+  }
+
+  _buildPreServiceFridayEmail(church, serviceTime) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const serviceLabel = serviceTime
+      ? serviceTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }) +
+        ' at ' + serviceTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      : 'your upcoming service';
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Two days to Sunday &mdash; you're ready</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Tally has <strong>${serviceLabel}</strong> on the schedule for <strong>${church.name}</strong>.
+        Here's your pre-service checklist:
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+        <div style="font-size: 14px; color: #333; line-height: 2.5;">
+          ✅ Tally is monitoring your gear continuously<br>
+          ✅ Automatic pre-flight check runs 30 min before service<br>
+          ✅ Stream recovery is armed and ready<br>
+          ☐ Telegram alerts set up? <a href="${portalUrl}" style="color: #22c55e; text-decoration: none;">Configure now →</a><br>
+          ☐ Leadership recipients set? <a href="${portalUrl}" style="color: #22c55e; text-decoration: none;">Add them →</a>
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        On Sunday morning, you'll get a green-light confirmation (or a specific issue list) 30 minutes before service.
+        After service, you'll get a session recap with grades, timeline, and stats.
+      </p>
+
+      ${this._cta('Open Your Portal', portalUrl)}
+    `);
+
+    const text = `Two days to Sunday — you're ready\n\nTally has ${serviceLabel} on the schedule for ${church.name}.\n\nPre-service checklist:\n✅ Tally monitoring your gear\n✅ Pre-flight check runs 30 min before\n✅ Stream recovery armed\n☐ Telegram alerts set up? ${portalUrl}\n☐ Leadership recipients set? ${portalUrl}\n\nYou'll get a green-light confirmation 30 min before service starts.\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    return { html, text };
+  }
+
+  // ─── GAP 4: TRIAL-TO-PAID ONBOARDING (24h after first payment) ────────────
+  // Tier-specific features they haven't activated yet.
+
+  async _checkTrialToPaidOnboarding() {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
+    let churches = [];
+    try {
+      churches = this.db.prepare(`
+        SELECT c.churchId, c.name, c.portal_email, c.billing_tier, bc.subscribed_at
+        FROM churches c
+        JOIN billing_customers bc ON bc.church_id = c.churchId
+        WHERE c.billing_status = 'active'
+          AND c.portal_email IS NOT NULL
+          AND bc.subscribed_at IS NOT NULL
+          AND bc.subscribed_at <= ?
+          AND bc.subscribed_at >= ?
+      `).all(oneDayAgo, twoDaysAgo);
+    } catch { return; }
+
+    for (const church of churches) {
+      const { html, text } = this._buildTrialToPaidOnboardingEmail(church);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'trial-to-paid-onboarding',
+        to: church.portal_email,
+        subject: `3 things to configure now that you're on ${this._tierName(church.billing_tier)}`,
+        html, text,
+      });
+    }
+  }
+
+  _tierName(tier) {
+    return { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise' }[tier] || tier || 'your plan';
+  }
+
+  _buildTrialToPaidOnboardingEmail(church) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const tierName = this._tierName(church.billing_tier);
+
+    const TIER_ACTIONS = {
+      connect: [
+        ['Set your service schedule', 'Tally needs to know when your services are to run pre-flight checks. Takes 2 minutes.', portalUrl + '#schedule'],
+        ['Add your tech director to Telegram alerts', 'This is how Tally reaches your TD in real-time. Critical for auto-recovery.', portalUrl + '#notifications'],
+        ['Invite leadership to receive reports', 'Send weekly digests to your pastor or executive team automatically.', portalUrl + '#tds'],
+      ],
+      plus: [
+        ['Add your other campuses', 'Plus supports multi-campus — add each location so Tally monitors them all.', portalUrl + '#campuses'],
+        ['Set your service schedule for each campus', 'Each campus can have its own service times and alert recipients.', portalUrl + '#schedule'],
+        ['Set up Telegram for each campus TD', 'Each campus TD should have their own Telegram alert channel.', portalUrl + '#notifications'],
+      ],
+      pro: [
+        ['Set up your first AutoPilot rule', 'Pro includes automation — try "auto-start recording when service begins."', portalUrl + '#autopilot'],
+        ['Schedule your onboarding call', 'Pro includes a personal onboarding session. Reply to this email to schedule.', 'mailto:support@tallyconnect.app'],
+        ['Configure analytics recipients', 'Your analytics dashboard is ready — share it with leadership.', portalUrl + '#analytics'],
+      ],
+      managed: [
+        ['Reach out to your success manager', 'Your dedicated success manager will contact you within 24 hours to schedule setup.', 'mailto:support@tallyconnect.app'],
+        ['Add all campus locations', 'Enterprise supports unlimited campuses — add them all and assign TDs.', portalUrl + '#campuses'],
+        ['Review your SLA and support channels', 'Your Enterprise SLA includes priority escalation. Review it in your portal.', portalUrl + '#billing'],
+      ],
+    };
+
+    const actions = TIER_ACTIONS[church.billing_tier] || TIER_ACTIONS.connect;
+    const actionItems = actions.map(([title, desc, url], i) => `
+      <div style="padding: 16px 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 10px;">
+        <strong style="font-size: 14px; color: #111;">${i + 1}. ${title}</strong>
+        <p style="font-size: 13px; color: #555; margin: 4px 0 8px;">${desc}</p>
+        <a href="${url}" style="font-size: 13px; color: #22c55e; text-decoration: none; font-weight: 600;">Do this now →</a>
+      </div>`).join('');
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Welcome to ${tierName} &mdash; 3 things to set up today</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        <strong>${church.name}</strong> is now a paying subscriber &mdash; thank you.
+        Here are the three highest-impact things to configure on ${tierName}:
+      </p>
+
+      <div style="margin: 24px 0;">${actionItems}</div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Each of these takes under 5 minutes and dramatically increases how much Tally can do for you.
+      </p>
+
+      ${this._cta('Open Your Portal', portalUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        Questions? Reply to this email &mdash; happy to help.
+      </p>
+    `);
+
+    const text = `Welcome to ${tierName} — 3 things to set up today\n\n${church.name} is now a paying subscriber. Here are the three highest-impact things to configure:\n\n${actions.map(([t], i) => `${i + 1}. ${t}`).join('\n')}\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    return { html, text };
+  }
+
+  // ─── GAP 5: MONTHLY ROI SUMMARY ────────────────────────────────────────────
+  // Human-readable ROI narrative for the portal owner (separate from leadership report).
+
+  async sendMonthlyROISummary(church, reportData) {
+    if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
+    const month = reportData.month || new Date().toISOString().slice(0, 7);
+    const { html, text } = this._buildMonthlyROISummaryEmail(church, reportData);
+    return this.sendEmail({
+      churchId: church.churchId,
+      emailType: `monthly-roi-summary-${month}`,
+      to: church.portal_email,
+      subject: `${reportData.monthLabel || month} at ${church.name} \u2014 here's what Tally prevented`,
+      html, text,
+    });
+  }
+
+  _buildMonthlyROISummaryEmail(church, reportData) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const autoRecovered = reportData.autoRecovered || 0;
+    const alertsTriggered = reportData.alertsTriggered || 0;
+    const servicesMonitored = reportData.servicesMonitored || 0;
+    const monthLabel = reportData.monthLabel || reportData.month || 'This month';
+    // Estimate minutes saved: each auto-recovery prevents ~4 min of undetected outage
+    const minutesSaved = autoRecovered * 4;
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">${this._esc(monthLabel)} in review &mdash; here's what Tally prevented</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Tally monitored <strong>${servicesMonitored} service${servicesMonitored !== 1 ? 's' : ''}</strong> at
+        <strong>${church.name}</strong> last month. Here's the ROI in plain English:
+      </p>
+
+      <div style="margin: 24px 0; padding: 24px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0; text-align: center;">
+        <div style="font-size: 36px; font-weight: 800; color: #15803d;">${autoRecovered}</div>
+        <div style="font-size: 15px; color: #333; margin-top: 4px;">issue${autoRecovered !== 1 ? 's' : ''} auto-resolved by Tally</div>
+        ${minutesSaved > 0 ? `<div style="font-size: 14px; color: #64748b; margin-top: 8px;">That's ~${minutesSaved} minutes of undetected downtime prevented</div>` : ''}
+      </div>
+
+      ${autoRecovered > 0
+        ? `<p style="font-size: 15px; color: #333; line-height: 1.6;">
+            ${autoRecovered} Sunday moment${autoRecovered !== 1 ? 's' : ''} your congregation never saw. Each auto-recovery happens silently &mdash;
+            your stream drops, Tally restarts it in under 5 seconds, and your online audience never notices.
+          </p>`
+        : `<p style="font-size: 15px; color: #22c55e; font-weight: 600; line-height: 1.6;">
+            Clean month &mdash; no issues required intervention. Tally watched ${servicesMonitored} service${servicesMonitored !== 1 ? 's' : ''} without a problem.
+          </p>`}
+
+      ${alertsTriggered > 0 ? `<p style="font-size: 14px; color: #555; line-height: 1.6;">
+        Tally also flagged ${alertsTriggered} alert${alertsTriggered !== 1 ? 's' : ''} that required attention &mdash;
+        issues that might have gone unnoticed without monitoring.
+      </p>` : ''}
+
+      ${this._cta('View Full Monthly Report', portalUrl)}
+    `);
+
+    const text = `${monthLabel} in review — here's what Tally prevented\n\n${church.name}: ${servicesMonitored} services monitored, ${autoRecovered} issues auto-resolved${minutesSaved > 0 ? `, ~${minutesSaved} minutes of downtime prevented` : ''}.\n\n${autoRecovered > 0 ? `${autoRecovered} Sunday moments your congregation never saw.` : 'Clean month — no issues required intervention.'}\n\nView report: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    return { html, text };
+  }
+
+  // ─── GAP 6: ANNUAL RENEWAL REMINDER (30 days before annual renewal) ─────────
+
+  async _checkAnnualRenewalReminder() {
+    const thirtyDaysFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const twentyEightDaysFromNow = new Date(Date.now() + 28 * 24 * 60 * 60 * 1000).toISOString();
+
+    let churches = [];
+    try {
+      churches = this.db.prepare(`
+        SELECT c.churchId, c.name, c.portal_email, c.billing_tier, bc.current_period_end
+        FROM churches c
+        JOIN billing_customers bc ON bc.church_id = c.churchId
+        WHERE c.billing_status = 'active'
+          AND c.billing_interval = 'annual'
+          AND c.portal_email IS NOT NULL
+          AND bc.current_period_end IS NOT NULL
+          AND bc.current_period_end <= ?
+          AND bc.current_period_end >= ?
+      `).all(thirtyDaysFromNow, twentyEightDaysFromNow);
+    } catch { return; }
+
+    for (const church of churches) {
+      const { html, text } = this._buildAnnualRenewalReminderEmail(church);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: `annual-renewal-reminder-${church.current_period_end?.slice(0, 10) || 'unknown'}`,
+        to: church.portal_email,
+        subject: `Your annual Tally subscription renews in 30 days`,
+        html, text,
+      });
+    }
+  }
+
+  _buildAnnualRenewalReminderEmail(church) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const tierName = this._tierName(church.billing_tier);
+    const renewalDate = church.current_period_end
+      ? new Date(church.current_period_end).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : '30 days from now';
+
+    // Get year stats if available
+    let yearStats = null;
+    try {
+      const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+      const sessions = this.db.prepare('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?').get(church.churchId, yearAgo);
+      const autoFixed = this.db.prepare("SELECT COUNT(*) as cnt FROM service_events WHERE church_id = ? AND auto_resolved = 1 AND timestamp >= ?").get(church.churchId, yearAgo);
+      yearStats = { sessions: sessions?.cnt || 0, autoFixed: autoFixed?.cnt || 0 };
+    } catch { /* tables may not exist */ }
+
+    const statsHtml = yearStats && (yearStats.sessions > 0 || yearStats.autoFixed > 0) ? `
+      <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 8px;">Your year with Tally:</div>
+        <div style="font-size: 14px; color: #333; line-height: 2;">
+          &bull; <strong>${yearStats.sessions}</strong> service${yearStats.sessions !== 1 ? 's' : ''} monitored<br>
+          ${yearStats.autoFixed > 0 ? `&bull; <strong>${yearStats.autoFixed}</strong> issue${yearStats.autoFixed !== 1 ? 's' : ''} auto-resolved before anyone noticed` : ''}
+        </div>
+      </div>` : '';
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your annual Tally subscription renews in 30 days</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Thanks for a great year with <strong>${church.name}</strong> on ${tierName}.
+        Your annual subscription renews on <strong>${renewalDate}</strong> &mdash; no action needed unless you'd like to make changes.
+      </p>
+
+      ${statsHtml}
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        View your billing details, update your payment method, or manage your plan from your portal:
+      </p>
+
+      ${this._cta('View Billing Details', portalUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        Questions about renewal? Reply to this email &mdash; happy to help.
+      </p>
+    `);
+
+    const text = `Your annual Tally subscription renews in 30 days\n\nThanks for a great year, ${church.name}! Your ${tierName} subscription renews on ${renewalDate}.\n\n${yearStats ? `Year in review: ${yearStats.sessions} services monitored, ${yearStats.autoFixed} auto-resolved.\n\n` : ''}View billing: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    return { html, text };
+  }
+
+  // ─── GAP 7: TELEGRAM NOT SET UP NUDGE (Day 5 if no Telegram) ────────────────
+
+  async _checkTelegramSetupNudge() {
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+
+    let churches = [];
+    try {
+      churches = this.db.prepare(`
+        SELECT churchId, name, portal_email
+        FROM churches
+        WHERE portal_email IS NOT NULL
+          AND onboarding_app_connected_at IS NOT NULL
+          AND (telegram_chat_id IS NULL OR telegram_chat_id = '')
+          AND registeredAt <= ?
+          AND registeredAt >= ?
+          AND billing_status IN ('trialing', 'active')
+      `).all(fiveDaysAgo, tenDaysAgo);
+    } catch { return; }
+
+    for (const church of churches) {
+      const { html, text } = this._buildTelegramSetupNudgeEmail(church);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'telegram-setup-nudge',
+        to: church.portal_email,
+        subject: "You're missing the best part of Tally",
+        html, text,
+      });
+    }
+  }
+
+  _buildTelegramSetupNudgeEmail(church) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">You're missing the best part of Tally</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        <strong>${church.name}</strong> is connected and monitoring &mdash; great.
+        But without Telegram set up, your technical director isn't getting real-time alerts.
+        That means issues are caught, but nobody's being notified.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">Set up Telegram in 3 minutes:</div>
+        <div style="font-size: 14px; color: #333; line-height: 2.2;">
+          <strong>1.</strong> Download Telegram on your TD's phone (free)<br>
+          <strong>2.</strong> Search for <strong>@TallyConnectBot</strong> in Telegram<br>
+          <strong>3.</strong> Start the bot and paste in your church ID
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Once connected, your TD gets instant alerts on their phone when something breaks &mdash;
+        with a one-tap command to auto-fix it. No more checking the booth computer every few minutes.
+      </p>
+
+      ${this._cta('Set Up Telegram Alerts', portalUrl + '#notifications')}
+    `);
+
+    const text = `You're missing the best part of Tally\n\n${church.name} is connected but Telegram isn't set up — so nobody's getting real-time alerts.\n\nSet up in 3 minutes:\n1. Download Telegram (free)\n2. Search @TallyConnectBot\n3. Start the bot and paste your church ID\n\nSet up now: ${portalUrl}#notifications\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    return { html, text };
+  }
+
+  // ─── GAP 8: NPS SURVEY (Day 60 for all active customers) ───────────────────
+
+  async _checkNPSSurvey() {
+    const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+    const sixtyFiveDaysAgo = new Date(Date.now() - 65 * 24 * 60 * 60 * 1000).toISOString();
+
+    const churches = this.db.prepare(`
+      SELECT churchId, name, portal_email
+      FROM churches
+      WHERE billing_status = 'active'
+        AND portal_email IS NOT NULL
+        AND registeredAt <= ?
+        AND registeredAt >= ?
+    `).all(sixtyDaysAgo, sixtyFiveDaysAgo);
+
+    for (const church of churches) {
+      const { html, text } = this._buildNPSSurveyEmail(church);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'nps-survey',
+        to: church.portal_email,
+        subject: 'Quick question \u2014 how likely are you to recommend Tally?',
+        html, text,
+      });
+    }
+  }
+
+  _buildNPSSurveyEmail(church) {
+    const portalUrl = `${this.appUrl}/portal`;
+    // Build clickable 1-10 score row
+    const scores = Array.from({ length: 10 }, (_, i) => i + 1);
+    const scoreLinks = scores.map(n => `<a href="${this.appUrl}/nps?church=${church.churchId}&score=${n}" style="display:inline-block; width:36px; height:36px; line-height:36px; text-align:center; border-radius:6px; background:${n <= 6 ? '#fef2f2' : n <= 8 ? '#fffbeb' : '#f0fdf4'}; border:1px solid ${n <= 6 ? '#fecaca' : n <= 8 ? '#fde68a' : '#bbf7d0'}; color:#111; text-decoration:none; font-weight:700; font-size:13px; margin:2px;">${n}</a>`).join('');
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Quick question &mdash; 30 seconds</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Hey &mdash; <strong>${church.name}</strong> has been running Tally for about 60 days now.
+        I have one question:
+      </p>
+
+      <div style="margin: 24px 0; padding: 24px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0; text-align: center;">
+        <p style="font-size: 16px; font-weight: 700; color: #111; margin: 0 0 16px;">
+          How likely are you to recommend Tally to another church production team?
+        </p>
+        <div style="margin: 16px 0;">${scoreLinks}</div>
+        <div style="display: flex; justify-content: space-between; font-size: 12px; color: #94a3b8; margin-top: 8px;">
+          <span>Not likely</span><span>Very likely</span>
+        </div>
+      </div>
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        Or just reply to this email with your score and any comments &mdash; I read every response personally.
+      </p>
+
+      <p style="font-size: 14px; color: #666;">
+        &mdash; Andrew Disbrow<br>Founder, Tally
+      </p>
+    `);
+
+    const text = `Quick question — how likely are you to recommend Tally?\n\n${church.name} has been running Tally for about 60 days. How likely are you to recommend us to another church production team?\n\nScore 1-10: just reply with your number and any comments.\n\n— Andrew Disbrow, Founder`;
+    return { html, text };
+  }
+
+  // ─── GAP 9: FIRST YEAR ANNIVERSARY ─────────────────────────────────────────
+
+  async _checkFirstYearAnniversary() {
+    const threeSixtyFiveDaysAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+    const threeSixtyEightDaysAgo = new Date(Date.now() - 368 * 24 * 60 * 60 * 1000).toISOString();
+
+    const churches = this.db.prepare(`
+      SELECT churchId, name, portal_email, billing_tier
+      FROM churches
+      WHERE billing_status = 'active'
+        AND portal_email IS NOT NULL
+        AND registeredAt <= ?
+        AND registeredAt >= ?
+    `).all(threeSixtyFiveDaysAgo, threeSixtyEightDaysAgo);
+
+    for (const church of churches) {
+      const { html, text } = this._buildFirstYearAnniversaryEmail(church);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'first-year-anniversary',
+        to: church.portal_email,
+        subject: `${church.name} just completed one year with Tally 🎉`,
+        html, text,
+      });
+    }
+  }
+
+  _buildFirstYearAnniversaryEmail(church) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const tierName = this._tierName(church.billing_tier);
+
+    // Get year stats if available
+    let yearStats = { sessions: 0, autoFixed: 0 };
+    try {
+      const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+      const s = this.db.prepare('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?').get(church.churchId, yearAgo);
+      const a = this.db.prepare("SELECT COUNT(*) as cnt FROM service_events WHERE church_id = ? AND auto_resolved = 1 AND timestamp >= ?").get(church.churchId, yearAgo);
+      yearStats = { sessions: s?.cnt || 0, autoFixed: a?.cnt || 0 };
+    } catch { /* tables may not exist */ }
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">One year with Tally 🎉</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        <strong>${church.name}</strong> just hit one year on the ${tierName} plan. That's 52 Sundays with Tally watching your gear &mdash; thank you for your trust.
+      </p>
+
+      ${yearStats.sessions > 0 ? `
+      <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 8px;">Your year in numbers:</div>
+        <div style="font-size: 14px; color: #333; line-height: 2;">
+          &bull; <strong>${yearStats.sessions}</strong> service${yearStats.sessions !== 1 ? 's' : ''} monitored<br>
+          ${yearStats.autoFixed > 0 ? `&bull; <strong>${yearStats.autoFixed}</strong> issue${yearStats.autoFixed !== 1 ? 's' : ''} auto-resolved — moments your congregation never saw` : '&bull; No critical issues this year &mdash; remarkable run'}
+        </div>
+      </div>` : ''}
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        If you know another church production team dealing with stream drops or gear surprises on Sunday morning &mdash;
+        we'd love an introduction. You can send them to <a href="${this.appUrl}/signup" style="color: #22c55e; text-decoration: none;">tallyconnect.app/signup</a>
+        and mention your church name for a referral credit.
+      </p>
+
+      ${this._cta('View Your Year in the Portal', portalUrl)}
+
+      <p style="font-size: 14px; color: #666;">
+        Grateful for you. &mdash; Andrew Disbrow<br>Founder, Tally
+      </p>
+    `);
+
+    const text = `One year with Tally! 🎉\n\n${church.name} just hit one year on ${tierName}. Thank you for your trust.\n\n${yearStats.sessions > 0 ? `Year in numbers: ${yearStats.sessions} services monitored, ${yearStats.autoFixed} auto-resolved.\n\n` : ''}Know another church dealing with stream issues? Send them to tallyconnect.app/signup and mention your church name for a referral credit.\n\nView your year: ${portalUrl}\n\n— Andrew Disbrow, Founder`;
+    return { html, text };
+  }
+
+  // ─── GAP 10: REFERRAL PROGRAM INVITE (Day 90, 4+ sessions) ────────────────
+
+  async _checkReferralInvite() {
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const ninetyFiveDaysAgo = new Date(Date.now() - 95 * 24 * 60 * 60 * 1000).toISOString();
+
+    const churches = this.db.prepare(`
+      SELECT churchId, name, portal_email
+      FROM churches
+      WHERE billing_status = 'active'
+        AND portal_email IS NOT NULL
+        AND registeredAt <= ?
+        AND registeredAt >= ?
+    `).all(ninetyDaysAgo, ninetyFiveDaysAgo);
+
+    for (const church of churches) {
+      // Need 4+ sessions
+      let sessionCount = 0;
+      try {
+        const sc = this.db.prepare('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ?').get(church.churchId);
+        sessionCount = sc?.cnt || 0;
+      } catch { continue; }
+      if (sessionCount < 4) continue;
+
+      const { html, text } = this._buildReferralInviteEmail(church, { sessionCount });
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'referral-invite',
+        to: church.portal_email,
+        subject: 'Know another church production team struggling with the same problems?',
+        html, text,
+      });
+    }
+  }
+
+  _buildReferralInviteEmail(church, { sessionCount }) {
+    const signupUrl = `${this.appUrl}/signup`;
+    const portalUrl = `${this.appUrl}/portal`;
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Know another church production team we could help?</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        <strong>${church.name}</strong> has run <strong>${sessionCount} services</strong> with Tally now &mdash;
+        that's a solid track record. Church production teams talk to each other.
+        If you know another TD dealing with stream drops or Sunday morning scrambles, send them to Tally.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+        <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 8px;">How it works:</div>
+        <div style="font-size: 14px; color: #333; line-height: 2.2;">
+          <strong>1.</strong> Share <a href="${signupUrl}" style="color: #22c55e; text-decoration: none;">tallyconnect.app/signup</a> with a church you know<br>
+          <strong>2.</strong> Ask them to mention <strong>${church.name}</strong> when they sign up<br>
+          <strong>3.</strong> When they subscribe, you both get <strong>one month free</strong>
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        No referral codes to track &mdash; just tell them to mention your church name. We'll handle the rest.
+      </p>
+
+      ${this._cta('Share Tally with Another Church', signupUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        Questions? Reply to this email.
+      </p>
+
+      <p style="font-size: 14px; color: #666;">
+        &mdash; Andrew Disbrow<br>Founder, Tally
+      </p>
+    `);
+
+    const text = `Know another church production team we could help?\n\n${church.name} has run ${sessionCount} services with Tally — thank you. If you know another TD dealing with stream drops, send them to ${signupUrl}.\n\nHow referrals work:\n1. Share tallyconnect.app/signup\n2. Ask them to mention "${church.name}" when signing up\n3. When they subscribe, you both get one month free\n\n— Andrew Disbrow, Founder`;
+    return { html, text };
+  }
+
+  // ─── GAP 11: INACTIVITY ALERT (4+ weeks no sessions) ───────────────────────
+
+  async _checkInactivityAlert() {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const churches = this.db.prepare(`
+      SELECT churchId, name, portal_email
+      FROM churches
+      WHERE billing_status = 'active'
+        AND portal_email IS NOT NULL
+        AND onboarding_app_connected_at IS NOT NULL
+    `).all();
+
+    for (const church of churches) {
+      // Check last session date
+      let lastSessionAt = null;
+      try {
+        const row = this.db.prepare(
+          'SELECT MAX(started_at) as last_at FROM service_sessions WHERE church_id = ?'
+        ).get(church.churchId);
+        lastSessionAt = row?.last_at;
+      } catch { continue; }
+
+      // Only flag if last session was 30+ days ago (or never)
+      if (lastSessionAt && lastSessionAt >= thirtyDaysAgo) continue;
+
+      const { html, text } = this._buildInactivityAlertEmail(church);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'inactivity-alert',
+        to: church.portal_email,
+        subject: "We haven't seen any services lately \u2014 everything okay?",
+        html, text,
+      });
+    }
+  }
+
+  _buildInactivityAlertEmail(church) {
+    const portalUrl = `${this.appUrl}/portal`;
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">We haven't seen any services lately</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Tally hasn't detected any service activity at <strong>${church.name}</strong> in the past 4 weeks.
+        Just checking in &mdash; everything okay?
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #fffbeb; border-radius: 10px; border: 1px solid #fde68a;">
+        <div style="font-size: 14px; color: #333; line-height: 2;">
+          Common reasons for inactivity:<br>
+          &bull; Summer break or seasonal schedule change<br>
+          &bull; Booth computer was disconnected or moved<br>
+          &bull; Service schedule hasn't been set in the portal<br>
+          &bull; App needs a reconnect after a system update
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        If you're taking a break &mdash; no worries. Tally will be here when you're back.
+        If services are running and Tally isn't monitoring, let's fix that:
+      </p>
+
+      ${this._cta('Check Your Connection', portalUrl)}
+
+      <p style="font-size: 14px; color: #666; line-height: 1.6;">
+        Reply to this email if you need help reconnecting &mdash; usually takes 2 minutes.
+      </p>
+    `);
+
+    const text = `We haven't seen any services lately\n\nTally hasn't detected any service activity at ${church.name} in the past 4 weeks. If services are running and Tally isn't monitoring, let's fix that: ${portalUrl}\n\nReply if you need help reconnecting.\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    return { html, text };
+  }
+
+  // ─── GAP 12: FEATURE ANNOUNCEMENT ──────────────────────────────────────────
+  // Manual trigger from admin for new feature releases.
+
+  async sendFeatureAnnouncement({ featureKey, subject, headline, body, ctaText, ctaUrl }) {
+    if (!featureKey) return { sent: 0, skipped: 0 };
+
+    const churches = this.db.prepare(`
+      SELECT churchId, name, portal_email
+      FROM churches
+      WHERE billing_status = 'active'
+        AND portal_email IS NOT NULL
+    `).all();
+
+    let sent = 0, skipped = 0;
+    for (const church of churches) {
+      const emailType = `feature-announcement-${featureKey}`;
+      const { html, text } = this._buildFeatureAnnouncementEmail(church, { headline, body, ctaText: ctaText || 'Learn More', ctaUrl: ctaUrl || this.appUrl + '/portal' });
+      const result = await this.sendEmail({
+        churchId: church.churchId,
+        emailType,
+        to: church.portal_email,
+        subject: subject || headline,
+        html, text,
+      });
+      if (result.sent) sent++; else skipped++;
+    }
+
+    console.log(`[LifecycleEmails] Feature announcement "${featureKey}": ${sent} sent, ${skipped} skipped`);
+    return { sent, skipped };
+  }
+
+  _buildFeatureAnnouncementEmail(church, { headline, body, ctaText, ctaUrl }) {
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">${this._esc(headline)}</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        This update is live now for <strong>${this._esc(church.name)}</strong>.
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+        <div style="font-size: 14px; color: #333; line-height: 1.8;">${body}</div>
+      </div>
+
+      ${this._cta(ctaText, ctaUrl)}
+
+      <p style="font-size: 13px; color: #888;">
+        This feature is available immediately &mdash; no update or setup required.
+      </p>
+    `);
+
+    const text = `${headline}\n\nThis update is live now for ${church.name}.\n\n${body.replace(/<[^>]+>/g, '')}\n\n${ctaUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    return { html, text };
+  }
+
+  // ─── GAP 13: SECOND GRACE PERIOD TOUCH (Day 2 of grace, 5 days before expiry) ──
+  // Handled by adding an early check in _checkGracePeriodEndingSoon — see below.
+  // The existing _checkGracePeriodEndingSoon now also fires at day 2 (5 days left).
+
+  async _checkGracePeriodEarlyWarning() {
+    const now = Date.now();
+    const fiveDaysFromNow = new Date(now + 5 * 24 * 60 * 60 * 1000).toISOString();
+    const threeDaysFromNow = new Date(now + 3 * 24 * 60 * 60 * 1000).toISOString();
+
+    let churches = [];
+    try {
+      churches = this.db.prepare(`
+        SELECT c.churchId, c.name, c.portal_email, bc.grace_period_ends_at
+        FROM churches c
+        JOIN billing_customers bc ON bc.church_id = c.churchId
+        WHERE c.portal_email IS NOT NULL
+          AND c.billing_status = 'past_due'
+          AND bc.grace_period_ends_at IS NOT NULL
+          AND bc.grace_period_ends_at <= ?
+          AND bc.grace_period_ends_at > ?
+      `).all(fiveDaysFromNow, threeDaysFromNow);
+    } catch { return; }
+
+    for (const church of churches) {
+      const daysLeft = Math.ceil(
+        (new Date(church.grace_period_ends_at).getTime() - now) / (24 * 60 * 60 * 1000)
+      );
+      const { html, text } = this._buildGracePeriodEndingSoonEmail(church, daysLeft);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'grace-period-ending-early',
+        to: church.portal_email,
+        subject: `Tally will be paused in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} \u2014 update payment now`,
+        html, text,
+      });
+    }
+  }
+
   // ─── ADMIN DASHBOARD METHODS ──────────────────────────────────────────────
 
   /** Email type registry — maps email_type to display info */
@@ -2393,6 +3386,20 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     { type: 'lead-day3-value',         name: 'Lead: Value Prop',         trigger: 'Auto — 3 days after capture' },
     { type: 'lead-day7-casestudy',     name: 'Lead: Case Study',         trigger: 'Auto — 7 days after capture' },
     { type: 'lead-day14-offer',        name: 'Lead: Special Offer',      trigger: 'Auto — 14 days after capture' },
+    // New gap emails (from EMAIL_AUDIT.md)
+    { type: 'early-win-back',          name: 'Early Win-Back',           trigger: 'Auto — 7-14 days after cancellation' },
+    { type: 'activation-escalation',   name: 'Activation Escalation',    trigger: 'Auto — Day 10, app never connected' },
+    { type: 'pre-service-friday',      name: 'Pre-Service Friday',       trigger: 'Auto — 48h before first scheduled service' },
+    { type: 'trial-to-paid-onboarding', name: 'Trial-to-Paid Onboarding', trigger: 'Auto — 24h after first payment' },
+    { type: 'monthly-roi-summary',     name: 'Monthly ROI Summary',      trigger: 'Monthly — portal owner ROI narrative' },
+    { type: 'annual-renewal-reminder', name: 'Annual Renewal Reminder',  trigger: 'Auto — 30 days before annual renewal' },
+    { type: 'telegram-setup-nudge',    name: 'Telegram Setup Nudge',     trigger: 'Auto — Day 5, no Telegram configured' },
+    { type: 'nps-survey',              name: 'NPS Survey',               trigger: 'Auto — Day 60 for active customers' },
+    { type: 'first-year-anniversary',  name: 'First Year Anniversary',   trigger: 'Auto — 365 days since signup' },
+    { type: 'referral-invite',         name: 'Referral Invite',          trigger: 'Auto — Day 90, 4+ sessions' },
+    { type: 'inactivity-alert',        name: 'Inactivity Alert',         trigger: 'Auto — 4+ weeks no sessions' },
+    { type: 'feature-announcement',    name: 'Feature Announcement',     trigger: 'Manual — admin triggered per release' },
+    { type: 'grace-period-ending-early', name: 'Grace Period Early Warning', trigger: 'Auto — 5 days before grace expiry (day 2)' },
   ];
 
   /** Get email send history with optional filters */
@@ -2578,10 +3585,24 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       'urgent-alert-escalation': () => ({ ...this._buildUrgentAlertEmail(sampleChurch, { alertType: 'stream_stopped', context: { source: 'OBS', duration: '90s' } }), subject: '🚨 URGENT: stream_stopped at Sample Church' }),
       'cancellation-survey':     () => ({ ...this._buildCancellationSurveyEmail(sampleChurch), subject: 'Quick question — what could we have done better?' }),
       // Lead nurture drip
-      'lead-welcome':            () => ({ ...this._buildLeadWelcomeEmail({ email: 'lead@example.com', name: 'John Smith' }), subject: 'Here\'s how churches are running stress-free services' }),
+      'lead-welcome':            () => ({ ...this._buildLeadWelcomeEmail({ email: 'lead@example.com', name: 'John Smith' }), subject: 'Every Sunday, something breaks in the booth' }),
       'lead-day3-value':         () => ({ ...this._buildLeadDay3Email({ email: 'lead@example.com', name: 'John Smith' }), subject: '3 problems Tally solves before Sunday' }),
       'lead-day7-casestudy':     () => ({ ...this._buildLeadDay7Email({ email: 'lead@example.com', name: 'John Smith' }), subject: 'How one church eliminated stream failures' }),
       'lead-day14-offer':        () => ({ ...this._buildLeadDay14Email({ email: 'lead@example.com', name: 'John Smith' }), subject: 'Ready to try Tally? Start your free trial' }),
+      // New gap emails
+      'early-win-back':          () => ({ ...this._buildEarlyWinBackEmail(sampleChurch), subject: "How'd Sunday go without Tally?" }),
+      'activation-escalation':   () => ({ ...this._buildActivationEscalationEmail(sampleChurch), subject: "Your Tally setup isn't complete — want us to help?" }),
+      'pre-service-friday':      () => ({ ...this._buildPreServiceFridayEmail(sampleChurch, new Date(Date.now() + 48 * 60 * 60 * 1000)), subject: 'Two days to Sunday — Tally is watching' }),
+      'trial-to-paid-onboarding': () => ({ ...this._buildTrialToPaidOnboardingEmail({ ...sampleChurch, billing_tier: 'pro' }), subject: '3 things to configure now that you\'re on Pro' }),
+      'monthly-roi-summary':     () => ({ ...this._buildMonthlyROISummaryEmail(sampleChurch, { month: '2026-03', monthLabel: 'March 2026', servicesMonitored: 8, alertsTriggered: 5, autoRecovered: 4, prevServicesMonitored: 6 }), subject: 'March 2026 at Sample Church — here\'s what Tally prevented' }),
+      'annual-renewal-reminder': () => ({ ...this._buildAnnualRenewalReminderEmail({ ...sampleChurch, billing_tier: 'pro', current_period_end: new Date(Date.now() + 30 * 86400000).toISOString() }), subject: 'Your annual Tally subscription renews in 30 days' }),
+      'telegram-setup-nudge':    () => ({ ...this._buildTelegramSetupNudgeEmail(sampleChurch), subject: "You're missing the best part of Tally" }),
+      'nps-survey':              () => ({ ...this._buildNPSSurveyEmail(sampleChurch), subject: 'Quick question — how likely are you to recommend Tally?' }),
+      'first-year-anniversary':  () => ({ ...this._buildFirstYearAnniversaryEmail({ ...sampleChurch, billing_tier: 'pro' }), subject: 'Sample Church just completed one year with Tally 🎉' }),
+      'referral-invite':         () => ({ ...this._buildReferralInviteEmail(sampleChurch, { sessionCount: 24 }), subject: 'Know another church production team struggling with the same problems?' }),
+      'inactivity-alert':        () => ({ ...this._buildInactivityAlertEmail(sampleChurch), subject: "We haven't seen any services lately — everything okay?" }),
+      'feature-announcement':    () => ({ ...this._buildFeatureAnnouncementEmail(sampleChurch, { headline: 'New: AutoPilot scene recall', body: 'AutoPilot now supports ProPresenter scene recall during service transitions.', ctaText: 'See What\'s New', ctaUrl: this.appUrl + '/portal' }), subject: 'New: AutoPilot scene recall' }),
+      'grace-period-ending-early': () => ({ ...this._buildGracePeriodEndingSoonEmail(sampleChurch, 5), subject: 'Tally will be paused in 5 days — update payment now' }),
     };
 
     const builder = builders[emailType];

@@ -56,23 +56,23 @@ module.exports = function setupEmailVerificationRoutes(app, ctx) {
     const verifyUrl = `${relayBase.replace(/\/+$/, '')}/api/church/verify-email?token=${verifyToken}`;
     sendOnboardingEmail({
       to: cleanEmail,
-      subject: 'Verify your Tally email',
+      subject: 'Confirm your email to activate your trial',
       tag: 'email-verification',
       html: `<div style="font-family: system-ui, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px 0;">
       <div style="margin-bottom: 24px;">
         <span style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #22c55e; margin-right: 8px;"></span>
         <strong style="font-size: 16px; color: #111;">Tally</strong>
       </div>
-      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Verify your email</h1>
-      <p style="font-size: 15px; color: #333; line-height: 1.6;">Click below to verify the email address for <strong>${church.name}</strong>:</p>
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Confirm your email to activate your trial</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">Click below to verify the email address for <strong>${church.name}</strong>. Once confirmed, your 14-day trial will be fully active.</p>
       <p style="margin: 28px 0;">
-        <a href="${verifyUrl}" style="display: inline-block; padding: 12px 28px; font-size: 15px; font-weight: 700; background: #22c55e; color: #000; text-decoration: none; border-radius: 8px;">Verify Email</a>
+        <a href="${verifyUrl}" style="display: inline-block; padding: 12px 28px; font-size: 15px; font-weight: 700; background: #22c55e; color: #000; text-decoration: none; border-radius: 8px;">Confirm Email &amp; Activate Trial</a>
       </p>
-      <p style="font-size: 13px; color: #666;">If you didn't sign up for Tally, ignore this email.</p>
+      <p style="font-size: 13px; color: #666;">If you didn't sign up for Tally, you can safely ignore this email.</p>
       <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />
-      <p style="font-size: 12px; color: #999;">Tally</p>
+      <p style="font-size: 12px; color: #999;">Tally &mdash; tallyconnect.app</p>
     </div>`,
-      text: `Verify your Tally email\n\nClick this link to verify: ${verifyUrl}\n\nIf you didn't sign up for Tally, ignore this email.`,
+      text: `Confirm your email to activate your trial\n\nClick this link to verify your email and activate your 14-day trial: ${verifyUrl}\n\nIf you didn't sign up for Tally, you can safely ignore this email.`,
     }).catch(e => log(`[EmailVerify] ⚠ Verification email send failed for ${cleanEmail}: ${e.message}`));
 
     res.json({ sent: true });
