@@ -327,13 +327,7 @@ function buildChurchLoginHtml(error = '') {
       gap: 10px;
       margin-bottom: 32px;
     }
-    .logo-dot {
-      width: 10px;
-      height: 10px;
-      background: #22c55e;
-      border-radius: 50%;
-      box-shadow: 0 0 8px #22c55e;
-    }
+    .logo svg { flex-shrink: 0; }
     .logo-text {
       font-size: 20px;
       font-weight: 700;
@@ -389,7 +383,14 @@ function buildChurchLoginHtml(error = '') {
 <body>
   <div class="card">
     <div class="logo">
-      <div class="logo-dot"></div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="36" height="36">
+        <rect width="32" height="32" rx="6" fill="#09090B"/>
+        <circle cx="16" cy="16" r="6" fill="#22c55e"/>
+        <circle cx="16" cy="16" r="3" fill="#09090B"/>
+        <circle cx="16" cy="16" r="1.5" fill="#22c55e">
+          <animate attributeName="opacity" values="1;0.4;1" dur="2s" repeatCount="indefinite"/>
+        </circle>
+      </svg>
       <span class="logo-text">Tally</span>
       <span class="logo-sub">Church Portal</span>
     </div>
@@ -452,12 +453,7 @@ function buildChurchPortalHtml(church) {
       border-bottom: 1px solid #1a2e1f;
       margin-bottom: 16px;
     }
-    .sidebar-dot {
-      width: 8px; height: 8px;
-      background: #22c55e;
-      border-radius: 50%;
-      box-shadow: 0 0 6px #22c55e;
-    }
+    .sidebar-logo svg { flex-shrink: 0; }
     .sidebar-brand { font-size: 16px; font-weight: 700; }
     .sidebar-church { font-size: 11px; color: #94A3B8; max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .nav-item {
@@ -891,7 +887,14 @@ function buildChurchPortalHtml(church) {
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileNav()"></div>
   <nav class="sidebar" id="sidebar-nav">
     <div class="sidebar-logo">
-      <div class="sidebar-dot"></div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="28" height="28">
+        <rect width="32" height="32" rx="6" fill="#09090B"/>
+        <circle cx="16" cy="16" r="6" fill="#22c55e"/>
+        <circle cx="16" cy="16" r="3" fill="#09090B"/>
+        <circle cx="16" cy="16" r="1.5" fill="#22c55e">
+          <animate attributeName="opacity" values="1;0.4;1" dur="2s" repeatCount="indefinite"/>
+        </circle>
+      </svg>
       <div>
         <div class="sidebar-brand">Tally</div>
         <div class="sidebar-church" id="sidebar-church-name">${escapeHtml(name)}</div>
