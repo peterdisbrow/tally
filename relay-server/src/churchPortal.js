@@ -1563,6 +1563,34 @@ function buildChurchPortalHtml(church) {
       </div>
 
       <div class="card">
+        <div class="card-title">Audience by Platform</div>
+        <div class="page-sub" style="margin-bottom:12px">Concurrent viewer counts from YouTube, Facebook, and Vimeo</div>
+        <div class="stats-row grid-4col" id="audience-kpi" style="margin-bottom:16px">
+          <div class="stat-card" style="border-left:3px solid #ff0000">
+            <div class="stat-value" id="aud-yt-peak">\u2014</div>
+            <div class="stat-label">YouTube Peak</div>
+          </div>
+          <div class="stat-card" style="border-left:3px solid #1877f2">
+            <div class="stat-value" id="aud-fb-peak">\u2014</div>
+            <div class="stat-label">Facebook Peak</div>
+          </div>
+          <div class="stat-card" style="border-left:3px solid #1ab7ea">
+            <div class="stat-value" id="aud-vim-peak">\u2014</div>
+            <div class="stat-label">Vimeo Peak</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="aud-total-avg">\u2014</div>
+            <div class="stat-label">Avg Total Viewers</div>
+          </div>
+        </div>
+        <div id="aud-platform-chart" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
+        <div id="aud-live-chart" style="margin-top:16px;color:#475569;text-align:center;padding:12px;display:none">
+          <div class="card-title" style="font-size:13px">Live Viewer Count (last 2 hours)</div>
+          <div id="aud-live-bars"></div>
+        </div>
+      </div>
+
+      <div class="card">
         <div class="card-title">Session Duration & Frequency</div>
         <div id="a-session-stats" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
       </div>
@@ -4624,6 +4652,8 @@ function buildChurchPortalHtml(church) {
         document.getElementById('a-health-content').innerHTML =
           '<p style="color:#ef4444">' + escapeHtml(e.message) + '</p>';
       }
+      // Load platform-specific audience data in parallel
+      loadAudienceAnalytics();
     }
 
     function renderAnalyticsKPI(d) {
@@ -4685,6 +4715,100 @@ function buildChurchPortalHtml(church) {
         html += '<div class="a-bar-label">' + escapeHtml(v.label) + '</div>';
         html += '<div class="a-bar-track"><div class="a-bar-fill" style="width:' + pct + '%"></div></div>';
         html += '<div class="a-bar-value">' + v.peak + '</div>';
+        html += '</div>';
+      });
+      el.innerHTML = html;
+    }
+
+    // ── Audience (platform) analytics ────────────────────────────────
+    async function loadAudienceAnalytics() {
+      try {
+        var d = await api('GET', '/api/church/analytics/audience?days=' + analyticsRange);
+        renderAudienceKPI(d);
+        renderPlatformChart(d);
+        renderLiveChart(d);
+      } catch (e) {
+        document.getElementById('aud-platform-chart').innerHTML =
+          '<p style="color:#ef4444">' + escapeHtml(e.message) + '</p>';
+      }
+    }
+
+    function renderAudienceKPI(d) {
+      var s = d.platform_summary || {};
+      document.getElementById('aud-yt-peak').textContent = s.peak_youtube != null ? s.peak_youtube : '\\u2014';
+      document.getElementById('aud-fb-peak').textContent = s.peak_facebook != null ? s.peak_facebook : '\\u2014';
+      document.getElementById('aud-vim-peak').textContent = s.peak_vimeo != null ? s.peak_vimeo : '\\u2014';
+      document.getElementById('aud-total-avg').textContent = s.avg_total != null ? Math.round(s.avg_total) : '\\u2014';
+    }
+
+    function renderPlatformChart(d) {
+      var el = document.getElementById('aud-platform-chart');
+      var trend = d.weekly_trend || [];
+      if (!trend.length) {
+        el.innerHTML = '<p style="color:#475569">No platform viewer data yet. Viewer counts are collected during live streams when YouTube, Facebook, or Vimeo API keys are configured.</p>';
+        return;
+      }
+      var maxV = Math.max.apply(null, trend.map(function(w) { return w.peak_total || 0; }));
+      if (maxV === 0) maxV = 1;
+
+      var html = '<div style="font-size:12px;color:#94A3B8;margin-bottom:8px;font-weight:600">Weekly Viewers by Platform</div>';
+      trend.forEach(function(w) {
+        var yt = w.peak_youtube || 0;
+        var fb = w.peak_facebook || 0;
+        var vim = w.peak_vimeo || 0;
+        var total = w.peak_total || 0;
+        var pct = Math.round((total / maxV) * 100);
+
+        html += '<div class="a-bar-row">';
+        html += '<div class="a-bar-label">' + escapeHtml(w.week_key) + '</div>';
+        html += '<div class="a-bar-track" style="position:relative">';
+        // Stacked bar: YouTube (red) + Facebook (blue) + Vimeo (teal)
+        var ytPct = total > 0 ? Math.round((yt / total) * pct) : 0;
+        var fbPct = total > 0 ? Math.round((fb / total) * pct) : 0;
+        var vimPct = total > 0 ? Math.round((vim / total) * pct) : 0;
+        // Ensure at least the total is shown if there's no breakdown
+        if (ytPct + fbPct + vimPct === 0 && total > 0) ytPct = pct;
+        html += '<div style="position:absolute;left:0;top:0;bottom:0;width:' + (ytPct + fbPct + vimPct) + '%;display:flex">';
+        if (ytPct > 0) html += '<div style="width:' + Math.round(ytPct * 100 / (ytPct + fbPct + vimPct || 1)) + '%;background:#ff0000;border-radius:3px 0 0 3px;height:100%"></div>';
+        if (fbPct > 0) html += '<div style="width:' + Math.round(fbPct * 100 / (ytPct + fbPct + vimPct || 1)) + '%;background:#1877f2;height:100%"></div>';
+        if (vimPct > 0) html += '<div style="width:' + Math.round(vimPct * 100 / (ytPct + fbPct + vimPct || 1)) + '%;background:#1ab7ea;border-radius:0 3px 3px 0;height:100%"></div>';
+        html += '</div>';
+        html += '</div>';
+        html += '<div class="a-bar-value">' + total + '</div>';
+        html += '</div>';
+      });
+
+      // Legend
+      html += '<div style="display:flex;gap:16px;margin-top:10px;font-size:11px;color:#94A3B8">';
+      html += '<span>\\u25cf <span style="color:#ff0000">YouTube</span></span>';
+      html += '<span>\\u25cf <span style="color:#1877f2">Facebook</span></span>';
+      html += '<span>\\u25cf <span style="color:#1ab7ea">Vimeo</span></span>';
+      html += '</div>';
+      el.innerHTML = html;
+    }
+
+    function renderLiveChart(d) {
+      var snaps = d.recent_snapshots || [];
+      var container = document.getElementById('aud-live-chart');
+      var el = document.getElementById('aud-live-bars');
+      if (!snaps.length) {
+        container.style.display = 'none';
+        return;
+      }
+      container.style.display = 'block';
+      var maxV = Math.max.apply(null, snaps.map(function(s) { return s.total || 0; }));
+      if (maxV === 0) maxV = 1;
+
+      var html = '';
+      snaps.forEach(function(s) {
+        var pct = Math.round(((s.total || 0) / maxV) * 100);
+        var time = s.captured_at ? new Date(s.captured_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">';
+        html += '<div style="width:50px;text-align:right;font-size:10px;color:#94A3B8">' + time + '</div>';
+        html += '<div style="flex:1;height:6px;background:var(--border,#1e293b);border-radius:3px;overflow:hidden">';
+        html += '<div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,#22c55e,#3b82f6);border-radius:3px"></div>';
+        html += '</div>';
+        html += '<div style="width:35px;font-size:10px;color:#cbd5e1;text-align:right">' + (s.total || 0) + '</div>';
         html += '</div>';
       });
       el.innerHTML = html;
@@ -6947,6 +7071,101 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.send(csv);
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── GET /api/church/analytics/audience — platform viewer analytics ─────────
+  app.get('/api/church/analytics/audience', authMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const days = Math.min(Math.max(parseInt(req.query.days) || 90, 1), 365);
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+
+      // Per-session viewer peaks with platform breakdown
+      let sessionViewers = [];
+      try {
+        sessionViewers = db.prepare(`
+          SELECT
+            vs.session_id,
+            ss.started_at,
+            ss.grade,
+            MAX(vs.total) AS peak_total,
+            MAX(vs.youtube) AS peak_youtube,
+            MAX(vs.facebook) AS peak_facebook,
+            MAX(vs.vimeo) AS peak_vimeo,
+            COUNT(*) AS snapshot_count
+          FROM viewer_snapshots vs
+          LEFT JOIN service_sessions ss ON ss.id = vs.session_id
+          WHERE vs.church_id = ? AND vs.captured_at >= ?
+            AND vs.session_id IS NOT NULL
+          GROUP BY vs.session_id
+          ORDER BY ss.started_at DESC
+          LIMIT 100
+        `).all(churchId, since);
+      } catch { /* table may not exist yet */ }
+
+      // Weekly platform trends
+      let weeklyTrend = [];
+      try {
+        weeklyTrend = db.prepare(`
+          SELECT
+            strftime('%Y-W%W', captured_at) AS week_key,
+            MAX(total) AS peak_total,
+            MAX(youtube) AS peak_youtube,
+            MAX(facebook) AS peak_facebook,
+            MAX(vimeo) AS peak_vimeo,
+            ROUND(AVG(total), 0) AS avg_total,
+            COUNT(*) AS snapshots
+          FROM viewer_snapshots
+          WHERE church_id = ? AND captured_at >= ?
+          GROUP BY week_key
+          ORDER BY week_key ASC
+        `).all(churchId, since);
+      } catch {}
+
+      // Platform summary
+      let platformSummary = {};
+      try {
+        const row = db.prepare(`
+          SELECT
+            ROUND(AVG(total), 0) AS avg_total,
+            MAX(total) AS peak_total,
+            ROUND(AVG(youtube), 0) AS avg_youtube,
+            MAX(youtube) AS peak_youtube,
+            ROUND(AVG(facebook), 0) AS avg_facebook,
+            MAX(facebook) AS peak_facebook,
+            ROUND(AVG(vimeo), 0) AS avg_vimeo,
+            MAX(vimeo) AS peak_vimeo,
+            COUNT(*) AS total_snapshots
+          FROM viewer_snapshots
+          WHERE church_id = ? AND captured_at >= ?
+        `).get(churchId, since);
+        if (row) platformSummary = row;
+      } catch {}
+
+      // Recent snapshots (last 2 hours for live view)
+      const recentSince = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      let recentSnapshots = [];
+      try {
+        recentSnapshots = db.prepare(`
+          SELECT total, youtube, facebook, vimeo, captured_at
+          FROM viewer_snapshots
+          WHERE church_id = ? AND captured_at >= ?
+          ORDER BY captured_at ASC
+          LIMIT 120
+        `).all(churchId, recentSince);
+      } catch {}
+
+      res.json({
+        days,
+        platform_summary: platformSummary,
+        weekly_trend: weeklyTrend,
+        session_viewers: sessionViewers,
+        recent_snapshots: recentSnapshots,
+      });
+    } catch (e) {
+      log.error(`[AudienceAnalytics] Error: ${e.message}`);
+      res.status(500).json({ error: 'Failed to load audience analytics' });
     }
   });
 

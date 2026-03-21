@@ -389,9 +389,25 @@ class SessionRecap {
       ? '✅ Clean'
       : `⚠️ ${session.audioSilenceCount} silence event${session.audioSilenceCount !== 1 ? 's' : ''} detected`;
 
-    const viewersLine = session.peakViewers !== null && session.peakViewers !== undefined
-      ? `📊 Peak ${session.peakViewers}`
-      : 'N/A';
+    let viewersLine = 'N/A';
+    if (session.peakViewers !== null && session.peakViewers !== undefined) {
+      viewersLine = `📊 Peak ${session.peakViewers}`;
+      // Add platform breakdown if viewer_snapshots are available
+      try {
+        const snap = this.db.prepare(`
+          SELECT MAX(youtube) AS yt, MAX(facebook) AS fb, MAX(vimeo) AS vim
+          FROM viewer_snapshots
+          WHERE session_id = ?
+        `).get(session.sessionId);
+        if (snap) {
+          const parts = [];
+          if (snap.yt != null) parts.push(`YT: ${snap.yt}`);
+          if (snap.fb != null) parts.push(`FB: ${snap.fb}`);
+          if (snap.vim != null) parts.push(`Vim: ${snap.vim}`);
+          if (parts.length) viewersLine += ` (${parts.join(', ')})`;
+        }
+      } catch { /* viewer_snapshots table may not exist */ }
+    }
 
     const tdLine = session.tdName ? `TD: ${session.tdName}` : null;
 

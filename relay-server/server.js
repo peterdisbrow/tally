@@ -746,6 +746,22 @@ db.exec(`
 db.exec('CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at DESC)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action, created_at DESC)');
 
+// ─── VIEWER SNAPSHOTS TABLE ──────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS viewer_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    church_id TEXT NOT NULL,
+    session_id TEXT,
+    total INTEGER NOT NULL DEFAULT 0,
+    youtube INTEGER,
+    facebook INTEGER,
+    vimeo INTEGER,
+    captured_at TEXT NOT NULL
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_viewer_snaps_church ON viewer_snapshots(church_id, captured_at DESC)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_viewer_snaps_session ON viewer_snapshots(session_id, captured_at DESC)');
+
 /** Log an admin action to the audit table. Fire-and-forget — never throws. */
 function logAudit({ adminUserId, adminEmail, action, targetType, targetId, details, ip }) {
   try {
@@ -3301,6 +3317,47 @@ function handleChurchMessage(church, msg) {
         church,
       });
       break;
+
+    case 'viewer_snapshot': {
+      const total = typeof msg.total === 'number' ? msg.total : 0;
+      const breakdown = msg.breakdown || {};
+      const activeSession = sessionRecap.activeSessions?.get(church.churchId);
+      const sessionId = activeSession?.sessionId || null;
+
+      // Store snapshot
+      try {
+        db.prepare(`
+          INSERT INTO viewer_snapshots (church_id, session_id, total, youtube, facebook, vimeo, captured_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          church.churchId,
+          sessionId,
+          total,
+          breakdown.youtube ?? null,
+          breakdown.facebook ?? null,
+          breakdown.vimeo ?? null,
+          msg.timestamp || new Date().toISOString()
+        );
+      } catch (e) {
+        console.error('[ViewerSnapshot] Insert failed:', e.message);
+      }
+
+      // Update peak viewers on the active session
+      if (total > 0) {
+        sessionRecap.recordPeakViewers(church.churchId, total);
+      }
+
+      // Broadcast to controllers for live dashboard
+      broadcastToControllers({
+        type: 'viewer_update',
+        churchId: church.churchId,
+        name: church.name,
+        total,
+        breakdown,
+        timestamp: msg.timestamp,
+      });
+      break;
+    }
 
     case 'command_result': {
       const cmdResultMsg = {

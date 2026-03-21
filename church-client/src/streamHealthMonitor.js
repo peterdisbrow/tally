@@ -11,6 +11,7 @@
  * Config keys (in ~/.church-av/config.json):
  *   youtubeApiKey       - YouTube Data API v3 key
  *   facebookAccessToken - Facebook Graph API access token
+ *   vimeoAccessToken    - Vimeo OAuth2 access token (Enterprise accounts)
  *
  * Class: StreamHealthMonitor
  *   start(agent)  — begin monitoring
@@ -45,6 +46,10 @@ class StreamHealthMonitor {
     this._lastTier = null;          // most recent tier string
     this._poorTierSince = null;     // timestamp when Poor tier started (null if not Poor)
     this._criticalEmitted = false;  // whether critical alert was already emitted for current Poor streak
+
+    // Viewer count tracking — snapshots sent to relay each check cycle
+    this._viewerSnapshots = [];     // [{ platform, viewers, timestamp }]
+    this._lastViewerReport = 0;     // timestamp of last relay report
   }
 
   /** Start monitoring. Must be called with the ChurchAVAgent instance. */
@@ -67,6 +72,8 @@ class StreamHealthMonitor {
     this._baselineBitrate = null;
     this._bitrateKbps     = [];
     this._lastBitrateSource = null;
+    this._viewerSnapshots = [];
+    this._lastViewerReport = 0;
     console.log('[StreamHealthMonitor] Stopped');
   }
 
@@ -141,6 +148,14 @@ class StreamHealthMonitor {
       platformChecked = true;
     }
 
+    // ── Vimeo Live ────────────────────────────────────────────────────────────
+    if (config.vimeoAccessToken) {
+      await this._checkVimeo(config.vimeoAccessToken, streamSource).catch(e => {
+        console.warn('[StreamHealthMonitor] Vimeo check failed:', e.message);
+      });
+      platformChecked = true;
+    }
+
     // ── Fallback: bitrate analysis from any source ───────────────────────────
     if (!platformChecked) {
       await this._checkBitrate().catch(e => {
@@ -152,7 +167,7 @@ class StreamHealthMonitor {
   // ─── YouTube ───────────────────────────────────────────────────────────────
 
   async _checkYouTube(apiKey, streamSource) {
-    const url = `https://www.googleapis.com/youtube/v3/liveBroadcasts?part=status&broadcastStatus=active&key=${encodeURIComponent(apiKey)}`;
+    const url = `https://www.googleapis.com/youtube/v3/liveBroadcasts?part=status,statistics&broadcastStatus=active&key=${encodeURIComponent(apiKey)}`;
     const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
 
     if (!resp.ok) {
@@ -171,9 +186,13 @@ class StreamHealthMonitor {
       return;
     }
 
+    let totalViewers = 0;
     for (const broadcast of broadcasts) {
       const health = broadcast.status?.healthStatus?.status;
-      console.log(`[StreamHealthMonitor] YouTube broadcast health: ${health}`);
+      const concurrent = parseInt(broadcast.statistics?.concurrentViewers);
+      console.log(`[StreamHealthMonitor] YouTube broadcast health: ${health}, viewers: ${isNaN(concurrent) ? 'N/A' : concurrent}`);
+
+      if (!isNaN(concurrent)) totalViewers += concurrent;
 
       if (health === 'bad') {
         this._sendAlert(
@@ -187,12 +206,17 @@ class StreamHealthMonitor {
         );
       }
     }
+
+    // Record viewer snapshot
+    if (totalViewers >= 0) {
+      this._recordViewerSnapshot('youtube', totalViewers);
+    }
   }
 
   // ─── Facebook ─────────────────────────────────────────────────────────────
 
   async _checkFacebook(accessToken, streamSource) {
-    const url = `https://graph.facebook.com/v18.0/me/live_videos?status=LIVE`;
+    const url = `https://graph.facebook.com/v19.0/me/live_videos?status=LIVE&fields=id,title,live_views`;
     const resp = await fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(10_000),
@@ -212,8 +236,164 @@ class StreamHealthMonitor {
         `Facebook: No active LIVE video found while ${streamSource} is streaming. The stream may not be reaching Facebook — check your stream key.`
       );
     } else {
-      console.log(`[StreamHealthMonitor] Facebook: ${liveVideos.length} live video(s) active`);
+      let totalViewers = 0;
+      for (const video of liveVideos) {
+        const viewers = parseInt(video.live_views);
+        if (!isNaN(viewers)) totalViewers += viewers;
+        console.log(`[StreamHealthMonitor] Facebook live video "${video.title || video.id}": ${isNaN(viewers) ? 'N/A' : viewers} viewers`);
+      }
+      this._recordViewerSnapshot('facebook', totalViewers);
     }
+  }
+
+  // ─── Vimeo ──────────────────────────────────────────────────────────────
+
+  async _checkVimeo(accessToken, streamSource) {
+    // Vimeo Live API — requires Enterprise account + OAuth2 token.
+    // GET /me/live_events returns all live events for the authenticated user.
+    // We then check each event's session status for ingest health.
+    const url = 'https://api.vimeo.com/me/live_events?status=streaming&fields=uri,name,streaming_status';
+    const resp = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.vimeo.*+json;version=3.4',
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        console.warn('[StreamHealthMonitor] Vimeo API auth failed — check vimeoAccessToken');
+      } else {
+        console.warn(`[StreamHealthMonitor] Vimeo API ${resp.status}`);
+      }
+      return;
+    }
+
+    const data = await resp.json();
+    const events = data.data || [];
+
+    if (events.length === 0) {
+      this._sendAlert(
+        'vimeo_no_active_event',
+        `Vimeo: No active live event found while ${streamSource} is streaming. The stream may not be reaching Vimeo — check your stream key and network.`
+      );
+      return;
+    }
+
+    // Check each active event's session for ingest health + viewer counts
+    let totalVimeoViewers = 0;
+    for (const event of events) {
+      const eventUri = event.uri; // e.g. /live_events/12345
+      if (!eventUri) continue;
+
+      const sessionUrl = `https://api.vimeo.com${eventUri}/sessions?fields=status,ingest,viewer_count`;
+      const sessionResp = await fetch(sessionUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.vimeo.*+json;version=3.4',
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!sessionResp.ok) continue;
+
+      const sessionData = await sessionResp.json();
+      const sessions = sessionData.data || [];
+
+      let eventViewers = 0;
+      for (const session of sessions) {
+        const ingestStatus = parseInt(session.ingest?.status);
+        const sessionStatus = session.status;
+        const viewers = parseInt(session.viewer_count);
+
+        console.log(`[StreamHealthMonitor] Vimeo event "${event.name || eventUri}" — status: ${sessionStatus}, ingest: ${ingestStatus}, viewers: ${isNaN(viewers) ? 'N/A' : viewers}`);
+
+        if (!isNaN(viewers)) eventViewers += viewers;
+
+        // Ingest status scale: 0=provisioning, 1=waiting, 2=receiving, 3=streaming, 4=ending, 5=ended
+        if (sessionStatus === 'started' && (ingestStatus === 0 || ingestStatus === 1)) {
+          this._sendAlert(
+            'vimeo_ingest_waiting',
+            `Vimeo event "${event.name}" is started but not receiving data (ingest status: ${ingestStatus}). ` +
+            `The stream may not be reaching Vimeo — check your RTMP connection.`
+          );
+        }
+
+        // Log resolution if available
+        if (session.ingest?.width && session.ingest?.height) {
+          console.log(`[StreamHealthMonitor] Vimeo ingest: ${session.ingest.width}x${session.ingest.height} via ${session.ingest.encoder_type || 'unknown'}`);
+        }
+      }
+      if (eventViewers > 0) totalVimeoViewers += eventViewers;
+    }
+
+    // Record viewer snapshot (Vimeo viewer_count is Enterprise-only, may be 0)
+    if (totalVimeoViewers > 0) {
+      this._recordViewerSnapshot('vimeo', totalVimeoViewers);
+    }
+  }
+
+  // ─── Viewer Snapshot Tracking ────────────────────────────────────────────
+
+  /**
+   * Record a viewer count snapshot and report to relay.
+   * @param {string} platform - 'youtube' | 'facebook' | 'vimeo'
+   * @param {number} viewers  - concurrent viewer count
+   */
+  _recordViewerSnapshot(platform, viewers) {
+    const now = Date.now();
+    this._viewerSnapshots.push({ platform, viewers, timestamp: now });
+
+    // Keep last 60 snapshots (1 hour at 60s intervals)
+    while (this._viewerSnapshots.length > 60) this._viewerSnapshots.shift();
+
+    // Report to relay (batch all platforms per check cycle — debounce 2s)
+    if (now - this._lastViewerReport > 2000) {
+      this._lastViewerReport = now;
+      // Collect latest snapshot per platform
+      const latest = {};
+      for (const snap of this._viewerSnapshots) {
+        if (!latest[snap.platform] || snap.timestamp > latest[snap.platform].timestamp) {
+          latest[snap.platform] = snap;
+        }
+      }
+
+      const totalViewers = Object.values(latest).reduce((sum, s) => sum + s.viewers, 0);
+      const breakdown = Object.fromEntries(
+        Object.entries(latest).map(([p, s]) => [p, s.viewers])
+      );
+
+      if (this.agent) {
+        this.agent.sendToRelay({
+          type: 'viewer_snapshot',
+          total: totalViewers,
+          breakdown,
+          timestamp: new Date(now).toISOString(),
+        });
+      }
+    }
+  }
+
+  /**
+   * Get the latest viewer counts per platform.
+   * @returns {{ total: number, breakdown: Object<string, number>, snapshots: Array }}
+   */
+  getViewerCounts() {
+    const latest = {};
+    for (const snap of this._viewerSnapshots) {
+      if (!latest[snap.platform] || snap.timestamp > latest[snap.platform].timestamp) {
+        latest[snap.platform] = snap;
+      }
+    }
+    const breakdown = Object.fromEntries(
+      Object.entries(latest).map(([p, s]) => [p, s.viewers])
+    );
+    return {
+      total: Object.values(latest).reduce((sum, s) => sum + s.viewers, 0),
+      breakdown,
+      snapshots: [...this._viewerSnapshots],
+    };
   }
 
   // ─── Bitrate Fallback (source-agnostic) ─────────────────────────────────
@@ -478,6 +658,8 @@ class StreamHealthMonitor {
       ? this._tierHistory[this._tierHistory.length - 1]
       : null;
 
+    const viewerCounts = this.getViewerCounts();
+
     return {
       monitoring: !!this._interval,
       streamSource: this._lastBitrateSource,
@@ -488,6 +670,8 @@ class StreamHealthMonitor {
       qualityTier: lastTierEntry ? lastTierEntry.tier : null,
       qualityScore: lastTierEntry ? lastTierEntry.score : null,
       tierHistory: this._tierHistory.length,
+      viewers: viewerCounts.total || null,
+      viewerBreakdown: Object.keys(viewerCounts.breakdown).length ? viewerCounts.breakdown : null,
     };
   }
 }
