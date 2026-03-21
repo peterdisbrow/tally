@@ -285,7 +285,7 @@ function updateTray() {
     ...(billingLine ? [{ label: billingLine, enabled: false }] : []),
     { type: 'separator' },
     { label: 'Open Dashboard', click: () => mainWindow?.show() },
-    { label: connected ? 'Stop Agent' : 'Start Agent', click: () => connected ? stopAgent() : startAgent() },
+    { label: connected ? 'Stop Monitoring' : 'Start Monitoring', click: () => connected ? stopAgent() : startAgent() },
     { type: 'separator' },
     { label: 'Client Portal', click: () => shell.openExternal('https://tallyconnect.app/portal') },
     { label: 'Help & Support', click: () => shell.openExternal('https://tallyconnect.app/help') },
@@ -632,7 +632,7 @@ function startAgent() {
     } else {
       agentCrashCount++;
       if (agentCrashCount >= MAX_AGENT_CRASHES) {
-        const msg = `Agent crashed ${agentCrashCount} times. Auto-restart disabled — use the Start Agent button to retry.`;
+        const msg = `Agent crashed ${agentCrashCount} times. Auto-restart disabled — use the Start Monitoring button to retry.`;
         appendAppLog('SYSTEM', msg);
         mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
         sendNotification('Tally Agent Error', msg);
