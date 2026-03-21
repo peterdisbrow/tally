@@ -264,6 +264,7 @@ tr:hover td{background:rgba(34,197,94,.02)}
 .copy-btn{background:var(--green);color:#000;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;margin-top:6px}
 /* Settings */
 .settings-section{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px;margin-bottom:20px}
+code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px;color:var(--text)}
 .settings-section h3{font-size:11px;font-weight:600;margin-bottom:16px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
 .settings-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(26,46,31,.5);font-size:13px}
 .settings-row:last-child{border-bottom:none}
@@ -440,11 +441,7 @@ tr:hover td{background:rgba(34,197,94,.02)}
       </div>
       <div class="settings-section">
         <h3>Admin API Key</h3>
-        <div class="copy-group">
-          <input type="password" id="api-key-display" value="tally-admin-••••••••" readonly>
-          <button class="btn-sm" onclick="toggleApiKey()">Reveal</button>
-          <button class="btn-sm" onclick="copyApiKey()">Copy</button>
-        </div>
+        <div class="help-box">API keys are stored in Railway environment variables (<code>ADMIN_API_KEY</code>) and are not exposed through the browser for security.</div>
       </div>
     </div>
 
@@ -496,7 +493,7 @@ tr:hover td{background:rgba(34,197,94,.02)}
 
     <!-- AI USAGE PAGE -->
     <div id="page-aiusage" style="display:none">
-      <div class="summary-row" id="ai-summary">
+      <div class="summary-row" id="ai-summary" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
         <div class="summary-card"><div class="stat-num" id="ai-requests">—</div><div class="stat-label">Requests (30d)</div></div>
         <div class="summary-card"><div class="stat-num" id="ai-input-tok">—</div><div class="stat-label">Input Tokens</div></div>
         <div class="summary-card"><div class="stat-num" id="ai-output-tok">—</div><div class="stat-label">Output Tokens</div></div>
@@ -831,6 +828,7 @@ function toggleMobileNav() {
 async function loadOverview() {
   try {
     const r = await fetch('/api/admin/overview');
+    if (!r.ok) throw new Error('Overview failed: ' + r.status);
     const d = await r.json();
     document.getElementById('stat-churches').textContent = d.totalChurches ?? 0;
     document.getElementById('stat-online').textContent = d.onlineNow ?? 0;
@@ -1236,24 +1234,23 @@ async function loadSettings() {
 
 async function changeAdminPassword(btn) {
   const currentPw = document.getElementById('current-pw').value;
-  const pw = document.getElementById('new-pw').value;
+  const newPw = document.getElementById('new-pw').value;
   if (!currentPw) { showModalMsg('pw-msg', 'Current password required', 'error'); return; }
-  if (!pw) { showModalMsg('pw-msg', 'New password required', 'error'); return; }
-  if (pw.length < 8) { showModalMsg('pw-msg', 'New password must be at least 8 characters', 'error'); return; }
+  if (!newPw) { showModalMsg('pw-msg', 'New password required', 'error'); return; }
+  if (newPw.length < 8) { showModalMsg('pw-msg', 'New password must be at least 8 characters', 'error'); return; }
   btnLoading(btn);
   try {
     const r = await fetchTimeout('/api/admin/change-password', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({currentPassword:currentPw, password:pw})
+      body:JSON.stringify({currentPassword: currentPw, newPassword: newPw})
     });
     const d = await r.json();
-    const el = document.getElementById('pw-msg');
     if (r.ok) {
-      el.innerHTML = '<div class="alert-box alert-success">Password changed successfully.</div>';
+      showModalMsg('pw-msg', 'Password changed successfully.', 'success');
       document.getElementById('current-pw').value = '';
       document.getElementById('new-pw').value = '';
     } else {
-      el.innerHTML = \`<div class="alert-box alert-error">\${esc(d.error||'Error')}</div>\`;
+      showModalMsg('pw-msg', d.error||'Error', 'error');
     }
   } finally { btnReset(btn); }
 }
@@ -1598,7 +1595,7 @@ function renderEmailHistory(rows, total) {
       '<td style="font-size:12px">' + esc(r.recipient || '—') + '</td>' +
       '<td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.subject || '—') + '</td>' +
       '<td><button class="btn-sm" onclick="previewSentEmail(' + i + ')">Preview</button>' +
-      ' <button class="btn-sm" onclick="resendEmail(' + i + ')">Resend</button></td>' +
+      ' <button class="btn-sm" onclick="resendEmailByIndex(' + i + ')">Resend</button></td>' +
       '</tr>';
   }).join('');
 
@@ -1629,9 +1626,12 @@ function showEmailPreview(subject, html) {
   openModal('modal-email-preview');
 }
 
-async function resendEmail(idx) {
+function resendEmailByIndex(idx) {
   const row = emailHistoryRows[idx];
-  if (!row) return;
+  if (row) resendEmail(row);
+}
+
+async function resendEmail(row) {
   if (!await modalConfirm('Resend Email', \`Resend "\${esc(row.email_type)}" to \${esc(row.recipient)}?\`)) return;
   try {
     const r = await fetchTimeout('/api/admin/emails/send', {
@@ -1667,8 +1667,8 @@ function renderTemplateGrid(templates) {
       </div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:16px">\${esc(t.trigger)}</div>
       <div style="display:flex;gap:8px">
-        <button class="btn-sm" onclick="previewTemplate('\${t.type}')">Preview</button>
-        <button class="btn-sm" onclick="editTemplate('\${t.type}')">Edit</button>
+        <button class="btn-sm" onclick="previewTemplate(\${JSON.stringify(t.type)})">Preview</button>
+        <button class="btn-sm" onclick="editTemplate(\${JSON.stringify(t.type)})">Edit</button>
       </div>
     </div>
   \`).join('');
