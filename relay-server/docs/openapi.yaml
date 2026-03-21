@@ -1,0 +1,3769 @@
+openapi: 3.0.3
+info:
+  title: Tally Connect Relay Server API
+  version: 1.1.0
+  description: |
+    REST API for the Tally Connect relay server, which bridges ATEM/Telegram controllers
+    to church client apps. Includes church management, billing, automation, real-time
+    relay, and portal APIs.
+
+    ## Authentication
+
+    Four authentication schemes are in use:
+
+    | Scheme | Header | Used By |
+    |--------|--------|---------|
+    | Admin JWT | `Authorization: Bearer <token>` or `x-admin-jwt: <token>` | Admin endpoints |
+    | Church App JWT | `Authorization: Bearer <token>` | Church app endpoints |
+    | Reseller API Key | `x-reseller-key: <key>` | Reseller API endpoints |
+    | Admin API Key | `x-api-key: <key>` | Legacy / internal |
+
+    ## Billing Tiers
+
+    | Tier | Description |
+    |------|-------------|
+    | `connect` | Basic tier — free trial, limited features |
+    | `plus` | Adds AutoPilot, on-call, command log, monthly reports |
+    | `pro` | Adds Planning Center, advanced sessions |
+    | `managed` | Full-service managed tier |
+    | `event` | Time-limited one-off event account |
+
+    ## WebSocket
+
+    The relay WebSocket is available at `wss://<host>/` (same HTTP server).
+    Church clients authenticate by sending `{ type: "register", token: "<jwt>" }` after
+    connecting. Controllers authenticate with `{ type: "controller", key: "<admin_key>" }`.
+    All relay messages follow `{ type: string, churchId?: string, command?: string, params?: object }`.
+
+    ## Real-Time Dashboard Stream
+
+    `GET /api/dashboard/stream` opens a Server-Sent Events (SSE) connection for live
+    dashboard updates. Clients must be authenticated as admin (cookie or Bearer).
+
+servers:
+  - url: https://your-relay.up.railway.app
+    description: Production (Railway)
+  - url: http://localhost:3000
+    description: Local development
+
+tags:
+  - name: Health
+    description: Service health and status
+  - name: Admin Auth
+    description: Admin user authentication and management
+  - name: Church Auth
+    description: Church app authentication and self-service onboarding
+  - name: Email Verification
+    description: Email verification and password reset flows
+  - name: Churches
+    description: Church management (admin)
+  - name: Church App
+    description: Church app profile, chat, and preservice check
+  - name: Billing
+    description: Stripe billing, checkout, and webhook
+  - name: Commands
+    description: Command dispatch to church clients
+  - name: Automation
+    description: AutoPilot rules, presets, and command log
+  - name: Sessions
+    description: Session history, timeline, schedule, and reports
+  - name: Chat
+    description: Admin and church-side chat with AI
+  - name: Onboarding
+    description: AI-guided onboarding chat
+  - name: Stream Platforms
+    description: YouTube and Facebook OAuth / stream keys
+  - name: Slack
+    description: Slack webhook integration
+  - name: Telegram
+    description: Telegram bot integration and TD management
+  - name: Planning Center
+    description: Planning Center integration
+  - name: On-Call
+    description: On-call rotation management
+  - name: Maintenance
+    description: Maintenance window scheduling
+  - name: Guest Tokens
+    description: Temporary guest access tokens
+  - name: Events
+    description: Time-limited event church accounts
+  - name: Resellers
+    description: Reseller management (admin) and reseller self-service API
+  - name: Support
+    description: Support tickets and triage
+  - name: Status
+    description: Public status page components and incidents
+  - name: Internal
+    description: Internal/operational endpoints
+
+components:
+  securitySchemes:
+    AdminBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Admin JWT obtained from POST /api/admin/login
+    ChurchAppBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Church app JWT obtained from POST /api/church/app/login
+    ResellerKey:
+      type: apiKey
+      in: header
+      name: x-reseller-key
+      description: Reseller API key issued during reseller creation
+    AdminApiKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: Legacy admin API key (ADMIN_API_KEY env var)
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Unauthorized
+      required: [error]
+
+    Church:
+      type: object
+      properties:
+        churchId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        connected:
+          type: boolean
+        status:
+          type: string
+          enum: [ok, warning, error, unknown]
+        lastSeen:
+          type: string
+          format: date-time
+          nullable: true
+        registrationCode:
+          type: string
+        token:
+          type: string
+        church_type:
+          type: string
+          enum: [standard, event]
+        billing_tier:
+          type: string
+          enum: [connect, plus, pro, managed, event]
+        billing_status:
+          type: string
+          enum: [trialing, active, past_due, canceled, inactive]
+        reseller_id:
+          type: string
+          nullable: true
+
+    BillingStatus:
+      type: object
+      properties:
+        tier:
+          type: string
+          enum: [connect, plus, pro, managed, event]
+        status:
+          type: string
+          enum: [trialing, active, past_due, canceled, inactive]
+        billingInterval:
+          type: string
+          enum: [monthly, annual, one_time]
+          nullable: true
+        trialEndsAt:
+          type: string
+          format: date-time
+          nullable: true
+        bypassed:
+          type: boolean
+
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: [super_admin, admin, engineer, sales]
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        churchId:
+          type: string
+        sender:
+          type: string
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    AutomationRule:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        triggerType:
+          type: string
+        triggerConfig:
+          type: object
+          nullable: true
+        actions:
+          type: array
+          items:
+            type: object
+        enabled:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    Preset:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        data:
+          type: object
+
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+        churchId:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+          nullable: true
+        duration:
+          type: integer
+          description: Duration in seconds
+
+    SupportTicket:
+      type: object
+      properties:
+        ticketId:
+          type: string
+        status:
+          type: string
+          enum: [open, in_progress, resolved, closed]
+        category:
+          type: string
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        subject:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    Reseller:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        brandName:
+          type: string
+          nullable: true
+        supportEmail:
+          type: string
+          format: email
+          nullable: true
+        churchLimit:
+          type: integer
+          nullable: true
+        active:
+          type: boolean
+        apiKey:
+          type: string
+          description: Only returned on creation
+
+paths:
+  # ── HEALTH ───────────────────────────────────────────────────────────────────
+
+  /:
+    get:
+      tags: [Health]
+      summary: Root health check
+      operationId: getRoot
+      responses:
+        '200':
+          description: Service is running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                    example: tally-relay
+                  version:
+                    type: string
+                    example: 1.1.0
+                  churches:
+                    type: integer
+                    description: Number of registered churches
+                  controllers:
+                    type: integer
+                    description: Number of connected controller WebSocket clients
+
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Detailed health and uptime
+      operationId: getHealth
+      responses:
+        '200':
+          description: Health info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                  version:
+                    type: string
+                  build:
+                    type: string
+                  uptime:
+                    type: number
+                    description: Uptime in seconds
+                  registeredChurches:
+                    type: integer
+                  connectedChurches:
+                    type: integer
+                  controllers:
+                    type: integer
+                  totalMessagesRelayed:
+                    type: integer
+
+  /api/status:
+    get:
+      tags: [Status]
+      summary: Machine-readable service status
+      operationId: getStatus
+      responses:
+        '200':
+          description: Operational or degraded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [operational, degraded, partial_outage, major_outage]
+                  timestamp:
+                    type: string
+                    format: date-time
+                  components:
+                    type: object
+        '503':
+          description: Major outage
+
+  /api/status/components:
+    get:
+      tags: [Status]
+      summary: List status page components
+      operationId: getStatusComponents
+      responses:
+        '200':
+          description: Component list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updatedAt:
+                    type: string
+                    format: date-time
+                  components:
+                    type: array
+                    items:
+                      type: object
+
+  /api/status/incidents:
+    get:
+      tags: [Status]
+      summary: List status incidents
+      operationId: getStatusIncidents
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+      responses:
+        '200':
+          description: Incident list
+
+  /api/status/run-checks:
+    post:
+      tags: [Status]
+      summary: Trigger status checks (admin)
+      operationId: runStatusChecks
+      security:
+        - AdminBearer: []
+      responses:
+        '200':
+          description: Checks completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  checkedAt:
+                    type: string
+                    format: date-time
+
+  # ── ADMIN AUTH ────────────────────────────────────────────────────────────────
+
+  /api/admin/login:
+    post:
+      tags: [Admin Auth]
+      summary: Admin login
+      operationId: adminLogin
+      description: Rate limited — 5 requests per 15 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/AdminUser'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+
+  /api/admin/me:
+    get:
+      tags: [Admin Auth]
+      summary: Get current admin user profile
+      operationId: getAdminMe
+      security:
+        - AdminBearer: []
+      responses:
+        '200':
+          description: Admin profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/admin/me/password:
+    put:
+      tags: [Admin Auth]
+      summary: Change own admin password
+      operationId: changeAdminPassword
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Password changed
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/admin/users:
+    get:
+      tags: [Admin Auth]
+      summary: List admin users (super_admin only)
+      operationId: listAdminUsers
+      security:
+        - AdminBearer: []
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminUser'
+    post:
+      tags: [Admin Auth]
+      summary: Create admin user (super_admin only)
+      operationId: createAdminUser
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, name, role]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                name:
+                  type: string
+                role:
+                  type: string
+                  enum: [super_admin, admin, engineer, sales]
+      responses:
+        '201':
+          description: User created
+        '400':
+          description: Validation error
+
+  /api/admin/users/{userId}:
+    put:
+      tags: [Admin Auth]
+      summary: Update admin user (super_admin only)
+      operationId: updateAdminUser
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                role:
+                  type: string
+                  enum: [super_admin, admin, engineer, sales]
+                active:
+                  type: boolean
+      responses:
+        '200':
+          description: User updated
+    delete:
+      tags: [Admin Auth]
+      summary: Deactivate admin user (super_admin only)
+      operationId: deleteAdminUser
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: User deactivated
+        '400':
+          description: Cannot delete last super_admin
+
+  /api/admin/users/{userId}/password:
+    put:
+      tags: [Admin Auth]
+      summary: Reset admin user password (super_admin only)
+      operationId: resetAdminUserPassword
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Password reset
+
+  /api/admin/ai-usage:
+    get:
+      tags: [Admin Auth]
+      summary: AI usage analytics (last 30 days)
+      operationId: getAiUsage
+      security:
+        - AdminBearer: []
+      responses:
+        '200':
+          description: AI usage data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totals:
+                    type: object
+                    properties:
+                      total_requests:
+                        type: integer
+                      input_tokens:
+                        type: integer
+                      output_tokens:
+                        type: integer
+                      cost_usd:
+                        type: number
+                      cache_hits:
+                        type: integer
+                  byChurch:
+                    type: array
+                    items:
+                      type: object
+                  byFeature:
+                    type: array
+                    items:
+                      type: object
+
+  # ── CHURCH AUTH ───────────────────────────────────────────────────────────────
+
+  /api/church/app/onboard:
+    post:
+      tags: [Church Auth]
+      summary: Church self-service onboarding / signup
+      operationId: churchOnboard
+      description: |
+        Rate limited — 10 requests per 60 minutes.
+        Creates a new church account with optional billing checkout. Returns a JWT for
+        immediate app access plus billing status. If billing is enabled, `checkoutUrl`
+        will be populated for redirect.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name:
+                  type: string
+                  description: Church name
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                tier:
+                  type: string
+                  enum: [connect, plus, pro, managed, event]
+                  default: connect
+                billingInterval:
+                  type: string
+                  enum: [monthly, annual]
+                  default: monthly
+                tosAcceptedAt:
+                  type: string
+                  format: date-time
+                referralCode:
+                  type: string
+      responses:
+        '200':
+          description: Onboarding successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created:
+                    type: boolean
+                  churchId:
+                    type: string
+                  name:
+                    type: string
+                  email:
+                    type: string
+                  registrationCode:
+                    type: string
+                  token:
+                    type: string
+                  tokenExpiresIn:
+                    type: string
+                  billing:
+                    type: object
+                    properties:
+                      required:
+                        type: boolean
+                      status:
+                        type: string
+                      tier:
+                        type: string
+                      billingInterval:
+                        type: string
+                      trialEndsAt:
+                        type: string
+                        format: date-time
+                        nullable: true
+                  checkoutUrl:
+                    type: string
+                    nullable: true
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/church/app/login:
+    post:
+      tags: [Church Auth]
+      summary: Church app login
+      operationId: churchAppLogin
+      description: Rate limited — 5 requests per 15 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  tokenType:
+                    type: string
+                    example: church_app
+                  tokenExpiresIn:
+                    type: string
+                  church:
+                    type: object
+                    properties:
+                      churchId:
+                        type: string
+                      name:
+                        type: string
+                      email:
+                        type: string
+                  billing:
+                    $ref: '#/components/schemas/BillingStatus'
+        '401':
+          description: Invalid credentials
+        '402':
+          description: Billing required and not active
+
+  /api/church/app/me:
+    get:
+      tags: [Church Auth]
+      summary: Get church app profile
+      operationId: getChurchAppMe
+      security:
+        - ChurchAppBearer: []
+      responses:
+        '200':
+          description: Church profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  churchId:
+                    type: string
+                  name:
+                    type: string
+                  email:
+                    type: string
+                  connected:
+                    type: boolean
+                  status:
+                    type: string
+                  lastSeen:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  notifications:
+                    type: object
+                  tds:
+                    type: array
+                    items:
+                      type: object
+                  timezone:
+                    type: string
+                  audio_via_atem:
+                    type: boolean
+    put:
+      tags: [Church Auth]
+      summary: Update church app profile / settings
+      operationId: updateChurchAppMe
+      security:
+        - ChurchAppBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                phone:
+                  type: string
+                location:
+                  type: string
+                notes:
+                  type: string
+                notifications:
+                  type: object
+                telegramChatId:
+                  type: string
+                engineerProfile:
+                  type: object
+                currentPassword:
+                  type: string
+                  description: Required when changing password
+                newPassword:
+                  type: string
+                  minLength: 8
+                audioViaAtem:
+                  type: boolean
+      responses:
+        '200':
+          description: Profile updated
+
+  /api/church/app/reset-password:
+    post:
+      tags: [Church Auth]
+      summary: Admin-initiated church password reset
+      operationId: adminResetChurchPassword
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+
+  /api/leads/capture:
+    post:
+      tags: [Church Auth]
+      summary: Capture marketing lead
+      operationId: captureLead
+      description: Rate limited — 5 requests per 60 seconds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                name:
+                  type: string
+                churchName:
+                  type: string
+                source:
+                  type: string
+      responses:
+        '200':
+          description: Lead captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  message:
+                    type: string
+
+  /api/referral/{code}:
+    get:
+      tags: [Church Auth]
+      summary: Look up referral code
+      operationId: getReferralCode
+      description: Rate limited — 20 requests per 60 seconds.
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Referral code validity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  referrerName:
+                    type: string
+                    nullable: true
+
+  /api/pf/report:
+    post:
+      tags: [Church Auth]
+      summary: Submit Problem Finder report
+      operationId: submitPfReport
+      security:
+        - ChurchAppBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status, issueCount, autoFixedCount, coverageScore, blockerCount]
+              properties:
+                runId:
+                  type: string
+                status:
+                  type: string
+                  enum: [GO, NO_GO]
+                issueCount:
+                  type: integer
+                autoFixedCount:
+                  type: integer
+                coverageScore:
+                  type: integer
+                blockerCount:
+                  type: integer
+                issues:
+                  type: array
+                  items:
+                    type: object
+                blockers:
+                  type: array
+                  items:
+                    type: object
+                autoFixed:
+                  type: array
+                  items:
+                    type: object
+                needsAttention:
+                  type: array
+                  items:
+                    type: object
+                topActions:
+                  type: array
+                  items:
+                    type: object
+                createdAt:
+                  type: string
+                  format: date-time
+      responses:
+        '200':
+          description: Report saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
+                    example: saved
+
+  # ── EMAIL VERIFICATION ────────────────────────────────────────────────────────
+
+  /api/church/verify-email:
+    get:
+      tags: [Email Verification]
+      summary: Verify email address via token link
+      operationId: verifyEmail
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to portal on success
+        '400':
+          description: Invalid or expired token
+
+  /api/church/resend-verification:
+    post:
+      tags: [Email Verification]
+      summary: Resend verification email
+      operationId: resendVerification
+      description: Rate limited — 3 requests per 60 seconds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Email sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent:
+                    type: boolean
+                  alreadyVerified:
+                    type: boolean
+
+  /api/church/forgot-password:
+    post:
+      tags: [Email Verification]
+      summary: Initiate self-service password reset
+      operationId: forgotPassword
+      description: |
+        Rate limited — 3 requests per 15 minutes.
+        Always returns success to prevent email enumeration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Reset email sent (always)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent:
+                    type: boolean
+
+  /api/church/reset-password-token:
+    post:
+      tags: [Email Verification]
+      summary: Complete password reset with token
+      operationId: resetPasswordToken
+      description: Rate limited — 5 requests per 15 minutes. Token expires in 1 hour.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '400':
+          description: Invalid or expired token
+
+  # ── BILLING ───────────────────────────────────────────────────────────────────
+
+  /api/billing/checkout:
+    post:
+      tags: [Billing]
+      summary: Create Stripe checkout session
+      operationId: createCheckout
+      description: Rate limited — 5 requests per 60 seconds. Requires admin auth.
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tier, churchId, email, successUrl, cancelUrl]
+              properties:
+                tier:
+                  type: string
+                  enum: [connect, plus, pro, managed, event]
+                churchId:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                successUrl:
+                  type: string
+                  format: uri
+                cancelUrl:
+                  type: string
+                  format: uri
+                billingInterval:
+                  type: string
+                  enum: [monthly, annual, one_time]
+                  default: monthly
+                isEvent:
+                  type: boolean
+      responses:
+        '200':
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    format: uri
+
+  /api/billing/portal:
+    post:
+      tags: [Billing]
+      summary: Create Stripe billing portal session
+      operationId: createBillingPortal
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [churchId, returnUrl]
+              properties:
+                churchId:
+                  type: string
+                returnUrl:
+                  type: string
+                  format: uri
+      responses:
+        '200':
+          description: Portal session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    format: uri
+
+  /api/billing/webhook:
+    post:
+      tags: [Billing]
+      summary: Stripe webhook receiver
+      operationId: stripeWebhook
+      description: |
+        No authentication — Stripe signature verified via `stripe-signature` header.
+        Raw body must be preserved for signature verification.
+      parameters:
+        - name: stripe-signature
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Webhook processed
+        '400':
+          description: Invalid signature
+
+  /api/billing/status/{churchId}:
+    get:
+      tags: [Billing]
+      summary: Get billing status for a church
+      operationId: getBillingStatus
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Billing status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingStatus'
+
+  /api/billing:
+    get:
+      tags: [Billing]
+      summary: List all billing records
+      operationId: listBillingRecords
+      security:
+        - AdminBearer: []
+      responses:
+        '200':
+          description: All billing records
+
+  # ── CHURCHES ─────────────────────────────────────────────────────────────────
+
+  /api/churches:
+    get:
+      tags: [Churches]
+      summary: List all churches with runtime status
+      operationId: listChurches
+      security:
+        - AdminBearer: []
+      responses:
+        '200':
+          description: Church list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Church'
+
+  /api/churches/register:
+    post:
+      tags: [Churches]
+      summary: Register a new church (admin)
+      operationId: registerChurch
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Church registered
+
+  /api/churches/{churchId}:
+    get:
+      tags: [Churches]
+      summary: Get church details
+      operationId: getChurch
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Church details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Church'
+        '404':
+          description: Church not found
+    delete:
+      tags: [Churches]
+      summary: Delete church and all data (cascade)
+      operationId: deleteChurch
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Church deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                  name:
+                    type: string
+
+  /api/churches/{churchId}/status:
+    get:
+      tags: [Churches]
+      summary: Get church connection status
+      operationId: getChurchStatus
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Connection status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  connected:
+                    type: boolean
+                  status:
+                    type: string
+                  lastSeen:
+                    type: string
+                    format: date-time
+                    nullable: true
+
+  /api/churches/{churchId}/billing:
+    put:
+      tags: [Billing]
+      summary: Manually update church billing
+      operationId: updateChurchBilling
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tier:
+                  type: string
+                  enum: [connect, plus, pro, managed, event]
+                status:
+                  type: string
+                  enum: [trialing, active, past_due, canceled, inactive]
+                billingInterval:
+                  type: string
+                  enum: [monthly, annual]
+      responses:
+        '200':
+          description: Billing updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  churchId:
+                    type: string
+                  billing:
+                    $ref: '#/components/schemas/BillingStatus'
+
+  # ── COMMANDS ──────────────────────────────────────────────────────────────────
+
+  /api/command:
+    post:
+      tags: [Commands]
+      summary: Send command to a church client
+      operationId: sendCommand
+      security:
+        - AdminBearer: []
+      description: |
+        Rate limited — max 10 commands per second.
+        If the church is offline, the command is queued for up to 30 seconds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [churchId, command]
+              properties:
+                churchId:
+                  type: string
+                command:
+                  type: string
+                  description: Command name (e.g. "program", "preview", "cut")
+                params:
+                  type: object
+      responses:
+        '200':
+          description: Command sent or queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent:
+                    type: boolean
+                  queued:
+                    type: boolean
+                  messageId:
+                    type: string
+        '402':
+          description: Billing access denied
+        '429':
+          description: Rate limit exceeded
+        '503':
+          description: Church not connected and queue full
+
+  /api/broadcast:
+    post:
+      tags: [Commands]
+      summary: Broadcast command to all connected churches
+      operationId: broadcastCommand
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [command]
+              properties:
+                command:
+                  type: string
+                params:
+                  type: object
+      responses:
+        '200':
+          description: Broadcast result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sent:
+                    type: integer
+                    description: Number of churches that received the command
+                  total:
+                    type: integer
+                    description: Total registered churches
+
+  # ── AUTOMATION & PRESETS ──────────────────────────────────────────────────────
+
+  /api/churches/{churchId}/presets:
+    get:
+      tags: [Automation]
+      summary: List presets for a church
+      operationId: listPresets
+      security:
+        - AdminBearer: []
+        - ChurchAppBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Preset list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Preset'
+    post:
+      tags: [Automation]
+      summary: Create a preset
+      operationId: createPreset
+      security:
+        - AdminBearer: []
+        - ChurchAppBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type, data]
+              properties:
+                name:
+                  type: string
+                type:
+                  type: string
+                data:
+                  type: object
+      responses:
+        '200':
+          description: Preset created
+
+  /api/churches/{churchId}/presets/{name}:
+    get:
+      tags: [Automation]
+      summary: Get preset by name
+      operationId: getPreset
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Preset details
+    delete:
+      tags: [Automation]
+      summary: Delete preset by name
+      operationId: deletePreset
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Preset deleted
+
+  /api/churches/{churchId}/presets/{name}/recall:
+    post:
+      tags: [Automation]
+      summary: Recall a preset on the church client
+      operationId: recallPreset
+      description: Requires church to be connected via WebSocket.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Preset recalled
+        '503':
+          description: Church not connected
+
+  /api/churches/{churchId}/automation:
+    get:
+      tags: [Automation]
+      summary: List AutoPilot rules
+      operationId: listAutomationRules
+      description: Requires `plus` tier or higher.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: AutoPilot rules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paused:
+                    type: boolean
+                  rules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AutomationRule'
+        '402':
+          description: Feature not available on current tier
+    post:
+      tags: [Automation]
+      summary: Create AutoPilot rule
+      operationId: createAutomationRule
+      description: Requires `plus` tier or higher. Returns 402 if rule limit reached.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, triggerType, actions]
+              properties:
+                name:
+                  type: string
+                triggerType:
+                  type: string
+                triggerConfig:
+                  type: object
+                actions:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: Rule created
+        '400':
+          description: Invalid rule
+        '402':
+          description: Rule limit reached or tier too low
+
+  /api/churches/{churchId}/automation/{ruleId}:
+    put:
+      tags: [Automation]
+      summary: Update AutoPilot rule
+      operationId: updateAutomationRule
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutomationRule'
+      responses:
+        '200':
+          description: Rule updated
+    delete:
+      tags: [Automation]
+      summary: Delete AutoPilot rule
+      operationId: deleteAutomationRule
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Rule deleted
+
+  /api/churches/{churchId}/automation/{ruleId}/test:
+    post:
+      tags: [Automation]
+      summary: Test AutoPilot rule (dry run)
+      operationId: testAutomationRule
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Test result
+
+  /api/churches/{churchId}/automation/pause:
+    post:
+      tags: [Automation]
+      summary: Pause all AutoPilot rules
+      operationId: pauseAutomation
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Automation paused
+
+  /api/churches/{churchId}/automation/resume:
+    post:
+      tags: [Automation]
+      summary: Resume all AutoPilot rules
+      operationId: resumeAutomation
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Automation resumed
+
+  /api/churches/{churchId}/command-log:
+    get:
+      tags: [Automation]
+      summary: Get command log for a church
+      operationId: getCommandLog
+      description: Requires `plus` tier or higher.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 200
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Command history
+
+  # ── SESSIONS ──────────────────────────────────────────────────────────────────
+
+  /api/churches/{churchId}/schedule:
+    get:
+      tags: [Sessions]
+      summary: Get church service schedule
+      operationId: getChurchSchedule
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Schedule
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schedule:
+                    type: object
+                  inServiceWindow:
+                    type: boolean
+                  nextService:
+                    type: string
+                    format: date-time
+                    nullable: true
+    put:
+      tags: [Sessions]
+      summary: Update church service schedule
+      operationId: updateChurchSchedule
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [serviceTimes]
+              properties:
+                serviceTimes:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: Schedule saved
+
+  /api/churches/{churchId}/sessions:
+    get:
+      tags: [Sessions]
+      summary: List session history
+      operationId: listSessions
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Session'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+
+  /api/churches/{churchId}/sessions/current:
+    get:
+      tags: [Sessions]
+      summary: Get currently active session
+      operationId: getCurrentSession
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Active session or not active
+
+  /api/churches/{churchId}/sessions/{sessionId}/timeline:
+    get:
+      tags: [Sessions]
+      summary: Get session timeline
+      operationId: getSessionTimeline
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Timeline with events, alerts, chat messages, and markers
+
+  /api/churches/{churchId}/sessions/{sessionId}/debrief:
+    get:
+      tags: [Sessions]
+      summary: Get session debrief report
+      operationId: getSessionDebrief
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Formatted debrief report
+
+  /api/churches/{churchId}/report:
+    get:
+      tags: [Sessions]
+      summary: Get monthly report
+      operationId: getMonthlyReport
+      description: Requires `plus` tier or higher.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: month
+          in: query
+          schema:
+            type: string
+            description: "Month in YYYY-MM format (defaults to current month)"
+      responses:
+        '200':
+          description: Monthly report
+        '402':
+          description: Feature not available on current tier
+
+  /api/digest/latest:
+    get:
+      tags: [Sessions]
+      summary: Get latest weekly digest
+      operationId: getLatestDigest
+      security:
+        - AdminBearer: []
+      responses:
+        '200':
+          description: Latest digest
+
+  /api/digest/generate:
+    get:
+      tags: [Sessions]
+      summary: Generate new weekly digest
+      operationId: generateDigest
+      security:
+        - AdminBearer: []
+      responses:
+        '200':
+          description: Digest generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generated:
+                    type: boolean
+                  filePath:
+                    type: string
+
+  /api/churches/{churchId}/td-contact:
+    put:
+      tags: [Sessions]
+      summary: Update TD contact info
+      operationId: updateTdContact
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tdChatId:
+                  type: string
+                tdName:
+                  type: string
+                alertBotToken:
+                  type: string
+      responses:
+        '200':
+          description: Contact info saved
+
+  /api/alerts/{alertId}/acknowledge:
+    post:
+      tags: [Sessions]
+      summary: Acknowledge an alert
+      operationId: acknowledgeAlert
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: alertId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                responder:
+                  type: string
+      responses:
+        '200':
+          description: Alert acknowledged
+
+  /api/chat:
+    post:
+      tags: [Chat]
+      summary: Admin dashboard AI chat
+      operationId: adminChat
+      description: Rate limited — 30 requests per 60 seconds.
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                churchStates:
+                  type: object
+                history:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: AI reply
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reply:
+                    type: string
+
+  # ── CHURCH CHAT ───────────────────────────────────────────────────────────────
+
+  /api/church/chat:
+    post:
+      tags: [Chat]
+      summary: Send chat message (church app)
+      operationId: sendChurchChat
+      description: Rate limited — 20 requests per 60 seconds.
+      security:
+        - ChurchAppBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                senderName:
+                  type: string
+                attachment:
+                  type: object
+                  properties:
+                    data:
+                      type: string
+                      description: Base64 encoded file data
+                    mimeType:
+                      type: string
+                    fileName:
+                      type: string
+      responses:
+        '200':
+          description: Message saved
+    get:
+      tags: [Chat]
+      summary: Get chat messages (church app)
+      operationId: getChurchChat
+      security:
+        - ChurchAppBearer: []
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Message list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
+
+  /api/churches/{churchId}/chat:
+    post:
+      tags: [Chat]
+      summary: Send chat message to church (admin)
+      operationId: sendAdminChurchChat
+      description: Rate limited — 30 requests per 60 seconds.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                senderName:
+                  type: string
+      responses:
+        '200':
+          description: Message saved
+    get:
+      tags: [Chat]
+      summary: Get church chat history (admin)
+      operationId: getAdminChurchChat
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: sessionId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Message list
+
+  # ── ONBOARDING CHAT ───────────────────────────────────────────────────────────
+
+  /api/church/onboarding/chat:
+    post:
+      tags: [Onboarding]
+      summary: Send onboarding AI chat message
+      operationId: onboardingChat
+      description: Rate limited — 30 requests per 60 seconds.
+      security:
+        - ChurchAppBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                scanResults:
+                  type: object
+      responses:
+        '200':
+          description: AI reply with onboarding guidance
+
+  /api/church/onboarding/confirm:
+    post:
+      tags: [Onboarding]
+      summary: Execute confirmed onboarding action
+      operationId: onboardingConfirm
+      description: Rate limited — 20 requests per 60 seconds.
+      security:
+        - ChurchAppBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+      responses:
+        '200':
+          description: Action executed
+
+  /api/church/onboarding/state:
+    get:
+      tags: [Onboarding]
+      summary: Get onboarding state
+      operationId: getOnboardingState
+      security:
+        - ChurchAppBearer: []
+      responses:
+        '200':
+          description: Onboarding state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                  collectedData:
+                    type: object
+                  progress:
+                    type: object
+                    properties:
+                      completed:
+                        type: array
+                        items:
+                          type: string
+                      remaining:
+                        type: array
+                        items:
+                          type: string
+                  messages:
+                    type: array
+                    items:
+                      type: object
+
+  # ── STREAM PLATFORMS ──────────────────────────────────────────────────────────
+
+  /api/oauth/facebook/callback:
+    get:
+      tags: [Stream Platforms]
+      summary: Facebook OAuth redirect callback (public)
+      operationId: facebookOAuthCallback
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: error
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Auth code stored for polling
+
+  /api/church/app/oauth/facebook/pending:
+    get:
+      tags: [Stream Platforms]
+      summary: Poll for pending Facebook auth code
+      operationId: getFacebookPendingAuth
+      security:
+        - ChurchAppBearer: []
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Auth status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready:
+                    type: boolean
+                  code:
+                    type: string
+                    nullable: true
+
+  /api/church/app/oauth/facebook/exchange:
+    post:
+      tags: [Stream Platforms]
+      summary: Exchange Facebook auth code for token
+      operationId: exchangeFacebookCode
+      security:
+        - ChurchAppBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, redirectUri]
+              properties:
+                code:
+                  type: string
+                redirectUri:
+                  type: string
+                  format: uri
+      responses:
+        '200':
+          description: Auth result with pages list
+
+  /api/church/app/oauth/facebook/select-page:
+    post:
+      tags: [Stream Platforms]
+      summary: Select Facebook page for streaming
+      operationId: selectFacebookPage
+      security:
+        - ChurchAppBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pageId]
+              properties:
+                pageId:
+                  type: string
+      responses:
+        '200':
+          description: Live video created with stream key
+
+  /api/church/app/oauth/facebook/refresh-key:
+    post:
+      tags: [Stream Platforms]
+      summary: Refresh Facebook stream key
+      operationId: refreshFacebookStreamKey
+      security:
+        - ChurchAppBearer: []
+      responses:
+        '200':
+          description: Fresh stream key
+
+  /api/church/app/oauth/facebook:
+    delete:
+      tags: [Stream Platforms]
+      summary: Disconnect Facebook OAuth
+      operationId: disconnectFacebook
+      security:
+        - ChurchAppBearer: []
+      responses:
+        '200':
+          description: Disconnected
+
+  /api/church/app/oauth/youtube/exchange:
+    post:
+      tags: [Stream Platforms]
+      summary: Exchange YouTube auth code
+      operationId: exchangeYouTubeCode
+      security:
+        - ChurchAppBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, redirectUri]
+              properties:
+                code:
+                  type: string
+                redirectUri:
+                  type: string
+                  format: uri
+      responses:
+        '200':
+          description: YouTube auth result with stream key
+
+  /api/church/app/oauth/youtube/refresh-key:
+    post:
+      tags: [Stream Platforms]
+      summary: Refresh YouTube stream key
+      operationId: refreshYouTubeStreamKey
+      security:
+        - ChurchAppBearer: []
+      responses:
+        '200':
+          description: Fresh stream key
+
+  /api/church/app/oauth/youtube:
+    delete:
+      tags: [Stream Platforms]
+      summary: Disconnect YouTube OAuth
+      operationId: disconnectYouTube
+      security:
+        - ChurchAppBearer: []
+      responses:
+        '200':
+          description: Disconnected
+
+  /api/church/app/oauth/status:
+    get:
+      tags: [Stream Platforms]
+      summary: Get OAuth connection status for both platforms
+      operationId: getOAuthStatus
+      security:
+        - ChurchAppBearer: []
+      responses:
+        '200':
+          description: Combined OAuth status
+
+  /api/church/app/oauth/stream-keys:
+    get:
+      tags: [Stream Platforms]
+      summary: Get stream keys for all connected platforms
+      operationId: getStreamKeys
+      security:
+        - ChurchAppBearer: []
+      responses:
+        '200':
+          description: Stream keys
+
+  # ── SLACK ─────────────────────────────────────────────────────────────────────
+
+  /api/churches/{churchId}/slack:
+    get:
+      tags: [Slack]
+      summary: Get Slack integration config
+      operationId: getSlackConfig
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Slack config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured:
+                    type: boolean
+                  webhookUrl:
+                    type: string
+                    description: Masked URL
+                  channel:
+                    type: string
+    put:
+      tags: [Slack]
+      summary: Configure Slack webhook
+      operationId: updateSlackConfig
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [webhookUrl]
+              properties:
+                webhookUrl:
+                  type: string
+                  format: uri
+                  description: Must be an HTTPS hooks.slack.com URL
+                channel:
+                  type: string
+      responses:
+        '200':
+          description: Config saved
+    delete:
+      tags: [Slack]
+      summary: Remove Slack integration
+      operationId: deleteSlackConfig
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Integration removed
+
+  /api/churches/{churchId}/slack/test:
+    post:
+      tags: [Slack]
+      summary: Send test alert to Slack
+      operationId: testSlack
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Test message sent
+
+  # ── TELEGRAM ──────────────────────────────────────────────────────────────────
+
+  /api/telegram-webhook:
+    post:
+      tags: [Telegram]
+      summary: Telegram bot webhook receiver
+      operationId: telegramWebhook
+      description: |
+        No authentication. If `TALLY_BOT_WEBHOOK_SECRET` is set, the
+        `x-telegram-bot-api-secret-token` header is verified.
+      parameters:
+        - name: x-telegram-bot-api-secret-token
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Telegram Update object
+      responses:
+        '200':
+          description: Always returns 200 immediately
+
+  /api/churches/{churchId}/td-register:
+    post:
+      tags: [Telegram]
+      summary: Register a TD via Telegram
+      operationId: registerTd
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [telegram_user_id, name]
+              properties:
+                telegram_user_id:
+                  type: string
+                telegram_chat_id:
+                  type: string
+                name:
+                  type: string
+      responses:
+        '200':
+          description: TD registered
+
+  /api/churches/{churchId}/tds:
+    get:
+      tags: [Telegram]
+      summary: List TDs for a church
+      operationId: listTds
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: TD list
+
+  /api/churches/{churchId}/tds/{userId}:
+    delete:
+      tags: [Telegram]
+      summary: Remove a TD
+      operationId: removeTd
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: TD removed
+
+  /api/churches/{churchId}/tds/add:
+    post:
+      tags: [On-Call]
+      summary: Add TD to on-call rotation
+      operationId: addTdToRotation
+      description: Requires `plus` tier or higher.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, telegramChatId]
+              properties:
+                name:
+                  type: string
+                telegramChatId:
+                  type: string
+                telegramUserId:
+                  type: string
+                phone:
+                  type: string
+                isPrimary:
+                  type: boolean
+      responses:
+        '200':
+          description: TD added
+
+  /api/bot/set-webhook:
+    post:
+      tags: [Telegram]
+      summary: Configure Telegram bot webhook URL
+      operationId: setBotWebhook
+      security:
+        - AdminBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  format: uri
+                secret_token:
+                  type: string
+      responses:
+        '200':
+          description: Webhook configured
+
+  # ── ON-CALL ───────────────────────────────────────────────────────────────────
+
+  /api/churches/{churchId}/oncall:
+    get:
+      tags: [On-Call]
+      summary: Get on-call status
+      operationId: getOnCall
+      description: Requires `plus` tier or higher.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: On-call status
+        '402':
+          description: Feature not available on current tier
+    post:
+      tags: [On-Call]
+      summary: Set on-call TD
+      operationId: setOnCall
+      description: Requires `plus` tier or higher.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tdName]
+              properties:
+                tdName:
+                  type: string
+      responses:
+        '200':
+          description: On-call updated
+
+  # ── MAINTENANCE WINDOWS ───────────────────────────────────────────────────────
+
+  /api/churches/{churchId}/maintenance:
+    get:
+      tags: [Maintenance]
+      summary: List maintenance windows
+      operationId: listMaintenanceWindows
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Maintenance windows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    churchId:
+                      type: string
+                    startTime:
+                      type: string
+                      format: date-time
+                    endTime:
+                      type: string
+                      format: date-time
+                    reason:
+                      type: string
+                      nullable: true
+    post:
+      tags: [Maintenance]
+      summary: Schedule a maintenance window
+      operationId: createMaintenanceWindow
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [startTime, endTime]
+              properties:
+                startTime:
+                  type: string
+                  format: date-time
+                endTime:
+                  type: string
+                  format: date-time
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Maintenance window created
+
+  /api/maintenance/{id}:
+    delete:
+      tags: [Maintenance]
+      summary: Delete a maintenance window
+      operationId: deleteMaintenanceWindow
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Window deleted
+
+  # ── GUEST TOKENS ──────────────────────────────────────────────────────────────
+
+  /api/churches/{churchId}/guest-token:
+    post:
+      tags: [Guest Tokens]
+      summary: Generate a guest token for temporary church access
+      operationId: createGuestToken
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Guest token generated
+
+  /api/guest-tokens:
+    get:
+      tags: [Guest Tokens]
+      summary: List all active guest tokens
+      operationId: listGuestTokens
+      security:
+        - AdminBearer: []
+      responses:
+        '200':
+          description: Guest token list
+
+  /api/guest-token/{token}:
+    delete:
+      tags: [Guest Tokens]
+      summary: Revoke a guest token
+      operationId: revokeGuestToken
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token revoked
+
+  # ── EVENTS ────────────────────────────────────────────────────────────────────
+
+  /api/events:
+    get:
+      tags: [Events]
+      summary: List event-type churches
+      operationId: listEvents
+      security:
+        - AdminBearer: []
+      responses:
+        '200':
+          description: Event list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    churchId:
+                      type: string
+                    name:
+                      type: string
+                    timeRemaining:
+                      type: integer
+                      description: Milliseconds until expiry
+                    expired:
+                      type: boolean
+
+  /api/events/create:
+    post:
+      tags: [Events]
+      summary: Create an event-type church account
+      operationId: createEvent
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                eventLabel:
+                  type: string
+                durationHours:
+                  type: integer
+                  default: 72
+                  description: How long the event account is valid
+                tdName:
+                  type: string
+                tdTelegramChatId:
+                  type: string
+                contactEmail:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Event created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  churchId:
+                    type: string
+                  token:
+                    type: string
+                  expiresAt:
+                    type: string
+                    format: date-time
+                  name:
+                    type: string
+
+  # ── PLANNING CENTER ───────────────────────────────────────────────────────────
+
+  /api/churches/{churchId}/planning-center:
+    get:
+      tags: [Planning Center]
+      summary: Get Planning Center integration status
+      operationId: getPlanningCenterStatus
+      description: Requires `pro` tier or higher.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Planning Center status
+        '402':
+          description: Feature not available on current tier
+    put:
+      tags: [Planning Center]
+      summary: Configure Planning Center integration
+      operationId: updatePlanningCenter
+      description: Requires `pro` tier or higher.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [appId, secret, serviceTypeId]
+              properties:
+                appId:
+                  type: string
+                secret:
+                  type: string
+                serviceTypeId:
+                  type: string
+                syncEnabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Integration saved
+
+  /api/churches/{churchId}/planning-center/sync:
+    post:
+      tags: [Planning Center]
+      summary: Trigger manual Planning Center sync
+      operationId: syncPlanningCenter
+      description: Requires `pro` tier or higher.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sync result
+
+  /api/churches/{churchId}/planning-center/preview:
+    get:
+      tags: [Planning Center]
+      summary: Preview Planning Center services (without saving)
+      operationId: previewPlanningCenter
+      description: Requires `pro` tier or higher.
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Upcoming services preview
+
+  # ── RESELLERS ─────────────────────────────────────────────────────────────────
+
+  /api/resellers:
+    get:
+      tags: [Resellers]
+      summary: List all resellers
+      operationId: listResellers
+      security:
+        - AdminBearer: []
+      responses:
+        '200':
+          description: Reseller list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Reseller'
+    post:
+      tags: [Resellers]
+      summary: Create a reseller
+      operationId: createReseller
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                brandName:
+                  type: string
+                supportEmail:
+                  type: string
+                  format: email
+                logoUrl:
+                  type: string
+                webhookUrl:
+                  type: string
+                  format: uri
+                churchLimit:
+                  type: integer
+                commissionRate:
+                  type: number
+      responses:
+        '200':
+          description: Reseller created (includes API key)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reseller'
+
+  /api/resellers/{resellerId}:
+    get:
+      tags: [Resellers]
+      summary: Get reseller with churches
+      operationId: getReseller
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: resellerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Reseller and their churches
+    put:
+      tags: [Resellers]
+      summary: Update reseller
+      operationId: updateReseller
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: resellerId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Reseller updated
+    delete:
+      tags: [Resellers]
+      summary: Deactivate reseller
+      operationId: deactivateReseller
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: resellerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Reseller deactivated
+
+  /api/resellers/{resellerId}/password:
+    post:
+      tags: [Resellers]
+      summary: Set reseller portal password
+      operationId: setResellerPassword
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: resellerId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  minLength: 6
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Password set
+
+  /api/reseller/churches/register:
+    post:
+      tags: [Resellers]
+      summary: Reseller — register a new church
+      operationId: resellerRegisterChurch
+      description: Requires reseller API key. Enforces per-reseller church limit.
+      security:
+        - ResellerKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Church registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  churchId:
+                    type: string
+                  name:
+                    type: string
+                  token:
+                    type: string
+                  resellerId:
+                    type: string
+        '402':
+          description: Church limit reached
+
+  /api/reseller/churches:
+    get:
+      tags: [Resellers]
+      summary: Reseller — list own churches
+      operationId: resellerListChurches
+      security:
+        - ResellerKey: []
+      responses:
+        '200':
+          description: Church list with status
+
+  /api/reseller/churches/{churchId}:
+    get:
+      tags: [Resellers]
+      summary: Reseller — get church details
+      operationId: resellerGetChurch
+      security:
+        - ResellerKey: []
+      parameters:
+        - name: churchId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Church details
+        '403':
+          description: Church does not belong to this reseller
+
+  /api/reseller/me:
+    get:
+      tags: [Resellers]
+      summary: Reseller — get own profile and stats
+      operationId: getResellerMe
+      security:
+        - ResellerKey: []
+      responses:
+        '200':
+          description: Reseller profile
+    put:
+      tags: [Resellers]
+      summary: Reseller — update own profile / branding
+      operationId: updateResellerMe
+      security:
+        - ResellerKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                brand_name:
+                  type: string
+                support_email:
+                  type: string
+                  format: email
+                logo_url:
+                  type: string
+                primary_color:
+                  type: string
+                custom_domain:
+                  type: string
+      responses:
+        '200':
+          description: Profile updated
+
+  /api/reseller/branding:
+    get:
+      tags: [Resellers]
+      summary: Reseller — get branding config
+      operationId: getResellerBranding
+      security:
+        - ResellerKey: []
+      responses:
+        '200':
+          description: Branding configuration
+
+  /api/reseller/stats:
+    get:
+      tags: [Resellers]
+      summary: Reseller — get usage statistics
+      operationId: getResellerStats
+      security:
+        - ResellerKey: []
+      responses:
+        '200':
+          description: Reseller statistics
+
+  /api/reseller/churches/token:
+    post:
+      tags: [Resellers]
+      summary: Reseller — create church with login credentials
+      operationId: resellerCreateChurchToken
+      security:
+        - ResellerKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [churchName]
+              properties:
+                churchName:
+                  type: string
+                contactEmail:
+                  type: string
+                  format: email
+                portalEmail:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Church created with credentials
+
+  # ── SUPPORT ───────────────────────────────────────────────────────────────────
+
+  /api/support/triage:
+    post:
+      tags: [Support]
+      summary: Triage a support issue
+      operationId: triageSupport
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Diagnostics and support data
+      responses:
+        '200':
+          description: Triage analysis
+
+  /api/support/tickets:
+    get:
+      tags: [Support]
+      summary: List support tickets
+      operationId: listSupportTickets
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, in_progress, resolved, closed]
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ticket list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tickets:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SupportTicket'
+                  total:
+                    type: integer
+    post:
+      tags: [Support]
+      summary: Create support ticket
+      operationId: createSupportTicket
+      description: Rate limited — 5 requests per 60 seconds.
+      security:
+        - AdminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Ticket details and diagnostics
+      responses:
+        '200':
+          description: Ticket created
+
+  /api/support/tickets/{ticketId}:
+    get:
+      tags: [Support]
+      summary: Get support ticket with timeline
+      operationId: getSupportTicket
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Full ticket with timeline
+    put:
+      tags: [Support]
+      summary: Update support ticket
+      operationId: updateSupportTicket
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [open, in_progress, resolved, closed]
+                category:
+                  type: string
+                severity:
+                  type: string
+                  enum: [low, medium, high, critical]
+                assignee:
+                  type: string
+      responses:
+        '200':
+          description: Ticket updated
+
+  /api/support/tickets/{ticketId}/updates:
+    post:
+      tags: [Support]
+      summary: Add update to support ticket
+      operationId: addTicketUpdate
+      security:
+        - AdminBearer: []
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                attachments:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        '200':
+          description: Update added
+
+  # ── INTERNAL ──────────────────────────────────────────────────────────────────
+
+  /api/internal/backups/snapshot:
+    post:
+      tags: [Internal]
+      summary: Trigger a manual database snapshot
+      operationId: createSnapshot
+      security:
+        - AdminBearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+      responses:
+        '200':
+          description: Snapshot created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  snapshot:
+                    type: object
+
+  /api/docs:
+    get:
+      tags: [Internal]
+      summary: Serve OpenAPI specification
+      operationId: getApiDocs
+      description: Returns the OpenAPI 3.0 specification as JSON.
+      responses:
+        '200':
+          description: OpenAPI spec
+          content:
+            application/json:
+              schema:
+                type: object
+
+  # ── REAL-TIME ─────────────────────────────────────────────────────────────────
+
+  /api/dashboard/stream:
+    get:
+      tags: [Internal]
+      summary: Server-Sent Events stream for live dashboard updates
+      operationId: dashboardStream
+      description: |
+        Returns a `text/event-stream` SSE connection. Requires admin authentication
+        (cookie session or Bearer token). Events include:
+        - `connected` — initial connection confirmation
+        - `status` — church connection status changes
+        - `alert` — new alerts
+        - `message` — new chat messages
+        - `heartbeat` — keepalive every 30 seconds
+      security:
+        - AdminBearer: []
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  x-websocket:
+    /ws:
+      description: |
+        WebSocket relay endpoint (same port as HTTP, path `/`).
+
+        **Church client registration:**
+        ```json
+        { "type": "register", "token": "<church_app_jwt>" }
+        ```
+
+        **Controller registration:**
+        ```json
+        { "type": "controller", "key": "<admin_api_key>" }
+        ```
+
+        **Relay message (controller → church):**
+        ```json
+        { "type": "command", "churchId": "...", "command": "cut", "params": {} }
+        ```
+
+        **Status update (church → relay → controller):**
+        ```json
+        { "type": "status", "churchId": "...", "data": { ... } }
+        ```
+
+responses:
+  Unauthorized:
+    description: Missing or invalid authentication
+    content:
+      application/json:
+        schema:
+          $ref: '#/components/schemas/Error'
+  Forbidden:
+    description: Insufficient permissions
+    content:
+      application/json:
+        schema:
+          $ref: '#/components/schemas/Error'
+  NotFound:
+    description: Resource not found
+    content:
+      application/json:
+        schema:
+          $ref: '#/components/schemas/Error'
