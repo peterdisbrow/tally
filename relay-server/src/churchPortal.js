@@ -7817,6 +7817,11 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── Portal HTML ───────────────────────────────────────────────────────────────
   app.get('/church-portal', authMiddleware, (req, res) => {
+    // Refresh CSRF token on every portal load so users with existing sessions
+    // (e.g. logged in before CSRF was introduced) always get a valid token.
+    if (!req.cookies?.tally_csrf) {
+      setCsrfCookie(res, generateCsrfToken());
+    }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(buildChurchPortalHtml(req.church));
   });
