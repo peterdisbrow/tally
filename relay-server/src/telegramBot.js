@@ -658,6 +658,11 @@ class TallyBot {
       this.db.prepare('UPDATE churches SET registration_code = ? WHERE churchId = ?').run(code, c.churchId);
     }
 
+    // Add access_level column if it doesn't exist (viewer / operator / admin)
+    try {
+      this.db.exec(`ALTER TABLE church_tds ADD COLUMN access_level TEXT DEFAULT 'operator'`);
+    } catch { /* column already exists */ }
+
     this._stmtFindTD = this.db.prepare('SELECT * FROM church_tds WHERE telegram_user_id = ? AND active = 1');
     this._stmtFindChurchByCode = this.db.prepare('SELECT * FROM churches WHERE registration_code = ?');
     this._stmtRegisterTD = this.db.prepare('INSERT OR REPLACE INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active) VALUES (?, ?, ?, ?, ?, 1)');
@@ -900,7 +905,8 @@ class TallyBot {
     if (td) {
       const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(td.church_id);
       if (church) {
-        return this.handleTDCommand(church, chatId, text);
+        const accessLevel = td.access_level || 'operator';
+        return this.handleTDCommand(church, chatId, text, { accessLevel });
       }
     }
 
@@ -910,7 +916,7 @@ class TallyBot {
       if (guest) {
         const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(guest.churchId);
         if (church) {
-          return this.handleTDCommand(church, chatId, text);
+          return this.handleTDCommand(church, chatId, text, { accessLevel: 'operator', guestRow: guest });
         }
       }
     }
@@ -948,7 +954,7 @@ class TallyBot {
 
       console.log(`[TallyBot] Guest registered: ${name} → ${church.name} (token: ${code.slice(0, 4)}****)`);
       return this.sendMessage(chatId,
-        `✅ Welcome, *${name}*!\n\nYou have *guest access* for *${church.name}*.\n\n${result.message}\n\nType \`help\` to see available commands.`,
+        `✅ Welcome, *${name}*!\n\nYou have *guest access* for *${church.name}*.\n\n${result.message}\n\nType \`help\` for commands or \`my access\` to check how much time you have left.`,
         { parse_mode: 'Markdown' }
       );
     }
@@ -1035,8 +1041,39 @@ class TallyBot {
 
   // ─── TD COMMAND HANDLER ───────────────────────────────────────────────
 
-  async handleTDCommand(church, chatId, text) {
+  /**
+   * @param {object} church
+   * @param {string|number} chatId
+   * @param {string} text
+   * @param {object} [opts]
+   * @param {'viewer'|'operator'|'admin'} [opts.accessLevel='operator'] - Access tier
+   * @param {object|null} [opts.guestRow=null] - guest_tokens row if caller is a guest TD
+   */
+  async handleTDCommand(church, chatId, text, { accessLevel = 'operator', guestRow = null } = {}) {
     const ltext = text.trim().toLowerCase();
+
+    // ── Guest: check remaining access time ───────────────────────────────────
+    if (guestRow && /^(my\s*access|access\s*info|access|token\s*status)$/i.test(ltext)) {
+      const remaining = require('./guestTdMode').GuestTdMode.formatRemainingTime(guestRow.expiresAt);
+      const expiresLocal = new Date(guestRow.expiresAt).toLocaleString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      });
+      return this.sendMessage(chatId,
+        `🎟️ *Guest Access — ${church.name}*\n\n⏳ *${remaining}*\nExpires: ${expiresLocal}\n\nYou have operator-level access to monitor and control ${church.name}.`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    // ── Viewer access level: only status/info commands allowed ───────────────
+    if (accessLevel === 'viewer') {
+      const VIEWER_WHITELIST = /^(status|help|\?|commands?|fix|event\s+status|my\s+access|access|access\s+info|token\s+status|support|diagnose|scores?|system\s+health|\/(fix|oncall|support|diagnose|eventstatus).*|\/ack_.+|\/recover_.+)$/i;
+      if (!VIEWER_WHITELIST.test(ltext)) {
+        return this.sendMessage(chatId,
+          `🔒 *Viewer access* — you can check status and run diagnostics, but not control equipment.\n\nAsk your church admin to upgrade your access level to *operator* or *admin*.`,
+          { parse_mode: 'Markdown' }
+        );
+      }
+    }
 
     // ── Pending rundown draft handler (save/edit/cancel) ─────────────────
     const pendingRundown = this._pendingRundowns.get(chatId);
@@ -1547,9 +1584,9 @@ class TallyBot {
       // revoke guest [token]
       const revokeMatch = text.match(/^revoke\s+guest\s+(GUEST-[A-F0-9]+)$/i);
       if (revokeMatch) {
-        const result = this.guestTdMode.revokeToken(revokeMatch[1].toUpperCase());
+        const result = await this.guestTdMode.revokeAndNotify(revokeMatch[1].toUpperCase());
         return this.sendMessage(chatId, result.revoked
-          ? `✅ Guest token \`${result.token}\` revoked.`
+          ? `✅ Guest token \`${result.token}\` revoked. Guest has been notified.`
           : `❌ Token not found.`,
           { parse_mode: 'Markdown' }
         );

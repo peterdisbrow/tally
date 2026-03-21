@@ -1405,7 +1405,7 @@ function buildChurchPortalHtml(church) {
         </div>
         <div class="table-wrap">
         <table>
-          <thead><tr><th data-i18n="table.name">Name</th><th><span class="tip" data-tip="Primary TD gets escalations. On-call TD receives first alerts." data-i18n="table.role">Role</span></th><th data-i18n="table.email">Email</th><th data-i18n="table.phone">Phone</th><th></th></tr></thead>
+          <thead><tr><th data-i18n="table.name">Name</th><th><span class="tip" data-tip="Job title or role in the tech team" data-i18n="table.role">Role</span></th><th><span class="tip" data-tip="Controls what this person can do in Tally via Telegram: viewer=status only, operator=control switcher, admin=full access">Access</span></th><th data-i18n="table.email">Email</th><th></th></tr></thead>
           <tbody id="tds-tbody">
             <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
@@ -2133,6 +2133,13 @@ function buildChurchPortalHtml(church) {
           <option value="volunteer">Volunteer</option>
           <option value="engineer">Broadcast Engineer</option>
           <option value="supervisor">Supervisor</option>
+        </select>
+      </div>
+      <div class="field"><label><span class="tip" data-tip="Controls what this person can do via Telegram: Viewer=status only, Operator=control switcher/stream, Admin=full access">Access Level</span></label>
+        <select id="td-access-level">
+          <option value="operator" selected>Operator — can control switcher &amp; stream</option>
+          <option value="viewer">Viewer — status &amp; diagnostics only</option>
+          <option value="admin">Admin — full access</option>
         </select>
       </div>
       <div class="field"><label data-i18n="table.email">Email</label><input type="email" id="td-email" placeholder="john@yourchurch.org"></div>
@@ -4841,8 +4848,14 @@ function buildChurchPortalHtml(church) {
           <tr>
             <td>\${escapeHtml(td.name || '')}</td>
             <td><span class="badge badge-gray">\${escapeHtml(td.role || 'td')}</span></td>
+            <td>
+              <select style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer" onchange="setTdAccessLevel('\${escapeHtml(String(td.id || ''))}', this.value)">
+                <option value="viewer" \${(td.access_level||'operator')==='viewer'?'selected':''}>Viewer</option>
+                <option value="operator" \${(!td.access_level||td.access_level==='operator')?'selected':''}>Operator</option>
+                <option value="admin" \${(td.access_level||'')==='admin'?'selected':''}>Admin</option>
+              </select>
+            </td>
             <td style="color:#94A3B8">\${escapeHtml(td.email || '—')}</td>
-            <td style="color:#94A3B8;font-size:12px">\${escapeHtml(td.phone || '—')}</td>
             <td><button class="btn-danger" onclick="removeTd('\${escapeHtml(String(td.id || ''))}')">Remove</button></td>
           </tr>\`).join('');
         document.getElementById('stat-tds').textContent = tds.length;
@@ -4856,6 +4869,7 @@ function buildChurchPortalHtml(church) {
         await api('POST', '/api/church/tds', {
           name,
           role: document.getElementById('td-role').value,
+          accessLevel: document.getElementById('td-access-level').value,
           email: document.getElementById('td-email').value,
           phone: document.getElementById('td-phone').value,
         });
@@ -4891,6 +4905,14 @@ function buildChurchPortalHtml(church) {
           window.prompt('Share this Telegram invite link with your TD:', data.link);
         } catch { toast('Failed to get invite link', true); }
       }
+    }
+
+    async function setTdAccessLevel(id, accessLevel) {
+      try {
+        await api('PUT', '/api/church/tds/' + id + '/access-level', { accessLevel });
+        const labels = { viewer: 'Viewer (read-only)', operator: 'Operator', admin: 'Admin' };
+        toast('Access level set to ' + (labels[accessLevel] || accessLevel));
+      } catch(e) { toast(e.message, true); loadTds(); }
     }
 
     // ── Schedule ─────────────────────────────────────────────────────────────
@@ -5401,15 +5423,24 @@ function buildChurchPortalHtml(church) {
           tbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No guest tokens.</td></tr>';
           return;
         }
-        tbody.innerHTML = tokens.map(t => \`
+        tbody.innerHTML = tokens.map(t => {
+          const msLeft = t.expiresAt ? new Date(t.expiresAt) - Date.now() : Infinity;
+          const remaining = t.expiresAt
+            ? (msLeft <= 0 ? 'Expired' : msLeft < 3600000 ? Math.ceil(msLeft/60000) + 'm left'
+              : msLeft < 86400000 ? Math.ceil(msLeft/3600000) + 'h left'
+              : Math.ceil(msLeft/86400000) + 'd left')
+            : '—';
+          const remainingColor = msLeft < 3600000 ? '#f59e0b' : msLeft < 14400000 ? '#fbbf24' : '#22c55e';
+          return \`
           <tr>
             <td><code style="font-size:11px;color:#22c55e">\${t.token.slice(0,16)}…</code></td>
             <td style="color:#94A3B8">\${t.label || '—'}</td>
             <td style="color:\${t.registered ? '#22c55e' : '#64748B'};font-size:12px">\${t.registered ? '\\u2713 Claimed' : 'Unclaimed'}</td>
             <td style="color:#94A3B8;font-size:12px">\${new Date(t.createdAt).toLocaleDateString()}</td>
-            <td style="color:#94A3B8;font-size:12px">\${t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : 'No expiry'}</td>
+            <td style="font-size:12px"><span style="color:\${remainingColor};font-weight:600">\${remaining}</span><br><span style="color:#475569;font-size:11px">\${t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : ''}</span></td>
             <td><button class="btn-danger" onclick="revokeToken('\${t.token}')">Revoke</button></td>
-          </tr>\`).join('');
+          </tr>\`;
+        }).join('');
       } catch(e) { toast('Failed to load tokens', true); }
     }
 
@@ -8766,13 +8797,21 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── POST /api/church/tds ──────────────────────────────────────────────────────
   app.post('/api/church/tds', authMiddleware, (req, res) => {
-    const { name, role, email, phone } = req.body;
+    const { name, role, email, phone, accessLevel } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
+    const validAccessLevels = ['viewer', 'operator', 'admin'];
+    const resolvedAccessLevel = validAccessLevels.includes(accessLevel) ? accessLevel : 'operator';
     const { v4: uuidv4 } = require('uuid');
     const id = uuidv4();
-    db.prepare('INSERT INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active, role, email, phone) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)')
-      .run(req.church.churchId, `portal_${id}`, `portal_${id}`, name, new Date().toISOString(), role || 'td', email || '', phone || '');
-    res.json({ id, name, role, email, phone });
+    try {
+      db.prepare('INSERT INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active, role, email, phone, access_level) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)')
+        .run(req.church.churchId, `portal_${id}`, `portal_${id}`, name, new Date().toISOString(), role || 'td', email || '', phone || '', resolvedAccessLevel);
+    } catch {
+      // Fallback if access_level column doesn't exist yet (migration pending)
+      db.prepare('INSERT INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active, role, email, phone) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)')
+        .run(req.church.churchId, `portal_${id}`, `portal_${id}`, name, new Date().toISOString(), role || 'td', email || '', phone || '');
+    }
+    res.json({ id, name, role, accessLevel: resolvedAccessLevel, email, phone });
   });
 
   // ── DELETE /api/church/tds/:tdId ──────────────────────────────────────────────
@@ -8916,12 +8955,25 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── DELETE /api/church/guest-tokens/:token ────────────────────────────────────
-  app.delete('/api/church/guest-tokens/:tok', authMiddleware, (req, res) => {
+  app.delete('/api/church/guest-tokens/:tok', authMiddleware, async (req, res) => {
     if (!guestTdMode) return res.status(503).json({ error: 'Guest tokens not configured' });
     const existing = db.prepare('SELECT churchId FROM guest_tokens WHERE token = ?').get(req.params.tok);
     if (!existing || existing.churchId !== req.church.churchId) return res.status(404).json({ error: 'Token not found' });
-    guestTdMode.revokeToken(req.params.tok);
+    await guestTdMode.revokeAndNotify(req.params.tok);
     res.json({ ok: true });
+  });
+
+  // ── PUT /api/church/tds/:tdId/access-level ────────────────────────────────────
+  app.put('/api/church/tds/:tdId/access-level', authMiddleware, (req, res) => {
+    const { accessLevel } = req.body;
+    if (!['viewer', 'operator', 'admin'].includes(accessLevel)) {
+      return res.status(400).json({ error: 'accessLevel must be viewer, operator, or admin' });
+    }
+    const result = db.prepare(
+      'UPDATE church_tds SET access_level = ? WHERE id = ? AND church_id = ?'
+    ).run(accessLevel, req.params.tdId, req.church.churchId);
+    if (!result.changes) return res.status(404).json({ error: 'TD not found' });
+    res.json({ ok: true, accessLevel });
   });
 
   // ── GET /api/church/billing ───────────────────────────────────────────────────

@@ -885,7 +885,9 @@ const rundownEngine = new RundownEngine(db);
 weeklyDigest.churchMemory = null; // set after churchMemory is created below
 weeklyDigest.startWeeklyTimer();
 
-const guestTdMode = new GuestTdMode(db);
+const guestTdMode = new GuestTdMode(db, {
+  adminName: process.env.ADMIN_NAME || 'the administrator',
+});
 guestTdMode.startCleanupTimer();
 
 const monthlyReport = new MonthlyReport({
@@ -1177,6 +1179,7 @@ _intervals.push(setInterval(() => {
 // ─── TELEGRAM BOT ────────────────────────────────────────────────────────────
 
 const TALLY_BOT_TOKEN = process.env.TALLY_BOT_TOKEN;
+if (TALLY_BOT_TOKEN) guestTdMode.botToken = TALLY_BOT_TOKEN;
 const TALLY_BOT_WEBHOOK_URL = process.env.TALLY_BOT_WEBHOOK_URL;
 const TALLY_BOT_WEBHOOK_SECRET = process.env.TALLY_BOT_WEBHOOK_SECRET || '';
 const ANDREW_TELEGRAM_CHAT_ID = process.env.ANDREW_TELEGRAM_CHAT_ID;
