@@ -939,7 +939,8 @@ function buildChurchPortalHtml(church) {
       <span class="icon">⊕</span> <span data-i18n="nav.support">Help &amp; Support</span>
     </button>
     <div class="sidebar-footer">
-      <button class="btn-secondary" onclick="startDemoMode()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.7" title="See a simulated service without hardware">🎭 Try Demo Mode</button>
+      <button id="btn-lang-toggle" class="btn-secondary" onclick="toggleLanguage()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
+      <button class="btn-secondary" onclick="startDemoMode()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.7" title="See a simulated service without hardware" data-i18n="demo.try">🎭 Try Demo Mode</button>
       <button class="btn-logout" onclick="logout()" data-i18n="btn.signout">Sign out</button>
     </div>
   </nav>
@@ -950,8 +951,8 @@ function buildChurchPortalHtml(church) {
 
     <!-- DEMO MODE BANNER -->
     <div id="demo-mode-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:2000;background:#7c3aed;color:#fff;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;letter-spacing:0.5px">
-      🎭 DEMO MODE — This is simulated data. No real hardware connected.
-      <button onclick="stopDemoMode()" style="margin-left:16px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:12px">Exit Demo</button>
+      <span data-i18n="demo.banner">🎭 DEMO MODE — This is simulated data. No real hardware connected.</span>
+      <button onclick="stopDemoMode()" style="margin-left:16px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:12px" data-i18n="demo.exit">Exit Demo</button>
     </div>
 
     <!-- OVERVIEW -->
@@ -959,7 +960,7 @@ function buildChurchPortalHtml(church) {
       <div class="page-header">
         <div class="page-header-text">
           <div class="page-title" id="overview-church-name">${escapeHtml(name)}</div>
-          <div class="page-sub">Church monitoring portal</div>
+          <div class="page-sub" data-i18n="overview.sub">Church monitoring portal</div>
         </div>
         <button class="help-icon-btn" onclick="openHelp('overview')" title="What am I looking at?">?</button>
       </div>
@@ -968,16 +969,16 @@ function buildChurchPortalHtml(church) {
       <div id="onboarding-checklist" style="display:none; margin-bottom:20px; background:#0F1613; border:1px solid #1a3a24; border-radius:12px; padding:20px 24px;">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
           <div>
-            <div style="font-size:15px; font-weight:700; color:#F8FAFC;">Getting Started</div>
-            <div style="font-size:12px; color:#64748B; margin-top:2px;" id="onboarding-progress-text">Complete these steps to finish setup</div>
+            <div style="font-size:15px; font-weight:700; color:#F8FAFC;" data-i18n="overview.getting_started">Getting Started</div>
+            <div style="font-size:12px; color:#64748B; margin-top:2px;" id="onboarding-progress-text" data-i18n="overview.setup_progress">Complete these steps to finish setup</div>
           </div>
-          <button onclick="dismissOnboarding()" style="background:none; border:1px solid #1a2e1f; color:#64748B; font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;">Dismiss</button>
+          <button onclick="dismissOnboarding()" style="background:none; border:1px solid #1a2e1f; color:#64748B; font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;" data-i18n="overview.dismiss">Dismiss</button>
         </div>
         <div id="onboarding-items"></div>
       </div>
       <!-- Resume Setup Guide (shown when dismissed but not all steps complete) -->
       <div id="onboarding-resume" style="display:none; margin-bottom:16px; text-align:center;">
-        <button onclick="undismissOnboarding()" style="background:none; border:none; color:#22c55e; font-size:12px; cursor:pointer; padding:4px 8px; opacity:0.7;">📋 Resume Setup Guide</button>
+        <button onclick="undismissOnboarding()" style="background:none; border:none; color:#22c55e; font-size:12px; cursor:pointer; padding:4px 8px; opacity:0.7;" data-i18n="overview.resume_setup">📋 Resume Setup Guide</button>
       </div>
 
       <!-- Upgrade Banner -->
@@ -992,15 +993,15 @@ function buildChurchPortalHtml(church) {
       <div class="stats-row">
         <div class="stat-card">
           <div class="stat-value" id="stat-status" style="display:flex;align-items:center;gap:6px;justify-content:center"><span id="stat-status-dot" style="width:8px;height:8px;border-radius:50%;background:#475569;display:inline-block"></span> <span id="stat-status-text">—</span></div>
-          <div class="stat-label"><span class="tip" data-tip="Whether the Tally desktop app is currently connected to the relay server">Connection</span></div>
+          <div class="stat-label"><span class="tip" data-tip="Whether the Tally desktop app is currently connected to the relay server" data-i18n="overview.connection">Connection</span></div>
         </div>
         <div class="stat-card">
           <div class="stat-value" id="stat-sessions">—</div>
-          <div class="stat-label"><span class="tip" data-tip="Number of live service sessions detected in the last 30 days">Sessions (30d)</span></div>
+          <div class="stat-label"><span class="tip" data-tip="Number of live service sessions detected in the last 30 days" data-i18n="overview.sessions_30d">Sessions (30d)</span></div>
         </div>
         <div class="stat-card">
           <div class="stat-value" id="stat-tds">—</div>
-          <div class="stat-label">Tech Directors</div>
+          <div class="stat-label" data-i18n="overview.stat_tds">Tech Directors</div>
         </div>
       </div>
 
@@ -1008,12 +1009,12 @@ function buildChurchPortalHtml(church) {
       <div class="card" id="preservice-card-dashboard">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
           <div style="display:flex;align-items:center;gap:10px">
-            <div class="card-title" style="margin:0"><span class="tip" data-tip="Tally runs a full system check ~30 min before your scheduled service. Run manually anytime.">🔧 Pre-Service Check</span></div>
+            <div class="card-title" style="margin:0"><span class="tip" data-tip="Tally runs a full system check ~30 min before your scheduled service. Run manually anytime." data-i18n="overview.preservice.title">🔧 Pre-Service Check</span></div>
             <span id="psc-dash-badge" class="badge badge-gray">—</span>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn-primary" id="psc-dash-fix-btn" onclick="fixAllPreServiceIssues()" style="display:none;font-size:12px;padding:5px 12px">Fix All Safe Issues</button>
-            <button class="btn-secondary" onclick="runPreServiceCheck()" style="font-size:12px;padding:5px 12px">Run Check Now</button>
+            <button class="btn-primary" id="psc-dash-fix-btn" onclick="fixAllPreServiceIssues()" style="display:none;font-size:12px;padding:5px 12px" data-i18n="overview.preservice.fix_all">Fix All Safe Issues</button>
+            <button class="btn-secondary" onclick="runPreServiceCheck()" style="font-size:12px;padding:5px 12px" data-i18n="overview.preservice.run_now">Run Check Now</button>
           </div>
         </div>
         <div id="psc-dash-body">
@@ -1026,13 +1027,13 @@ function buildChurchPortalHtml(church) {
       <div class="card" id="campus-overview-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div class="card-title" style="margin:0">
-            <span class="tip" data-tip="Live status of all campuses linked to this account. Click a campus name to manage it.">⊚ All Campuses</span>
+            <span class="tip" data-tip="Live status of all campuses linked to this account. Click a campus name to manage it." data-i18n="overview.campus.title">⊚ All Campuses</span>
           </div>
-          <button class="btn-secondary" onclick="showPage('campuses', document.querySelector('[data-page=campuses]'))" style="padding:4px 10px;font-size:11px">Manage Campuses</button>
+          <button class="btn-secondary" onclick="showPage('campuses', document.querySelector('[data-page=campuses]'))" style="padding:4px 10px;font-size:11px" data-i18n="overview.campus.manage">Manage Campuses</button>
         </div>
         <div class="table-wrap">
         <table>
-          <thead><tr><th>Campus</th><th>Status</th><th>Devices</th><th>Health</th><th>Last Seen</th></tr></thead>
+          <thead><tr><th data-i18n="table.campus">Campus</th><th data-i18n="table.status">Status</th><th data-i18n="table.devices">Devices</th><th data-i18n="table.health">Health</th><th data-i18n="table.last_seen">Last Seen</th></tr></thead>
           <tbody id="campus-overview-tbody"></tbody>
         </table>
         </div>
@@ -1050,15 +1051,15 @@ function buildChurchPortalHtml(church) {
 
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time status of each AV device Tally monitors (ATEM, OBS, HyperDeck, etc.)">Equipment Status</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time status of each AV device Tally monitors (ATEM, OBS, HyperDeck, etc.)" data-i18n="overview.equip.title">Equipment Status</span></div>
           <div style="display:flex;align-items:center;gap:8px">
             <span id="equip-staleness" style="font-size:11px;color:#475569"></span>
-            <button class="btn-secondary" id="btn-refresh-equip" onclick="refreshEquipmentStatus()" style="padding:4px 10px;font-size:11px" title="Refresh">&#x21bb; Refresh</button>
+            <button class="btn-secondary" id="btn-refresh-equip" onclick="refreshEquipmentStatus()" style="padding:4px 10px;font-size:11px" title="Refresh" data-i18n="overview.equip.refresh">&#x21bb; Refresh</button>
           </div>
         </div>
         <div class="table-wrap">
         <table>
-          <thead><tr><th>System</th><th>Status</th><th>Version</th><th>Detail</th></tr></thead>
+          <thead><tr><th data-i18n="table.system">System</th><th data-i18n="table.status">Status</th><th data-i18n="table.version">Version</th><th data-i18n="table.detail">Detail</th></tr></thead>
           <tbody id="equipment-tbody">
             <tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
@@ -1069,25 +1070,25 @@ function buildChurchPortalHtml(church) {
       <!-- Live Stream Stats (shown when any source is streaming) -->
       <div class="card" id="stream-stats-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:8px;animation:pulse 2s infinite"></span>Live Stream</div>
+          <div class="card-title" style="margin:0"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:8px;animation:pulse 2s infinite"></span><span data-i18n="overview.stream.title">Live Stream</span></div>
           <span id="stream-source-label" style="font-size:12px;color:#94A3B8;background:#0F1613;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
         </div>
         <div class="grid-4col" style="text-align:center">
           <div>
             <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-bitrate">—</div>
-            <div style="font-size:11px;color:#64748B;margin-top:2px">Bitrate (kbps)</div>
+            <div style="font-size:11px;color:#64748B;margin-top:2px" data-i18n="overview.stream.bitrate">Bitrate (kbps)</div>
           </div>
           <div>
             <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-fps">—</div>
-            <div style="font-size:11px;color:#64748B;margin-top:2px">FPS</div>
+            <div style="font-size:11px;color:#64748B;margin-top:2px" data-i18n="overview.stream.fps">FPS</div>
           </div>
           <div>
             <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-health">—</div>
-            <div style="font-size:11px;color:#64748B;margin-top:2px">Health</div>
+            <div style="font-size:11px;color:#64748B;margin-top:2px" data-i18n="overview.stream.health">Health</div>
           </div>
           <div>
             <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-uptime">—</div>
-            <div style="font-size:11px;color:#64748B;margin-top:2px">Uptime</div>
+            <div style="font-size:11px;color:#64748B;margin-top:2px" data-i18n="overview.stream.uptime">Uptime</div>
           </div>
         </div>
         <div id="ss-detail-row" style="margin-top:12px;display:flex;gap:16px;font-size:12px;color:#64748B;justify-content:center;flex-wrap:wrap"></div>
@@ -1096,17 +1097,17 @@ function buildChurchPortalHtml(church) {
       <!-- ATEM Switcher Detail Card -->
       <div class="card" id="atem-detail-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="ATEM switcher state — program/preview inputs, recording & streaming status">🎛 ATEM Switcher</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="ATEM switcher state — program/preview inputs, recording & streaming status" data-i18n="overview.atem.title">🎛 ATEM Switcher</span></div>
           <span id="atem-model-label" style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
         </div>
         <div class="grid-2col" style="gap:16px;margin-bottom:14px">
           <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Program</div>
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.atem.program">Program</div>
             <div style="font-size:22px;font-weight:700;color:#ef4444" id="atem-pgm-input">—</div>
             <div style="font-size:12px;color:#94A3B8;margin-top:4px" id="atem-pgm-label"></div>
           </div>
           <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Preview</div>
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.atem.preview">Preview</div>
             <div style="font-size:22px;font-weight:700;color:#22c55e" id="atem-pvw-input">—</div>
             <div style="font-size:12px;color:#94A3B8;margin-top:4px" id="atem-pvw-label"></div>
           </div>
@@ -1117,20 +1118,20 @@ function buildChurchPortalHtml(church) {
       <!-- Audio Health Card -->
       <div class="card" id="audio-health-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Audio monitoring — mute detection, silence alerts, source information">🔊 Audio Health</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Audio monitoring — mute detection, silence alerts, source information" data-i18n="overview.audio.title">🔊 Audio Health</span></div>
           <span id="audio-source-label" style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
         </div>
         <div class="grid-3col" style="margin-bottom:14px">
           <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Mute</div>
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.audio.mute">Mute</div>
             <div style="font-size:18px;font-weight:700" id="audio-mute-status">—</div>
           </div>
           <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Silence</div>
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.audio.silence">Silence</div>
             <div style="font-size:18px;font-weight:700" id="audio-silence-status">—</div>
           </div>
           <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
-            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Monitoring</div>
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.audio.monitoring">Monitoring</div>
             <div style="font-size:18px;font-weight:700" id="audio-monitoring-status">—</div>
           </div>
         </div>
@@ -1142,7 +1143,7 @@ function buildChurchPortalHtml(church) {
       <!-- Service Rundown Card -->
       <div class="card" id="rundown-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Follow a step-by-step rundown during your service. Execute device commands directly from here.">📋 Service Rundown</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Follow a step-by-step rundown during your service. Execute device commands directly from here." data-i18n="overview.rundown.title">📋 Service Rundown</span></div>
           <span id="rundown-status-badge" class="badge badge-gray">—</span>
         </div>
         <div id="rundown-body">
@@ -1153,7 +1154,7 @@ function buildChurchPortalHtml(church) {
       <!-- Activity Feed -->
       <div class="card" id="activity-feed-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time operational events — status changes, alerts, and auto-recovery actions">⚡ Activity Feed</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time operational events — status changes, alerts, and auto-recovery actions" data-i18n="overview.activity.title">⚡ Activity Feed</span></div>
           <span id="activity-feed-count" style="font-size:11px;color:#475569"></span>
         </div>
         <div id="activity-feed-body" style="max-height:300px;overflow-y:auto">
@@ -1163,16 +1164,16 @@ function buildChurchPortalHtml(church) {
 
       <!-- Campus Selector (multi-campus only) -->
       <div id="pf-campus-picker" style="display:none; margin-bottom:16px;">
-        <label style="font-size:12px;color:#94A3B8;margin-right:8px;">Viewing:</label>
+        <label style="font-size:12px;color:#94A3B8;margin-right:8px;" data-i18n="overview.viewing">Viewing:</label>
         <select id="pf-campus-select" onchange="loadProblems(this.value)" style="background:#0F1613;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;">
-          <option value="">Main Campus</option>
+          <option value="" data-i18n="overview.main_campus">Main Campus</option>
         </select>
       </div>
 
       <!-- Tally Engineer Card -->
       <div class="card" id="pf-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Automated diagnostics from Tally Engineer — shows what was found, what was auto-fixed, and what still needs attention">Tally Engineer</span></div>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Automated diagnostics from Tally Engineer — shows what was found, what was auto-fixed, and what still needs attention" data-i18n="overview.engineer.title">Tally Engineer</span></div>
           <span id="pf-badge" class="badge badge-gray">—</span>
         </div>
         <div id="pf-body">
@@ -1182,19 +1183,19 @@ function buildChurchPortalHtml(church) {
 
       <div class="card" id="schedule-overview-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="Your configured service windows — alerts and automations follow this schedule">Service Schedule</span></div>
-          <button class="btn-secondary" style="padding:4px 12px;font-size:11px" onclick="showPage('schedule', document.querySelector('[data-page=schedule]'))">Edit</button>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Your configured service windows — alerts and automations follow this schedule" data-i18n="overview.schedule.title">Service Schedule</span></div>
+          <button class="btn-secondary" style="padding:4px 12px;font-size:11px" onclick="showPage('schedule', document.querySelector('[data-page=schedule]'))" data-i18n="btn.edit">Edit</button>
         </div>
         <div id="schedule-overview-body" style="font-size:13px;color:#94A3B8">Loading schedule…</div>
       </div>
       <div class="card">
-        <div class="card-title">Quick Info</div>
+        <div class="card-title" data-i18n="overview.quickinfo.title">Quick Info</div>
         <table>
           <tbody>
-            <tr><td style="color:#94A3B8;width:160px">Church ID</td><td><code style="font-size:12px;color:#475569">${church.churchId}</code></td></tr>
-            <tr><td style="color:#94A3B8">Registered</td><td id="registered-date" style="color:#F8FAFC">—</td></tr>
-            <tr><td style="color:#94A3B8">Plan</td><td id="plan-name" style="color:#F8FAFC">—</td></tr>
-            <tr><td style="color:#94A3B8">Campuses / Rooms</td><td id="plan-campus-limit" style="color:#F8FAFC">—</td></tr>
+            <tr><td style="color:#94A3B8;width:160px" data-i18n="overview.quickinfo.church_id">Church ID</td><td><code style="font-size:12px;color:#475569">${church.churchId}</code></td></tr>
+            <tr><td style="color:#94A3B8" data-i18n="overview.quickinfo.registered">Registered</td><td id="registered-date" style="color:#F8FAFC">—</td></tr>
+            <tr><td style="color:#94A3B8" data-i18n="overview.quickinfo.plan">Plan</td><td id="plan-name" style="color:#F8FAFC">—</td></tr>
+            <tr><td style="color:#94A3B8" data-i18n="overview.quickinfo.campuses">Campuses / Rooms</td><td id="plan-campus-limit" style="color:#F8FAFC">—</td></tr>
           </tbody>
         </table>
       </div>
@@ -1210,65 +1211,65 @@ function buildChurchPortalHtml(church) {
         <button class="help-icon-btn" onclick="openHelp('profile')" title="Help with Profile">?</button>
       </div>
       <div class="card">
-        <div class="card-title">Contact Information</div>
+        <div class="card-title" data-i18n="profile.contact">Contact Information</div>
         <div class="field-row">
           <div class="field">
-            <label><span class="tip" data-tip="Contact support to change your church name">Church Name</span></label>
+            <label><span class="tip" data-tip="Contact support to change your church name" data-i18n="profile.church_name">Church Name</span></label>
             <input type="text" id="profile-name" disabled style="opacity:0.5">
           </div>
           <div class="field">
-            <label>Contact Email</label>
+            <label data-i18n="profile.contact_email">Contact Email</label>
             <input type="email" id="profile-email" placeholder="td@yourchurch.org">
           </div>
         </div>
         <div class="field-row">
           <div class="field">
-            <label>Phone Number</label>
+            <label data-i18n="profile.phone">Phone Number</label>
             <input type="tel" id="profile-phone" placeholder="+1 (555) 000-0000">
           </div>
           <div class="field">
-            <label>City / State</label>
+            <label data-i18n="profile.location">City / State</label>
             <input type="text" id="profile-location" placeholder="Nashville, TN">
           </div>
         </div>
         <div class="field">
-          <label><span class="tip" data-tip="Visible to ATEM School support when handling your tickets">Notes for Support Team</span></label>
+          <label><span class="tip" data-tip="Visible to ATEM School support when handling your tickets" data-i18n="profile.notes">Notes for Support Team</span></label>
           <textarea id="profile-notes" placeholder="Any special setup notes, known issues, contact preferences..."></textarea>
         </div>
         <div class="field">
-          <label><span class="tip" data-tip="Send post-service recaps and weekly reports to leadership. Comma-separated email addresses.">Leadership Email Recipients</span></label>
+          <label><span class="tip" data-tip="Send post-service recaps and weekly reports to leadership. Comma-separated email addresses." data-i18n="profile.leadership_emails">Leadership Email Recipients</span></label>
           <input type="text" id="profile-leadership-emails" placeholder="pastor@church.org, board@church.org">
-          <div style="font-size:11px; color:#94a3b8; margin-top:4px;">Service recaps and weekly reports will be emailed to these addresses automatically.</div>
+          <div style="font-size:11px; color:#94a3b8; margin-top:4px;" data-i18n="profile.leadership_email_desc">Service recaps and weekly reports will be emailed to these addresses automatically.</div>
         </div>
         <div class="field">
-          <label><span class="tip" data-tip="Language used for Telegram bot messages sent to your tech directors">Bot Language (Telegram)</span></label>
+          <label><span class="tip" data-tip="Language used for Telegram bot messages sent to your tech directors" data-i18n="profile.bot_language">Bot Language (Telegram)</span></label>
           <select id="profile-locale" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:8px 12px;font-size:14px;width:100%;max-width:240px">
             <option value="en">English</option>
             <option value="es">Español (Spanish)</option>
           </select>
-          <div style="font-size:11px;color:#94a3b8;margin-top:4px;">Tally bot messages will be sent in this language.</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px;" data-i18n="profile.bot_language_desc">Tally bot messages will be sent in this language.</div>
         </div>
-        <button class="btn-primary" id="btn-save-profile" onclick="saveProfile()">Save Changes</button>
+        <button class="btn-primary" id="btn-save-profile" onclick="saveProfile()" data-i18n="profile.save">Save Changes</button>
       </div>
       <div class="card">
-        <div class="card-title">Change Password</div>
+        <div class="card-title" data-i18n="profile.change_password">Change Password</div>
         <div class="field-row">
           <div class="field" style="flex:1">
-            <label>Current Password</label>
+            <label data-i18n="profile.current_password">Current Password</label>
             <input type="password" id="current-password" placeholder="••••••••">
           </div>
         </div>
         <div class="field-row">
           <div class="field">
-            <label>New Password</label>
+            <label data-i18n="profile.new_password">New Password</label>
             <input type="password" id="new-password" placeholder="••••••••">
           </div>
           <div class="field">
-            <label>Confirm Password</label>
+            <label data-i18n="profile.confirm_password">Confirm Password</label>
             <input type="password" id="confirm-password" placeholder="••••••••">
           </div>
         </div>
-        <button class="btn-secondary" onclick="changePassword()">Update Password</button>
+        <button class="btn-secondary" onclick="changePassword()" data-i18n="profile.update_password">Update Password</button>
       </div>
     </div>
 
@@ -1276,38 +1277,38 @@ function buildChurchPortalHtml(church) {
     <div class="page" id="page-campuses">
       <div class="page-header">
         <div class="page-header-text">
-          <div class="page-title">Multi-Campus</div>
-          <div class="page-sub">Manage additional campuses under this account</div>
+          <div class="page-title" data-i18n="page.campuses">Multi-Campus</div>
+          <div class="page-sub" data-i18n="campus.page_sub">Manage additional campuses under this account</div>
         </div>
         <button class="help-icon-btn" onclick="openHelp('campuses')" title="Help with Campuses">?</button>
       </div>
       <p class="help-box"><strong>How it works:</strong> Each campus gets its own Church ID, connection token, and Telegram registration code. Install the Tally app at each campus and connect using that campus token.</p>
       <div id="campus-plan-note" class="help-box" style="display:none"></div>
       <div id="campus-summary" class="stats-row grid-4col" style="display:none;margin-bottom:20px">
-        <div class="stat-card"><div class="stat-value" id="cs-total">0</div><div class="stat-label">Total Rooms</div></div>
-        <div class="stat-card"><div class="stat-value" id="cs-online" style="color:#22c55e">0</div><div class="stat-label">Online</div></div>
-        <div class="stat-card"><div class="stat-value" id="cs-offline">0</div><div class="stat-label">Offline</div></div>
-        <div class="stat-card"><div class="stat-value" id="cs-alerts">0</div><div class="stat-label">Alerts (7d)</div></div>
+        <div class="stat-card"><div class="stat-value" id="cs-total">0</div><div class="stat-label" data-i18n="campus.stat.total">Total Rooms</div></div>
+        <div class="stat-card"><div class="stat-value" id="cs-online" style="color:#22c55e">0</div><div class="stat-label" data-i18n="campus.stat.online">Online</div></div>
+        <div class="stat-card"><div class="stat-value" id="cs-offline">0</div><div class="stat-label" data-i18n="campus.stat.offline">Offline</div></div>
+        <div class="stat-card"><div class="stat-value" id="cs-alerts">0</div><div class="stat-label" data-i18n="campus.stat.alerts">Alerts (7d)</div></div>
       </div>
       <div class="card">
-        <div class="card-title">Add Campus</div>
+        <div class="card-title" data-i18n="campus.add.title">Add Campus</div>
         <div class="field-row">
           <div class="field">
-            <label>Campus Name</label>
+            <label data-i18n="campus.add.name">Campus Name</label>
             <input type="text" id="campus-name" placeholder="North Campus">
           </div>
           <div class="field">
-            <label>City / State (optional)</label>
+            <label data-i18n="campus.add.location">City / State (optional)</label>
             <input type="text" id="campus-location" placeholder="Franklin, TN">
           </div>
         </div>
-        <button class="btn-primary" id="btn-create-campus" onclick="addCampus()">Create Campus</button>
+        <button class="btn-primary" id="btn-create-campus" onclick="addCampus()" data-i18n="campus.add.btn">Create Campus</button>
       </div>
       <div class="card">
-        <div class="card-title">Linked Campuses</div>
+        <div class="card-title" data-i18n="campus.linked.title">Linked Campuses</div>
         <div class="table-wrap">
         <table>
-          <thead><tr><th>Campus</th><th>Status</th><th>Health</th><th>Registration Code</th><th></th></tr></thead>
+          <thead><tr><th data-i18n="table.campus">Campus</th><th data-i18n="table.status">Status</th><th data-i18n="table.health">Health</th><th data-i18n="table.code">Registration Code</th><th></th></tr></thead>
           <tbody id="campuses-tbody">
             <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
@@ -1320,20 +1321,20 @@ function buildChurchPortalHtml(church) {
     <div class="page" id="page-tds">
       <div class="page-header">
         <div class="page-header-text">
-          <div class="page-title">Tech Directors</div>
-          <div class="page-sub">People who receive alerts and have TD access</div>
+          <div class="page-title" data-i18n="page.tds">Tech Directors</div>
+          <div class="page-sub" data-i18n="tds.page_sub">People who receive alerts and have TD access</div>
         </div>
         <button class="help-icon-btn" onclick="openHelp('tds')" title="Help with Tech Directors">?</button>
       </div>
       <p class="help-box"><strong>How On-Call Routing Works:</strong> When Tally detects an issue during your service, it sends an alert to whichever TD is on-call that week. If no one responds within 90 seconds, it escalates to your primary TD. TDs can swap on-call duty via Telegram using <code style="color:#22c55e">/swap [name]</code>.</p>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
-          <button class="btn-secondary" id="btn-copy-invite-link" onclick="copyTdInviteLink()" title="Generate a Telegram link — TDs click it to register automatically">🔗 Copy Invite Link</button>
-          <button class="btn-primary" onclick="document.getElementById('modal-add-td').classList.add('open')">+ Add TD</button>
+          <button class="btn-secondary" id="btn-copy-invite-link" onclick="copyTdInviteLink()" title="Generate a Telegram link — TDs click it to register automatically" data-i18n="tds.invite_link">🔗 Copy Invite Link</button>
+          <button class="btn-primary" onclick="document.getElementById('modal-add-td').classList.add('open')" data-i18n="tds.add_btn">+ Add TD</button>
         </div>
         <div class="table-wrap">
         <table>
-          <thead><tr><th>Name</th><th><span class="tip" data-tip="Primary TD gets escalations. On-call TD receives first alerts.">Role</span></th><th>Email</th><th>Phone</th><th></th></tr></thead>
+          <thead><tr><th data-i18n="table.name">Name</th><th><span class="tip" data-tip="Primary TD gets escalations. On-call TD receives first alerts." data-i18n="table.role">Role</span></th><th data-i18n="table.email">Email</th><th data-i18n="table.phone">Phone</th><th></th></tr></thead>
           <tbody id="tds-tbody">
             <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
@@ -1346,29 +1347,29 @@ function buildChurchPortalHtml(church) {
     <div class="page" id="page-schedule">
       <div class="page-header">
         <div class="page-header-text">
-          <div class="page-title">Service Schedule</div>
-          <div class="page-sub">Define your recurring service windows for smart alerts</div>
+          <div class="page-title" data-i18n="page.schedule">Service Schedule</div>
+          <div class="page-sub" data-i18n="schedule.page_sub">Define your recurring service windows for smart alerts</div>
         </div>
         <button class="help-icon-btn" onclick="openHelp('schedule')" title="Help with Service Schedule">?</button>
       </div>
       <p class="help-box"><strong>Why set service windows?</strong> Tally uses these time windows to know when your services are live. Alerts only fire during (and around) these windows — so your TDs won't get notified at 3 AM for a test stream. Autopilot features (Pro plan) also use them to auto-start streaming and recording.</p>
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-          <div class="card-title" style="margin:0">Weekly Service Windows</div>
+          <div class="card-title" style="margin:0" data-i18n="schedule.card.title">Weekly Service Windows</div>
           <div id="schedule-campus-picker" style="display:none">
             <label style="font-size:12px;color:#94A3B8;margin-right:6px">Campus:</label>
             <select id="schedule-campus-select" onchange="loadSchedule()" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:5px 8px;font-size:13px;cursor:pointer"></select>
           </div>
         </div>
-        <p style="font-size:12px;color:#94A3B8;margin-bottom:14px">Add each recurring service window below. Alerts and automation use these time windows.</p>
-        <div id="schedule-empty" class="schedule-empty">No service windows yet. Add your first one.</div>
+        <p style="font-size:12px;color:#94A3B8;margin-bottom:14px" data-i18n="schedule.desc">Add each recurring service window below. Alerts and automation use these time windows.</p>
+        <div id="schedule-empty" class="schedule-empty" data-i18n="schedule.empty">No service windows yet. Add your first one.</div>
         <div id="schedule-rows" class="schedule-rows"></div>
         <div class="schedule-actions">
-          <button class="btn-secondary" onclick="addScheduleRow()">+ Add Service Window</button>
-          <span class="schedule-note">Tip: set separate windows for Saturday rehearsal and Sunday service.</span>
+          <button class="btn-secondary" onclick="addScheduleRow()" data-i18n="schedule.add_btn">+ Add Service Window</button>
+          <span class="schedule-note" data-i18n="schedule.tip">Tip: set separate windows for Saturday rehearsal and Sunday service.</span>
         </div>
         <div style="margin-top:16px">
-          <button class="btn-primary" id="btn-save-schedule" onclick="saveSchedule()">Save Schedule</button>
+          <button class="btn-primary" id="btn-save-schedule" onclick="saveSchedule()" data-i18n="schedule.save_btn">Save Schedule</button>
         </div>
       </div>
     </div>
@@ -1377,61 +1378,61 @@ function buildChurchPortalHtml(church) {
     <div class="page" id="page-notifications">
       <div class="page-header">
         <div class="page-header-text">
-          <div class="page-title">Notifications</div>
-          <div class="page-sub">Control how and when you receive alerts</div>
+          <div class="page-title" data-i18n="page.notifications">Notifications</div>
+          <div class="page-sub" data-i18n="notif.page_sub">Control how and when you receive alerts</div>
         </div>
         <button class="help-icon-btn" onclick="openHelp('notifications')" title="Help with Notifications & Failover">?</button>
       </div>
       <p class="help-box"><strong>Alert Notifications:</strong> Tally classifies alerts by severity — INFO (logged only), WARNING (sent during services), CRITICAL (sent + escalated after 90s), and EMERGENCY (sent immediately). Configure your notification preferences below.</p>
       <div class="card">
-        <div class="card-title">Alert Preferences</div>
+        <div class="card-title" data-i18n="notif.prefs.title">Alert Preferences</div>
         <div class="toggle-row">
           <div>
-            <div class="toggle-label">Email alerts</div>
-            <div class="toggle-desc">Receive offline + error alerts via email</div>
+            <div class="toggle-label" data-i18n="notif.email.label">Email alerts</div>
+            <div class="toggle-desc" data-i18n="notif.email.desc">Receive offline + error alerts via email</div>
           </div>
           <label class="toggle"><input type="checkbox" id="notif-email"><span class="slider"></span></label>
         </div>
         <div class="toggle-row">
           <div>
-            <div class="toggle-label">Telegram alerts</div>
-            <div class="toggle-desc">Receive alerts in Telegram (chat ID required)</div>
+            <div class="toggle-label" data-i18n="notif.telegram.label">Telegram alerts</div>
+            <div class="toggle-desc" data-i18n="notif.telegram.desc">Receive alerts in Telegram (chat ID required)</div>
           </div>
           <label class="toggle"><input type="checkbox" id="notif-telegram"><span class="slider"></span></label>
         </div>
         <div class="toggle-row">
           <div>
-            <div class="toggle-label">A/V sync alerts</div>
-            <div class="toggle-desc">Notify when audio/video drift exceeds threshold</div>
+            <div class="toggle-label" data-i18n="notif.sync.label">A/V sync alerts</div>
+            <div class="toggle-desc" data-i18n="notif.sync.desc">Notify when audio/video drift exceeds threshold</div>
           </div>
           <label class="toggle"><input type="checkbox" id="notif-sync"><span class="slider"></span></label>
         </div>
         <div class="toggle-row">
           <div>
-            <div class="toggle-label">Weekly digest</div>
-            <div class="toggle-desc">Summary email every Monday morning</div>
+            <div class="toggle-label" data-i18n="notif.digest.label">Weekly digest</div>
+            <div class="toggle-desc" data-i18n="notif.digest.desc">Summary email every Monday morning</div>
           </div>
           <label class="toggle"><input type="checkbox" id="notif-digest"><span class="slider"></span></label>
         </div>
       </div>
       <div class="card">
-        <div class="card-title">Auto-Recovery</div>
+        <div class="card-title" data-i18n="notif.recovery.title">Auto-Recovery</div>
         <div class="toggle-row">
           <div>
-            <div class="toggle-label">Automatic issue recovery</div>
-            <div class="toggle-desc">Tally Engineer will automatically attempt to fix common issues (stream drops, recording failures, encoder reconnects) before alerting your TD. Recovery actions are always logged in session reports.</div>
+            <div class="toggle-label" data-i18n="notif.recovery.label">Automatic issue recovery</div>
+            <div class="toggle-desc" data-i18n="notif.recovery.desc">Tally Engineer will automatically attempt to fix common issues (stream drops, recording failures, encoder reconnects) before alerting your TD. Recovery actions are always logged in session reports.</div>
           </div>
           <label class="toggle"><input type="checkbox" id="notif-auto-recovery"><span class="slider"></span></label>
         </div>
-        <button class="btn-primary" onclick="saveNotifications()" style="margin-top:12px">Save Preferences</button>
+        <button class="btn-primary" onclick="saveNotifications()" style="margin-top:12px" data-i18n="notif.save">Save Preferences</button>
       </div>
       <div class="card">
-        <div class="card-title">Stream Failover Protection</div>
+        <div class="card-title" data-i18n="notif.failover.title">Stream Failover Protection</div>
         <p style="font-size:12px;color:#94A3B8;margin-bottom:12px">When enabled, Tally monitors encoder bitrate and ATEM connection. If an outage is detected, your TD is alerted via Telegram. If no one responds within the ack timeout, Tally automatically switches to your configured safe source.</p>
         <div class="toggle-row">
           <div>
-            <div class="toggle-label">Enable stream failover</div>
-            <div class="toggle-desc">Auto-switch to a safe source on confirmed signal loss</div>
+            <div class="toggle-label" data-i18n="notif.failover.enable.label">Enable stream failover</div>
+            <div class="toggle-desc" data-i18n="notif.failover.enable.desc">Auto-switch to a safe source on confirmed signal loss</div>
           </div>
           <label class="toggle"><input type="checkbox" id="failover-enabled"><span class="slider"></span></label>
         </div>
@@ -1478,19 +1479,19 @@ function buildChurchPortalHtml(church) {
           </div>
           <p style="font-size:11px;color:#64748B;margin-bottom:12px">Black threshold: how long to wait before confirming an outage. Ack timeout: how long to wait for TD response before auto-failover.</p>
         </div>
-        <button class="btn-primary" onclick="saveFailoverSettings()" style="margin-top:8px">Save Failover Settings</button>
+        <button class="btn-primary" onclick="saveFailoverSettings()" style="margin-top:8px" data-i18n="notif.failover.save">Save Failover Settings</button>
       </div>
       <div class="card" id="failover-drill-card">
-        <div class="card-title">🚨 Failover Drill</div>
+        <div class="card-title" data-i18n="notif.failover.drill.title">🚨 Failover Drill</div>
         <p class="help-box"><strong>THIS IS A DRILL.</strong> Running a drill simulates a device failure and walks through the entire failover flow — alerts, ack window, and recovery — without touching any real equipment. Use this to train your team and verify your setup before Sunday.</p>
         <div id="failover-drill-status" style="display:none;margin-bottom:12px;padding:12px 16px;border-radius:8px;font-size:13px;line-height:1.7"></div>
-        <button class="btn-primary" id="btn-run-drill" onclick="runFailoverDrill()" style="background:#eab308;border-color:#ca8a04;color:#000">▶ Run Failover Drill</button>
+        <button class="btn-primary" id="btn-run-drill" onclick="runFailoverDrill()" style="background:#eab308;border-color:#ca8a04;color:#000" data-i18n="notif.failover.drill.run">▶ Run Failover Drill</button>
         <span id="drill-spinner" style="display:none;margin-left:10px;font-size:12px;color:#64748B">Running drill…</span>
       </div>
       <div class="card">
-        <div class="card-title">Telegram Integration</div>
+        <div class="card-title" data-i18n="notif.telegram_card.title">Telegram Integration</div>
         <div class="field">
-          <label>Your Telegram Chat ID</label>
+          <label data-i18n="notif.telegram_chat_id">Your Telegram Chat ID</label>
           <input type="text" id="telegram-chat-id" placeholder="1234567890">
         </div>
         <p style="font-size:12px;color:#94A3B8;margin-bottom:16px">Message <a href="https://t.me/userinfobot" target="_blank" style="color:#22c55e">@userinfobot</a> on Telegram to get your chat ID.</p>
@@ -1502,14 +1503,14 @@ function buildChurchPortalHtml(church) {
     <div class="page" id="page-engineer">
       <div class="page-header">
         <div class="page-header-text">
-          <div class="page-title">Train Your Tally Engineer</div>
-          <div class="page-sub">Help Tally Engineer understand your setup so it can diagnose problems faster and give better recommendations.</div>
+          <div class="page-title" data-i18n="page.engineer">Train Your Tally Engineer</div>
+          <div class="page-sub" data-i18n="engineer.page_sub">Help Tally Engineer understand your setup so it can diagnose problems faster and give better recommendations.</div>
         </div>
         <button class="help-icon-btn" onclick="openHelp('engineer')" title="Help with Tally Engineer">?</button>
       </div>
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-          <div class="card-title" style="margin:0">Training Status</div>
+          <div class="card-title" style="margin:0" data-i18n="engineer.training.title">Training Status</div>
           <span id="engineer-training-badge" class="badge badge-gray">—</span>
         </div>
         <p style="color:#94A3B8;font-size:13px;line-height:1.6;margin:0">
@@ -1518,10 +1519,10 @@ function buildChurchPortalHtml(church) {
         </p>
       </div>
       <div class="card">
-        <div class="card-title">Setup Profile</div>
+        <div class="card-title" data-i18n="engineer.setup.title">Setup Profile</div>
         <div class="field-row">
           <div class="field">
-            <label>Stream Platform</label>
+            <label data-i18n="engineer.stream_platform">Stream Platform</label>
             <select id="eng-stream-platform">
               <option value="">— Select —</option>
               <option value="YouTube">YouTube</option>
@@ -1535,7 +1536,7 @@ function buildChurchPortalHtml(church) {
             </select>
           </div>
           <div class="field">
-            <label>Expected Viewers</label>
+            <label data-i18n="engineer.expected_viewers">Expected Viewers</label>
             <select id="eng-expected-viewers">
               <option value="">— Select —</option>
               <option value="Under 50">Under 50</option>
@@ -1548,7 +1549,7 @@ function buildChurchPortalHtml(church) {
         </div>
         <div class="field-row">
           <div class="field">
-            <label>Operator Experience</label>
+            <label data-i18n="engineer.operator_level">Operator Experience</label>
             <select id="eng-operator-level">
               <option value="">— Select —</option>
               <option value="Volunteer (new)">Volunteer (new)</option>
@@ -1558,22 +1559,22 @@ function buildChurchPortalHtml(church) {
             </select>
           </div>
           <div class="field">
-            <label>Backup Encoder</label>
+            <label data-i18n="engineer.backup_encoder">Backup Encoder</label>
             <input type="text" id="eng-backup-encoder" placeholder="e.g. OBS on second laptop, none">
           </div>
         </div>
         <div class="field-row">
           <div class="field">
-            <label>Backup Switcher</label>
+            <label data-i18n="engineer.backup_switcher">Backup Switcher</label>
             <input type="text" id="eng-backup-switcher" placeholder="e.g. ATEM Mini Pro as backup, none">
           </div>
           <div class="field" style="flex:1"></div>
         </div>
         <div class="field">
-          <label><span class="tip" data-tip="Anything special about your AV setup — audio routing, dual streams, unique workflows, known quirks">Special Notes</span></label>
+          <label><span class="tip" data-tip="Anything special about your AV setup — audio routing, dual streams, unique workflows, known quirks" data-i18n="engineer.special_notes">Special Notes</span></label>
           <textarea id="eng-special-notes" placeholder="e.g. Audio feed comes from FOH board via USB, we run two simultaneous streams to YouTube and Facebook"></textarea>
         </div>
-        <button class="btn-primary" onclick="saveEngineerProfile()">Save Profile</button>
+        <button class="btn-primary" onclick="saveEngineerProfile()" data-i18n="engineer.save">Save Profile</button>
       </div>
       <div class="card" id="coaching-card" style="display:none;margin-top:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -1586,8 +1587,8 @@ function buildChurchPortalHtml(church) {
       </div>
       <div class="card" style="margin-top:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <div class="card-title" style="margin:0">💬 Chat with Tally Engineer</div>
-          <button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="clearEngineerChat()">Clear</button>
+          <div class="card-title" style="margin:0" data-i18n="engineer.chat.title">💬 Chat with Tally Engineer</div>
+          <button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="clearEngineerChat()" data-i18n="btn.clear">Clear</button>
         </div>
         <div id="engineer-chat-messages" style="min-height:200px;max-height:500px;overflow-y:auto;border:1px solid #1a2e1f;border-radius:8px;padding:12px;background:#09090B;margin-bottom:12px">
           <div id="engineer-chat-empty" style="text-align:center;padding:24px 16px">
@@ -1600,10 +1601,10 @@ function buildChurchPortalHtml(church) {
           </div>
         </div>
         <div style="display:flex;gap:8px">
-          <input type="text" id="engineer-chat-input" placeholder="Ask Tally Engineer a question..."
+          <input type="text" id="engineer-chat-input" placeholder="Ask Tally Engineer a question..." data-i18n-placeholder="engineer.chat.placeholder"
             style="flex:1;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:9px 12px;color:#F8FAFC;font-size:13px;outline:none"
             onkeydown="if(event.key==='Enter')sendEngineerChat()">
-          <button class="btn-primary" onclick="sendEngineerChat()" style="min-width:80px">Send</button>
+          <button class="btn-primary" onclick="sendEngineerChat()" style="min-width:80px" data-i18n="btn.send">Send</button>
         </div>
       </div>
     </div>
@@ -1612,19 +1613,19 @@ function buildChurchPortalHtml(church) {
     <div class="page" id="page-guests">
       <div class="page-header">
         <div class="page-header-text">
-          <div class="page-title">Guest Access</div>
-          <div class="page-sub">Temporary tokens for visiting TDs, contractors, or trainers</div>
+          <div class="page-title" data-i18n="page.guests">Guest Access</div>
+          <div class="page-sub" data-i18n="guests.page_sub">Temporary tokens for visiting TDs, contractors, or trainers</div>
         </div>
         <button class="help-icon-btn" onclick="openHelp('guests')" title="Help with Guest Access">?</button>
       </div>
       <p class="help-box"><strong>What are guest tokens?</strong> Generate a temporary access token for visiting tech directors, contractors, or trainers. Share the token — the guest enters it in the Tally app or Telegram bot to get temporary monitoring access. Tokens auto-expire after the time you set (default 7 days). Revoke any token early from the table below.</p>
       <div class="card">
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
-          <button class="btn-primary" onclick="generateGuestToken()">+ Generate Token</button>
+          <button class="btn-primary" onclick="generateGuestToken()" data-i18n="guests.generate">+ Generate Token</button>
         </div>
         <div class="table-wrap">
         <table>
-          <thead><tr><th><span class="tip" data-tip="Share this code with the guest — they enter it in the Tally app or Telegram bot">Token</span></th><th>Label</th><th><span class="tip" data-tip="Shows whether a guest TD has claimed this token via Telegram">Status</span></th><th>Created</th><th><span class="tip" data-tip="Token stops working after this date. Revoke early if needed.">Expires</span></th><th></th></tr></thead>
+          <thead><tr><th><span class="tip" data-tip="Share this code with the guest — they enter it in the Tally app or Telegram bot" data-i18n="table.token">Token</span></th><th data-i18n="table.label">Label</th><th><span class="tip" data-tip="Shows whether a guest TD has claimed this token via Telegram" data-i18n="table.status">Status</span></th><th data-i18n="table.created">Created</th><th><span class="tip" data-tip="Token stops working after this date. Revoke early if needed." data-i18n="table.expires">Expires</span></th><th></th></tr></thead>
           <tbody id="guests-tbody">
             <tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
@@ -1637,14 +1638,14 @@ function buildChurchPortalHtml(church) {
     <div class="page" id="page-macros">
       <div class="page-header">
         <div class="page-header-text">
-          <div class="page-title">Telegram Macros</div>
-          <div class="page-sub">Custom command shortcuts for your tech directors</div>
+          <div class="page-title" data-i18n="page.macros">Telegram Macros</div>
+          <div class="page-sub" data-i18n="macros.page_sub">Custom command shortcuts for your tech directors</div>
         </div>
       </div>
       <p class="help-box"><strong>What are macros?</strong> Macros let you create custom Telegram shortcuts for sequences of steps your team runs every week. For example, <code>/sunday</code> could run your full Sunday morning setup sequence. TDs type the shortcut in Telegram and Tally executes the sequence automatically.</p>
       <div class="card">
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
-          <button class="btn-primary" onclick="document.getElementById('modal-add-macro').classList.add('open')">+ New Macro</button>
+          <button class="btn-primary" onclick="document.getElementById('modal-add-macro').classList.add('open')" data-i18n="macros.add_btn">+ New Macro</button>
         </div>
         <div id="macros-list">
           <div style="color:#475569;text-align:center;padding:20px;font-size:13px">Loading…</div>
@@ -1656,7 +1657,7 @@ function buildChurchPortalHtml(church) {
     <div class="modal" id="modal-add-macro">
       <div class="modal-inner" style="max-width:520px">
         <div class="modal-header">
-          <div class="modal-title" id="macro-modal-title">New Macro</div>
+          <div class="modal-title" id="macro-modal-title" data-i18n="macros.modal.title">New Macro</div>
           <button class="modal-close" onclick="closeMacroModal()">✕</button>
         </div>
         <div style="padding:20px">
@@ -1679,8 +1680,8 @@ function buildChurchPortalHtml(church) {
             <div style="font-size:11px;color:#94a3b8;margin-top:4px">Enter commands exactly as you'd type them in Telegram. They run in order with a 1-second delay between each.</div>
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button class="btn-secondary" onclick="closeMacroModal()">Cancel</button>
-            <button class="btn-primary" onclick="saveMacro()">Save Macro</button>
+            <button class="btn-secondary" onclick="closeMacroModal()" data-i18n="btn.cancel">Cancel</button>
+            <button class="btn-primary" onclick="saveMacro()" data-i18n="macros.modal.save">Save Macro</button>
           </div>
         </div>
       </div>
@@ -1803,7 +1804,7 @@ function buildChurchPortalHtml(church) {
       <div class="page-header">
         <div class="page-header-text">
           <div class="page-title" data-i18n="page.sessions">Service Sessions</div>
-          <div class="page-sub">History of recent live service sessions</div>
+          <div class="page-sub" data-i18n="sessions.page_sub">History of recent live service sessions</div>
         </div>
         <button class="help-icon-btn" onclick="openHelp('sessions')" title="Help with Sessions">?</button>
       </div>
@@ -1811,7 +1812,7 @@ function buildChurchPortalHtml(church) {
       <div class="card">
         <div class="table-wrap">
         <table>
-          <thead><tr><th>Date</th><th>Duration</th><th>Peak Viewers</th><th>Status</th></tr></thead>
+          <thead><tr><th data-i18n="table.date">Date</th><th data-i18n="table.duration">Duration</th><th data-i18n="table.peak_viewers">Peak Viewers</th><th data-i18n="table.status">Status</th></tr></thead>
           <tbody id="sessions-tbody">
             <tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
@@ -1822,8 +1823,8 @@ function buildChurchPortalHtml(church) {
       <!-- Post-Service AI Reports Card -->
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-          <div class="card-title" style="margin:0"><span class="tip" data-tip="AI-generated summary reports automatically created after each service. Includes uptime, device health, failover events, and recommendations.">📊 Service Reports</span></div>
-          <span style="font-size:11px;color:#64748b">Auto-generated after each service</span>
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="AI-generated summary reports automatically created after each service. Includes uptime, device health, failover events, and recommendations." data-i18n="sessions.reports.title">📊 Service Reports</span></div>
+          <span style="font-size:11px;color:#64748b" data-i18n="sessions.reports.auto">Auto-generated after each service</span>
         </div>
         <div id="service-reports-body">
           <div style="color:#475569;text-align:center;padding:20px;font-size:13px">Loading…</div>
@@ -1834,66 +1835,66 @@ function buildChurchPortalHtml(church) {
     <!-- ANALYTICS -->
     <div class="page" id="page-analytics">
       <div class="page-header">
-        <div class="page-title">Analytics</div>
-        <div class="page-sub">Stream health, viewer trends, and equipment performance</div>
+        <div class="page-title" data-i18n="page.analytics">Analytics</div>
+        <div class="page-sub" data-i18n="analytics.page_sub">Stream health, viewer trends, and equipment performance</div>
       </div>
 
       <div style="margin-bottom:20px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="btn-secondary analytics-range active" data-days="30" onclick="setAnalyticsRange(30, this)">Last 30 days</button>
-        <button class="btn-secondary analytics-range" data-days="90" onclick="setAnalyticsRange(90, this)">Last 90 days</button>
-        <button class="btn-secondary analytics-range" data-days="180" onclick="setAnalyticsRange(180, this)">Last 6 months</button>
-        <button class="btn-secondary analytics-range" data-days="365" onclick="setAnalyticsRange(365, this)">Last year</button>
-        <button class="btn-secondary" onclick="exportAnalyticsCSV()" style="margin-left:auto" title="Download session data as CSV">Export CSV</button>
+        <button class="btn-secondary analytics-range active" data-days="30" onclick="setAnalyticsRange(30, this)" data-i18n="analytics.last_30">Last 30 days</button>
+        <button class="btn-secondary analytics-range" data-days="90" onclick="setAnalyticsRange(90, this)" data-i18n="analytics.last_90">Last 90 days</button>
+        <button class="btn-secondary analytics-range" data-days="180" onclick="setAnalyticsRange(180, this)" data-i18n="analytics.last_180">Last 6 months</button>
+        <button class="btn-secondary analytics-range" data-days="365" onclick="setAnalyticsRange(365, this)" data-i18n="analytics.last_365">Last year</button>
+        <button class="btn-secondary" onclick="exportAnalyticsCSV()" style="margin-left:auto" title="Download session data as CSV" data-i18n="analytics.export">Export CSV</button>
       </div>
 
       <div class="stats-row grid-4col" id="analytics-kpi">
         <div class="stat-card">
           <div class="stat-value" id="a-uptime">\u2014</div>
-          <div class="stat-label">Stream Uptime</div>
+          <div class="stat-label" data-i18n="analytics.kpi.uptime">Stream Uptime</div>
         </div>
         <div class="stat-card">
           <div class="stat-value" id="a-sessions-count">\u2014</div>
-          <div class="stat-label">Total Sessions</div>
+          <div class="stat-label" data-i18n="analytics.kpi.sessions">Total Sessions</div>
         </div>
         <div class="stat-card">
           <div class="stat-value" id="a-avg-viewers">\u2014</div>
-          <div class="stat-label">Avg Peak Viewers</div>
+          <div class="stat-label" data-i18n="analytics.kpi.avg_viewers">Avg Peak Viewers</div>
         </div>
         <div class="stat-card">
           <div class="stat-value" id="a-recovery-rate">\u2014</div>
-          <div class="stat-label">Auto-Recovery Rate</div>
+          <div class="stat-label" data-i18n="analytics.kpi.recovery">Auto-Recovery Rate</div>
         </div>
       </div>
 
       <div class="card">
-        <div class="card-title">Stream Health & Reliability</div>
+        <div class="card-title" data-i18n="analytics.health.title">Stream Health & Reliability</div>
         <div id="a-health-content" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
       </div>
 
       <div class="card">
-        <div class="card-title">Viewer Trends</div>
+        <div class="card-title" data-i18n="analytics.viewers.title">Viewer Trends</div>
         <div id="a-viewer-chart" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
       </div>
 
       <div class="card">
-        <div class="card-title">Audience by Platform</div>
-        <div class="page-sub" style="margin-bottom:12px">Concurrent viewer counts from YouTube, Facebook, and Vimeo</div>
+        <div class="card-title" data-i18n="analytics.platform.title">Audience by Platform</div>
+        <div class="page-sub" style="margin-bottom:12px" data-i18n="analytics.platform.sub">Concurrent viewer counts from YouTube, Facebook, and Vimeo</div>
         <div class="stats-row grid-4col" id="audience-kpi" style="margin-bottom:16px">
           <div class="stat-card" style="border-left:3px solid #ff0000">
             <div class="stat-value" id="aud-yt-peak">\u2014</div>
-            <div class="stat-label">YouTube Peak</div>
+            <div class="stat-label" data-i18n="analytics.platform.yt">YouTube Peak</div>
           </div>
           <div class="stat-card" style="border-left:3px solid #1877f2">
             <div class="stat-value" id="aud-fb-peak">\u2014</div>
-            <div class="stat-label">Facebook Peak</div>
+            <div class="stat-label" data-i18n="analytics.platform.fb">Facebook Peak</div>
           </div>
           <div class="stat-card" style="border-left:3px solid #1ab7ea">
             <div class="stat-value" id="aud-vim-peak">\u2014</div>
-            <div class="stat-label">Vimeo Peak</div>
+            <div class="stat-label" data-i18n="analytics.platform.vim">Vimeo Peak</div>
           </div>
           <div class="stat-card">
             <div class="stat-value" id="aud-total-avg">\u2014</div>
-            <div class="stat-label">Avg Total Viewers</div>
+            <div class="stat-label" data-i18n="analytics.platform.avg">Avg Total Viewers</div>
           </div>
         </div>
         <div id="aud-platform-chart" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
@@ -1904,12 +1905,12 @@ function buildChurchPortalHtml(church) {
       </div>
 
       <div class="card">
-        <div class="card-title">Session Duration & Frequency</div>
+        <div class="card-title" data-i18n="analytics.session_stats.title">Session Duration & Frequency</div>
         <div id="a-session-stats" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
       </div>
 
       <div class="card">
-        <div class="card-title">Equipment Performance</div>
+        <div class="card-title" data-i18n="analytics.equipment.title">Equipment Performance</div>
         <div id="a-equipment-content" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
       </div>
     </div>
@@ -1919,7 +1920,7 @@ function buildChurchPortalHtml(church) {
       <div class="page-header">
         <div class="page-header-text">
           <div class="page-title" data-i18n="page.alerts">Alert History</div>
-          <div class="page-sub">Recent alerts from your services</div>
+          <div class="page-sub" data-i18n="alerts.page_sub">Recent alerts from your services</div>
         </div>
         <button class="help-icon-btn" onclick="openHelp('alerts')" title="Help with Alerts">?</button>
       </div>
@@ -1931,15 +1932,15 @@ function buildChurchPortalHtml(church) {
     <div class="page" id="page-migrate">
       <div class="page-header">
         <div class="page-header-text">
-          <div class="page-title">Migration Assistant</div>
-          <div class="page-sub">Switching from another system? We'll guide you through.</div>
+          <div class="page-title" data-i18n="page.migrate">Migration Assistant</div>
+          <div class="page-sub" data-i18n="migrate.page_sub">Switching from another system? We'll guide you through.</div>
         </div>
       </div>
       <div id="migration-wizard">
         <!-- Step 1: pick source system -->
         <div id="migrate-step-1">
           <div class="card">
-            <div class="card-title" style="margin-bottom:16px">What are you switching from?</div>
+            <div class="card-title" style="margin-bottom:16px" data-i18n="migrate.question">What are you switching from?</div>
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px" id="migrate-source-grid">
               ${['Planning Center', 'ProPresenter Standalone', 'vMix', 'Wirecast', 'Companion Only', 'Nothing — New Setup', 'Other'].map(s =>
                 `<button class="migrate-source-btn" onclick="selectMigrateSource('${s.replace(/'/g, "\\'")}', this)" style="background:#09090B;border:2px solid #1a2e1f;border-radius:10px;padding:16px 12px;text-align:center;cursor:pointer;transition:all 0.15s;color:#F8FAFC;font-size:13px;font-weight:600">${s}</button>`
@@ -1969,19 +1970,19 @@ function buildChurchPortalHtml(church) {
     <div class="page" id="page-support">
       <div class="page-header">
         <div class="page-title" data-i18n="page.support">Help &amp; Support</div>
-        <div class="page-sub">Run diagnostics, open tickets, and track platform status</div>
+        <div class="page-sub" data-i18n="support.page_sub">Run diagnostics, open tickets, and track platform status</div>
       </div>
       <div class="card" style="margin-bottom:16px">
-        <div class="card-title">Support SLA</div>
+        <div class="card-title" data-i18n="support.sla.title">Support SLA</div>
         <p id="support-response-time" style="color:#475569;font-size:13px;margin-top:8px"></p>
         <p style="color:#94A3B8;font-size:13px;line-height:1.6;margin-top:8px">
           Direct support: <a href="mailto:support@tallyconnect.app" style="color:#22c55e">support@tallyconnect.app</a>
         </p>
       </div>
       <div class="card" style="margin-bottom:16px">
-        <div class="card-title">Run Guided Diagnostics</div>
+        <div class="card-title" data-i18n="support.diag.title">Run Guided Diagnostics</div>
         <div class="field">
-          <label>Issue category</label>
+          <label data-i18n="support.diag.issue">Issue category</label>
           <select id="support-issue">
             <option value="stream_down">Stream down</option>
             <option value="no_audio_stream">No audio on stream</option>
@@ -1992,7 +1993,7 @@ function buildChurchPortalHtml(church) {
           </select>
         </div>
         <div class="field">
-          <label>Severity</label>
+          <label data-i18n="support.diag.severity">Severity</label>
           <select id="support-severity">
             <option value="P1">P1 - Critical outage</option>
             <option value="P2" selected>P2 - High (service impact)</option>
@@ -2001,28 +2002,28 @@ function buildChurchPortalHtml(church) {
           </select>
         </div>
         <div class="field">
-          <label>Summary</label>
+          <label data-i18n="support.diag.summary">Summary</label>
           <textarea id="support-summary" rows="3" placeholder="What happened? Include timing and what changed."></textarea>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <button class="btn-primary" onclick="runSupportTriage()">Run Triage</button>
-          <button class="btn-secondary" onclick="createSupportTicket()">Open Ticket</button>
-          <button class="btn-secondary" onclick="loadSupportTickets()">Refresh Tickets</button>
+          <button class="btn-primary" onclick="runSupportTriage()" data-i18n="support.diag.triage">Run Triage</button>
+          <button class="btn-secondary" onclick="createSupportTicket()" data-i18n="support.diag.ticket">Open Ticket</button>
+          <button class="btn-secondary" onclick="loadSupportTickets()" data-i18n="support.diag.refresh">Refresh Tickets</button>
         </div>
         <div id="support-triage-result" style="margin-top:12px;color:#94A3B8;font-size:13px;line-height:1.6"></div>
       </div>
       <div class="card" style="margin-bottom:16px">
-        <div class="card-title">Platform Status</div>
+        <div class="card-title" data-i18n="support.platform.title">Platform Status</div>
         <div id="support-status-components" style="display:flex;flex-direction:column;gap:8px;color:#94A3B8;font-size:13px"></div>
         <div style="margin-top:10px">
-          <a href="/status" target="_blank" style="color:#22c55e">Open full status page →</a>
+          <a href="/status" target="_blank" style="color:#22c55e" data-i18n="support.platform.link">Open full status page →</a>
         </div>
       </div>
       <div class="card">
-        <div class="card-title">Support Tickets</div>
+        <div class="card-title" data-i18n="support.tickets.title">Support Tickets</div>
         <div class="table-wrap">
         <table>
-          <thead><tr><th>Created</th><th>Status</th><th>Severity</th><th>Title</th><th>Action</th></tr></thead>
+          <thead><tr><th data-i18n="table.created">Created</th><th data-i18n="table.status">Status</th><th data-i18n="table.severity">Severity</th><th>Title</th><th data-i18n="table.action">Action</th></tr></thead>
           <tbody id="support-tickets-tbody">
             <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
@@ -2042,7 +2043,7 @@ function buildChurchPortalHtml(church) {
       </div>
       <div id="help-modal-body"></div>
       <div class="modal-footer">
-        <button class="btn-primary" onclick="closeHelpModal()">Got it</button>
+        <button class="btn-primary" onclick="closeHelpModal()" data-i18n="modal.help.got_it">Got it</button>
       </div>
     </div>
   </div>
@@ -2051,11 +2052,11 @@ function buildChurchPortalHtml(church) {
   <div class="modal-backdrop" id="modal-add-td">
     <div class="modal">
       <div class="modal-header">
-        <div class="modal-title">Add Tech Director</div>
+        <div class="modal-title" data-i18n="modal.td.title">Add Tech Director</div>
         <button class="modal-close" onclick="document.getElementById('modal-add-td').classList.remove('open')">×</button>
       </div>
-      <div class="field"><label>Name</label><input type="text" id="td-name" placeholder="John Smith"></div>
-      <div class="field"><label>Role</label>
+      <div class="field"><label data-i18n="table.name">Name</label><input type="text" id="td-name" placeholder="John Smith"></div>
+      <div class="field"><label data-i18n="table.role">Role</label>
         <select id="td-role">
           <option value="td">Tech Director</option>
           <option value="volunteer">Volunteer</option>
@@ -2063,11 +2064,11 @@ function buildChurchPortalHtml(church) {
           <option value="supervisor">Supervisor</option>
         </select>
       </div>
-      <div class="field"><label>Email</label><input type="email" id="td-email" placeholder="john@yourchurch.org"></div>
-      <div class="field"><label>Phone</label><input type="tel" id="td-phone" placeholder="+1 (555) 000-0000"></div>
+      <div class="field"><label data-i18n="table.email">Email</label><input type="email" id="td-email" placeholder="john@yourchurch.org"></div>
+      <div class="field"><label data-i18n="table.phone">Phone</label><input type="tel" id="td-phone" placeholder="+1 (555) 000-0000"></div>
       <div class="modal-footer">
-        <button class="btn-secondary" onclick="document.getElementById('modal-add-td').classList.remove('open')">Cancel</button>
-        <button class="btn-primary" onclick="addTd()">Add TD</button>
+        <button class="btn-secondary" onclick="document.getElementById('modal-add-td').classList.remove('open')" data-i18n="btn.cancel">Cancel</button>
+        <button class="btn-primary" onclick="addTd()" data-i18n="modal.td.add">Add TD</button>
       </div>
     </div>
   </div>
@@ -2117,8 +2118,8 @@ function buildChurchPortalHtml(church) {
         <input type="text" id="dialog-input" style="width:100%;box-sizing:border-box" />
       </div>
       <div class="modal-footer">
-        <button class="btn-secondary" id="dialog-cancel">Cancel</button>
-        <button class="btn-primary" id="dialog-ok">OK</button>
+        <button class="btn-secondary" id="dialog-cancel" data-i18n="modal.dialog.cancel">Cancel</button>
+        <button class="btn-primary" id="dialog-ok" data-i18n="modal.dialog.ok">OK</button>
       </div>
     </div>
   </div>
@@ -2172,6 +2173,10 @@ function buildChurchPortalHtml(church) {
         'btn.disable': 'Disable',
         'btn.add': 'Add',
         'btn.signout': 'Sign out',
+        'btn.edit': 'Edit',
+        'btn.close': 'Close',
+        'btn.send': 'Send',
+        'btn.clear': 'Clear',
         // Status words
         'status.loading': 'Loading\u2026',
         'status.connected': 'Connected',
@@ -2182,6 +2187,7 @@ function buildChurchPortalHtml(church) {
         'status.paused': 'Paused',
         'status.online': 'Online',
         'status.offline': 'Offline',
+        'status.live': 'Live',
         // Page titles
         'page.overview': 'Overview',
         'page.profile': 'Church Profile',
@@ -2196,6 +2202,71 @@ function buildChurchPortalHtml(church) {
         'page.alerts': 'Alert History',
         'page.billing': 'Billing & Subscription',
         'page.support': 'Help & Support',
+        'page.analytics': 'Analytics',
+        'page.engineer': 'Train Your Tally Engineer',
+        'page.migrate': 'Migration Assistant',
+        // Overview
+        'overview.sub': 'Church monitoring portal',
+        'overview.getting_started': 'Getting Started',
+        'overview.setup_progress': 'Complete these steps to finish setup',
+        'overview.dismiss': 'Dismiss',
+        'overview.resume_setup': '\ud83d\udccb Resume Setup Guide',
+        'overview.connection': 'Connection',
+        'overview.sessions_30d': 'Sessions (30d)',
+        'overview.stat_tds': 'Tech Directors',
+        'overview.preservice.title': '\ud83d\udd27 Pre-Service Check',
+        'overview.preservice.fix_all': 'Fix All Safe Issues',
+        'overview.preservice.run_now': 'Run Check Now',
+        'overview.campus.title': '\u229a All Campuses',
+        'overview.campus.manage': 'Manage Campuses',
+        'overview.equip.title': 'Equipment Status',
+        'overview.equip.refresh': '\u21bb Refresh',
+        'overview.stream.title': 'Live Stream',
+        'overview.stream.bitrate': 'Bitrate (kbps)',
+        'overview.stream.fps': 'FPS',
+        'overview.stream.health': 'Health',
+        'overview.stream.uptime': 'Uptime',
+        'overview.atem.title': '\ud83c\udfa7 ATEM Switcher',
+        'overview.atem.program': 'Program',
+        'overview.atem.preview': 'Preview',
+        'overview.audio.title': '\ud83d\udd0a Audio Health',
+        'overview.audio.mute': 'Mute',
+        'overview.audio.silence': 'Silence',
+        'overview.audio.monitoring': 'Monitoring',
+        'overview.rundown.title': '\ud83d\udccb Service Rundown',
+        'overview.activity.title': '\u26a1 Activity Feed',
+        'overview.engineer.title': 'Tally Engineer',
+        'overview.schedule.title': 'Service Schedule',
+        'overview.quickinfo.title': 'Quick Info',
+        'overview.quickinfo.church_id': 'Church ID',
+        'overview.quickinfo.registered': 'Registered',
+        'overview.quickinfo.plan': 'Plan',
+        'overview.quickinfo.campuses': 'Campuses / Rooms',
+        'overview.viewing': 'Viewing:',
+        'overview.main_campus': 'Main Campus',
+        // Shared table headers
+        'table.campus': 'Campus',
+        'table.status': 'Status',
+        'table.devices': 'Devices',
+        'table.health': 'Health',
+        'table.last_seen': 'Last Seen',
+        'table.system': 'System',
+        'table.version': 'Version',
+        'table.detail': 'Detail',
+        'table.name': 'Name',
+        'table.role': 'Role',
+        'table.email': 'Email',
+        'table.phone': 'Phone',
+        'table.date': 'Date',
+        'table.duration': 'Duration',
+        'table.peak_viewers': 'Peak Viewers',
+        'table.token': 'Token',
+        'table.label': 'Label',
+        'table.created': 'Created',
+        'table.expires': 'Expires',
+        'table.severity': 'Severity',
+        'table.code': 'Registration Code',
+        'table.action': 'Action',
         // AutoPilot
         'autopilot.subtitle': 'Automation rules that fire during your service windows',
         'autopilot.no_rules': 'No rules yet. Click \u201c+ New Rule\u201d to create your first automation.',
@@ -2220,8 +2291,155 @@ function buildChurchPortalHtml(church) {
         'profile.sub': 'Update your contact information',
         'profile.contact': 'Contact Information',
         'profile.change_password': 'Change Password',
+        'profile.church_name': 'Church Name',
+        'profile.contact_email': 'Contact Email',
+        'profile.phone': 'Phone Number',
+        'profile.location': 'City / State',
+        'profile.notes': 'Notes for Support Team',
+        'profile.leadership_emails': 'Leadership Email Recipients',
+        'profile.leadership_email_desc': 'Service recaps and weekly reports will be emailed to these addresses automatically.',
+        'profile.bot_language': 'Bot Language (Telegram)',
+        'profile.bot_language_desc': 'Tally bot messages will be sent in this language.',
+        'profile.save': 'Save Changes',
+        'profile.current_password': 'Current Password',
+        'profile.new_password': 'New Password',
+        'profile.confirm_password': 'Confirm Password',
+        'profile.update_password': 'Update Password',
+        // Campuses
+        'campus.page_sub': 'Manage additional campuses under this account',
+        'campus.stat.total': 'Total Rooms',
+        'campus.stat.online': 'Online',
+        'campus.stat.offline': 'Offline',
+        'campus.stat.alerts': 'Alerts (7d)',
+        'campus.add.title': 'Add Campus',
+        'campus.add.name': 'Campus Name',
+        'campus.add.location': 'City / State (optional)',
+        'campus.add.btn': 'Create Campus',
+        'campus.linked.title': 'Linked Campuses',
+        // Tech Directors
+        'tds.page_sub': 'People who receive alerts and have TD access',
+        'tds.invite_link': '\ud83d\udd17 Copy Invite Link',
+        'tds.add_btn': '+ Add TD',
+        'tds.modal.title': 'Add Tech Director',
+        'tds.modal.add': 'Add TD',
+        // Schedule
+        'schedule.page_sub': 'Define your recurring service windows for smart alerts',
+        'schedule.card.title': 'Weekly Service Windows',
+        'schedule.desc': 'Add each recurring service window below. Alerts and automation use these time windows.',
+        'schedule.empty': 'No service windows yet. Add your first one.',
+        'schedule.add_btn': '+ Add Service Window',
+        'schedule.tip': 'Tip: set separate windows for Saturday rehearsal and Sunday service.',
+        'schedule.save_btn': 'Save Schedule',
+        // Notifications
+        'notif.page_sub': 'Control how and when you receive alerts',
+        'notif.prefs.title': 'Alert Preferences',
+        'notif.email.label': 'Email alerts',
+        'notif.email.desc': 'Receive offline + error alerts via email',
+        'notif.telegram.label': 'Telegram alerts',
+        'notif.telegram.desc': 'Receive alerts in Telegram (chat ID required)',
+        'notif.sync.label': 'A/V sync alerts',
+        'notif.sync.desc': 'Notify when audio/video drift exceeds threshold',
+        'notif.digest.label': 'Weekly digest',
+        'notif.digest.desc': 'Summary email every Monday morning',
+        'notif.recovery.title': 'Auto-Recovery',
+        'notif.recovery.label': 'Automatic issue recovery',
+        'notif.recovery.desc': 'Tally Engineer will automatically attempt to fix common issues (stream drops, recording failures, encoder reconnects) before alerting your TD. Recovery actions are always logged in session reports.',
+        'notif.save': 'Save Preferences',
+        'notif.failover.title': 'Stream Failover Protection',
+        'notif.failover.enable.label': 'Enable stream failover',
+        'notif.failover.enable.desc': 'Auto-switch to a safe source on confirmed signal loss',
+        'notif.failover.save': 'Save Failover Settings',
+        'notif.failover.drill.title': '\ud83d\udea8 Failover Drill',
+        'notif.failover.drill.run': '\u25b6 Run Failover Drill',
+        'notif.telegram_card.title': 'Telegram Integration',
+        'notif.telegram_chat_id': 'Your Telegram Chat ID',
+        // Engineer
+        'engineer.page_sub': 'Help Tally Engineer understand your setup so it can diagnose problems faster and give better recommendations.',
+        'engineer.training.title': 'Training Status',
+        'engineer.setup.title': 'Setup Profile',
+        'engineer.stream_platform': 'Stream Platform',
+        'engineer.expected_viewers': 'Expected Viewers',
+        'engineer.operator_level': 'Operator Experience',
+        'engineer.backup_encoder': 'Backup Encoder',
+        'engineer.backup_switcher': 'Backup Switcher',
+        'engineer.special_notes': 'Special Notes',
+        'engineer.save': 'Save Profile',
+        'engineer.chat.title': '\ud83d\udcac Chat with Tally Engineer',
+        'engineer.chat.placeholder': 'Ask Tally Engineer a question...',
+        // Guest Access
+        'guests.page_sub': 'Temporary tokens for visiting TDs, contractors, or trainers',
+        'guests.generate': '+ Generate Token',
+        // Macros
+        'macros.page_sub': 'Custom command shortcuts for your tech directors',
+        'macros.add_btn': '+ New Macro',
+        'macros.modal.title': 'New Macro',
+        'macros.modal.save': 'Save Macro',
+        // Sessions
+        'sessions.page_sub': 'History of recent live service sessions',
+        'sessions.reports.title': '\ud83d\udcca Service Reports',
+        'sessions.reports.auto': 'Auto-generated after each service',
+        // Analytics
+        'analytics.page_sub': 'Stream health, viewer trends, and equipment performance',
+        'analytics.last_30': 'Last 30 days',
+        'analytics.last_90': 'Last 90 days',
+        'analytics.last_180': 'Last 6 months',
+        'analytics.last_365': 'Last year',
+        'analytics.export': 'Export CSV',
+        'analytics.kpi.uptime': 'Stream Uptime',
+        'analytics.kpi.sessions': 'Total Sessions',
+        'analytics.kpi.avg_viewers': 'Avg Peak Viewers',
+        'analytics.kpi.recovery': 'Auto-Recovery Rate',
+        'analytics.health.title': 'Stream Health & Reliability',
+        'analytics.viewers.title': 'Viewer Trends',
+        'analytics.platform.title': 'Audience by Platform',
+        'analytics.platform.sub': 'Concurrent viewer counts from YouTube, Facebook, and Vimeo',
+        'analytics.platform.yt': 'YouTube Peak',
+        'analytics.platform.fb': 'Facebook Peak',
+        'analytics.platform.vim': 'Vimeo Peak',
+        'analytics.platform.avg': 'Avg Total Viewers',
+        'analytics.session_stats.title': 'Session Duration & Frequency',
+        'analytics.equipment.title': 'Equipment Performance',
+        // Alerts
+        'alerts.page_sub': 'Recent alerts from your services',
+        // Migration
+        'migrate.page_sub': 'Switching from another system? We\'ll guide you through.',
+        'migrate.question': 'What are you switching from?',
         // Billing
         'billing.sub': 'Manage your plan, payment method, and invoices',
+        'billing.loading': 'Loading billing info...',
+        // Support
+        'support.page_sub': 'Run diagnostics, open tickets, and track platform status',
+        'support.sla.title': 'Support SLA',
+        'support.diag.title': 'Run Guided Diagnostics',
+        'support.diag.issue': 'Issue category',
+        'support.diag.severity': 'Severity',
+        'support.diag.summary': 'Summary',
+        'support.diag.triage': 'Run Triage',
+        'support.diag.ticket': 'Open Ticket',
+        'support.diag.refresh': 'Refresh Tickets',
+        'support.platform.title': 'Platform Status',
+        'support.platform.link': 'Open full status page \u2192',
+        'support.tickets.title': 'Support Tickets',
+        // Modals & dialogs
+        'modal.help.got_it': 'Got it',
+        'modal.td.title': 'Add Tech Director',
+        'modal.td.add': 'Add TD',
+        'modal.dialog.cancel': 'Cancel',
+        'modal.dialog.ok': 'OK',
+        'modal.review.title': 'Share Your Experience',
+        // Demo mode
+        'demo.try': '\ud83c\udfad Try Demo Mode',
+        'demo.exit': 'Exit Demo',
+        // Days of week (for schedule editor)
+        'day.sunday': 'Sunday',
+        'day.monday': 'Monday',
+        'day.tuesday': 'Tuesday',
+        'day.wednesday': 'Wednesday',
+        'day.thursday': 'Thursday',
+        'day.friday': 'Friday',
+        'day.saturday': 'Saturday',
+        // Language toggle
+        'lang.toggle': 'Espa\u00f1ol',
       },
       es: {
         // Navigation
@@ -2249,6 +2467,10 @@ function buildChurchPortalHtml(church) {
         'btn.disable': 'Desactivar',
         'btn.add': 'Agregar',
         'btn.signout': 'Cerrar sesi\u00f3n',
+        'btn.edit': 'Editar',
+        'btn.close': 'Cerrar',
+        'btn.send': 'Enviar',
+        'btn.clear': 'Borrar',
         // Status words
         'status.loading': 'Cargando\u2026',
         'status.connected': 'Conectado',
@@ -2259,6 +2481,7 @@ function buildChurchPortalHtml(church) {
         'status.paused': 'Pausado',
         'status.online': 'En l\u00ednea',
         'status.offline': 'Sin conexi\u00f3n',
+        'status.live': 'En Vivo',
         // Page titles
         'page.overview': 'Resumen',
         'page.profile': 'Perfil de la Iglesia',
@@ -2273,6 +2496,71 @@ function buildChurchPortalHtml(church) {
         'page.alerts': 'Historial de Alertas',
         'page.billing': 'Facturaci\u00f3n y Suscripci\u00f3n',
         'page.support': 'Ayuda y Soporte',
+        'page.analytics': 'Anal\u00edticas',
+        'page.engineer': 'Entrena tu Tally Engineer',
+        'page.migrate': 'Asistente de Migraci\u00f3n',
+        // Overview
+        'overview.sub': 'Portal de monitoreo de la iglesia',
+        'overview.getting_started': 'Primeros Pasos',
+        'overview.setup_progress': 'Completa estos pasos para finalizar la configuraci\u00f3n',
+        'overview.dismiss': 'Descartar',
+        'overview.resume_setup': '\ud83d\udccb Retomar Gu\u00eda de Configuraci\u00f3n',
+        'overview.connection': 'Conexi\u00f3n',
+        'overview.sessions_30d': 'Sesiones (30d)',
+        'overview.stat_tds': 'Directores T\u00e9cnicos',
+        'overview.preservice.title': '\ud83d\udd27 Verificaci\u00f3n Pre-Servicio',
+        'overview.preservice.fix_all': 'Corregir Todos los Problemas Seguros',
+        'overview.preservice.run_now': 'Ejecutar Verificaci\u00f3n',
+        'overview.campus.title': '\u229a Todas las Sedes',
+        'overview.campus.manage': 'Administrar Sedes',
+        'overview.equip.title': 'Estado del Equipo',
+        'overview.equip.refresh': '\u21bb Actualizar',
+        'overview.stream.title': 'Transmisi\u00f3n en Vivo',
+        'overview.stream.bitrate': 'Bitrate (kbps)',
+        'overview.stream.fps': 'FPS',
+        'overview.stream.health': 'Salud',
+        'overview.stream.uptime': 'Tiempo Activo',
+        'overview.atem.title': '\ud83c\udfa7 Mezclador ATEM',
+        'overview.atem.program': 'Programa',
+        'overview.atem.preview': 'Vista Previa',
+        'overview.audio.title': '\ud83d\udd0a Estado de Audio',
+        'overview.audio.mute': 'Silencio',
+        'overview.audio.silence': 'Sin Sonido',
+        'overview.audio.monitoring': 'Monitoreo',
+        'overview.rundown.title': '\ud83d\udccb Gu\u00ed\u00f3n del Servicio',
+        'overview.activity.title': '\u26a1 Actividad Reciente',
+        'overview.engineer.title': 'Tally Engineer',
+        'overview.schedule.title': 'Horario de Servicio',
+        'overview.quickinfo.title': 'Informaci\u00f3n R\u00e1pida',
+        'overview.quickinfo.church_id': 'ID de Iglesia',
+        'overview.quickinfo.registered': 'Registrado',
+        'overview.quickinfo.plan': 'Plan',
+        'overview.quickinfo.campuses': 'Sedes / Salas',
+        'overview.viewing': 'Viendo:',
+        'overview.main_campus': 'Sede Principal',
+        // Shared table headers
+        'table.campus': 'Sede',
+        'table.status': 'Estado',
+        'table.devices': 'Dispositivos',
+        'table.health': 'Salud',
+        'table.last_seen': '\u00daltima Vez',
+        'table.system': 'Sistema',
+        'table.version': 'Versi\u00f3n',
+        'table.detail': 'Detalle',
+        'table.name': 'Nombre',
+        'table.role': 'Rol',
+        'table.email': 'Correo',
+        'table.phone': 'Tel\u00e9fono',
+        'table.date': 'Fecha',
+        'table.duration': 'Duraci\u00f3n',
+        'table.peak_viewers': 'Pico de Espectadores',
+        'table.token': 'Token',
+        'table.label': 'Etiqueta',
+        'table.created': 'Creado',
+        'table.expires': 'Vence',
+        'table.severity': 'Gravedad',
+        'table.code': 'C\u00f3digo de Registro',
+        'table.action': 'Acci\u00f3n',
         // AutoPilot
         'autopilot.subtitle': 'Reglas de automatizaci\u00f3n para tus ventanas de servicio',
         'autopilot.no_rules': 'Sin reglas a\u00fan. Haz clic en \u201c+ Nueva Regla\u201d para crear tu primera automatizaci\u00f3n.',
@@ -2297,15 +2585,178 @@ function buildChurchPortalHtml(church) {
         'profile.sub': 'Actualiza tu informaci\u00f3n de contacto',
         'profile.contact': 'Informaci\u00f3n de Contacto',
         'profile.change_password': 'Cambiar Contrase\u00f1a',
+        'profile.church_name': 'Nombre de la Iglesia',
+        'profile.contact_email': 'Correo de Contacto',
+        'profile.phone': 'N\u00famero de Tel\u00e9fono',
+        'profile.location': 'Ciudad / Estado',
+        'profile.notes': 'Notas para el Equipo de Soporte',
+        'profile.leadership_emails': 'Correos de Liderazgo',
+        'profile.leadership_email_desc': 'Los res\u00famenes de servicio y reportes semanales se enviar\u00e1n autom\u00e1ticamente a estas direcciones.',
+        'profile.bot_language': 'Idioma del Bot (Telegram)',
+        'profile.bot_language_desc': 'Los mensajes del bot Tally se enviar\u00e1n en este idioma.',
+        'profile.save': 'Guardar Cambios',
+        'profile.current_password': 'Contrase\u00f1a Actual',
+        'profile.new_password': 'Nueva Contrase\u00f1a',
+        'profile.confirm_password': 'Confirmar Contrase\u00f1a',
+        'profile.update_password': 'Actualizar Contrase\u00f1a',
+        // Campuses
+        'campus.page_sub': 'Administra sedes adicionales en esta cuenta',
+        'campus.stat.total': 'Total de Salas',
+        'campus.stat.online': 'En L\u00ednea',
+        'campus.stat.offline': 'Sin Conexi\u00f3n',
+        'campus.stat.alerts': 'Alertas (7d)',
+        'campus.add.title': 'Agregar Sede',
+        'campus.add.name': 'Nombre de la Sede',
+        'campus.add.location': 'Ciudad / Estado (opcional)',
+        'campus.add.btn': 'Crear Sede',
+        'campus.linked.title': 'Sedes Vinculadas',
+        // Tech Directors
+        'tds.page_sub': 'Personas que reciben alertas y tienen acceso de DT',
+        'tds.invite_link': '\ud83d\udd17 Copiar Enlace de Invitaci\u00f3n',
+        'tds.add_btn': '+ Agregar DT',
+        'tds.modal.title': 'Agregar Director T\u00e9cnico',
+        'tds.modal.add': 'Agregar DT',
+        // Schedule
+        'schedule.page_sub': 'Define tus ventanas de servicio recurrentes para alertas inteligentes',
+        'schedule.card.title': 'Ventanas de Servicio Semanales',
+        'schedule.desc': 'Agrega cada ventana de servicio recurrente. Las alertas y la automatizaci\u00f3n usan estas ventanas.',
+        'schedule.empty': 'Sin ventanas de servicio. Agrega la primera.',
+        'schedule.add_btn': '+ Agregar Ventana de Servicio',
+        'schedule.tip': 'Tip: define ventanas separadas para el ensayo del s\u00e1bado y el servicio del domingo.',
+        'schedule.save_btn': 'Guardar Horario',
+        // Notifications
+        'notif.page_sub': 'Controla c\u00f3mo y cu\u00e1ndo recibes alertas',
+        'notif.prefs.title': 'Preferencias de Alertas',
+        'notif.email.label': 'Alertas por correo',
+        'notif.email.desc': 'Recibe alertas de desconexi\u00f3n y error por correo electr\u00f3nico',
+        'notif.telegram.label': 'Alertas de Telegram',
+        'notif.telegram.desc': 'Recibe alertas en Telegram (requiere ID de chat)',
+        'notif.sync.label': 'Alertas de sincron\u00eda A/V',
+        'notif.sync.desc': 'Notificar cuando la deriva de audio/video supere el umbral',
+        'notif.digest.label': 'Resumen semanal',
+        'notif.digest.desc': 'Correo de resumen todos los lunes por la ma\u00f1ana',
+        'notif.recovery.title': 'Recuperaci\u00f3n Autom\u00e1tica',
+        'notif.recovery.label': 'Recuperaci\u00f3n autom\u00e1tica de problemas',
+        'notif.recovery.desc': 'Tally Engineer intentar\u00e1 corregir autom\u00e1ticamente problemas comunes (ca\u00eddas de stream, fallas de grabaci\u00f3n) antes de alertar a tu DT. Las acciones siempre se registran.',
+        'notif.save': 'Guardar Preferencias',
+        'notif.failover.title': 'Protecci\u00f3n de Conmutaci\u00f3n de Stream',
+        'notif.failover.enable.label': 'Activar conmutaci\u00f3n de stream',
+        'notif.failover.enable.desc': 'Cambiar autom\u00e1ticamente a una fuente segura en caso de p\u00e9rdida de se\u00f1al',
+        'notif.failover.save': 'Guardar Configuraci\u00f3n',
+        'notif.failover.drill.title': '\ud83d\udea8 Simulacro de Conmutaci\u00f3n',
+        'notif.failover.drill.run': '\u25b6 Ejecutar Simulacro',
+        'notif.telegram_card.title': 'Integraci\u00f3n con Telegram',
+        'notif.telegram_chat_id': 'Tu ID de Chat de Telegram',
+        // Engineer
+        'engineer.page_sub': 'Ayuda al Tally Engineer a entender tu configuraci\u00f3n para diagnosticar problemas m\u00e1s r\u00e1pido.',
+        'engineer.training.title': 'Estado del Entrenamiento',
+        'engineer.setup.title': 'Perfil de Configuraci\u00f3n',
+        'engineer.stream_platform': 'Plataforma de Transmisi\u00f3n',
+        'engineer.expected_viewers': 'Espectadores Esperados',
+        'engineer.operator_level': 'Experiencia del Operador',
+        'engineer.backup_encoder': 'Codificador de Respaldo',
+        'engineer.backup_switcher': 'Mezclador de Respaldo',
+        'engineer.special_notes': 'Notas Especiales',
+        'engineer.save': 'Guardar Perfil',
+        'engineer.chat.title': '\ud83d\udcac Chatear con Tally Engineer',
+        'engineer.chat.placeholder': 'Haz una pregunta al Tally Engineer...',
+        // Guest Access
+        'guests.page_sub': 'Tokens temporales para DTs visitantes, contratistas o entrenadores',
+        'guests.generate': '+ Generar Token',
+        // Macros
+        'macros.page_sub': 'Atajos de comandos personalizados para tus directores t\u00e9cnicos',
+        'macros.add_btn': '+ Nueva Macro',
+        'macros.modal.title': 'Nueva Macro',
+        'macros.modal.save': 'Guardar Macro',
+        // Sessions
+        'sessions.page_sub': 'Historial de sesiones de servicio recientes',
+        'sessions.reports.title': '\ud83d\udcca Reportes de Servicio',
+        'sessions.reports.auto': 'Generado autom\u00e1ticamente despu\u00e9s de cada servicio',
+        // Analytics
+        'analytics.page_sub': 'Salud del stream, tendencias de espectadores y rendimiento del equipo',
+        'analytics.last_30': '\u00daltimos 30 d\u00edas',
+        'analytics.last_90': '\u00daltimos 90 d\u00edas',
+        'analytics.last_180': '\u00daltimos 6 meses',
+        'analytics.last_365': '\u00daltimo a\u00f1o',
+        'analytics.export': 'Exportar CSV',
+        'analytics.kpi.uptime': 'Tiempo en Vivo',
+        'analytics.kpi.sessions': 'Sesiones Totales',
+        'analytics.kpi.avg_viewers': 'Pico Promedio de Espectadores',
+        'analytics.kpi.recovery': 'Tasa de Recuperaci\u00f3n',
+        'analytics.health.title': 'Salud y Confiabilidad del Stream',
+        'analytics.viewers.title': 'Tendencias de Espectadores',
+        'analytics.platform.title': 'Audiencia por Plataforma',
+        'analytics.platform.sub': 'Espectadores concurrentes de YouTube, Facebook y Vimeo',
+        'analytics.platform.yt': 'Pico en YouTube',
+        'analytics.platform.fb': 'Pico en Facebook',
+        'analytics.platform.vim': 'Pico en Vimeo',
+        'analytics.platform.avg': 'Promedio Total de Espectadores',
+        'analytics.session_stats.title': 'Duraci\u00f3n y Frecuencia de Sesiones',
+        'analytics.equipment.title': 'Rendimiento del Equipo',
+        // Alerts
+        'alerts.page_sub': 'Alertas recientes de tus servicios',
+        // Migration
+        'migrate.page_sub': '\u00bfCambiando de otro sistema? Te guiaremos.',
+        'migrate.question': '\u00bfDe qu\u00e9 est\u00e1s cambiando?',
         // Billing
         'billing.sub': 'Administra tu plan, m\u00e9todo de pago y facturas',
+        'billing.loading': 'Cargando informaci\u00f3n de facturaci\u00f3n...',
+        // Support
+        'support.page_sub': 'Ejecuta diagn\u00f3sticos, abre tickets y revisa el estado de la plataforma',
+        'support.sla.title': 'SLA de Soporte',
+        'support.diag.title': 'Ejecutar Diagn\u00f3sticos Guiados',
+        'support.diag.issue': 'Categor\u00eda del problema',
+        'support.diag.severity': 'Gravedad',
+        'support.diag.summary': 'Resumen',
+        'support.diag.triage': 'Ejecutar Triage',
+        'support.diag.ticket': 'Abrir Ticket',
+        'support.diag.refresh': 'Actualizar Tickets',
+        'support.platform.title': 'Estado de la Plataforma',
+        'support.platform.link': 'Ver p\u00e1gina de estado completa \u2192',
+        'support.tickets.title': 'Tickets de Soporte',
+        // Modals & dialogs
+        'modal.help.got_it': 'Entendido',
+        'modal.td.title': 'Agregar Director T\u00e9cnico',
+        'modal.td.add': 'Agregar DT',
+        'modal.dialog.cancel': 'Cancelar',
+        'modal.dialog.ok': 'Aceptar',
+        'modal.review.title': 'Comparte tu Experiencia',
+        // Demo mode
+        'demo.try': '\ud83c\udfad Probar Modo Demo',
+        'demo.exit': 'Salir del Demo',
+        // Days of week (for schedule editor)
+        'day.sunday': 'Domingo',
+        'day.monday': 'Lunes',
+        'day.tuesday': 'Martes',
+        'day.wednesday': 'Mi\u00e9rcoles',
+        'day.thursday': 'Jueves',
+        'day.friday': 'Viernes',
+        'day.saturday': 'S\u00e1bado',
+        // Language toggle
+        'lang.toggle': 'English',
       },
     };
 
-    /** Detect the portal locale from navigator.language. Falls back to 'en'. */
+    /**
+     * Detect the portal locale from localStorage override or navigator.language.
+     * Falls back to 'en'.
+     */
     function portalLocale() {
+      const stored = localStorage.getItem('tally_portal_locale');
+      if (stored && PORTAL_STRINGS[stored]) return stored;
       const lang = (navigator.language || 'en').split('-')[0].toLowerCase();
       return PORTAL_STRINGS[lang] ? lang : 'en';
+    }
+
+    /** Toggle between EN and ES, persist to localStorage, re-translate the page. */
+    function toggleLanguage() {
+      const current = portalLocale();
+      const next = current === 'es' ? 'en' : 'es';
+      localStorage.setItem('tally_portal_locale', next);
+      translatePage();
+      // Update the toggle button label
+      var btn = document.getElementById('btn-lang-toggle');
+      if (btn) btn.textContent = pt('lang.toggle');
     }
 
     /**
@@ -2338,6 +2789,14 @@ function buildChurchPortalHtml(church) {
         const key = el.getAttribute('data-i18n-placeholder');
         if (key) el.placeholder = pt(key);
       });
+      // Sync SCHEDULE_DAY_LABELS so schedule rows render in the current locale
+      SCHEDULE_DAY_LABELS.sunday    = pt('day.sunday');
+      SCHEDULE_DAY_LABELS.monday    = pt('day.monday');
+      SCHEDULE_DAY_LABELS.tuesday   = pt('day.tuesday');
+      SCHEDULE_DAY_LABELS.wednesday = pt('day.wednesday');
+      SCHEDULE_DAY_LABELS.thursday  = pt('day.thursday');
+      SCHEDULE_DAY_LABELS.friday    = pt('day.friday');
+      SCHEDULE_DAY_LABELS.saturday  = pt('day.saturday');
     }
 
     // ── mobile nav ──────────────────────────────────────────────────────────────
