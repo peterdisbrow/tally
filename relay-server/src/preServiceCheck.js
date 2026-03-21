@@ -29,6 +29,36 @@ class PreServiceCheck {
     this.andrewChatId = andrewChatId || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this._resultListeners = [];
     this._ensureTable();
+    // Restore last-check timestamps from DB so relay restarts don't re-fire
+    // checks that already ran within the dedup window.
+    this._restoreLastCheckTimes();
+  }
+
+  /**
+   * Populate lastPreServiceCheckAt from the most recent DB row per church.
+   * Called once at startup so in-memory state survives relay restarts.
+   */
+  _restoreLastCheckTimes() {
+    if (!this.db) return;
+    try {
+      const rows = this.db.prepare(`
+        SELECT church_id, MAX(created_at) AS last_at
+        FROM preservice_check_results
+        GROUP BY church_id
+      `).all();
+      for (const row of rows) {
+        if (row.last_at) {
+          const ts = new Date(row.last_at).getTime();
+          if (!isNaN(ts)) this.lastPreServiceCheckAt.set(row.church_id, ts);
+        }
+      }
+      if (rows.length > 0) {
+        console.log(`[PreServiceCheck] Restored last-check times for ${rows.length} church(es) from DB`);
+      }
+    } catch (e) {
+      // Table may not exist yet on first boot — non-fatal
+      console.warn('[PreServiceCheck] Could not restore last-check times:', e.message);
+    }
   }
 
   _ensureTable() {
@@ -66,10 +96,18 @@ class PreServiceCheck {
 
   /**
    * Start the pre-service check timer.
+   * Also runs an immediate startup sweep so checks missed during a relay
+   * restart (e.g., relay crashed right in the 25–35 min window) fire
+   * without waiting up to 5 minutes for the first tick.
    */
   start() {
     this._timer = setInterval(() => this._tick(), 5 * 60 * 1000);
     console.log('[PreServiceCheck] Started — polling every 5 min');
+    // Startup sweep: run immediately so a restart inside the service window
+    // doesn't silently skip the pre-service check.
+    setImmediate(() => this._tick().catch(e =>
+      console.error('[PreServiceCheck] Startup sweep error:', e.message)
+    ));
   }
 
   /** Call from server.js when a command_result is broadcast */

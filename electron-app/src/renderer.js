@@ -19,6 +19,39 @@ let _reconnectCountdownTimer = null;
 const _offlineQueue = [];
 const MAX_QUEUE_SIZE = 50;
 
+// ─── BITRATE HISTORY ───────────────────────────────────────────────────────
+// Rolling 30-sample buffer (~2.5 min at 5s update interval).
+// Only populated while streaming so the graph reflects live sessions.
+const _bitrateHistory = [];
+const BITRATE_HISTORY_MAX = 30;
+
+function _pushBitrateHistory(bitrate, streaming) {
+  if (!streaming || typeof bitrate !== 'number') return;
+  _bitrateHistory.push(bitrate);
+  if (_bitrateHistory.length > BITRATE_HISTORY_MAX) _bitrateHistory.shift();
+}
+
+/**
+ * Render a compact SVG sparkline from _bitrateHistory.
+ * Returns an SVG string, or '' if fewer than 2 samples.
+ */
+function _renderBitrateSparkline() {
+  if (_bitrateHistory.length < 2) return '';
+  const W = 56, H = 18, PAD = 1;
+  const min = Math.min(..._bitrateHistory);
+  const max = Math.max(..._bitrateHistory);
+  const range = max - min || 1;
+  const pts = _bitrateHistory.map((v, i) => {
+    const x = PAD + (i / (_bitrateHistory.length - 1)) * (W - PAD * 2);
+    const y = PAD + (1 - (v - min) / range) * (H - PAD * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  // Color: green if latest >= 4000 Kbps, yellow if >= 2000, red below
+  const latest = _bitrateHistory[_bitrateHistory.length - 1];
+  const color = latest >= 4000 ? '#22c55e' : latest >= 2000 ? '#f59e0b' : '#ef4444';
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:inline-block;vertical-align:middle;margin-right:5px;flex-shrink:0;"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
 function queueOfflineAction(action) {
   if (_offlineQueue.length >= MAX_QUEUE_SIZE) _offlineQueue.shift();
   _offlineQueue.push({ ...action, queuedAt: Date.now() });
@@ -196,6 +229,85 @@ function asyncConfirm(message) {
     btnOk.addEventListener('click', () => cleanup(true));
     btnCancel.addEventListener('click', () => cleanup(false));
     overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+  });
+}
+
+// ─── STREAM GUARD CONFIRM ────────────────────────────────────────────────────
+// Purpose-built danger dialog for commands that could kill the live broadcast.
+// Cancel is the primary/prominent action — proceeding requires deliberate effort.
+//
+// Usage:
+//   const go = await asyncStreamGuardConfirm('stop the OBS stream', 'critical');
+//   if (!go) return;
+//
+// @param {string} action   - Short description of what will happen
+// @param {string} severity - 'critical' | 'high'
+// @returns {Promise<boolean>}
+
+function asyncStreamGuardConfirm(action, severity = 'critical') {
+  return new Promise((resolve) => {
+    const isCritical = severity === 'critical';
+    const accentColor = isCritical ? '#ef4444' : '#f59e0b';
+    const accentDim   = isCritical ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)';
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:10000;display:flex;align-items:center;justify-content:center;';
+
+    const box = document.createElement('div');
+    box.style.cssText = `background:var(--card,#1e293b);border:2px solid ${accentColor};border-radius:12px;padding:0;max-width:380px;width:90%;color:var(--white,#f1f5f9);font-size:13px;line-height:1.5;overflow:hidden;box-shadow:0 0 40px rgba(0,0,0,0.6);`;
+
+    // Header banner
+    const header = document.createElement('div');
+    header.style.cssText = `background:${accentDim};border-bottom:1px solid ${accentColor};padding:10px 18px;display:flex;align-items:center;gap:8px;`;
+    const icon = document.createElement('span');
+    icon.textContent = isCritical ? '🔴' : '🟡';
+    icon.style.cssText = 'font-size:16px;flex-shrink:0;';
+    const headerText = document.createElement('span');
+    headerText.textContent = isCritical ? 'STREAM IS LIVE' : 'CAUTION — IN PRODUCTION';
+    headerText.style.cssText = `font-weight:700;font-size:12px;letter-spacing:0.08em;color:${accentColor};text-transform:uppercase;`;
+    header.appendChild(icon);
+    header.appendChild(headerText);
+
+    // Body
+    const body = document.createElement('div');
+    body.style.cssText = 'padding:18px;';
+    const desc = document.createElement('div');
+    desc.style.cssText = 'margin-bottom:6px;font-size:14px;';
+    desc.innerHTML = `You're about to <strong>${action}</strong>.`;
+    const sub = document.createElement('div');
+    sub.style.cssText = 'font-size:12px;color:var(--muted,#94a3b8);margin-bottom:20px;';
+    sub.textContent = isCritical
+      ? 'This will immediately affect your live broadcast.'
+      : 'This will disrupt your active recording or broadcast.';
+
+    // Buttons — Cancel is visually dominant; proceed is muted secondary
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
+    const btnCancel = document.createElement('button');
+    btnCancel.textContent = 'Cancel — Keep Stream Running';
+    btnCancel.style.cssText = `padding:10px 18px;border-radius:8px;border:none;background:var(--green,#22c55e);color:#fff;cursor:pointer;font-size:13px;font-weight:700;width:100%;`;
+    const btnOk = document.createElement('button');
+    btnOk.textContent = `Proceed anyway`;
+    btnOk.style.cssText = `padding:8px 18px;border-radius:8px;border:1px solid ${accentColor};background:transparent;color:${accentColor};cursor:pointer;font-size:12px;width:100%;`;
+
+    btnRow.appendChild(btnCancel);
+    btnRow.appendChild(btnOk);
+    body.appendChild(desc);
+    body.appendChild(sub);
+    body.appendChild(btnRow);
+    box.appendChild(header);
+    box.appendChild(body);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    const cleanup = (val) => { overlay.remove(); resolve(val); };
+    btnCancel.addEventListener('click', () => cleanup(false));
+    btnOk.addEventListener('click', () => cleanup(true));
+    // Clicking outside dismisses as cancel (safe default)
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+    // ESC key = cancel
+    const onKey = (e) => { if (e.key === 'Escape') { document.removeEventListener('keydown', onKey); cleanup(false); } };
+    document.addEventListener('keydown', onKey);
   });
 }
 
@@ -1291,6 +1403,9 @@ function updateStatusUI(status) {
   const fps = status.fps ?? obsData.fps;
   const bitrate = status.bitrate ?? obsData.bitrate ?? null;
 
+  // Keep rolling history for the sparkline graph
+  _pushBitrateHistory(bitrate, streaming);
+
   const liveBadge = document.getElementById('live-badge');
   liveBadge.classList.toggle('active', streaming === true);
 
@@ -1359,12 +1474,24 @@ function updateStatusUI(status) {
     setStatusValue('val-fps', '—', false);
   }
 
-  // Bitrate card
-  if (typeof bitrate === 'number' && bitrate > 0) {
-    const brText = bitrate >= 1000 ? `${(bitrate / 1000).toFixed(1)} Mbps` : `${bitrate} Kbps`;
-    setStatusValue('val-bitrate', brText, true);
-  } else {
-    setStatusValue('val-bitrate', '—', false);
+  // Bitrate card — shows current value + sparkline history graph while streaming
+  {
+    const brEl = document.getElementById('val-bitrate');
+    if (brEl) {
+      if (typeof bitrate === 'number' && bitrate > 0) {
+        const brText = bitrate >= 1000 ? `${(bitrate / 1000).toFixed(1)} Mbps` : `${bitrate} Kbps`;
+        const spark = _renderBitrateSparkline();
+        brEl.innerHTML = spark
+          ? `<span style="display:flex;align-items:center;gap:0;">${_renderBitrateSparkline()}<span>${brText}</span></span>`
+          : brText;
+        brEl.classList.add('active');
+        brEl.classList.remove('muted');
+      } else {
+        brEl.textContent = '—';
+        brEl.classList.remove('active');
+        brEl.classList.add('muted');
+      }
+    }
   }
 
   // Audio status card

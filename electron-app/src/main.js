@@ -44,7 +44,9 @@ let agentStatus = { relay: false, atem: false, obs: false, companion: false, enc
 let lastNotifiedState = {};
 const recentLogLines = [];
 let agentCrashCount = 0;
-const MAX_AGENT_CRASHES = 5;
+let _agentEscalatedAt = 0;      // timestamp of last crash-escalation notification
+const MAX_AGENT_CRASHES = 5;    // threshold for sending an escalation alert
+const MAX_AGENT_BACKOFF_MS = 60_000; // cap backoff at 60s after repeated crashes
 
 // ─── WIRE EXTRACTED MODULES ──────────────────────────────────────────────────
 // Break circular dependency: relay-client needs loadConfig, config-manager needs
@@ -518,7 +520,7 @@ function startAgent() {
 
     let statusChanged = false;
 
-    if (text.includes('Connected to relay server'))  { agentStatus.relay = true; statusChanged = true; }
+    if (text.includes('Connected to relay server'))  { agentStatus.relay = true; statusChanged = true; agentCrashCount = 0; _agentEscalatedAt = 0; }
     if (text.includes('ATEM connected'))             { agentStatus.atem = { connected: true, model: (agentStatus.atem && agentStatus.atem.model) || '' }; statusChanged = true; }
     if (text.includes('OBS connected'))              { agentStatus.obs = true; statusChanged = true; }
     if (text.includes('Companion connected'))        { agentStatus.companion = true; statusChanged = true; }
@@ -663,17 +665,25 @@ function startAgent() {
       agentCrashCount = 0; // Clean or manual stop — reset counter, no auto-restart
     } else {
       agentCrashCount++;
+
+      // After threshold: send an escalation notification once per 10 minutes max,
+      // then keep auto-restarting at capped backoff — never give up.
       if (agentCrashCount >= MAX_AGENT_CRASHES) {
-        const msg = `Agent crashed ${agentCrashCount} times. Auto-restart disabled — use the Start Monitoring button to retry.`;
-        appendAppLog('SYSTEM', msg);
-        mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
-        sendNotification('Tally Agent Error', msg);
-        agentCrashCount = 0; // Reset so manual start can try again
-      } else {
-        const delay = Math.min(5000 * agentCrashCount, 30000);
-        appendAppLog('SYSTEM', `Restarting agent in ${delay / 1000}s (crash ${agentCrashCount}/${MAX_AGENT_CRASHES})`);
-        setTimeout(() => startAgent(), delay);
+        const now = Date.now();
+        const escalationCooldown = 10 * 60 * 1000; // re-alert at most every 10 min
+        if (now - _agentEscalatedAt > escalationCooldown) {
+          _agentEscalatedAt = now;
+          const msg = `Agent has crashed ${agentCrashCount} times. Still auto-restarting — check logs if this persists.`;
+          appendAppLog('SYSTEM', msg);
+          mainWindow?.webContents?.send('log', `[Agent] ${msg}`);
+          sendNotification('Tally Agent — Repeated Crashes', msg);
+        }
       }
+
+      // Always schedule a restart — backoff caps at MAX_AGENT_BACKOFF_MS
+      const delay = Math.min(5000 * agentCrashCount, MAX_AGENT_BACKOFF_MS);
+      appendAppLog('SYSTEM', `Restarting agent in ${delay / 1000}s (crash #${agentCrashCount})`);
+      setTimeout(() => startAgent(), delay);
     }
   });
 }
