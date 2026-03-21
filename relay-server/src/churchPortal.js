@@ -1230,6 +1230,14 @@ function buildChurchPortalHtml(church) {
           <input type="text" id="profile-leadership-emails" placeholder="pastor@church.org, board@church.org">
           <div style="font-size:11px; color:#94a3b8; margin-top:4px;">Service recaps and weekly reports will be emailed to these addresses automatically.</div>
         </div>
+        <div class="field">
+          <label><span class="tip" data-tip="Language used for Telegram bot messages sent to your tech directors">Bot Language (Telegram)</span></label>
+          <select id="profile-locale" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:8px 12px;font-size:14px;width:100%;max-width:240px">
+            <option value="en">English</option>
+            <option value="es">Español (Spanish)</option>
+          </select>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px;">Tally bot messages will be sent in this language.</div>
+        </div>
         <button class="btn-primary" id="btn-save-profile" onclick="saveProfile()">Save Changes</button>
       </div>
       <div class="card">
@@ -3229,6 +3237,8 @@ function buildChurchPortalHtml(church) {
         document.getElementById('profile-location').value = d.location || '';
         document.getElementById('profile-notes').value = d.notes || '';
         document.getElementById('profile-leadership-emails').value = d.leadership_emails || '';
+        const localeEl = document.getElementById('profile-locale');
+        if (localeEl) localeEl.value = d.locale || 'en';
       } catch(e) { toast('Failed to load profile', true); }
     }
     loadProfile();
@@ -3242,6 +3252,7 @@ function buildChurchPortalHtml(church) {
           location: document.getElementById('profile-location').value,
           notes: document.getElementById('profile-notes').value,
           leadershipEmails: document.getElementById('profile-leadership-emails').value,
+          locale: (document.getElementById('profile-locale') || {}).value || 'en',
         });
         toast('Profile saved');
       } catch(e) { toast(e.message, true); }
@@ -5865,6 +5876,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     "ALTER TABLE church_tds ADD COLUMN phone TEXT",
     "ALTER TABLE churches ADD COLUMN referral_code TEXT",
     "ALTER TABLE churches ADD COLUMN referred_by TEXT",
+    "ALTER TABLE churches ADD COLUMN locale TEXT DEFAULT 'en'",
   ];
   for (const m of _portalMigrations) {
     try { db.exec(m); } catch { /* column already exists */ }
@@ -6287,7 +6299,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── PUT /api/church/me ────────────────────────────────────────────────────────
   app.put('/api/church/me', authMiddleware, (req, res) => {
-    const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, autoRecoveryEnabled, currentPassword, newPassword, leadershipEmails } = req.body;
+    const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, autoRecoveryEnabled, currentPassword, newPassword, leadershipEmails, locale } = req.body;
     const churchId = req.church.churchId;
 
     if (newPassword) {
@@ -6303,7 +6315,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
 
     const { audioViaAtem } = req.body;
-    const allowedColumns = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'auto_recovery_enabled', 'audio_via_atem', 'leadership_emails'];
+    const allowedColumns = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'auto_recovery_enabled', 'audio_via_atem', 'leadership_emails', 'locale'];
     const patch = {};
     if (email          !== undefined) patch.portal_email     = email.trim().toLowerCase();
     if (phone          !== undefined) patch.phone            = phone;
@@ -6315,6 +6327,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     if (autoRecoveryEnabled !== undefined) patch.auto_recovery_enabled = autoRecoveryEnabled ? 1 : 0;
     if (audioViaAtem   !== undefined) patch.audio_via_atem   = audioViaAtem ? 1 : 0;
     if (leadershipEmails !== undefined) patch.leadership_emails = String(leadershipEmails || '').trim();
+    if (locale !== undefined) patch.locale = ['en', 'es'].includes(locale) ? locale : 'en';
 
     const safePatch = Object.fromEntries(Object.entries(patch).filter(([k]) => allowedColumns.includes(k)));
     const oldEmail = req.church.portal_email;

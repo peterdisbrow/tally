@@ -11,6 +11,7 @@ const { smartParse } = require('./smart-parser');
 const { classifyIntent } = require('./intent-classifier');
 const { checkStreamSafety, checkWorkflowSafety, hasForceBypass } = require('./stream-guard');
 const { parseRundownDescription, editRundownCues, formatRundownPreview } = require('./rundown-ai');
+const { bt, churchLocale } = require('./botI18n');
 
 // ─── CANNED RESPONSES (troubleshooting guides for /fix command) ──────────────
 
@@ -756,8 +757,17 @@ class TallyBot {
       }
       const brandName = this._getBrandNameForUser(userId);
       const poweredBy = brandName !== 'Tally' ? `\n\n_Powered by Tally_` : '';
+      // Detect locale from already-registered church (if user is re-starting)
+      let locale = 'en';
+      try {
+        const td = this.db.prepare('SELECT church_id FROM church_tds WHERE telegram_user_id = ? AND active = 1').get(userId);
+        if (td) {
+          const ch = this.db.prepare('SELECT locale FROM churches WHERE churchId = ?').get(td.church_id);
+          locale = churchLocale(ch);
+        }
+      } catch {}
       return this.sendMessage(chatId,
-        `👋 Welcome to *${brandName}*!${poweredBy}\n\nIf you're a church Technical Director, register with:\n\`/register YOUR_CODE\`\n\nYour church admin will give you the code.`,
+        bt('welcome', locale, { brandName, poweredBy }),
         { parse_mode: 'Markdown' }
       );
     }
@@ -946,7 +956,8 @@ class TallyBot {
     // Regular church registration code (6-char hex)
     const church = this._stmtFindChurchByCode.get(code);
     if (!church) {
-      return this.sendMessage(chatId, "❌ Invalid registration code. Check with your church administrator.");
+      // Try to detect locale from the code pattern (not possible without church) — use 'en'
+      return this.sendMessage(chatId, bt('register.invalid_code', 'en'));
     }
 
     const name = [from.first_name, from.last_name].filter(Boolean).join(' ') || 'Unknown';
@@ -984,8 +995,9 @@ class TallyBot {
 
     const brandName = this._getBrandName(church.churchId);
     const poweredBy = brandName !== 'Tally' ? ` — _Powered by Tally_` : '';
+    const locale = churchLocale(church);
     return this.sendMessage(chatId,
-      `✅ Welcome to *${brandName}*${poweredBy}, *${name}*!\n\nYou're now registered as TD for *${church.name}*.\nType \`help\` to see what you can do.`,
+      bt('welcome.registered', locale, { brandName, poweredBy, name, church: church.name }),
       { parse_mode: 'Markdown' }
     );
   }
