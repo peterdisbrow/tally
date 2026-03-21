@@ -17,6 +17,9 @@ class RtmpPushEncoder {
     this.port = Number(port) || 80;
     this.statusPath = String(statusPath || '/').startsWith('/') ? String(statusPath || '/') : `/${statusPath}`;
     this._live = false;   // set externally via setLive()
+    this._bitrateKbps = null;  // set externally via setBitrate()
+    this._fps = null;          // set externally via setFps()
+    this._liveStartedAt = null; // track when stream went live
   }
 
   _defaultLabel(type) {
@@ -61,20 +64,47 @@ class RtmpPushEncoder {
   }
 
   /** Called by the agent when relay reports encoderActive */
-  setLive(live) { this._live = !!live; }
+  setLive(live) {
+    const wasLive = this._live;
+    this._live = !!live;
+    if (live && !wasLive) this._liveStartedAt = Date.now();
+    if (!live) { this._liveStartedAt = null; this._bitrateKbps = null; this._fps = null; }
+  }
+
+  /** Called by the relay when RTMP ingest metrics are available */
+  setBitrate(kbps) { this._bitrateKbps = (kbps > 0) ? Math.round(kbps) : null; }
+  setFps(fps) { this._fps = (fps > 0) ? Math.round(fps) : null; }
 
   async getStatus() {
     const reachable = await this.isOnline();
-    const details = this.host
+
+    // Build details string with live metrics when available
+    let details = this.host
       ? `${this.label} (${this.host}:${this.port})${reachable ? ' · reachable' : ' · unreachable'}`
       : `${this.label} · configured`;
+
+    if (this._live) {
+      details += ' · 🔴 LIVE';
+      if (this._bitrateKbps) {
+        details += this._bitrateKbps >= 1000
+          ? ` · ${(this._bitrateKbps / 1000).toFixed(1)} Mbps`
+          : ` · ${this._bitrateKbps} kbps`;
+      }
+      if (this._fps) details += ` · ${this._fps}fps`;
+      if (this._liveStartedAt) {
+        const durSec = Math.floor((Date.now() - this._liveStartedAt) / 1000);
+        const h = Math.floor(durSec / 3600);
+        const m = Math.floor((durSec % 3600) / 60).toString().padStart(2, '0');
+        details += ` · ${h}:${m}`;
+      }
+    }
 
     return {
       type: this.type,
       connected: this.host ? reachable : true,
       live: this._live,
-      bitrateKbps: null,
-      fps: null,
+      bitrateKbps: this._bitrateKbps,
+      fps: this._fps,
       cpuUsage: null,
       recording: false,
       details,

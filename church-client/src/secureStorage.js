@@ -20,6 +20,7 @@ const os = require('os');
 const SENSITIVE_FIELDS = [
   'youtubeApiKey',
   'facebookAccessToken',
+  'vimeoAccessToken',
   'twitchStreamKey',
   'rtmpStreamKey',
   'obsPassword',

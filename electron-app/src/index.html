@@ -114,6 +114,7 @@
   <div class="offline-banner" id="offline-banner" style="display:none;">
     <span id="offline-banner-text">Relay disconnected — monitoring is paused</span>
     <span id="offline-banner-countdown" style="display:none; margin-left:8px; font-weight:400;"></span>
+    <span id="offline-queue-count" style="display:none; margin-left:8px; background:rgba(234,179,8,0.3); padding:1px 6px; border-radius:10px; font-size:10px;"></span>
     <div id="offline-banner-stale" style="display:none; font-weight:400; font-size:10px; margin-top:2px;"></div>
   </div>
 
@@ -535,6 +536,11 @@
               <div class="equip-row">
                 <input type="password" id="equip-facebook-token" placeholder="EAAxxxxxx..." autocomplete="new-password">
                 <button class="btn-test" onclick="showHideKey('equip-facebook-token')">&#x1F441;</button>
+              </div>
+              <label style="margin-top:10px;">Vimeo Access Token (Enterprise — for stream health monitoring)</label>
+              <div class="equip-row">
+                <input type="password" id="equip-vimeo-token" placeholder="OAuth2 access token..." autocomplete="new-password">
+                <button class="btn-test" onclick="showHideKey('equip-vimeo-token')">&#x1F441;</button>
               </div>
               <label style="margin-top:14px;">RTMP Stream URL</label>
               <div class="equip-row">

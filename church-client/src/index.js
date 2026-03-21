@@ -247,11 +247,13 @@ function loadConfig() {
   }
 
   // Stream platform API keys (optional, for Feature 9)
-  // Set in ~/.church-av/config.json: youtubeApiKey, facebookAccessToken
+  // Set in ~/.church-av/config.json: youtubeApiKey, facebookAccessToken, vimeoAccessToken
   if (!config.youtubeApiKey) config.youtubeApiKey = process.env.YOUTUBE_API_KEY || '';
   if (!config.facebookAccessToken) config.facebookAccessToken = process.env.FACEBOOK_ACCESS_TOKEN || '';
+  if (!config.vimeoAccessToken) config.vimeoAccessToken = process.env.VIMEO_ACCESS_TOKEN || '';
   if (!config.youtubeApiKey) config.youtubeApiKey = '';
   if (!config.facebookAccessToken) config.facebookAccessToken = '';
+  if (!config.vimeoAccessToken) config.vimeoAccessToken = '';
 
   if (!config.token) {
     console.error('\n❌ No connection token provided.');
@@ -861,6 +863,15 @@ class ChurchAVAgent {
         this.log('Received failover state update from relay');
         // Forward to any listeners (the electron app parses stdout)
         this.log(`[SignalFailover] STATE_UPDATE: ${JSON.stringify(msg)}`);
+        break;
+      case 'encoder_metrics':
+        // Relay pushes RTMP ingest metrics (e.g., from nginx-rtmp stats or Tally Encoder)
+        if (this.encoderBridge?.adapter) {
+          const a = this.encoderBridge.adapter;
+          if (msg.live !== undefined && a.setLive) a.setLive(msg.live);
+          if (msg.bitrateKbps > 0 && a.setBitrate) a.setBitrate(msg.bitrateKbps);
+          if (msg.fps > 0 && a.setFps) a.setFps(msg.fps);
+        }
         break;
       default:
         console.log('Relay msg:', msg.type);

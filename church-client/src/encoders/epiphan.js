@@ -116,23 +116,54 @@ class EpiphanEncoder {
     const channels = chRes.data?.result || [];
     this._channels = channels;
 
-    // Check publisher status across all channels
+    // Check publisher status across all channels and collect per-channel details
     let anyLive = false;
+    const channelDetails = [];
     for (const ch of channels) {
+      const chInfo = { id: ch.id, name: ch.name || `Channel ${ch.id}`, publishers: [], live: false };
+
       const pubRes = await this._api('GET', `/channels/${ch.id}/publishers/status`);
       if (pubRes.ok && pubRes.data?.result) {
         for (const pub of pubRes.data.result) {
-          if (pub.status?.started || pub.status?.state === 'started') anyLive = true;
+          const started = pub.status?.started || pub.status?.state === 'started';
+          if (started) { anyLive = true; chInfo.live = true; }
+          chInfo.publishers.push({
+            id: pub.id,
+            name: pub.name || pub.id,
+            state: started ? 'streaming' : 'stopped',
+          });
         }
       }
+
+      // Extract per-channel encoder metrics (bitrate, resolution, fps) from channel data
+      if (ch.encoders && Array.isArray(ch.encoders)) {
+        for (const enc of ch.encoders) {
+          if (enc.video_bitrate) chInfo.bitrate = enc.video_bitrate;
+          if (enc.frame_size) chInfo.resolution = enc.frame_size;
+          if (enc.frame_rate) chInfo.fps = enc.frame_rate;
+          if (enc.video_codec) chInfo.codec = enc.video_codec;
+        }
+      }
+
+      channelDetails.push(chInfo);
     }
+
+    // Aggregate first live channel's metrics for top-level fields
+    const liveChannel = channelDetails.find(c => c.live) || channelDetails[0];
+    const topBitrateKbps = liveChannel?.bitrate ? Math.round(liveChannel.bitrate / 1000) : null;
+    const topFps = liveChannel?.fps || null;
 
     // Check recorder status
     const recRes = await this._api('GET', '/recorders/status');
     let anyRecording = false;
+    const recorderDetails = [];
     if (recRes.ok && recRes.data?.result) {
       this._recorders = recRes.data.result;
-      anyRecording = recRes.data.result.some(r => r.status?.state === 'started' || r.status?.state === 'recording');
+      for (const r of recRes.data.result) {
+        const recState = r.status?.state === 'started' || r.status?.state === 'recording';
+        if (recState) anyRecording = true;
+        recorderDetails.push({ id: r.id, state: r.status?.state || 'unknown' });
+      }
     }
 
     // System status (v2 only)
@@ -149,19 +180,26 @@ class EpiphanEncoder {
     let details = this._productName;
     if (anyLive) details += ' — Streaming';
     if (anyRecording) details += ' — Recording';
+    if (cpuLoad != null) details += ` · CPU ${Math.round(cpuLoad)}%`;
     if (cpuTemp) details += ` · ${cpuTemp}°C`;
     details += ` · ${channels.length} ch`;
+    if (liveChannel?.resolution) details += ` · ${liveChannel.resolution}`;
+    if (liveChannel?.codec) details += ` ${liveChannel.codec}`;
 
     return {
       type: 'epiphan',
       connected: true,
       live: anyLive,
-      bitrateKbps: null,
-      fps: null,
+      bitrateKbps: topBitrateKbps,
+      fps: topFps,
       cpuUsage: cpuLoad,
       recording: anyRecording,
       details,
       firmwareVersion: this._firmware || null,
+      // Extended Epiphan status
+      channels: channelDetails,
+      recorders: recorderDetails,
+      temperature: cpuTemp ? `${cpuTemp}°C` : null,
     };
   }
 

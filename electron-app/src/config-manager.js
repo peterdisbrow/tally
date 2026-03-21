@@ -108,7 +108,7 @@ function saveConfig(config) {
 function loadConfigForUI() {
   const config = loadConfig();
   const ui = { ...config };
-  const SENSITIVE = ['youtubeApiKey', 'facebookAccessToken', 'rtmpStreamKey', 'twitchStreamKey', 'obsPassword', 'churchToken'];
+  const SENSITIVE = ['youtubeApiKey', 'facebookAccessToken', 'vimeoAccessToken', 'rtmpStreamKey', 'twitchStreamKey', 'obsPassword', 'churchToken'];
   for (const field of SENSITIVE) {
     ui[`${field.replace(/([A-Z])/g, m => m[0].toLowerCase())}Set`] = !!(config[field]);
     delete ui[field]; // never expose to renderer
@@ -116,6 +116,7 @@ function loadConfigForUI() {
   // Convenience flags for the UI
   ui.youtubeKeySet = !!(config.youtubeApiKey);
   ui.facebookTokenSet = !!(config.facebookAccessToken);
+  ui.vimeoTokenSet = !!(config.vimeoAccessToken);
   ui.rtmpKeySet = !!(config.rtmpStreamKey);
   // OAuth connection flags
   ui.youtubeOAuthConnected = !!(config.youtubeOAuthAccessToken || config.youtubeStreamKey);
@@ -141,6 +142,7 @@ function getSanitizedConfigForExport() {
     'obsPassword',
     'youtubeApiKey',
     'facebookAccessToken',
+    'vimeoAccessToken',
     'rtmpStreamKey',
     'twitchStreamKey',
     'adminApiKey',

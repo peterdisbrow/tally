@@ -154,7 +154,16 @@ if (process.env.NODE_ENV === 'production') {
     throw new Error('Default development credentials detected in production! Change ADMIN_API_KEY and JWT_SECRET to secure values.');
   }
   if (!process.env.SESSION_SECRET) {
-    console.warn('[Security] ⚠️  SESSION_SECRET not set — using fallback. Set SESSION_SECRET env var for production security.');
+    throw new Error('SESSION_SECRET is required in production. Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+  }
+  // Stripe: if secret key is set, webhook secret MUST also be set to prevent spoofed webhooks
+  if (process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_WEBHOOK_SECRET) {
+    throw new Error('STRIPE_WEBHOOK_SECRET is required when STRIPE_SECRET_KEY is set. Get it from Stripe Dashboard → Webhooks.');
+  }
+  // Email: warn (not fatal) — app works without it but users can't reset passwords
+  if (!process.env.RESEND_API_KEY) {
+    console.warn('\n⚠️  RESEND_API_KEY not set — transactional emails (welcome, password reset, billing) will only log to console.');
+    console.warn('   Users will NOT receive emails. Get a key from https://resend.com\n');
   }
 }
 if (ADMIN_API_KEY === 'dev-admin-key-change-me' || JWT_SECRET === 'dev-jwt-secret-change-me') {

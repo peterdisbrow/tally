@@ -41,7 +41,9 @@ function generateRegistrationCode(db) {
   let code;
   do {
     code = crypto.randomBytes(3).toString('hex').toUpperCase();
-  } while (db.prepare('SELECT 1 FROM churches WHERE registration_code = ?').get(code));
+  } while (
+    db.prepare('SELECT 1 FROM churches WHERE registration_code = ? OR referral_code = ?').get(code, code)
+  );
   return code;
 }
 

@@ -140,11 +140,17 @@ class AjaEncoder {
   // ── Status ────────────────────────────────────────────────────────────────
 
   async getStatus() {
-    const [streamRes, recRes, tempRes, mediaRes] = await Promise.all([
+    const [streamRes, recRes, tempRes, mediaRes, videoInRes, audioInRes, streamDurRes, recDurRes, schedRes, muteRes] = await Promise.all([
       this._getParam(P.STREAM_STATE),
       this._getParam(P.RECORD_STATE),
       this._getParam(P.TEMPERATURE),
       this._getParam(P.MEDIA_AVAILABLE),
+      this._getParam(P.VIDEO_IN),
+      this._getParam(P.AUDIO_IN),
+      this._getParam(P.STREAM_DURATION),
+      this._getParam(P.RECORD_DURATION),
+      this._getParam(P.SCHED_ENABLED),
+      this._getParam(P.AV_MUTE),
     ]);
 
     this._connected = streamRes.ok;
@@ -157,12 +163,36 @@ class AjaEncoder {
     const recording = recVal === 2;     // eRRSRecording
     const failing   = streamVal >= 3 || recVal >= 3;
 
+    // Parse video/audio input sources
+    const videoInVal = parseInt(videoInRes.data?.value);
+    const audioInVal = parseInt(audioInRes.data?.value);
+    const VIDEO_LABELS = { 0: 'SDI', 1: 'HDMI', 2: 'Test Pattern' };
+    const AUDIO_LABELS = { 0: 'SDI', 1: 'HDMI', 2: 'Analog', 4: 'None' };
+
+    // Parse durations (seconds → formatted string)
+    const streamDurSec = parseInt(streamDurRes.data?.value) || 0;
+    const recDurSec    = parseInt(recDurRes.data?.value) || 0;
+    const fmtDuration  = (s) => {
+      if (s <= 0) return null;
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
+      const sec = (s % 60).toString().padStart(2, '0');
+      return `${h}:${m}:${sec}`;
+    };
+
+    // Scheduler & mute
+    const schedEnabled = parseInt(schedRes.data?.value) === 1;
+    const muted = parseInt(muteRes.data?.value) === 1;
+
     let details = 'AJA HELO';
     if (live) details += ' — Streaming';
     if (recording) details += ' — Recording';
     if (failing) details += ' (⚠ Error)';
+    if (muted) details += ' (Muted)';
     if (tempC) details += ` · ${tempC}°C`;
     if (mediaPct) details += ` · ${mediaPct}% storage`;
+    if (!isNaN(videoInVal)) details += ` · In: ${VIDEO_LABELS[videoInVal] || videoInVal}`;
+    if (live && streamDurSec > 0) details += ` · ${fmtDuration(streamDurSec)}`;
 
     return {
       type: 'aja',
@@ -173,6 +203,16 @@ class AjaEncoder {
       cpuUsage: null,
       recording,
       details,
+      // Extended AJA status
+      videoInput: VIDEO_LABELS[videoInVal] || null,
+      audioInput: AUDIO_LABELS[audioInVal] || null,
+      temperature: tempC ? `${tempC}°C` : null,
+      mediaAvailable: mediaPct ? `${mediaPct}%` : null,
+      streamDuration: fmtDuration(streamDurSec),
+      recordDuration: fmtDuration(recDurSec),
+      schedulerEnabled: schedEnabled,
+      muted,
+      failing,
     };
   }
 

@@ -1172,6 +1172,12 @@ function buildChurchPortalHtml(church) {
       </div>
       <p class="help-box"><strong>How it works:</strong> Each campus gets its own Church ID, connection token, and Telegram registration code. Install the Tally app at each campus and connect using that campus token.</p>
       <div id="campus-plan-note" class="help-box" style="display:none"></div>
+      <div id="campus-summary" class="stats-row grid-4col" style="display:none;margin-bottom:20px">
+        <div class="stat-card"><div class="stat-value" id="cs-total">0</div><div class="stat-label">Total Rooms</div></div>
+        <div class="stat-card"><div class="stat-value" id="cs-online" style="color:#22c55e">0</div><div class="stat-label">Online</div></div>
+        <div class="stat-card"><div class="stat-value" id="cs-offline">0</div><div class="stat-label">Offline</div></div>
+        <div class="stat-card"><div class="stat-value" id="cs-alerts">0</div><div class="stat-label">Alerts (7d)</div></div>
+      </div>
       <div class="card">
         <div class="card-title">Add Campus</div>
         <div class="field-row">
@@ -1190,7 +1196,7 @@ function buildChurchPortalHtml(church) {
         <div class="card-title">Linked Campuses</div>
         <div class="table-wrap">
         <table>
-          <thead><tr><th>Campus</th><th>Status</th><th>Registration Code</th><th>Connection Token</th><th></th></tr></thead>
+          <thead><tr><th>Campus</th><th>Status</th><th>Health</th><th>Registration Code</th><th></th></tr></thead>
           <tbody id="campuses-tbody">
             <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>
@@ -1519,11 +1525,12 @@ function buildChurchPortalHtml(church) {
         <div class="page-sub">Stream health, viewer trends, and equipment performance</div>
       </div>
 
-      <div style="margin-bottom:20px;display:flex;gap:8px;flex-wrap:wrap">
+      <div style="margin-bottom:20px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn-secondary analytics-range active" data-days="30" onclick="setAnalyticsRange(30, this)">Last 30 days</button>
         <button class="btn-secondary analytics-range" data-days="90" onclick="setAnalyticsRange(90, this)">Last 90 days</button>
         <button class="btn-secondary analytics-range" data-days="180" onclick="setAnalyticsRange(180, this)">Last 6 months</button>
         <button class="btn-secondary analytics-range" data-days="365" onclick="setAnalyticsRange(365, this)">Last year</button>
+        <button class="btn-secondary" onclick="exportAnalyticsCSV()" style="margin-left:auto" title="Download session data as CSV">Export CSV</button>
       </div>
 
       <div class="stats-row grid-4col" id="analytics-kpi">
@@ -3316,34 +3323,65 @@ function buildChurchPortalHtml(church) {
           return;
         }
 
+        // Cross-campus summary card
+        var summaryEl = document.getElementById('campus-summary');
+        if (campusData.length > 0) {
+          summaryEl.style.display = '';
+          var onlineCount = campusData.filter(function(c) { return c.connected; }).length;
+          var totalAlerts = campusData.reduce(function(s, c) { return s + (c.recentAlerts || 0); }, 0);
+          document.getElementById('cs-total').textContent = campusData.length + 1;
+          document.getElementById('cs-online').textContent = onlineCount;
+          document.getElementById('cs-offline').textContent = campusData.length - onlineCount;
+          document.getElementById('cs-alerts').textContent = totalAlerts;
+          document.getElementById('cs-alerts').style.color = totalAlerts > 0 ? '#eab308' : '#22c55e';
+        } else {
+          summaryEl.style.display = 'none';
+        }
+
         tbody.innerHTML = campusData.map(function(c) {
-          const status = c.connected ? 'Online' : 'Offline';
-          const statusClass = c.connected ? 'badge-green' : 'badge-gray';
-          const code = c.registrationCode || '—';
-          const tokenPreview = c.token ? (c.token.slice(0, 16) + '…') : '—';
-          const location = c.location ? ('<div style="color:#64748B;font-size:12px">' + escapeHtml(c.location) + '</div>') : '';
+          var status = c.connected ? 'Online' : 'Offline';
+          var statusClass = c.connected ? 'badge-green' : 'badge-gray';
+          var code = c.registrationCode || '\u2014';
+          var location = c.location ? ('<div style="color:#64748B;font-size:12px">' + escapeHtml(c.location) + '</div>') : '';
+
+          // Health column
+          var healthHtml = '';
+          if (c.lastSession) {
+            var grade = c.lastSession.grade || '\u2014';
+            var gradeColor = grade.startsWith('A') ? '#22c55e' : grade.startsWith('B') ? '#eab308' : '#ef4444';
+            healthHtml += '<span style="color:' + gradeColor + ';font-weight:700">' + grade + '</span> ';
+          }
+          if (c.recentAlerts > 0) {
+            healthHtml += '<span style="color:#eab308;font-size:11px">' + c.recentAlerts + ' alert' + (c.recentAlerts !== 1 ? 's' : '') + '</span>';
+          } else {
+            healthHtml += '<span style="color:#22c55e;font-size:11px">Clean</span>';
+          }
+          if (c.lastSeen) {
+            var ago = timeAgo(c.lastSeen);
+            healthHtml += '<div style="color:#475569;font-size:10px">Seen ' + ago + '</div>';
+          }
+
           return '<tr>' +
-            '<td>' + escapeHtml(c.name) + location + '</td>' +
+            '<td>' +
+              '<span class="campus-name-display" data-campus-id="' + c.churchId + '" style="cursor:pointer" title="Click to rename">' + escapeHtml(c.name) + '</span>' +
+              location +
+            '</td>' +
             '<td><span class="badge ' + statusClass + '">' + status + '</span></td>' +
+            '<td>' + healthHtml + '</td>' +
             '<td><code style="font-size:12px;color:#22c55e">' + code + '</code><div><button class="btn-sm campus-copy-code-btn" data-campus-id="' + c.churchId + '">Copy</button></div></td>' +
-            '<td><code style="font-size:12px;color:#94A3B8">' + tokenPreview + '</code><div><button class="btn-sm campus-copy-token-btn" data-campus-id="' + c.churchId + '">Copy</button></div></td>' +
-            '<td><button class="btn-danger campus-remove-btn" data-campus-id="' + c.churchId + '">Remove</button></td>' +
+            '<td><button class="btn-sm campus-edit-btn" data-campus-id="' + c.churchId + '" style="margin-bottom:4px">Edit</button> <button class="btn-danger campus-remove-btn" data-campus-id="' + c.churchId + '">Remove</button></td>' +
           '</tr>';
         }).join('');
-        Array.from(tbody.querySelectorAll('.campus-copy-code-btn')).forEach(function(btn) {
-          btn.addEventListener('click', function() {
-            copyCampusCode(btn.getAttribute('data-campus-id'));
-          });
+
+        // Wire event listeners
+        tbody.querySelectorAll('.campus-copy-code-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() { copyCampusCode(btn.getAttribute('data-campus-id')); });
         });
-        Array.from(tbody.querySelectorAll('.campus-copy-token-btn')).forEach(function(btn) {
-          btn.addEventListener('click', function() {
-            copyCampusToken(btn.getAttribute('data-campus-id'));
-          });
+        tbody.querySelectorAll('.campus-edit-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() { editCampus(btn.getAttribute('data-campus-id')); });
         });
-        Array.from(tbody.querySelectorAll('.campus-remove-btn')).forEach(function(btn) {
-          btn.addEventListener('click', function() {
-            removeCampus(btn.getAttribute('data-campus-id'));
-          });
+        tbody.querySelectorAll('.campus-remove-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() { removeCampus(btn.getAttribute('data-campus-id')); });
         });
       } catch (e) {
         document.getElementById('campuses-tbody').innerHTML = '<tr><td colspan="5" style="color:#ef4444;text-align:center;padding:20px">Failed to load campuses.</td></tr>';
@@ -3396,6 +3434,32 @@ function buildChurchPortalHtml(church) {
       } catch (e) {
         toast(e.message || 'Failed to remove campus', true);
       }
+    }
+
+    async function editCampus(churchId) {
+      var campus = getCampusById(churchId);
+      if (!campus) return;
+      var newName = await modalPrompt('Rename campus', campus.name, { title: 'Edit Campus' });
+      if (newName === null) return;
+      newName = String(newName).trim();
+      if (!newName) return toast('Campus name cannot be empty', true);
+      if (newName === campus.name) return;
+      try {
+        await api('PATCH', '/api/church/campuses/' + churchId, { name: newName });
+        toast('Campus renamed');
+        loadCampuses();
+      } catch (e) {
+        toast(e.message || 'Failed to rename campus', true);
+      }
+    }
+
+    function timeAgo(iso) {
+      if (!iso) return '';
+      var ms = Date.now() - new Date(iso).getTime();
+      if (ms < 60000) return 'just now';
+      if (ms < 3600000) return Math.floor(ms / 60000) + 'm ago';
+      if (ms < 86400000) return Math.floor(ms / 3600000) + 'h ago';
+      return Math.floor(ms / 86400000) + 'd ago';
     }
 
     // ── TDs ──────────────────────────────────────────────────────────────────
@@ -4519,6 +4583,28 @@ function buildChurchPortalHtml(church) {
     // ── Analytics ───────────────────────────────────────────────────────────
     var analyticsRange = 30;
 
+    async function exportAnalyticsCSV() {
+      try {
+        var blob = await fetch('/api/church/analytics/export?days=' + analyticsRange, {
+          headers: { 'Authorization': 'Bearer ' + token }
+        }).then(function(r) {
+          if (!r.ok) throw new Error('Export failed');
+          return r.blob();
+        });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'tally-sessions-' + analyticsRange + 'd.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast('CSV exported');
+      } catch (e) {
+        toast(e.message || 'Export failed', true);
+      }
+    }
+
     function setAnalyticsRange(days, el) {
       analyticsRange = days;
       document.querySelectorAll('.analytics-range').forEach(function(b) { b.classList.remove('active'); });
@@ -5047,6 +5133,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     )
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_referrals_referred ON referrals(referred_id)');
 
   // Backfill referral codes for existing churches that don't have one
   const churchesMissingCode = db.prepare('SELECT churchId FROM churches WHERE referral_code IS NULL OR referral_code = ?').all('');
@@ -5345,6 +5432,27 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const campuses = rows.map((row) => {
         const runtime = churches.get(row.churchId);
         const connected = !!(runtime && runtime.ws && runtime.ws.readyState === 1);
+        const lastSeen = runtime?.lastSeen || runtime?.lastHeartbeat || null;
+
+        // Recent alert count (last 7 days)
+        let recentAlerts = 0;
+        try {
+          const week = new Date(Date.now() - 7 * 86400000).toISOString();
+          const alertRow = db.prepare(
+            'SELECT COUNT(*) as cnt FROM service_events WHERE church_id = ? AND timestamp >= ?'
+          ).get(row.churchId, week);
+          recentAlerts = alertRow?.cnt || 0;
+        } catch { /* table may not exist */ }
+
+        // Last session info
+        let lastSession = null;
+        try {
+          const sess = db.prepare(
+            'SELECT started_at, duration_minutes, grade FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 1'
+          ).get(row.churchId);
+          if (sess) lastSession = { startedAt: sess.started_at, durationMin: sess.duration_minutes, grade: sess.grade };
+        } catch { /* table may not exist */ }
+
         return {
           churchId: row.churchId,
           name: row.name,
@@ -5353,6 +5461,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           registrationCode: row.registration_code || '',
           registeredAt: row.registeredAt || null,
           connected,
+          lastSeen,
+          recentAlerts,
+          lastSession,
         };
       });
       res.json({
@@ -5445,6 +5556,42 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         registrationCode,
         registeredAt,
       });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── PATCH /api/church/campuses/:campusId — rename or update location ───────
+  app.patch('/api/church/campuses/:campusId', authMiddleware, (req, res) => {
+    try {
+      const campusId = String(req.params.campusId || '').trim();
+      const campus = db.prepare('SELECT * FROM churches WHERE churchId = ? AND parent_church_id = ?')
+        .get(campusId, req.church.churchId);
+      if (!campus) return res.status(404).json({ error: 'Campus not found' });
+
+      const updates = [];
+      const params = [];
+      const { name, location } = req.body || {};
+
+      if (name !== undefined) {
+        const cleanName = String(name).trim();
+        if (!cleanName) return res.status(400).json({ error: 'Campus name cannot be empty' });
+        const conflict = db.prepare('SELECT churchId FROM churches WHERE name = ? AND churchId != ?').get(cleanName, campusId);
+        if (conflict) return res.status(409).json({ error: 'A church or campus with that name already exists' });
+        updates.push('name = ?', 'campus_name = ?');
+        params.push(cleanName, cleanName);
+        const runtime = churches.get(campusId);
+        if (runtime) runtime.name = cleanName;
+      }
+      if (location !== undefined) {
+        updates.push('location = ?');
+        params.push(String(location).trim());
+      }
+
+      if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
+      params.push(campusId);
+      db.prepare(`UPDATE churches SET ${updates.join(', ')} WHERE churchId = ?`).run(...params);
+      res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }
@@ -6755,6 +6902,51 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch (e) {
       log.error(`[Analytics] Error: ${e.message}`);
       res.status(500).json({ error: 'Failed to load analytics' });
+    }
+  });
+
+  // ── GET /api/church/analytics/export — CSV export of session data ──────────
+  app.get('/api/church/analytics/export', authMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const days = Math.min(Math.max(parseInt(req.query.days) || 90, 1), 365);
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+
+      let sessions = [];
+      try {
+        sessions = db.prepare(`
+          SELECT started_at, ended_at, duration_minutes, stream_ran, stream_runtime_minutes,
+                 alert_count, auto_recovered_count, escalated_count, audio_silence_count,
+                 peak_viewers, td_name, grade
+          FROM service_sessions
+          WHERE church_id = ? AND started_at >= ?
+          ORDER BY started_at DESC
+        `).all(churchId, since);
+      } catch { /* table may not exist */ }
+
+      const header = 'Date,End,Duration (min),Stream Ran,Stream Minutes,Alerts,Auto-Recovered,Escalated,Audio Silence,Peak Viewers,TD,Grade';
+      const rows = sessions.map(s => [
+        s.started_at || '',
+        s.ended_at || '',
+        s.duration_minutes ?? '',
+        s.stream_ran ? 'Yes' : 'No',
+        s.stream_runtime_minutes ?? '',
+        s.alert_count ?? 0,
+        s.auto_recovered_count ?? 0,
+        s.escalated_count ?? 0,
+        s.audio_silence_count ?? 0,
+        s.peak_viewers ?? '',
+        `"${(s.td_name || '').replace(/"/g, '""')}"`,
+        s.grade || '',
+      ].join(','));
+
+      const csv = [header, ...rows].join('\n');
+      const churchName = (req.church.name || 'tally').replace(/[^a-zA-Z0-9]/g, '-');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${churchName}-sessions-${days}d.csv"`);
+      res.send(csv);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 

@@ -14,6 +14,47 @@ let _relayDisconnectedAt = null;  // Date when relay went offline
 let _reconnectAttempt = 0;        // exponential backoff counter
 let _reconnectCountdownTimer = null;
 
+// ─── OFFLINE ACTION QUEUE ──────────────────────────────────────────────────
+// Queue actions attempted while offline; replay when relay reconnects.
+const _offlineQueue = [];
+const MAX_QUEUE_SIZE = 50;
+
+function queueOfflineAction(action) {
+  if (_offlineQueue.length >= MAX_QUEUE_SIZE) _offlineQueue.shift();
+  _offlineQueue.push({ ...action, queuedAt: Date.now() });
+  updateOfflineQueueBadge();
+}
+
+async function flushOfflineQueue() {
+  if (!_offlineQueue.length) return;
+  const items = _offlineQueue.splice(0);
+  let replayed = 0;
+  for (const item of items) {
+    try {
+      if (item.type === 'chat' && item.message) {
+        await api.sendChat({ message: item.message, senderName: item.senderName || 'TD' });
+        replayed++;
+      }
+    } catch {
+      // If still offline, re-queue
+      _offlineQueue.unshift(item);
+      break;
+    }
+  }
+  updateOfflineQueueBadge();
+  if (replayed > 0) {
+    addAlert(`Sent ${replayed} queued message${replayed !== 1 ? 's' : ''} from offline.`);
+  }
+}
+
+function updateOfflineQueueBadge() {
+  const el = document.getElementById('offline-queue-count');
+  if (el) {
+    el.textContent = _offlineQueue.length || '';
+    el.style.display = _offlineQueue.length ? '' : 'none';
+  }
+}
+
 // ─── PROBLEM FINDER AUTO-RUN ───────────────────────────────────────────────
 let _pfAutoRunDone = false;       // only auto-run once per session
 let _pfAutoRunIssueCount = 0;     // cached count for badge
@@ -1180,12 +1221,15 @@ function updateStatusUI(status) {
   // ── Cache status for offline mode ─────────────────────────────────────
   const relayOk = getStatusActive(status.relay);
   if (relayOk) {
+    const wasOffline = !!_relayDisconnectedAt;
     _cachedStatus = JSON.parse(JSON.stringify(status));
     _cachedStatusTime = new Date();
     _relayDisconnectedAt = null;
     _reconnectAttempt = 0;
     clearReconnectCountdown();
     document.getElementById('dashboard')?.classList.remove('dashboard-stale');
+    // Flush any queued offline actions on reconnect
+    if (wasOffline) flushOfflineQueue();
   } else if (!relayOk && _cachedStatus && !_relayDisconnectedAt) {
     // Relay just went offline — start tracking
     _relayDisconnectedAt = new Date();
@@ -2443,6 +2487,14 @@ async function sendChatMessage() {
 
   if (!message) return;
   input.value = '';
+
+  // If relay is disconnected, queue message for later
+  if (_relayDisconnectedAt) {
+    queueOfflineAction({ type: 'chat', message });
+    addAlert(`Queued: "${message}" — will send when reconnected.`);
+    return;
+  }
+
   try {
     const resp = await api.sendChat({ message });
     if (resp?.error) {
@@ -2454,8 +2506,9 @@ async function sendChatMessage() {
       renderChat();
     }
   } catch (e) {
-    input.value = message; // Restore so user can retry
-    addAlert(`❌ Message failed: ${e.message}`);
+    // Network error — queue for offline replay
+    queueOfflineAction({ type: 'chat', message });
+    addAlert(`Queued: "${message}" — will send when reconnected.`);
   }
 }
 
@@ -3072,6 +3125,7 @@ async function _doSaveEquipment() {
     // Streaming keys (read from static DOM section)
     youtubeApiKey: document.getElementById('equip-youtube-key').value.trim(),
     facebookAccessToken: document.getElementById('equip-facebook-token').value.trim(),
+    vimeoAccessToken: document.getElementById('equip-vimeo-token').value.trim(),
     rtmpUrl: document.getElementById('equip-rtmp-url').value.trim(),
     rtmpStreamKey: document.getElementById('equip-rtmp-key').value.trim(),
   };

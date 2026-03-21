@@ -725,8 +725,8 @@ class BillingSystem {
       return { allowed: false, reason: 'Monthly reports require Pro or Enterprise plan.' };
     }
 
-    if (feature === 'autopilot' && (tier === 'connect' || tier === 'plus')) {
-      return { allowed: false, reason: 'AI Autopilot requires Pro or Enterprise plan.' };
+    if (feature === 'autopilot' && tier === 'connect') {
+      return { allowed: false, reason: 'AI Autopilot requires Plus or higher plan.' };
     }
 
     // Rundown scheduler: manual rundowns for Plus+, auto-triggers for Pro+

@@ -93,18 +93,26 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
     // Track referral
     let referrerId = null;
+    let referralWarning = null;
     if (cleanReferralCode) {
       const referrer = db.prepare('SELECT churchId, name FROM churches WHERE referral_code = ? AND churchId != ?').get(cleanReferralCode, churchId);
       if (referrer) {
         referrerId = referrer.churchId;
         db.prepare('UPDATE churches SET referred_by = ? WHERE churchId = ?').run(referrer.churchId, churchId);
         try {
-          db.prepare(`
-            INSERT INTO referrals (id, referrer_id, referred_id, referred_name, status, created_at)
-            VALUES (?, ?, ?, ?, 'pending', ?)
-          `).run(crypto.randomUUID(), referrer.churchId, churchId, cleanName, registeredAt);
-          log(`[Referral] ${cleanName} referred by ${referrer.name} (code: ${cleanReferralCode})`);
+          // Prevent duplicate referral records for the same referred church
+          const existing = db.prepare('SELECT id FROM referrals WHERE referred_id = ? LIMIT 1').get(churchId);
+          if (!existing) {
+            db.prepare(`
+              INSERT INTO referrals (id, referrer_id, referred_id, referred_name, status, created_at)
+              VALUES (?, ?, ?, ?, 'pending', ?)
+            `).run(crypto.randomUUID(), referrer.churchId, churchId, cleanName, registeredAt);
+            log(`[Referral] ${cleanName} referred by ${referrer.name} (code: ${cleanReferralCode})`);
+          }
         } catch (e) { log(`[Referral] Failed to record: ${e.message}`); }
+      } else {
+        referralWarning = 'Referral code not found. Your account was created without a referral.';
+        log(`[Referral] Invalid code "${cleanReferralCode}" submitted by ${cleanName}`);
       }
     }
 
@@ -173,7 +181,18 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
         status: access.status, tier: planTier, billingInterval: planInterval, trialEndsAt,
       },
       checkoutUrl, checkoutSessionId, checkoutError,
+      ...(referralWarning ? { referralWarning } : {}),
     });
+  });
+
+  // ─── REFERRAL CODE LOOKUP (public, rate-limited) ────────────────────────────
+
+  app.get('/api/referral/:code', rateLimit(20, 60_000), (req, res) => {
+    const code = String(req.params.code || '').trim().toUpperCase();
+    if (!code || code.length < 4) return res.status(400).json({ error: 'Invalid code' });
+    const church = db.prepare('SELECT name FROM churches WHERE referral_code = ?').get(code);
+    if (!church) return res.json({ valid: false });
+    res.json({ valid: true, referrerName: church.name });
   });
 
   // ─── LEAD CAPTURE ────────────────────────────────────────────────────────────

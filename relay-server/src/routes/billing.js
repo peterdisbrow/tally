@@ -47,6 +47,10 @@ module.exports = function setupBillingRoutes(app, ctx) {
 
   // POST /api/billing/webhook — Stripe webhook receiver
   app.post('/api/billing/webhook', async (req, res) => {
+    if (!process.env.STRIPE_WEBHOOK_SECRET) {
+      console.error('[Billing] Webhook rejected — STRIPE_WEBHOOK_SECRET not configured');
+      return res.status(503).json({ error: 'Webhook endpoint not configured' });
+    }
     const sig = req.headers['stripe-signature'];
     if (!sig) return res.status(400).json({ error: 'Missing stripe-signature header' });
     try {
