@@ -152,7 +152,7 @@ Tally starts automatically when your computer boots — no action needed on Sund
 - Check the port matches (default `4455`)
 
 ### Tray icon is grey on Sunday morning
-1. Click the tray icon → **Start Agent**
+1. Click the tray icon → **Start Monitoring**
 2. If that doesn't work, check your internet connection
 3. Still grey? Email support@atemschool.com or contact Andrew directly
 

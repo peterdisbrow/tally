@@ -34,6 +34,7 @@ const { hashPassword, verifyPassword, generateRegistrationCode: _genRegCode } = 
 const { createRateLimit } = require('./rateLimit');
 const { isStreamActive, isRecordingActive } = require('./status-utils');
 const { escapeHtml } = require('./escapeHtml');
+const { generateCsrfToken, setCsrfCookie } = require('./csrf');
 
 function safeErrorMessage(err, fallback = 'Internal server error') {
   if (process.env.NODE_ENV === 'production') return fallback;
@@ -2385,8 +2386,13 @@ function buildChurchPortalHtml(church) {
     }
 
     // ── API ───────────────────────────────────────────────────────────────────
+    function getCsrfToken() {
+      const m = document.cookie.match(/(?:^|;\s*)tally_csrf=([^;]+)/);
+      return m ? m[1] : '';
+    }
+
     async function api(method, path, body) {
-      const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', signal: AbortSignal.timeout(30000) };
+      const opts = { method, headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken() }, credentials: 'include', signal: AbortSignal.timeout(30000) };
       if (body) opts.body = JSON.stringify(body);
       const r = await fetch(path, opts);
       const data = await r.json().catch(() => ({}));
@@ -6961,9 +6967,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     res.cookie('tally_church_session', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'Strict',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
+    setCsrfCookie(res, generateCsrfToken());
     res.redirect('/church-portal');
   });
 
