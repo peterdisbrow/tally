@@ -890,53 +890,56 @@ function buildChurchPortalHtml(church) {
       </div>
     </div>
     <button class="nav-item active" data-page="overview" onclick="showPage('overview', this)">
-      <span class="icon">⊙</span> Overview
+      <span class="icon">⊙</span> <span data-i18n="nav.overview">Overview</span>
     </button>
     <button class="nav-item" data-page="profile" onclick="showPage('profile', this)">
-      <span class="icon">⊞</span> Profile
+      <span class="icon">⊞</span> <span data-i18n="nav.profile">Profile</span>
     </button>
     <button class="nav-item" data-page="campuses" onclick="showPage('campuses', this)">
-      <span class="icon">⊚</span> Campuses
+      <span class="icon">⊚</span> <span data-i18n="nav.campuses">Campuses</span>
     </button>
     <button class="nav-item" data-page="tds" onclick="showPage('tds', this)">
-      <span class="icon">⊛</span> Tech Directors
+      <span class="icon">⊛</span> <span data-i18n="nav.tds">Tech Directors</span>
     </button>
     <button class="nav-item" data-page="schedule" onclick="showPage('schedule', this)">
-      <span class="icon">⊡</span> Schedule
+      <span class="icon">⊡</span> <span data-i18n="nav.schedule">Schedule</span>
     </button>
     <button class="nav-item" data-page="notifications" onclick="showPage('notifications', this)">
-      <span class="icon">⊜</span> Notifications
+      <span class="icon">⊜</span> <span data-i18n="nav.notifications">Notifications</span>
     </button>
     <button class="nav-item" data-page="engineer" onclick="showPage('engineer', this)">
-      <span class="icon">⊘</span> Tally Engineer
+      <span class="icon">⊘</span> <span data-i18n="nav.engineer">Tally Engineer</span>
     </button>
     <button class="nav-item" data-page="guests" onclick="showPage('guests', this)">
-      <span class="icon">⊝</span> Guest Access
+      <span class="icon">⊝</span> <span data-i18n="nav.guests">Guest Access</span>
     </button>
     <button class="nav-item" data-page="macros" onclick="showPage('macros', this)">
-      <span class="icon">⚡</span> Macros
+      <span class="icon">⚡</span> <span data-i18n="nav.macros">Macros</span>
+    </button>
+    <button class="nav-item" data-page="autopilot" onclick="showPage('autopilot', this)">
+      <span class="icon">🤖</span> <span data-i18n="nav.autopilot">AutoPilot</span>
     </button>
     <button class="nav-item" data-page="sessions" onclick="showPage('sessions', this)">
-      <span class="icon">⊟</span> Sessions
+      <span class="icon">⊟</span> <span data-i18n="nav.sessions">Sessions</span>
     </button>
     <button class="nav-item" data-page="alerts" onclick="showPage('alerts',this)">
-      <span class="icon">⊗</span> Alerts
+      <span class="icon">⊗</span> <span data-i18n="nav.alerts">Alerts</span>
     </button>
     <button class="nav-item" data-page="analytics" onclick="showPage('analytics', this)">
-      <span class="icon">📊</span> Analytics
+      <span class="icon">📊</span> <span data-i18n="nav.analytics">Analytics</span>
     </button>
     <button class="nav-item" data-page="migrate" onclick="showPage('migrate', this)">
-      <span class="icon">🔀</span> Migrate
+      <span class="icon">🔀</span> <span data-i18n="nav.migrate">Migrate</span>
     </button>
     <button class="nav-item" data-page="billing" onclick="showPage('billing', this)">
-      <span class="icon">⊠</span> Billing
+      <span class="icon">⊠</span> <span data-i18n="nav.billing">Billing</span>
     </button>
     <button class="nav-item" data-page="support" onclick="showPage('support',this)">
-      <span class="icon">⊕</span> Help & Support
+      <span class="icon">⊕</span> <span data-i18n="nav.support">Help &amp; Support</span>
     </button>
     <div class="sidebar-footer">
       <button class="btn-secondary" onclick="startDemoMode()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.7" title="See a simulated service without hardware">🎭 Try Demo Mode</button>
-      <button class="btn-logout" onclick="logout()">Sign out</button>
+      <button class="btn-logout" onclick="logout()" data-i18n="btn.signout">Sign out</button>
     </div>
   </nav>
 
@@ -1200,8 +1203,8 @@ function buildChurchPortalHtml(church) {
     <div class="page" id="page-profile">
       <div class="page-header">
         <div class="page-header-text">
-          <div class="page-title">Church Profile</div>
-          <div class="page-sub">Update your contact information</div>
+          <div class="page-title" data-i18n="page.profile">Church Profile</div>
+          <div class="page-sub" data-i18n="profile.sub">Update your contact information</div>
         </div>
         <button class="help-icon-btn" onclick="openHelp('profile')" title="Help with Profile">?</button>
       </div>
@@ -1682,11 +1685,123 @@ function buildChurchPortalHtml(church) {
       </div>
     </div>
 
+    <!-- AUTOPILOT -->
+    <div class="page" id="page-autopilot">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.autopilot">AutoPilot</div>
+          <div class="page-sub" data-i18n="autopilot.subtitle">Automation rules that fire during your service windows</div>
+        </div>
+      </div>
+      <p class="help-box"><strong>What is AutoPilot?</strong> AutoPilot rules fire automatically during your service windows — no manual intervention needed. Triggers include ProPresenter slide changes, schedule timers, and equipment state events. Actions include OBS commands, ATEM switches, and TD notifications. Pro plan required.</p>
+
+      <!-- Upgrade gate for Connect/Plus plans -->
+      <div id="autopilot-upgrade-gate" style="display:none">
+        <div class="card" style="text-align:center;padding:40px 24px">
+          <div style="font-size:40px;margin-bottom:16px">🤖</div>
+          <div style="font-size:18px;font-weight:700;color:#F8FAFC;margin-bottom:8px" data-i18n="autopilot.upgrade_gate_title">AutoPilot requires Pro or higher</div>
+          <div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:20px" data-i18n="autopilot.upgrade_gate_body">Set up automation rules that run during your service windows — auto-start recording, switch cameras on slide change, and more.</div>
+          <button class="btn-primary" onclick="showPage('billing', document.querySelector('[data-page=billing]'))" data-i18n="autopilot.upgrade_to_pro">Upgrade to Pro &rarr;</button>
+        </div>
+      </div>
+
+      <!-- AutoPilot content for Pro+ plans -->
+      <div id="autopilot-content" style="display:none">
+        <div id="autopilot-paused-banner" style="display:none;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308" data-i18n="autopilot.paused_banner">
+          ⏸ AutoPilot is paused — all rules are suspended.
+        </div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <button id="btn-autopilot-pause" class="btn-secondary" onclick="toggleAutopilotPause()" data-i18n="autopilot.pause">Pause AutoPilot</button>
+            <button class="btn-primary" onclick="document.getElementById('modal-add-rule').classList.add('open')" data-i18n="autopilot.new_rule">+ New Rule</button>
+          </div>
+          <div id="autopilot-rules-list">
+            <div style="color:#475569;text-align:center;padding:20px;font-size:13px" data-i18n="status.loading">Loading\u2026</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Rule Modal -->
+    <div class="modal" id="modal-add-rule">
+      <div class="modal-inner" style="max-width:560px">
+        <div class="modal-header">
+          <div class="modal-title">New AutoPilot Rule</div>
+          <button class="modal-close" onclick="document.getElementById('modal-add-rule').classList.remove('open')">&#x2715;</button>
+        </div>
+        <div style="padding:20px">
+          <div class="field" style="margin-bottom:14px">
+            <label>Rule Name</label>
+            <input type="text" id="rule-name" placeholder="e.g. Auto-Start Recording">
+          </div>
+          <div class="field" style="margin-bottom:14px">
+            <label>Trigger Type</label>
+            <select id="rule-trigger-type" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:8px 12px;font-size:14px;width:100%">
+              <option value="">Select trigger&hellip;</option>
+              <option value="propresenter_slide_change">ProPresenter Slide Change</option>
+              <option value="schedule_timer">Schedule Timer</option>
+              <option value="equipment_state_match">Equipment State Match</option>
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:14px">
+            <label>Trigger Config <span style="color:#64748b;font-size:11px">(JSON)</span></label>
+            <textarea id="rule-trigger-config" rows="3" placeholder='{"minutesIntoService": 5}' style="font-family:monospace;font-size:13px"></textarea>
+            <div style="font-size:11px;color:#94a3b8;margin-top:4px">Examples: <code>{"presentationPattern":"Sermon"}</code> &nbsp; <code>{"minutesIntoService":10}</code> &nbsp; <code>{"conditions":{"obs.streaming":true}}</code></div>
+          </div>
+          <div class="field" style="margin-bottom:14px">
+            <label>Actions <span style="color:#64748b;font-size:11px">(JSON array)</span></label>
+            <textarea id="rule-actions" rows="3" placeholder='[{"command":"obs.startRecording","params":{}}]' style="font-family:monospace;font-size:13px"></textarea>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn-secondary" onclick="document.getElementById('modal-add-rule').classList.remove('open')" data-i18n="btn.cancel">Cancel</button>
+            <button class="btn-primary" id="btn-save-rule" onclick="saveAutopilotRule()">Save Rule</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Test Rule Result Modal -->
+    <div class="modal" id="modal-test-rule">
+      <div class="modal-inner" style="max-width:500px">
+        <div class="modal-header">
+          <div class="modal-title" data-i18n="autopilot.test.title">Test Rule &mdash; Dry Run</div>
+          <button class="modal-close" onclick="document.getElementById('modal-test-rule').classList.remove('open')">&#x2715;</button>
+        </div>
+        <div style="padding:20px">
+          <div id="test-rule-result">
+            <div style="color:#475569;text-align:center;padding:16px" data-i18n="status.loading">Running\u2026</div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:16px">
+            <button class="btn-secondary" onclick="document.getElementById('modal-test-rule').classList.remove('open')" data-i18n="btn.cancel">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rule Limit / Upgrade Modal -->
+    <div class="modal" id="modal-rule-limit">
+      <div class="modal-inner" style="max-width:440px">
+        <div class="modal-header">
+          <div class="modal-title" data-i18n="upgrade.rule_limit_title">Rule Limit Reached</div>
+          <button class="modal-close" onclick="document.getElementById('modal-rule-limit').classList.remove('open')">&#x2715;</button>
+        </div>
+        <div style="padding:24px">
+          <div style="font-size:32px;text-align:center;margin-bottom:12px">🚀</div>
+          <div style="font-size:15px;font-weight:700;color:#F8FAFC;text-align:center;margin-bottom:8px">You&rsquo;ve reached the rule limit for your plan</div>
+          <div style="font-size:13px;color:#94A3B8;text-align:center;line-height:1.6;margin-bottom:20px" id="rule-limit-body" data-i18n="upgrade.rule_limit_default">Upgrade to Pro for up to 10 automation rules, or Enterprise for 25.</div>
+          <div style="display:flex;gap:8px;justify-content:center">
+            <button class="btn-secondary" onclick="document.getElementById('modal-rule-limit').classList.remove('open')" data-i18n="upgrade.maybe_later">Maybe Later</button>
+            <button class="btn-primary" id="btn-rule-limit-upgrade" onclick="document.getElementById('modal-rule-limit').classList.remove('open');showPage('billing',document.querySelector('[data-page=billing]'))" data-i18n="upgrade.cta">Upgrade Plan &rarr;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- SESSIONS -->
     <div class="page" id="page-sessions">
       <div class="page-header">
         <div class="page-header-text">
-          <div class="page-title">Service Sessions</div>
+          <div class="page-title" data-i18n="page.sessions">Service Sessions</div>
           <div class="page-sub">History of recent live service sessions</div>
         </div>
         <button class="help-icon-btn" onclick="openHelp('sessions')" title="Help with Sessions">?</button>
@@ -1802,7 +1917,7 @@ function buildChurchPortalHtml(church) {
     <div class="page" id="page-alerts">
       <div class="page-header">
         <div class="page-header-text">
-          <div class="page-title">Alert History</div>
+          <div class="page-title" data-i18n="page.alerts">Alert History</div>
           <div class="page-sub">Recent alerts from your services</div>
         </div>
         <button class="help-icon-btn" onclick="openHelp('alerts')" title="Help with Alerts">?</button>
@@ -1840,8 +1955,8 @@ function buildChurchPortalHtml(church) {
     <!-- BILLING -->
     <div class="page" id="page-billing">
       <div class="page-header">
-        <div class="page-title">Billing & Subscription</div>
-        <div class="page-sub">Manage your plan, payment method, and invoices</div>
+        <div class="page-title" data-i18n="page.billing">Billing &amp; Subscription</div>
+        <div class="page-sub" data-i18n="billing.sub">Manage your plan, payment method, and invoices</div>
       </div>
       <p class="help-box"><strong>Plan tiers:</strong> <strong style="color:#22c55e">Connect</strong> (free — monitoring + alerts), <strong style="color:#22c55e">Plus</strong> (faster response + Telegram bot), <strong style="color:#22c55e">Pro</strong> (AI Autopilot + Planning Center sync), <strong style="color:#22c55e">Enterprise</strong> (dedicated support with 15-min response SLA).</p>
       <div id="billing-content">
@@ -1852,7 +1967,7 @@ function buildChurchPortalHtml(church) {
     <!-- HELP & SUPPORT -->
     <div class="page" id="page-support">
       <div class="page-header">
-        <div class="page-title">Help & Support</div>
+        <div class="page-title" data-i18n="page.support">Help &amp; Support</div>
         <div class="page-sub">Run diagnostics, open tickets, and track platform status</div>
       </div>
       <div class="card" style="margin-bottom:16px">
@@ -2026,6 +2141,204 @@ function buildChurchPortalHtml(church) {
       saturday: 'Saturday',
     };
 
+    // ── Portal i18n ──────────────────────────────────────────────────────────────
+    // Detect browser language and serve EN/ES translations for all user-visible text.
+    // Mirrors the botI18n.js pattern used by the Telegram bot.
+    const PORTAL_STRINGS = {
+      en: {
+        // Navigation
+        'nav.overview': 'Overview',
+        'nav.profile': 'Profile',
+        'nav.campuses': 'Campuses',
+        'nav.tds': 'Tech Directors',
+        'nav.schedule': 'Schedule',
+        'nav.notifications': 'Notifications',
+        'nav.engineer': 'Tally Engineer',
+        'nav.guests': 'Guest Access',
+        'nav.macros': 'Macros',
+        'nav.autopilot': 'AutoPilot',
+        'nav.sessions': 'Sessions',
+        'nav.alerts': 'Alerts',
+        'nav.analytics': 'Analytics',
+        'nav.migrate': 'Migrate',
+        'nav.billing': 'Billing',
+        'nav.support': 'Help & Support',
+        // Common buttons
+        'btn.save': 'Save Changes',
+        'btn.cancel': 'Cancel',
+        'btn.delete': 'Delete',
+        'btn.enable': 'Enable',
+        'btn.disable': 'Disable',
+        'btn.add': 'Add',
+        'btn.signout': 'Sign out',
+        // Status words
+        'status.loading': 'Loading\u2026',
+        'status.connected': 'Connected',
+        'status.disconnected': 'Disconnected',
+        'status.enabled': 'Enabled',
+        'status.disabled': 'Disabled',
+        'status.active': 'Active',
+        'status.paused': 'Paused',
+        'status.online': 'Online',
+        'status.offline': 'Offline',
+        // Page titles
+        'page.overview': 'Overview',
+        'page.profile': 'Church Profile',
+        'page.campuses': 'Multi-Campus',
+        'page.tds': 'Tech Directors',
+        'page.schedule': 'Service Schedule',
+        'page.notifications': 'Alert Notifications',
+        'page.guests': 'Guest Access',
+        'page.macros': 'Telegram Macros',
+        'page.autopilot': 'AutoPilot',
+        'page.sessions': 'Service Sessions',
+        'page.alerts': 'Alert History',
+        'page.billing': 'Billing & Subscription',
+        'page.support': 'Help & Support',
+        // AutoPilot
+        'autopilot.subtitle': 'Automation rules that fire during your service windows',
+        'autopilot.no_rules': 'No rules yet. Click \u201c+ New Rule\u201d to create your first automation.',
+        'autopilot.paused_banner': '\u23f8 AutoPilot is paused \u2014 all rules are suspended.',
+        'autopilot.upgrade_gate_title': 'AutoPilot requires Pro or higher',
+        'autopilot.upgrade_gate_body': 'Set up automation rules that run during your service windows \u2014 auto-start recording, switch cameras on slide change, and more.',
+        'autopilot.new_rule': '+ New Rule',
+        'autopilot.pause': 'Pause AutoPilot',
+        'autopilot.resume': 'Resume AutoPilot',
+        'autopilot.test': 'Test',
+        'autopilot.test.title': 'Test Rule \u2014 Dry Run',
+        'autopilot.test.would_fire': '\u2714 Would fire',
+        'autopilot.test.would_not_fire': '\u2718 Would NOT fire',
+        'autopilot.test.actions_header': 'Actions that would execute:',
+        'autopilot.upgrade_to_pro': 'Upgrade to Pro \u2192',
+        // Upgrade modal
+        'upgrade.rule_limit_title': 'Rule Limit Reached',
+        'upgrade.rule_limit_default': 'Upgrade to add more rules.',
+        'upgrade.maybe_later': 'Maybe Later',
+        'upgrade.cta': 'Upgrade Plan \u2192',
+        // Profile page
+        'profile.sub': 'Update your contact information',
+        'profile.contact': 'Contact Information',
+        'profile.change_password': 'Change Password',
+        // Billing
+        'billing.sub': 'Manage your plan, payment method, and invoices',
+      },
+      es: {
+        // Navigation
+        'nav.overview': 'Resumen',
+        'nav.profile': 'Perfil',
+        'nav.campuses': 'Sedes',
+        'nav.tds': 'Directores T\u00e9cnicos',
+        'nav.schedule': 'Horario',
+        'nav.notifications': 'Notificaciones',
+        'nav.engineer': 'Tally Engineer',
+        'nav.guests': 'Acceso de Invitados',
+        'nav.macros': 'Macros',
+        'nav.autopilot': 'AutoPilot',
+        'nav.sessions': 'Sesiones',
+        'nav.alerts': 'Alertas',
+        'nav.analytics': 'Anal\u00edticas',
+        'nav.migrate': 'Migrar',
+        'nav.billing': 'Facturaci\u00f3n',
+        'nav.support': 'Ayuda y Soporte',
+        // Common buttons
+        'btn.save': 'Guardar Cambios',
+        'btn.cancel': 'Cancelar',
+        'btn.delete': 'Eliminar',
+        'btn.enable': 'Activar',
+        'btn.disable': 'Desactivar',
+        'btn.add': 'Agregar',
+        'btn.signout': 'Cerrar sesi\u00f3n',
+        // Status words
+        'status.loading': 'Cargando\u2026',
+        'status.connected': 'Conectado',
+        'status.disconnected': 'Desconectado',
+        'status.enabled': 'Activado',
+        'status.disabled': 'Desactivado',
+        'status.active': 'Activo',
+        'status.paused': 'Pausado',
+        'status.online': 'En l\u00ednea',
+        'status.offline': 'Sin conexi\u00f3n',
+        // Page titles
+        'page.overview': 'Resumen',
+        'page.profile': 'Perfil de la Iglesia',
+        'page.campuses': 'Multi-Sede',
+        'page.tds': 'Directores T\u00e9cnicos',
+        'page.schedule': 'Horario de Servicios',
+        'page.notifications': 'Notificaciones de Alertas',
+        'page.guests': 'Acceso de Invitados',
+        'page.macros': 'Macros de Telegram',
+        'page.autopilot': 'AutoPilot',
+        'page.sessions': 'Sesiones de Servicio',
+        'page.alerts': 'Historial de Alertas',
+        'page.billing': 'Facturaci\u00f3n y Suscripci\u00f3n',
+        'page.support': 'Ayuda y Soporte',
+        // AutoPilot
+        'autopilot.subtitle': 'Reglas de automatizaci\u00f3n para tus ventanas de servicio',
+        'autopilot.no_rules': 'Sin reglas a\u00fan. Haz clic en \u201c+ Nueva Regla\u201d para crear tu primera automatizaci\u00f3n.',
+        'autopilot.paused_banner': '\u23f8 AutoPilot est\u00e1 pausado \u2014 todas las reglas est\u00e1n suspendidas.',
+        'autopilot.upgrade_gate_title': 'AutoPilot requiere el plan Pro o superior',
+        'autopilot.upgrade_gate_body': 'Configura reglas de automatizaci\u00f3n para tus servicios \u2014 inicio autom\u00e1tico de grabaci\u00f3n, cambio de c\u00e1maras en diapositivas, y m\u00e1s.',
+        'autopilot.new_rule': '+ Nueva Regla',
+        'autopilot.pause': 'Pausar AutoPilot',
+        'autopilot.resume': 'Reanudar AutoPilot',
+        'autopilot.test': 'Probar',
+        'autopilot.test.title': 'Probar Regla \u2014 Simulaci\u00f3n',
+        'autopilot.test.would_fire': '\u2714 Se activar\u00eda',
+        'autopilot.test.would_not_fire': '\u2718 NO se activar\u00eda',
+        'autopilot.test.actions_header': 'Acciones que se ejecutar\u00edan:',
+        'autopilot.upgrade_to_pro': 'Actualizar a Pro \u2192',
+        // Upgrade modal
+        'upgrade.rule_limit_title': 'L\u00edmite de Reglas Alcanzado',
+        'upgrade.rule_limit_default': 'Actualiza para agregar m\u00e1s reglas.',
+        'upgrade.maybe_later': 'Quiz\u00e1s Despu\u00e9s',
+        'upgrade.cta': 'Actualizar Plan \u2192',
+        // Profile page
+        'profile.sub': 'Actualiza tu informaci\u00f3n de contacto',
+        'profile.contact': 'Informaci\u00f3n de Contacto',
+        'profile.change_password': 'Cambiar Contrase\u00f1a',
+        // Billing
+        'billing.sub': 'Administra tu plan, m\u00e9todo de pago y facturas',
+      },
+    };
+
+    /** Detect the portal locale from navigator.language. Falls back to 'en'. */
+    function portalLocale() {
+      const lang = (navigator.language || 'en').split('-')[0].toLowerCase();
+      return PORTAL_STRINGS[lang] ? lang : 'en';
+    }
+
+    /**
+     * Get a portal translated string with optional {{var}} interpolation.
+     * Mirrors the bt() API from botI18n.js.
+     */
+    function pt(key, vars = {}) {
+      const locale = portalLocale();
+      const str =
+        (PORTAL_STRINGS[locale] && PORTAL_STRINGS[locale][key]) ||
+        (PORTAL_STRINGS.en && PORTAL_STRINGS.en[key]) ||
+        key;
+      return str.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? String(vars[k]) : \`{{\${k}}}\`);
+    }
+
+    /**
+     * Walk the DOM and apply translations from data-i18n / data-i18n-html /
+     * data-i18n-placeholder attributes. Called once on page init.
+     */
+    function translatePage() {
+      document.querySelectorAll('[data-i18n]').forEach(function(el) {
+        const key = el.getAttribute('data-i18n');
+        if (key) el.textContent = pt(key);
+      });
+      document.querySelectorAll('[data-i18n-html]').forEach(function(el) {
+        const key = el.getAttribute('data-i18n-html');
+        if (key) el.innerHTML = pt(key);
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el) {
+        const key = el.getAttribute('data-i18n-placeholder');
+        if (key) el.placeholder = pt(key);
+      });
+    }
+
     // ── mobile nav ──────────────────────────────────────────────────────────────
     function toggleMobileNav() {
       var sidebar = document.getElementById('sidebar-nav');
@@ -2051,6 +2364,7 @@ function buildChurchPortalHtml(church) {
       if (id === 'schedule') loadSchedule();
       if (id === 'guests') loadGuests();
       if (id === 'macros') loadMacros();
+      if (id === 'autopilot') loadAutopilot();
       if (id === 'sessions') loadSessions();
       if (id === 'alerts') loadAlerts();
       if (id === 'billing') loadBilling();
@@ -2076,7 +2390,11 @@ function buildChurchPortalHtml(church) {
       if (body) opts.body = JSON.stringify(body);
       const r = await fetch(path, opts);
       const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(data.error || 'Request failed');
+      if (!r.ok) {
+        const err = new Error(data.error || 'Request failed');
+        Object.assign(err, data); // attach upgradeUrl, suggestedPlan, etc.
+        throw err;
+      }
       return data;
     }
 
@@ -4523,6 +4841,160 @@ function buildChurchPortalHtml(church) {
       } catch(e) { toast(e.message, true); }
     }
 
+    // ── AutoPilot ─────────────────────────────────────────────────────────────
+    var _autopilotChurchId = null;
+    var _autopilotPaused = false;
+
+    async function loadAutopilot() {
+      try {
+        var me = await api('GET', '/api/church/me');
+        var billing = await api('GET', '/api/church/billing');
+        _autopilotChurchId = me.churchId;
+
+        var hasAccess = billing.features && billing.features.autopilot;
+        document.getElementById('autopilot-upgrade-gate').style.display = hasAccess ? 'none' : '';
+        document.getElementById('autopilot-content').style.display = hasAccess ? '' : 'none';
+        if (!hasAccess) return;
+
+        var data = await api('GET', '/api/churches/' + me.churchId + '/automation');
+        _autopilotPaused = data.paused;
+
+        var pauseBtn = document.getElementById('btn-autopilot-pause');
+        if (pauseBtn) pauseBtn.textContent = _autopilotPaused ? pt('autopilot.resume') : pt('autopilot.pause');
+
+        var banner = document.getElementById('autopilot-paused-banner');
+        if (banner) { banner.style.display = _autopilotPaused ? '' : 'none'; banner.textContent = pt('autopilot.paused_banner'); }
+
+        renderAutopilotRules(data.rules || []);
+      } catch(e) {
+        var el = document.getElementById('autopilot-rules-list');
+        if (el) el.innerHTML = '<div style="color:#ef4444;text-align:center;padding:20px">Error loading AutoPilot: ' + escapeHtml(e.message) + '</div>';
+      }
+    }
+
+    function renderAutopilotRules(rules) {
+      var el = document.getElementById('autopilot-rules-list');
+      if (!el) return;
+      if (!rules.length) {
+        el.innerHTML = '<div style="color:#475569;text-align:center;padding:24px;font-size:13px">'
+          + '<div style="font-size:24px;margin-bottom:8px">🤖</div>'
+          + '<div style="font-weight:600;margin-bottom:6px">' + escapeHtml(pt('autopilot.no_rules')) + '</div>'
+          + '</div>';
+        return;
+      }
+      var triggerLabels = {
+        'propresenter_slide_change': 'Slide Change',
+        'schedule_timer': 'Schedule Timer',
+        'equipment_state_match': 'Equipment State',
+      };
+      el.innerHTML = rules.map(function(rule) {
+        var label = triggerLabels[rule.trigger_type] || rule.trigger_type;
+        var firedInfo = rule.last_fired_at ? ' \u00b7 Last fired: ' + timeAgo(rule.last_fired_at) : '';
+        var enabledClass = rule.enabled ? 'badge-green' : 'badge-gray';
+        var enabledLabel = rule.enabled ? 'Enabled' : 'Disabled';
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #1a2e1f">'
+          + '<div style="flex:1;min-width:0;margin-right:12px">'
+          +   '<div style="font-weight:600;color:#F8FAFC;font-size:14px">' + escapeHtml(rule.name) + '</div>'
+          +   '<div style="font-size:12px;color:#64748B;margin-top:2px">' + escapeHtml(label) + escapeHtml(firedInfo) + '</div>'
+          + '</div>'
+          + '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">'
+          +   '<span class="badge ' + enabledClass + '">' + escapeHtml(rule.enabled ? pt('status.enabled') : pt('status.disabled')) + '</span>'
+          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="testAutopilotRule(\'' + rule.id + '\')">' + escapeHtml(pt('autopilot.test')) + '</button>'
+          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="toggleAutopilotRule(\'' + rule.id + '\',' + !rule.enabled + ')">' + escapeHtml(rule.enabled ? pt('btn.disable') : pt('btn.enable')) + '</button>'
+          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px;color:#ef4444;border-color:rgba(239,68,68,0.4)" onclick="deleteAutopilotRule(\'' + rule.id + '\')">' + escapeHtml(pt('btn.delete')) + '</button>'
+          + '</div>'
+          + '</div>';
+      }).join('');
+    }
+
+    async function toggleAutopilotPause() {
+      try {
+        var endpoint = _autopilotPaused ? '/resume' : '/pause';
+        await api('POST', '/api/churches/' + _autopilotChurchId + '/automation' + endpoint);
+        await loadAutopilot();
+      } catch(e) { toast('Failed: ' + e.message, true); }
+    }
+
+    async function testAutopilotRule(ruleId) {
+      var resultEl = document.getElementById('test-rule-result');
+      resultEl.innerHTML = '<div style="color:#475569;text-align:center;padding:16px">Running dry run\u2026</div>';
+      document.getElementById('modal-test-rule').classList.add('open');
+      try {
+        var r = await api('POST', '/api/churches/' + _autopilotChurchId + '/automation/' + ruleId + '/test');
+        var fireColor = r.wouldFire ? '#22c55e' : '#ef4444';
+        var fireLabel = r.wouldFire ? pt('autopilot.test.would_fire') : pt('autopilot.test.would_not_fire');
+        var html = '<div style="margin-bottom:14px">';
+        html += '<div style="font-size:16px;font-weight:700;color:' + fireColor + '">' + escapeHtml(fireLabel) + '</div>';
+        html += '<div style="color:#94A3B8;font-size:13px;margin-top:6px;line-height:1.5">' + escapeHtml(r.reason) + '</div>';
+        html += '</div>';
+        if (r.wouldFire && r.actions && r.actions.length) {
+          html += '<div style="font-size:12px;color:#64748B;margin-bottom:6px">' + escapeHtml(pt('autopilot.test.actions_header')) + '</div>';
+          html += r.actions.map(function(a) {
+            return '<div style="background:#09090B;border-radius:6px;padding:8px 12px;font-family:monospace;font-size:12px;color:#22c55e;margin-bottom:4px">'
+              + escapeHtml(a.command) + (a.params && Object.keys(a.params).length ? ' ' + escapeHtml(JSON.stringify(a.params)) : '')
+              + '</div>';
+          }).join('');
+        }
+        html += '<div style="font-size:11px;color:#475569;margin-top:12px;padding-top:10px;border-top:1px solid #1a2e1f">' + escapeHtml(r.note) + '</div>';
+        resultEl.innerHTML = html;
+      } catch(e) {
+        resultEl.innerHTML = '<div style="color:#ef4444">' + escapeHtml(e.message) + '</div>';
+      }
+    }
+
+    async function toggleAutopilotRule(ruleId, enabled) {
+      try {
+        await api('PUT', '/api/churches/' + _autopilotChurchId + '/automation/' + ruleId, { enabled: enabled });
+        await loadAutopilot();
+        toast(enabled ? 'Rule enabled' : 'Rule disabled');
+      } catch(e) { toast('Failed: ' + e.message, true); }
+    }
+
+    async function deleteAutopilotRule(ruleId) {
+      if (!await modalConfirm('Delete this automation rule?', { title: 'Delete Rule', okLabel: 'Delete', dangerOk: true })) return;
+      try {
+        await api('DELETE', '/api/churches/' + _autopilotChurchId + '/automation/' + ruleId);
+        await loadAutopilot();
+        toast('Rule deleted');
+      } catch(e) { toast('Failed: ' + e.message, true); }
+    }
+
+    async function saveAutopilotRule() {
+      var name = document.getElementById('rule-name').value.trim();
+      var triggerType = document.getElementById('rule-trigger-type').value;
+      var tcText = document.getElementById('rule-trigger-config').value.trim();
+      var actionsText = document.getElementById('rule-actions').value.trim();
+      if (!name) { toast('Rule name required', true); return; }
+      if (!triggerType) { toast('Select a trigger type', true); return; }
+      var triggerConfig = {};
+      var actions = [];
+      try { if (tcText) triggerConfig = JSON.parse(tcText); } catch(e) { toast('Trigger config must be valid JSON', true); return; }
+      try { if (actionsText) actions = JSON.parse(actionsText); } catch(e) { toast('Actions must be valid JSON array', true); return; }
+      var btn = document.getElementById('btn-save-rule');
+      btn.disabled = true;
+      try {
+        await api('POST', '/api/churches/' + _autopilotChurchId + '/automation', { name, triggerType, triggerConfig, actions });
+        document.getElementById('modal-add-rule').classList.remove('open');
+        document.getElementById('rule-name').value = '';
+        document.getElementById('rule-trigger-type').value = '';
+        document.getElementById('rule-trigger-config').value = '';
+        document.getElementById('rule-actions').value = '';
+        await loadAutopilot();
+        toast('Rule created');
+      } catch(e) {
+        if (e.upgradeUrl || (e.message && e.message.includes('Rule limit'))) {
+          document.getElementById('modal-add-rule').classList.remove('open');
+          var body = pt('upgrade.rule_limit_default');
+          if (e.suggestedPlan) body += ' (' + e.suggestedPlan.charAt(0).toUpperCase() + e.suggestedPlan.slice(1) + ' plan)';
+          document.getElementById('rule-limit-body').textContent = body;
+          document.getElementById('modal-rule-limit').classList.add('open');
+        } else {
+          toast('Failed: ' + e.message, true);
+        }
+      }
+      btn.disabled = false;
+    }
+
     // ── Sessions ──────────────────────────────────────────────────────────────
     async function loadSessions() {
       try {
@@ -6195,6 +6667,9 @@ function buildChurchPortalHtml(church) {
       toast('Demo Mode ended — reloading real data…');
       loadOverview();
     }
+
+    // Apply i18n translations to all data-i18n elements based on navigator.language
+    translatePage();
 
     // Auto-load overview + billing banner on start
     loadOverview();
