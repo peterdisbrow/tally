@@ -397,7 +397,10 @@ function buildChurchLoginHtml(error = '') {
       <input type="password" name="password" placeholder="••••••••" required autocomplete="current-password">
       <button type="submit" class="btn">Sign in</button>
     </form>
-    <div class="footer">Tally — <a href="https://tallyconnect.app" style="color:#22c55e;text-decoration:none">tallyconnect.app</a></div>
+    <div class="footer" style="display:flex;justify-content:space-between;align-items:center;">
+      <a href="https://tallyconnect.app/forgot-password" style="color:#22c55e;text-decoration:none;font-size:12px;">Forgot password?</a>
+      <span>Tally — <a href="https://tallyconnect.app" style="color:#22c55e;text-decoration:none">tallyconnect.app</a></span>
+    </div>
   </div>
 </body>
 </html>`;
@@ -5175,7 +5178,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // ── Rate limiting for login endpoint ───────────────────────────────────────
   const loginRateLimit = createRateLimit({
     scope: 'church_portal_login',
-    maxAttempts: 10,
+    maxAttempts: 5,
     windowMs: 15 * 60 * 1000,
     keyGenerator: (_req, ip) => ip,
     onLimit: (_req, res) => {
