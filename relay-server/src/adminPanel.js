@@ -277,6 +277,8 @@ tr:hover td{background:rgba(34,197,94,.02)}
 .copy-group input{flex:1;font-family:monospace;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);outline:none}
 /* Summary cards row */
 .summary-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+#ai-summary{grid-template-columns:repeat(5,1fr)}
+#email-summary{grid-template-columns:repeat(3,1fr)}
 .summary-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center}
 .summary-card .num{font-size:22px;font-weight:700;color:var(--text)}
 .summary-card .lbl{font-size:11px;color:var(--muted);margin-top:2px}
@@ -290,11 +292,12 @@ tr:hover td{background:rgba(34,197,94,.02)}
   .hamburger{display:block}
   .main{margin-left:0;padding-top:56px}
   .stats-grid,.summary-row{grid-template-columns:1fr 1fr}
+  #ai-summary,#email-summary{grid-template-columns:1fr 1fr}
 }
 </style></head>
 <body>
 
-<button class="hamburger" onclick="toggleMobileNav()" aria-label="Menu">☰</button>
+<button class="hamburger" onclick="toggleMobileNav()" aria-label="Menu"><svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20"><rect x="2" y="4" width="16" height="2" rx="1"/><rect x="2" y="9" width="16" height="2" rx="1"/><rect x="2" y="14" width="16" height="2" rx="1"/></svg></button>
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileNav()"></div>
 
 <!-- SIDEBAR -->
@@ -431,7 +434,8 @@ tr:hover td{background:rgba(34,197,94,.02)}
       <div class="settings-section">
         <h3>Admin Password</h3>
         <div id="pw-msg"></div>
-        <div class="form-field"><label>New Password</label><input type="password" id="new-pw" placeholder="New password"></div>
+        <div class="form-field"><label>Current Password</label><input type="password" id="current-pw" placeholder="Current password"></div>
+        <div class="form-field"><label>New Password</label><input type="password" id="new-pw" placeholder="New password (min 8 chars)"></div>
         <button class="btn-primary" onclick="changeAdminPassword(this)">Change Password</button>
       </div>
       <div class="settings-section">
@@ -492,7 +496,7 @@ tr:hover td{background:rgba(34,197,94,.02)}
 
     <!-- AI USAGE PAGE -->
     <div id="page-aiusage" style="display:none">
-      <div class="summary-row" id="ai-summary" style="grid-template-columns:repeat(5,1fr)">
+      <div class="summary-row" id="ai-summary">
         <div class="summary-card"><div class="stat-num" id="ai-requests">—</div><div class="stat-label">Requests (30d)</div></div>
         <div class="summary-card"><div class="stat-num" id="ai-input-tok">—</div><div class="stat-label">Input Tokens</div></div>
         <div class="summary-card"><div class="stat-num" id="ai-output-tok">—</div><div class="stat-label">Output Tokens</div></div>
@@ -534,7 +538,7 @@ tr:hover td{background:rgba(34,197,94,.02)}
 
     <!-- EMAILS PAGE -->
     <div id="page-emails" style="display:none">
-      <div class="summary-row" id="email-summary" style="grid-template-columns:repeat(3,1fr)">
+      <div class="summary-row" id="email-summary">
         <div class="summary-card"><div class="stat-num" id="email-total">—</div><div class="stat-label">Total Sent</div></div>
         <div class="summary-card"><div class="stat-num" id="email-today">—</div><div class="stat-label">Sent Today</div></div>
         <div class="summary-card"><div class="stat-num" id="email-week">—</div><div class="stat-label">This Week</div></div>
@@ -610,7 +614,7 @@ tr:hover td{background:rgba(34,197,94,.02)}
 
 <!-- EMAIL PREVIEW MODAL -->
 <div class="modal-overlay" id="modal-email-preview">
-  <div class="modal" style="max-width:700px;max-height:90vh;overflow:auto">
+  <div class="modal" style="max-width:700px;max-height:90vh;overflow:auto;position:relative">
     <button class="modal-close" onclick="closeModal('modal-email-preview')">×</button>
     <h2 id="email-preview-title">Email Preview</h2>
     <div style="margin:12px 0;padding:8px 12px;background:var(--bg);border-radius:6px;font-size:13px">
@@ -624,7 +628,7 @@ tr:hover td{background:rgba(34,197,94,.02)}
 
 <!-- TEMPLATE EDIT MODAL -->
 <div class="modal-overlay" id="modal-template-edit">
-  <div class="modal" style="max-width:800px;max-height:90vh;overflow:auto">
+  <div class="modal" style="max-width:800px;max-height:90vh;overflow:auto;position:relative">
     <button class="modal-close" onclick="closeModal('modal-template-edit')">×</button>
     <h2 id="template-edit-title">Edit Template</h2>
     <div id="template-edit-msg"></div>
@@ -733,7 +737,7 @@ tr:hover td{background:rgba(34,197,94,.02)}
 <div class="modal-overlay" id="modal-apikey">
   <div class="modal" style="position:relative;text-align:center">
     <button class="modal-close" onclick="closeModal('modal-apikey')">×</button>
-    <h2 style="margin-bottom:12px">🔑 API Key — Copy Now!</h2>
+    <h2 style="margin-bottom:12px">API Key — Copy Now!</h2>
     <p style="color:var(--muted);font-size:13px;margin-bottom:16px">This key will not be shown again.</p>
     <div class="token-box" id="apikey-display" style="font-size:13px;cursor:pointer" onclick="copyNewApiKey()"></div>
     <button class="copy-btn" style="margin-top:12px;padding:8px 20px;font-size:13px" onclick="copyNewApiKey()">Copy API Key</button>
@@ -909,16 +913,16 @@ function renderChurches() {
     const lastSeen = c.lastSeen ? new Date(c.lastSeen).toLocaleString() : 'Never';
     const reg = c.registeredAt ? new Date(c.registeredAt).toLocaleDateString() : '—';
     return \`<tr>
-      <td><a class="church-name-link" onclick="openDetail(\${JSON.stringify(c.churchId)})">\${esc(c.name)}</a></td>
+      <td><a class="church-name-link" onclick="openDetail(\${esc(JSON.stringify(c.churchId))})">\${esc(c.name)}</a></td>
       <td>\${reseller ? esc(reseller.brand_name || reseller.name) : '<span style="color:var(--muted)">Direct</span>'}</td>
       <td>\${statusHtml}</td>
       <td>\${esc(c.church_type||'recurring')}</td>
       <td>\${reg}</td>
       <td>\${lastSeen}</td>
       <td>
-        <button class="btn-sm" onclick="openEditChurch(\${JSON.stringify(c.churchId)})">Edit</button>
-        <button class="btn-sm" onclick="openRegenToken(\${JSON.stringify(c.churchId)})">Regen Token</button>
-        <button class="btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteChurch(\${JSON.stringify(c.churchId)},\${JSON.stringify(c.name)})">Delete</button>
+        <button class="btn-sm" onclick="openEditChurch(\${esc(JSON.stringify(c.churchId))})">Edit</button>
+        <button class="btn-sm" onclick="openRegenToken(\${esc(JSON.stringify(c.churchId))})">Regen Token</button>
+        <button class="btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteChurch(\${esc(JSON.stringify(c.churchId))},\${esc(JSON.stringify(c.name))})">Delete</button>
       </td>
     </tr>\`;
   }).join('');
@@ -940,7 +944,7 @@ function renderChurches() {
 function filterChurches() { renderChurches(); }
 function setChurchFilter(f, el) {
   churchFilter = f;
-  document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+  el.closest('.filter-tabs').querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
   renderChurches();
 }
@@ -1056,7 +1060,7 @@ async function openDetail(id) {
       </div>
       <div style="display:flex;gap:8px;margin-top:4px">
         <button class="btn-sm" onclick="revealToken()">Reveal</button>
-        <button class="btn-sm" onclick="copyToken(\${JSON.stringify(c.token||'')})">Copy</button>
+        <button class="btn-sm" onclick="copyToken(\${esc(JSON.stringify(c.token||''))})">Copy</button>
       </div>
     </div>
   \`;
@@ -1089,7 +1093,7 @@ function renderResellers() {
   }
   tbody.innerHTML = allResellers.map(r => {
     const color = r.primary_color||'#22c55e';
-    const status = r.active ? '<span class="badge-active">● Active</span>' : '<span class="badge-inactive">● Inactive</span>';
+    const status = r.active ? '<span class="badge badge-green">Active</span>' : '<span class="badge badge-gray">Inactive</span>';
     const churches = \`\${r.churchCount||0} / \${r.church_limit||10}\`;
     return \`<tr>
       <td>\${esc(r.brand_name||r.name)}</td>
@@ -1099,11 +1103,11 @@ function renderResellers() {
       <td><span class="color-swatch" style="background:\${sanitizeColor(color)}"></span>\${esc(color)}</td>
       <td>\${status}</td>
       <td>
-        <button class="btn-sm" onclick="openEditReseller(\${JSON.stringify(r.id)})">Edit</button>
-        <button class="btn-sm" onclick="openSetPassword(\${JSON.stringify(r.id)})">Set Password</button>
+        <button class="btn-sm" onclick="openEditReseller(\${esc(JSON.stringify(r.id))})">Edit</button>
+        <button class="btn-sm" onclick="openSetPassword(\${esc(JSON.stringify(r.id))})">Set Password</button>
         <button class="btn-sm" onclick="window.open('/portal','_blank')">View Portal</button>
-        <button class="btn-sm" onclick="toggleReseller(\${JSON.stringify(r.id)},\${r.active})">\${r.active ? 'Deactivate' : 'Activate'}</button>
-        <button class="btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteReseller(\${JSON.stringify(r.id)},\${JSON.stringify(r.brand_name||r.name)})">Delete</button>
+        <button class="btn-sm" onclick="toggleReseller(\${esc(JSON.stringify(r.id))},\${r.active})">\${r.active ? 'Deactivate' : 'Activate'}</button>
+        <button class="btn-sm" style="color:var(--red);border-color:var(--red)" onclick="deleteReseller(\${esc(JSON.stringify(r.id))},\${esc(JSON.stringify(r.brand_name||r.name))})">Delete</button>
       </td>
     </tr>\`;
   }).join('');
@@ -1231,17 +1235,22 @@ async function loadSettings() {
 }
 
 async function changeAdminPassword(btn) {
+  const currentPw = document.getElementById('current-pw').value;
   const pw = document.getElementById('new-pw').value;
-  if (!pw) return;
+  if (!currentPw) { showModalMsg('pw-msg', 'Current password required', 'error'); return; }
+  if (!pw) { showModalMsg('pw-msg', 'New password required', 'error'); return; }
+  if (pw.length < 8) { showModalMsg('pw-msg', 'New password must be at least 8 characters', 'error'); return; }
   btnLoading(btn);
   try {
     const r = await fetchTimeout('/api/admin/change-password', {
-      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:pw})
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({currentPassword:currentPw, password:pw})
     });
     const d = await r.json();
     const el = document.getElementById('pw-msg');
     if (r.ok) {
-      el.innerHTML = '<div class="alert-box alert-success">Password changed. <strong>Note:</strong> This only lasts until the server restarts — update your Railway environment variables to persist.</div>';
+      el.innerHTML = '<div class="alert-box alert-success">Password changed successfully.</div>';
+      document.getElementById('current-pw').value = '';
       document.getElementById('new-pw').value = '';
     } else {
       el.innerHTML = \`<div class="alert-box alert-error">\${esc(d.error||'Error')}</div>\`;
@@ -1589,7 +1598,7 @@ function renderEmailHistory(rows, total) {
       '<td style="font-size:12px">' + esc(r.recipient || '—') + '</td>' +
       '<td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(r.subject || '—') + '</td>' +
       '<td><button class="btn-sm" onclick="previewSentEmail(' + i + ')">Preview</button>' +
-      ' <button class="btn-sm" onclick="resendEmail(' + JSON.stringify(JSON.stringify(r)) + ')">Resend</button></td>' +
+      ' <button class="btn-sm" onclick="resendEmail(' + i + ')">Resend</button></td>' +
       '</tr>';
   }).join('');
 
@@ -1620,8 +1629,9 @@ function showEmailPreview(subject, html) {
   openModal('modal-email-preview');
 }
 
-async function resendEmail(rowJson) {
-  const row = JSON.parse(rowJson);
+async function resendEmail(idx) {
+  const row = emailHistoryRows[idx];
+  if (!row) return;
   if (!await modalConfirm('Resend Email', \`Resend "\${esc(row.email_type)}" to \${esc(row.recipient)}?\`)) return;
   try {
     const r = await fetchTimeout('/api/admin/emails/send', {
