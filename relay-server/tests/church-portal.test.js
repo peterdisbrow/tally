@@ -182,6 +182,15 @@ function createTestDb() {
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_reviews_approved ON church_reviews(approved)');
   db.exec(`
+    CREATE TABLE IF NOT EXISTS rooms (
+      id          TEXT PRIMARY KEY,
+      campus_id   TEXT NOT NULL,
+      name        TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      created_at  TEXT NOT NULL
+    )
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS referrals (
       id TEXT PRIMARY KEY,
       referrer_id TEXT NOT NULL,
@@ -1495,6 +1504,146 @@ describe('Church Portal API', () => {
         ...authHeaders(tokenA),
         body: { sunday: [] },
       });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // K. Room Management
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('Room management', () => {
+    let campusId;
+
+    beforeEach(async () => {
+      // Create a fresh campus under Church A for each test
+      const res = await client.post('/api/church/campuses', {
+        ...authHeaders(tokenA),
+        body: { name: 'Room Test Campus ' + Date.now(), location: 'Bldg A' },
+      });
+      campusId = res.body.churchId;
+    });
+
+    it('GET /api/church/campuses/:id/rooms returns empty list initially', async () => {
+      const res = await client.get(`/api/church/campuses/${campusId}/rooms`, authHeaders(tokenA));
+      expect(res.status).toBe(200);
+      expect(res.body.rooms).toEqual([]);
+    });
+
+    it('POST /api/church/campuses/:id/rooms creates a room', async () => {
+      const res = await client.post(`/api/church/campuses/${campusId}/rooms`, {
+        ...authHeaders(tokenA),
+        body: { name: 'Main Sanctuary', description: 'ATEM Mini Extreme' },
+      });
+      expect(res.status).toBe(201);
+      expect(res.body.name).toBe('Main Sanctuary');
+      expect(res.body.description).toBe('ATEM Mini Extreme');
+      expect(res.body).toHaveProperty('id');
+      expect(res.body.campusId).toBe(campusId);
+
+      // Verify in list
+      const list = await client.get(`/api/church/campuses/${campusId}/rooms`, authHeaders(tokenA));
+      expect(list.body.rooms).toHaveLength(1);
+      expect(list.body.rooms[0].name).toBe('Main Sanctuary');
+    });
+
+    it('POST /api/church/campuses/:id/rooms returns 400 for empty name', async () => {
+      const res = await client.post(`/api/church/campuses/${campusId}/rooms`, {
+        ...authHeaders(tokenA),
+        body: { name: '' },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('name');
+    });
+
+    it('PATCH /api/church/campuses/:id/rooms/:roomId renames a room', async () => {
+      const create = await client.post(`/api/church/campuses/${campusId}/rooms`, {
+        ...authHeaders(tokenA),
+        body: { name: 'Youth Room' },
+      });
+      const roomId = create.body.id;
+
+      const res = await client.patch(`/api/church/campuses/${campusId}/rooms/${roomId}`, {
+        ...authHeaders(tokenA),
+        body: { name: 'Youth Wing' },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+
+      // Verify rename in DB
+      const row = db.prepare('SELECT name FROM rooms WHERE id = ?').get(roomId);
+      expect(row.name).toBe('Youth Wing');
+    });
+
+    it('PATCH /api/church/campuses/:id/rooms/:roomId updates description', async () => {
+      const create = await client.post(`/api/church/campuses/${campusId}/rooms`, {
+        ...authHeaders(tokenA),
+        body: { name: 'Overflow Room', description: 'Old desc' },
+      });
+      const roomId = create.body.id;
+
+      const res = await client.patch(`/api/church/campuses/${campusId}/rooms/${roomId}`, {
+        ...authHeaders(tokenA),
+        body: { description: 'New desc' },
+      });
+      expect(res.status).toBe(200);
+      const row = db.prepare('SELECT description FROM rooms WHERE id = ?').get(roomId);
+      expect(row.description).toBe('New desc');
+    });
+
+    it('PATCH /api/church/campuses/:id/rooms/:roomId returns 400 for empty name', async () => {
+      const create = await client.post(`/api/church/campuses/${campusId}/rooms`, {
+        ...authHeaders(tokenA),
+        body: { name: 'Children Wing' },
+      });
+      const res = await client.patch(`/api/church/campuses/${campusId}/rooms/${create.body.id}`, {
+        ...authHeaders(tokenA),
+        body: { name: '' },
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('DELETE /api/church/campuses/:id/rooms/:roomId removes a room', async () => {
+      const create = await client.post(`/api/church/campuses/${campusId}/rooms`, {
+        ...authHeaders(tokenA),
+        body: { name: 'Cry Room' },
+      });
+      const roomId = create.body.id;
+
+      const res = await client.delete(`/api/church/campuses/${campusId}/rooms/${roomId}`, authHeaders(tokenA));
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+
+      const row = db.prepare('SELECT id FROM rooms WHERE id = ?').get(roomId);
+      expect(row).toBeUndefined();
+    });
+
+    it('DELETE /api/church/campuses/:id/rooms/:roomId returns 404 for nonexistent room', async () => {
+      const res = await client.delete(`/api/church/campuses/${campusId}/rooms/nonexistent`, authHeaders(tokenA));
+      expect(res.status).toBe(404);
+    });
+
+    it('GET rooms returns 404 for campus not owned by requester', async () => {
+      // campusId belongs to Church A — Church B should not see it
+      const res = await client.get(`/api/church/campuses/${campusId}/rooms`, authHeaders(tokenB));
+      expect(res.status).toBe(404);
+    });
+
+    it('POST room returns 404 for campus not owned by requester', async () => {
+      const res = await client.post(`/api/church/campuses/${campusId}/rooms`, {
+        ...authHeaders(tokenB),
+        body: { name: 'Sneaky Room' },
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it('DELETE room returns 404 for campus not owned by requester', async () => {
+      const create = await client.post(`/api/church/campuses/${campusId}/rooms`, {
+        ...authHeaders(tokenA),
+        body: { name: 'Secret Room' },
+      });
+      const roomId = create.body.id;
+      const res = await client.delete(`/api/church/campuses/${campusId}/rooms/${roomId}`, authHeaders(tokenB));
       expect(res.status).toBe(404);
     });
   });
