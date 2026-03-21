@@ -218,7 +218,7 @@ class SessionRecap {
       if (this.lifecycleEmails && church) {
         const sessionCount = this.db.prepare('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL').get(churchId);
         if (sessionCount?.cnt === 1) {
-          this.lifecycleEmails.sendFirstServiceCompleted(church, finalSession).catch(() => {});
+          this.lifecycleEmails.sendFirstServiceCompleted(church, finalSession).catch(e => console.error('[SessionRecap] First service email failed:', e.message));
         }
       }
     } catch (e) {

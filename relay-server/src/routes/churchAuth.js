@@ -163,11 +163,11 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
         <p style="font-size: 12px; color: #999;">Tally by ATEM School</p>
       </div>`,
       text: `Verify your Tally email\n\nClick this link to verify: ${verifyUrl}\n\nIf you didn't sign up for Tally, ignore this email.`,
-    }).catch(() => {});
+    }).catch(e => log(`[Onboarding] Verification email failed for ${cleanEmail}: ${e.message}`));
 
     if (lifecycleEmails) {
       const regChurch = { churchId, name: cleanName, portal_email: cleanEmail };
-      lifecycleEmails.sendRegistrationConfirmation(regChurch).catch(() => {});
+      lifecycleEmails.sendRegistrationConfirmation(regChurch).catch(e => log(`[Onboarding] Registration confirmation email failed for ${cleanEmail}: ${e.message}`));
     }
 
     const appToken = issueChurchAppToken(churchId, cleanName);
@@ -205,7 +205,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     }
     const lead = lifecycleEmails.captureLead({ email: cleanEmail, name, source, churchName });
     if (!lead) return res.status(500).json({ error: 'Failed to capture lead' });
-    lifecycleEmails.sendLeadWelcome(lead).catch(() => {});
+    lifecycleEmails.sendLeadWelcome(lead).catch(e => log(`[Leads] Welcome email failed for ${cleanEmail}: ${e.message}`));
     log(`[Leads] Captured lead: ${cleanEmail} (source: ${source || 'website'})`);
     res.json({ ok: true, message: 'Thanks! Check your email.' });
   });

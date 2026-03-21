@@ -5613,7 +5613,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       }
       // Send email change confirmation if portal_email changed
       if (safePatch.portal_email && safePatch.portal_email !== oldEmail && lifecycleEmails) {
-        lifecycleEmails.sendEmailChangeConfirmation(req.church, { oldEmail, newEmail: safePatch.portal_email }).catch(() => {});
+        lifecycleEmails.sendEmailChangeConfirmation(req.church, { oldEmail, newEmail: safePatch.portal_email }).catch(e => console.error('[Profile] Email change confirmation failed:', e.message));
       }
     }
     res.json({ ok: true });
@@ -6479,7 +6479,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       // Send upgrade confirmation email
       if (lifecycleEmails) {
-        lifecycleEmails.sendUpgradeConfirmation(church, { oldTier: currentTier, newTier }).catch(() => {});
+        lifecycleEmails.sendUpgradeConfirmation(church, { oldTier: currentTier, newTier }).catch(e => console.error('[Billing] Upgrade confirmation email failed:', e.message));
       }
 
       res.json({ success: true, tier: newTier, message: 'Plan upgraded to ' + newTier });
@@ -6578,7 +6578,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       // Send downgrade confirmation email
       if (lifecycleEmails) {
-        lifecycleEmails.sendDowngradeConfirmation(church, { oldTier: currentTier, newTier }).catch(() => {});
+        lifecycleEmails.sendDowngradeConfirmation(church, { oldTier: currentTier, newTier }).catch(e => console.error('[Billing] Downgrade confirmation email failed:', e.message));
       }
 
       res.json({ success: true, tier: newTier, message: 'Plan downgraded to ' + newTier + '. Change takes effect at end of current billing period.' });

@@ -505,7 +505,7 @@ class AlertEngine {
           }
           // Also send escalation email as backup
           if (this.lifecycleEmails) {
-            this.lifecycleEmails.sendUrgentAlertEscalation(church, { alertType, context, alertId }).catch(() => {});
+            this.lifecycleEmails.sendUrgentAlertEscalation(church, { alertType, context, alertId }).catch(e => console.error('[AlertEngine] Escalation email failed:', e.message));
           }
         }
       }, 300_000);

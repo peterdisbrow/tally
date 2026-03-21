@@ -376,9 +376,9 @@ class BillingSystem {
       const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(churchId);
       if (church) {
         if (session.metadata?.reactivation === 'true') {
-          this.lifecycleEmails.sendReactivationConfirmation(church).catch(() => {});
+          this.lifecycleEmails.sendReactivationConfirmation(church).catch(e => console.error('[Billing] Reactivation email failed:', e.message));
         } else {
-          this.lifecycleEmails.sendPaymentConfirmed(church, { tier, interval: billingInterval }).catch(() => {});
+          this.lifecycleEmails.sendPaymentConfirmed(church, { tier, interval: billingInterval }).catch(e => console.error('[Billing] Payment confirmed email failed:', e.message));
         }
       }
     }
@@ -422,7 +422,7 @@ class BillingSystem {
       if (this.lifecycleEmails) {
         const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(churchId);
         const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
-        if (church) this.lifecycleEmails.sendCancellationConfirmation(church, { periodEnd }).catch(() => {});
+        if (church) this.lifecycleEmails.sendCancellationConfirmation(church, { periodEnd }).catch(e => console.error('[Billing] Cancellation email failed:', e.message));
       }
     }
   }
@@ -584,7 +584,7 @@ class BillingSystem {
     if (this.lifecycleEmails && billingRecord.church_id) {
       const church = this.db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(billingRecord.church_id);
       if (church) {
-        this.lifecycleEmails.sendInvoiceUpcoming(church, { amount, dueDate }).catch(() => {});
+        this.lifecycleEmails.sendInvoiceUpcoming(church, { amount, dueDate }).catch(e => console.error('[Billing] Invoice upcoming email failed:', e.message));
         console.log(`[Billing] Invoice upcoming email queued for ${billingRecord.church_id} — $${(amount / 100).toFixed(2)}`);
       }
     }

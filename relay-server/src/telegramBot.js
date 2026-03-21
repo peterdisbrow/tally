@@ -656,7 +656,7 @@ class TallyBot {
     // Process async — don't block Telegram's webhook timeout
     this._processMessage(userId, chatId, text, msg.from).catch(err => {
       console.error('[TallyBot] Error processing message:', err.message);
-      this.sendMessage(chatId, '❌ Something went wrong. Try again.').catch(() => {});
+      this.sendMessage(chatId, '❌ Something went wrong. Try again.').catch(e => console.error('[TallyBot] Failed to send error reply to', chatId, ':', e.message));
     });
   }
 
@@ -911,7 +911,7 @@ class TallyBot {
       await this.sendMessage(swap.requester.telegramChatId,
         `✅ *${result.target.name}* confirmed the swap — they are now on-call starting ${result.sundayStr}. You're off the hook!`,
         { parse_mode: 'Markdown' }
-      ).catch(() => {});
+      ).catch(e => console.error('[TallyBot] Swap confirm notify failed for', swap.requester.telegramChatId, ':', e.message));
     }
   }
 
@@ -1076,7 +1076,7 @@ class TallyBot {
         await this.sendMessage(result.target.telegramChatId,
           `🔄 *On-Call Swap Request*\n\n${result.requester.name} wants to swap on-call duty with you for *${church.name}*.\n\nType \`/confirmswap\` to accept.`,
           { parse_mode: 'Markdown' }
-        ).catch(() => {});
+        ).catch(e => console.error('[TallyBot] Swap request notify failed for', result.target.telegramChatId, ':', e.message));
       }
       return this.sendMessage(chatId, `✅ ${result.message}`, { parse_mode: 'Markdown' });
     }

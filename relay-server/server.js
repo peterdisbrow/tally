@@ -1039,7 +1039,7 @@ function checkExpiredTrials() {
       // Send trial-expired email (non-blocking)
       if (lifecycleEmails) {
         const fullChurch = db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(church.churchId);
-        if (fullChurch) lifecycleEmails.sendTrialExpired(fullChurch).catch(() => {});
+        if (fullChurch) lifecycleEmails.sendTrialExpired(fullChurch).catch(e => logError('[TrialExpiry] Failed to send trial-expired email to ' + fullChurch.portal_email + ': ' + e.message));
       }
 
       // Disconnect the church if it's currently connected
@@ -1087,7 +1087,7 @@ function enforceGracePeriods() {
       // Send grace-expired email
       if (lifecycleEmails) {
         const church = db.prepare('SELECT churchId, name, portal_email FROM churches WHERE churchId = ?').get(row.church_id);
-        if (church) lifecycleEmails.sendGraceExpired(church).catch(() => {});
+        if (church) lifecycleEmails.sendGraceExpired(church).catch(e => logError('[GracePeriod] Failed to send grace-expired email to ' + church.portal_email + ': ' + e.message));
       }
     }
 
@@ -1167,7 +1167,7 @@ if (TALLY_BOT_TOKEN) {
     try {
       const tds = db.prepare('SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1').all(churchId);
       for (const td of tds) {
-        tallyBot.sendMessage(String(td.telegram_chat_id), message, { parse_mode: 'Markdown' }).catch(() => {});
+        tallyBot.sendMessage(String(td.telegram_chat_id), message, { parse_mode: 'Markdown' }).catch(e => log('[Scheduler] Telegram notify failed for TD ' + td.telegram_chat_id + ': ' + e.message));
       }
     } catch { /* table may not exist yet */ }
   });
@@ -1232,14 +1232,14 @@ chatEngine.setBroadcasters({
     const tds = db.prepare('SELECT telegram_chat_id FROM church_tds WHERE church_id = ? AND active = 1').all(churchId);
     for (const td of tds) {
       if (td.telegram_chat_id && savedMsg.source !== 'telegram') {
-        tallyBot.sendMessage(td.telegram_chat_id, text).catch(() => {});
+        tallyBot.sendMessage(td.telegram_chat_id, text).catch(e => log('[Chat] Telegram notify failed for TD ' + td.telegram_chat_id + ': ' + e.message));
       }
     }
     // Notify admin if message is from a TD
     if (savedMsg.sender_role === 'td' && tallyBot.adminChatId) {
       const churchRow = db.prepare('SELECT name FROM churches WHERE churchId = ?').get(churchId);
       const adminText = `${sourceIcon} *${savedMsg.sender_name}* (${churchRow?.name || churchId}):\n${savedMsg.message}`;
-      tallyBot.sendMessage(tallyBot.adminChatId, adminText).catch(() => {});
+      tallyBot.sendMessage(tallyBot.adminChatId, adminText).catch(e => log('[Chat] Admin Telegram notify failed: ' + e.message));
     }
   },
 });
@@ -3198,7 +3198,7 @@ function _checkDeviceVersions(church, status) {
         church, 'firmware_outdated',
         { device: c.label, currentVersion: result.current, minimumVersion: result.minimum },
         sessionRecap?.getActiveSessionId?.(church.churchId) || null,
-      ).catch(() => {});
+      ).catch(e => logError('[VersionCheck] Failed to send firmware-outdated alert: ' + e.message));
     }
   }
 }
