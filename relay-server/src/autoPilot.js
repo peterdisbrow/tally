@@ -231,7 +231,11 @@ class AutoPilot {
       const maxRules = MAX_RULES_PER_TIER[tier] ?? 0;
       const currentCount = this.db.prepare('SELECT COUNT(*) as cnt FROM automation_rules WHERE church_id = ?').get(churchId).cnt;
       if (currentCount >= maxRules) {
-        throw new Error(`Rule limit reached (${maxRules} rules for ${tier} plan). Upgrade to add more rules.`);
+        const err = new Error(`Rule limit reached (${maxRules} rules for ${tier} plan). Upgrade to add more rules.`);
+        err.code = 'RULE_LIMIT_REACHED';
+        err.currentTier = tier;
+        err.ruleLimit = maxRules;
+        throw err;
       }
     }
     const id = uuidv4();
@@ -611,6 +615,96 @@ class AutoPilot {
         this.logCommand(churchId, action.command, action.params || {}, 'autopilot', `ERROR: ${e.message}`);
       }
     }
+  }
+
+  /**
+   * Dry-run a rule against synthetic telemetry. No commands are executed.
+   * @param {string} ruleId
+   * @param {object} overrides - Optional: { slideData, minutesIntoService, state }
+   * @returns {object} { wouldFire, reason, actions, simulatedTrigger, ruleName }
+   */
+  testRule(ruleId, overrides = {}) {
+    const rule = this.getRule(ruleId);
+    if (!rule) throw new Error('Rule not found');
+
+    const triggerType = rule.trigger_type;
+    const config = rule.trigger_config || {};
+    let wouldFire, reason, simulatedTrigger;
+
+    if (triggerType === 'propresenter_slide_change') {
+      const slideData = overrides.slideData || {
+        presentationName: config.presentationPattern || 'Sermon',
+        slideIndex: config.slideIndex !== undefined ? config.slideIndex : 1,
+        slideCount: 20,
+      };
+      let match = false;
+      if (config.presentationPattern) {
+        const pattern = String(config.presentationPattern).toLowerCase();
+        match = String(slideData.presentationName || '').toLowerCase().includes(pattern);
+      } else if (config.slideIndex !== undefined) {
+        match = slideData.slideIndex === config.slideIndex;
+      } else {
+        match = true;
+      }
+      wouldFire = match;
+      reason = match
+        ? `Slide "${slideData.presentationName}" (index ${slideData.slideIndex}) matches trigger.`
+        : `Slide "${slideData.presentationName}" (index ${slideData.slideIndex}) does not match trigger.`;
+      simulatedTrigger = { type: 'propresenter_slide_change', slideData };
+
+    } else if (triggerType === 'schedule_timer') {
+      const triggerMinute = parseInt(config.minutesIntoService) || 0;
+      const simMinutes = overrides.minutesIntoService !== undefined ? overrides.minutesIntoService : triggerMinute;
+      wouldFire = simMinutes >= triggerMinute;
+      reason = wouldFire
+        ? `At ${simMinutes} min into service window (trigger at ${triggerMinute} min): rule fires.`
+        : `At ${simMinutes} min into service window (trigger at ${triggerMinute} min): rule not yet due.`;
+      simulatedTrigger = { type: 'schedule_timer', minutesIntoService: simMinutes };
+
+    } else if (triggerType === 'equipment_state_match') {
+      const conditions = config.conditions || {};
+      // Auto-fill state with matching values so the dry-run defaults to "would fire"
+      const state = { ...overrides.state };
+      if (!overrides.state) {
+        for (const [key, expected] of Object.entries(conditions)) {
+          const parts = key.split('.');
+          let obj = state;
+          for (let i = 0; i < parts.length - 1; i++) {
+            if (!obj[parts[i]] || typeof obj[parts[i]] !== 'object') obj[parts[i]] = {};
+            obj = obj[parts[i]];
+          }
+          if (obj[parts[parts.length - 1]] === undefined) obj[parts[parts.length - 1]] = expected;
+        }
+      }
+      const mismatches = [];
+      for (const [key, expected] of Object.entries(conditions)) {
+        const actual = this._getNestedValue(state, key);
+        if (actual !== expected) mismatches.push(`${key}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+      }
+      wouldFire = mismatches.length === 0 && Object.keys(conditions).length > 0;
+      reason = wouldFire
+        ? `All ${Object.keys(conditions).length} condition(s) match: rule fires.`
+        : mismatches.length
+          ? `Condition mismatch — ${mismatches.join('; ')}`
+          : 'No conditions configured — rule would not fire.';
+      simulatedTrigger = { type: 'equipment_state_match', state };
+
+    } else {
+      wouldFire = false;
+      reason = `Unknown trigger type: ${triggerType}`;
+      simulatedTrigger = { type: triggerType };
+    }
+
+    return {
+      ruleId: rule.id,
+      ruleName: rule.name,
+      triggerType,
+      wouldFire,
+      reason,
+      actions: rule.actions,
+      simulatedTrigger,
+      note: 'Dry run — no commands were executed.',
+    };
   }
 
   _getNestedValue(obj, path) {

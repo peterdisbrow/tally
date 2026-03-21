@@ -114,6 +114,17 @@ module.exports = function setupAutomationRoutes(app, ctx) {
       });
       res.json(rule);
     } catch (e) {
+      if (e.code === 'RULE_LIMIT_REACHED') {
+        const NEXT_TIER = { connect: 'plus', plus: 'pro', pro: 'managed', managed: 'managed' };
+        const suggestedPlan = NEXT_TIER[e.currentTier] || 'pro';
+        return res.status(402).json({
+          error: e.message,
+          upgradeUrl: `https://tallyconnect.app/signup?plan=${suggestedPlan}`,
+          suggestedPlan,
+          currentTier: e.currentTier,
+          ruleLimit: e.ruleLimit,
+        });
+      }
       res.status(400).json({ error: e.message });
     }
   });
@@ -131,6 +142,18 @@ module.exports = function setupAutomationRoutes(app, ctx) {
     const deleted = autoPilot.deleteRule(req.params.ruleId);
     if (!deleted) return res.status(404).json({ error: 'Rule not found' });
     res.json({ deleted: true });
+  });
+
+  app.post('/api/churches/:churchId/automation/:ruleId/test', requireAdmin, requireFeature('autopilot'), (req, res) => {
+    const rule = autoPilot.getRule(req.params.ruleId);
+    if (!rule) return res.status(404).json({ error: 'Rule not found' });
+    if (rule.church_id !== req.params.churchId) return res.status(403).json({ error: 'Access denied' });
+    try {
+      const result = autoPilot.testRule(req.params.ruleId, req.body || {});
+      res.json(result);
+    } catch (e) {
+      res.status(400).json({ error: safeErrorMessage(e) });
+    }
   });
 
   app.post('/api/churches/:churchId/automation/pause', requireAdmin, requireFeature('autopilot'), (req, res) => {

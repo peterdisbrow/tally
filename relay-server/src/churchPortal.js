@@ -916,6 +916,9 @@ function buildChurchPortalHtml(church) {
     <button class="nav-item" data-page="macros" onclick="showPage('macros', this)">
       <span class="icon">⚡</span> Macros
     </button>
+    <button class="nav-item" data-page="autopilot" onclick="showPage('autopilot', this)">
+      <span class="icon">🤖</span> AutoPilot
+    </button>
     <button class="nav-item" data-page="sessions" onclick="showPage('sessions', this)">
       <span class="icon">⊟</span> Sessions
     </button>
@@ -1682,6 +1685,118 @@ function buildChurchPortalHtml(church) {
       </div>
     </div>
 
+    <!-- AUTOPILOT -->
+    <div class="page" id="page-autopilot">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title">AutoPilot</div>
+          <div class="page-sub">Automation rules that fire during your service windows</div>
+        </div>
+      </div>
+      <p class="help-box"><strong>What is AutoPilot?</strong> AutoPilot rules fire automatically during your service windows — no manual intervention needed. Triggers include ProPresenter slide changes, schedule timers, and equipment state events. Actions include OBS commands, ATEM switches, and TD notifications. Pro plan required.</p>
+
+      <!-- Upgrade gate for Connect/Plus plans -->
+      <div id="autopilot-upgrade-gate" style="display:none">
+        <div class="card" style="text-align:center;padding:40px 24px">
+          <div style="font-size:40px;margin-bottom:16px">🤖</div>
+          <div style="font-size:18px;font-weight:700;color:#F8FAFC;margin-bottom:8px">AutoPilot requires Pro or higher</div>
+          <div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:20px">Set up automation rules that run during your service windows — auto-start recording, switch cameras on slide change, and more.</div>
+          <button class="btn-primary" onclick="showPage('billing', document.querySelector('[data-page=billing]'))">Upgrade to Pro &rarr;</button>
+        </div>
+      </div>
+
+      <!-- AutoPilot content for Pro+ plans -->
+      <div id="autopilot-content" style="display:none">
+        <div id="autopilot-paused-banner" style="display:none;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">
+          ⏸ AutoPilot is paused — all rules are suspended.
+        </div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <button id="btn-autopilot-pause" class="btn-secondary" onclick="toggleAutopilotPause()">Pause AutoPilot</button>
+            <button class="btn-primary" onclick="document.getElementById('modal-add-rule').classList.add('open')">+ New Rule</button>
+          </div>
+          <div id="autopilot-rules-list">
+            <div style="color:#475569;text-align:center;padding:20px;font-size:13px">Loading\u2026</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Rule Modal -->
+    <div class="modal" id="modal-add-rule">
+      <div class="modal-inner" style="max-width:560px">
+        <div class="modal-header">
+          <div class="modal-title">New AutoPilot Rule</div>
+          <button class="modal-close" onclick="document.getElementById('modal-add-rule').classList.remove('open')">&#x2715;</button>
+        </div>
+        <div style="padding:20px">
+          <div class="field" style="margin-bottom:14px">
+            <label>Rule Name</label>
+            <input type="text" id="rule-name" placeholder="e.g. Auto-Start Recording">
+          </div>
+          <div class="field" style="margin-bottom:14px">
+            <label>Trigger Type</label>
+            <select id="rule-trigger-type" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:8px 12px;font-size:14px;width:100%">
+              <option value="">Select trigger&hellip;</option>
+              <option value="propresenter_slide_change">ProPresenter Slide Change</option>
+              <option value="schedule_timer">Schedule Timer</option>
+              <option value="equipment_state_match">Equipment State Match</option>
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:14px">
+            <label>Trigger Config <span style="color:#64748b;font-size:11px">(JSON)</span></label>
+            <textarea id="rule-trigger-config" rows="3" placeholder='{"minutesIntoService": 5}' style="font-family:monospace;font-size:13px"></textarea>
+            <div style="font-size:11px;color:#94a3b8;margin-top:4px">Examples: <code>{"presentationPattern":"Sermon"}</code> &nbsp; <code>{"minutesIntoService":10}</code> &nbsp; <code>{"conditions":{"obs.streaming":true}}</code></div>
+          </div>
+          <div class="field" style="margin-bottom:14px">
+            <label>Actions <span style="color:#64748b;font-size:11px">(JSON array)</span></label>
+            <textarea id="rule-actions" rows="3" placeholder='[{"command":"obs.startRecording","params":{}}]' style="font-family:monospace;font-size:13px"></textarea>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn-secondary" onclick="document.getElementById('modal-add-rule').classList.remove('open')">Cancel</button>
+            <button class="btn-primary" id="btn-save-rule" onclick="saveAutopilotRule()">Save Rule</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Test Rule Result Modal -->
+    <div class="modal" id="modal-test-rule">
+      <div class="modal-inner" style="max-width:500px">
+        <div class="modal-header">
+          <div class="modal-title">Test Rule &mdash; Dry Run</div>
+          <button class="modal-close" onclick="document.getElementById('modal-test-rule').classList.remove('open')">&#x2715;</button>
+        </div>
+        <div style="padding:20px">
+          <div id="test-rule-result">
+            <div style="color:#475569;text-align:center;padding:16px">Running\u2026</div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:16px">
+            <button class="btn-secondary" onclick="document.getElementById('modal-test-rule').classList.remove('open')">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rule Limit / Upgrade Modal -->
+    <div class="modal" id="modal-rule-limit">
+      <div class="modal-inner" style="max-width:440px">
+        <div class="modal-header">
+          <div class="modal-title">Rule Limit Reached</div>
+          <button class="modal-close" onclick="document.getElementById('modal-rule-limit').classList.remove('open')">&#x2715;</button>
+        </div>
+        <div style="padding:24px">
+          <div style="font-size:32px;text-align:center;margin-bottom:12px">🚀</div>
+          <div style="font-size:15px;font-weight:700;color:#F8FAFC;text-align:center;margin-bottom:8px">You&rsquo;ve reached the rule limit for your plan</div>
+          <div style="font-size:13px;color:#94A3B8;text-align:center;line-height:1.6;margin-bottom:20px" id="rule-limit-body">Upgrade to Pro for up to 10 automation rules, or Enterprise for 25.</div>
+          <div style="display:flex;gap:8px;justify-content:center">
+            <button class="btn-secondary" onclick="document.getElementById('modal-rule-limit').classList.remove('open')">Maybe Later</button>
+            <button class="btn-primary" id="btn-rule-limit-upgrade" onclick="document.getElementById('modal-rule-limit').classList.remove('open');showPage('billing',document.querySelector('[data-page=billing]'))">Upgrade Plan &rarr;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- SESSIONS -->
     <div class="page" id="page-sessions">
       <div class="page-header">
@@ -2051,6 +2166,7 @@ function buildChurchPortalHtml(church) {
       if (id === 'schedule') loadSchedule();
       if (id === 'guests') loadGuests();
       if (id === 'macros') loadMacros();
+      if (id === 'autopilot') loadAutopilot();
       if (id === 'sessions') loadSessions();
       if (id === 'alerts') loadAlerts();
       if (id === 'billing') loadBilling();
@@ -2076,7 +2192,11 @@ function buildChurchPortalHtml(church) {
       if (body) opts.body = JSON.stringify(body);
       const r = await fetch(path, opts);
       const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(data.error || 'Request failed');
+      if (!r.ok) {
+        const err = new Error(data.error || 'Request failed');
+        Object.assign(err, data); // attach upgradeUrl, suggestedPlan, etc.
+        throw err;
+      }
       return data;
     }
 
@@ -4521,6 +4641,161 @@ function buildChurchPortalHtml(church) {
         closeMacroModal();
         loadMacros();
       } catch(e) { toast(e.message, true); }
+    }
+
+    // ── AutoPilot ─────────────────────────────────────────────────────────────
+    var _autopilotChurchId = null;
+    var _autopilotPaused = false;
+
+    async function loadAutopilot() {
+      try {
+        var me = await api('GET', '/api/church/me');
+        var billing = await api('GET', '/api/church/billing');
+        _autopilotChurchId = me.churchId;
+
+        var hasAccess = billing.features && billing.features.autopilot;
+        document.getElementById('autopilot-upgrade-gate').style.display = hasAccess ? 'none' : '';
+        document.getElementById('autopilot-content').style.display = hasAccess ? '' : 'none';
+        if (!hasAccess) return;
+
+        var data = await api('GET', '/api/churches/' + me.churchId + '/automation');
+        _autopilotPaused = data.paused;
+
+        var pauseBtn = document.getElementById('btn-autopilot-pause');
+        if (pauseBtn) pauseBtn.textContent = _autopilotPaused ? 'Resume AutoPilot' : 'Pause AutoPilot';
+
+        var banner = document.getElementById('autopilot-paused-banner');
+        if (banner) banner.style.display = _autopilotPaused ? '' : 'none';
+
+        renderAutopilotRules(data.rules || []);
+      } catch(e) {
+        var el = document.getElementById('autopilot-rules-list');
+        if (el) el.innerHTML = '<div style="color:#ef4444;text-align:center;padding:20px">Error loading AutoPilot: ' + escapeHtml(e.message) + '</div>';
+      }
+    }
+
+    function renderAutopilotRules(rules) {
+      var el = document.getElementById('autopilot-rules-list');
+      if (!el) return;
+      if (!rules.length) {
+        el.innerHTML = '<div style="color:#475569;text-align:center;padding:24px;font-size:13px">'
+          + '<div style="font-size:24px;margin-bottom:8px">🤖</div>'
+          + '<div style="font-weight:600;margin-bottom:6px">No rules yet</div>'
+          + '<div>Click &quot;+ New Rule&quot; to create your first automation.</div>'
+          + '</div>';
+        return;
+      }
+      var triggerLabels = {
+        'propresenter_slide_change': 'Slide Change',
+        'schedule_timer': 'Schedule Timer',
+        'equipment_state_match': 'Equipment State',
+      };
+      el.innerHTML = rules.map(function(rule) {
+        var label = triggerLabels[rule.trigger_type] || rule.trigger_type;
+        var firedInfo = rule.last_fired_at ? ' \u00b7 Last fired: ' + timeAgo(rule.last_fired_at) : '';
+        var enabledClass = rule.enabled ? 'badge-green' : 'badge-gray';
+        var enabledLabel = rule.enabled ? 'Enabled' : 'Disabled';
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #1a2e1f">'
+          + '<div style="flex:1;min-width:0;margin-right:12px">'
+          +   '<div style="font-weight:600;color:#F8FAFC;font-size:14px">' + escapeHtml(rule.name) + '</div>'
+          +   '<div style="font-size:12px;color:#64748B;margin-top:2px">' + escapeHtml(label) + escapeHtml(firedInfo) + '</div>'
+          + '</div>'
+          + '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">'
+          +   '<span class="badge ' + enabledClass + '">' + enabledLabel + '</span>'
+          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="testAutopilotRule(\'' + rule.id + '\')">Test</button>'
+          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="toggleAutopilotRule(\'' + rule.id + '\',' + !rule.enabled + ')">' + (rule.enabled ? 'Disable' : 'Enable') + '</button>'
+          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px;color:#ef4444;border-color:rgba(239,68,68,0.4)" onclick="deleteAutopilotRule(\'' + rule.id + '\')">Delete</button>'
+          + '</div>'
+          + '</div>';
+      }).join('');
+    }
+
+    async function toggleAutopilotPause() {
+      try {
+        var endpoint = _autopilotPaused ? '/resume' : '/pause';
+        await api('POST', '/api/churches/' + _autopilotChurchId + '/automation' + endpoint);
+        await loadAutopilot();
+      } catch(e) { toast('Failed: ' + e.message, true); }
+    }
+
+    async function testAutopilotRule(ruleId) {
+      var resultEl = document.getElementById('test-rule-result');
+      resultEl.innerHTML = '<div style="color:#475569;text-align:center;padding:16px">Running dry run\u2026</div>';
+      document.getElementById('modal-test-rule').classList.add('open');
+      try {
+        var r = await api('POST', '/api/churches/' + _autopilotChurchId + '/automation/' + ruleId + '/test');
+        var fireColor = r.wouldFire ? '#22c55e' : '#ef4444';
+        var fireLabel = r.wouldFire ? '\u2714 Would fire' : '\u2718 Would NOT fire';
+        var html = '<div style="margin-bottom:14px">';
+        html += '<div style="font-size:16px;font-weight:700;color:' + fireColor + '">' + fireLabel + '</div>';
+        html += '<div style="color:#94A3B8;font-size:13px;margin-top:6px;line-height:1.5">' + escapeHtml(r.reason) + '</div>';
+        html += '</div>';
+        if (r.wouldFire && r.actions && r.actions.length) {
+          html += '<div style="font-size:12px;color:#64748B;margin-bottom:6px">Actions that would execute:</div>';
+          html += r.actions.map(function(a) {
+            return '<div style="background:#09090B;border-radius:6px;padding:8px 12px;font-family:monospace;font-size:12px;color:#22c55e;margin-bottom:4px">'
+              + escapeHtml(a.command) + (a.params && Object.keys(a.params).length ? ' ' + escapeHtml(JSON.stringify(a.params)) : '')
+              + '</div>';
+          }).join('');
+        }
+        html += '<div style="font-size:11px;color:#475569;margin-top:12px;padding-top:10px;border-top:1px solid #1a2e1f">' + escapeHtml(r.note) + '</div>';
+        resultEl.innerHTML = html;
+      } catch(e) {
+        resultEl.innerHTML = '<div style="color:#ef4444">' + escapeHtml(e.message) + '</div>';
+      }
+    }
+
+    async function toggleAutopilotRule(ruleId, enabled) {
+      try {
+        await api('PUT', '/api/churches/' + _autopilotChurchId + '/automation/' + ruleId, { enabled: enabled });
+        await loadAutopilot();
+        toast(enabled ? 'Rule enabled' : 'Rule disabled');
+      } catch(e) { toast('Failed: ' + e.message, true); }
+    }
+
+    async function deleteAutopilotRule(ruleId) {
+      if (!await modalConfirm('Delete this automation rule?', { title: 'Delete Rule', okLabel: 'Delete', dangerOk: true })) return;
+      try {
+        await api('DELETE', '/api/churches/' + _autopilotChurchId + '/automation/' + ruleId);
+        await loadAutopilot();
+        toast('Rule deleted');
+      } catch(e) { toast('Failed: ' + e.message, true); }
+    }
+
+    async function saveAutopilotRule() {
+      var name = document.getElementById('rule-name').value.trim();
+      var triggerType = document.getElementById('rule-trigger-type').value;
+      var tcText = document.getElementById('rule-trigger-config').value.trim();
+      var actionsText = document.getElementById('rule-actions').value.trim();
+      if (!name) { toast('Rule name required', true); return; }
+      if (!triggerType) { toast('Select a trigger type', true); return; }
+      var triggerConfig = {};
+      var actions = [];
+      try { if (tcText) triggerConfig = JSON.parse(tcText); } catch(e) { toast('Trigger config must be valid JSON', true); return; }
+      try { if (actionsText) actions = JSON.parse(actionsText); } catch(e) { toast('Actions must be valid JSON array', true); return; }
+      var btn = document.getElementById('btn-save-rule');
+      btn.disabled = true;
+      try {
+        await api('POST', '/api/churches/' + _autopilotChurchId + '/automation', { name, triggerType, triggerConfig, actions });
+        document.getElementById('modal-add-rule').classList.remove('open');
+        document.getElementById('rule-name').value = '';
+        document.getElementById('rule-trigger-type').value = '';
+        document.getElementById('rule-trigger-config').value = '';
+        document.getElementById('rule-actions').value = '';
+        await loadAutopilot();
+        toast('Rule created');
+      } catch(e) {
+        if (e.upgradeUrl || (e.message && e.message.includes('Rule limit'))) {
+          document.getElementById('modal-add-rule').classList.remove('open');
+          var body = 'Upgrade to add more rules. ';
+          if (e.suggestedPlan) body += 'Suggested plan: ' + e.suggestedPlan.charAt(0).toUpperCase() + e.suggestedPlan.slice(1) + '.';
+          document.getElementById('rule-limit-body').textContent = body;
+          document.getElementById('modal-rule-limit').classList.add('open');
+        } else {
+          toast('Failed: ' + e.message, true);
+        }
+      }
+      btn.disabled = false;
     }
 
     // ── Sessions ──────────────────────────────────────────────────────────────
