@@ -209,7 +209,7 @@ Tally is designed to run continuously in the background. A few things to know:
 - 🔴 Red = active issue
 
 **If the icon is grey on Sunday morning:**
-1. Click the tray icon → **Start Agent**
+1. Click the tray icon → **Start Monitoring**
 2. If that doesn't work, check your internet connection
 3. If still grey, text or call Andrew
 
@@ -234,7 +234,7 @@ Tally is designed to run continuously in the background. A few things to know:
 
 ### "Relay disconnected"
 - Check your internet connection
-- The tray icon turns grey — click it and choose **Start Agent**
+- The tray icon turns grey — click it and choose **Start Monitoring**
 
 ### "Stream stopped" alert during service
 - This is the most common real alert
