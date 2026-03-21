@@ -355,6 +355,7 @@ function request(app) {
     get: (path, opts) => makeRequest('GET', path, opts || {}),
     post: (path, opts) => makeRequest('POST', path, opts || {}),
     put: (path, opts) => makeRequest('PUT', path, opts || {}),
+    patch: (path, opts) => makeRequest('PATCH', path, opts || {}),
     delete: (path, opts) => makeRequest('DELETE', path, opts || {}),
     close: () => server.close(),
   };
