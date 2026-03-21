@@ -254,6 +254,11 @@ function createWindow() {
     }
     e.preventDefault();
     mainWindow.hide();
+    // On first close, let the user know the app is still running in the tray
+    if (!loadPrefs().hasSeenTrayNotice) {
+      savePrefs({ hasSeenTrayNotice: true });
+      sendNotification('Tally Connect is still running', 'Tally Connect is still running in your system tray.');
+    }
   });
 
   // Notify renderer when window is hidden/shown so it can pause polling
