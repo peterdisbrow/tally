@@ -728,6 +728,24 @@ class TallyBot {
       return this._handleHistory(userId, chatId);
     }
 
+    // 3e. /status — quick system health overview for the registered church
+    if (text === '/status') {
+      const tdRow = this._stmtFindTD.get(userId);
+      if (tdRow) {
+        const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(tdRow.church_id);
+        if (church) return this._sendStatus(church, chatId);
+      }
+      // Guest TD path
+      if (this.guestTdMode) {
+        const guest = this.guestTdMode.findActiveGuestByChatId(chatId);
+        if (guest) {
+          const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(guest.churchId);
+          if (church) return this._sendStatus(church, chatId);
+        }
+      }
+      return this.sendMessage(chatId, '❌ You\'re not registered yet. Send /register YOUR_CODE to get started.');
+    }
+
     // 4. /confirmswap — TD confirming an on-call swap
     if (text === '/confirmswap' && this.onCallRotation) {
       return this._handleConfirmSwap(userId, chatId);
