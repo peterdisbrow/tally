@@ -183,6 +183,7 @@ class TcpMidi extends EventEmitter {
 
       this._socket.on('error', (err) => {
         if (!this._online) {
+          if (!this._socket.destroyed) this._socket.destroy();
           reject(err);
         } else {
           this.emit('error', err);
