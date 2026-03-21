@@ -746,8 +746,14 @@ class TallyBot {
   }
 
   async _processMessage(userId, chatId, text, from) {
-    // 1. /start command
-    if (text === '/start') {
+    // 1. /start command — also handles deep links (/start reg_CODE)
+    if (text === '/start' || text.startsWith('/start ')) {
+      const param = text.slice(6).trim(); // everything after "/start "
+      if (param.startsWith('reg_')) {
+        // Deep link registration: /start reg_REGISTRATIONCODE
+        const code = param.slice(4).toUpperCase();
+        return this._handleRegister(userId, chatId, `/register ${code}`, from);
+      }
       const brandName = this._getBrandNameForUser(userId);
       const poweredBy = brandName !== 'Tally' ? `\n\n_Powered by Tally_` : '';
       return this.sendMessage(chatId,

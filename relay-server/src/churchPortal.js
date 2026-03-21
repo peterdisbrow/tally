@@ -498,9 +498,41 @@ function buildChurchPortalHtml(church) {
     }
     .page { display: none; }
     .page.active { display: block; }
-    .page-header { margin-bottom: 24px; }
+    .page-header { margin-bottom: 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .page-header-text { flex: 1; }
     .page-title { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
     .page-sub { font-size: 13px; color: #94A3B8; }
+    /* Help icon button */
+    .help-icon-btn {
+      background: none;
+      border: 1px solid #1a2e1f;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      color: #64748B;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: border-color .15s, color .15s;
+    }
+    .help-icon-btn:hover { border-color: #22c55e; color: #22c55e; }
+    /* Help modal */
+    #help-modal { background: rgba(0,0,0,0.7); }
+    #help-modal .modal {
+      width: 540px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    #help-modal-body { font-size: 14px; color: #CBD5E1; line-height: 1.75; }
+    #help-modal-body h3 { color: #F8FAFC; font-size: 15px; margin: 16px 0 6px; }
+    #help-modal-body ul { padding-left: 18px; margin: 8px 0; }
+    #help-modal-body li { margin-bottom: 6px; }
+    #help-modal-body strong { color: #F8FAFC; }
+    #help-modal-body .tip-box { background: rgba(34,197,94,0.06); border: 1px solid rgba(34,197,94,0.2); border-radius: 8px; padding: 10px 14px; margin: 12px 0; font-size: 13px; }
     /* CARDS */
     .card {
       background: #0F1613;
@@ -812,8 +844,11 @@ function buildChurchPortalHtml(church) {
       .main { margin-left: 0; padding: 16px; padding-top: 56px; }
       .page-title { font-size: 18px; }
       .card { padding: 16px; }
-      .stats-row { grid-template-columns: 1fr !important; gap: 10px; }
-      .stat-value { font-size: 22px; }
+      .card-title { font-size: 13px; }
+      /* Stats: 3-across on small screens (numbers are short) */
+      .stats-row { grid-template-columns: repeat(3,1fr) !important; gap: 8px; }
+      .stat-value { font-size: 20px; }
+      .stat-card { padding: 12px 8px; }
       .grid-4col { grid-template-columns: repeat(2,1fr) !important; }
       .grid-3col { grid-template-columns: 1fr !important; }
       .grid-2col { grid-template-columns: 1fr !important; }
@@ -822,6 +857,24 @@ function buildChurchPortalHtml(church) {
       table { font-size: 12px; }
       th, td { padding: 8px 6px 8px 0; }
       #toast { left: 16px; right: 16px; bottom: 16px; text-align: center; }
+      /* Full-screen modals on mobile */
+      .modal-backdrop { align-items: flex-end; padding: 0; }
+      .modal {
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: 90vh;
+        overflow-y: auto;
+        border-radius: 16px 16px 0 0;
+        padding: 20px 16px;
+      }
+      /* Button groups should wrap */
+      .modal-footer { flex-wrap: wrap; }
+      /* Help box text slightly smaller */
+      .help-box { font-size: 12px; padding: 10px 12px; }
+      /* Activity feed height limit on mobile */
+      #activity-feed-body { max-height: 200px; }
+      /* Tighten stream/ATEM mini-grids */
+      .grid-4col > div { padding: 10px 6px !important; }
     }
   </style>
 </head>
@@ -876,6 +929,7 @@ function buildChurchPortalHtml(church) {
       <span class="icon">⊕</span> Help & Support
     </button>
     <div class="sidebar-footer">
+      <button class="btn-secondary" onclick="startDemoMode()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.7" title="See a simulated service without hardware">🎭 Try Demo Mode</button>
       <button class="btn-logout" onclick="logout()">Sign out</button>
     </div>
   </nav>
@@ -884,11 +938,20 @@ function buildChurchPortalHtml(church) {
 
     <div id="billing-banner"></div>
 
+    <!-- DEMO MODE BANNER -->
+    <div id="demo-mode-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:2000;background:#7c3aed;color:#fff;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;letter-spacing:0.5px">
+      🎭 DEMO MODE — This is simulated data. No real hardware connected.
+      <button onclick="stopDemoMode()" style="margin-left:16px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:12px">Exit Demo</button>
+    </div>
+
     <!-- OVERVIEW -->
     <div class="page active" id="page-overview">
       <div class="page-header">
-        <div class="page-title" id="overview-church-name">${escapeHtml(name)}</div>
-        <div class="page-sub">Church monitoring portal</div>
+        <div class="page-header-text">
+          <div class="page-title" id="overview-church-name">${escapeHtml(name)}</div>
+          <div class="page-sub">Church monitoring portal</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('overview')" title="What am I looking at?">?</button>
       </div>
 
       <!-- Onboarding Checklist -->
@@ -928,6 +991,22 @@ function buildChurchPortalHtml(church) {
         <div class="stat-card">
           <div class="stat-value" id="stat-tds">—</div>
           <div class="stat-label">Tech Directors</div>
+        </div>
+      </div>
+
+      <!-- Multi-Campus Overview (shown only when campuses are linked) -->
+      <div class="card" id="campus-overview-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin:0">
+            <span class="tip" data-tip="Live status of all campuses linked to this account. Click a campus name to manage it.">⊚ All Campuses</span>
+          </div>
+          <button class="btn-secondary" onclick="showPage('campuses', document.querySelector('[data-page=campuses]'))" style="padding:4px 10px;font-size:11px">Manage Campuses</button>
+        </div>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th>Campus</th><th>Status</th><th>Devices</th><th>Health</th><th>Last Seen</th></tr></thead>
+          <tbody id="campus-overview-tbody"></tbody>
+        </table>
         </div>
       </div>
 
@@ -1109,8 +1188,11 @@ function buildChurchPortalHtml(church) {
     <!-- PROFILE -->
     <div class="page" id="page-profile">
       <div class="page-header">
-        <div class="page-title">Church Profile</div>
-        <div class="page-sub">Update your contact information</div>
+        <div class="page-header-text">
+          <div class="page-title">Church Profile</div>
+          <div class="page-sub">Update your contact information</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('profile')" title="Help with Profile">?</button>
       </div>
       <div class="card">
         <div class="card-title">Contact Information</div>
@@ -1170,8 +1252,11 @@ function buildChurchPortalHtml(church) {
     <!-- CAMPUSES -->
     <div class="page" id="page-campuses">
       <div class="page-header">
-        <div class="page-title">Multi-Campus</div>
-        <div class="page-sub">Manage additional campuses under this account</div>
+        <div class="page-header-text">
+          <div class="page-title">Multi-Campus</div>
+          <div class="page-sub">Manage additional campuses under this account</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('campuses')" title="Help with Campuses">?</button>
       </div>
       <p class="help-box"><strong>How it works:</strong> Each campus gets its own Church ID, connection token, and Telegram registration code. Install the Tally app at each campus and connect using that campus token.</p>
       <div id="campus-plan-note" class="help-box" style="display:none"></div>
@@ -1211,12 +1296,16 @@ function buildChurchPortalHtml(church) {
     <!-- TECH DIRECTORS -->
     <div class="page" id="page-tds">
       <div class="page-header">
-        <div class="page-title">Tech Directors</div>
-        <div class="page-sub">People who receive alerts and have TD access</div>
+        <div class="page-header-text">
+          <div class="page-title">Tech Directors</div>
+          <div class="page-sub">People who receive alerts and have TD access</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('tds')" title="Help with Tech Directors">?</button>
       </div>
       <p class="help-box"><strong>How On-Call Routing Works:</strong> When Tally detects an issue during your service, it sends an alert to whichever TD is on-call that week. If no one responds within 90 seconds, it escalates to your primary TD. TDs can swap on-call duty via Telegram using <code style="color:#22c55e">/swap [name]</code>.</p>
       <div class="card">
-        <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+          <button class="btn-secondary" id="btn-copy-invite-link" onclick="copyTdInviteLink()" title="Generate a Telegram link — TDs click it to register automatically">🔗 Copy Invite Link</button>
           <button class="btn-primary" onclick="document.getElementById('modal-add-td').classList.add('open')">+ Add TD</button>
         </div>
         <div class="table-wrap">
@@ -1233,8 +1322,11 @@ function buildChurchPortalHtml(church) {
     <!-- SCHEDULE -->
     <div class="page" id="page-schedule">
       <div class="page-header">
-        <div class="page-title">Service Schedule</div>
-        <div class="page-sub">Define your recurring service windows for smart alerts</div>
+        <div class="page-header-text">
+          <div class="page-title">Service Schedule</div>
+          <div class="page-sub">Define your recurring service windows for smart alerts</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('schedule')" title="Help with Service Schedule">?</button>
       </div>
       <p class="help-box"><strong>Why set service windows?</strong> Tally uses these time windows to know when your services are live. Alerts only fire during (and around) these windows — so your TDs won't get notified at 3 AM for a test stream. Autopilot features (Pro plan) also use them to auto-start streaming and recording.</p>
       <div class="card">
@@ -1261,8 +1353,11 @@ function buildChurchPortalHtml(church) {
     <!-- NOTIFICATIONS -->
     <div class="page" id="page-notifications">
       <div class="page-header">
-        <div class="page-title">Notifications</div>
-        <div class="page-sub">Control how and when you receive alerts</div>
+        <div class="page-header-text">
+          <div class="page-title">Notifications</div>
+          <div class="page-sub">Control how and when you receive alerts</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('notifications')" title="Help with Notifications & Failover">?</button>
       </div>
       <p class="help-box"><strong>Alert Notifications:</strong> Tally classifies alerts by severity — INFO (logged only), WARNING (sent during services), CRITICAL (sent + escalated after 90s), and EMERGENCY (sent immediately). Configure your notification preferences below.</p>
       <div class="card">
@@ -1362,6 +1457,13 @@ function buildChurchPortalHtml(church) {
         </div>
         <button class="btn-primary" onclick="saveFailoverSettings()" style="margin-top:8px">Save Failover Settings</button>
       </div>
+      <div class="card" id="failover-drill-card">
+        <div class="card-title">🚨 Failover Drill</div>
+        <p class="help-box"><strong>THIS IS A DRILL.</strong> Running a drill simulates a device failure and walks through the entire failover flow — alerts, ack window, and recovery — without touching any real equipment. Use this to train your team and verify your setup before Sunday.</p>
+        <div id="failover-drill-status" style="display:none;margin-bottom:12px;padding:12px 16px;border-radius:8px;font-size:13px;line-height:1.7"></div>
+        <button class="btn-primary" id="btn-run-drill" onclick="runFailoverDrill()" style="background:#eab308;border-color:#ca8a04;color:#000">▶ Run Failover Drill</button>
+        <span id="drill-spinner" style="display:none;margin-left:10px;font-size:12px;color:#64748B">Running drill…</span>
+      </div>
       <div class="card">
         <div class="card-title">Telegram Integration</div>
         <div class="field">
@@ -1376,8 +1478,11 @@ function buildChurchPortalHtml(church) {
     <!-- TALLY ENGINEER -->
     <div class="page" id="page-engineer">
       <div class="page-header">
-        <div class="page-title">Train Your Tally Engineer</div>
-        <div class="page-sub">Help Tally Engineer understand your setup so it can diagnose problems faster and give better recommendations.</div>
+        <div class="page-header-text">
+          <div class="page-title">Train Your Tally Engineer</div>
+          <div class="page-sub">Help Tally Engineer understand your setup so it can diagnose problems faster and give better recommendations.</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('engineer')" title="Help with Tally Engineer">?</button>
       </div>
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -1483,8 +1588,11 @@ function buildChurchPortalHtml(church) {
     <!-- GUEST ACCESS -->
     <div class="page" id="page-guests">
       <div class="page-header">
-        <div class="page-title">Guest Access</div>
-        <div class="page-sub">Temporary tokens for visiting TDs, contractors, or trainers</div>
+        <div class="page-header-text">
+          <div class="page-title">Guest Access</div>
+          <div class="page-sub">Temporary tokens for visiting TDs, contractors, or trainers</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('guests')" title="Help with Guest Access">?</button>
       </div>
       <p class="help-box"><strong>What are guest tokens?</strong> Generate a temporary access token for visiting tech directors, contractors, or trainers. Share the token — the guest enters it in the Tally app or Telegram bot to get temporary monitoring access. Tokens auto-expire after the time you set (default 7 days). Revoke any token early from the table below.</p>
       <div class="card">
@@ -1505,8 +1613,11 @@ function buildChurchPortalHtml(church) {
     <!-- SESSIONS -->
     <div class="page" id="page-sessions">
       <div class="page-header">
-        <div class="page-title">Service Sessions</div>
-        <div class="page-sub">History of recent live service sessions</div>
+        <div class="page-header-text">
+          <div class="page-title">Service Sessions</div>
+          <div class="page-sub">History of recent live service sessions</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('sessions')" title="Help with Sessions">?</button>
       </div>
       <p class="help-box"><strong>What counts as a session?</strong> A session is recorded each time Tally detects your live stream or recording starting during a service window. Duration, peak viewer count, and any alerts that fired are logged here.</p>
       <div class="card">
@@ -1607,8 +1718,11 @@ function buildChurchPortalHtml(church) {
     <!-- ALERTS -->
     <div class="page" id="page-alerts">
       <div class="page-header">
-        <div class="page-title">Alert History</div>
-        <div class="page-sub">Recent alerts from your services</div>
+        <div class="page-header-text">
+          <div class="page-title">Alert History</div>
+          <div class="page-sub">Recent alerts from your services</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('alerts')" title="Help with Alerts">?</button>
       </div>
       <p class="help-box">Alerts are classified by severity: <span style="color:#22c55e">INFO</span> (logged only), <span style="color:#eab308">WARNING</span> (sent to on-call TD), <span style="color:#ef4444">CRITICAL</span> (sent + escalated after 90s), <span style="color:#ef4444;font-weight:700">EMERGENCY</span> (immediate escalation). Acknowledge alerts via Telegram with <code style="color:#22c55e">/ack_[code]</code>.</p>
       <div id="alerts-content"><p style="color:#475569;text-align:center;padding:20px">Loading alerts...</p></div>
@@ -1693,6 +1807,20 @@ function buildChurchPortalHtml(church) {
     </div>
 
   </main>
+
+  <!-- CONTEXTUAL HELP MODAL -->
+  <div class="modal-backdrop" id="help-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="help-modal-title">Help</div>
+        <button class="modal-close" onclick="closeHelpModal()">×</button>
+      </div>
+      <div id="help-modal-body"></div>
+      <div class="modal-footer">
+        <button class="btn-primary" onclick="closeHelpModal()">Got it</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ADD TD MODAL -->
   <div class="modal-backdrop" id="modal-add-td">
@@ -1860,6 +1988,51 @@ function buildChurchPortalHtml(church) {
             } else {
               limitEl.textContent = '1 / 1';
             }
+          }
+
+          // ── Multi-Campus Overview card ────────────────────────────────────
+          const campuses = Array.isArray(campusPayload)
+            ? campusPayload
+            : (Array.isArray(campusPayload.campuses) ? campusPayload.campuses : []);
+          const campusCard = document.getElementById('campus-overview-card');
+          const campusTbody = document.getElementById('campus-overview-tbody');
+          if (campuses.length > 0 && campusCard && campusTbody) {
+            campusCard.style.display = '';
+            campusTbody.innerHTML = campuses.map(function(c) {
+              var statusDot = c.connected
+                ? '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#22c55e;margin-right:6px;vertical-align:middle"></span><span style="color:#22c55e">Online</span>'
+                : '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#475569;margin-right:6px;vertical-align:middle"></span><span style="color:#64748B">Offline</span>';
+              var st = c.status || {};
+              var devices = [];
+              if (st.atem && st.atem.connected) devices.push('ATEM');
+              if (st.obs && st.obs.connected) devices.push('OBS');
+              if (st.vmix && st.vmix.connected) devices.push('vMix');
+              if (st.encoder && st.encoder.connected) devices.push('Encoder');
+              var devicesHtml = devices.length
+                ? devices.map(function(d){ return '<span class="badge badge-green" style="font-size:10px;padding:2px 6px;margin-right:2px">'+d+'</span>'; }).join('')
+                : '<span style="color:#475569;font-size:12px">—</span>';
+              var grade = c.lastSession && c.lastSession.grade ? c.lastSession.grade : null;
+              var gradeColor = grade ? (grade.startsWith('A') ? '#22c55e' : grade.startsWith('B') ? '#eab308' : '#ef4444') : '#475569';
+              var healthHtml = grade
+                ? '<span style="color:'+gradeColor+';font-weight:700">'+grade+'</span>'
+                : '<span style="color:#475569">—</span>';
+              if (c.recentAlerts > 0) {
+                healthHtml += ' <span style="color:#eab308;font-size:11px">('+c.recentAlerts+' alert'+(c.recentAlerts>1?'s':'')+')</span>';
+              }
+              var lastSeen = c.lastSeen ? timeAgo(c.lastSeen) : '—';
+              var location = c.location ? ' <span style="color:#64748B;font-size:11px">('+escapeHtml(c.location)+')</span>' : '';
+              return '<tr>' +
+                '<td style="cursor:pointer;color:#22c55e" onclick="showPage(\'campuses\', document.querySelector(\'[data-page=campuses]\'))">' +
+                  escapeHtml(c.name) + location +
+                '</td>' +
+                '<td>' + statusDot + '</td>' +
+                '<td>' + devicesHtml + '</td>' +
+                '<td>' + healthHtml + '</td>' +
+                '<td style="color:#64748B;font-size:12px">' + lastSeen + '</td>' +
+              '</tr>';
+            }).join('');
+          } else if (campusCard) {
+            campusCard.style.display = 'none';
           }
         } catch {
           const limitEl = document.getElementById('plan-campus-limit');
@@ -3595,6 +3768,22 @@ function buildChurchPortalHtml(church) {
       } catch(e) { toast(e.message, true); }
     }
 
+    async function copyTdInviteLink() {
+      const btn = document.getElementById('btn-copy-invite-link');
+      try {
+        const data = await api('GET', '/api/church/td-invite-link');
+        await navigator.clipboard.writeText(data.link);
+        toast('Invite link copied! Share with your TD — they click it and are registered automatically.');
+        if (btn) { btn.textContent = '✅ Copied!'; setTimeout(() => { btn.textContent = '🔗 Copy Invite Link'; }, 2500); }
+      } catch(e) {
+        // Fallback: show link in a prompt
+        try {
+          const data = await api('GET', '/api/church/td-invite-link');
+          window.prompt('Share this Telegram invite link with your TD:', data.link);
+        } catch { toast('Failed to get invite link', true); }
+      }
+    }
+
     // ── Schedule ─────────────────────────────────────────────────────────────
     function pad2(n) {
       return String(n).padStart(2, '0');
@@ -4037,6 +4226,61 @@ function buildChurchPortalHtml(church) {
         });
         toast('Failover settings saved');
       } catch(e) { toast(e.message, true); }
+    }
+
+    // ── Failover Drill ───────────────────────────────────────────────────────
+    async function runFailoverDrill() {
+      var btn = document.getElementById('btn-run-drill');
+      var spinner = document.getElementById('drill-spinner');
+      var statusEl = document.getElementById('failover-drill-status');
+      if (btn) btn.disabled = true;
+      if (spinner) spinner.style.display = 'inline';
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'rgba(234,179,8,0.08)';
+        statusEl.style.border = '1px solid rgba(234,179,8,0.25)';
+        statusEl.style.color = '#eab308';
+        statusEl.innerHTML = '🚨 <strong>DRILL IN PROGRESS</strong> — Simulating encoder signal loss…';
+      }
+
+      // Animate through drill steps with delays to simulate real failover timeline
+      var steps = [
+        { delay: 800,  text: '🚨 <strong>DRILL IN PROGRESS</strong><br>Step 1/5 — Encoder bitrate dropped to 0 kbps (simulated)', color: '#eab308' },
+        { delay: 2000, text: '🚨 <strong>DRILL IN PROGRESS</strong><br>Step 2/5 — Black screen detected. Waiting for confirmation (simulated 5s threshold)…', color: '#eab308' },
+        { delay: 3500, text: '🚨 <strong>DRILL IN PROGRESS</strong><br>Step 3/5 — Outage confirmed. TD Telegram alert would fire now. Ack window open (30s)…', color: '#ef4444' },
+        { delay: 5000, text: '🚨 <strong>DRILL IN PROGRESS</strong><br>Step 4/5 — No TD ack received (simulated). Executing failover action…', color: '#ef4444' },
+      ];
+
+      for (var i = 0; i < steps.length; i++) {
+        await new Promise(function(r) { setTimeout(r, steps[i].delay); });
+        if (statusEl) {
+          statusEl.style.color = steps[i].color;
+          statusEl.innerHTML = steps[i].text;
+        }
+      }
+
+      try {
+        var result = await api('POST', '/api/church/failover/drill');
+        if (statusEl) {
+          var passed = result && result.passed;
+          statusEl.style.background = passed ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)';
+          statusEl.style.border = '1px solid ' + (passed ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)');
+          statusEl.style.color = passed ? '#22c55e' : '#ef4444';
+          statusEl.innerHTML = (passed ? '✅' : '❌') + ' <strong>DRILL COMPLETE</strong><br>' +
+            (result.report || (passed
+              ? 'All failover steps completed successfully. Your setup is ready.'
+              : 'Drill found issues — review your failover configuration above.')) +
+            '<br><span style="font-size:11px;color:#64748B;margin-top:4px;display:block">This was a drill. No real equipment was changed.</span>';
+        }
+      } catch(e) {
+        if (statusEl) {
+          statusEl.style.color = '#ef4444';
+          statusEl.innerHTML = '❌ <strong>DRILL FAILED</strong><br>' + escapeHtml(e.message || 'Could not complete drill. Make sure failover is configured.');
+        }
+      }
+
+      if (btn) btn.disabled = false;
+      if (spinner) spinner.style.display = 'none';
     }
 
     // ── Guest Tokens ──────────────────────────────────────────────────────────
@@ -5154,16 +5398,418 @@ function buildChurchPortalHtml(church) {
       }
     }
 
+    // ── Contextual Help ───────────────────────────────────────────────────────
+    var HELP_CONTENT = {
+      overview: {
+        title: 'Overview — What Am I Looking At?',
+        body: \`
+          <p>This is your <strong>church dashboard</strong> — your mission control for Sunday morning. Think of it like the check-engine light for your production system, except it actually tells you what's wrong.</p>
+          <h3>Connection Status</h3>
+          <p>The green dot means the Tally desktop app installed at your church is talking to this portal. If it's gray, check that your AV computer is on and the Tally app is running.</p>
+          <h3>Equipment Status Table</h3>
+          <p>Shows every device Tally is monitoring — your ATEM switcher, OBS (for recording/streaming), ProPresenter, and more. <strong>Green = connected and working. Yellow = warning. Red = problem.</strong></p>
+          <div class="tip-box">💡 <strong>Tip for Worship Pastors:</strong> You don't need to understand every row. Just check that everything is green before service starts. If anything is yellow or red, tap your TD on Telegram.</div>
+          <h3>Live Session</h3>
+          <p>During a service, the "Live Session" card appears with real-time status. You can see if the stream is healthy and if any auto-recoveries have run.</p>
+          <h3>Activity Feed</h3>
+          <p>A log of everything that happened — stream started, camera switched, alert sent, auto-recovery ran. Great for the debrief after service.</p>
+        \`,
+      },
+      profile: {
+        title: 'Profile & Settings',
+        body: \`
+          <p>This is where you set up your church's basic information and connect Tally to your notification channels.</p>
+          <h3>Church Name & Contact</h3>
+          <p>Keep this accurate — it shows up in alerts sent to your tech team so they know which church it's for (important if your TD supports multiple campuses).</p>
+          <h3>Notifications</h3>
+          <p>Choose how you want to receive alerts. <strong>Telegram is required</strong> — it's how Tally reaches your tech director during service. Email and SMS are for non-urgent notifications like weekly summaries.</p>
+          <div class="tip-box">💡 Telegram is a free messaging app. Your TD downloads it once, clicks a setup link, and they're connected. Most TDs prefer it over text messages during service.</div>
+          <h3>Auto-Recovery</h3>
+          <p>When enabled, Tally will try to fix common problems automatically (restart a dropped stream, reconnect a disconnected device) before alerting anyone. This handles the "5-second blip" situations automatically.</p>
+        \`,
+      },
+      campuses: {
+        title: 'Multi-Campus — Managing Multiple Locations',
+        body: \`
+          <p>If your church has multiple campuses (main, north, south, satellite) you can manage them all from one login.</p>
+          <h3>How it works</h3>
+          <p>Each campus gets its own Tally installation. They all show up here in one view. You can see which campuses are online, which have issues, and manage tech directors for each one.</p>
+          <h3>Adding a Campus</h3>
+          <ol style="padding-left:18px">
+            <li>Enter the campus name and city/state</li>
+            <li>Click "Create Campus" — Tally generates a unique connection token</li>
+            <li>Copy the registration code and send it to that campus's tech director</li>
+            <li>They enter it in the Tally desktop app when setting up</li>
+          </ol>
+          <div class="tip-box">💡 Think of each campus as its own "church account" that you can see from your main login. They don't share devices or alerts — each campus is independent.</div>
+          <h3>Plan Limits</h3>
+          <p>The number of campuses you can add depends on your plan. The Connect plan is single-campus. Plus and Pro support multiple campuses.</p>
+        \`,
+      },
+      tds: {
+        title: 'Tech Directors — Who Gets Alerts?',
+        body: \`
+          <p>Tech Directors (TDs) are the people who receive alerts when something goes wrong during your service. Think of them as your "first responders" for production issues.</p>
+          <h3>Primary TD vs. On-Call TD</h3>
+          <p><strong>Primary TD</strong> is your main tech person. They get escalated alerts if no one else responds.<br><strong>On-Call TD</strong> is whoever is running the board that week. They receive the first alert.</p>
+          <h3>On-Call Rotation</h3>
+          <p>TDs can swap on-call duty themselves via Telegram using <code style="color:#22c55e">/swap [name]</code>. No need to update the portal every week.</p>
+          <div class="tip-box">💡 <strong>For volunteer teams:</strong> Even if you only have one tech person, add them as both Primary and On-Call so they always get alerts. If you have a team, rotate so no one gets burned out.</div>
+          <h3>Connecting via Telegram</h3>
+          <p>After you add a TD, click "Copy Link" to get their Telegram deep link. They click it, Telegram opens, and they're connected automatically. That's it — no codes to memorize.</p>
+        \`,
+      },
+      schedule: {
+        title: 'Service Schedule — When Are You Live?',
+        body: \`
+          <p>Tally uses your schedule to know when to be alert. Outside of service windows, most alerts are suppressed so your TD doesn't get woken up at 3 AM over a test stream.</p>
+          <h3>Service Windows</h3>
+          <p>Add each time slot when you're regularly live. For example:</p>
+          <ul>
+            <li>Sunday 8:30 AM – 10:30 AM (first service)</li>
+            <li>Sunday 11:00 AM – 1:00 PM (second service)</li>
+            <li>Wednesday 6:30 PM – 8:00 PM (midweek)</li>
+          </ul>
+          <div class="tip-box">💡 Add a "buffer" window — if your service starts at 9 AM, set the window to start at 8:30 AM so Tally is watching during setup. Pre-service issues are caught before you go live.</div>
+          <h3>Why This Matters</h3>
+          <p>The AutoPilot features (Pro plan) use these windows to auto-start streaming and recording at the right time. Without a schedule, you'd have to manually trigger everything.</p>
+        \`,
+      },
+      notifications: {
+        title: 'Notifications & Failover',
+        body: \`
+          <h3>Notification Channels</h3>
+          <p>Choose how Tally reaches your team. <strong>Telegram is the primary channel</strong> — it's fast, reliable, and supports the interactive buttons your TD needs to acknowledge alerts and run commands.</p>
+          <h3>Stream Failover</h3>
+          <p>This is Tally's "insurance policy" for your stream. When enabled, if your encoder signal drops for more than a few seconds, Tally will:</p>
+          <ol style="padding-left:18px">
+            <li>Alert your TD via Telegram</li>
+            <li>Wait for them to tap a button to confirm they're on it</li>
+            <li>If no response in 30 seconds, automatically switch your ATEM to a safe backup source (like your media player with a holding slide)</li>
+          </ol>
+          <div class="tip-box">💡 <strong>Real example:</strong> Your camera feed dies mid-sermon. Tally detects the black signal, alerts your TD, and if they don't respond in 30 seconds, automatically switches to a "We'll be right back" slide. Your online congregation sees a clean transition instead of a black screen.</div>
+          <h3>Failover Drill</h3>
+          <p>Use the Failover Drill button to simulate this scenario without affecting anything real. Run it before a big Sunday to make sure everything is configured correctly.</p>
+        \`,
+      },
+      engineer: {
+        title: 'Tally Engineer — Your AI Assistant',
+        body: \`
+          <p>Tally Engineer is an AI trained on church production. You can ask it anything about your setup, and it will diagnose problems, suggest fixes, and even run commands.</p>
+          <h3>What Can It Do?</h3>
+          <ul>
+            <li>Diagnose "why is my stream choppy?" by looking at your actual equipment data</li>
+            <li>Answer questions like "what's the best bitrate for YouTube at 720p?"</li>
+            <li>Run commands: "start recording in OBS" or "switch ATEM to camera 2"</li>
+            <li>Generate a pre-service checklist based on your specific equipment</li>
+          </ul>
+          <h3>Training Your Engineer</h3>
+          <p>The more you tell it about your setup, the better it gets. Fill in your equipment details (ATEM model, OBS settings, typical service flow) and Tally Engineer will give more accurate diagnoses.</p>
+          <div class="tip-box">💡 <strong>For non-technical staff:</strong> You can type exactly what you're seeing: "the stream keeps buffering for online viewers" and Tally Engineer will ask follow-up questions and walk you through the fix — no tech jargon required.</div>
+        \`,
+      },
+      guests: {
+        title: 'Guest Access — Temporary TD Access',
+        body: \`
+          <p>Sometimes you need to give a substitute tech director access for a single service — a volunteer covering while your regular TD is sick, or a guest worship leader who needs to run commands.</p>
+          <h3>How Guest Tokens Work</h3>
+          <p>Generate a guest token and send the link to the substitute. They click it in Telegram and get temporary access for a set number of hours. When time expires, access is automatically revoked — no cleanup needed.</p>
+          <h3>What Can Guests Do?</h3>
+          <p>Guests have the same alert access as a regular TD — they can receive alerts and tap response buttons in Telegram. You can choose whether they can also run commands (like switching sources).</p>
+          <div class="tip-box">💡 <strong>Best practice:</strong> Generate the guest token 30 minutes before service and send it to your substitute. That gives them time to connect before you go live. Set expiry to match your service length plus 30 minutes.</div>
+        \`,
+      },
+      sessions: {
+        title: 'Sessions — Service History',
+        body: \`
+          <p>Every service gets its own session record — a complete log of what happened, what alerts fired, and how they were resolved.</p>
+          <h3>What's in a Session?</h3>
+          <ul>
+            <li>Start/end times of your service</li>
+            <li>All alerts that fired, with timestamps</li>
+            <li>How each alert was resolved (TD ack, auto-recovery, or unknown)</li>
+            <li>Stream uptime and health grade</li>
+            <li>Commands run during service</li>
+          </ul>
+          <h3>Health Grade</h3>
+          <p>Each session gets a letter grade (A–F) based on stream stability, alert frequency, and recovery time. Your goal is an A every week.</p>
+          <div class="tip-box">💡 Review sessions after service to spot patterns. If you're getting the same alert three weeks in a row, that's a setup problem worth fixing rather than just acknowledging every Sunday.</div>
+        \`,
+      },
+      alerts: {
+        title: 'Alerts — Understanding Your Notifications',
+        body: \`
+          <p>Alerts are how Tally tells you something needs attention. They arrive in Telegram during service and appear here in the portal afterward.</p>
+          <h3>Alert Severity</h3>
+          <ul>
+            <li><strong style="color:#ef4444">Critical</strong> — Stream is down or about to fail. Respond immediately.</li>
+            <li><strong style="color:#eab308">Warning</strong> — Something is degraded but not broken yet. Investigate soon.</li>
+            <li><strong style="color:#22c55e">Info</strong> — Informational. Stream started, recording began, pre-service check passed.</li>
+          </ul>
+          <h3>Responding to Alerts</h3>
+          <p>When you get an alert in Telegram, you'll see buttons like "✅ On it" and "📊 Run Diagnostics." Tapping "On it" tells Tally you've seen it and are handling it — this prevents auto-failover from kicking in.</p>
+          <div class="tip-box">💡 The most important thing to know: <strong>always tap a response button when you get an alert</strong>. Tally is watching to see if a human is handling the situation. No response = auto-failover after 30 seconds.</div>
+        \`,
+      },
+    };
+
+    function openHelp(section) {
+      var content = HELP_CONTENT[section];
+      if (!content) return;
+      document.getElementById('help-modal-title').textContent = content.title;
+      document.getElementById('help-modal-body').innerHTML = content.body;
+      document.getElementById('help-modal').classList.add('open');
+    }
+
+    function closeHelpModal() {
+      document.getElementById('help-modal').classList.remove('open');
+    }
+
+    // Close help modal on backdrop click
+    document.getElementById('help-modal').addEventListener('click', function(e) {
+      if (e.target === this) closeHelpModal();
+    });
+
     // ── Logout ────────────────────────────────────────────────────────────────
     async function logout() {
       await fetch('/api/church/logout', { method: 'POST', credentials: 'include' });
       window.location.href = '/church-login';
     }
 
+    // ── Demo / Simulation Mode ────────────────────────────────────────────────
+    // A scripted playback that shows fake devices, triggers, and auto-recoveries
+    // so prospects can evaluate the system without real hardware.
+    var _demoInterval = null;
+    var _demoStep = 0;
+
+    var DEMO_SCRIPT = [
+      // step 0: devices connect
+      {
+        delay: 0,
+        fn: function() {
+          // Inject fake connected state into UI elements
+          var dot = document.getElementById('stat-status-dot');
+          var txt = document.getElementById('stat-status-text');
+          if (dot) dot.style.background = '#22c55e';
+          if (txt) txt.textContent = 'Connected';
+          var stale = document.getElementById('equip-staleness');
+          if (stale) { stale.textContent = 'Live'; stale.style.color = '#22c55e'; }
+          _demoInjectEquipment([
+            { sys: 'ATEM Mini Pro', status: '● connected', version: '8.6', detail: 'Program: 1 (Camera 1), Preview: 2' },
+            { sys: 'OBS Studio', status: '● connected', version: '30.2.2', detail: 'Ready — not streaming' },
+            { sys: 'Streaming Encoder', status: '● connected', version: '—', detail: 'Bitrate: — kbps' },
+            { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'No slide active' },
+          ]);
+          _demoAddActivity('🟢 ATEM Mini Pro connected (192.168.10.240)');
+          _demoAddActivity('🟢 OBS Studio connected (v30.2.2)');
+        }
+      },
+      // step 1: stream starts
+      {
+        delay: 3000,
+        fn: function() {
+          _demoInjectEquipment([
+            { sys: 'ATEM Mini Pro', status: '● live', version: '8.6', detail: 'Program: 1 (Camera 1) ● STREAMING' },
+            { sys: 'OBS Studio', status: '● streaming', version: '30.2.2', detail: 'Bitrate: 4800 kbps · 29.97 fps' },
+            { sys: 'Streaming Encoder', status: '● live', version: '—', detail: 'Bitrate: 4800 kbps · Health: Good' },
+            { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'Worship — Slide 3/8' },
+          ]);
+          _demoAddActivity('▶ Stream started — 4800 kbps · YouTube');
+          _demoAddActivity('🤖 AutoPilot: "Auto-Start Recording" rule triggered → OBS recording started');
+        }
+      },
+      // step 2: autopilot slide rule fires
+      {
+        delay: 6000,
+        fn: function() {
+          _demoInjectEquipment([
+            { sys: 'ATEM Mini Pro', status: '● live', version: '8.6', detail: 'Program: 3 (Wide) ● STREAMING — AutoPilot switched' },
+            { sys: 'OBS Studio', status: '● streaming', version: '30.2.2', detail: 'Bitrate: 4850 kbps · 29.97 fps · Recording' },
+            { sys: 'Streaming Encoder', status: '● live', version: '—', detail: 'Bitrate: 4850 kbps · Health: Good' },
+            { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'Message — "God is Good" Slide 1/4' },
+          ]);
+          _demoAddActivity('🤖 AutoPilot: Sermon slide detected → Switched ATEM to Cam 3 (Wide)');
+        }
+      },
+      // step 3: fake bitrate warning
+      {
+        delay: 9000,
+        fn: function() {
+          _demoInjectEquipment([
+            { sys: 'ATEM Mini Pro', status: '● live', version: '8.6', detail: 'Program: 3 (Wide) ● STREAMING' },
+            { sys: 'OBS Studio', status: '⚠ warning', version: '30.2.2', detail: 'Bitrate: 1200 kbps (LOW) · 29.97 fps · Recording' },
+            { sys: 'Streaming Encoder', status: '⚠ warning', version: '—', detail: 'Bitrate: 1200 kbps · Health: Poor' },
+            { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'Message — Slide 3/4' },
+          ]);
+          _demoAddActivity('⚠️ Stream health degraded — bitrate dropped to 1200 kbps');
+          _demoAddActivity('📱 Alert sent to TD via Telegram: "Stream health dropped — check your internet connection"');
+        }
+      },
+      // step 4: auto-recovery
+      {
+        delay: 13000,
+        fn: function() {
+          _demoInjectEquipment([
+            { sys: 'ATEM Mini Pro', status: '● live', version: '8.6', detail: 'Program: 3 (Wide) ● STREAMING' },
+            { sys: 'OBS Studio', status: '● streaming', version: '30.2.2', detail: 'Bitrate: 4820 kbps · 29.97 fps · Recording — Auto-recovered' },
+            { sys: 'Streaming Encoder', status: '● live', version: '—', detail: 'Bitrate: 4820 kbps · Health: Good' },
+            { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'Closing — Slide 1/2' },
+          ]);
+          _demoAddActivity('✅ Stream recovered — bitrate restored to 4820 kbps');
+          _demoAddActivity('🤖 Tally Engineer: Auto-recovery resolved bitrate issue (reconnected encoder)');
+        }
+      },
+      // step 5: stream ends, recording stops
+      {
+        delay: 17000,
+        fn: function() {
+          _demoInjectEquipment([
+            { sys: 'ATEM Mini Pro', status: '● connected', version: '8.6', detail: 'Program: 1 (Camera 1) — stream ended' },
+            { sys: 'OBS Studio', status: '● connected', version: '30.2.2', detail: 'Idle — Recording saved' },
+            { sys: 'Streaming Encoder', status: '● connected', version: '—', detail: 'Idle' },
+            { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'No presentation active' },
+          ]);
+          _demoAddActivity('■ Stream ended — total uptime: 47 min');
+          _demoAddActivity('🤖 AutoPilot: "Auto-Stop Recording" rule triggered → OBS recording stopped (30s delay)');
+          _demoAddActivity('📊 Session recap generated and sent to pastor@demo.church');
+          // Loop back
+          setTimeout(function() { if (_demoInterval !== null) { _demoStep = 0; _runDemoStep(); } }, 4000);
+        }
+      },
+    ];
+
+    function _demoInjectEquipment(rows) {
+      var tbody = document.getElementById('equipment-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = rows.map(function(r) {
+        var color = r.status.startsWith('●') ? (r.status.includes('live') || r.status.includes('streaming') ? '#22c55e' : '#22c55e') : '#eab308';
+        return '<tr>' +
+          '<td>' + r.sys + '</td>' +
+          '<td style="color:' + color + '">' + r.status + '</td>' +
+          '<td>' + r.version + '</td>' +
+          '<td style="color:#94A3B8;font-size:12px">' + r.detail + '</td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    function _demoAddActivity(msg) {
+      var feed = document.getElementById('activity-feed-body');
+      if (!feed) return;
+      if (feed.querySelector('[data-demo-loading]')) feed.innerHTML = '';
+      var ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      var el = document.createElement('div');
+      el.style.cssText = 'padding:8px 0;border-bottom:1px solid #1a2e1f;font-size:13px;color:#CBD5E1';
+      el.innerHTML = '<span style="color:#475569;font-size:11px;margin-right:8px">' + ts + '</span>' + msg;
+      feed.insertBefore(el, feed.firstChild);
+    }
+
+    function _runDemoStep() {
+      if (_demoInterval === null) return; // demo stopped
+      if (_demoStep >= DEMO_SCRIPT.length) return;
+      var step = DEMO_SCRIPT[_demoStep];
+      setTimeout(function() {
+        if (_demoInterval === null) return;
+        step.fn();
+        _demoStep++;
+        if (_demoStep < DEMO_SCRIPT.length) _runDemoStep();
+      }, step.delay);
+    }
+
+    function startDemoMode() {
+      if (_demoInterval === 'running') return;
+      _demoInterval = 'running';
+      _demoStep = 0;
+      document.getElementById('demo-mode-banner').style.display = 'block';
+      document.body.style.paddingTop = '38px';
+
+      // Navigate to overview and show the activity feed
+      var overviewBtn = document.querySelector('[data-page="overview"]');
+      if (overviewBtn) showPage('overview', overviewBtn);
+      var feedCard = document.getElementById('activity-feed-body');
+      if (feedCard) feedCard.innerHTML = '<div data-demo-loading style="color:#7c3aed;text-align:center;padding:16px;font-size:13px">🎭 Demo starting — simulated service beginning…</div>';
+
+      toast('🎭 Demo Mode started — watch the dashboard come alive!');
+      _runDemoStep();
+    }
+
+    function stopDemoMode() {
+      _demoInterval = null;
+      _demoStep = 0;
+      document.getElementById('demo-mode-banner').style.display = 'none';
+      document.body.style.paddingTop = '';
+      toast('Demo Mode ended — reloading real data…');
+      loadOverview();
+    }
+
     // Auto-load overview + billing banner on start
     loadOverview();
     startOverviewPoll();
     loadBilling(); // populates billing banner on all pages
+
+    // ── Real-time status push via SSE ─────────────────────────────────────────
+    // Connect to the server-sent event stream for this church. When the server
+    // pushes a status_update we patch the equipment table live, so the worship
+    // pastor or TD doesn't need to manually refresh.
+    (function initPortalStatusStream() {
+      var es;
+      var reconnectDelay = 3000;
+
+      function connect() {
+        if (es) { try { es.close(); } catch {} }
+        es = new EventSource('/api/church/stream');
+
+        es.onmessage = function(event) {
+          try {
+            var data = JSON.parse(event.data);
+            if (data.type === 'status_update' || data.type === 'status_snapshot' || data.type === 'connected') {
+              if (data.status) {
+                // Update the status dot on the connection stat card
+                var dot = document.getElementById('stat-status-dot');
+                var txt = document.getElementById('stat-status-text');
+                if (dot && txt) {
+                  var isConnected = data.type === 'connected' || !!(data.status.connected !== false && (data.status.atem || data.status.obs || data.status.encoder));
+                  dot.style.background = isConnected ? '#22c55e' : '#475569';
+                  txt.textContent = isConnected ? 'Connected' : 'Offline';
+                }
+                // Pulse the equipment staleness indicator
+                var stale = document.getElementById('equip-staleness');
+                if (stale) {
+                  stale.textContent = 'Live';
+                  stale.style.color = '#22c55e';
+                }
+                // Refresh the equipment table if the overview page is visible
+                if (document.getElementById('page-overview').classList.contains('active')) {
+                  loadOverview();
+                }
+              }
+            } else if (data.type === 'disconnected') {
+              var dot2 = document.getElementById('stat-status-dot');
+              var txt2 = document.getElementById('stat-status-text');
+              if (dot2 && txt2) { dot2.style.background = '#475569'; txt2.textContent = 'Offline'; }
+            }
+          } catch {}
+          reconnectDelay = 3000; // reset backoff on successful message
+        };
+
+        es.onerror = function() {
+          es.close();
+          // Exponential backoff up to 30s
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+        };
+      }
+
+      connect();
+
+      // Close stream on page hide to avoid zombie SSE connections
+      document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+          if (es) { try { es.close(); } catch {} es = null; }
+        } else {
+          connect();
+        }
+      });
+    })();
   </script>
 </body>
 </html>`;
@@ -5567,6 +6213,72 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to save failover settings' });
+    }
+  });
+
+  // ── POST /api/church/failover/drill ──────────────────────────────────────────
+  // Runs a simulated failover sequence and returns a pass/fail report.
+  // Does NOT send real Telegram alerts or execute real device commands.
+  app.post('/api/church/failover/drill', supportAuthMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const row = db.prepare(
+        `SELECT failover_enabled, failover_black_threshold_s, failover_ack_timeout_s, failover_action
+         FROM churches WHERE churchId = ?`
+      ).get(churchId);
+
+      const issues = [];
+      const checks = [];
+
+      // Check 1: failover is configured
+      if (!row || !row.failover_enabled) {
+        issues.push('Failover is not enabled. Enable it above and configure an action.');
+      }
+      checks.push({ name: 'Failover enabled', passed: !!(row && row.failover_enabled) });
+
+      // Check 2: failover action is set
+      let action = null;
+      try { action = row && row.failover_action ? JSON.parse(row.failover_action) : null; } catch {}
+      if (!action) issues.push('No failover action configured. Select an ATEM input or VideoHub route above.');
+      checks.push({ name: 'Failover action configured', passed: !!action });
+
+      // Check 3: church client is connected (so the action could actually execute)
+      const church = churches.get(churchId);
+      const clientConnected = church && church.ws && church.ws.readyState === 1;
+      if (!clientConnected) issues.push('Tally desktop app is not connected — failover actions require an active client connection. This is OK for a planning drill.');
+      checks.push({ name: 'Client app connected', passed: !!clientConnected, optional: true });
+
+      // Check 4: validate the configured action type
+      const validAction = action && (action.type === 'atem_switch' || action.type === 'videohub_route');
+      checks.push({ name: 'Action type is valid', passed: !!validAction });
+
+      const criticalIssues = issues.filter((_, i) => !checks[i]?.optional);
+      const passed = criticalIssues.length === 0 && validAction;
+
+      const checkList = checks.map(c =>
+        (c.passed ? '✅' : (c.optional ? '⚠️' : '❌')) + ' ' + c.name
+      ).join('\n');
+
+      const actionDesc = action
+        ? (action.type === 'atem_switch' ? `Switch ATEM to input ${action.input}` : `VideoHub route output ${action.output} → input ${action.input}`)
+        : 'No action configured';
+
+      const thresholds = `Black threshold: ${row?.failover_black_threshold_s || 5}s, Ack timeout: ${row?.failover_ack_timeout_s || 30}s`;
+
+      const report = passed
+        ? `Drill passed! ${checkList}\n\nConfigured action: ${actionDesc}\n${thresholds}\n\nYour failover setup is ready. When a real outage occurs, Tally will: (1) Detect signal loss after ${row?.failover_black_threshold_s || 5}s, (2) Alert your TD via Telegram, (3) Auto-execute "${actionDesc}" if no ack in ${row?.failover_ack_timeout_s || 30}s.`
+        : `Drill found issues:\n${issues.join('\n')}\n\n${checkList}\n\nFix the issues above and run the drill again.`;
+
+      // Record drill run time
+      try {
+        db.prepare('UPDATE churches SET onboarding_failover_tested_at = ? WHERE churchId = ?')
+          .run(new Date().toISOString(), churchId);
+      } catch {}
+
+      res.json({ passed, report, checks });
+    } catch (e) {
+      log.error('Failover drill error: ' + e.message);
+      res.status(500).json({ error: 'Drill failed: ' + e.message });
     }
   });
 
@@ -6305,6 +7017,17 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.delete('/api/church/tds/:tdId', authMiddleware, (req, res) => {
     db.prepare('DELETE FROM church_tds WHERE id = ? AND church_id = ?').run(req.params.tdId, req.church.churchId);
     res.json({ ok: true });
+  });
+
+  // ── GET /api/church/td-invite-link ────────────────────────────────────────────
+  // Returns a Telegram deep link that auto-registers the TD when clicked.
+  app.get('/api/church/td-invite-link', authMiddleware, (req, res) => {
+    const church = req.church;
+    const code = church.registration_code;
+    if (!code) return res.status(404).json({ error: 'No registration code found' });
+    const botUsername = process.env.TELEGRAM_BOT_USERNAME || 'TallyConnectBot';
+    const deepLink = `https://t.me/${botUsername}?start=reg_${code}`;
+    res.json({ link: deepLink, code, botUsername });
   });
 
   // ── GET /api/church/sessions ──────────────────────────────────────────────────
