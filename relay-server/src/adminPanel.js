@@ -298,7 +298,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 </style></head>
 <body>
 
-<button class="hamburger" onclick="toggleMobileNav()" aria-label="Menu"><svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20"><rect x="2" y="4" width="16" height="2" rx="1"/><rect x="2" y="9" width="16" height="2" rx="1"/><rect x="2" y="14" width="16" height="2" rx="1"/></svg></button>
+<button class="hamburger" onclick="toggleMobileNav()" aria-label="Menu"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="20" height="20"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/></svg></button>
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileNav()"></div>
 
 <!-- SIDEBAR -->
@@ -309,41 +309,41 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
   </div>
   <nav class="nav">
     <div class="nav-item active" onclick="showPage('overview')" id="nav-overview">
-      <svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></svg>
       Overview
     </div>
     <div class="nav-item" onclick="showPage('churches')" id="nav-churches">
-      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1L1 5v10h14V5L8 1zm0 2.2L13 6.4V13H3V6.4L8 3.2z"/><rect x="6" y="9" width="4" height="4"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
       Churches
     </div>
     <div class="nav-item" onclick="showPage('resellers')" id="nav-resellers">
-      <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="6" cy="5" r="3"/><path d="M1 14c0-3 2-5 5-5s5 2 5 5"/><circle cx="13" cy="6" r="2"/><path d="M11 14c0-2 .9-3 2-3"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z"/></svg>
       Resellers
     </div>
     <div class="nav-divider">Operations</div>
     <div class="nav-item" onclick="showPage('alerts')" id="nav-alerts">
-      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1L1 14h14L8 1zm0 3.5L12.5 13h-9L8 4.5z"/><rect x="7.25" y="7" width="1.5" height="3" rx=".5"/><circle cx="8" cy="11.5" r=".75"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>
       Alerts
     </div>
     <div class="nav-item" onclick="showPage('tickets')" id="nav-tickets">
-      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 2a1 1 0 00-1 1v10a1 1 0 001 1h10a1 1 0 001-1V3a1 1 0 00-1-1H3zm1 3h8v1H4V5zm0 3h8v1H4V8zm0 3h5v1H4v-1z"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z"/></svg>
       Tickets
     </div>
     <div class="nav-item" onclick="showPage('billing')" id="nav-billing">
-      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 4a1 1 0 011-1h10a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1V4zm1 0v2h10V4H3zm0 4v4h10V8H3z"/><rect x="4" y="9.5" width="3" height="1.5" rx=".5"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z"/></svg>
       Billing
     </div>
     <div class="nav-item" onclick="showPage('aiusage')" id="nav-aiusage">
-      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2a2 2 0 110 4 2 2 0 010-4zm-3.5 7.5c.7-1.2 2-2 3.5-2s2.8.8 3.5 2A5.97 5.97 0 018 13a5.97 5.97 0 01-3.5-2.5z"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"/></svg>
       AI Usage
     </div>
     <div class="nav-item" onclick="showPage('emails')" id="nav-emails">
-      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 3a1 1 0 00-1 1v8a1 1 0 001 1h12a1 1 0 001-1V4a1 1 0 00-1-1H2zm0 1.5l6 3.5 6-3.5V4L8 7.5 2 4v.5zM2 6l6 3.5L14 6v6H2V6z"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/></svg>
       Emails
     </div>
     <div style="flex:1"></div>
     <div class="nav-item" onclick="showPage('settings')" id="nav-settings">
-      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 10.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zm5.5-2.5a5.5 5.5 0 01-.1 1l1.4 1.1-1.5 2.6-1.7-.5A5.5 5.5 0 019 12.9V15H7v-2.1a5.5 5.5 0 01-1.6-.7l-1.7.5-1.5-2.6L3.6 9A5.5 5.5 0 013.5 8c0-.4 0-.7.1-1L2.2 5.9l1.5-2.6 1.7.5A5.5 5.5 0 017 3.1V1h2v2.1a5.5 5.5 0 011.6.7l1.7-.5 1.5 2.6L12.4 7c.1.3.1.7.1 1z"/></svg>
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
       Settings
     </div>
   </nav>
@@ -403,9 +403,9 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
       <div id="churches-pagination" style="display:flex;align-items:center;justify-content:space-between;padding:14px 0;font-size:13px;color:var(--muted)">
         <span id="churches-count"></span>
         <div style="display:flex;gap:6px;align-items:center">
-          <button class="btn-secondary" id="churches-prev" onclick="churchesChangePage(-1)" style="padding:5px 12px;font-size:12px">← Prev</button>
+          <button class="btn-secondary" id="churches-prev" onclick="churchesChangePage(-1)" style="padding:5px 12px;font-size:12px;display:flex;align-items:center;gap:4px"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg> Prev</button>
           <span id="churches-page-label"></span>
-          <button class="btn-secondary" id="churches-next" onclick="churchesChangePage(1)" style="padding:5px 12px;font-size:12px">Next →</button>
+          <button class="btn-secondary" id="churches-next" onclick="churchesChangePage(1)" style="padding:5px 12px;font-size:12px;display:flex;align-items:center;gap:4px">Next <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg></button>
         </div>
       </div>
     </div>
@@ -612,7 +612,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 <!-- EMAIL PREVIEW MODAL -->
 <div class="modal-overlay" id="modal-email-preview">
   <div class="modal" style="max-width:700px;max-height:90vh;overflow:auto;position:relative">
-    <button class="modal-close" onclick="closeModal('modal-email-preview')">×</button>
+    <button class="modal-close" onclick="closeModal('modal-email-preview')"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg></button>
     <h2 id="email-preview-title">Email Preview</h2>
     <div style="margin:12px 0;padding:8px 12px;background:var(--bg);border-radius:6px;font-size:13px">
       <strong>Subject:</strong> <span id="email-preview-subject"></span>
@@ -626,7 +626,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 <!-- TEMPLATE EDIT MODAL -->
 <div class="modal-overlay" id="modal-template-edit">
   <div class="modal" style="max-width:800px;max-height:90vh;overflow:auto;position:relative">
-    <button class="modal-close" onclick="closeModal('modal-template-edit')">×</button>
+    <button class="modal-close" onclick="closeModal('modal-template-edit')"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg></button>
     <h2 id="template-edit-title">Edit Template</h2>
     <div id="template-edit-msg"></div>
     <input type="hidden" id="template-edit-type">
@@ -653,7 +653,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 <div class="detail-panel" id="church-detail">
   <div class="detail-panel-header">
     <h2 id="detail-name">Church Details</h2>
-    <button class="panel-close" onclick="closeDetail()">×</button>
+    <button class="panel-close" onclick="closeDetail()"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg></button>
   </div>
   <div id="detail-content"></div>
 </div>
@@ -662,7 +662,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 <div class="detail-panel" id="ticket-detail">
   <div class="detail-panel-header">
     <h2 id="ticket-detail-title">Ticket Details</h2>
-    <button class="panel-close" onclick="closeTicketDetail()">×</button>
+    <button class="panel-close" onclick="closeTicketDetail()"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg></button>
   </div>
   <div id="ticket-detail-content"></div>
 </div>
@@ -672,7 +672,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 <!-- Add/Edit Church Modal -->
 <div class="modal-overlay" id="modal-church">
   <div class="modal" style="position:relative">
-    <button class="modal-close" onclick="closeModal('modal-church')">×</button>
+    <button class="modal-close" onclick="closeModal('modal-church')"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg></button>
     <h2 id="church-modal-title">Add Church</h2>
     <div id="church-modal-msg"></div>
     <input type="hidden" id="church-modal-id">
@@ -691,7 +691,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 <!-- Regen Token Modal -->
 <div class="modal-overlay" id="modal-token">
   <div class="modal" style="position:relative">
-    <button class="modal-close" onclick="closeModal('modal-token')">×</button>
+    <button class="modal-close" onclick="closeModal('modal-token')"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg></button>
     <h2>Regenerate Token</h2>
     <div id="regen-msg"></div>
     <div id="regen-token-display" style="display:none">
@@ -712,7 +712,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 <!-- Add/Edit Reseller Modal -->
 <div class="modal-overlay" id="modal-reseller">
   <div class="modal" style="position:relative">
-    <button class="modal-close" onclick="closeModal('modal-reseller')">×</button>
+    <button class="modal-close" onclick="closeModal('modal-reseller')"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg></button>
     <h2 id="reseller-modal-title">Add Reseller</h2>
     <div id="reseller-modal-msg"></div>
     <input type="hidden" id="rm-id">
@@ -733,7 +733,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 <!-- API Key "COPY NOW" Modal -->
 <div class="modal-overlay" id="modal-apikey">
   <div class="modal" style="position:relative;text-align:center">
-    <button class="modal-close" onclick="closeModal('modal-apikey')">×</button>
+    <button class="modal-close" onclick="closeModal('modal-apikey')"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg></button>
     <h2 style="margin-bottom:12px">API Key — Copy Now!</h2>
     <p style="color:var(--muted);font-size:13px;margin-bottom:16px">This key will not be shown again.</p>
     <div class="token-box" id="apikey-display" style="font-size:13px;cursor:pointer" onclick="copyNewApiKey()"></div>
@@ -744,7 +744,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 <!-- Set Password Modal -->
 <div class="modal-overlay" id="modal-setpw">
   <div class="modal" style="position:relative">
-    <button class="modal-close" onclick="closeModal('modal-setpw')">×</button>
+    <button class="modal-close" onclick="closeModal('modal-setpw')"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg></button>
     <h2>Set Portal Password</h2>
     <div id="setpw-msg"></div>
     <input type="hidden" id="setpw-id">
@@ -2109,7 +2109,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
 <div class="detail-panel" id="fleet-detail">
   <div class="detail-panel-header">
     <h2 id="fd-name">Church Details</h2>
-    <button class="panel-close" onclick="closeFleetDetail()">×</button>
+    <button class="panel-close" onclick="closeFleetDetail()"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg></button>
   </div>
   <div id="fd-content"></div>
 </div>
