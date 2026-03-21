@@ -79,6 +79,29 @@ app.use(cookieParser());
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, maxPayload: 256 * 1024 }); // 256 KB max message
 
+// ─── GLOBAL HEARTBEAT ─────────────────────────────────────────────────────────
+// Ping every connected client every 30s. Any client that fails to pong within
+// 10s is considered a zombie and terminated. This prevents stale connections
+// from silently blocking alerts and status updates.
+const HEARTBEAT_PING_INTERVAL_MS = 30_000;
+const HEARTBEAT_PONG_TIMEOUT_MS  = 10_000;
+
+const heartbeatInterval = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    // Set a 10-second timeout; cleared when pong arrives
+    ws._pongTimeout = setTimeout(() => {
+      const label = ws._churchName ? `church "${ws._churchName}"` : 'controller';
+      log(`[heartbeat] Zombie connection terminated — ${label} did not pong in ${HEARTBEAT_PONG_TIMEOUT_MS / 1000}s`, {
+        event: 'zombie_disconnect',
+        churchName: ws._churchName || null,
+      });
+      ws.terminate();
+    }, HEARTBEAT_PONG_TIMEOUT_MS);
+    ws.ping();
+  }
+}, HEARTBEAT_PING_INTERVAL_MS);
+
 const { ScheduleEngine } = require('./src/scheduleEngine');
 const { AlertEngine } = require('./src/alertEngine');
 const { VersionConfig } = require('./src/versionConfig');
@@ -112,6 +135,7 @@ const { ENGINEER_SYSTEM_PROMPT } = require('./src/engineer-knowledge');
 const { classifyIntent } = require('./src/intent-classifier');
 const { buildDiagnosticContext } = require('./src/diagnostic-context');
 const { LifecycleEmails } = require('./src/lifecycleEmails');
+const { PostServiceReport } = require('./src/postServiceReport');
 
 const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS } = require('./src/billing');
 const { setupSyncMonitor } = require('./src/syncMonitor');
@@ -559,8 +583,10 @@ const stmtDelete = db.prepare('DELETE FROM churches WHERE churchId = ?');
 // churchId → { churchId, name, email, token, ws, status, lastSeen, lastHeartbeat, registeredAt, disconnectedAt }
 const churches = new Map();
 const controllers = new Set();
-// SSE clients for the dashboard
+// SSE clients for the admin dashboard (all churches)
 const sseClients = new Set();
+// SSE clients for church portal live status (churchId → Set of res objects)
+const portalSseClients = new Map();
 
 // Stats
 let totalMessagesRelayed = 0;
@@ -1122,6 +1148,10 @@ billing.setLifecycleEmails(lifecycleEmails);
 sessionRecap.setLifecycleEmails(lifecycleEmails);
 weeklyDigest.setLifecycleEmails(lifecycleEmails);
 alertEngine.setLifecycleEmails(lifecycleEmails);
+sessionRecap.setPostServiceReport(new PostServiceReport(db, {
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+  lifecycleEmails,
+}));
 
 // Run lifecycle email checks every hour
 _intervals.push(setInterval(() => {
@@ -1381,6 +1411,66 @@ scheduleEngine.addWindowCloseCallback(async (churchId) => {
 // Church Portal — self-service login for individual churches
 setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover });
 console.log('[Server] ✓ Church Portal routes registered');
+
+// ─── Church Portal Live Status SSE ───────────────────────────────────────────
+// Authenticated churches can subscribe to real-time status pushes so the portal
+// dashboard updates live without requiring a manual refresh.
+app.get('/api/church/stream', (req, res) => {
+  // Authenticate via cookie (same mechanism as the portal)
+  const token = req.cookies?.tally_church_session;
+  if (!token) return res.status(401).json({ error: 'Not authenticated' });
+  let churchId;
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (payload.type !== 'church_portal') throw new Error('wrong type');
+    churchId = payload.churchId;
+  } catch {
+    return res.status(401).json({ error: 'Session expired' });
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  // Send current state immediately
+  const church = churches.get(churchId);
+  const initialPayload = {
+    type: 'status_snapshot',
+    connected: church ? church.ws?.readyState === 1 : false,
+    status: church ? church.status : {},
+    lastSeen: church ? church.lastSeen : null,
+  };
+  res.write(`data: ${JSON.stringify(initialPayload)}\n\n`);
+
+  // Register as a portal SSE client for this church
+  if (!portalSseClients.has(churchId)) portalSseClients.set(churchId, new Set());
+  portalSseClients.get(churchId).add(res);
+
+  // Keep-alive ping every 20s
+  const keepAlive = setInterval(() => res.write(': ping\n\n'), 20_000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    const clients = portalSseClients.get(churchId);
+    if (clients) {
+      clients.delete(res);
+      if (clients.size === 0) portalSseClients.delete(churchId);
+    }
+  });
+});
+
+// Helper: push an event to all portal SSE clients for a given church
+function broadcastToPortal(churchId, data) {
+  const clients = portalSseClients.get(churchId);
+  if (!clients || clients.size === 0) return;
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  for (const res of clients) {
+    try { res.write(payload); } catch {}
+  }
+}
+console.log('[Server] ✓ Church Portal SSE stream registered');
 
 // Reseller Portal — self-service login for integrators/resellers
 setupResellerPortal(app, db, churches, resellerSystem, JWT_SECRET, requireAdmin);
@@ -2972,6 +3062,14 @@ require('./src/routes/telegram')(app, {
 // ─── WEBSOCKET ────────────────────────────────────────────────────────────────
 
 wss.on('connection', (ws, req) => {
+  // Clear pong-timeout when client responds to a heartbeat ping
+  ws.on('pong', () => {
+    if (ws._pongTimeout) {
+      clearTimeout(ws._pongTimeout);
+      ws._pongTimeout = null;
+    }
+  });
+
   const url = new URL(req.url, 'http://localhost');
   const role = url.pathname.replace(/^\//, '');
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -3011,6 +3109,7 @@ function handleChurchConnection(ws, url, clientIp) {
   }
 
   church.ws = ws;
+  ws._churchName = church.name; // used by heartbeat zombie-disconnect log
   church.lastSeen = new Date().toISOString();
   church.disconnectedAt = null;
   log(`Church "${church.name}" connected from ${clientIp}`, { event: 'church_connect', churchId: church.churchId, church: church.name, ip: clientIp });
@@ -3075,6 +3174,7 @@ function handleChurchConnection(ws, url, clientIp) {
   };
   broadcastToControllers(connectedEvent);
   broadcastToSSE(connectedEvent);
+  broadcastToPortal(church.churchId, { type: 'connected', status: church.status, lastSeen: church.lastSeen });
 
   // WebSocket-level ping every 25s to keep the connection alive through reverse proxies
   const wsPingInterval = setInterval(() => {
@@ -3108,6 +3208,7 @@ function handleChurchConnection(ws, url, clientIp) {
     };
     broadcastToControllers(disconnectEvent);
     broadcastToSSE(disconnectEvent);
+    broadcastToPortal(church.churchId, { type: 'disconnected', status: church.status });
   });
 
   ws.on('error', (err) => {
@@ -3261,6 +3362,8 @@ function handleChurchMessage(church, msg) {
         };
         broadcastToControllers(statusEvent);
         broadcastToSSE(statusEvent);
+        // Push live status to any portal SSE subscribers for this church
+        broadcastToPortal(church.churchId, { type: 'status_update', status: church.status, lastSeen: church.lastSeen });
       }
       // Feed session recap with live stream/recording state
       if (msg.status) {
@@ -3834,6 +3937,9 @@ function gracefulShutdown(signal) {
       ws.close(1001, 'server shutting down');
     }
   }
+
+  // Stop heartbeat interval
+  clearInterval(heartbeatInterval);
 
   // Close HTTP server
   server.close(() => {
