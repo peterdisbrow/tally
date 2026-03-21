@@ -315,6 +315,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       await this._checkSetupReminders();
       await this._checkFirstSundayPrep();
       await this._checkWeekOneCheckin();
+      await this._checkTrialEnding7Days();
       await this._checkTrialEndingSoon();
       await this._checkTrialEndingTomorrow();
       await this._checkWeeklyDigest();
@@ -410,6 +411,38 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         emailType: 'week-one-checkin',
         to: church.portal_email,
         subject: "How's Tally working for you?",
+        html,
+        text,
+      });
+    }
+  }
+
+  // ─── SEQUENCE 3b: TRIAL ENDING IN 7 DAYS ───────────────────────────────────
+
+  async _checkTrialEnding7Days() {
+    const now = Date.now();
+    const sevenDaysFromNow = new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const churches = this.db.prepare(`
+      SELECT churchId, name, portal_email, billing_trial_ends
+      FROM churches
+      WHERE billing_status = 'trialing'
+        AND billing_trial_ends IS NOT NULL
+        AND billing_trial_ends <= ?
+        AND billing_trial_ends > ?
+        AND portal_email IS NOT NULL
+    `).all(sevenDaysFromNow, new Date(now).toISOString());
+
+    for (const church of churches) {
+      const daysLeft = Math.ceil(
+        (new Date(church.billing_trial_ends).getTime() - now) / (24 * 60 * 60 * 1000)
+      );
+      const { html, text } = this._buildTrialEnding7DaysEmail(church, daysLeft);
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'trial-ending-7days',
+        to: church.portal_email,
+        subject: `Your Tally trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} — here's what you'll lose`,
         html,
         text,
       });
@@ -793,6 +826,57 @@ Hit reply and let me know how it's going — I read every response personally.
 
 — Andrew Disbrow
 Founder, Tally
+
+Tally — ${this.appUrl.replace('https://', '')}`;
+
+    return { html, text };
+  }
+
+  // ── 3b. Trial Ending in 7 Days ──
+
+  _buildTrialEnding7DaysEmail(church, daysLeft) {
+    const billingUrl = `${this.appUrl}/portal`;
+
+    const html = this._wrap(`
+      <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Tally trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}</h1>
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Your free trial for <strong>${this._esc(church.name)}</strong> is wrapping up in one week.
+        Here's exactly what you'll lose when it ends:
+      </p>
+
+      <div style="margin: 24px 0; padding: 20px; background: #fef2f2; border-radius: 10px; border: 1px solid #fecaca;">
+        <div style="font-size: 14px; color: #333; line-height: 2.2;">
+          ❌ Real-time monitoring of your ATEM, OBS, encoders, and audio gear<br>
+          ❌ Automatic stream recovery when things go silent mid-service<br>
+          ❌ Telegram alerts to your TD when problems are detected<br>
+          ❌ Pre-service system checks 30 minutes before you go live<br>
+          ❌ AI-powered production assistant in Telegram
+        </div>
+      </div>
+
+      <p style="font-size: 15px; color: #333; line-height: 1.6;">
+        Sunday morning without Tally means manual checks, silent failures, and scrambling in the booth.
+        Subscribe now and keep the safety net in place.
+      </p>
+
+      ${this._cta('Keep Tally Running →', billingUrl)}
+
+      <p style="font-size: 13px; color: #666; line-height: 1.5; margin-top: 16px;">
+        Plans start at $49/month. Cancel anytime. Your settings and history are preserved if you subscribe after the trial — no reconfiguration needed.
+      </p>
+    `);
+
+    const text = `Your Tally trial ends in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}
+
+Your free trial for ${church.name} ends in one week. Here's what you'll lose:
+
+✗ Real-time monitoring of your gear
+✗ Automatic stream recovery
+✗ Telegram alerts for your TD
+✗ Pre-service system checks
+✗ AI production assistant
+
+Subscribe at ${billingUrl} to keep Tally running. Plans start at $49/month.
 
 Tally — ${this.appUrl.replace('https://', '')}`;
 
