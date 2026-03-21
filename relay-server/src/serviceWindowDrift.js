@@ -177,7 +177,8 @@ function getServiceTimingStats(db, churchId, weeks = 4) {
       WHERE church_id = ? AND started_at >= ? AND ended_at IS NOT NULL
       ORDER BY started_at ASC
     `).all(churchId, cutoff);
-  } catch {
+  } catch (e) {
+    console.warn('[serviceWindowDrift] getServiceTimingStats DB query failed for', churchId, ':', e.message);
     return { avgStartDelay: 0, avgDuration: 0, avgEndDelay: 0, onTimePercent: 100 };
   }
 

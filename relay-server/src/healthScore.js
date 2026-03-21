@@ -218,7 +218,8 @@ function _computeUptime(db, churchId, since, until) {
 
     const uptime = Math.max(0, ((totalMinutes - totalDowntime) / totalMinutes) * 100);
     return Math.round(uptime * 10) / 10;
-  } catch {
+  } catch (e) {
+    console.warn('[healthScore] _computeUptime failed for church', churchId, ':', e.message);
     return null;
   }
 }
@@ -260,7 +261,8 @@ function _computeAlertRate(db, churchId, since, until) {
     // Score: 100 at 0 alerts/hr, drops ~20 per alert/hr, floor at 0
     const score = Math.max(0, 100 - alertsPerHour * 20);
     return Math.round(score * 10) / 10;
-  } catch {
+  } catch (e) {
+    console.warn('[healthScore] _computeAlertRate failed for church', churchId, ':', e.message);
     return null;
   }
 }
@@ -287,7 +289,8 @@ function _computeRecoveryRate(db, churchId, since, until) {
 
     if (totalAlerts === 0) return null; // No alerts = no data
     return Math.round((totalRecovered / totalAlerts) * 1000) / 10;
-  } catch {
+  } catch (e) {
+    console.warn('[healthScore] _computeRecoveryRate failed for church', churchId, ':', e.message);
     return null;
   }
 }
@@ -314,7 +317,8 @@ function _computePreServicePassRate(db, churchId, since, until) {
 
     if (!total?.cnt) return null; // No checks = no data
     return Math.round((passed.cnt / total.cnt) * 1000) / 10;
-  } catch {
+  } catch (e) {
+    console.warn('[healthScore] _computePreServicePassRate failed for church', churchId, ':', e.message);
     return null;
   }
 }
@@ -359,7 +363,8 @@ function _computeStreamStability(db, churchId, since, until) {
     // Score: 100 at 0 issues/hr, drops ~25 per issue/hr, floor at 0
     const score = Math.max(0, 100 - issuesPerHour * 25);
     return Math.round(score * 10) / 10;
-  } catch {
+  } catch (e) {
+    console.warn('[healthScore] _computeStreamStability failed for church', churchId, ':', e.message);
     return null;
   }
 }
@@ -417,7 +422,8 @@ function _computeTrendFromDb(db, churchId) {
     if (diff > 0.01) return 'improving';
     if (diff < -0.01) return 'declining';
     return 'stable';
-  } catch {
+  } catch (e) {
+    console.warn('[healthScore] _computeTrendFromDb failed for church', churchId, ':', e.message);
     return 'stable';
   }
 }

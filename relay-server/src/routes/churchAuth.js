@@ -248,10 +248,10 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     let tds = [];
     try {
       tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ? AND active = 1 ORDER BY registered_at ASC').all(c.churchId);
-    } catch { /* schema may vary */ }
+    } catch (e) { console.warn('[churchAuth] church_tds query failed (schema may vary):', e.message); }
     const { portal_password_hash, token, ...safe } = c;
     let notifications = {};
-    try { notifications = JSON.parse(c.notifications || '{}'); } catch {}
+    try { notifications = JSON.parse(c.notifications || '{}'); } catch (e) { console.warn('[churchAuth] Failed to parse notifications JSON:', e.message); }
     res.json({
       ...safe, notifications, tds,
       connected: runtime?.ws?.readyState === 1,
