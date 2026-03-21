@@ -1386,6 +1386,52 @@ class TallyBot {
       }
     }
 
+    // ── Custom macros: /macroname — check church DB before AI fallback ─────────
+    // List macros
+    if (text === '/macros') {
+      const locale = churchLocale(church);
+      try {
+        const macros = this.db.prepare('SELECT name, description FROM church_macros WHERE church_id = ? ORDER BY name ASC').all(church.churchId);
+        if (!macros.length) return this.sendMessage(chatId, bt('macro.list.empty', locale), { parse_mode: 'Markdown' });
+        const list = macros.map(m => `• \`/${m.name}\` — ${m.description || 'no description'}`).join('\n');
+        return this.sendMessage(chatId, bt('macro.list.header', locale) + list, { parse_mode: 'Markdown' });
+      } catch { /* fall through */ }
+    }
+
+    // Run macro by name (/command with no args — look up in macros table)
+    if (text.startsWith('/')) {
+      const macroName = text.slice(1).split(/\s+/)[0].toLowerCase();
+      if (macroName && /^[a-z0-9_]+$/.test(macroName)) {
+        try {
+          const macro = this.db.prepare('SELECT * FROM church_macros WHERE church_id = ? AND name = ?').get(church.churchId, macroName);
+          if (macro) {
+            const steps = (() => { try { return JSON.parse(macro.steps || '[]'); } catch { return []; } })();
+            const locale = churchLocale(church);
+            await this.sendMessage(chatId, bt('macro.running', locale, { name: macroName }), { parse_mode: 'Markdown' });
+
+            // Execute each step by re-processing as a command
+            for (const step of steps) {
+              if (!step.trim()) continue;
+              try {
+                const stepParsed = parseCommand(step);
+                if (stepParsed) {
+                  await this._dispatchCommand(church, chatId, stepParsed.command, stepParsed.params);
+                }
+              } catch (stepErr) {
+                console.warn(`[TallyBot] Macro step error (${macroName}): ${stepErr.message}`);
+              }
+              // 1 second delay between steps to avoid overwhelming devices
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+
+            return this.sendMessage(chatId, bt('macro.done', locale, { name: macroName }), { parse_mode: 'Markdown' });
+          }
+        } catch (e) {
+          console.warn(`[TallyBot] Macro lookup error: ${e.message}`);
+        }
+      }
+    }
+
     // ── Intent classification: route diagnostics to Sonnet, commands to Haiku ──
     const classification = classifyIntent(text);
 

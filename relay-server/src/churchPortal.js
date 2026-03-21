@@ -913,6 +913,9 @@ function buildChurchPortalHtml(church) {
     <button class="nav-item" data-page="guests" onclick="showPage('guests', this)">
       <span class="icon">⊝</span> Guest Access
     </button>
+    <button class="nav-item" data-page="macros" onclick="showPage('macros', this)">
+      <span class="icon">⚡</span> Macros
+    </button>
     <button class="nav-item" data-page="sessions" onclick="showPage('sessions', this)">
       <span class="icon">⊟</span> Sessions
     </button>
@@ -1623,6 +1626,59 @@ function buildChurchPortalHtml(church) {
       </div>
     </div>
 
+    <!-- MACROS -->
+    <div class="page" id="page-macros">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title">Telegram Macros</div>
+          <div class="page-sub">Custom command shortcuts for your tech directors</div>
+        </div>
+      </div>
+      <p class="help-box"><strong>What are macros?</strong> Macros let you create custom Telegram shortcuts for sequences of steps your team runs every week. For example, <code>/sunday</code> could run your full Sunday morning setup sequence. TDs type the shortcut in Telegram and Tally executes the sequence automatically.</p>
+      <div class="card">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+          <button class="btn-primary" onclick="document.getElementById('modal-add-macro').classList.add('open')">+ New Macro</button>
+        </div>
+        <div id="macros-list">
+          <div style="color:#475569;text-align:center;padding:20px;font-size:13px">Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Macro Modal -->
+    <div class="modal" id="modal-add-macro">
+      <div class="modal-inner" style="max-width:520px">
+        <div class="modal-header">
+          <div class="modal-title" id="macro-modal-title">New Macro</div>
+          <button class="modal-close" onclick="closeMacroModal()">✕</button>
+        </div>
+        <div style="padding:20px">
+          <input type="hidden" id="macro-edit-id">
+          <div class="field" style="margin-bottom:14px">
+            <label>Shortcut Name <span style="color:#64748b;font-size:11px">(e.g. "sunday", "warmup", "teststream")</span></label>
+            <div style="display:flex;align-items:center;gap:0">
+              <span style="color:#475569;padding:8px 10px;background:#09090B;border:1px solid #1a2e1f;border-right:none;border-radius:6px 0 0 6px;font-size:14px">/</span>
+              <input type="text" id="macro-name" placeholder="sunday" style="border-radius:0 6px 6px 0;flex:1" oninput="this.value=this.value.replace(/[^a-z0-9_]/g,'').toLowerCase()">
+            </div>
+            <div style="font-size:11px;color:#94a3b8;margin-top:4px">Lowercase letters, numbers, underscores only.</div>
+          </div>
+          <div class="field" style="margin-bottom:14px">
+            <label>Description <span style="color:#64748b;font-size:11px">(shown in /macros list)</span></label>
+            <input type="text" id="macro-description" placeholder="Sunday morning setup sequence">
+          </div>
+          <div class="field" style="margin-bottom:14px">
+            <label>Commands <span style="color:#64748b;font-size:11px">(one per line — same as Telegram commands)</span></label>
+            <textarea id="macro-steps" rows="5" placeholder="start stream\nstart recording\natem cut 1\nobs scene Main Service" style="font-family:monospace;font-size:13px"></textarea>
+            <div style="font-size:11px;color:#94a3b8;margin-top:4px">Enter commands exactly as you'd type them in Telegram. They run in order with a 1-second delay between each.</div>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn-secondary" onclick="closeMacroModal()">Cancel</button>
+            <button class="btn-primary" onclick="saveMacro()">Save Macro</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- SESSIONS -->
     <div class="page" id="page-sessions">
       <div class="page-header">
@@ -1965,6 +2021,7 @@ function buildChurchPortalHtml(church) {
       if (id === 'tds') loadTds();
       if (id === 'schedule') loadSchedule();
       if (id === 'guests') loadGuests();
+      if (id === 'macros') loadMacros();
       if (id === 'sessions') loadSessions();
       if (id === 'alerts') loadAlerts();
       if (id === 'billing') loadBilling();
@@ -4349,6 +4406,93 @@ function buildChurchPortalHtml(church) {
       } catch(e) { toast(e.message, true); }
     }
 
+    // ── Macros ────────────────────────────────────────────────────────────────
+    var editingMacroId = null;
+
+    async function loadMacros() {
+      var el = document.getElementById('macros-list');
+      if (!el) return;
+      try {
+        var macros = await api('GET', '/api/church/macros');
+        if (!macros.length) {
+          el.innerHTML = '<div style="color:#475569;text-align:center;padding:24px;font-size:13px">'
+            + '<div style="font-size:24px;margin-bottom:8px">⚡</div>'
+            + '<div style="font-weight:600;margin-bottom:6px">No macros yet</div>'
+            + '<div>Create your first macro to give your TDs one-tap shortcuts for common service sequences.</div>'
+            + '</div>';
+          return;
+        }
+        el.innerHTML = macros.map(function(m) {
+          var steps = (m.steps || []);
+          return '<div style="padding:14px;border:1px solid rgba(255,255,255,0.06);border-radius:8px;margin-bottom:10px">'
+            + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
+            + '<div>'
+            + '<span style="font-family:monospace;font-size:15px;font-weight:700;color:#22c55e">/' + escapeHtml(m.name) + '</span>'
+            + (m.description ? '<span style="color:#94A3B8;font-size:13px;margin-left:10px">' + escapeHtml(m.description) + '</span>' : '')
+            + '</div>'
+            + '<div style="display:flex;gap:6px">'
+            + '<button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="editMacro(\'' + escapeHtml(String(m.id)) + '\')">Edit</button>'
+            + '<button class="btn-danger" style="font-size:11px;padding:4px 10px" onclick="deleteMacro(\'' + escapeHtml(String(m.id)) + '\')">Delete</button>'
+            + '</div></div>'
+            + (steps.length ? '<div style="font-family:monospace;font-size:11px;color:#64748b;line-height:1.8">'
+              + steps.map(function(s) { return '→ ' + escapeHtml(s); }).join('<br>') + '</div>' : '');
+        }).join('');
+      } catch(e) { el.innerHTML = '<div style="color:#ef4444;text-align:center;padding:20px;font-size:13px">Failed to load macros</div>'; }
+    }
+
+    function closeMacroModal() {
+      document.getElementById('modal-add-macro').classList.remove('open');
+      document.getElementById('macro-edit-id').value = '';
+      document.getElementById('macro-name').value = '';
+      document.getElementById('macro-description').value = '';
+      document.getElementById('macro-steps').value = '';
+      document.getElementById('macro-modal-title').textContent = 'New Macro';
+      editingMacroId = null;
+    }
+
+    async function editMacro(id) {
+      try {
+        var m = await api('GET', '/api/church/macros/' + id);
+        editingMacroId = id;
+        document.getElementById('macro-edit-id').value = id;
+        document.getElementById('macro-name').value = m.name || '';
+        document.getElementById('macro-description').value = m.description || '';
+        document.getElementById('macro-steps').value = (m.steps || []).join('\\n');
+        document.getElementById('macro-modal-title').textContent = 'Edit Macro';
+        document.getElementById('modal-add-macro').classList.add('open');
+      } catch(e) { toast('Failed to load macro', true); }
+    }
+
+    async function deleteMacro(id) {
+      if (!await modalConfirm('Delete this macro? TDs will no longer be able to run it.', { title: 'Delete Macro', okLabel: 'Delete', dangerOk: true })) return;
+      try {
+        await api('DELETE', '/api/church/macros/' + id);
+        loadMacros();
+        toast('Macro deleted');
+      } catch(e) { toast(e.message, true); }
+    }
+
+    async function saveMacro() {
+      var name = document.getElementById('macro-name').value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+      var description = document.getElementById('macro-description').value.trim();
+      var stepsRaw = document.getElementById('macro-steps').value;
+      var steps = stepsRaw.split('\\n').map(function(s) { return s.trim(); }).filter(Boolean);
+      if (!name) return toast('Shortcut name is required', true);
+      if (!steps.length) return toast('Add at least one command step', true);
+      var editId = document.getElementById('macro-edit-id').value;
+      try {
+        if (editId) {
+          await api('PUT', '/api/church/macros/' + editId, { name, description, steps });
+          toast('Macro updated');
+        } else {
+          await api('POST', '/api/church/macros', { name, description, steps });
+          toast('Macro created — TDs can now use /' + name + ' in Telegram');
+        }
+        closeMacroModal();
+        loadMacros();
+      } catch(e) { toast(e.message, true); }
+    }
+
     // ── Sessions ──────────────────────────────────────────────────────────────
     async function loadSessions() {
       try {
@@ -5951,6 +6095,20 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try { db.exec(m); } catch { /* column already exists */ }
   }
 
+  // Telegram macros table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS church_macros (
+      id TEXT PRIMARY KEY,
+      church_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      steps TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(church_id, name)
+    )
+  `);
+
   // Guest tokens table (extend if not exists)
   db.exec(`
     CREATE TABLE IF NOT EXISTS guest_tokens (
@@ -7101,6 +7259,63 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // ── DELETE /api/church/tds/:tdId ──────────────────────────────────────────────
   app.delete('/api/church/tds/:tdId', authMiddleware, (req, res) => {
     db.prepare('DELETE FROM church_tds WHERE id = ? AND church_id = ?').run(req.params.tdId, req.church.churchId);
+    res.json({ ok: true });
+  });
+
+  // ── MACROS CRUD ───────────────────────────────────────────────────────────────
+  const { v4: _uuid } = require('uuid');
+
+  app.get('/api/church/macros', authMiddleware, (req, res) => {
+    try {
+      const macros = db.prepare('SELECT * FROM church_macros WHERE church_id = ? ORDER BY name ASC').all(req.church.churchId);
+      res.json(macros.map(m => ({
+        ...m,
+        steps: (() => { try { return JSON.parse(m.steps || '[]'); } catch { return []; } })(),
+      })));
+    } catch { res.json([]); }
+  });
+
+  app.get('/api/church/macros/:id', authMiddleware, (req, res) => {
+    const m = db.prepare('SELECT * FROM church_macros WHERE id = ? AND church_id = ?').get(req.params.id, req.church.churchId);
+    if (!m) return res.status(404).json({ error: 'Macro not found' });
+    res.json({ ...m, steps: (() => { try { return JSON.parse(m.steps || '[]'); } catch { return []; } })() });
+  });
+
+  app.post('/api/church/macros', authMiddleware, (req, res) => {
+    const { name, description, steps } = req.body;
+    if (!name || !/^[a-z0-9_]+$/.test(name)) return res.status(400).json({ error: 'Invalid macro name (lowercase, numbers, underscores only)' });
+    if (!Array.isArray(steps) || !steps.length) return res.status(400).json({ error: 'steps array required' });
+    const reserved = ['start', 'stop', 'status', 'help', 'register', 'fix', 'menu', 'history', 'macros'];
+    if (reserved.includes(name)) return res.status(400).json({ error: `"${name}" is a reserved command name` });
+    const id = _uuid();
+    const now = new Date().toISOString();
+    try {
+      db.prepare('INSERT INTO church_macros (id, church_id, name, description, steps, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(id, req.church.churchId, name, description || '', JSON.stringify(steps), now, now);
+      res.json({ id, name, description, steps });
+    } catch (e) {
+      if (e.message && e.message.includes('UNIQUE')) return res.status(409).json({ error: `Macro "/${name}" already exists` });
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put('/api/church/macros/:id', authMiddleware, (req, res) => {
+    const { name, description, steps } = req.body;
+    if (!name || !/^[a-z0-9_]+$/.test(name)) return res.status(400).json({ error: 'Invalid macro name' });
+    if (!Array.isArray(steps) || !steps.length) return res.status(400).json({ error: 'steps array required' });
+    const now = new Date().toISOString();
+    try {
+      db.prepare('UPDATE church_macros SET name = ?, description = ?, steps = ?, updated_at = ? WHERE id = ? AND church_id = ?')
+        .run(name, description || '', JSON.stringify(steps), now, req.params.id, req.church.churchId);
+      res.json({ ok: true });
+    } catch (e) {
+      if (e.message && e.message.includes('UNIQUE')) return res.status(409).json({ error: `Macro "/${name}" already exists` });
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/church/macros/:id', authMiddleware, (req, res) => {
+    db.prepare('DELETE FROM church_macros WHERE id = ? AND church_id = ?').run(req.params.id, req.church.churchId);
     res.json({ ok: true });
   });
 
