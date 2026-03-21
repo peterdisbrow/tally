@@ -76,6 +76,9 @@ app.use(express.json({
 }));
 app.use(cookieParser());
 
+const { csrfMiddleware } = require('./src/csrf');
+app.use(csrfMiddleware);
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, maxPayload: 256 * 1024 }); // 256 KB max message
 

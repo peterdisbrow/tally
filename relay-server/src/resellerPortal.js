@@ -23,6 +23,7 @@ const crypto = require('crypto');
 const jwt    = require('jsonwebtoken');
 const { createRateLimit } = require('./rateLimit');
 const { escapeHtml } = require('./escapeHtml');
+const { generateCsrfToken, setCsrfCookie } = require('./csrf');
 
 // ─── password helpers ──────────────────────────────────────────────────────────
 
@@ -1004,8 +1005,13 @@ function buildResellerPortalHtml(reseller) {
       setTimeout(() => t.classList.remove('show'), 3000);
     }
 
+    function getCsrfToken() {
+      const m = document.cookie.match(/(?:^|;\s*)tally_csrf=([^;]+)/);
+      return m ? m[1] : '';
+    }
+
     async function api(method, path, body) {
-      const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'include', signal: AbortSignal.timeout(15000) };
+      const opts = { method, headers: { 'Content-Type': 'application/json', 'x-csrf-token': getCsrfToken() }, credentials: 'include', signal: AbortSignal.timeout(15000) };
       if (body) opts.body = JSON.stringify(body);
       const r = await fetch(path, opts);
       const data = await r.json().catch(() => ({}));
@@ -1320,9 +1326,10 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
       res.cookie('tally_reseller_session', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        sameSite: 'Strict',
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
+      setCsrfCookie(res, generateCsrfToken());
 
       console.log(`[ResellerPortal] Self-service signup: "${name.trim()}" (${result.resellerId}) email=${emailNorm}`);
       res.redirect('/reseller-portal');
@@ -1359,9 +1366,10 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
     res.cookie('tally_reseller_session', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: 'Strict',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
+    setCsrfCookie(res, generateCsrfToken());
     res.redirect('/reseller-portal');
   });
 
