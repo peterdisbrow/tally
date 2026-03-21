@@ -2834,7 +2834,7 @@ function buildChurchPortalHtml(church) {
         'engineer.special_notes': 'Notas Especiales',
         'engineer.save': 'Guardar Perfil',
         'engineer.chat.title': '\ud83d\udcac Chatear con Tally Engineer',
-        'engineer.chat.placeholder': 'Preg\u00fántale algo al Tally Engineer...',
+        'engineer.chat.placeholder': 'Preg\u00fantale algo al Tally Engineer...',
         // Guest Access
         'guests.page_sub': 'Tokens temporales para DTs visitantes, contratistas o entrenadores',
         'guests.generate': '+ Generar Token',
