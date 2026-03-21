@@ -29,6 +29,27 @@ This means:
 
 ## Bugs Found & Fixed
 
+### Bug 0 — CRITICAL: `onclick` HTML Attribute Escaping Breaks All Action Buttons
+
+**File:** `adminPanel.js` — `renderChurches()`, `renderResellers()`, `openDetail()`
+**Description:** `JSON.stringify(value)` produces a string wrapped in `"` double-quotes. When embedded raw inside an `onclick="..."` HTML attribute, the `"` from JSON immediately closes the attribute, truncating the onclick JS to a partial expression (e.g., `openDetail(`). Clicking Edit, Delete, Regen Token, or the church name link silently did nothing — the browser parsed the onclick as an empty or syntax-error function call.
+
+**Affected patterns (all tables):**
+- Church: `openDetail`, `openEditChurch`, `openRegenToken`, `deleteChurch`, `copyToken`
+- Reseller: `openEditReseller`, `openSetPassword`, `toggleReseller`, `deleteReseller`
+
+**Fix:** Wrapped all `JSON.stringify(...)` in `esc()` (HTML encoder) so `"` becomes `&quot;` in the attribute. The browser decodes `&quot;` → `"` before executing JS — the function receives the correct argument.
+
+```js
+// Before (broken — " closes attribute):
+onclick="openDetail(${JSON.stringify(c.churchId)})"
+
+// After (correct — &quot; decoded by browser before JS runs):
+onclick="openDetail(${esc(JSON.stringify(c.churchId))})"
+```
+
+---
+
 ### Bug 1 — Reseller Status Badge: Missing CSS Classes (HIGH)
 **File:** `adminPanel.js:1092`
 **Description:** `renderResellers()` used `badge-active` and `badge-inactive` CSS classes that don't exist in the stylesheet. Only `badge`, `badge-green`, `badge-yellow`, `badge-red`, `badge-gray` are defined.
@@ -157,9 +178,15 @@ The `buildPortalHtml()` function is actively served at `/portal`. No bugs found:
 
 | Priority | Count | Status |
 |----------|-------|--------|
+| CRITICAL bugs | 1 | Fixed (onclick HTML escaping — all action buttons broken) |
 | HIGH bugs | 3 | All fixed |
 | MEDIUM bugs | 3 | All fixed |
 | LOW bugs/enhancements | 4 | All fixed |
 | Architecture finding | 1 | Documented (dead code, not removed) |
 
-**All 10 bugs fixed in `relay-server/src/adminPanel.js`.**
+**All 11 bugs fixed in `relay-server/src/adminPanel.js`.**
+
+## Commits
+
+- `0cfa946` — `fix(admin): comprehensive admin dashboard code audit and bug fixes`
+- `fcb1fde` — `chore(admin): incorporate additional improvements from stash`
