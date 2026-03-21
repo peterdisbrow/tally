@@ -925,6 +925,9 @@ function buildChurchPortalHtml(church) {
     <button class="nav-item" data-page="analytics" onclick="showPage('analytics', this)">
       <span class="icon">📊</span> Analytics
     </button>
+    <button class="nav-item" data-page="migrate" onclick="showPage('migrate', this)">
+      <span class="icon">🔀</span> Migrate
+    </button>
     <button class="nav-item" data-page="billing" onclick="showPage('billing', this)">
       <span class="icon">⊠</span> Billing
     </button>
@@ -1808,6 +1811,32 @@ function buildChurchPortalHtml(church) {
       <div id="alerts-content"><p style="color:#475569;text-align:center;padding:20px">Loading alerts...</p></div>
     </div>
 
+    <!-- MIGRATION WIZARD -->
+    <div class="page" id="page-migrate">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title">Migration Assistant</div>
+          <div class="page-sub">Switching from another system? We'll guide you through.</div>
+        </div>
+      </div>
+      <div id="migration-wizard">
+        <!-- Step 1: pick source system -->
+        <div id="migrate-step-1">
+          <div class="card">
+            <div class="card-title" style="margin-bottom:16px">What are you switching from?</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px" id="migrate-source-grid">
+              ${['Planning Center', 'ProPresenter Standalone', 'vMix', 'Wirecast', 'Companion Only', 'Nothing — New Setup', 'Other'].map(s =>
+                `<button class="migrate-source-btn" onclick="selectMigrateSource('${s.replace(/'/g, "\\'")}', this)" style="background:#09090B;border:2px solid #1a2e1f;border-radius:10px;padding:16px 12px;text-align:center;cursor:pointer;transition:all 0.15s;color:#F8FAFC;font-size:13px;font-weight:600">${s}</button>`
+              ).join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 2: comparison + setup guidance (populated by JS) -->
+        <div id="migrate-step-2" style="display:none"></div>
+      </div>
+    </div>
+
     <!-- BILLING -->
     <div class="page" id="page-billing">
       <div class="page-header">
@@ -2025,6 +2054,7 @@ function buildChurchPortalHtml(church) {
       if (id === 'sessions') loadSessions();
       if (id === 'alerts') loadAlerts();
       if (id === 'billing') loadBilling();
+      if (id === 'migrate') initMigrationWizard();
       if (id === 'notifications') loadNotifications();
       if (id === 'support') loadSupportInfo();
       if (id === 'analytics') loadAnalytics();
@@ -4573,6 +4603,204 @@ function buildChurchPortalHtml(church) {
         modal.appendChild(inner);
         document.body.appendChild(modal);
       } catch(e) { toast('Failed to load report', true); }
+    }
+
+    // ── Migration Wizard ──────────────────────────────────────────────────────
+
+    var _migrateSource = null;
+
+    var MIGRATION_DATA = {
+      'Planning Center': {
+        icon: '📅',
+        intro: 'Planning Center is a great scheduling tool — Tally adds the live production monitoring and automation layer that PCO doesn\'t cover.',
+        features: [
+          { feature: 'Service Planning & Scheduling', them: '✅ Full', us: '✅ PCO Sync (Pro plan)' },
+          { feature: 'Live Stream Monitoring', them: '❌ None', us: '✅ Real-time, all platforms' },
+          { feature: 'ATEM / OBS / Encoder Control', them: '❌ None', us: '✅ 26 device integrations' },
+          { feature: 'Auto-Recovery', them: '❌ None', us: '✅ AI-powered failover' },
+          { feature: 'Telegram Alerts', them: '❌ None', us: '✅ Real-time TD alerts' },
+          { feature: 'Pre-Service Checks', them: '❌ None', us: '✅ Auto 30 min before service' },
+        ],
+        steps: [
+          { title: 'Connect PCO Sync', detail: 'Go to Integrations → Planning Center and authorize your PCO account. Tally will pull your service schedule automatically.' },
+          { title: 'Install Tally desktop app', detail: 'Download the Tally app on your production computer. Sign in with your church ID.' },
+          { title: 'Add your ATEM or OBS', detail: 'In Equipment, add your ATEM switcher and OBS connection. Tally will start monitoring immediately.' },
+          { title: 'Register your TD on Telegram', detail: 'Use the "Copy Invite Link" on the TDs page and share it with your tech director.' },
+          { title: 'Set your service schedule', detail: 'Review your imported schedule or manually configure your Sunday service window.' },
+        ],
+        importNote: 'Your Planning Center service schedule can be imported automatically via the PCO Sync integration (Pro plan required).',
+      },
+      'ProPresenter Standalone': {
+        icon: '🎬',
+        intro: 'ProPresenter handles slides and graphics — Tally monitors your entire production stack and adds live stream recovery so your broadcast doesn\'t fail.',
+        features: [
+          { feature: 'Slides / Graphics', them: '✅ Best in class', us: 'Works alongside PP7' },
+          { feature: 'Live Stream Monitoring', them: '❌ None', us: '✅ Real-time' },
+          { feature: 'OBS / ATEM Integration', them: '⚠️ Limited NDI', us: '✅ Full WebSocket + IP control' },
+          { feature: 'Auto-Recovery from stream drops', them: '❌ None', us: '✅ AI failover in seconds' },
+          { feature: 'ProPresenter Remote Control', them: '⚠️ Stage Display only', us: '✅ Full remote via Telegram' },
+          { feature: 'Pre-Service Checks', them: '❌ None', us: '✅ PP7 connection included' },
+        ],
+        steps: [
+          { title: 'Install Tally alongside ProPresenter', detail: 'Tally runs as a background app — it doesn\'t replace PP7, it adds monitoring around it.' },
+          { title: 'Enable ProPresenter connection in Tally', detail: 'In Equipment, add ProPresenter using its local IP and port 50000.' },
+          { title: 'Add your streaming setup', detail: 'Connect OBS via WebSocket and/or your ATEM. Tally will monitor both.' },
+          { title: 'Set Telegram alerts', detail: 'When Tally detects a PP7 disconnect or stream issue, your TD gets a Telegram alert immediately.' },
+          { title: 'Configure pre-service check', detail: 'Set your service windows so Tally auto-checks PP7 is connected before each service.' },
+        ],
+        importNote: 'No import needed — Tally works alongside ProPresenter. Both run simultaneously.',
+      },
+      'vMix': {
+        icon: '🖥',
+        intro: 'vMix is powerful for complex productions — Tally connects to it via its web API and adds monitoring, alerts, and Telegram control.',
+        features: [
+          { feature: 'Multi-camera production', them: '✅ Full', us: 'Connects to existing vMix setup' },
+          { feature: 'Stream health monitoring', them: '⚠️ Local only', us: '✅ Cloud dashboard + alerts' },
+          { feature: 'Telegram alerts', them: '❌ None', us: '✅ Real-time' },
+          { feature: 'Auto-recovery', them: '❌ Manual', us: '✅ AI-powered' },
+          { feature: 'Pre-service checks', them: '❌ None', us: '✅ vMix API check included' },
+        ],
+        steps: [
+          { title: 'Enable vMix Web Controller', detail: 'In vMix settings, enable Web Controller on port 8088. Tally uses this to monitor and control.' },
+          { title: 'Add vMix in Tally Equipment', detail: 'Enter your vMix computer\'s IP and port 8088. Tally will connect and start monitoring.' },
+          { title: 'Connect your streaming outputs', detail: 'Add YouTube/Facebook OAuth in Tally for viewer count and stream health monitoring.' },
+          { title: 'Set up TD alerts', detail: 'Register your tech director on Telegram using the Copy Invite Link button.' },
+        ],
+        importNote: 'vMix settings and presets stay in vMix — Tally adds a monitoring and alert layer on top.',
+      },
+      'Wirecast': {
+        icon: '📡',
+        intro: 'Wirecast handles encoding and streaming — Tally monitors the full production chain and alerts your team when issues occur.',
+        features: [
+          { feature: 'Multi-source encoding', them: '✅ Full', us: 'Works alongside Wirecast' },
+          { feature: 'Stream health dashboard', them: '⚠️ Local only', us: '✅ Cloud, multi-platform' },
+          { feature: 'Auto-recovery', them: '❌ Manual restart', us: '✅ AI auto-recover' },
+          { feature: 'ATEM integration', them: '⚠️ NDI only', us: '✅ Full ATEM IP control' },
+          { feature: 'Telegram alerts', them: '❌ None', us: '✅ Real-time TD alerts' },
+        ],
+        steps: [
+          { title: 'Install Tally on your production computer', detail: 'Tally runs alongside Wirecast. Both can be open at the same time.' },
+          { title: 'Connect your ATEM switcher', detail: 'Add your ATEM in Tally Equipment. Tally will monitor scene cuts and detect signal loss.' },
+          { title: 'Add your streaming platform', detail: 'Authorize YouTube or Facebook in Tally to monitor viewer count and stream health.' },
+          { title: 'Set up Telegram alerts', detail: 'Get real-time alerts when Wirecast loses signal or your stream drops.' },
+        ],
+        importNote: 'No import needed — Tally adds monitoring around your existing Wirecast setup.',
+      },
+      'Companion Only': {
+        icon: '🎮',
+        intro: 'If you\'re already using Bitfocus Companion, you\'re halfway there — Tally integrates directly with Companion and adds monitoring, cloud dashboard, and AI recovery.',
+        features: [
+          { feature: 'Button deck control', them: '✅ Best in class', us: 'Companion integration built-in' },
+          { feature: 'Cloud portal / dashboard', them: '❌ None', us: '✅ Full web portal' },
+          { feature: 'Monitoring & alerts', them: '❌ None', us: '✅ Real-time' },
+          { feature: 'Auto-recovery', them: '❌ Manual', us: '✅ AI failover' },
+          { feature: 'Telegram alerts', them: '⚠️ Via HTTP action', us: '✅ Native, role-aware' },
+        ],
+        steps: [
+          { title: 'Add Companion in Tally Equipment', detail: 'Enter your Companion computer\'s IP and port 8000. Tally will connect to the Companion HTTP API.' },
+          { title: 'Keep your existing Companion setup', detail: 'None of your existing Companion buttons or modules need to change.' },
+          { title: 'Install Tally app for ATEM/OBS monitoring', detail: 'Tally adds visibility and AI recovery to the devices Companion already controls.' },
+          { title: 'Enable Tally → Companion triggers', detail: 'In Autopilot, you can set rules that trigger Companion button presses on device events.' },
+        ],
+        importNote: 'Your Companion configuration imports automatically when you connect Companion to Tally.',
+      },
+      'Nothing — New Setup': {
+        icon: '🚀',
+        intro: 'You\'re starting fresh — great! Follow these steps to get Tally running for your first service.',
+        features: [],
+        steps: [
+          { title: 'Download the Tally desktop app', detail: 'Install on the computer that runs your production software (OBS, ProPresenter, etc.).' },
+          { title: 'Connect your ATEM switcher', detail: 'Enter your ATEM\'s IP address in Equipment → Add Device. Tally auto-detects the model.' },
+          { title: 'Connect OBS via WebSocket', detail: 'In OBS: Tools → WebSocket Server Settings. Enable it and note the port (default 4455).' },
+          { title: 'Set up Telegram alerts', detail: 'Register your tech director using the Copy Invite Link button on the TDs page.' },
+          { title: 'Run your first pre-service check', detail: 'Click "Run Check Now" on the dashboard 30 minutes before your service.' },
+        ],
+        importNote: null,
+      },
+      'Other': {
+        icon: '🔧',
+        intro: 'Tally works alongside most production software. Here\'s the standard setup path.',
+        features: [],
+        steps: [
+          { title: 'Install the Tally app', detail: 'Download and install on your production computer.' },
+          { title: 'Add your devices', detail: 'In Equipment, add your ATEM (by IP), OBS (WebSocket), encoders, and ProPresenter.' },
+          { title: 'Set up Telegram alerts', detail: 'Share the invite link with your tech director so they\'re connected for Sunday.' },
+          { title: 'Set your service schedule', detail: 'Configure your Sunday service window so Tally knows when to send alerts.' },
+          { title: 'Run a pre-service check', detail: 'Test the system by clicking Run Check Now before your next service.' },
+        ],
+        importNote: null,
+      },
+    };
+
+    function initMigrationWizard() {
+      // Reset to step 1
+      document.getElementById('migrate-step-1').style.display = '';
+      document.getElementById('migrate-step-2').style.display = 'none';
+      document.getElementById('migrate-step-2').innerHTML = '';
+      document.querySelectorAll('.migrate-source-btn').forEach(function(b) {
+        b.style.borderColor = '#1a2e1f';
+        b.style.background = '#09090B';
+      });
+      _migrateSource = null;
+    }
+
+    function selectMigrateSource(source, btn) {
+      _migrateSource = source;
+      document.querySelectorAll('.migrate-source-btn').forEach(function(b) {
+        b.style.borderColor = '#1a2e1f';
+        b.style.background = '#09090B';
+        b.style.color = '#F8FAFC';
+      });
+      btn.style.borderColor = '#22c55e';
+      btn.style.background = 'rgba(34,197,94,0.08)';
+      btn.style.color = '#22c55e';
+      renderMigrationGuide(source);
+    }
+
+    function renderMigrationGuide(source) {
+      var data = MIGRATION_DATA[source];
+      if (!data) return;
+      var step2 = document.getElementById('migrate-step-2');
+      step2.style.display = '';
+
+      var html = '';
+
+      // Intro
+      html += '<div class="card"><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span style="font-size:24px">' + data.icon + '</span><div><div class="card-title" style="margin:0">Switching from ' + escapeHtml(source) + '</div></div></div><p style="color:#94A3B8;font-size:14px;line-height:1.6;margin:0">' + escapeHtml(data.intro) + '</p></div>';
+
+      // Feature comparison (if available)
+      if (data.features.length > 0) {
+        html += '<div class="card"><div class="card-title" style="margin-bottom:12px">Feature Comparison</div><div class="table-wrap"><table>';
+        html += '<thead><tr><th>Capability</th><th>' + escapeHtml(source) + '</th><th>Tally</th></tr></thead><tbody>';
+        html += data.features.map(function(f) {
+          return '<tr><td style="font-size:13px">' + escapeHtml(f.feature) + '</td>'
+            + '<td style="font-size:13px;color:#94A3B8">' + escapeHtml(f.them) + '</td>'
+            + '<td style="font-size:13px;color:#22c55e;font-weight:500">' + escapeHtml(f.us) + '</td></tr>';
+        }).join('');
+        html += '</tbody></table></div></div>';
+      }
+
+      // Setup steps
+      html += '<div class="card"><div class="card-title" style="margin-bottom:16px">Your Setup Checklist</div>';
+      html += data.steps.map(function(step, i) {
+        return '<div style="display:flex;gap:14px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05)">'
+          + '<div style="min-width:28px;height:28px;background:rgba(34,197,94,0.1);border:2px solid #22c55e;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#22c55e;flex-shrink:0">' + (i+1) + '</div>'
+          + '<div><div style="font-weight:600;font-size:13px;margin-bottom:4px">' + escapeHtml(step.title) + '</div>'
+          + '<div style="font-size:12px;color:#94A3B8;line-height:1.5">' + escapeHtml(step.detail) + '</div></div>'
+          + '</div>';
+      }).join('');
+      html += '</div>';
+
+      // Import note
+      if (data.importNote) {
+        html += '<div class="card" style="background:rgba(34,197,94,0.05);border-color:rgba(34,197,94,0.2)"><div style="display:flex;gap:10px;align-items:flex-start"><span style="font-size:18px">💾</span><div><div style="font-weight:600;font-size:13px;margin-bottom:4px">Import / Migration Note</div><div style="font-size:13px;color:#94A3B8;line-height:1.5">' + escapeHtml(data.importNote) + '</div></div></div></div>';
+      }
+
+      // CTA
+      html += '<div style="text-align:center;padding:8px 0 16px"><button class="btn-primary" onclick="showPage(\'tds\', document.querySelector(\'[data-page=tds]\'))" style="margin-right:8px">Set Up Tech Directors →</button><button class="btn-secondary" onclick="showPage(\'engineer\', document.querySelector(\'[data-page=engineer]\'))">Open Tally Engineer</button></div>';
+
+      step2.innerHTML = html;
+      step2.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     // ── Billing ───────────────────────────────────────────────────────────────
