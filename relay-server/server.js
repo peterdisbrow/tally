@@ -524,6 +524,11 @@ const _schemaMigrations = [
   // Onboarding checklist steps 3 & 4 (steps 1-2 use existing app/telegram columns)
   "ALTER TABLE churches ADD COLUMN onboarding_failover_tested_at TEXT",
   "ALTER TABLE churches ADD COLUMN onboarding_team_invited_at TEXT",
+  // Campus Mode (Pro/Enterprise self-service campus linking — separate from reseller-created campuses)
+  // campus_id: points to the main campus churchId when this church is a satellite
+  // campus_link_code: 6-char code the main campus shares so satellites can join
+  "ALTER TABLE churches ADD COLUMN campus_id TEXT",
+  "ALTER TABLE churches ADD COLUMN campus_link_code TEXT",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -538,6 +543,8 @@ try {
   db.exec('CREATE INDEX IF NOT EXISTS idx_service_sessions_church_id ON service_sessions(church_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_guest_tokens_church_id ON guest_tokens(church_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_churches_reseller_id ON churches(reseller_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_churches_campus_id ON churches(campus_id)');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_churches_campus_link_code ON churches(campus_link_code)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_billing_customers_church_id ON billing_customers(church_id)');
 } catch { /* tables may not exist yet — indexes will be created when they are */ }
 

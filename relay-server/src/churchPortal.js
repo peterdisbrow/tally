@@ -12,6 +12,11 @@
  *   GET  /api/church/campuses            list linked campuses
  *   POST /api/church/campuses            create linked campus
  *   DELETE /api/church/campuses/:id      remove linked campus
+ *
+ *   Campus Mode — Pro/Enterprise self-service campus linking:
+ *   POST /api/church/campus/link         generate link code (action=generate) or join via code (action=join)
+ *   GET  /api/church/campus/list         list campuses in this church's campus group
+ *   DELETE /api/church/campus/:id/unlink remove a satellite from the group (or self-unlink)
  *   GET  /api/church/schedule            service schedule
  *   PUT  /api/church/schedule            update schedule
  *   GET  /api/church/tds                 tech directors list
@@ -1282,7 +1287,73 @@ function buildChurchPortalHtml(church) {
         </div>
         <button class="help-icon-btn" onclick="openHelp('campuses')" title="Help with Campuses">?</button>
       </div>
-      <p class="help-box"><strong>How it works:</strong> Each campus gets its own Church ID, connection token, and Telegram registration code. Install the Tally app at each campus and connect using that campus token.</p>
+
+      <!-- ── Campus Mode (Pro/Enterprise self-service campus linking) ─────── -->
+      <div class="card" id="campus-mode-card" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div class="card-title" style="margin:0">Campus Mode <span style="font-size:12px;color:#64748B;font-weight:normal;margin-left:8px">Pro &amp; Enterprise</span></div>
+          <span id="campus-mode-role-badge"></span>
+        </div>
+
+        <!-- Upgrade prompt (shown for Connect / Plus users) -->
+        <div id="campus-mode-upgrade" style="display:none;margin-top:16px">
+          <p style="color:#94A3B8;margin:0 0 12px;font-size:14px">Campus Mode lets existing churches link together without creating separate accounts or going through a reseller. Requires a <strong style="color:#F8FAFC">Pro or Enterprise</strong> plan.</p>
+          <button class="btn-primary" onclick="showPage('billing', document.querySelector('[data-page=billing]'))">Upgrade to Pro &rarr;</button>
+        </div>
+
+        <!-- Main campus view -->
+        <div id="campus-mode-main" style="display:none;margin-top:16px">
+          <p style="color:#94A3B8;margin:0 0 16px;font-size:14px">Share your link code with another church. They enter it on their own Campuses page to join your campus group. Each linked church keeps its own login and data.</p>
+          <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+            <div>
+              <label style="font-size:12px;color:#64748B;display:block;margin-bottom:6px">Campus Link Code</label>
+              <code id="campus-link-code-display" style="font-size:22px;color:#22c55e;letter-spacing:4px;padding:10px 18px;background:#0F1613;border:1px solid #1a2e1f;border-radius:6px;display:inline-block;min-width:120px;text-align:center">—</code>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <button class="btn-primary" id="btn-generate-link-code" onclick="generateCampusLinkCode()">Generate New Code</button>
+              <button class="btn-secondary" id="btn-copy-link-code" onclick="copyCampusLinkCode()" style="display:none">Copy Code</button>
+            </div>
+          </div>
+          <div id="campus-mode-satellites-section" style="margin-top:24px;display:none">
+            <div style="font-weight:600;color:#F8FAFC;margin-bottom:10px;font-size:14px">Linked Satellite Campuses</div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Campus</th><th>Status</th><th></th></tr></thead>
+                <tbody id="campus-mode-satellites-tbody">
+                  <tr><td colspan="3" style="color:#475569;text-align:center;padding:16px">No satellites linked yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Satellite view (this church joined another church's group) -->
+        <div id="campus-mode-satellite" style="display:none;margin-top:16px">
+          <div style="padding:14px 16px;background:#0F1613;border:1px solid #1a2e1f;border-radius:6px;margin-bottom:16px">
+            <div style="font-size:12px;color:#64748B;margin-bottom:4px">Linked to Main Campus</div>
+            <div id="campus-mode-main-name" style="color:#22c55e;font-weight:600;font-size:16px">—</div>
+          </div>
+          <button class="btn-danger" id="btn-campus-self-unlink" onclick="selfUnlinkFromCampusGroup()">Unlink from Campus Group</button>
+        </div>
+
+        <!-- Join form (Pro/Enterprise, not yet in a group) -->
+        <div id="campus-mode-join" style="display:none;margin-top:16px">
+          <p style="color:#94A3B8;margin:0 0 12px;font-size:14px">Already have a link code from your main campus? Enter it below to join their campus group.</p>
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <div class="field" style="flex:1;min-width:160px;margin-bottom:0">
+              <label>Link Code</label>
+              <input type="text" id="campus-join-code" placeholder="A1B2C3" maxlength="6" style="text-transform:uppercase;letter-spacing:3px;font-family:monospace;font-size:16px">
+            </div>
+            <button class="btn-primary" onclick="joinCampusGroup()" style="margin-bottom:0;white-space:nowrap">Join Campus Group</button>
+          </div>
+        </div>
+
+        <!-- Loading state -->
+        <div id="campus-mode-loading" style="margin-top:16px;color:#475569;font-size:13px">Loading…</div>
+      </div>
+      <!-- ── End Campus Mode ──────────────────────────────────────────────── -->
+
+      <p class="help-box"><strong>Add Campus (admin flow):</strong> Each campus created here gets its own Church ID, connection token, and Telegram registration code. Install the Tally app at each campus and connect using that campus token.</p>
       <div id="campus-plan-note" class="help-box" style="display:none"></div>
       <div id="campus-summary" class="stats-row grid-4col" style="display:none;margin-bottom:20px">
         <div class="stat-card"><div class="stat-value" id="cs-total">0</div><div class="stat-label" data-i18n="campus.stat.total">Total Rooms</div></div>
@@ -2819,7 +2890,7 @@ function buildChurchPortalHtml(church) {
       if (sidebar) sidebar.classList.remove('open');
       if (overlay) overlay.classList.remove('open');
       if (id === 'overview') { loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
-      if (id === 'campuses') loadCampuses();
+      if (id === 'campuses') { loadCampuses(); loadCampusMode(); }
       if (id === 'tds') loadTds();
       if (id === 'schedule') loadSchedule();
       if (id === 'guests') loadGuests();
@@ -4612,6 +4683,149 @@ function buildChurchPortalHtml(church) {
       if (ms < 3600000) return Math.floor(ms / 60000) + 'm ago';
       if (ms < 86400000) return Math.floor(ms / 3600000) + 'h ago';
       return Math.floor(ms / 86400000) + 'd ago';
+    }
+
+    // ── Campus Mode (Pro/Enterprise self-service campus linking) ─────────────
+    var campusModeData = null; // cached result from /api/church/campus/list
+
+    async function loadCampusMode() {
+      var loadingEl = document.getElementById('campus-mode-loading');
+      var upgradeEl = document.getElementById('campus-mode-upgrade');
+      var mainEl    = document.getElementById('campus-mode-main');
+      var satEl     = document.getElementById('campus-mode-satellite');
+      var joinEl    = document.getElementById('campus-mode-join');
+      var badgeEl   = document.getElementById('campus-mode-role-badge');
+
+      // Reset
+      if (loadingEl) loadingEl.style.display = '';
+      [upgradeEl, mainEl, satEl, joinEl].forEach(function(el) { if (el) el.style.display = 'none'; });
+
+      try {
+        var data = await api('GET', '/api/church/campus/list');
+        campusModeData = data;
+        if (loadingEl) loadingEl.style.display = 'none';
+
+        if (data.role === 'satellite') {
+          // This church is a satellite
+          if (badgeEl) badgeEl.innerHTML = '<span class="badge badge-gray" style="font-size:11px">Satellite</span>';
+          var nameEl = document.getElementById('campus-mode-main-name');
+          if (nameEl) nameEl.textContent = (data.mainCampus && data.mainCampus.name) ? data.mainCampus.name : '(unknown)';
+          if (satEl) satEl.style.display = '';
+
+        } else {
+          // This church is (or can be) the main campus
+          if (badgeEl) badgeEl.innerHTML = '<span class="badge badge-green" style="font-size:11px">Main Campus</span>';
+          var codeDisplay = document.getElementById('campus-link-code-display');
+          var copyBtn     = document.getElementById('btn-copy-link-code');
+          if (data.linkCode) {
+            if (codeDisplay) codeDisplay.textContent = data.linkCode;
+            if (copyBtn) copyBtn.style.display = '';
+          } else {
+            if (codeDisplay) codeDisplay.textContent = '—';
+            if (copyBtn) copyBtn.style.display = 'none';
+          }
+          if (mainEl) mainEl.style.display = '';
+
+          // Show satellites list
+          var satSection = document.getElementById('campus-mode-satellites-section');
+          var satTbody   = document.getElementById('campus-mode-satellites-tbody');
+          var sats = Array.isArray(data.satellites) ? data.satellites : [];
+          if (sats.length > 0) {
+            if (satSection) satSection.style.display = '';
+            if (satTbody) {
+              satTbody.innerHTML = sats.map(function(s) {
+                var dot = s.connected
+                  ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:5px"></span><span style="color:#22c55e">Online</span>'
+                  : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#475569;margin-right:5px"></span><span style="color:#64748B">Offline</span>';
+                var loc = s.location ? '<div style="font-size:11px;color:#64748B">' + escapeHtml(s.location) + '</div>' : '';
+                return '<tr>' +
+                  '<td>' + escapeHtml(s.name) + loc + '</td>' +
+                  '<td>' + dot + '</td>' +
+                  '<td><button class="btn-danger" style="font-size:11px;padding:3px 8px" onclick="unlinkSatelliteCampus(\'' + escapeHtml(String(s.churchId)) + '\',\'' + escapeHtml(s.name) + '\')">Unlink</button></td>' +
+                  '</tr>';
+              }).join('');
+            }
+          } else {
+            if (satSection) satSection.style.display = 'none';
+          }
+
+          // Show join form so a Pro/Enterprise church can also join another group
+          if (!data.linkCode || sats.length === 0) {
+            if (joinEl) joinEl.style.display = '';
+          }
+        }
+      } catch (e) {
+        if (loadingEl) loadingEl.style.display = 'none';
+        // If 403 (upgrade required), show the upgrade prompt
+        if (e && (e.upgradeRequired || (e.message && e.message.includes('Pro or Enterprise')))) {
+          if (upgradeEl) upgradeEl.style.display = '';
+          if (badgeEl) badgeEl.innerHTML = '<span class="badge badge-gray" style="font-size:11px">Pro Required</span>';
+        } else {
+          // For non-Pro users (API throws before checking) the error indicates upgrade needed
+          if (upgradeEl) upgradeEl.style.display = '';
+        }
+      }
+    }
+
+    async function generateCampusLinkCode() {
+      var btn = document.getElementById('btn-generate-link-code');
+      if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+      try {
+        var result = await api('POST', '/api/church/campus/link', { action: 'generate' });
+        var codeDisplay = document.getElementById('campus-link-code-display');
+        var copyBtn     = document.getElementById('btn-copy-link-code');
+        if (codeDisplay) codeDisplay.textContent = result.code;
+        if (copyBtn) copyBtn.style.display = '';
+        if (campusModeData) campusModeData.linkCode = result.code;
+        toast('Link code generated');
+      } catch (e) {
+        toast(e.message || 'Failed to generate link code', true);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Generate New Code'; }
+      }
+    }
+
+    function copyCampusLinkCode() {
+      var code = campusModeData && campusModeData.linkCode;
+      if (!code) return toast('No code to copy', true);
+      copyCampusValue(code, 'Link code copied');
+    }
+
+    async function joinCampusGroup() {
+      var input = document.getElementById('campus-join-code');
+      var code  = String(input ? input.value : '').trim().toUpperCase();
+      if (!code || code.length !== 6) return toast('Enter the 6-character link code', true);
+      if (!await modalConfirm('Link this campus to the group with code ' + code + '? You can unlink at any time.', { title: 'Join Campus Group', okLabel: 'Join' })) return;
+      try {
+        var result = await api('POST', '/api/church/campus/link', { action: 'join', code });
+        toast('Joined campus group of ' + (result.mainCampus && result.mainCampus.name ? result.mainCampus.name : 'main campus'));
+        if (input) input.value = '';
+        loadCampusMode();
+      } catch (e) {
+        toast(e.message || 'Failed to join campus group', true);
+      }
+    }
+
+    async function selfUnlinkFromCampusGroup() {
+      if (!await modalConfirm('Unlink this campus from its campus group? Your data will not be deleted.', { title: 'Unlink Campus', okLabel: 'Unlink', dangerOk: true })) return;
+      try {
+        await api('DELETE', '/api/church/campus/self/unlink');
+        toast('Unlinked from campus group');
+        loadCampusMode();
+      } catch (e) {
+        toast(e.message || 'Failed to unlink', true);
+      }
+    }
+
+    async function unlinkSatelliteCampus(churchId, name) {
+      if (!await modalConfirm('Remove ' + (name || 'this campus') + ' from your campus group? They can re-join with a new code.', { title: 'Unlink Satellite', okLabel: 'Unlink', dangerOk: true })) return;
+      try {
+        await api('DELETE', '/api/church/campus/' + churchId + '/unlink');
+        toast('Satellite unlinked');
+        loadCampusMode();
+      } catch (e) {
+        toast(e.message || 'Failed to unlink satellite', true);
+      }
     }
 
     // ── TDs ──────────────────────────────────────────────────────────────────
@@ -7747,15 +7961,150 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── Campus management (multi-campus) ────────────────────────────────────────
+  // ── Campus Mode helpers ───────────────────────────────────────────────────────
+  // Campus Mode is a Pro/Enterprise-only feature that lets existing churches
+  // link together via a code rather than creating new accounts through a reseller.
+  function isCampusModeEligible(church) {
+    const tier = String(church?.billing_tier || 'connect').toLowerCase();
+    return tier === 'pro' || tier === 'managed';
+  }
+
+  // ── POST /api/church/campus/link ──────────────────────────────────────────────
+  // action=generate — main campus creates/refreshes its link code
+  // action=join     — satellite enters the main campus's link code to join
+  app.post('/api/church/campus/link', authMiddleware, express.json(), (req, res) => {
+    try {
+      if (!isCampusModeEligible(req.church)) {
+        return res.status(403).json({ error: 'Campus Mode requires a Pro or Enterprise plan', upgradeRequired: true });
+      }
+      const action = String(req.body?.action || '').trim();
+
+      if (action === 'generate') {
+        if (req.church.campus_id) {
+          return res.status(400).json({ error: 'Satellite campuses cannot generate link codes. Unlink first.' });
+        }
+        // Generate a 6-char uppercase hex code (3 random bytes → 6 hex chars)
+        const code = crypto.randomBytes(3).toString('hex').toUpperCase();
+        db.prepare('UPDATE churches SET campus_link_code = ? WHERE churchId = ?').run(code, req.church.churchId);
+        return res.json({ ok: true, code });
+      }
+
+      if (action === 'join') {
+        if (req.church.campus_id) {
+          return res.status(400).json({ error: 'Already linked to a campus group. Unlink first.' });
+        }
+        // Prevent a main campus (one that already has satellites) from becoming a satellite
+        const hasLinkedSatellites = db.prepare(
+          'SELECT COUNT(*) AS cnt FROM churches WHERE campus_id = ?'
+        ).get(req.church.churchId);
+        if (Number(hasLinkedSatellites?.cnt || 0) > 0) {
+          return res.status(400).json({ error: 'This church already has linked satellite campuses and cannot become a satellite itself.' });
+        }
+        const code = String(req.body?.code || '').trim().toUpperCase();
+        if (!code) return res.status(400).json({ error: 'Link code is required' });
+        if (!/^[0-9A-F]{6}$/.test(code)) return res.status(400).json({ error: 'Invalid link code format' });
+
+        const mainChurch = db.prepare('SELECT * FROM churches WHERE campus_link_code = ?').get(code);
+        if (!mainChurch) return res.status(404).json({ error: 'Invalid link code — no campus found with this code' });
+        if (mainChurch.churchId === req.church.churchId) {
+          return res.status(400).json({ error: 'Cannot link a campus to itself' });
+        }
+        if (!isCampusModeEligible(mainChurch)) {
+          return res.status(403).json({ error: 'The main campus does not have a qualifying Pro or Enterprise plan' });
+        }
+
+        db.prepare('UPDATE churches SET campus_id = ? WHERE churchId = ?').run(mainChurch.churchId, req.church.churchId);
+        log.info(`Campus Mode: ${req.church.churchId} (${req.church.name}) joined campus group of ${mainChurch.churchId} (${mainChurch.name})`);
+        return res.json({ ok: true, mainCampus: { churchId: mainChurch.churchId, name: mainChurch.name } });
+      }
+
+      return res.status(400).json({ error: 'action must be "generate" or "join"' });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── GET /api/church/campus/list ───────────────────────────────────────────────
+  // Main campus: returns its link code + all satellites. Requires Pro/Enterprise.
+  // Satellite: returns main campus info regardless of its own tier.
+  app.get('/api/church/campus/list', authMiddleware, (req, res) => {
+    try {
+      if (req.church.campus_id) {
+        // This church is a satellite — return its main campus info
+        const main = db.prepare('SELECT churchId, name, location FROM churches WHERE churchId = ?').get(req.church.campus_id);
+        return res.json({ role: 'satellite', mainCampus: main || null, satellites: [], linkCode: null });
+      }
+
+      // This church is (or could be) the main campus — requires Pro/Enterprise
+      if (!isCampusModeEligible(req.church)) {
+        return res.status(403).json({ error: 'Campus Mode requires a Pro or Enterprise plan', upgradeRequired: true });
+      }
+      const rows = db.prepare(`
+        SELECT churchId, name, location FROM churches
+        WHERE campus_id = ?
+        ORDER BY name ASC
+      `).all(req.church.churchId);
+
+      const satellites = rows.map((row) => {
+        const runtime = churches.get(row.churchId);
+        const connected = !!(runtime && runtime.ws && runtime.ws.readyState === 1);
+        return { churchId: row.churchId, name: row.name, location: row.location || '', connected };
+      });
+
+      return res.json({
+        role: 'main',
+        linkCode: req.church.campus_link_code || null,
+        satellites,
+      });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── DELETE /api/church/campus/:id/unlink ─────────────────────────────────────
+  // Main campus removes a satellite (id = satellite's churchId).
+  // Satellite removes itself (id = "self" or its own churchId).
+  app.delete('/api/church/campus/:id/unlink', authMiddleware, (req, res) => {
+    try {
+      const targetId = String(req.params.id || '').trim();
+
+      // Self-unlink: satellite removing itself from the group (no tier gate — always allowed)
+      if (targetId === 'self' || targetId === req.church.churchId) {
+        if (!req.church.campus_id) return res.status(400).json({ error: 'This church is not linked to any campus group' });
+        db.prepare('UPDATE churches SET campus_id = NULL WHERE churchId = ?').run(req.church.churchId);
+        log.info(`Campus Mode: ${req.church.churchId} (${req.church.name}) unlinked from campus group`);
+        return res.json({ ok: true });
+      }
+
+      // Main campus removing a satellite — requires Pro/Enterprise
+      if (!isCampusModeEligible(req.church)) {
+        return res.status(403).json({ error: 'Campus Mode requires a Pro or Enterprise plan', upgradeRequired: true });
+      }
+      const satellite = db.prepare('SELECT * FROM churches WHERE churchId = ? AND campus_id = ?')
+        .get(targetId, req.church.churchId);
+      if (!satellite) return res.status(404).json({ error: 'Satellite campus not found in your campus group' });
+
+      db.prepare('UPDATE churches SET campus_id = NULL WHERE churchId = ?').run(targetId);
+      log.info(`Campus Mode: main campus ${req.church.churchId} unlinked satellite ${targetId} (${satellite.name})`);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
   app.get('/api/church/campuses', authMiddleware, (req, res) => {
     try {
       const limits = campusLimitsForChurch(req.church);
+      // Fetch campuses from both flows:
+      // 1. parent_church_id: admin/reseller-created campuses (old flow)
+      // 2. campus_id: self-service Campus Mode linked campuses (new flow)
       const rows = db.prepare(`
-        SELECT churchId, name, location, token, registration_code, registeredAt
+        SELECT churchId, name, location, token, registration_code, registeredAt,
+               CASE WHEN parent_church_id = ? THEN 'managed' ELSE 'linked' END AS campus_source
         FROM churches
-        WHERE parent_church_id = ?
+        WHERE parent_church_id = ? OR campus_id = ?
         ORDER BY name ASC
-      `).all(req.church.churchId);
+      `).all(req.church.churchId, req.church.churchId, req.church.churchId);
 
       const campuses = rows.map((row) => {
         const runtime = churches.get(row.churchId);
@@ -7788,6 +8137,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           token: row.token || '',
           registrationCode: row.registration_code || '',
           registeredAt: row.registeredAt || null,
+          campusSource: row.campus_source || 'managed', // 'managed' = admin-created, 'linked' = Campus Mode
           connected,
           lastSeen,
           recentAlerts,
