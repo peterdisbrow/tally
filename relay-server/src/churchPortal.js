@@ -2568,6 +2568,53 @@ function buildChurchPortalHtml(church) {
         'email.trigger.inactivity-alert': 'Auto \u2014 4+ weeks no sessions',
         'email.trigger.feature-announcement': 'Manual \u2014 admin triggered per release',
         'email.trigger.grace-period-ending-early': 'Auto \u2014 5 days before grace expiry',
+        // Billing banner text fragments
+        'billing.banner.trial_pre': 'Your trial ends in',
+        'billing.banner.day': 'day',
+        'billing.banner.days': 'days',
+        'billing.banner.trial_link': 'Subscribe now',
+        'billing.banner.trial_post': 'to keep your service running.',
+        'billing.banner.past_due_msg': 'Payment failed.',
+        'billing.banner.past_due_link': 'Update your card',
+        'billing.banner.past_due_post': 'to avoid service interruption.',
+        'billing.banner.canceled_msg': 'Your subscription has ended.',
+        'billing.banner.reactivate_link': 'Reactivate',
+        'billing.banner.canceled_post': 'to continue monitoring your services.',
+        'billing.banner.inactive_msg': 'Your subscription is not yet active.',
+        'billing.banner.checkout_link': 'Complete checkout',
+        'billing.banner.inactive_post': 'to start monitoring.',
+        // Upgrade banner
+        'upgrade.connect.headline': 'Unlock all 17 integrations',
+        'upgrade.connect.body': 'Your Connect plan supports ATEM, OBS, and vMix. Upgrade to Plus for ProPresenter control, live video preview, on-call TD rotation, and 14 more device integrations.',
+        'upgrade.plus.headline': 'Automate your Sundays',
+        'upgrade.plus.body': 'Upgrade to Pro for AI Autopilot (auto-start streaming and recording when your service window opens), Planning Center sync, and monthly leadership reports.',
+        'upgrade.btn': 'Upgrade to {{tier}} \u2014 {{price}}/mo \u2192',
+        // Referral card
+        'referral.title': 'Give a month, get a month',
+        'referral.body': 'Share your link with another church. When they create a new account and subscribe, you both get a free month.',
+        'referral.fine_print': 'Up to 5 free months. New accounts only.',
+        'referral.stat.referred': 'Referred',
+        'referral.stat.signed_up': 'Signed up',
+        'referral.stat.credits': 'Credits earned',
+        'referral.copy_btn': 'Copy Link',
+        'referral.copied': 'Referral link copied!',
+        // Onboarding steps
+        'onboarding.step.device.label': 'Connect your first device',
+        'onboarding.step.device.detail': 'Download the Tally app and connect your ATEM, OBS, or ProPresenter',
+        'onboarding.step.device.btn': '\u2b07 Download App',
+        'onboarding.step.telegram.label': 'Set up Telegram notifications',
+        'onboarding.step.telegram.detail': 'Send /register {{code}} to @TallyConnectBot on Telegram to receive alerts',
+        'onboarding.step.telegram.copy': 'Copy Code',
+        'onboarding.step.telegram.open': 'Open Telegram',
+        'onboarding.step.failover.label': 'Run a test failover',
+        'onboarding.step.failover.detail': 'Trigger a test to confirm Tally detects signal loss and sends an alert',
+        'onboarding.step.failover.btn': 'Run Test',
+        'onboarding.step.team.label': 'Invite your team',
+        'onboarding.step.team.detail': 'Share the registration code so your AV volunteers can join on Telegram',
+        'onboarding.step.team.btn': 'Share Code',
+        'onboarding.complete': 'All set!',
+        'onboarding.complete.sub': 'Your Tally system is fully configured',
+        'onboarding.progress': '{{done}} of {{total}} steps complete',
       },
       es: {
         // Navigation
@@ -2646,7 +2693,7 @@ function buildChurchPortalHtml(church) {
         'overview.stream.title': 'Transmisi\u00f3n en Vivo',
         'overview.stream.bitrate': 'Bitrate (kbps)',
         'overview.stream.fps': 'FPS',
-        'overview.stream.health': 'Salud',
+        'overview.stream.health': 'Estado',
         'overview.stream.uptime': 'Tiempo Activo',
         'overview.atem.title': '\ud83c\udfa7 Mezclador ATEM',
         'overview.atem.program': 'Programa',
@@ -2670,7 +2717,7 @@ function buildChurchPortalHtml(church) {
         'table.campus': 'Sede',
         'table.status': 'Estado',
         'table.devices': 'Dispositivos',
-        'table.health': 'Salud',
+        'table.health': 'Estado',
         'table.last_seen': '\u00daltima Vez',
         'table.system': 'Sistema',
         'table.version': 'Versi\u00f3n',
@@ -2705,9 +2752,9 @@ function buildChurchPortalHtml(church) {
         'autopilot.test.actions_header': 'Acciones que se ejecutar\u00edan:',
         'autopilot.upgrade_to_pro': 'Actualizar a Pro \u2192',
         // Upgrade modal
-        'upgrade.rule_limit_title': 'L\u00edmite de Reglas Alcanzado',
-        'upgrade.rule_limit_default': 'Actualiza para agregar m\u00e1s reglas.',
-        'upgrade.maybe_later': 'Quiz\u00e1s Despu\u00e9s',
+        'upgrade.rule_limit_title': 'L\u00edmite de reglas alcanzado',
+        'upgrade.rule_limit_default': 'Actualiza tu plan para agregar m\u00e1s reglas.',
+        'upgrade.maybe_later': 'Tal vez luego',
         'upgrade.cta': 'Actualizar Plan \u2192',
         // Profile page
         'profile.sub': 'Actualiza tu informaci\u00f3n de contacto',
@@ -2760,19 +2807,19 @@ function buildChurchPortalHtml(church) {
         'notif.telegram.label': 'Alertas de Telegram',
         'notif.telegram.desc': 'Recibe alertas en Telegram (requiere ID de chat)',
         'notif.sync.label': 'Alertas de sincron\u00eda A/V',
-        'notif.sync.desc': 'Notificar cuando la deriva de audio/video supere el umbral',
+        'notif.sync.desc': 'Avisarte cuando el desface de audio/video supere el l\u00edmite configurado',
         'notif.digest.label': 'Resumen semanal',
         'notif.digest.desc': 'Correo de resumen todos los lunes por la ma\u00f1ana',
         'notif.recovery.title': 'Recuperaci\u00f3n Autom\u00e1tica',
         'notif.recovery.label': 'Recuperaci\u00f3n autom\u00e1tica de problemas',
         'notif.recovery.desc': 'Tally Engineer intentar\u00e1 corregir autom\u00e1ticamente problemas comunes (ca\u00eddas de stream, fallas de grabaci\u00f3n) antes de alertar a tu DT. Las acciones siempre se registran.',
         'notif.save': 'Guardar Preferencias',
-        'notif.failover.title': 'Protecci\u00f3n de Conmutaci\u00f3n de Stream',
-        'notif.failover.enable.label': 'Activar conmutaci\u00f3n de stream',
-        'notif.failover.enable.desc': 'Cambiar autom\u00e1ticamente a una fuente segura en caso de p\u00e9rdida de se\u00f1al',
+        'notif.failover.title': 'Respaldo Autom\u00e1tico de Transmisi\u00f3n',
+        'notif.failover.enable.label': 'Activar respaldo de transmisi\u00f3n',
+        'notif.failover.enable.desc': 'Cambiar autom\u00e1ticamente a una fuente segura cuando se detecte p\u00e9rdida de se\u00f1al',
         'notif.failover.save': 'Guardar Configuraci\u00f3n',
-        'notif.failover.drill.title': '\ud83d\udea8 Simulacro de Conmutaci\u00f3n',
-        'notif.failover.drill.run': '\u25b6 Ejecutar Simulacro',
+        'notif.failover.drill.title': '\ud83d\udea8 Prueba de Respaldo',
+        'notif.failover.drill.run': '\u25b6 Ejecutar Prueba',
         'notif.telegram_card.title': 'Integraci\u00f3n con Telegram',
         'notif.telegram_chat_id': 'Tu ID de Chat de Telegram',
         // Engineer
@@ -2782,8 +2829,8 @@ function buildChurchPortalHtml(church) {
         'engineer.stream_platform': 'Plataforma de Transmisi\u00f3n',
         'engineer.expected_viewers': 'Espectadores Esperados',
         'engineer.operator_level': 'Experiencia del Operador',
-        'engineer.backup_encoder': 'Codificador de Respaldo',
-        'engineer.backup_switcher': 'Mezclador de Respaldo',
+        'engineer.backup_encoder': 'Encoder de Respaldo',
+        'engineer.backup_switcher': 'Switcher de Respaldo',
         'engineer.special_notes': 'Notas Especiales',
         'engineer.save': 'Guardar Perfil',
         'engineer.chat.title': '\ud83d\udcac Chatear con Tally Engineer',
@@ -2801,17 +2848,17 @@ function buildChurchPortalHtml(church) {
         'sessions.reports.title': '\ud83d\udcca Reportes de Servicio',
         'sessions.reports.auto': 'Generado autom\u00e1ticamente despu\u00e9s de cada servicio',
         // Analytics
-        'analytics.page_sub': 'Salud del stream, tendencias de espectadores y rendimiento del equipo',
+        'analytics.page_sub': 'Estado del stream, tendencias de audiencia y rendimiento del equipo',
         'analytics.last_30': '\u00daltimos 30 d\u00edas',
         'analytics.last_90': '\u00daltimos 90 d\u00edas',
         'analytics.last_180': '\u00daltimos 6 meses',
         'analytics.last_365': '\u00daltimo a\u00f1o',
         'analytics.export': 'Exportar CSV',
-        'analytics.kpi.uptime': 'Tiempo en Vivo',
+        'analytics.kpi.uptime': 'Tiempo Activo',
         'analytics.kpi.sessions': 'Sesiones Totales',
         'analytics.kpi.avg_viewers': 'Pico Promedio de Espectadores',
         'analytics.kpi.recovery': 'Tasa de Recuperaci\u00f3n',
-        'analytics.health.title': 'Salud y Confiabilidad del Stream',
+        'analytics.health.title': 'Estabilidad y Confiabilidad del Stream',
         'analytics.viewers.title': 'Tendencias de Espectadores',
         'analytics.platform.title': 'Audiencia por Plataforma',
         'analytics.platform.sub': 'Espectadores concurrentes de YouTube, Facebook y Vimeo',
@@ -2830,12 +2877,12 @@ function buildChurchPortalHtml(church) {
         'billing.sub': 'Administra tu plan, m\u00e9todo de pago y facturas',
         'billing.loading': 'Cargando informaci\u00f3n de facturaci\u00f3n...',
         'billing.cancel_btn': 'Cancelar Suscripci\u00f3n',
-        'billing.cancel.modal.title': '\u00a1Nos entristece verte ir!',
-        'billing.cancel.modal.body': 'Antes de cancelar, nos gustar\u00eda ofrecerte un 50% de descuento durante los pr\u00f3ximos 3 meses. Sin compromisos.',
-        'billing.cancel.accept': 'Aceptar 50% de Descuento',
-        'billing.cancel.decline': 'No gracias, cancelar mi cuenta',
-        'billing.cancel.active_until': 'Tu plan seguir\u00e1 activo hasta el',
-        'billing.cancel.retention.accepted': '\u00a1Descuento aplicado! 50% de descuento por los pr\u00f3ximos 3 meses. Gracias por quedarte.',
+        'billing.cancel.modal.title': '\u00a1No te vayas todav\u00eda!',
+        'billing.cancel.modal.body': 'Antes de cancelar, queremos ofrecerte un 50% de descuento por los pr\u00f3ximos 3 meses. Sin compromisos ni letra chica.',
+        'billing.cancel.accept': 'Acepto el 50% de descuento',
+        'billing.cancel.decline': 'No gracias, quiero cancelar',
+        'billing.cancel.active_until': 'Tu plan se mantiene activo hasta el',
+        'billing.cancel.retention.accepted': '\u00a1Descuento aplicado! 50% de descuento por los pr\u00f3ximos 3 meses. Gracias por quedarte con nosotros.',
         'billing.cancel.scheduled': 'Cancelaci\u00f3n programada',
         // Support
         'support.page_sub': 'Ejecuta diagn\u00f3sticos, abre tickets y revisa el estado de la plataforma',
@@ -2898,6 +2945,53 @@ function buildChurchPortalHtml(church) {
         'email.trigger.inactivity-alert': 'Auto \u2014 4+ semanas sin sesiones',
         'email.trigger.feature-announcement': 'Manual \u2014 activado por el administrador',
         'email.trigger.grace-period-ending-early': 'Auto \u2014 5 d\u00edas antes de que venza el per\u00edodo de gracia',
+        // Billing banner text fragments
+        'billing.banner.trial_pre': 'Tu prueba termina en',
+        'billing.banner.day': 'd\u00eda',
+        'billing.banner.days': 'd\u00edas',
+        'billing.banner.trial_link': 'Suscr\u00edbete ahora',
+        'billing.banner.trial_post': 'para no interrumpir tu servicio.',
+        'billing.banner.past_due_msg': 'El pago fall\u00f3.',
+        'billing.banner.past_due_link': 'Actualiza tu tarjeta',
+        'billing.banner.past_due_post': 'para evitar una interrupci\u00f3n del servicio.',
+        'billing.banner.canceled_msg': 'Tu suscripci\u00f3n ha finalizado.',
+        'billing.banner.reactivate_link': 'React\u00edvala',
+        'billing.banner.canceled_post': 'para seguir monitoreando tus servicios.',
+        'billing.banner.inactive_msg': 'Tu suscripci\u00f3n a\u00fan no est\u00e1 activa.',
+        'billing.banner.checkout_link': 'Completa el pago',
+        'billing.banner.inactive_post': 'para comenzar el monitoreo.',
+        // Upgrade banner
+        'upgrade.connect.headline': 'Desbloquea las 17 integraciones',
+        'upgrade.connect.body': 'Tu plan Connect incluye ATEM, OBS y vMix. Actualiza a Plus para control de ProPresenter, vista previa de video en vivo, rotaci\u00f3n de DT de guardia, y 14 integraciones m\u00e1s.',
+        'upgrade.plus.headline': 'Automatiza tus domingos',
+        'upgrade.plus.body': 'Actualiza a Pro para AI AutoPilot (inicio autom\u00e1tico de transmisi\u00f3n y grabaci\u00f3n al comenzar tu servicio), sincronizaci\u00f3n con Planning Center e informes mensuales de liderazgo.',
+        'upgrade.btn': 'Actualizar a {{tier}} \u2014 {{price}}/mes \u2192',
+        // Referral card
+        'referral.title': 'Da un mes, gana un mes',
+        'referral.body': 'Comparte tu enlace con otra iglesia. Cuando abran una cuenta nueva y se suscriban, ambos reciben un mes gratis.',
+        'referral.fine_print': 'Hasta 5 meses gratis. Solo cuentas nuevas.',
+        'referral.stat.referred': 'Referidos',
+        'referral.stat.signed_up': 'Se registraron',
+        'referral.stat.credits': 'Cr\u00e9ditos ganados',
+        'referral.copy_btn': 'Copiar enlace',
+        'referral.copied': '\u00a1Enlace copiado!',
+        // Onboarding steps
+        'onboarding.step.device.label': 'Conecta tu primer dispositivo',
+        'onboarding.step.device.detail': 'Descarga la app de Tally y conecta tu ATEM, OBS o ProPresenter',
+        'onboarding.step.device.btn': '\u2b07 Descargar App',
+        'onboarding.step.telegram.label': 'Configura las notificaciones de Telegram',
+        'onboarding.step.telegram.detail': 'Env\u00eda /register {{code}} a @TallyConnectBot en Telegram para recibir alertas',
+        'onboarding.step.telegram.copy': 'Copiar C\u00f3digo',
+        'onboarding.step.telegram.open': 'Abrir Telegram',
+        'onboarding.step.failover.label': 'Prueba el cambio autom\u00e1tico de se\u00f1al',
+        'onboarding.step.failover.detail': 'Activa una prueba para confirmar que Tally detecta la p\u00e9rdida de se\u00f1al y env\u00eda una alerta',
+        'onboarding.step.failover.btn': 'Ejecutar Prueba',
+        'onboarding.step.team.label': 'Invita a tu equipo',
+        'onboarding.step.team.detail': 'Comparte el c\u00f3digo de registro para que tus voluntarios de AV se unan en Telegram',
+        'onboarding.step.team.btn': 'Compartir C\u00f3digo',
+        'onboarding.complete': '\u00a1Todo listo!',
+        'onboarding.complete.sub': 'Tu sistema Tally est\u00e1 completamente configurado',
+        'onboarding.progress': '{{done}} de {{total}} pasos completados',
       },
     };
 
@@ -4142,30 +4236,30 @@ function buildChurchPortalHtml(church) {
         {
           key: 'device',
           done: !!d.onboarding_app_connected_at,
-          label: 'Connect your first device',
-          detail: 'Download the Tally app and connect your ATEM, OBS, or ProPresenter',
-          action: '<a href="/download" target="_blank" class="onboard-action-btn">⬇ Download App</a>',
+          label: pt('onboarding.step.device.label'),
+          detail: pt('onboarding.step.device.detail'),
+          action: '<a href="/download" target="_blank" class="onboard-action-btn">' + pt('onboarding.step.device.btn') + '</a>',
         },
         {
           key: 'telegram',
           done: !!d.onboarding_telegram_registered_at,
-          label: 'Set up Telegram notifications',
-          detail: 'Send /register ' + escapeHtml(d.registration_code || 'CODE') + ' to @TallyConnectBot on Telegram to receive alerts',
-          action: '<span class="onboard-action-btn" onclick="copyOnboardingCode()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> Copy Code</span> <a href="https://t.me/TallyConnectBot" target="_blank" class="onboard-action-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v6A1.5 1.5 0 0 0 2.5 12H4v2.25a.75.75 0 0 0 1.28.53L7.56 12H13.5A1.5 1.5 0 0 0 15 10.5v-6A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg> Open Telegram</a>',
+          label: pt('onboarding.step.telegram.label'),
+          detail: pt('onboarding.step.telegram.detail', { code: escapeHtml(d.registration_code || 'CODE') }),
+          action: '<span class="onboard-action-btn" onclick="copyOnboardingCode()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.copy') + '</span> <a href="https://t.me/TallyConnectBot" target="_blank" class="onboard-action-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v6A1.5 1.5 0 0 0 2.5 12H4v2.25a.75.75 0 0 0 1.28.53L7.56 12H13.5A1.5 1.5 0 0 0 15 10.5v-6A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.open') + '</a>',
         },
         {
           key: 'failover',
           done: !!d.onboarding_failover_tested_at,
-          label: 'Run a test failover',
-          detail: 'Trigger a test to confirm Tally detects signal loss and sends an alert',
-          action: '<span class="onboard-action-btn" onclick="markFailoverTested()" id="failover-test-btn">Run Test</span>',
+          label: pt('onboarding.step.failover.label'),
+          detail: pt('onboarding.step.failover.detail'),
+          action: '<span class="onboard-action-btn" onclick="markFailoverTested()" id="failover-test-btn">' + pt('onboarding.step.failover.btn') + '</span>',
         },
         {
           key: 'team',
           done: !!d.onboarding_team_invited_at,
-          label: 'Invite your team',
-          detail: 'Share the registration code so your AV volunteers can join on Telegram',
-          action: '<span class="onboard-action-btn" onclick="inviteTeam()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12.735 14c.618 0 1.093-.561.872-1.139a6.002 6.002 0 0 0-11.215 0c-.22.578.254 1.139.872 1.139h9.47Z"/><path d="M2 5.5a2 2 0 1 1 4 0 2 2 0 0 1-4 0ZM2.5 14h-1a1 1 0 0 1-.897-1.447A4.5 4.5 0 0 1 4.5 10.5c.66 0 1.287.144 1.851.402C5.21 11.76 4.828 13.073 5.02 14H2.5ZM12 7.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4ZM13.5 14h-2.52c.192-.927-.19-2.24-.831-3.098A4.472 4.472 0 0 1 11.5 10.5a4.5 4.5 0 0 1 4.897 3.053A1 1 0 0 1 15.5 14h-2Z"/></svg> Share Code</span>',
+          label: pt('onboarding.step.team.label'),
+          detail: pt('onboarding.step.team.detail'),
+          action: '<span class="onboard-action-btn" onclick="inviteTeam()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12.735 14c.618 0 1.093-.561.872-1.139a6.002 6.002 0 0 0-11.215 0c-.22.578.254 1.139.872 1.139h9.47Z"/><path d="M2 5.5a2 2 0 1 1 4 0 2 2 0 0 1-4 0ZM2.5 14h-1a1 1 0 0 1-.897-1.447A4.5 4.5 0 0 1 4.5 10.5c.66 0 1.287.144 1.851.402C5.21 11.76 4.828 13.073 5.02 14H2.5ZM12 7.5a2 2 0 1 1 0-4 2 2 0 0 1 0 4ZM13.5 14h-2.52c.192-.927-.19-2.24-.831-3.098A4.472 4.472 0 0 1 11.5 10.5a4.5 4.5 0 0 1 4.897 3.053A1 1 0 0 1 15.5 14h-2Z"/></svg> ' + pt('onboarding.step.team.btn') + '</span>',
         },
       ];
 
@@ -4177,7 +4271,7 @@ function buildChurchPortalHtml(church) {
         container.style.display = 'block';
         container.style.animation = 'none';
         container.style.borderColor = '#22c55e';
-        itemsEl.innerHTML = '<div style="text-align:center;padding:16px 0"><div style="font-size:28px;margin-bottom:8px;animation:onboardCheckPop 0.5s ease-out">&#9733;</div><div style="font-size:15px;font-weight:700;color:#22c55e">All set!</div><div style="font-size:12px;color:#94A3B8;margin-top:4px">Your Tally system is fully configured</div></div>';
+        itemsEl.innerHTML = '<div style="text-align:center;padding:16px 0"><div style="font-size:28px;margin-bottom:8px;animation:onboardCheckPop 0.5s ease-out">&#9733;</div><div style="font-size:15px;font-weight:700;color:#22c55e">' + pt('onboarding.complete') + '</div><div style="font-size:12px;color:#94A3B8;margin-top:4px">' + pt('onboarding.complete.sub') + '</div></div>';
         if (resumeEl) resumeEl.style.display = 'none';
         setTimeout(function() { container.style.display = 'none'; }, 5000);
         return;
@@ -4194,7 +4288,7 @@ function buildChurchPortalHtml(church) {
       if (resumeEl) resumeEl.style.display = 'none';
       container.style.display = 'block';
       container.style.animation = completed < 2 ? 'onboardPulse 3s ease-in-out infinite, onboardSlideIn 0.4s ease-out' : 'onboardSlideIn 0.4s ease-out';
-      document.getElementById('onboarding-progress-text').textContent = completed + ' of ' + steps.length + ' steps complete';
+      document.getElementById('onboarding-progress-text').textContent = pt('onboarding.progress', { done: completed, total: steps.length });
 
       itemsEl.innerHTML = steps.map((s, i) => {
         const icon = s.done
@@ -6249,14 +6343,16 @@ function buildChurchPortalHtml(church) {
     function updateBillingBanner(b) {
       var el = document.getElementById('billing-banner');
       if (!el) return;
+      var lnk = 'color:#22c55e;font-weight:700';
       if (b.status === 'trialing' && b.trialDaysRemaining != null && b.trialDaysRemaining <= 7) {
-        el.innerHTML = '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">Your trial ends in ' + b.trialDaysRemaining + ' day' + (b.trialDaysRemaining !== 1 ? 's' : '') + '. <a href="https://tallyconnect.app/signup" style="color:#22c55e;font-weight:700">Subscribe now</a> to keep your service running.</div>';
+        var dayWord = b.trialDaysRemaining !== 1 ? pt('billing.banner.days') : pt('billing.banner.day');
+        el.innerHTML = '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">' + pt('billing.banner.trial_pre') + ' ' + b.trialDaysRemaining + ' ' + dayWord + '. <a href="https://tallyconnect.app/signup" style="' + lnk + '">' + pt('billing.banner.trial_link') + '</a> ' + pt('billing.banner.trial_post') + '</div>';
       } else if (b.status === 'past_due') {
-        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">Payment failed. <a href="' + (b.portalUrl || 'https://tallyconnect.app/signup') + '" style="color:#22c55e;font-weight:700">Update your card</a> to avoid service interruption.</div>';
+        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">' + pt('billing.banner.past_due_msg') + ' <a href="' + (b.portalUrl || 'https://tallyconnect.app/signup') + '" style="' + lnk + '">' + pt('billing.banner.past_due_link') + '</a> ' + pt('billing.banner.past_due_post') + '</div>';
       } else if (b.status === 'canceled' || b.status === 'trial_expired') {
-        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">Your subscription has ended. <a href="#" onclick="showPage(\\'billing\\',document.querySelector(\\'[data-page=billing]\\'));return false" style="color:#22c55e;font-weight:700">Reactivate</a> to continue monitoring your services.</div>';
+        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">' + pt('billing.banner.canceled_msg') + ' <a href="#" onclick="showPage(\\'billing\\',document.querySelector(\\'[data-page=billing]\\'));return false" style="' + lnk + '">' + pt('billing.banner.reactivate_link') + '</a> ' + pt('billing.banner.canceled_post') + '</div>';
       } else if (b.status === 'inactive' || b.status === 'pending') {
-        el.innerHTML = '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">Your subscription is not yet active. <a href="https://tallyconnect.app/signup" style="color:#22c55e;font-weight:700">Complete checkout</a> to start monitoring.</div>';
+        el.innerHTML = '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">' + pt('billing.banner.inactive_msg') + ' <a href="https://tallyconnect.app/signup" style="' + lnk + '">' + pt('billing.banner.checkout_link') + '</a> ' + pt('billing.banner.inactive_post') + '</div>';
       } else {
         el.innerHTML = '';
       }
@@ -6280,21 +6376,15 @@ function buildChurchPortalHtml(church) {
       var nextTierSlug = tier === 'connect' ? 'plus' : 'pro';
       var nextTier = tier === 'connect' ? 'Plus' : 'Pro';
       var nextPrice = tier === 'connect' ? '$99' : '$149';
-      var headline, body;
-
-      if (tier === 'connect') {
-        headline = 'Unlock all 17 integrations';
-        body = 'Your Connect plan supports ATEM, OBS, and vMix. Upgrade to Plus for ProPresenter control, live video preview, on-call TD rotation, and 14 more device integrations.';
-      } else {
-        headline = 'Automate your Sundays';
-        body = 'Upgrade to Pro for AI Autopilot (auto-start streaming and recording when your service window opens), Planning Center sync, and monthly leadership reports.';
-      }
+      var headline = pt(tier === 'connect' ? 'upgrade.connect.headline' : 'upgrade.plus.headline');
+      var body = pt(tier === 'connect' ? 'upgrade.connect.body' : 'upgrade.plus.body');
+      var btnLabel = pt('upgrade.btn', { tier: nextTier, price: nextPrice });
 
       el.innerHTML = '<div style="margin-bottom:20px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.25);border-radius:12px;padding:20px 24px;position:relative">' +
         '<button onclick="dismissUpgradeBanner(\\''+dismissKey+'\\')" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#475569;font-size:16px;cursor:pointer;padding:4px" title="Dismiss">\\u2715</button>' +
         '<div style="font-size:15px;font-weight:700;color:#22c55e;margin-bottom:6px">' + headline + '</div>' +
         '<div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:14px;padding-right:24px">' + body + '</div>' +
-        '<button onclick="upgradePlan(\\'' + nextTierSlug + '\\')" id="btn-upgrade-' + nextTierSlug + '-banner" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to ' + nextTier + ' \\u2014 ' + nextPrice + '/mo \\u2192</button>' +
+        '<button onclick="upgradePlan(\\'' + nextTierSlug + '\\')" id="btn-upgrade-' + nextTierSlug + '-banner" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">' + btnLabel + '</button>' +
         '</div>';
     }
 
@@ -6573,9 +6663,9 @@ function buildChurchPortalHtml(church) {
         if (data.totalReferred > 0) {
           var creditDollars = data.totalCredits ? '$' + (data.totalCredits / 100).toFixed(0) : '$0';
           statsHtml = '<div style="display:flex;gap:24px;margin-bottom:14px">' +
-            '<div><div style="font-size:20px;font-weight:800;color:#F8FAFC">' + data.totalReferred + '</div><div style="font-size:11px;color:#475569">Referred</div></div>' +
-            '<div><div style="font-size:20px;font-weight:800;color:#22c55e">' + data.totalConverted + '</div><div style="font-size:11px;color:#475569">Signed up</div></div>' +
-            '<div><div style="font-size:20px;font-weight:800;color:#22c55e">' + creditDollars + '</div><div style="font-size:11px;color:#475569">Credits earned</div></div>' +
+            '<div><div style="font-size:20px;font-weight:800;color:#F8FAFC">' + data.totalReferred + '</div><div style="font-size:11px;color:#475569">' + pt('referral.stat.referred') + '</div></div>' +
+            '<div><div style="font-size:20px;font-weight:800;color:#22c55e">' + data.totalConverted + '</div><div style="font-size:11px;color:#475569">' + pt('referral.stat.signed_up') + '</div></div>' +
+            '<div><div style="font-size:20px;font-weight:800;color:#22c55e">' + creditDollars + '</div><div style="font-size:11px;color:#475569">' + pt('referral.stat.credits') + '</div></div>' +
             '</div>';
         }
 
@@ -6583,16 +6673,16 @@ function buildChurchPortalHtml(church) {
         card.innerHTML = '<div style="margin-bottom:20px;background:#0F1613;border:1px solid #1a2e1f;border-radius:12px;padding:20px 24px">' +
           '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">' +
           '<span style="font-size:18px">&#127873;</span>' +
-          '<span style="font-size:15px;font-weight:700;color:#F8FAFC">Give a month, get a month</span>' +
+          '<span style="font-size:15px;font-weight:700;color:#F8FAFC">' + pt('referral.title') + '</span>' +
           '</div>' +
           '<div style="font-size:13px;color:#94A3B8;line-height:1.5;margin-bottom:14px">' +
-          'Share your link with another church. When they create a new account and subscribe, you both get a free month. ' +
-          '<span style="color:#475569">Up to 5 free months. New accounts only.</span>' +
+          pt('referral.body') + ' ' +
+          '<span style="color:#475569">' + pt('referral.fine_print') + '</span>' +
           '</div>' +
           statsHtml +
           '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
           '<div style="flex:1;min-width:200px;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:13px;color:#F8FAFC;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="referral-link">' + escapeHtml(data.shareUrl || '') + '</div>' +
-          '<button onclick="copyReferralLink()" class="btn-primary" style="padding:8px 16px;font-size:13px;flex-shrink:0">Copy Link</button>' +
+          '<button onclick="copyReferralLink()" class="btn-primary" style="padding:8px 16px;font-size:13px;flex-shrink:0">' + pt('referral.copy_btn') + '</button>' +
           '</div>' +
           '</div>';
       } catch(e) { card.style.display = 'none'; }
@@ -6602,7 +6692,7 @@ function buildChurchPortalHtml(church) {
       var link = document.getElementById('referral-link');
       if (!link) return;
       navigator.clipboard.writeText(link.textContent).then(function() {
-        toast('Referral link copied!');
+        toast(pt('referral.copied'));
       }).catch(function() {
         // Fallback
         var range = document.createRange();
@@ -6610,7 +6700,7 @@ function buildChurchPortalHtml(church) {
         window.getSelection().removeAllRanges();
         window.getSelection().addRange(range);
         document.execCommand('copy');
-        toast('Referral link copied!');
+        toast(pt('referral.copied'));
       });
     }
 
