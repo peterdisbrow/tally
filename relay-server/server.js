@@ -546,7 +546,21 @@ try {
   db.exec('CREATE INDEX IF NOT EXISTS idx_churches_campus_id ON churches(campus_id)');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_churches_campus_link_code ON churches(campus_link_code)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_billing_customers_church_id ON billing_customers(church_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_rooms_campus_id ON rooms(campus_id)');
 } catch { /* tables may not exist yet — indexes will be created when they are */ }
+
+// ─── ROOMS TABLE ─────────────────────────────────────────────────────────────
+// Rooms are physical spaces within a campus (e.g. Main Sanctuary, Youth Room).
+// Each room belongs to a campus (identified by churchId in churches table).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS rooms (
+    id          TEXT PRIMARY KEY,
+    campus_id   TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    created_at  TEXT NOT NULL
+  )
+`);
 
 // ─── ADMIN USERS TABLE ──────────────────────────────────────────────────────
 db.exec(`

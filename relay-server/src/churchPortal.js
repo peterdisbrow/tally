@@ -4779,7 +4779,16 @@ function buildChurchPortalHtml(church) {
             '<td><span class="badge ' + statusClass + '">' + status + '</span></td>' +
             '<td>' + healthHtml + '</td>' +
             '<td><code style="font-size:12px;color:#22c55e">' + code + '</code><div><button class="btn-sm campus-copy-code-btn" data-campus-id="' + c.churchId + '">Copy</button></div></td>' +
-            '<td><button class="btn-sm campus-edit-btn" data-campus-id="' + c.churchId + '" style="margin-bottom:4px">Edit</button> <button class="btn-danger campus-remove-btn" data-campus-id="' + c.churchId + '">Remove</button></td>' +
+            '<td>' +
+              '<button class="btn-sm campus-edit-btn" data-campus-id="' + c.churchId + '" style="margin-bottom:4px">Edit</button> ' +
+              '<button class="btn-danger campus-remove-btn" data-campus-id="' + c.churchId + '" style="margin-bottom:4px">Remove</button><br>' +
+              '<button class="btn-sm campus-rooms-btn" data-campus-id="' + c.churchId + '">Rooms ▾</button>' +
+            '</td>' +
+          '</tr>' +
+          '<tr class="campus-rooms-row" id="campus-rooms-row-' + c.churchId + '" style="display:none">' +
+            '<td colspan="5" style="padding:0">' +
+              '<div id="campus-rooms-panel-' + c.churchId + '" style="padding:14px 16px;background:#080e18;border-top:1px solid #1e3045"></div>' +
+            '</td>' +
           '</tr>';
         }).join('');
 
@@ -4792,6 +4801,9 @@ function buildChurchPortalHtml(church) {
         });
         tbody.querySelectorAll('.campus-remove-btn').forEach(function(btn) {
           btn.addEventListener('click', function() { removeCampus(btn.getAttribute('data-campus-id')); });
+        });
+        tbody.querySelectorAll('.campus-rooms-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() { toggleCampusRooms(btn.getAttribute('data-campus-id'), btn); });
         });
       } catch (e) {
         document.getElementById('campuses-tbody').innerHTML = '<tr><td colspan="5" style="color:#ef4444;text-align:center;padding:20px">Failed to load campuses.</td></tr>';
@@ -4870,6 +4882,118 @@ function buildChurchPortalHtml(church) {
       if (ms < 3600000) return Math.floor(ms / 60000) + 'm ago';
       if (ms < 86400000) return Math.floor(ms / 3600000) + 'h ago';
       return Math.floor(ms / 86400000) + 'd ago';
+    }
+
+    // ── Rooms (spaces within a campus) ───────────────────────────────────────
+
+    function toggleCampusRooms(campusId, btn) {
+      var row = document.getElementById('campus-rooms-row-' + campusId);
+      if (!row) return;
+      var isHidden = row.style.display === 'none' || !row.style.display;
+      row.style.display = isHidden ? '' : 'none';
+      if (btn) btn.textContent = isHidden ? 'Rooms ▴' : 'Rooms ▾';
+      if (isHidden) loadRoomsForCampus(campusId);
+    }
+
+    async function loadRoomsForCampus(campusId) {
+      var panel = document.getElementById('campus-rooms-panel-' + campusId);
+      if (!panel) return;
+      panel.innerHTML = '<span style="color:#475569;font-size:13px">Loading rooms…</span>';
+      try {
+        var data = await api('GET', '/api/church/campuses/' + campusId + '/rooms');
+        var rooms = data.rooms || [];
+
+        var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+          '<span style="font-size:13px;color:#94A3B8;font-weight:600">Rooms</span>' +
+          '<button class="btn-sm add-room-toggle-btn">+ Add Room</button>' +
+          '</div>' +
+          '<div class="add-room-form" style="display:none;margin-bottom:12px;padding:10px;background:#111827;border-radius:6px">' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
+              '<div class="field" style="margin-bottom:0;flex:1;min-width:140px"><label style="font-size:12px">Room Name</label><input type="text" class="new-room-name" placeholder="Main Sanctuary"></div>' +
+              '<div class="field" style="margin-bottom:0;flex:1;min-width:180px"><label style="font-size:12px">Description (optional)</label><input type="text" class="new-room-desc" placeholder="e.g. ATEM Mini Extreme"></div>' +
+              '<button class="btn-primary save-room-btn" style="white-space:nowrap">Save Room</button>' +
+            '</div>' +
+          '</div>';
+
+        if (rooms.length === 0) {
+          html += '<div style="color:#475569;font-size:13px;text-align:center;padding:10px 0">No rooms yet. Click <em>+ Add Room</em> to create one.</div>';
+        } else {
+          html += '<table style="width:100%;border-collapse:collapse">' +
+            '<thead><tr>' +
+              '<th style="font-size:12px;color:#64748B;padding:4px 8px;text-align:left;font-weight:500">Name</th>' +
+              '<th style="font-size:12px;color:#64748B;padding:4px 8px;text-align:left;font-weight:500">Description</th>' +
+              '<th></th>' +
+            '</tr></thead><tbody>' +
+            rooms.map(function(r) {
+              return '<tr>' +
+                '<td style="padding:6px 8px;font-size:13px;color:#F8FAFC">' + escapeHtml(r.name) + '</td>' +
+                '<td style="padding:6px 8px;font-size:12px;color:#64748B">' + escapeHtml(r.description || '') + '</td>' +
+                '<td style="padding:6px 8px;text-align:right;white-space:nowrap">' +
+                  '<button class="btn-sm room-edit-btn" data-room-id="' + r.id + '" data-room-name="' + escapeHtml(r.name) + '" style="margin-right:4px">Edit</button>' +
+                  '<button class="btn-danger room-remove-btn" data-room-id="' + r.id + '">Remove</button>' +
+                '</td>' +
+              '</tr>';
+            }).join('') +
+            '</tbody></table>';
+        }
+
+        panel.innerHTML = html;
+
+        // Wire toggle for Add Room form
+        var toggleBtn = panel.querySelector('.add-room-toggle-btn');
+        var form = panel.querySelector('.add-room-form');
+        if (toggleBtn && form) {
+          toggleBtn.addEventListener('click', function() {
+            form.style.display = form.style.display === 'none' ? '' : 'none';
+          });
+        }
+
+        // Wire Save Room
+        var saveBtn = panel.querySelector('.save-room-btn');
+        if (saveBtn) {
+          saveBtn.addEventListener('click', function() {
+            var nameInput = panel.querySelector('.new-room-name');
+            var descInput = panel.querySelector('.new-room-desc');
+            var name = String(nameInput ? nameInput.value : '').trim();
+            var desc = String(descInput ? descInput.value : '').trim();
+            if (!name) return toast('Room name is required', true);
+            api('POST', '/api/church/campuses/' + campusId + '/rooms', { name: name, description: desc })
+              .then(function() { toast('Room added'); loadRoomsForCampus(campusId); })
+              .catch(function(e) { toast(e.message || 'Failed to add room', true); });
+          });
+        }
+
+        // Wire Edit buttons
+        panel.querySelectorAll('.room-edit-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var roomId = btn.getAttribute('data-room-id');
+            var currentName = btn.getAttribute('data-room-name');
+            modalPrompt('Rename room', currentName, { title: 'Edit Room' }).then(function(newName) {
+              if (newName === null) return;
+              newName = String(newName).trim();
+              if (!newName) return toast('Room name cannot be empty', true);
+              api('PATCH', '/api/church/campuses/' + campusId + '/rooms/' + roomId, { name: newName })
+                .then(function() { toast('Room renamed'); loadRoomsForCampus(campusId); })
+                .catch(function(e) { toast(e.message || 'Failed to rename room', true); });
+            });
+          });
+        });
+
+        // Wire Remove buttons
+        panel.querySelectorAll('.room-remove-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var roomId = btn.getAttribute('data-room-id');
+            modalConfirm('Remove this room?', { title: 'Remove Room', okLabel: 'Remove', dangerOk: true }).then(function(ok) {
+              if (!ok) return;
+              api('DELETE', '/api/church/campuses/' + campusId + '/rooms/' + roomId)
+                .then(function() { toast('Room removed'); loadRoomsForCampus(campusId); })
+                .catch(function(e) { toast(e.message || 'Failed to remove room', true); });
+            });
+          });
+        });
+      } catch (e) {
+        panel.innerHTML = '<span style="color:#ef4444;font-size:13px">Failed to load rooms.</span>';
+      }
     }
 
     // ── Campus Mode (Pro/Enterprise self-service campus linking) ─────────────
@@ -8551,6 +8675,100 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       try { db.prepare('DELETE FROM church_tds WHERE church_id = ?').run(campusId); } catch {}
       try { db.prepare('DELETE FROM guest_tokens WHERE churchId = ?').run(campusId); } catch {}
       db.prepare('DELETE FROM churches WHERE churchId = ?').run(campusId);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── Rooms — CRUD under a campus ──────────────────────────────────────────────
+  // A room is a physical space within a campus (Main Sanctuary, Youth Room, etc.)
+  // campus_id here is the churchId of the child campus record.
+
+  function _verifyCampusOwnership(campusId, parentChurchId) {
+    return db.prepare('SELECT churchId FROM churches WHERE churchId = ? AND parent_church_id = ?')
+      .get(campusId, parentChurchId);
+  }
+
+  // GET /api/church/campuses/:campusId/rooms
+  app.get('/api/church/campuses/:campusId/rooms', authMiddleware, (req, res) => {
+    try {
+      const campusId = String(req.params.campusId || '').trim();
+      if (!_verifyCampusOwnership(campusId, req.church.churchId)) {
+        return res.status(404).json({ error: 'Campus not found' });
+      }
+      const rooms = db.prepare('SELECT * FROM rooms WHERE campus_id = ? ORDER BY name ASC').all(campusId);
+      res.json({ rooms: rooms.map((r) => ({ id: r.id, campusId: r.campus_id, name: r.name, description: r.description || '', createdAt: r.created_at })) });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/church/campuses/:campusId/rooms
+  app.post('/api/church/campuses/:campusId/rooms', authMiddleware, express.json(), (req, res) => {
+    try {
+      const campusId = String(req.params.campusId || '').trim();
+      if (!_verifyCampusOwnership(campusId, req.church.churchId)) {
+        return res.status(404).json({ error: 'Campus not found' });
+      }
+      const name = String(req.body?.name || '').trim();
+      const description = String(req.body?.description || '').trim();
+      if (!name) return res.status(400).json({ error: 'Room name is required' });
+
+      const id = crypto.randomUUID();
+      const created_at = new Date().toISOString();
+      db.prepare('INSERT INTO rooms (id, campus_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(id, campusId, name, description, created_at);
+      res.status(201).json({ id, campusId, name, description, createdAt: created_at });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // PATCH /api/church/campuses/:campusId/rooms/:roomId
+  app.patch('/api/church/campuses/:campusId/rooms/:roomId', authMiddleware, express.json(), (req, res) => {
+    try {
+      const campusId = String(req.params.campusId || '').trim();
+      const roomId = String(req.params.roomId || '').trim();
+      if (!_verifyCampusOwnership(campusId, req.church.churchId)) {
+        return res.status(404).json({ error: 'Campus not found' });
+      }
+      const room = db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ?').get(roomId, campusId);
+      if (!room) return res.status(404).json({ error: 'Room not found' });
+
+      const updates = [];
+      const params = [];
+      const { name, description } = req.body || {};
+      if (name !== undefined) {
+        const cleanName = String(name).trim();
+        if (!cleanName) return res.status(400).json({ error: 'Room name cannot be empty' });
+        updates.push('name = ?');
+        params.push(cleanName);
+      }
+      if (description !== undefined) {
+        updates.push('description = ?');
+        params.push(String(description).trim());
+      }
+      if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
+      params.push(roomId);
+      db.prepare(`UPDATE rooms SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // DELETE /api/church/campuses/:campusId/rooms/:roomId
+  app.delete('/api/church/campuses/:campusId/rooms/:roomId', authMiddleware, (req, res) => {
+    try {
+      const campusId = String(req.params.campusId || '').trim();
+      const roomId = String(req.params.roomId || '').trim();
+      if (!_verifyCampusOwnership(campusId, req.church.churchId)) {
+        return res.status(404).json({ error: 'Campus not found' });
+      }
+      const room = db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ?').get(roomId, campusId);
+      if (!room) return res.status(404).json({ error: 'Room not found' });
+      db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId);
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
