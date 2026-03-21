@@ -16,7 +16,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
   // ─── ONBOARD (self-service signup) ───────────────────────────────────────────
 
-  app.post('/api/church/app/onboard', rateLimit(5, 60_000), async (req, res) => {
+  app.post('/api/church/app/onboard', rateLimit(10, 60 * 60 * 1000), async (req, res) => {
     const { name, email, password, tier, successUrl, cancelUrl, tosAcceptedAt, referralCode } = req.body || {};
     const cleanName = String(name || '').trim();
     const cleanEmail = String(email || '').trim().toLowerCase();
@@ -212,7 +212,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
   // ─── APP LOGIN ───────────────────────────────────────────────────────────────
 
-  app.post('/api/church/app/login', rateLimit(10, 15 * 60 * 1000), (req, res) => {
+  app.post('/api/church/app/login', rateLimit(5, 15 * 60 * 1000), (req, res) => {
     const { email, password } = req.body || {};
     const cleanEmail = String(email || '').trim().toLowerCase();
     if (!cleanEmail || !password) {
