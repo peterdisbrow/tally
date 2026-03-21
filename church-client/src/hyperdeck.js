@@ -293,10 +293,11 @@ class HyperDeck extends EventEmitter {
     const ds = this._status.diskSpace;
     if (!ds) return warnings;
 
-    if (ds.estimatedMinutesRemaining !== null && ds.estimatedMinutesRemaining < 5 || ds.percentUsed > 95) {
+    if ((ds.estimatedMinutesRemaining !== null && ds.estimatedMinutesRemaining < 5) || ds.percentUsed > 95) {
+      const timeRemaining = ds.estimatedMinutesRemaining !== null ? `, ~${ds.estimatedMinutesRemaining} min remaining` : '';
       warnings.push({
         type: 'recording_disk_full',
-        message: `HyperDeck "${this.name}" disk nearly full: ${ds.percentUsed}% used, ~${ds.estimatedMinutesRemaining} min remaining`,
+        message: `HyperDeck "${this.name}" disk nearly full: ${ds.percentUsed}% used${timeRemaining}`,
       });
     } else if (ds.estimatedMinutesRemaining !== null && ds.estimatedMinutesRemaining < 30) {
       warnings.push({

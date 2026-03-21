@@ -132,6 +132,23 @@ test('recording_disk_full when > 95% used', () => {
   assert.equal(warnings[0].type, 'recording_disk_full');
 });
 
+test('disk_full warning message does not contain "null" when only percentUsed > 95 triggers', () => {
+  // Simulate the edge case: estimatedMinutesRemaining is null (e.g., bitrate not set)
+  // but percentUsed > 95 should still trigger a warning without "null" in the message.
+  const deck = new HyperDeck({ host: '192.168.1.100' });
+  const total = 1_000_000_000_000;
+  const free  = 30_000_000_000; // 3% free => 97% used
+  injectSlotInfo(deck, total, free);
+
+  // Force estimatedMinutesRemaining to null to test the message formatting
+  deck._status.diskSpace.estimatedMinutesRemaining = null;
+
+  const warnings = deck.getDiskWarnings();
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].type, 'recording_disk_full');
+  assert.ok(!warnings[0].message.includes('null'), `message should not contain "null": ${warnings[0].message}`);
+});
+
 test('no warnings when diskSpace is null', () => {
   const deck = new HyperDeck({ host: '192.168.1.100' });
   assert.deepEqual(deck.getDiskWarnings(), []);

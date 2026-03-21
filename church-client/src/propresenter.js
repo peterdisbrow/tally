@@ -46,7 +46,7 @@ class ProPresenter extends EventEmitter {
       const resp = await fetch(url, { signal: AbortSignal.timeout(5000), ...options });
       if (!resp.ok) return null;
       const text = await resp.text();
-      try { return JSON.parse(text); } catch { return text; }
+      try { return JSON.parse(text); } catch { return null; }
     } catch {
       return null;
     }

@@ -187,13 +187,14 @@ class VideoHub extends EventEmitter {
 
   _sendAndWait(data, expectBlock, timeoutMs = 5000) {
     return new Promise((resolve, reject) => {
+      let entry;
       const timer = setTimeout(() => {
         const idx = this._pendingCallbacks.findIndex(p => p === entry);
         if (idx !== -1) this._pendingCallbacks.splice(idx, 1);
         reject(new Error(`Timeout waiting for ${expectBlock}`));
       }, timeoutMs);
 
-      const entry = {
+      entry = {
         blockType: expectBlock,
         resolve: () => { clearTimeout(timer); resolve(); },
         reject: (e) => { clearTimeout(timer); reject(e); },
