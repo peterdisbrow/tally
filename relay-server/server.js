@@ -1562,6 +1562,7 @@ function drainQueue(churchId, ws) {
 require('./src/routes/health')(app, {
   churches, controllers, RELAY_VERSION, RELAY_BUILD, WebSocket,
   get totalMessagesRelayed() { return totalMessagesRelayed; },
+  db,
 });
 
 // Shared auth utilities (single source of truth — also used by churchPortal.js)
