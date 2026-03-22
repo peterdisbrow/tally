@@ -56,7 +56,7 @@ async function encoderStatus(agent) {
   if (!agent.encoderBridge) return agent.status.encoder;
   try {
     const latest = await agent.encoderBridge.getStatus();
-    Object.assign(agent.status.encoder, latest);
+    agent.status.encoder = Object.assign(agent.status.encoder || {}, latest);
   } catch {
     // best-effort read
   }

@@ -182,8 +182,8 @@ module.exports = function setupSessionRoutes(app, ctx) {
       'SELECT *, \'event\' as _type FROM service_events WHERE session_id = ? ORDER BY timestamp ASC'
     ).all(sessionId);
     const alerts = db.prepare(
-      'SELECT *, \'alert\' as _type FROM alerts WHERE session_id = ? ORDER BY created_at ASC'
-    ).all(sessionId);
+      'SELECT *, \'alert\' as _type FROM alerts WHERE session_id = ? AND church_id = ? ORDER BY created_at ASC'
+    ).all(sessionId, churchId);
     const chatMsgs = db.prepare(
       'SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC'
     ).all(sessionId);
@@ -223,7 +223,7 @@ module.exports = function setupSessionRoutes(app, ctx) {
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
     const events = db.prepare('SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC').all(sessionId);
-    const alerts = db.prepare('SELECT * FROM alerts WHERE session_id = ? ORDER BY created_at ASC').all(sessionId);
+    const alerts = db.prepare('SELECT * FROM alerts WHERE session_id = ? AND church_id = ? ORDER BY created_at ASC').all(sessionId, churchId);
     const chatMsgs = db.prepare('SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC').all(sessionId);
 
     const startTime = new Date(session.started_at);
