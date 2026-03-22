@@ -4,7 +4,7 @@ async function resolumeStatus(agent) {
   if (!agent.resolume) throw new Error('Resolume not configured');
   const status = await agent.resolume.getStatus();
 
-  if (!status.running) {
+  if (!status || !status.running) {
     return '🎆 Resolume Arena — ❌ Offline\n\nResolume is not responding. Check that it is running.';
   }
 
@@ -34,14 +34,18 @@ async function resolumePlayClip(agent, params) {
     const result = await agent.resolume.playClipByName(params.name);
     return `Playing clip "${result.clip}" on layer "${result.layer}"`;
   }
-  await agent.resolume.playClip(params.layer, params.clip);
-  return `Playing clip (layer ${params.layer}, clip ${params.clip})`;
+  const layer = toInt(params.layer, 'layer');
+  const clip  = toInt(params.clip,  'clip');
+  await agent.resolume.playClip(layer, clip);
+  return `Playing clip (layer ${layer}, clip ${clip})`;
 }
 
 async function resolumeStopClip(agent, params) {
   if (!agent.resolume) throw new Error('Resolume not configured');
-  await agent.resolume.stopClip(params.layer, params.clip);
-  return `Stopped clip (layer ${params.layer}, clip ${params.clip})`;
+  const layer = toInt(params.layer, 'layer');
+  const clip  = toInt(params.clip,  'clip');
+  await agent.resolume.stopClip(layer, clip);
+  return `Stopped clip (layer ${layer}, clip ${clip})`;
 }
 
 async function resolumeTriggerColumn(agent, params) {
@@ -50,8 +54,9 @@ async function resolumeTriggerColumn(agent, params) {
     const colName = await agent.resolume.triggerColumnByName(params.name);
     return `Triggered column "${colName}"`;
   }
-  await agent.resolume.triggerColumn(params.column);
-  return `Triggered column ${params.column}`;
+  const column = toInt(params.column, 'column');
+  await agent.resolume.triggerColumn(column);
+  return `Triggered column ${column}`;
 }
 
 async function resolumeClearAll(agent) {
