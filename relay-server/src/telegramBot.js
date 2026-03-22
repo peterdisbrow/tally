@@ -5,6 +5,8 @@
  */
 
 const crypto = require('crypto');
+const { CircuitBreaker, CircuitOpenError } = require('./circuitBreaker');
+const { createLogger } = require('./logger');
 const { aiParseCommand } = require('./ai-parser');
 const { isStreamActive, isRecordingActive } = require('./status-utils');
 const { smartParse } = require('./smart-parser');
@@ -12,6 +14,11 @@ const { classifyIntent } = require('./intent-classifier');
 const { checkStreamSafety, checkWorkflowSafety, hasForceBypass } = require('./stream-guard');
 const { parseRundownDescription, editRundownCues, formatRundownPreview } = require('./rundown-ai');
 const { bt, churchLocale } = require('./botI18n');
+
+const _log = createLogger('TallyBot');
+
+// Maximum number of sendMessage calls to queue while Telegram circuit is open
+const TELEGRAM_QUEUE_MAX = 100;
 
 // ─── CANNED RESPONSES (troubleshooting guides for /fix command) ──────────────
 
@@ -696,6 +703,16 @@ class TallyBot {
     // ─── Command history (per church, in-memory) ─────────────────────
     // churchId → [{ command, text, timestamp }]  (max 50, show last 10)
     this._commandHistory = new Map();
+
+    // ─── Telegram API circuit breaker & notification queue ───────────
+    // When the circuit opens, sendMessage calls are queued (up to TELEGRAM_QUEUE_MAX).
+    // On circuit close, the queue is flushed automatically.
+    this._telegramCircuit = new CircuitBreaker('telegram', {
+      failureThreshold: 5,
+      cooldownMs: 60_000,
+      onClose: () => { this._flushMessageQueue().catch(() => {}); },
+    });
+    this._messageQueue = [];
   }
 
   // ─── WEBHOOK HANDLER ───────────────────────────────────────────────────
@@ -2627,20 +2644,45 @@ class TallyBot {
 
   // ─── TELEGRAM API ─────────────────────────────────────────────────────
 
+  /**
+   * Flush all queued sendMessage calls after the Telegram circuit closes.
+   * Called automatically via the circuit breaker's onClose hook.
+   */
+  async _flushMessageQueue() {
+    const queue = this._messageQueue.splice(0);
+    if (queue.length === 0) return;
+    _log.info('flushing telegram message queue', { count: queue.length });
+    for (const { chatId, text, options } of queue) {
+      await this.sendMessage(chatId, text, options);
+    }
+  }
+
   async sendMessage(chatId, text, options = {}) {
     const body = { chat_id: chatId, text, ...options };
     try {
-      const resp = await fetch(`${this._apiBase}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(5000),
+      const data = await this._telegramCircuit.call(async () => {
+        const resp = await fetch(`${this._apiBase}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(5000),
+        });
+        return resp.json();
       });
-      const data = await resp.json();
       if (!data.ok) console.warn('[TallyBot] sendMessage failed:', data.description);
       return data;
     } catch (e) {
-      console.error('[TallyBot] sendMessage error:', e.message);
+      if (e instanceof CircuitOpenError) {
+        // Circuit is open — queue the message for later delivery
+        if (this._messageQueue.length < TELEGRAM_QUEUE_MAX) {
+          this._messageQueue.push({ chatId, text, options });
+          _log.warn('telegram circuit open — message queued', { chatId, queueLen: this._messageQueue.length });
+        } else {
+          _log.warn('telegram circuit open — queue full, dropping message', { chatId });
+        }
+      } else {
+        console.error('[TallyBot] sendMessage error:', e.message);
+      }
     }
   }
 
@@ -2657,17 +2699,21 @@ class TallyBot {
     const body = Buffer.concat([header, photoBuffer, footer]);
 
     try {
-      const resp = await fetch(`${this._apiBase}/sendPhoto`, {
-        method: 'POST',
-        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
-        body,
-        signal: AbortSignal.timeout(10000),
+      const data = await this._telegramCircuit.call(async () => {
+        const resp = await fetch(`${this._apiBase}/sendPhoto`, {
+          method: 'POST',
+          headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+          body,
+          signal: AbortSignal.timeout(10000),
+        });
+        return resp.json();
       });
-      const data = await resp.json();
       if (!data.ok) console.warn('[TallyBot] sendPhoto failed:', data.description);
       return data;
     } catch (e) {
-      console.error('[TallyBot] sendPhoto error:', e.message);
+      if (!(e instanceof CircuitOpenError)) {
+        console.error('[TallyBot] sendPhoto error:', e.message);
+      }
     }
   }
 
@@ -2761,14 +2807,18 @@ class TallyBot {
   async answerCallbackQuery(callbackQueryId, text) {
     if (!callbackQueryId) return;
     try {
-      await fetch(`${this._apiBase}/answerCallbackQuery`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
-        signal: AbortSignal.timeout(5000),
-      });
+      await this._telegramCircuit.call(() =>
+        fetch(`${this._apiBase}/answerCallbackQuery`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
+          signal: AbortSignal.timeout(5000),
+        })
+      );
     } catch (e) {
-      console.error('[TallyBot] answerCallbackQuery error:', e.message);
+      if (!(e instanceof CircuitOpenError)) {
+        console.error('[TallyBot] answerCallbackQuery error:', e.message);
+      }
     }
   }
 
@@ -2778,14 +2828,18 @@ class TallyBot {
   async editMessageText(chatId, messageId, text) {
     if (!messageId) return;
     try {
-      await fetch(`${this._apiBase}/editMessageText`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, message_id: messageId, text }),
-        signal: AbortSignal.timeout(5000),
-      });
+      await this._telegramCircuit.call(() =>
+        fetch(`${this._apiBase}/editMessageText`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, message_id: messageId, text }),
+          signal: AbortSignal.timeout(5000),
+        })
+      );
     } catch (e) {
-      console.error('[TallyBot] editMessageText error:', e.message);
+      if (!(e instanceof CircuitOpenError)) {
+        console.error('[TallyBot] editMessageText error:', e.message);
+      }
     }
   }
 
@@ -2858,17 +2912,21 @@ class TallyBot {
       : (payloadOrUrl || {});
 
     try {
-      const resp = await fetch(`${this._apiBase}/setWebhook`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(5000),
+      const data = await this._telegramCircuit.call(async () => {
+        const resp = await fetch(`${this._apiBase}/setWebhook`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(5000),
+        });
+        return resp.json();
       });
-      const data = await resp.json();
       console.log(`[TallyBot] Webhook set: ${data.ok ? '✅' : '❌'} ${data.description || ''}`);
       return data;
     } catch (e) {
-      console.error('[TallyBot] setWebhook error:', e.message);
+      if (!(e instanceof CircuitOpenError)) {
+        console.error('[TallyBot] setWebhook error:', e.message);
+      }
     }
   }
 }

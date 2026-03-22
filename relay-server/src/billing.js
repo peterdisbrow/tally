@@ -1,3 +1,7 @@
+'use strict';
+
+const { CircuitBreaker, CircuitOpenError } = require('./circuitBreaker');
+
 /**
  * Tally Billing — Stripe Integration
  *
@@ -92,6 +96,13 @@ class BillingSystem {
     this.lifecycleEmails = null;
     this._ensureSchema();
     this._validatePriceIds();
+
+    // Circuit breaker for outbound Stripe API calls (checkout, portal).
+    // Incoming webhooks are not circuit-broken — we must always accept them.
+    this._stripeCircuit = new CircuitBreaker('stripe', {
+      failureThreshold: 5,
+      cooldownMs: 60_000,
+    });
   }
 
   /** Warn at startup if Stripe is enabled but price IDs are still placeholders */
@@ -261,7 +272,9 @@ class BillingSystem {
       };
     }
 
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    const session = await this._stripeCircuit.call(() =>
+      stripe.checkout.sessions.create(sessionParams)
+    );
 
     // Store pending session
     if (churchId) {
@@ -292,10 +305,12 @@ class BillingSystem {
     const billing = this.db.prepare('SELECT * FROM billing_customers WHERE church_id = ?').get(churchId);
     if (!billing?.stripe_customer_id) throw new Error('No billing record found for this church');
 
-    const session = await stripe.billingPortal.sessions.create({
-      customer: billing.stripe_customer_id,
-      return_url: returnUrl || process.env.APP_URL,
-    });
+    const session = await this._stripeCircuit.call(() =>
+      stripe.billingPortal.sessions.create({
+        customer: billing.stripe_customer_id,
+        return_url: returnUrl || process.env.APP_URL,
+      })
+    );
 
     return { url: session.url };
   }
@@ -671,7 +686,9 @@ class BillingSystem {
     }
 
     // No trial period for reactivation
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    const session = await this._stripeCircuit.call(() =>
+      stripe.checkout.sessions.create(sessionParams)
+    );
 
     const now = new Date().toISOString();
     this.db.prepare(`
