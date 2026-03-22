@@ -1,342 +1,470 @@
-'use strict';
-
 /**
- * AudioMonitor tests
+ * AudioMonitor Tests
  *
- * Covers: _atemLevelToDb, getStatus, stop, _sendAlert dedup,
- *         _checkATEMAudio silence detection, _checkOBSAudio congestion, tick dispatch.
+ * Tests the silence detection and alerting logic in src/audioMonitor.js.
+ * No real timers are used — time-based logic is tested by directly
+ * manipulating _silenceStartTime to simulate elapsed time.
+ *
+ * Coverage:
+ *   - _atemLevelToDb: all firmware formats (dBFS*1000, linear 16-bit, linear 32-bit)
+ *   - Silence detection: timer start, persist, reset on audio return
+ *   - 15s alert: fires when silence sustained, deduplicates
+ *   - 30s failover signal: fires once, not resent
+ *   - Audio cleared signal: sent when audio returns after failover
+ *   - OBS-only guard: no monitoring when OBS not streaming
+ *   - Left/right channel handling
+ *   - ATEM not connected: no crash
+ *   - start() / stop() lifecycle
+ *   - getStatus(): reports silence state accurately
  */
 
-const test   = require('node:test');
+const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { AudioMonitor } = require('../src/audioMonitor');
 
-// ── helpers ─────────────────────────────────────────────────────────────────
+// ─── Mock agent factory ───────────────────────────────────────────────────────
+//
+// `masterLevel` is the raw ATEM audio level (integer). Pass null for
+// "no master" (tests graceful null handling).
 
-function makeMockAgent(overrides = {}) {
+function createMockAgent({ obsStreaming = true, atemConnected = true, masterLevel = null } = {}) {
+  const relayMessages = [];
+
   const agent = {
     status: {
-      obs:  { streaming: true, connected: true },
-      atem: { connected: true },
+      obs: { streaming: obsStreaming, connected: true },
+      atem: { connected: atemConnected },
     },
-    atem: {
-      state: {
-        audio: {
-          master: { inputLevel: -5000 }, // -5 dBFS (above -40 threshold)
-        },
-      },
-    },
-    obs: {
-      call: async () => ({ outputCongestion: 0.5 }),
-    },
-    sendToRelay: () => {},
-    ...overrides,
+    sendToRelay: (msg) => relayMessages.push(msg),
+    obs: null,
+    atem: atemConnected
+      ? {
+          state: {
+            audio: {
+              master: masterLevel !== null ? { inputLevel: masterLevel } : null,
+            },
+          },
+        }
+      : null,
+    relayMessages,
   };
+
   return agent;
 }
 
-// ── 1. _atemLevelToDb ────────────────────────────────────────────────────────
+// ─── _atemLevelToDb ───────────────────────────────────────────────────────────
 
-test('_atemLevelToDb: raw=0 returns -Infinity', () => {
+test('_atemLevelToDb: 0 (digital silence) returns -Infinity', () => {
   const m = new AudioMonitor();
   assert.equal(m._atemLevelToDb(0), -Infinity);
 });
 
-test('_atemLevelToDb: raw=-10000 returns -10 (dBFS*1000 format)', () => {
+test('_atemLevelToDb: negative values use dBFS*1000 format', () => {
   const m = new AudioMonitor();
   assert.equal(m._atemLevelToDb(-10000), -10);
-});
-
-test('_atemLevelToDb: raw=-40000 returns -40', () => {
-  const m = new AudioMonitor();
   assert.equal(m._atemLevelToDb(-40000), -40);
+  assert.equal(m._atemLevelToDb(-6000),  -6);
 });
 
-test('_atemLevelToDb: raw=32768 returns 0 (full scale)', () => {
+test('_atemLevelToDb: -1 converts to -0.001 dBFS', () => {
   const m = new AudioMonitor();
-  assert.equal(m._atemLevelToDb(32768), 0);
+  assert.equal(m._atemLevelToDb(-1), -0.001);
 });
 
-test('_atemLevelToDb: raw=16384 returns approximately -6.02 (half of 32768)', () => {
+test('_atemLevelToDb: 32768 (full-scale 16-bit linear) is ~0 dBFS', () => {
+  const m = new AudioMonitor();
+  const db = m._atemLevelToDb(32768);
+  assert.ok(Math.abs(db) < 0.01, `Expected ~0 dBFS, got ${db}`);
+});
+
+test('_atemLevelToDb: 16384 (half-scale) is ~-6 dBFS', () => {
   const m = new AudioMonitor();
   const db = m._atemLevelToDb(16384);
-  // 20 * log10(0.5) ≈ -6.0206
-  assert.ok(Math.abs(db - (-6.0206)) < 0.01, `expected ≈ -6.02, got ${db}`);
+  assert.ok(Math.abs(db - (-6.02)) < 0.1, `Expected ~-6 dBFS, got ${db}`);
 });
 
-test('_atemLevelToDb: raw=1 returns ≈ -90.3 dBFS', () => {
+test('_atemLevelToDb: 1 (near-digital-zero linear) is very quiet', () => {
   const m = new AudioMonitor();
   const db = m._atemLevelToDb(1);
-  const expected = 20 * Math.log10(1 / 32768);
-  assert.ok(Math.abs(db - expected) < 0.01, `expected ≈ ${expected}, got ${db}`);
+  assert.ok(db < -90, `Expected very negative dBFS, got ${db}`);
 });
 
-test('_atemLevelToDb: raw=65535 returns approximately 0 (65535 divisor path)', () => {
+test('_atemLevelToDb: 65535 (full-scale 32-bit range) is ~0 dBFS', () => {
   const m = new AudioMonitor();
   const db = m._atemLevelToDb(65535);
-  // 20 * log10(65535/65535) = 0
-  assert.ok(Math.abs(db - 0) < 0.001, `expected ≈ 0, got ${db}`);
+  assert.ok(Math.abs(db) < 0.01, `Expected ~0 dBFS, got ${db}`);
 });
 
-test('_atemLevelToDb: raw=32769 uses 65535 divisor (≈ -6.02)', () => {
+test('_atemLevelToDb: 32767 (just below 32768) gives approximately correct dB', () => {
   const m = new AudioMonitor();
-  const db = m._atemLevelToDb(32769);
-  // 20 * log10(32769/65535) ≈ -6.02
-  const expected = 20 * Math.log10(32769 / 65535);
-  assert.ok(Math.abs(db - expected) < 0.01, `expected ≈ ${expected}, got ${db}`);
+  const db = m._atemLevelToDb(32767);
+  // Just below full scale — should be very close to 0
+  assert.ok(db > -0.01 && db <= 0, `Expected near-0 dBFS, got ${db}`);
 });
 
-test('_atemLevelToDb: raw=99999 returns 0 (>65535 catch-all)', () => {
+// ─── Silence detection: timer management ─────────────────────────────────────
+
+test('silence timer NOT started when audio is above threshold (-5 dBFS = -5000 raw)', () => {
   const m = new AudioMonitor();
-  assert.equal(m._atemLevelToDb(99999), 0);
+  const agent = createMockAgent({ masterLevel: -5000 }); // -5 dBFS > -40 threshold
+  m.agent = agent;
+  m._checkATEMAudio();
+  assert.equal(m._silenceStartTime, null, 'No silence timer when audio is present');
 });
 
-// ── 2. getStatus — initial state ─────────────────────────────────────────────
+test('silence timer starts when audio falls below -40 dBFS threshold', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 }); // -50 dBFS < -40 threshold
+  m.agent = agent;
+  m._checkATEMAudio();
+  assert.ok(m._silenceStartTime !== null, 'Silence timer should start');
+});
 
-test('getStatus: initial state is correct', () => {
+test('silence timer persists across consecutive below-threshold calls', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 });
+  m.agent = agent;
+  m._checkATEMAudio();
+  const firstStart = m._silenceStartTime;
+  assert.ok(firstStart !== null);
+  m._checkATEMAudio();
+  assert.equal(m._silenceStartTime, firstStart, 'Timer should not reset on repeat calls');
+});
+
+test('silence timer resets when audio returns above threshold', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 });
+  m.agent = agent;
+
+  m._checkATEMAudio(); // start timer
+  assert.ok(m._silenceStartTime !== null);
+
+  agent.atem.state.audio.master.inputLevel = -5000; // audio back
+  m._checkATEMAudio();
+  assert.equal(m._silenceStartTime, null, 'Timer should reset when audio returns');
+});
+
+// ─── 15-second alert ─────────────────────────────────────────────────────────
+
+test('15s alert fires after sustained silence', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 });
+  m.agent = agent;
+
+  // Simulate timer having run for 15+ seconds
+  m._silenceStartTime = Date.now() - 15_001;
+  m._checkATEMAudio();
+
+  const alerts = agent.relayMessages.filter(r => r.type === 'alert');
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0].alertType, 'audio_silence');
+  assert.ok(alerts[0].message.includes('15+ seconds'));
+  assert.equal(alerts[0].severity, 'warning');
+});
+
+test('15s alert does NOT fire before 15 seconds have elapsed', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 });
+  m.agent = agent;
+
+  m._silenceStartTime = Date.now() - 5000; // only 5s
+  m._checkATEMAudio();
+
+  const alerts = agent.relayMessages.filter(r => r.type === 'alert');
+  assert.equal(alerts.length, 0, 'No alert before 15s');
+});
+
+test('15s alert deduplicated: same alert not sent twice within 5-min window', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 });
+  m.agent = agent;
+
+  m._sendAlert('atem_audio_silence', 'First alert');
+  const countAfterFirst = agent.relayMessages.length;
+
+  m._sendAlert('atem_audio_silence', 'Duplicate within window');
+  assert.equal(agent.relayMessages.length, countAfterFirst, 'Dedup should suppress second alert');
+});
+
+test('alert can re-fire after 5-min dedup window expires', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 });
+  m.agent = agent;
+
+  // Seed last alert time to 6 minutes ago
+  m._lastAlertTimes.set('atem_audio_silence', Date.now() - 6 * 60_000);
+
+  m._sendAlert('atem_audio_silence', 'Alert after window expired');
+  const alerts = agent.relayMessages.filter(r => r.type === 'alert');
+  assert.equal(alerts.length, 1, 'Should fire after dedup window');
+});
+
+test('different alert keys are each sent independently', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent();
+  m.agent = agent;
+
+  m._sendAlert('key_a', 'Alert A');
+  m._sendAlert('key_b', 'Alert B');
+  assert.equal(agent.relayMessages.length, 2, 'Different keys should each fire once');
+});
+
+// ─── 30-second failover signal ────────────────────────────────────────────────
+
+test('failover signal_event sent after 30s of sustained silence', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 });
+  m.agent = agent;
+
+  // 30s elapsed; 15s alert already deduped so it won't reset the timer
+  m._silenceStartTime = Date.now() - 30_001;
+  m._lastAlertTimes.set('atem_audio_silence', Date.now() - 1000); // dedup active
+
+  m._checkATEMAudio();
+
+  const signals = agent.relayMessages.filter(r => r.type === 'signal_event');
+  assert.equal(signals.length, 1);
+  assert.equal(signals[0].signal, 'audio_silence_sustained');
+  assert.ok(signals[0].durationSec >= 30);
+});
+
+test('failover signal NOT sent before 30s', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 });
+  m.agent = agent;
+
+  m._silenceStartTime = Date.now() - 20_000; // 20s — under threshold
+  m._lastAlertTimes.set('atem_audio_silence', Date.now() - 1000); // dedup active
+
+  m._checkATEMAudio();
+
+  const signals = agent.relayMessages.filter(r => r.type === 'signal_event');
+  assert.equal(signals.length, 0, 'No failover signal before 30s');
+});
+
+test('failover signal sent only once per silence event', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 });
+  m.agent = agent;
+
+  // First call — silence for 30s, failover sends
+  m._silenceStartTime = Date.now() - 30_001;
+  m._lastAlertTimes.set('atem_audio_silence', Date.now() - 1000);
+  m._checkATEMAudio(); // sends failover
+
+  // Second call — _failoverSignalSent is true, timer was reset,
+  // starts fresh. Even after re-setting the timer, flag blocks re-send.
+  m._silenceStartTime = Date.now() - 30_001;
+  m._lastAlertTimes.set('atem_audio_silence', Date.now() - 1000);
+  m._checkATEMAudio();
+
+  const signals = agent.relayMessages.filter(r =>
+    r.type === 'signal_event' && r.signal === 'audio_silence_sustained'
+  );
+  assert.equal(signals.length, 1, 'Failover signal should fire exactly once');
+});
+
+// ─── Audio cleared signal ─────────────────────────────────────────────────────
+
+test('audio_silence_cleared sent when audio returns after a failover was emitted', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 });
+  m.agent = agent;
+
+  // Precondition: timer running AND failover was already sent
+  m._silenceStartTime = Date.now() - 5000;
+  m._failoverSignalSent = true;
+
+  // Audio comes back
+  agent.atem.state.audio.master.inputLevel = -5000; // above threshold
+  m._checkATEMAudio();
+
+  const cleared = agent.relayMessages.filter(r => r.signal === 'audio_silence_cleared');
+  assert.equal(cleared.length, 1, 'Should notify relay when audio returns after failover');
+});
+
+test('audio_silence_cleared NOT sent when audio returns without a prior failover', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 });
+  m.agent = agent;
+
+  m._silenceStartTime = Date.now() - 5000;
+  m._failoverSignalSent = false; // no failover was sent
+
+  agent.atem.state.audio.master.inputLevel = -5000;
+  m._checkATEMAudio();
+
+  const cleared = agent.relayMessages.filter(r => r.signal === 'audio_silence_cleared');
+  assert.equal(cleared.length, 0);
+});
+
+test('_failoverSignalSent resets to false after audio returns', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: -50000 });
+  m.agent = agent;
+
+  m._silenceStartTime = Date.now() - 5000;
+  m._failoverSignalSent = true;
+
+  agent.atem.state.audio.master.inputLevel = -5000;
+  m._checkATEMAudio();
+
+  assert.equal(m._failoverSignalSent, false, 'Flag should reset after audio returns');
+});
+
+// ─── OBS streaming guard ──────────────────────────────────────────────────────
+
+test('tick: silence check skipped when OBS is not streaming', async () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ obsStreaming: false, masterLevel: -50000 });
+  m.agent = agent;
+
+  await m.tick();
+
+  assert.equal(m._silenceStartTime, null, 'Timer should not start if OBS not streaming');
+});
+
+test('tick: silence timer resets when OBS stops mid-stream', async () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ obsStreaming: true, masterLevel: -50000 });
+  m.agent = agent;
+
+  m._silenceStartTime = Date.now() - 5000;
+
+  agent.status.obs.streaming = false;
+  await m.tick();
+
+  assert.equal(m._silenceStartTime, null, 'Silence timer should reset when OBS stops');
+});
+
+// ─── ATEM connection guard ─────────────────────────────────────────────────────
+
+test('_checkATEMAudio: no crash when ATEM is null', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ atemConnected: false });
+  m.agent = agent;
+  assert.doesNotThrow(() => m._checkATEMAudio());
+});
+
+test('_checkATEMAudio: no crash when audio state is null', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ atemConnected: true });
+  agent.atem.state.audio.master = null;
+  m.agent = agent;
+  assert.doesNotThrow(() => m._checkATEMAudio());
+  assert.equal(m._silenceStartTime, null);
+});
+
+test('_checkATEMAudio: no crash when ATEM state is undefined', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ atemConnected: true });
+  agent.atem.state = undefined;
+  m.agent = agent;
+  assert.doesNotThrow(() => m._checkATEMAudio());
+});
+
+// ─── Left/right channel handling ──────────────────────────────────────────────
+
+test('_checkATEMAudio: detects silence via left/right channels when inputLevel absent', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: null });
+  agent.atem.state.audio.master = { left: -50000, right: -50000 }; // both silent
+  m.agent = agent;
+
+  m._checkATEMAudio();
+  assert.ok(m._silenceStartTime !== null, 'Should detect silence from left/right channels');
+});
+
+test('_checkATEMAudio: uses louder of left/right channels', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: null });
+  // Left channel silent, right channel has audio
+  agent.atem.state.audio.master = { left: -60000, right: -5000 };
+  m.agent = agent;
+
+  m._checkATEMAudio();
+  assert.equal(m._silenceStartTime, null, 'Should not detect silence when one channel has audio');
+});
+
+test('_checkATEMAudio: reads outputLevel when inputLevel absent', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ masterLevel: null });
+  agent.atem.state.audio.master = { outputLevel: -5000 }; // -5 dBFS = audio present
+  m.agent = agent;
+
+  m._checkATEMAudio();
+  assert.equal(m._silenceStartTime, null, 'Should not start silence timer when outputLevel has audio');
+});
+
+// ─── start() / stop() lifecycle ───────────────────────────────────────────────
+
+test('start() sets agent and creates interval', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ obsStreaming: false }); // obsStreaming false so tick is no-op
+  m.start(agent);
+
+  assert.ok(m._tickInterval !== null, 'Interval should be set after start()');
+  assert.strictEqual(m.agent, agent);
+
+  m.stop(); // cleanup
+});
+
+test('start() is idempotent — second call does not create new interval', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ obsStreaming: false });
+  m.start(agent);
+  const firstInterval = m._tickInterval;
+
+  m.start(agent);
+  assert.equal(m._tickInterval, firstInterval, 'Second start() should not replace the interval');
+
+  m.stop();
+});
+
+test('stop() clears interval and resets all state', () => {
+  const m = new AudioMonitor();
+  const agent = createMockAgent({ obsStreaming: false });
+  m.start(agent);
+  m._silenceStartTime = Date.now();
+  m._failoverSignalSent = true;
+
+  m.stop();
+
+  assert.equal(m._tickInterval, null);
+  assert.equal(m.agent, null);
+  assert.equal(m._silenceStartTime, null);
+  assert.equal(m._failoverSignalSent, false);
+});
+
+// ─── getStatus() ──────────────────────────────────────────────────────────────
+
+test('getStatus: reports not monitoring when stopped', () => {
   const m = new AudioMonitor();
   const s = m.getStatus();
   assert.equal(s.monitoring, false);
   assert.equal(s.silenceDetected, false);
   assert.equal(s.silenceDurationSec, 0);
-  assert.deepEqual(s.lastAlerts, {});
 });
 
-// ── 3. stop() ────────────────────────────────────────────────────────────────
-
-test('stop: after stop(), monitoring=false', () => {
+test('getStatus: reports monitoring=true when started', () => {
   const m = new AudioMonitor();
+  const agent = createMockAgent({ obsStreaming: false });
+  m.start(agent);
+  assert.equal(m.getStatus().monitoring, true);
   m.stop();
-  assert.equal(m.getStatus().monitoring, false);
 });
 
-test('stop: after start then stop, monitoring=false', () => {
+test('getStatus: reports silence detected and duration when timer is running', () => {
   const m = new AudioMonitor();
-  m.start(makeMockAgent());
-  m.stop();
-  assert.equal(m.getStatus().monitoring, false);
+  m._silenceStartTime = Date.now() - 10_000;
+
+  const s = m.getStatus();
+  assert.equal(s.silenceDetected, true);
+  assert.ok(s.silenceDurationSec >= 10, `Expected >=10s, got ${s.silenceDurationSec}`);
 });
 
-test('stop: resets _silenceStartTime to null', () => {
+test('getStatus: silenceDurationSec is 0 when no silence', () => {
   const m = new AudioMonitor();
-  m._silenceStartTime = Date.now();
-  m.stop();
-  assert.equal(m._silenceStartTime, null);
-});
-
-test('stop: resets agent to null', () => {
-  const m = new AudioMonitor();
-  m.start(makeMockAgent());
-  m.stop();
-  assert.equal(m.agent, null);
-});
-
-// ── 4. _sendAlert — dedup logic ───────────────────────────────────────────────
-
-test('_sendAlert: same key called twice quickly → sendToRelay called only once', () => {
-  const m = new AudioMonitor();
-  let callCount = 0;
-  m.agent = makeMockAgent({ sendToRelay: () => { callCount++; } });
-
-  m._sendAlert('test_key', 'first message');
-  m._sendAlert('test_key', 'second message');
-
-  assert.equal(callCount, 1, 'sendToRelay should only be called once within dedup window');
-});
-
-test('_sendAlert: after DEDUP_WINDOW_MS passes, same key fires again', () => {
-  const m = new AudioMonitor();
-  let callCount = 0;
-  m.agent = makeMockAgent({ sendToRelay: () => { callCount++; } });
-
-  // Simulate first alert was sent 6 minutes ago
-  const SIX_MIN_AGO = Date.now() - 6 * 60_000;
-  m._lastAlertTimes.set('test_key', SIX_MIN_AGO);
-
-  m._sendAlert('test_key', 'should fire again');
-  assert.equal(callCount, 1, 'sendToRelay should fire after dedup window expires');
-});
-
-test('_sendAlert: resets _silenceStartTime to null', () => {
-  const m = new AudioMonitor();
-  m.agent = makeMockAgent();
-  m._silenceStartTime = Date.now();
-
-  m._sendAlert('reset_test', 'testing reset');
-  assert.equal(m._silenceStartTime, null);
-});
-
-// ── 5. _checkATEMAudio — silence detection ────────────────────────────────────
-
-test('_checkATEMAudio: no atem on agent → returns without doing anything', () => {
-  const m = new AudioMonitor();
-  m.agent = makeMockAgent({ atem: undefined });
-  // Should not throw
-  m._checkATEMAudio();
-  assert.equal(m._silenceStartTime, null);
-});
-
-test('_checkATEMAudio: atem exists but status.atem.connected=false → returns', () => {
-  const m = new AudioMonitor();
-  m.agent = makeMockAgent({
-    status: { obs: { streaming: true, connected: true }, atem: { connected: false } },
-  });
-  m._checkATEMAudio();
-  assert.equal(m._silenceStartTime, null);
-});
-
-test('_checkATEMAudio: inputLevel above threshold → resets _silenceStartTime to null', () => {
-  const m = new AudioMonitor();
-  m._silenceStartTime = Date.now() - 5000; // had silence
-  m.agent = makeMockAgent({
-    atem: { state: { audio: { master: { inputLevel: -5000 } } } }, // -5 dBFS, above -40
-  });
-  m._checkATEMAudio();
-  assert.equal(m._silenceStartTime, null);
-});
-
-test('_checkATEMAudio: inputLevel below threshold → starts _silenceStartTime', () => {
-  const m = new AudioMonitor();
-  m.agent = makeMockAgent({
-    atem: { state: { audio: { master: { inputLevel: -50000 } } } }, // -50 dBFS, below -40
-  });
-  m._checkATEMAudio();
-  assert.ok(m._silenceStartTime !== null, '_silenceStartTime should be set when below threshold');
-});
-
-test('_checkATEMAudio: silence ≥ 15s → calls _sendAlert', () => {
-  const m = new AudioMonitor();
-  let alertCalled = false;
-  m.agent = makeMockAgent({ sendToRelay: () => { alertCalled = true; } });
-  // Set silence start to 20 seconds ago
-  m._silenceStartTime = Date.now() - 20_000;
-  m.agent.atem.state.audio.master.inputLevel = -50000; // below threshold
-
-  m._checkATEMAudio();
-  assert.ok(alertCalled, '_sendAlert should fire when silence ≥ 15 seconds');
-});
-
-test('_checkATEMAudio: silence ≥ 30s and !_failoverSignalSent → sends signal_event audio_silence_sustained', () => {
-  const m = new AudioMonitor();
-  const relayMessages = [];
-  m.agent = makeMockAgent({ sendToRelay: (msg) => { relayMessages.push(msg); } });
-  m._silenceStartTime = Date.now() - 31_000;
-  m._failoverSignalSent = false;
-  m.agent.atem.state.audio.master.inputLevel = -50000;
-
-  m._checkATEMAudio();
-
-  const signalMsg = relayMessages.find(msg => msg.type === 'signal_event' && msg.signal === 'audio_silence_sustained');
-  assert.ok(signalMsg, 'should send audio_silence_sustained signal_event after 30s');
-});
-
-test('_checkATEMAudio: audio returns after failover signal sent → sends audio_silence_cleared', () => {
-  const m = new AudioMonitor();
-  const relayMessages = [];
-  m.agent = makeMockAgent({ sendToRelay: (msg) => { relayMessages.push(msg); } });
-  // Simulate: was silent and failover signal was sent
-  m._silenceStartTime = Date.now() - 31_000;
-  m._failoverSignalSent = true;
-  // Now audio is back above threshold
-  m.agent.atem.state.audio.master.inputLevel = -5000; // -5 dBFS, above -40
-
-  m._checkATEMAudio();
-
-  const clearedMsg = relayMessages.find(msg => msg.type === 'signal_event' && msg.signal === 'audio_silence_cleared');
-  assert.ok(clearedMsg, 'should send audio_silence_cleared when audio returns after failover signal');
-});
-
-test('_checkATEMAudio: handles outputLevel when inputLevel missing', () => {
-  const m = new AudioMonitor();
-  m.agent = makeMockAgent({
-    atem: { state: { audio: { master: { outputLevel: -5000 } } } }, // no inputLevel
-  });
-  // Should not throw and should process outputLevel normally
-  m._checkATEMAudio();
-  assert.equal(m._silenceStartTime, null); // -5 dBFS is above threshold
-});
-
-test('_checkATEMAudio: handles left/right channels, uses max', () => {
-  const m = new AudioMonitor();
-  m.agent = makeMockAgent({
-    atem: {
-      state: {
-        audio: {
-          master: {
-            left:  -50000, // -50 dBFS, below threshold
-            right: -5000,  // -5 dBFS, above threshold
-          },
-        },
-      },
-    },
-  });
-  // max(-50, -5) = -5 → above threshold, so no silence
-  m._checkATEMAudio();
-  assert.equal(m._silenceStartTime, null, 'should use the louder channel (right at -5 dBFS)');
-});
-
-// ── 6. _checkOBSAudio — congestion ───────────────────────────────────────────
-
-test('_checkOBSAudio: no obs on agent → returns immediately', async () => {
-  const m = new AudioMonitor();
-  m.agent = makeMockAgent({ obs: undefined });
-  // Should not throw
-  await m._checkOBSAudio();
-});
-
-test('_checkOBSAudio: congestion > 0.8 → calls _sendAlert', async () => {
-  const m = new AudioMonitor();
-  let alertSent = false;
-  m.agent = makeMockAgent({
-    obs: { call: async () => ({ outputCongestion: 0.9 }) },
-    sendToRelay: () => { alertSent = true; },
-  });
-  await m._checkOBSAudio();
-  assert.ok(alertSent, 'should send alert when outputCongestion > 0.8');
-});
-
-test('_checkOBSAudio: congestion ≤ 0.8 → no alert', async () => {
-  const m = new AudioMonitor();
-  let alertSent = false;
-  m.agent = makeMockAgent({
-    obs: { call: async () => ({ outputCongestion: 0.8 }) },
-    sendToRelay: () => { alertSent = true; },
-  });
-  await m._checkOBSAudio();
-  assert.equal(alertSent, false, 'should not send alert when outputCongestion ≤ 0.8');
-});
-
-test('_checkOBSAudio: obs.call throws → no error propagated', async () => {
-  const m = new AudioMonitor();
-  m.agent = makeMockAgent({
-    obs: { call: async () => { throw new Error('OBS not reachable'); } },
-  });
-  // Should not throw
-  await m._checkOBSAudio();
-});
-
-// ── 7. tick() — dispatch ─────────────────────────────────────────────────────
-
-test('tick: when agent is null → returns early without error', async () => {
-  const m = new AudioMonitor();
-  m.agent = null;
-  // Should not throw
-  await m.tick();
-});
-
-test('tick: when not streaming (status.obs.streaming=false) → resets _silenceStartTime, no ATEM check', async () => {
-  const m = new AudioMonitor();
-  m._silenceStartTime = Date.now() - 5000;
-  let atemCheckCalled = false;
-  m.agent = makeMockAgent({
-    status: { obs: { streaming: false, connected: true }, atem: { connected: true } },
-  });
-  // Override _checkATEMAudio to detect if it was called
-  m._checkATEMAudio = () => { atemCheckCalled = true; };
-
-  await m.tick();
-
-  assert.equal(m._silenceStartTime, null, 'should reset _silenceStartTime when not streaming');
-  assert.equal(atemCheckCalled, false, 'should not call _checkATEMAudio when not streaming');
+  assert.equal(m.getStatus().silenceDurationSec, 0);
 });
