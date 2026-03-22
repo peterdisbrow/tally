@@ -10,7 +10,7 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "test": "node --test test/*.test.js",
-    "test:coverage": "c8 --reporter=text --reporter=html node --test test/*.test.js"
+    "test:coverage": "c8 --check-coverage --reporter=text --reporter=html --reporter=lcov node --test test/*.test.js"
   },
   "dependencies": {
     "atem-connection": "^3.9.0",
@@ -35,10 +35,11 @@
   },
   "c8": {
     "include": ["src/**"],
-    "reporter": ["text", "html"],
-    "statements": 40,
-    "branches": 20,
-    "functions": 15,
-    "lines": 40
+    "reporter": ["text", "html", "lcov"],
+    "check-coverage": true,
+    "statements": 53,
+    "branches": 80,
+    "functions": 31,
+    "lines": 53
   }
 }

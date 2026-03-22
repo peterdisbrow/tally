@@ -1,5 +1,19 @@
 name: Tally CI
 
+# Coverage gate policy:
+#   Each codebase has minimum coverage thresholds enforced on every PR.
+#   Merges that drop coverage below the threshold will fail CI.
+#
+#   Quarterly ratchet (Q1/Q2/Q3/Q4):
+#     1. Run `npm run test:coverage` in each codebase after a quarter of new tests.
+#     2. Update thresholds to match the new actuals (round down to nearest integer).
+#     3. Never lower a threshold — only raise it.
+#
+#   Current thresholds (ratcheted after P3-P9 test additions, 2026-Q1):
+#     relay-server  : statements=42  branches=38  functions=37  lines=43
+#     church-client : statements=53  branches=80  functions=31  lines=53
+#     electron-app  : statements=48  branches=68  functions=40  lines=48
+
 on:
   push:
     branches:
@@ -32,12 +46,21 @@ jobs:
         run: npm ci
 
       - name: Run relay tests with coverage
+        # Thresholds enforced via vitest.config.js — build fails if coverage drops.
         working-directory: relay-server
         run: npm run test:coverage
 
       - name: Run relay integration tests
         working-directory: relay-server
         run: npm run test:integration
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: relay-server-coverage
+          path: relay-server/coverage/
+          retention-days: 30
 
   church-client:
     name: Church Client Tests
@@ -58,8 +81,17 @@ jobs:
         run: npm ci
 
       - name: Run church-client tests with coverage
+        # Thresholds enforced via c8 --check-coverage in package.json — build fails if coverage drops.
         working-directory: church-client
         run: npm run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: church-client-coverage
+          path: church-client/coverage/
+          retention-days: 30
 
   electron-app:
     name: Electron App Tests
@@ -80,8 +112,17 @@ jobs:
         run: npm ci
 
       - name: Run electron-app unit tests with coverage
+        # Thresholds enforced via c8 --check-coverage in package.json — build fails if coverage drops.
         working-directory: electron-app
         run: npm run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: electron-app-coverage
+          path: electron-app/coverage/
+          retention-days: 30
 
   quality-gate:
     name: CI Quality Gate
@@ -92,4 +133,12 @@ jobs:
       - electron-app
     steps:
       - name: All suites passed with coverage thresholds met
-        run: echo "All codebase test suites passed with coverage thresholds enforced."
+        run: |
+          echo "All codebase test suites passed with coverage thresholds enforced."
+          echo ""
+          echo "Thresholds (ratcheted 2026-Q1):"
+          echo "  relay-server  : statements=42  branches=38  functions=37  lines=43"
+          echo "  church-client : statements=53  branches=80  functions=31  lines=53"
+          echo "  electron-app  : statements=48  branches=68  functions=40  lines=48"
+          echo ""
+          echo "Next ratchet: 2026-Q2. Run test:coverage in each codebase, raise thresholds to match actuals."
