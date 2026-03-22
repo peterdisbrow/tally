@@ -16,7 +16,7 @@
     "release:mac": "npm run release:check:mac && npm run build:mac:unsigned",
     "test": "node --test test/*.test.js && npx playwright test",
     "test:unit": "node --test test/*.test.js",
-    "test:coverage": "c8 --reporter=text --reporter=html node --test test/*.test.js",
+    "test:coverage": "c8 --check-coverage --reporter=text --reporter=html --reporter=lcov node --test test/*.test.js",
     "test:e2e": "npx playwright test"
   },
   "build": {
@@ -124,10 +124,11 @@
   },
   "c8": {
     "include": ["src/**"],
-    "reporter": ["text", "html"],
-    "statements": 43,
-    "branches": 30,
-    "functions": 35,
-    "lines": 43
+    "reporter": ["text", "html", "lcov"],
+    "check-coverage": true,
+    "statements": 48,
+    "branches": 68,
+    "functions": 40,
+    "lines": 48
   }
 }
