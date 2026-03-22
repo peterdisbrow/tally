@@ -153,6 +153,7 @@ const { hasStreamSignal, isStreamActive, isRecordingActive } = require('./src/st
 const { escapeHtml } = require('./src/escapeHtml');
 const { createBackupSnapshot } = require('./src/dbBackup');
 const { createRateLimit, consumeRateLimit, logRateLimitStatus } = require('./src/rateLimit');
+const { createWebSocketHandlers } = require('./src/websocketRouter');
 const relayPackage = require('./package.json');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
@@ -3088,6 +3089,209 @@ require('./src/routes/telegram')(app, {
 
 // ─── WEBSOCKET ────────────────────────────────────────────────────────────────
 
+// Build the WebSocket routing handlers from the factory so the logic is
+// importable and testable independently of the full server bootstrap.
+const _wsHandlers = createWebSocketHandlers({
+  churches,
+  controllers,
+  jwt,
+  jwtSecret: JWT_SECRET,
+  wsOpen: WebSocket.OPEN,
+  // Inject the hoisted function declarations — they must stay as hoisted
+  // `function` declarations because they're referenced at line ~2176 before
+  // this factory call runs.
+  safeSend,
+  broadcastToControllers,
+  checkPaidAccess: checkChurchPaidAccess,
+  safeCompareKey,
+  adminApiKey: ADMIN_API_KEY,
+  wsConnectionsByIp,
+  maxConnectionsPerIp: MAX_WS_CONNECTIONS_PER_IP,
+  maxControllers: MAX_CONTROLLERS,
+  drainQueue,
+  checkCommandRateLimit,
+  broadcastToSSE,
+  broadcastToPortal,
+  onChurchConnected(church, ws) {
+    // Onboarding milestone: first app connection
+    try {
+      const dbRow = db.prepare('SELECT onboarding_app_connected_at, portal_email, registration_code FROM churches WHERE churchId = ?').get(church.churchId);
+      if (dbRow && !dbRow.onboarding_app_connected_at) {
+        const now = new Date().toISOString();
+        db.prepare('UPDATE churches SET onboarding_app_connected_at = ? WHERE churchId = ?').run(now, church.churchId);
+        log(`[onboarding] First app connection for "${church.name}"`);
+        if (dbRow.portal_email) {
+          const portalUrl = `${APP_URL}/portal`;
+          sendOnboardingEmail({
+            to: dbRow.portal_email,
+            subject: `Tally is live at ${church.name}!`,
+            html: buildConnectionEmailHtml({ churchName: church.name, registrationCode: dbRow.registration_code || '', portalUrl }),
+            text: buildConnectionEmailText({ churchName: church.name, registrationCode: dbRow.registration_code || '', portalUrl }),
+            tag: 'connection-success',
+          }).catch((e) => log(`[onboarding] Connection email failed: ${e.message}`));
+        }
+      }
+    } catch (e) {
+      log(`[onboarding] Milestone tracking error: ${e.message}`);
+    }
+    // Branding for reseller churches
+    try {
+      const dbChurchRow = stmtGet.get(church.churchId);
+      if (dbChurchRow && dbChurchRow.reseller_id) {
+        const branding = resellerSystem.getBranding(dbChurchRow.reseller_id);
+        if (branding && branding.brandName) {
+          safeSend(ws, { type: 'branding', ...branding });
+          log(`Branding sent to "${church.name}" via reseller "${branding.brandName}"`);
+        }
+      }
+    } catch (e) {
+      console.error('[branding] lookup error:', e.message);
+    }
+    broadcastToPortal(church.churchId, { type: 'connected', status: church.status, lastSeen: church.lastSeen });
+    log(`Church "${church.name}" connected`, { event: 'church_connect', churchId: church.churchId, church: church.name });
+    // (WS-level ping interval is managed by the factory via wsPingIntervalMs)
+  },
+  onChurchDisconnected(church) {
+    log(`Church "${church.name}" disconnected`, { event: 'church_disconnect', churchId: church.churchId, church: church.name });
+  },
+  onStatusUpdate(church, msg) {
+    // Onboarding milestone: first ATEM connection
+    if (msg.status?.atem?.connected && !church._onboardingAtemTracked) {
+      try {
+        const row = db.prepare('SELECT onboarding_atem_connected_at FROM churches WHERE churchId = ?').get(church.churchId);
+        if (row && !row.onboarding_atem_connected_at) {
+          db.prepare('UPDATE churches SET onboarding_atem_connected_at = ? WHERE churchId = ?').run(new Date().toISOString(), church.churchId);
+          log(`[onboarding] First ATEM connection for "${church.name}"`);
+        }
+        church._onboardingAtemTracked = true;
+      } catch (e) {
+        log(`[onboarding] ATEM milestone error: ${e.message}`);
+      }
+    }
+    // Auto-sync audio_via_atem from client-side detection
+    if (msg.status?.audioViaAtemSource === 'auto' && !church._audioViaAtemManualOverride) {
+      const newVal = msg.status.audioViaAtem ? 1 : 0;
+      if (church.audio_via_atem !== newVal) {
+        church.audio_via_atem = newVal;
+        try { db.prepare('UPDATE churches SET audio_via_atem = ? WHERE churchId = ?').run(newVal, church.churchId); }
+        catch (e) { log(`[audio_via_atem] auto-sync DB error: ${e.message}`); }
+      }
+    }
+    // Sync booth computer timezone
+    if (msg.status?.system?.timezone && church.timezone !== msg.status.system.timezone) {
+      church.timezone = msg.status.system.timezone;
+      try { db.prepare('UPDATE churches SET timezone = ? WHERE churchId = ?').run(church.timezone, church.churchId); }
+      catch (e) { log(`[timezone] sync DB error: ${e.message}`); }
+    }
+    _checkDeviceVersions(church, msg.status);
+    scheduler.onEquipmentStateChange(church.churchId, church.status)
+      .catch(e => console.error('[Scheduler] Equipment state change error:', e.message));
+    // Feed session recap with live stream/recording state
+    if (msg.status) {
+      if (hasStreamSignal(msg.status)) sessionRecap.recordStreamStatus(church.churchId, isStreamActive(msg.status));
+      if (msg.status.obs?.viewers !== undefined) sessionRecap.recordPeakViewers(church.churchId, msg.status.obs.viewers);
+      if (isRecordingActive(msg.status)) sessionRecap.recordRecordingConfirmed(church.churchId);
+    }
+    signalFailover.onStatusUpdate(church.churchId, church.status);
+    totalMessagesRelayed++;
+  },
+  onAlert(church, msg) {
+    if (msg.alertType) {
+      if (msg.alertType === 'audio_silence') sessionRecap.recordAudioSilence(church.churchId);
+      (async () => {
+        try {
+          const activeSessionId = sessionRecap.getActiveSessionId(church.churchId);
+          const eventId = weeklyDigest.addEvent(church.churchId, msg.alertType, msg.message, activeSessionId);
+          const recovery = await autoRecovery.attempt(church, msg.alertType, church.status);
+          if (recovery.attempted && recovery.success) {
+            weeklyDigest.resolveEvent(eventId, true);
+            sessionRecap.recordAlert(church.churchId, msg.alertType, true, false);
+            if (recovery.command) churchMemory.recordCommandOutcome(church.churchId, recovery.command, true, msg.alertType);
+            log(`[AutoRecovery] ✅ ${recovery.event} for ${church.name}`);
+          } else {
+            if (recovery.attempted && recovery.command) churchMemory.recordCommandOutcome(church.churchId, recovery.command, false, msg.alertType);
+            const dbChurch = stmtGet.get(church.churchId);
+            const recoveryInfo = recovery.attempted ? recovery : null;
+            const alertResult = await alertEngine.sendAlert({ ...church, ...dbChurch }, msg.alertType, { message: msg.message, status: church.status }, activeSessionId, recoveryInfo);
+            const escalated = alertResult && alertResult.severity === 'EMERGENCY';
+            sessionRecap.recordAlert(church.churchId, msg.alertType, false, escalated);
+          }
+        } catch (e) {
+          console.error(`Alert processing error for ${church.name}:`, e.message);
+        }
+      })();
+    }
+  },
+  onCommandResult(church, cmdResultMsg) {
+    if (tallyBot) tallyBot.onCommandResult(cmdResultMsg);
+    if (preServiceCheck) preServiceCheck.onCommandResult(cmdResultMsg);
+    totalMessagesRelayed++;
+  },
+  onChurchMessage(church, msg) {
+    switch (msg.type) {
+      case 'signal_event':
+        signalFailover.onSignalEvent(church.churchId, msg.signal, {
+          bitrateKbps: msg.bitrateKbps,
+          baselineKbps: msg.baselineKbps,
+          church,
+        });
+        break;
+      case 'viewer_snapshot': {
+        const total = typeof msg.total === 'number' ? msg.total : 0;
+        const breakdown = msg.breakdown || {};
+        const activeSession = sessionRecap.activeSessions?.get(church.churchId);
+        const sessionId = activeSession?.sessionId || null;
+        try {
+          db.prepare(`
+            INSERT INTO viewer_snapshots (church_id, session_id, total, youtube, facebook, vimeo, captured_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(church.churchId, sessionId, total, breakdown.youtube ?? null, breakdown.facebook ?? null, breakdown.vimeo ?? null, msg.timestamp || new Date().toISOString());
+        } catch (e) {
+          console.error('[ViewerSnapshot] Insert failed:', e.message);
+        }
+        if (total > 0) sessionRecap.recordPeakViewers(church.churchId, total);
+        broadcastToControllers({ type: 'viewer_update', churchId: church.churchId, name: church.name, total, breakdown, timestamp: msg.timestamp });
+        break;
+      }
+      case 'propresenter_slide_change': {
+        const slideData = { presentationName: msg.presentationName || '', slideIndex: msg.slideIndex ?? 0, slideCount: msg.slideCount ?? 0 };
+        autoPilot.onSlideChange(church.churchId, slideData).catch(e => console.error('[AutoPilot] Slide change error:', e.message));
+        scheduler.onSlideChange(church.churchId, slideData).catch(e => console.error('[Scheduler] Slide change error:', e.message));
+        break;
+      }
+      case 'chat': {
+        if (!msg.message || !msg.message.trim()) break;
+        if (msg.message.length > 2000) msg.message = msg.message.slice(0, 2000);
+        const saved = chatEngine.saveMessage({ churchId: church.churchId, senderName: msg.senderName || church.td_name || 'TD', senderRole: msg.senderRole || 'td', source: 'app', message: msg.message.trim() });
+        chatEngine.broadcastChat(saved);
+        break;
+      }
+      case 'preview_frame': {
+        if (msg.data && msg.data.length > 150_000) break;
+        church.status.previewActive = true;
+        const frameMsg = { type: 'preview_frame', churchId: church.churchId, churchName: church.name, timestamp: msg.timestamp, width: msg.width, height: msg.height, format: msg.format, data: msg.data };
+        broadcastToControllers(frameMsg);
+        if (tallyBot) tallyBot.onPreviewFrame(frameMsg);
+        totalMessagesRelayed++;
+        break;
+      }
+    }
+  },
+  onControllerMessage(ws, msg) {
+    // Chat from controller (admin dashboard WebSocket)
+    if (msg.type === 'chat' && msg.churchId && msg.message) {
+      const saved = chatEngine.saveMessage({ churchId: msg.churchId, senderName: msg.senderName || 'Admin', senderRole: 'admin', source: 'dashboard', message: msg.message.trim() });
+      chatEngine.broadcastChat(saved);
+    }
+  },
+  onControllerConnected() {
+    log(`Controller connected (total: ${controllers.size})`);
+  },
+  onControllerDisconnected() {
+    log(`Controller disconnected (total: ${controllers.size})`);
+  },
+});
+
 wss.on('connection', (ws, req) => {
   // Clear pong-timeout when client responds to a heartbeat ping
   ws.on('pong', () => {
@@ -3111,191 +3315,11 @@ wss.on('connection', (ws, req) => {
 });
 
 function handleChurchConnection(ws, url, clientIp) {
-  const token = url.searchParams.get('token');
-  if (!token) return ws.close(1008, 'token required');
-
-  let payload;
-  try {
-    payload = jwt.verify(token, JWT_SECRET);
-  } catch {
-    return ws.close(1008, 'invalid token');
-  }
-
-  const church = churches.get(payload.churchId);
-  if (!church) return ws.close(1008, 'church not registered');
-
-  const access = checkChurchPaidAccess(church.churchId);
-  if (!access.allowed) {
-    log(`Blocked church connection for "${church.name}" (${church.churchId}): ${access.message}`);
-    return ws.close(1008, `billing_${access.status}`);
-  }
-
-  // Close any existing connection from this church
-  if (church.ws?.readyState === WebSocket.OPEN) {
-    church.ws.close(1000, 'replaced by new connection');
-  }
-
-  church.ws = ws;
-  ws._churchName = church.name; // used by heartbeat zombie-disconnect log
-  church.lastSeen = new Date().toISOString();
-  church.disconnectedAt = null;
-  log(`Church "${church.name}" connected from ${clientIp}`, { event: 'church_connect', churchId: church.churchId, church: church.name, ip: clientIp });
-
-  // ─── Onboarding milestone: first app connection ───────────────────────
-  try {
-    const dbRow = db.prepare('SELECT onboarding_app_connected_at, portal_email, registration_code FROM churches WHERE churchId = ?').get(church.churchId);
-    if (dbRow && !dbRow.onboarding_app_connected_at) {
-      const now = new Date().toISOString();
-      db.prepare('UPDATE churches SET onboarding_app_connected_at = ? WHERE churchId = ?').run(now, church.churchId);
-      log(`[onboarding] First app connection for "${church.name}"`);
-
-      // Send "You're live!" email (non-blocking)
-      if (dbRow.portal_email) {
-        const portalUrl = `${APP_URL}/portal`;
-        sendOnboardingEmail({
-          to: dbRow.portal_email,
-          subject: `Tally is live at ${church.name}!`,
-          html: buildConnectionEmailHtml({ churchName: church.name, registrationCode: dbRow.registration_code || '', portalUrl }),
-          text: buildConnectionEmailText({ churchName: church.name, registrationCode: dbRow.registration_code || '', portalUrl }),
-          tag: 'connection-success',
-        }).catch((e) => log(`[onboarding] Connection email failed: ${e.message}`));
-      }
-    }
-  } catch (e) {
-    log(`[onboarding] Milestone tracking error: ${e.message}`);
-  }
-
-  // Acknowledge connection to the church client
-  safeSend(ws, { type: 'connected', churchId: church.churchId, name: church.name });
-
-  // Drain any queued messages
-  drainQueue(church.churchId, ws);
-
-  // Send branding message if this church belongs to a reseller
-  try {
-    const dbChurchRow = stmtGet.get(church.churchId);
-    if (dbChurchRow && dbChurchRow.reseller_id) {
-      const branding = resellerSystem.getBranding(dbChurchRow.reseller_id);
-      if (branding && branding.brandName) {
-        safeSend(ws, { type: 'branding', ...branding });
-        log(`Branding sent to "${church.name}" via reseller "${branding.brandName}"`);
-      }
-    }
-  } catch (e) {
-    console.error('[branding] lookup error:', e.message);
-  }
-
-  // Notify controllers and SSE dashboard
-  const connectedEvent = {
-    type:             'church_connected',
-    churchId:         church.churchId,
-    name:             church.name,
-    timestamp:        church.lastSeen,
-    connected:        true,
-    status:           church.status,
-    church_type:      church.church_type      || 'recurring',
-    event_expires_at: church.event_expires_at || null,
-    event_label:      church.event_label      || null,
-    reseller_id:      church.reseller_id      || null,
-    audio_via_atem:   church.audio_via_atem   || 0,
-  };
-  broadcastToControllers(connectedEvent);
-  broadcastToSSE(connectedEvent);
-  broadcastToPortal(church.churchId, { type: 'connected', status: church.status, lastSeen: church.lastSeen });
-
-  // WebSocket-level ping every 25s to keep the connection alive through reverse proxies
-  const wsPingInterval = setInterval(() => {
-    if (ws.readyState === WebSocket.OPEN) ws.ping();
-  }, 25_000);
-
-  ws.on('message', (data) => {
-    try {
-      const msg = JSON.parse(data.toString());
-      handleChurchMessage(church, msg);
-      totalMessagesRelayed++;
-    } catch (e) {
-      console.error('Invalid message from church:', e.message);
-    }
-  });
-
-  ws.on('close', () => {
-    clearInterval(wsPingInterval);
-    church.lastSeen = new Date().toISOString();
-    church.disconnectedAt = Date.now();
-    // Reset device status so dashboard doesn't show stale connected states
-    church.status = { connected: false, atem: null, obs: null };
-    church._versionCheckedDevices = null; // allow re-check on next connect
-    log(`Church "${church.name}" disconnected`, { event: 'church_disconnect', churchId: church.churchId, church: church.name });
-    const disconnectEvent = {
-      type: 'church_disconnected',
-      churchId: church.churchId,
-      name: church.name,
-      connected: false,
-      status: church.status,
-    };
-    broadcastToControllers(disconnectEvent);
-    broadcastToSSE(disconnectEvent);
-    broadcastToPortal(church.churchId, { type: 'disconnected', status: church.status });
-  });
-
-  ws.on('error', (err) => {
-    console.error(`WS error from church "${church.name}":`, err.message);
-  });
+  return _wsHandlers.handleChurchConnection(ws, url, clientIp);
 }
 
 function handleControllerConnection(ws, url, req) {
-  const apiKey = url.searchParams.get('apikey') || req.headers['x-api-key'];
-  if (!safeCompareKey(apiKey, ADMIN_API_KEY)) return ws.close(1008, 'invalid api key');
-
-  const clientIp = req.socket?.remoteAddress || 'unknown';
-  const currentCount = wsConnectionsByIp.get(clientIp) || 0;
-  if (currentCount >= MAX_WS_CONNECTIONS_PER_IP) {
-    ws.close(1008, 'Too many connections from this IP');
-    return;
-  }
-  if (controllers.size >= MAX_CONTROLLERS) {
-    ws.close(1008, 'Maximum controller connections reached');
-    return;
-  }
-  wsConnectionsByIp.set(clientIp, currentCount + 1);
-
-  controllers.add(ws);
-  log(`Controller connected (total: ${controllers.size})`);
-
-  const churchList = Array.from(churches.values()).map(c => ({
-    churchId: c.churchId,
-    name: c.name,
-    connected: c.ws?.readyState === WebSocket.OPEN,
-    status: c.status,
-  }));
-  safeSend(ws, { type: 'church_list', churches: churchList });
-
-  // WebSocket-level ping every 25s to keep the connection alive through reverse proxies
-  const wsPingInterval = setInterval(() => {
-    if (ws.readyState === WebSocket.OPEN) ws.ping();
-  }, 25_000);
-
-  ws.on('message', async (data) => {
-    try {
-      const msg = JSON.parse(data.toString());
-      await handleControllerMessage(ws, msg);
-    } catch (e) {
-      console.error('Invalid message from controller:', e.message);
-    }
-  });
-
-  ws.on('close', () => {
-    clearInterval(wsPingInterval);
-    controllers.delete(ws);
-    const count = wsConnectionsByIp.get(clientIp) || 1;
-    if (count <= 1) wsConnectionsByIp.delete(clientIp);
-    else wsConnectionsByIp.set(clientIp, count - 1);
-    log(`Controller disconnected (total: ${controllers.size})`);
-  });
-
-  ws.on('error', (err) => {
-    console.error('WS error from controller:', err.message);
-  });
+  return _wsHandlers.handleControllerConnection(ws, url, req);
 }
 
 // ── Device version check helper (fires once per device per WS session) ───────
@@ -3332,285 +3356,11 @@ function _checkDeviceVersions(church, status) {
 }
 
 function handleChurchMessage(church, msg) {
-  church.lastSeen = new Date().toISOString();
-
-  switch (msg.type) {
-    case 'status_update':
-      church.status = { ...church.status, ...msg.status };
-      church.lastHeartbeat = Date.now(); // track specifically for offline detection
-      church._offlineAlertSent = false; // reset offline alert flag on reconnect
-
-      // ─── Onboarding milestone: first ATEM connection ─────────────────
-      if (msg.status?.atem?.connected && !church._onboardingAtemTracked) {
-        try {
-          const row = db.prepare('SELECT onboarding_atem_connected_at FROM churches WHERE churchId = ?').get(church.churchId);
-          if (row && !row.onboarding_atem_connected_at) {
-            db.prepare('UPDATE churches SET onboarding_atem_connected_at = ? WHERE churchId = ?').run(new Date().toISOString(), church.churchId);
-            log(`[onboarding] First ATEM connection for "${church.name}"`);
-          }
-          church._onboardingAtemTracked = true; // avoid repeat DB checks
-        } catch (e) {
-          log(`[onboarding] ATEM milestone error: ${e.message}`);
-        }
-      }
-
-      // ── Auto-sync audio_via_atem from client-side detection ──────────
-      if (msg.status?.audioViaAtemSource === 'auto' && !church._audioViaAtemManualOverride) {
-        const newVal = msg.status.audioViaAtem ? 1 : 0;
-        if (church.audio_via_atem !== newVal) {
-          church.audio_via_atem = newVal;
-          try { db.prepare('UPDATE churches SET audio_via_atem = ? WHERE churchId = ?').run(newVal, church.churchId); }
-          catch (e) { log(`[audio_via_atem] auto-sync DB error: ${e.message}`); }
-        }
-      }
-
-      // ── Sync booth computer timezone (for offline detection nighttime check) ──
-      if (msg.status?.system?.timezone && church.timezone !== msg.status.system.timezone) {
-        church.timezone = msg.status.system.timezone;
-        try { db.prepare('UPDATE churches SET timezone = ? WHERE churchId = ?').run(church.timezone, church.churchId); }
-        catch (e) { log(`[timezone] sync DB error: ${e.message}`); }
-      }
-
-      // ── Check device firmware / software versions (once per device per WS session) ──
-      _checkDeviceVersions(church, msg.status);
-
-      // ── Feed equipment state to scheduler for event-triggered cues ──
-      scheduler.onEquipmentStateChange(church.churchId, church.status)
-        .catch(e => console.error(`[Scheduler] Equipment state change error:`, e.message));
-
-      {
-        const statusEvent = {
-          type: 'status_update',
-          churchId: church.churchId,
-          name: church.name,
-          status: church.status,
-          timestamp: church.lastSeen,
-          lastHeartbeat: church.lastHeartbeat,
-        };
-        broadcastToControllers(statusEvent);
-        broadcastToSSE(statusEvent);
-        // Push live status to any portal SSE subscribers for this church
-        broadcastToPortal(church.churchId, { type: 'status_update', status: church.status, lastSeen: church.lastSeen });
-      }
-      // Feed session recap with live stream/recording state
-      if (msg.status) {
-        if (hasStreamSignal(msg.status)) {
-          sessionRecap.recordStreamStatus(church.churchId, isStreamActive(msg.status));
-        }
-        if (msg.status.obs?.viewers !== undefined) {
-          sessionRecap.recordPeakViewers(church.churchId, msg.status.obs.viewers);
-        }
-        if (isRecordingActive(msg.status)) {
-          sessionRecap.recordRecordingConfirmed(church.churchId);
-        }
-      }
-      // Feed signal failover with bitrate data from regular status polls
-      signalFailover.onStatusUpdate(church.churchId, church.status);
-      break;
-
-    case 'alert':
-      log(`ALERT from ${church.name}: ${msg.message}`);
-      {
-        const alertEvent = {
-          type: 'alert',
-          churchId: church.churchId,
-          name: church.name,
-          severity: msg.severity || 'warning',
-          message: msg.message,
-          timestamp: church.lastSeen,
-        };
-        broadcastToControllers(alertEvent);
-        broadcastToSSE(alertEvent);
-      }
-      // Automation: process alert through engines
-      if (msg.alertType) {
-        // Audio silence — record separately for session recap
-        if (msg.alertType === 'audio_silence') {
-          sessionRecap.recordAudioSilence(church.churchId);
-        }
-
-        (async () => {
-          try {
-            // Get active session ID for timeline linking
-            const activeSessionId = sessionRecap.getActiveSessionId(church.churchId);
-            // Log event (with session ID)
-            const eventId = weeklyDigest.addEvent(church.churchId, msg.alertType, msg.message, activeSessionId);
-            // Try auto-recovery first
-            const recovery = await autoRecovery.attempt(church, msg.alertType, church.status);
-            if (recovery.attempted && recovery.success) {
-              weeklyDigest.resolveEvent(eventId, true);
-              // Record as auto-recovered in session
-              sessionRecap.recordAlert(church.churchId, msg.alertType, true, false);
-              if (recovery.command) churchMemory.recordCommandOutcome(church.churchId, recovery.command, true, msg.alertType);
-              log(`[AutoRecovery] ✅ ${recovery.event} for ${church.name}`);
-            } else {
-              if (recovery.attempted && recovery.command) churchMemory.recordCommandOutcome(church.churchId, recovery.command, false, msg.alertType);
-              // Send alert through escalation ladder (with session ID + recovery result)
-              const dbChurch = stmtGet.get(church.churchId);
-              const recoveryInfo = recovery.attempted ? recovery : null;
-              const alertResult = await alertEngine.sendAlert({ ...church, ...dbChurch }, msg.alertType, { message: msg.message, status: church.status }, activeSessionId, recoveryInfo);
-              // Record in session — escalated if EMERGENCY severity
-              const escalated = alertResult && alertResult.severity === 'EMERGENCY';
-              sessionRecap.recordAlert(church.churchId, msg.alertType, false, escalated);
-            }
-          } catch (e) {
-            console.error(`Alert processing error for ${church.name}:`, e.message);
-          }
-        })();
-      }
-      break;
-
-    case 'signal_event':
-      signalFailover.onSignalEvent(church.churchId, msg.signal, {
-        bitrateKbps: msg.bitrateKbps,
-        baselineKbps: msg.baselineKbps,
-        church,
-      });
-      break;
-
-    case 'viewer_snapshot': {
-      const total = typeof msg.total === 'number' ? msg.total : 0;
-      const breakdown = msg.breakdown || {};
-      const activeSession = sessionRecap.activeSessions?.get(church.churchId);
-      const sessionId = activeSession?.sessionId || null;
-
-      // Store snapshot
-      try {
-        db.prepare(`
-          INSERT INTO viewer_snapshots (church_id, session_id, total, youtube, facebook, vimeo, captured_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          church.churchId,
-          sessionId,
-          total,
-          breakdown.youtube ?? null,
-          breakdown.facebook ?? null,
-          breakdown.vimeo ?? null,
-          msg.timestamp || new Date().toISOString()
-        );
-      } catch (e) {
-        console.error('[ViewerSnapshot] Insert failed:', e.message);
-      }
-
-      // Update peak viewers on the active session
-      if (total > 0) {
-        sessionRecap.recordPeakViewers(church.churchId, total);
-      }
-
-      // Broadcast to controllers for live dashboard
-      broadcastToControllers({
-        type: 'viewer_update',
-        churchId: church.churchId,
-        name: church.name,
-        total,
-        breakdown,
-        timestamp: msg.timestamp,
-      });
-      break;
-    }
-
-    case 'command_result': {
-      const cmdResultMsg = {
-        type: 'command_result',
-        churchId: church.churchId,
-        name: church.name,
-        messageId: msg.id,
-        result: msg.result,
-        error: msg.error,
-      };
-      broadcastToControllers(cmdResultMsg);
-      if (tallyBot) tallyBot.onCommandResult(cmdResultMsg);
-      if (preServiceCheck) preServiceCheck.onCommandResult(cmdResultMsg);
-      break;
-    }
-
-    case 'propresenter_slide_change': {
-      const slideData = {
-        presentationName: msg.presentationName || '',
-        slideIndex: msg.slideIndex ?? 0,
-        slideCount: msg.slideCount ?? 0,
-      };
-      // Forward slide change to autopilot for trigger evaluation
-      autoPilot.onSlideChange(church.churchId, slideData)
-        .catch(e => console.error(`[AutoPilot] Slide change error:`, e.message));
-      // Forward to scheduler for event-triggered cues
-      scheduler.onSlideChange(church.churchId, slideData)
-        .catch(e => console.error(`[Scheduler] Slide change error:`, e.message));
-      break;
-    }
-
-    case 'chat': {
-      if (!msg.message || !msg.message.trim()) break;
-      if (msg.message.length > 2000) {
-        msg.message = msg.message.slice(0, 2000);
-      }
-      const saved = chatEngine.saveMessage({
-        churchId: church.churchId,
-        senderName: msg.senderName || church.td_name || 'TD',
-        senderRole: msg.senderRole || 'td',
-        source: 'app',
-        message: msg.message.trim(),
-      });
-      chatEngine.broadcastChat(saved);
-      break;
-    }
-
-    case 'preview_frame': {
-      // Safety: reject frames > 150KB
-      if (msg.data && msg.data.length > 150_000) break;
-      church.status.previewActive = true;
-      const frameMsg = {
-        type: 'preview_frame',
-        churchId: church.churchId,
-        churchName: church.name,
-        timestamp: msg.timestamp,
-        width: msg.width,
-        height: msg.height,
-        format: msg.format,
-        data: msg.data,
-      };
-      broadcastToControllers(frameMsg);
-      if (tallyBot) tallyBot.onPreviewFrame(frameMsg);
-      totalMessagesRelayed++;
-      break;
-    }
-
-    case 'ping':
-      safeSend(church.ws, { type: 'pong', ts: msg.ts });
-      break;
-
-    default:
-      broadcastToControllers({ ...msg, churchId: church.churchId, churchName: church.name });
-  }
+  return _wsHandlers.handleChurchMessage(church, msg);
 }
 
 async function handleControllerMessage(ws, msg) {
-  if (msg.type === 'command' && msg.churchId) {
-    const rateLimit = await checkCommandRateLimit(msg.churchId);
-    if (!rateLimit.ok) {
-      safeSend(ws, { type: 'error', error: 'Rate limit exceeded', churchId: msg.churchId });
-      return;
-    }
-    const church = churches.get(msg.churchId);
-    if (church?.ws?.readyState === WebSocket.OPEN) {
-      safeSend(church.ws, msg);
-      totalMessagesRelayed++;
-    } else {
-      safeSend(ws, { type: 'error', error: 'Church not connected', churchId: msg.churchId });
-    }
-  }
-
-  // Chat from controller (admin dashboard WebSocket)
-  if (msg.type === 'chat' && msg.churchId && msg.message) {
-    const saved = chatEngine.saveMessage({
-      churchId: msg.churchId,
-      senderName: msg.senderName || 'Admin',
-      senderRole: 'admin',
-      source: 'dashboard',
-      message: msg.message.trim(),
-    });
-    chatEngine.broadcastChat(saved);
-  }
+  return _wsHandlers.handleControllerMessage(ws, msg);
 }
 
 /** Safely send JSON to a WebSocket — catches errors from mid-close sockets */

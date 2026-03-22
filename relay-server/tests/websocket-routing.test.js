@@ -1,747 +1,899 @@
 /**
- * Tests for WebSocket routing — connection auth, message routing,
- * validation, reconnection, broadcast, and church isolation.
+ * Integration tests for relay WebSocket routing.
  *
- * These tests exercise the server's WebSocket handling logic in isolation
- * by simulating the data structures and functions used in server.js.
+ * These tests import the REAL createWebSocketHandlers factory from
+ * src/websocketRouter.js and spin up an actual http.Server + WebSocketServer,
+ * then connect real WebSocket clients to exercise the real routing code.
+ *
+ * If server.js diverges from the factory, these tests WILL catch it — because
+ * they test the same code path that runs in production.
+ *
+ * Pattern: church-portal.test.js (build a minimal real server, test it via
+ *           the actual protocol — no mocked re-implementations of routing).
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createRequire } from 'module';
+import http from 'http';
 
-// ─── Minimal JWT helpers (mirrors server.js token logic) ─────────────────────
+const require = createRequire(import.meta.url);
+const { WebSocketServer, WebSocket } = require('ws');
+const jwt = require('jsonwebtoken');
+const { createWebSocketHandlers } = require('../src/websocketRouter');
 
-function createMockJwt(payload, secret, options = {}) {
-  // Simulate jwt.sign: produce a deterministic token string for testing
-  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-  const now = Math.floor(Date.now() / 1000);
-  const body = {
-    ...payload,
-    iat: now,
-    ...(options.expiresIn ? { exp: now + parseExpiry(options.expiresIn) } : {}),
-  };
-  const bodyB64 = Buffer.from(JSON.stringify(body)).toString('base64url');
-  // Not a real signature — just enough structure to test verify logic
-  const sig = Buffer.from(secret + JSON.stringify(body)).toString('base64url');
-  return `${header}.${bodyB64}.${sig}`;
-}
+const JWT_SECRET    = 'test-ws-routing-secret';
+const ADMIN_API_KEY = 'test-admin-key-12345';
 
-function parseExpiry(val) {
-  if (typeof val === 'number') return val;
-  const m = String(val).match(/^(\d+)([smhd])$/);
-  if (!m) return 3600;
-  const n = Number(m[1]);
-  switch (m[2]) {
-    case 's': return n;
-    case 'm': return n * 60;
-    case 'h': return n * 3600;
-    case 'd': return n * 86400;
-    default: return 3600;
-  }
-}
+// ─── Test church factory ───────────────────────────────────────────────────────
 
-// ─── Mock WebSocket ──────────────────────────────────────────────────────────
-
-const OPEN = 1;
-const CLOSED = 3;
-
-function mockWs(readyState = OPEN) {
+function makeChurchEntry(id, name, overrides = {}) {
   return {
-    readyState,
-    send: vi.fn(),
-    close: vi.fn(function () { this.readyState = CLOSED; }),
-    ping: vi.fn(),
-    on: vi.fn(),
-    _listeners: {},
-  };
-}
-
-// ─── safeSend / broadcastToControllers (replicate from server.js) ────────────
-
-function safeSend(ws, payload) {
-  try {
-    if (ws?.readyState === OPEN) {
-      ws.send(typeof payload === 'string' ? payload : JSON.stringify(payload));
-    }
-  } catch { /* swallow */ }
-}
-
-function broadcastToControllers(controllers, msg) {
-  const data = JSON.stringify(msg);
-  for (const ws of controllers) {
-    safeSend(ws, data);
-  }
-}
-
-// ─── Church / controller setup helpers ───────────────────────────────────────
-
-const JWT_SECRET = 'test-jwt-secret';
-
-function makeChurch(id, name, overrides = {}) {
-  return {
-    churchId: id,
+    churchId:         id,
     name,
-    ws: null,
-    status: {},
-    lastSeen: null,
-    disconnectedAt: null,
+    ws:               null,
+    status:           { connected: false, atem: null, obs: null },
+    lastSeen:         null,
+    lastHeartbeat:    null,
+    disconnectedAt:   null,
+    _offlineAlertSent: false,
     ...overrides,
   };
 }
 
-function handleChurchConnection(churches, ws, token, { checkPaidAccess = () => ({ allowed: true }) } = {}) {
-  if (!token) {
-    ws.close(1008, 'token required');
-    return null;
-  }
-
-  let payload;
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) throw new Error('bad token');
-    const body = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
-    // Check expiry
-    if (body.exp && body.exp < Math.floor(Date.now() / 1000)) {
-      throw new Error('token expired');
-    }
-    payload = body;
-  } catch {
-    ws.close(1008, 'invalid token');
-    return null;
-  }
-
-  const church = churches.get(payload.churchId);
-  if (!church) {
-    ws.close(1008, 'church not registered');
-    return null;
-  }
-
-  const access = checkPaidAccess(church.churchId);
-  if (!access.allowed) {
-    ws.close(1008, `billing_${access.status}`);
-    return null;
-  }
-
-  // Replace existing connection
-  if (church.ws?.readyState === OPEN) {
-    church.ws.close(1000, 'replaced by new connection');
-  }
-
-  church.ws = ws;
-  church.lastSeen = new Date().toISOString();
-  church.disconnectedAt = null;
-
-  safeSend(ws, { type: 'connected', churchId: church.churchId, name: church.name });
-  return church;
+function signToken(churchId, opts = {}) {
+  return jwt.sign({ churchId }, JWT_SECRET, { expiresIn: opts.expiresIn || '1h' });
 }
 
-function handleChurchMessage(church, msg, controllers) {
-  church.lastSeen = new Date().toISOString();
+// ─── Minimal test server ───────────────────────────────────────────────────────
+//
+// Builds an http.Server + WebSocketServer wired to the real routing factory.
+// Returns { url, churches, controllers, handlers, close }.
 
-  switch (msg.type) {
-    case 'status_update':
-      church.status = { ...church.status, ...msg.status };
-      broadcastToControllers(controllers, {
-        type: 'status_update',
-        churchId: church.churchId,
-        name: church.name,
-        status: church.status,
-      });
-      break;
+function buildTestServer(overrides = {}) {
+  const churches    = new Map();
+  const controllers = new Set();
 
-    case 'alert':
-      broadcastToControllers(controllers, {
-        type: 'alert',
-        churchId: church.churchId,
-        name: church.name,
-        severity: msg.severity || 'warning',
-        message: msg.message,
-      });
-      break;
+  const handlers = createWebSocketHandlers({
+    churches,
+    controllers,
+    jwt,
+    jwtSecret: JWT_SECRET,
+    wsOpen: WebSocket.OPEN,
+    adminApiKey: ADMIN_API_KEY,
+    wsPingIntervalMs: 0,  // disable 25s pings so tests finish quickly
+    ...overrides,
+  });
 
-    case 'command_result':
-      broadcastToControllers(controllers, {
-        type: 'command_result',
-        churchId: church.churchId,
-        name: church.name,
-        messageId: msg.id,
-        result: msg.result,
-        error: msg.error,
-      });
-      break;
+  const httpServer = http.createServer();
+  const wss = new WebSocketServer({ server: httpServer });
 
-    case 'ping':
-      safeSend(church.ws, { type: 'pong', ts: msg.ts });
-      break;
+  wss.on('connection', (ws, req) => {
+    const url  = new URL(req.url, 'http://localhost');
+    const role = url.pathname.replace(/^\//, '');
 
-    default:
-      broadcastToControllers(controllers, { ...msg, churchId: church.churchId, churchName: church.name });
-  }
-}
-
-function handleControllerMessage(ws, msg, churches, controllers) {
-  if (msg.type === 'command' && msg.churchId) {
-    const church = churches.get(msg.churchId);
-    if (church?.ws?.readyState === OPEN) {
-      safeSend(church.ws, msg);
+    if (role === 'church') {
+      handlers.handleChurchConnection(ws, url, req.socket.remoteAddress || '127.0.0.1');
+    } else if (role === 'controller') {
+      handlers.handleControllerConnection(ws, url, req);
     } else {
-      safeSend(ws, { type: 'error', error: 'Church not connected', churchId: msg.churchId });
+      ws.close(1008, 'Unknown role');
     }
-  }
+  });
+
+  return new Promise((resolve) => {
+    httpServer.listen(0, '127.0.0.1', () => {
+      const { port } = httpServer.address();
+      const url = `ws://127.0.0.1:${port}`;
+
+      resolve({
+        url,
+        churches,
+        controllers,
+        handlers,
+        close: () => new Promise((res) => {
+          wss.close(() => httpServer.close(res));
+        }),
+      });
+    });
+  });
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
+// ─── WebSocket client helpers ─────────────────────────────────────────────────
 
-describe('WebSocket Routing', () => {
-  let churches, controllers;
+/**
+ * Open a WebSocket and wait for it to be connected (readyState === OPEN).
+ * Rejects on close-before-open (gives you the close code/reason).
+ */
+function connect(url) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    ws.once('open', () => resolve(ws));
+    ws.once('error', reject);
+    ws.once('close', (code, reason) => {
+      reject(new Error(`WS closed before open — code ${code} reason "${reason}"`));
+    });
+  });
+}
 
-  beforeEach(() => {
-    churches = new Map();
-    controllers = new Set();
-    churches.set('church-1', makeChurch('church-1', 'First Baptist'));
-    churches.set('church-2', makeChurch('church-2', 'Grace Chapel'));
+/**
+ * Open a WebSocket and collect the first close event (for auth-rejection tests).
+ * Resolves with { code, reason } when the server closes the connection.
+ */
+function connectAndGetClose(url) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    ws.once('close', (code, buf) => {
+      resolve({ code, reason: buf ? buf.toString() : '' });
+    });
+    ws.once('error', reject);
+  });
+}
+
+/**
+ * Wait for the next message on an open WebSocket.
+ * Rejects after `timeoutMs` if no message arrives.
+ */
+function nextMessage(ws, timeoutMs = 2000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('nextMessage timeout')), timeoutMs);
+    ws.once('message', (data) => {
+      clearTimeout(timer);
+      resolve(JSON.parse(data.toString()));
+    });
+  });
+}
+
+/**
+ * Collect the next N messages on an open WebSocket.
+ */
+function nextMessages(ws, n, timeoutMs = 2000) {
+  const msgs = [];
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`nextMessages(${n}) timeout — got ${msgs.length}`)), timeoutMs);
+    function onMsg(data) {
+      msgs.push(JSON.parse(data.toString()));
+      if (msgs.length >= n) {
+        clearTimeout(timer);
+        ws.off('message', onMsg);
+        resolve(msgs);
+      }
+    }
+    ws.on('message', onMsg);
+  });
+}
+
+/** Send a JSON message over a WebSocket. */
+function send(ws, obj) {
+  ws.send(JSON.stringify(obj));
+}
+
+/** Close a WebSocket and wait for it to finish. */
+function closeWs(ws) {
+  return new Promise((resolve) => {
+    if (ws.readyState === WebSocket.CLOSED) return resolve();
+    ws.once('close', resolve);
+    ws.close();
+  });
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
+describe('WebSocket routing — real integration tests against createWebSocketHandlers', () => {
+  let server;
+
+  beforeEach(async () => {
+    server = await buildTestServer();
+    // Pre-register two churches
+    server.churches.set('church-1', makeChurchEntry('church-1', 'First Baptist'));
+    server.churches.set('church-2', makeChurchEntry('church-2', 'Grace Chapel'));
   });
 
-  // ── 1. Connection Authentication ──────────────────────────────────────────
+  afterEach(async () => {
+    await server.close();
+  });
 
-  describe('Connection Authentication', () => {
-    it('accepts a valid token and sends connected message', () => {
-      const ws = mockWs();
-      const token = createMockJwt({ churchId: 'church-1' }, JWT_SECRET, { expiresIn: '30d' });
+  // ── 1. Connection auth ─────────────────────────────────────────────────────
 
-      const result = handleChurchConnection(churches, ws, token);
+  describe('Connection authentication', () => {
+    it('accepts a valid token and sends a connected message', async () => {
+      const token = signToken('church-1');
+      const ws = await connect(`${server.url}/church?token=${token}`);
 
-      expect(result).not.toBeNull();
+      const msg = await nextMessage(ws);
+      expect(msg.type).toBe('connected');
+      expect(msg.churchId).toBe('church-1');
+      expect(msg.name).toBe('First Baptist');
+
+      await closeWs(ws);
+    });
+
+    it('rejects connection with no token — code 1008', async () => {
+      const { code, reason } = await connectAndGetClose(`${server.url}/church`);
+      expect(code).toBe(1008);
+      expect(reason).toBe('token required');
+    });
+
+    it('rejects connection with an invalid (non-JWT) token', async () => {
+      const { code, reason } = await connectAndGetClose(`${server.url}/church?token=not.a.real.token`);
+      expect(code).toBe(1008);
+      expect(reason).toBe('invalid token');
+    });
+
+    it('rejects connection with an expired token', async () => {
+      const token = jwt.sign({ churchId: 'church-1' }, JWT_SECRET, { expiresIn: -1 });
+      const { code, reason } = await connectAndGetClose(`${server.url}/church?token=${token}`);
+      expect(code).toBe(1008);
+      expect(reason).toBe('invalid token');
+    });
+
+    it('rejects connection for an unregistered churchId', async () => {
+      const token = signToken('does-not-exist');
+      const { code, reason } = await connectAndGetClose(`${server.url}/church?token=${token}`);
+      expect(code).toBe(1008);
+      expect(reason).toBe('church not registered');
+    });
+
+    it('rejects connection when billing access is denied', async () => {
+      const server2 = await buildTestServer({
+        checkPaidAccess: () => ({ allowed: false, status: 'expired' }),
+      });
+      server2.churches.set('church-1', makeChurchEntry('church-1', 'First Baptist'));
+
+      const token = signToken('church-1');
+      const { code, reason } = await connectAndGetClose(`${server2.url}/church?token=${token}`);
+      await server2.close();
+
+      expect(code).toBe(1008);
+      expect(reason).toBe('billing_expired');
+    });
+
+    it('rejects unknown WebSocket role', async () => {
+      const { code } = await connectAndGetClose(`${server.url}/unknown-role`);
+      expect(code).toBe(1008);
+    });
+  });
+
+  // ── 2. Church registration on connect ─────────────────────────────────────
+
+  describe('Church registration via WebSocket', () => {
+    it('sets church.ws and clears disconnectedAt on successful connection', async () => {
+      const church = server.churches.get('church-1');
+      church.disconnectedAt = Date.now() - 60_000;
+
+      const token = signToken('church-1');
+      const ws = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(ws);  // consume 'connected'
+
+      expect(church.ws).toBeTruthy();
+      expect(church.ws.readyState).toBe(WebSocket.OPEN);
+      expect(church.disconnectedAt).toBeNull();
+      expect(church.lastSeen).toBeTruthy();
+
+      await closeWs(ws);
+    });
+
+    it('updates church.status and disconnectedAt on disconnect', async () => {
+      const token = signToken('church-1');
+      const ws = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(ws); // consume 'connected'
+
+      const church = server.churches.get('church-1');
+      expect(church.ws?.readyState).toBe(WebSocket.OPEN);
+
+      // Close from client side and let server handler run
+      const disconnectSeen = new Promise((res) => {
+        const orig = ws.onclose;
+        ws.once('close', res);
+      });
+      ws.close();
+      await disconnectSeen;
+
+      // Give the server's 'close' handler a tick to run
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(church.disconnectedAt).toBeTruthy();
+      expect(church.status.connected).toBe(false);
+    });
+  });
+
+  // ── 3. Controller connection ───────────────────────────────────────────────
+
+  describe('Controller connection', () => {
+    it('accepts a valid admin API key and sends church_list', async () => {
+      const ws = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      const msg = await nextMessage(ws);
+
+      expect(msg.type).toBe('church_list');
+      expect(Array.isArray(msg.churches)).toBe(true);
+      expect(msg.churches.some(c => c.churchId === 'church-1')).toBe(true);
+      expect(msg.churches.some(c => c.churchId === 'church-2')).toBe(true);
+
+      await closeWs(ws);
+    });
+
+    it('rejects connection with wrong api key', async () => {
+      const { code, reason } = await connectAndGetClose(`${server.url}/controller?apikey=wrong-key`);
+      expect(code).toBe(1008);
+      expect(reason).toBe('invalid api key');
+    });
+
+    it('adds controller to the controllers Set on connect and removes on disconnect', async () => {
+      expect(server.controllers.size).toBe(0);
+
+      const ws = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ws); // consume church_list
+
+      expect(server.controllers.size).toBe(1);
+
+      await closeWs(ws);
+      await new Promise(r => setTimeout(r, 30));
+
+      expect(server.controllers.size).toBe(0);
+    });
+  });
+
+  // ── 4. Message routing: church → controllers ──────────────────────────────
+
+  describe('Message routing: church → controllers', () => {
+    it('forwards status_update to all connected controllers with churchId', async () => {
+      // Connect two controllers
+      const ctrl1 = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      const ctrl2 = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl1); // consume church_list
+      await nextMessage(ctrl2);
+
+      // Connect church
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      // Consume the 'connected' ack AND the 'church_connected' broadcast to controllers
+      await nextMessage(churchWs);
+      await nextMessage(ctrl1); // church_connected broadcast
+      await nextMessage(ctrl2);
+
+      // Now send status update
+      const msg1Promise = nextMessage(ctrl1);
+      const msg2Promise = nextMessage(ctrl2);
+
+      send(churchWs, { type: 'status_update', status: { atem: { connected: true, programInput: 2 } } });
+
+      const [m1, m2] = await Promise.all([msg1Promise, msg2Promise]);
+
+      expect(m1.type).toBe('status_update');
+      expect(m1.churchId).toBe('church-1');
+      expect(m1.name).toBe('First Baptist');
+      expect(m1.status.atem.connected).toBe(true);
+      expect(m1.status.atem.programInput).toBe(2);
+
+      // Both controllers receive the same payload
+      expect(m2.type).toBe('status_update');
+      expect(m2.churchId).toBe('church-1');
+
+      await closeWs(churchWs);
+      await closeWs(ctrl1);
+      await closeWs(ctrl2);
+    });
+
+    it('updates church.status in memory on status_update', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl); // church_list
+
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(churchWs);   // connected
+      await nextMessage(ctrl);        // church_connected
+
+      send(churchWs, { type: 'status_update', status: { obs: { connected: true, streaming: false } } });
+      await nextMessage(ctrl); // wait for the broadcast
+
+      const church = server.churches.get('church-1');
+      expect(church.status.obs?.connected).toBe(true);
+      expect(church.lastHeartbeat).toBeTruthy();
+
+      await closeWs(churchWs);
+      await closeWs(ctrl);
+    });
+
+    it('forwards alert to all controllers', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
+
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(churchWs);
+      await nextMessage(ctrl); // church_connected
+
+      send(churchWs, { type: 'alert', severity: 'critical', message: 'Stream dropped' });
+
+      const alert = await nextMessage(ctrl);
+      expect(alert.type).toBe('alert');
+      expect(alert.churchId).toBe('church-1');
+      expect(alert.severity).toBe('critical');
+      expect(alert.message).toBe('Stream dropped');
+
+      await closeWs(churchWs);
+      await closeWs(ctrl);
+    });
+
+    it('defaults alert severity to "warning" when not specified', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
+
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(churchWs);
+      await nextMessage(ctrl);
+
+      send(churchWs, { type: 'alert', message: 'Something happened' });
+
+      const alert = await nextMessage(ctrl);
+      expect(alert.severity).toBe('warning');
+
+      await closeWs(churchWs);
+      await closeWs(ctrl);
+    });
+
+    it('forwards command_result to controllers with normalized shape', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
+
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(churchWs);
+      await nextMessage(ctrl);
+
+      send(churchWs, { type: 'command_result', id: 'cmd-abc', result: { success: true }, error: null });
+
+      const result = await nextMessage(ctrl);
+      expect(result.type).toBe('command_result');
       expect(result.churchId).toBe('church-1');
-      expect(ws.send).toHaveBeenCalledTimes(1);
-      const sent = JSON.parse(ws.send.mock.calls[0][0]);
-      expect(sent.type).toBe('connected');
-      expect(sent.churchId).toBe('church-1');
-      expect(sent.name).toBe('First Baptist');
+      expect(result.messageId).toBe('cmd-abc');
+      expect(result.result.success).toBe(true);
+      expect(result.error).toBeNull();
+
+      await closeWs(churchWs);
+      await closeWs(ctrl);
     });
 
-    it('rejects connection with no token', () => {
-      const ws = mockWs();
-      const result = handleChurchConnection(churches, ws, null);
+    it('responds to ping with pong (same ts)', async () => {
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(churchWs); // connected
 
-      expect(result).toBeNull();
-      expect(ws.close).toHaveBeenCalledWith(1008, 'token required');
+      send(churchWs, { type: 'ping', ts: 99999 });
+
+      const pong = await nextMessage(churchWs);
+      expect(pong.type).toBe('pong');
+      expect(pong.ts).toBe(99999);
+
+      await closeWs(churchWs);
     });
 
-    it('rejects connection with invalid token', () => {
-      const ws = mockWs();
-      const result = handleChurchConnection(churches, ws, 'not.a.valid-token');
+    it('forwards unknown message types to controllers with churchId tag', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
 
-      expect(result).toBeNull();
-      expect(ws.close).toHaveBeenCalledWith(1008, 'invalid token');
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(churchWs);
+      await nextMessage(ctrl);
+
+      send(churchWs, { type: 'custom_event', payload: { x: 42 } });
+
+      const forwarded = await nextMessage(ctrl);
+      expect(forwarded.type).toBe('custom_event');
+      expect(forwarded.churchId).toBe('church-1');
+      expect(forwarded.churchName).toBe('First Baptist');
+      expect(forwarded.payload.x).toBe(42);
+
+      await closeWs(churchWs);
+      await closeWs(ctrl);
     });
 
-    it('rejects connection with malformed token (wrong number of segments)', () => {
-      const ws = mockWs();
-      const result = handleChurchConnection(churches, ws, 'only-one-segment');
+    it('broadcasts church_connected event to controllers when church connects', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl); // church_list
 
-      expect(result).toBeNull();
-      expect(ws.close).toHaveBeenCalledWith(1008, 'invalid token');
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(churchWs); // connected
+
+      const evt = await nextMessage(ctrl);
+      expect(evt.type).toBe('church_connected');
+      expect(evt.churchId).toBe('church-1');
+      expect(evt.connected).toBe(true);
+
+      await closeWs(churchWs);
+      await closeWs(ctrl);
     });
 
-    it('rejects connection with expired token', () => {
-      const ws = mockWs();
-      // Create a token that expired 1 hour ago
-      const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-      const body = { churchId: 'church-1', iat: Math.floor(Date.now() / 1000) - 7200, exp: Math.floor(Date.now() / 1000) - 3600 };
-      const bodyB64 = Buffer.from(JSON.stringify(body)).toString('base64url');
-      const sig = Buffer.from('fake-sig').toString('base64url');
-      const expiredToken = `${header}.${bodyB64}.${sig}`;
+    it('broadcasts church_disconnected event to controllers when church disconnects', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
 
-      const result = handleChurchConnection(churches, ws, expiredToken);
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(churchWs);
+      await nextMessage(ctrl); // church_connected
 
-      expect(result).toBeNull();
-      expect(ws.close).toHaveBeenCalledWith(1008, 'invalid token');
+      const disconnectEvt = nextMessage(ctrl);
+      churchWs.close();
+
+      const evt = await disconnectEvt;
+      expect(evt.type).toBe('church_disconnected');
+      expect(evt.churchId).toBe('church-1');
+      expect(evt.connected).toBe(false);
+
+      await closeWs(ctrl);
     });
 
-    it('rejects connection for unregistered churchId', () => {
-      const ws = mockWs();
-      const token = createMockJwt({ churchId: 'unknown-church' }, JWT_SECRET, { expiresIn: '30d' });
+    it('drops malformed JSON from church without crashing', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
 
-      const result = handleChurchConnection(churches, ws, token);
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(churchWs);
+      await nextMessage(ctrl); // church_connected
 
-      expect(result).toBeNull();
-      expect(ws.close).toHaveBeenCalledWith(1008, 'church not registered');
-    });
+      // Send bad JSON — server should swallow it, not crash
+      churchWs.send('not valid json {{{');
 
-    it('rejects connection when billing is not active', () => {
-      const ws = mockWs();
-      const token = createMockJwt({ churchId: 'church-1' }, JWT_SECRET, { expiresIn: '30d' });
-      const checkPaidAccess = () => ({ allowed: false, status: 'expired' });
+      // Verify the connection is still alive (send a valid ping)
+      send(churchWs, { type: 'ping', ts: 1 });
+      const pong = await nextMessage(churchWs);
+      expect(pong.type).toBe('pong');
 
-      const result = handleChurchConnection(churches, ws, token, { checkPaidAccess });
-
-      expect(result).toBeNull();
-      expect(ws.close).toHaveBeenCalledWith(1008, 'billing_expired');
-    });
-  });
-
-  // ── 2. Message Routing Between Church and Controller ─────────────────────
-
-  describe('Message Routing', () => {
-    it('forwards status_update from church to all controllers', () => {
-      const ctrlWs1 = mockWs();
-      const ctrlWs2 = mockWs();
-      controllers.add(ctrlWs1);
-      controllers.add(ctrlWs2);
-
-      const church = churches.get('church-1');
-      church.ws = mockWs();
-
-      handleChurchMessage(church, {
-        type: 'status_update',
-        status: { atem: { connected: true, programInput: 1 } },
-      }, controllers);
-
-      // Both controllers should receive the status update
-      expect(ctrlWs1.send).toHaveBeenCalledTimes(1);
-      expect(ctrlWs2.send).toHaveBeenCalledTimes(1);
-
-      const msg1 = JSON.parse(ctrlWs1.send.mock.calls[0][0]);
-      expect(msg1.type).toBe('status_update');
-      expect(msg1.churchId).toBe('church-1');
-      expect(msg1.status.atem.connected).toBe(true);
-    });
-
-    it('forwards command from controller to the target church', () => {
-      const church = churches.get('church-1');
-      church.ws = mockWs();
-
-      const ctrlWs = mockWs();
-      const cmd = { type: 'command', churchId: 'church-1', command: 'atem.cut', params: { input: 2 } };
-
-      handleControllerMessage(ctrlWs, cmd, churches, controllers);
-
-      expect(church.ws.send).toHaveBeenCalledTimes(1);
-      const sent = JSON.parse(church.ws.send.mock.calls[0][0]);
-      expect(sent.type).toBe('command');
-      expect(sent.command).toBe('atem.cut');
-    });
-
-    it('returns error when commanding a disconnected church', () => {
-      const church = churches.get('church-1');
-      church.ws = mockWs(CLOSED); // disconnected
-
-      const ctrlWs = mockWs();
-      const cmd = { type: 'command', churchId: 'church-1', command: 'atem.cut', params: {} };
-
-      handleControllerMessage(ctrlWs, cmd, churches, controllers);
-
-      expect(ctrlWs.send).toHaveBeenCalledTimes(1);
-      const sent = JSON.parse(ctrlWs.send.mock.calls[0][0]);
-      expect(sent.type).toBe('error');
-      expect(sent.error).toBe('Church not connected');
-    });
-
-    it('returns error when commanding a non-existent church', () => {
-      const ctrlWs = mockWs();
-      const cmd = { type: 'command', churchId: 'no-such-church', command: 'obs.start', params: {} };
-
-      handleControllerMessage(ctrlWs, cmd, churches, controllers);
-
-      expect(ctrlWs.send).toHaveBeenCalledTimes(1);
-      const sent = JSON.parse(ctrlWs.send.mock.calls[0][0]);
-      expect(sent.type).toBe('error');
-    });
-
-    it('forwards alert from church to all controllers', () => {
-      const ctrlWs = mockWs();
-      controllers.add(ctrlWs);
-
-      const church = churches.get('church-1');
-      church.ws = mockWs();
-
-      handleChurchMessage(church, {
-        type: 'alert',
-        severity: 'critical',
-        message: 'Stream dropped',
-      }, controllers);
-
-      expect(ctrlWs.send).toHaveBeenCalledTimes(1);
-      const sent = JSON.parse(ctrlWs.send.mock.calls[0][0]);
-      expect(sent.type).toBe('alert');
-      expect(sent.churchId).toBe('church-1');
-      expect(sent.severity).toBe('critical');
-    });
-
-    it('forwards command_result from church to controllers', () => {
-      const ctrlWs = mockWs();
-      controllers.add(ctrlWs);
-
-      const church = churches.get('church-1');
-      church.ws = mockWs();
-
-      handleChurchMessage(church, {
-        type: 'command_result',
-        id: 'cmd-123',
-        result: { success: true },
-        error: null,
-      }, controllers);
-
-      const sent = JSON.parse(ctrlWs.send.mock.calls[0][0]);
-      expect(sent.type).toBe('command_result');
-      expect(sent.messageId).toBe('cmd-123');
-      expect(sent.result.success).toBe(true);
-    });
-
-    it('responds to ping with pong', () => {
-      const church = churches.get('church-1');
-      church.ws = mockWs();
-
-      handleChurchMessage(church, { type: 'ping', ts: 12345 }, controllers);
-
-      expect(church.ws.send).toHaveBeenCalledTimes(1);
-      const sent = JSON.parse(church.ws.send.mock.calls[0][0]);
-      expect(sent.type).toBe('pong');
-      expect(sent.ts).toBe(12345);
-    });
-
-    it('forwards unknown message types to controllers with churchId', () => {
-      const ctrlWs = mockWs();
-      controllers.add(ctrlWs);
-
-      const church = churches.get('church-1');
-      church.ws = mockWs();
-
-      handleChurchMessage(church, { type: 'custom_event', data: 'hello' }, controllers);
-
-      const sent = JSON.parse(ctrlWs.send.mock.calls[0][0]);
-      expect(sent.type).toBe('custom_event');
-      expect(sent.churchId).toBe('church-1');
-      expect(sent.data).toBe('hello');
+      await closeWs(churchWs);
+      await closeWs(ctrl);
     });
   });
 
-  // ── 3. Message Validation ─────────────────────────────────────────────────
+  // ── 5. Message routing: controllers → church ──────────────────────────────
 
-  describe('Message Validation', () => {
-    it('handles malformed JSON gracefully', () => {
-      const church = churches.get('church-1');
-      church.ws = mockWs();
+  describe('Message routing: controllers → church', () => {
+    it('forwards command from controller to the target church', async () => {
+      // Connect church first
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(churchWs); // connected
 
-      // Simulate what happens in server.js ws.on('message') — parse and catch
-      const data = 'not valid json {{{';
-      let error = null;
-      try {
-        const msg = JSON.parse(data);
-        handleChurchMessage(church, msg, controllers);
-      } catch (e) {
-        error = e;
-      }
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl); // church_list
+      await nextMessage(ctrl); // church_connected (from church connect above)
 
-      expect(error).not.toBeNull();
-      expect(error.message).toContain('JSON');
+      // Church waits for a command
+      const cmdPromise = nextMessage(churchWs);
+      send(ctrl, { type: 'command', churchId: 'church-1', command: 'atem.cut', params: { input: 2 } });
+
+      const cmd = await cmdPromise;
+      expect(cmd.type).toBe('command');
+      expect(cmd.command).toBe('atem.cut');
+      expect(cmd.params.input).toBe(2);
+
+      await closeWs(churchWs);
+      await closeWs(ctrl);
     });
 
-    it('handles message with missing type field', () => {
-      const ctrlWs = mockWs();
-      controllers.add(ctrlWs);
+    it('returns error to controller when target church is not connected', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
 
-      const church = churches.get('church-1');
-      church.ws = mockWs();
+      // church-1 has never connected — .ws is null
+      send(ctrl, { type: 'command', churchId: 'church-1', command: 'obs.start', params: {} });
 
-      // Message with no type falls through to default case
-      handleChurchMessage(church, { data: 'something' }, controllers);
+      const err = await nextMessage(ctrl);
+      expect(err.type).toBe('error');
+      expect(err.error).toBe('Church not connected');
+      expect(err.churchId).toBe('church-1');
 
-      // Should broadcast to controllers via default case
-      const sent = JSON.parse(ctrlWs.send.mock.calls[0][0]);
-      expect(sent.churchId).toBe('church-1');
+      await closeWs(ctrl);
     });
 
-    it('handles oversized payload by rejecting at parse level', () => {
-      // server.js sets maxPayload: 256 * 1024 on WebSocketServer
-      // Messages exceeding this are rejected at the ws library level.
-      // Here we verify our handler doesn't crash on very large status objects.
-      const church = churches.get('church-1');
-      church.ws = mockWs();
+    it('returns error for command to a non-existent church', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
 
-      const bigStatus = {};
-      for (let i = 0; i < 1000; i++) {
-        bigStatus[`key_${i}`] = 'x'.repeat(200);
-      }
+      send(ctrl, { type: 'command', churchId: 'ghost-church', command: 'obs.start', params: {} });
 
-      // Should not throw
-      expect(() => {
-        handleChurchMessage(church, { type: 'status_update', status: bigStatus }, controllers);
-      }).not.toThrow();
+      const err = await nextMessage(ctrl);
+      expect(err.type).toBe('error');
+      expect(err.error).toBe('Church not connected');
 
-      expect(church.status).toBeDefined();
+      await closeWs(ctrl);
     });
 
-    it('updates lastSeen on every message', () => {
-      const church = churches.get('church-1');
-      church.ws = mockWs();
-      church.lastSeen = null;
+    it('returns error when rate limit is exceeded', async () => {
+      const server2 = await buildTestServer({
+        checkCommandRateLimit: async () => ({ ok: false }),
+      });
+      server2.churches.set('church-1', makeChurchEntry('church-1', 'First Baptist'));
 
-      handleChurchMessage(church, { type: 'ping', ts: 1 }, controllers);
-      expect(church.lastSeen).not.toBeNull();
+      const churchToken = signToken('church-1');
+      const churchWs = await connect(`${server2.url}/church?token=${churchToken}`);
+      await nextMessage(churchWs);
 
-      const firstSeen = church.lastSeen;
-      handleChurchMessage(church, { type: 'ping', ts: 2 }, controllers);
-      // lastSeen should be updated (could be same ISO string if fast enough)
-      expect(church.lastSeen).toBeDefined();
+      const ctrl = await connect(`${server2.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl); // church_list
+      await nextMessage(ctrl); // church_connected
+
+      send(ctrl, { type: 'command', churchId: 'church-1', command: 'atem.cut', params: {} });
+
+      const err = await nextMessage(ctrl);
+      expect(err.type).toBe('error');
+      expect(err.error).toBe('Rate limit exceeded');
+
+      await server2.close();
     });
   });
 
-  // ── 4. Reconnection Handling ──────────────────────────────────────────────
+  // ── 6. Reconnection handling ───────────────────────────────────────────────
 
-  describe('Reconnection Handling', () => {
-    it('replaces old WebSocket when church reconnects', () => {
-      const oldWs = mockWs();
-      const church = churches.get('church-1');
-      church.ws = oldWs;
+  describe('Reconnection handling', () => {
+    it('replaces the old WebSocket when the church reconnects', async () => {
+      const token = signToken('church-1');
 
-      const newWs = mockWs();
-      const token = createMockJwt({ churchId: 'church-1' }, JWT_SECRET, { expiresIn: '30d' });
+      // First connection
+      const ws1 = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(ws1); // connected
 
-      handleChurchConnection(churches, newWs, token);
+      const church = server.churches.get('church-1');
+      const firstWs = church.ws;
+      expect(firstWs.readyState).toBe(WebSocket.OPEN);
 
-      // Old connection should be closed
-      expect(oldWs.close).toHaveBeenCalledWith(1000, 'replaced by new connection');
-      // New connection should be active
-      expect(church.ws).toBe(newWs);
+      // Second connection — old one should be closed
+      const ws1Closed = new Promise((res) => ws1.once('close', (code) => res(code)));
+      const ws2 = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(ws2); // connected
+
+      const closeCode = await ws1Closed;
+      expect(closeCode).toBe(1000); // 'replaced by new connection'
+      expect(church.ws).not.toBe(firstWs);
+      expect(church.ws?.readyState).toBe(WebSocket.OPEN);
+
+      await closeWs(ws2);
     });
 
-    it('clears disconnectedAt on reconnection', () => {
-      const church = churches.get('church-1');
-      church.disconnectedAt = Date.now() - 60000; // disconnected 1 min ago
+    it('clears disconnectedAt on reconnect', async () => {
+      const church = server.churches.get('church-1');
+      church.disconnectedAt = Date.now() - 30_000;
 
-      const ws = mockWs();
-      const token = createMockJwt({ churchId: 'church-1' }, JWT_SECRET, { expiresIn: '30d' });
-
-      handleChurchConnection(churches, ws, token);
+      const token = signToken('church-1');
+      const ws = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(ws);
 
       expect(church.disconnectedAt).toBeNull();
+
+      await closeWs(ws);
     });
 
-    it('does not close old ws if it is already closed', () => {
-      const oldWs = mockWs(CLOSED);
-      const church = churches.get('church-1');
-      church.ws = oldWs;
+    it('does not close old ws if it is already closed', async () => {
+      // Pre-assign a closed WebSocket stub for church-1
+      const fakeClosedWs = {
+        readyState: WebSocket.CLOSED,
+        close: () => { throw new Error('Should not be called on an already-closed socket'); },
+      };
+      server.churches.get('church-1').ws = fakeClosedWs;
 
-      const newWs = mockWs();
-      const token = createMockJwt({ churchId: 'church-1' }, JWT_SECRET, { expiresIn: '30d' });
+      const token = signToken('church-1');
+      // Should NOT throw — verifies the readyState guard
+      const ws = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(ws);
 
-      handleChurchConnection(churches, newWs, token);
+      expect(server.churches.get('church-1').ws).not.toBe(fakeClosedWs);
 
-      // Old ws was already closed — close should not be called
-      expect(oldWs.close).not.toHaveBeenCalled();
-      expect(church.ws).toBe(newWs);
-    });
-  });
-
-  // ── 5. Broadcast to Multiple Controllers ─────────────────────────────────
-
-  describe('Broadcast to Multiple Controllers', () => {
-    it('sends to all connected controllers', () => {
-      const ws1 = mockWs();
-      const ws2 = mockWs();
-      const ws3 = mockWs();
-      controllers.add(ws1);
-      controllers.add(ws2);
-      controllers.add(ws3);
-
-      broadcastToControllers(controllers, { type: 'test', data: 42 });
-
-      expect(ws1.send).toHaveBeenCalledTimes(1);
-      expect(ws2.send).toHaveBeenCalledTimes(1);
-      expect(ws3.send).toHaveBeenCalledTimes(1);
-
-      // All should receive the same serialized message
-      const msg1 = ws1.send.mock.calls[0][0];
-      const msg2 = ws2.send.mock.calls[0][0];
-      const msg3 = ws3.send.mock.calls[0][0];
-      expect(msg1).toBe(msg2);
-      expect(msg2).toBe(msg3);
-    });
-
-    it('skips closed controllers without throwing', () => {
-      const wsOpen = mockWs();
-      const wsClosed = mockWs(CLOSED);
-      controllers.add(wsOpen);
-      controllers.add(wsClosed);
-
-      expect(() => {
-        broadcastToControllers(controllers, { type: 'test' });
-      }).not.toThrow();
-
-      expect(wsOpen.send).toHaveBeenCalledTimes(1);
-      expect(wsClosed.send).not.toHaveBeenCalled();
-    });
-
-    it('does nothing when there are no controllers', () => {
-      expect(() => {
-        broadcastToControllers(controllers, { type: 'test' });
-      }).not.toThrow();
-    });
-
-    it('handles send errors gracefully', () => {
-      const ws1 = mockWs();
-      ws1.send = vi.fn(() => { throw new Error('send failed'); });
-      const ws2 = mockWs();
-      controllers.add(ws1);
-      controllers.add(ws2);
-
-      // Should not throw even if ws1 throws
-      expect(() => {
-        broadcastToControllers(controllers, { type: 'test' });
-      }).not.toThrow();
-
-      // ws2 should still receive the message
-      expect(ws2.send).toHaveBeenCalledTimes(1);
+      await closeWs(ws);
     });
   });
 
-  // ── 6. Church Isolation ────────────────────────────────────────────────────
+  // ── 7. Church isolation ────────────────────────────────────────────────────
 
-  describe('Church Isolation', () => {
-    it('status_update from church A does not affect church B state', () => {
-      const churchA = churches.get('church-1');
-      const churchB = churches.get('church-2');
-      churchA.ws = mockWs();
-      churchB.ws = mockWs();
+  describe('Church isolation', () => {
+    it('status_update from church-1 does not change church-2 status', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
 
-      handleChurchMessage(churchA, {
-        type: 'status_update',
-        status: { atem: { connected: true, programInput: 3 } },
-      }, controllers);
+      const tok1 = signToken('church-1');
+      const tok2 = signToken('church-2');
 
-      // Church A should have the new status
-      expect(churchA.status.atem?.connected).toBe(true);
-      expect(churchA.status.atem?.programInput).toBe(3);
+      const ws1 = await connect(`${server.url}/church?token=${tok1}`);
+      const ws2 = await connect(`${server.url}/church?token=${tok2}`);
+      await nextMessage(ws1);
+      await nextMessage(ws2);
+      await nextMessage(ctrl); // church_connected #1
+      await nextMessage(ctrl); // church_connected #2
 
-      // Church B should be unaffected
-      expect(churchB.status.atem).toBeUndefined();
+      send(ws1, { type: 'status_update', status: { atem: { connected: true } } });
+      await nextMessage(ctrl); // status_update from church-1
+
+      const church2 = server.churches.get('church-2');
+      expect(church2.status.atem).toBeNull();
+
+      await closeWs(ws1);
+      await closeWs(ws2);
+      await closeWs(ctrl);
     });
 
-    it('command targets only the specified church', () => {
-      const churchA = churches.get('church-1');
-      const churchB = churches.get('church-2');
-      churchA.ws = mockWs();
-      churchB.ws = mockWs();
+    it('command targets only the specified church', async () => {
+      const tok1 = signToken('church-1');
+      const tok2 = signToken('church-2');
 
-      const ctrlWs = mockWs();
-      handleControllerMessage(ctrlWs, {
-        type: 'command',
-        churchId: 'church-1',
-        command: 'atem.cut',
-        params: { input: 2 },
-      }, churches, controllers);
+      const ws1 = await connect(`${server.url}/church?token=${tok1}`);
+      const ws2 = await connect(`${server.url}/church?token=${tok2}`);
+      await nextMessage(ws1);
+      await nextMessage(ws2);
 
-      // Only church A should receive the command
-      expect(churchA.ws.send).toHaveBeenCalledTimes(1);
-      expect(churchB.ws.send).not.toHaveBeenCalled();
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);              // church_list
+      await nextMessage(ctrl);             // church_connected #1
+      await nextMessage(ctrl);             // church_connected #2
+
+      // Only ws1 should get the command
+      const cmdPromise = nextMessage(ws1);
+      send(ctrl, { type: 'command', churchId: 'church-1', command: 'atem.cut', params: {} });
+
+      const cmd = await cmdPromise;
+      expect(cmd.type).toBe('command');
+      expect(cmd.command).toBe('atem.cut');
+
+      // ws2 should receive nothing — give it a moment to confirm silence
+      const silence = await Promise.race([
+        nextMessage(ws2),
+        new Promise(r => setTimeout(() => r('silence'), 200)),
+      ]);
+      expect(silence).toBe('silence');
+
+      await closeWs(ws1);
+      await closeWs(ws2);
+      await closeWs(ctrl);
     });
 
-    it('controller broadcast includes correct churchId for each church', () => {
-      const ctrlWs = mockWs();
-      controllers.add(ctrlWs);
+    it('church_list shows correct connected state per church', async () => {
+      // Connect church-1 only
+      const tok1 = signToken('church-1');
+      const ws1 = await connect(`${server.url}/church?token=${tok1}`);
+      await nextMessage(ws1);
 
-      const churchA = churches.get('church-1');
-      const churchB = churches.get('church-2');
-      churchA.ws = mockWs();
-      churchB.ws = mockWs();
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      const list = await nextMessage(ctrl); // church_list (church-1 now connected)
+      // consume church_connected broadcast
+      await nextMessage(ctrl);
 
-      handleChurchMessage(churchA, {
-        type: 'status_update',
-        status: { obs: { connected: true } },
-      }, controllers);
+      const c1 = list.churches.find(c => c.churchId === 'church-1');
+      const c2 = list.churches.find(c => c.churchId === 'church-2');
+      expect(c1.connected).toBe(true);
+      expect(c2.connected).toBe(false);
 
-      handleChurchMessage(churchB, {
-        type: 'status_update',
-        status: { obs: { connected: false } },
-      }, controllers);
-
-      expect(ctrlWs.send).toHaveBeenCalledTimes(2);
-      const msgA = JSON.parse(ctrlWs.send.mock.calls[0][0]);
-      const msgB = JSON.parse(ctrlWs.send.mock.calls[1][0]);
-
-      expect(msgA.churchId).toBe('church-1');
-      expect(msgA.status.obs.connected).toBe(true);
-      expect(msgB.churchId).toBe('church-2');
-      expect(msgB.status.obs.connected).toBe(false);
-    });
-
-    it('disconnecting church A does not affect church B connection', () => {
-      const churchA = churches.get('church-1');
-      const churchB = churches.get('church-2');
-      const wsA = mockWs();
-      const wsB = mockWs();
-      churchA.ws = wsA;
-      churchB.ws = wsB;
-
-      // Simulate church A disconnect
-      churchA.ws = null;
-      churchA.disconnectedAt = Date.now();
-      churchA.status = { connected: false };
-
-      // Church B should remain unaffected
-      expect(churchB.ws).toBe(wsB);
-      expect(churchB.ws.readyState).toBe(OPEN);
-      expect(churchB.disconnectedAt).toBeNull();
-    });
-
-    it('cannot send command to church B using church A token', () => {
-      const churchA = churches.get('church-1');
-      const churchB = churches.get('church-2');
-      churchA.ws = mockWs();
-      churchB.ws = mockWs();
-
-      // Token for church A
-      const tokenA = createMockJwt({ churchId: 'church-1' }, JWT_SECRET, { expiresIn: '30d' });
-      const ws = mockWs();
-
-      // Connect as church A
-      handleChurchConnection(churches, ws, tokenA);
-
-      // Church A sends a message — it should be tagged with church-1, not church-2
-      handleChurchMessage(churches.get('church-1'), {
-        type: 'status_update',
-        status: { fake: true },
-      }, controllers);
-
-      // Church B should not have the fake status
-      expect(churchB.status.fake).toBeUndefined();
+      await closeWs(ws1);
+      await closeWs(ctrl);
     });
   });
 
-  // ── safeSend edge cases ───────────────────────────────────────────────────
+  // ── 8. broadcastToControllers ─────────────────────────────────────────────
 
-  describe('safeSend', () => {
-    it('sends JSON string when given an object', () => {
-      const ws = mockWs();
-      safeSend(ws, { type: 'test', value: 1 });
-      expect(ws.send).toHaveBeenCalledWith('{"type":"test","value":1}');
+  describe('broadcastToControllers direct helper', () => {
+    it('sends to all connected controllers', async () => {
+      const c1 = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      const c2 = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(c1);
+      await nextMessage(c2);
+
+      const m1 = nextMessage(c1);
+      const m2 = nextMessage(c2);
+
+      server.handlers.broadcastToControllers({ type: 'test_broadcast', value: 7 });
+
+      const [msg1, msg2] = await Promise.all([m1, m2]);
+      expect(msg1.type).toBe('test_broadcast');
+      expect(msg1.value).toBe(7);
+      expect(msg2.type).toBe('test_broadcast');
+
+      await closeWs(c1);
+      await closeWs(c2);
     });
 
-    it('sends raw string when given a string', () => {
-      const ws = mockWs();
-      safeSend(ws, '{"already":"serialized"}');
-      expect(ws.send).toHaveBeenCalledWith('{"already":"serialized"}');
+    it('skips closed controllers without throwing', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
+
+      // Force-close without the server knowing, then inject a closed-state stub
+      const closedStub = { readyState: WebSocket.CLOSED, send: () => { throw new Error('should not be called'); } };
+      server.controllers.add(closedStub);
+
+      expect(() => {
+        server.handlers.broadcastToControllers({ type: 'test' });
+      }).not.toThrow();
+
+      server.controllers.delete(closedStub);
+      await closeWs(ctrl);
     });
 
-    it('does not send to closed WebSocket', () => {
-      const ws = mockWs(CLOSED);
-      safeSend(ws, { type: 'test' });
-      expect(ws.send).not.toHaveBeenCalled();
+    it('does nothing with no controllers', () => {
+      expect(() => {
+        server.handlers.broadcastToControllers({ type: 'noop' });
+      }).not.toThrow();
+    });
+  });
+
+  // ── 9. safeSend edge cases ────────────────────────────────────────────────
+
+  describe('safeSend helper', () => {
+    it('does not throw when ws is null or undefined', () => {
+      expect(() => server.handlers.safeSend(null,      { type: 'test' })).not.toThrow();
+      expect(() => server.handlers.safeSend(undefined, { type: 'test' })).not.toThrow();
     });
 
-    it('does not throw when ws is null', () => {
-      expect(() => safeSend(null, { type: 'test' })).not.toThrow();
-    });
-
-    it('does not throw when ws is undefined', () => {
-      expect(() => safeSend(undefined, { type: 'test' })).not.toThrow();
+    it('does not throw when ws is closed', () => {
+      const stub = { readyState: WebSocket.CLOSED, send: () => { throw new Error('boom'); } };
+      expect(() => server.handlers.safeSend(stub, { type: 'test' })).not.toThrow();
     });
 
     it('catches send errors without throwing', () => {
-      const ws = mockWs();
-      ws.send = vi.fn(() => { throw new Error('write failed'); });
-      expect(() => safeSend(ws, { type: 'test' })).not.toThrow();
+      const stub = { readyState: WebSocket.OPEN, send: () => { throw new Error('write failed'); } };
+      expect(() => server.handlers.safeSend(stub, { type: 'test' })).not.toThrow();
+    });
+  });
+
+  // ── 10. onChurchMessage hook for subsystem message types ──────────────────
+
+  describe('Subsystem message hook', () => {
+    it('fires onChurchMessage for signal_event without broadcasting to controllers', async () => {
+      const received = [];
+
+      const server3 = await buildTestServer({
+        onChurchMessage: (church, msg) => received.push({ church: church.churchId, msg }),
+      });
+      server3.churches.set('church-1', makeChurchEntry('church-1', 'First Baptist'));
+
+      const ctrl = await connect(`${server3.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
+
+      const churchToken = signToken('church-1');
+      const churchWs = await connect(`${server3.url}/church?token=${churchToken}`);
+      await nextMessage(churchWs);
+      await nextMessage(ctrl); // church_connected
+
+      send(churchWs, { type: 'signal_event', signal: 'stream_drop' });
+
+      // Give handler a tick to run
+      await new Promise(r => setTimeout(r, 50));
+
+      // Hook should have fired
+      expect(received.length).toBe(1);
+      expect(received[0].church).toBe('church-1');
+      expect(received[0].msg.type).toBe('signal_event');
+
+      // Controller should NOT have received signal_event directly
+      const silence = await Promise.race([
+        nextMessage(ctrl),
+        new Promise(r => setTimeout(() => r('silence'), 150)),
+      ]);
+      expect(silence).toBe('silence');
+
+      await server3.close();
+    });
+
+    it('fires onStatusUpdate hook after broadcasting status to controllers', async () => {
+      const hookCalls = [];
+      const server4 = await buildTestServer({
+        onStatusUpdate: (church, msg, statusEvent) => hookCalls.push({ church: church.churchId, statusEvent }),
+      });
+      server4.churches.set('church-1', makeChurchEntry('church-1', 'First Baptist'));
+
+      const ctrl = await connect(`${server4.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl);
+
+      const churchWs = await connect(`${server4.url}/church?token=${signToken('church-1')}`);
+      await nextMessage(churchWs);
+      await nextMessage(ctrl);
+
+      send(churchWs, { type: 'status_update', status: { obs: { streaming: true } } });
+      await nextMessage(ctrl); // wait for controller to get it
+
+      expect(hookCalls.length).toBe(1);
+      expect(hookCalls[0].church).toBe('church-1');
+      expect(hookCalls[0].statusEvent.type).toBe('status_update');
+
+      await server4.close();
     });
   });
 });
