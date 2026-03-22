@@ -85,6 +85,7 @@ class DiskSpaceMonitor {
       } else {
         const raw = child_process.execSync(`df -k "${checkPath}"`, { encoding: 'utf8', timeout: 5000 });
         const lines = raw.trim().split('\n');
+        if (lines.length < 2) return null;
         const parts = lines[1].split(/\s+/);
         const total = parseInt(parts[1], 10) * 1024;
         const used = parseInt(parts[2], 10) * 1024;

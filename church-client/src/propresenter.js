@@ -274,7 +274,7 @@ class ProPresenter extends EventEmitter {
     let msgId = idOrName;
     if (messages.length > 0) {
       const found = messages.find(m =>
-        m.name.toLowerCase() === String(idOrName).toLowerCase() ||
+        (m.name || '').toLowerCase() === String(idOrName).toLowerCase() ||
         m.id === idOrName
       );
       if (found) msgId = found.id;
@@ -304,7 +304,7 @@ class ProPresenter extends EventEmitter {
   async setLook(nameOrId) {
     const looks = await this.getLooks();
     const found = looks.find(l =>
-      l.name.toLowerCase() === String(nameOrId).toLowerCase() ||
+      (l.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
       l.id === nameOrId
     );
     if (!found) throw new Error(`Look "${nameOrId}" not found. Available: ${looks.map(l => l.name).join(', ')}`);
@@ -328,7 +328,7 @@ class ProPresenter extends EventEmitter {
   async startTimer(nameOrId) {
     const timers = await this.getTimers();
     const found = timers.find(t =>
-      t.name.toLowerCase() === String(nameOrId).toLowerCase() ||
+      (t.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
       t.id === nameOrId
     );
     if (!found) throw new Error(`Timer "${nameOrId}" not found. Available: ${timers.map(t => t.name).join(', ')}`);
@@ -340,7 +340,7 @@ class ProPresenter extends EventEmitter {
   async stopTimer(nameOrId) {
     const timers = await this.getTimers();
     const found = timers.find(t =>
-      t.name.toLowerCase() === String(nameOrId).toLowerCase() ||
+      (t.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
       t.id === nameOrId
     );
     if (!found) throw new Error(`Timer "${nameOrId}" not found. Available: ${timers.map(t => t.name).join(', ')}`);

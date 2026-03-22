@@ -206,10 +206,11 @@ async function obsConfigureMonitorStream(agent, params) {
 
 async function obsReduceBitrate(agent, params) {
   const obs = ensureObs(agent);
-  const reductionPercent = params.reductionPercent || 20;
+  const reductionPercent = Math.min(99, Math.max(0, params.reductionPercent || 20));
   const settings = await obs.call('GetStreamServiceSettings');
   const currentBitrate = parseInt(settings.streamServiceSettings?.bitsPerSecond || settings.streamServiceSettings?.bitrate || '4500', 10);
-  const newBitrate = Math.round(currentBitrate * (1 - reductionPercent / 100));
+  const rawBitrate = Math.round(currentBitrate * (1 - reductionPercent / 100));
+  const newBitrate = Math.max(500, rawBitrate); // floor at 500 kbps
   const newSettings = { ...settings.streamServiceSettings };
   // OBS stores bitrate in different keys depending on service type
   if (newSettings.bitsPerSecond !== undefined) newSettings.bitsPerSecond = newBitrate;

@@ -10,7 +10,7 @@ async function vmixStatus(agent) {
   if (!agent.vmix) throw new Error('vMix not configured');
   const status = await agent.vmix.getStatus();
 
-  if (!status.running) {
+  if (!status || !status.running) {
     return '🖥️ vMix — ❌ Offline\n\nvMix is not responding. Check that it is running.';
   }
 
@@ -76,12 +76,14 @@ async function vmixFade(agent, params) {
 
 async function vmixSetPreview(agent, params) {
   if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input parameter required');
   await agent.vmix.setPreview(params.input);
   return `vMix: preview set to input ${params.input}`;
 }
 
 async function vmixSetProgram(agent, params) {
   if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input parameter required');
   await agent.vmix.setProgram(params.input);
   return `vMix: program cut to input ${params.input}`;
 }
@@ -95,7 +97,9 @@ async function vmixListInputs(agent) {
 
 async function vmixSetVolume(agent, params) {
   if (!agent.vmix) throw new Error('vMix not configured');
-  const vol = await agent.vmix.setMasterVolume(params.value);
+  const value = toInt(params.value, 'value');
+  if (value < 0 || value > 100) throw new Error('value must be 0–100');
+  const vol = await agent.vmix.setMasterVolume(value);
   return `vMix master volume set to ${vol}%`;
 }
 

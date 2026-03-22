@@ -230,6 +230,16 @@ function buildSoftKey(midiCh, keyIndex, press) {
 
 class AllenHeathMixer {
   /**
+   * Convert a 1-based channel/DCA/group number to a safe 0-based index.
+   * Returns 0 for any non-numeric or missing input so callers never receive NaN.
+   * @param {*} val  1-based number from user input
+   * @returns {number} 0-based index ≥ 0
+   */
+  static _idx(val) {
+    return Math.max(0, (parseInt(val, 10) || 1) - 1);
+  }
+
+  /**
    * @param {{ host: string, port?: number, model?: string, midiChannel?: number }} opts
    *   model: 'SQ' | 'SQ5' | 'SQ6' | 'SQ7' (default 'SQ')
    *   midiChannel: 0–15 (default 0 = MIDI channel 1)
@@ -322,14 +332,14 @@ class AllenHeathMixer {
 
   async muteChannel(ch) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(ch) - 1);
+    const n = AllenHeathMixer._idx(ch);
     const addr = nrpn1D(MUTE.inputChannel.msb, MUTE.inputChannel.lsb, n);
     this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
   }
 
   async unmuteChannel(ch) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(ch) - 1);
+    const n = AllenHeathMixer._idx(ch);
     const addr = nrpn1D(MUTE.inputChannel.msb, MUTE.inputChannel.lsb, n);
     this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
   }
@@ -351,14 +361,14 @@ class AllenHeathMixer {
    */
   async muteDca(dca) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(dca) - 1);
+    const n = AllenHeathMixer._idx(dca);
     const addr = nrpn1D(MUTE.dca.msb, MUTE.dca.lsb, n);
     this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
   }
 
   async unmuteDca(dca) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(dca) - 1);
+    const n = AllenHeathMixer._idx(dca);
     const addr = nrpn1D(MUTE.dca.msb, MUTE.dca.lsb, n);
     this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
   }
@@ -368,7 +378,7 @@ class AllenHeathMixer {
    */
   async setDcaFader(dca, level) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(dca) - 1);
+    const n = AllenHeathMixer._idx(dca);
     const addr = nrpn1D(OUTPUT_LEVEL.dca.msb, OUTPUT_LEVEL.dca.lsb, n);
     const data = normalToData(parseFloat(level));
     const { vc, vf } = dataToVcVf(data);
@@ -380,14 +390,14 @@ class AllenHeathMixer {
    */
   async activateMuteGroup(mg) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(mg) - 1);
+    const n = AllenHeathMixer._idx(mg);
     const addr = nrpn1D(MUTE.muteGroup.msb, MUTE.muteGroup.lsb, n);
     this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x01));
   }
 
   async deactivateMuteGroup(mg) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(mg) - 1);
+    const n = AllenHeathMixer._idx(mg);
     const addr = nrpn1D(MUTE.muteGroup.msb, MUTE.muteGroup.lsb, n);
     this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, 0x00));
   }
@@ -399,7 +409,7 @@ class AllenHeathMixer {
    */
   async setFader(ch, level) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(ch) - 1);
+    const n = AllenHeathMixer._idx(ch);
     const addr = nrpn2D(SEND_LEVEL.inputToLr.msb, SEND_LEVEL.inputToLr.lsb, 1, n, 0);
     const data = normalToData(parseFloat(level));
     const { vc, vf } = dataToVcVf(data);
@@ -410,7 +420,7 @@ class AllenHeathMixer {
    * Get channel status from live-tracked state.
    */
   async getChannelStatus(ch) {
-    const n = Math.max(0, parseInt(ch) - 1);
+    const n = AllenHeathMixer._idx(ch);
     return {
       fader: this._state.faders[`input:${n}`] != null
         ? dataToNormal(this._state.faders[`input:${n}`])
@@ -429,8 +439,8 @@ class AllenHeathMixer {
    */
   async setSendLevel(inputCh, mixBus, level) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const src = Math.max(0, parseInt(inputCh) - 1);
-    const snk = Math.max(0, parseInt(mixBus) - 1);
+    const src = AllenHeathMixer._idx(inputCh);
+    const snk = AllenHeathMixer._idx(mixBus);
     const addr = nrpn2D(SEND_LEVEL.inputToMix.msb, SEND_LEVEL.inputToMix.lsb, SQ_COUNTS.mixes, src, snk);
     const data = normalToData(parseFloat(level));
     const { vc, vf } = dataToVcVf(data);
@@ -445,8 +455,8 @@ class AllenHeathMixer {
    */
   async setFxSendLevel(inputCh, fxSend, level) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const src = Math.max(0, parseInt(inputCh) - 1);
-    const snk = Math.max(0, parseInt(fxSend) - 1);
+    const src = AllenHeathMixer._idx(inputCh);
+    const snk = AllenHeathMixer._idx(fxSend);
     const addr = nrpn2D(SEND_LEVEL.inputToFxSend.msb, SEND_LEVEL.inputToFxSend.lsb, SQ_COUNTS.fxSends, src, snk);
     const data = normalToData(parseFloat(level));
     const { vc, vf } = dataToVcVf(data);
@@ -458,7 +468,7 @@ class AllenHeathMixer {
    */
   async setMixLevel(mixBus, level) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(mixBus) - 1);
+    const n = AllenHeathMixer._idx(mixBus);
     const addr = nrpn1D(OUTPUT_LEVEL.mix.msb, OUTPUT_LEVEL.mix.lsb, n);
     const data = normalToData(parseFloat(level));
     const { vc, vf } = dataToVcVf(data);
@@ -472,8 +482,8 @@ class AllenHeathMixer {
    */
   async setInputToMixAssign(inputCh, mixBus, assigned) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const src = Math.max(0, parseInt(inputCh) - 1);
-    const snk = Math.max(0, parseInt(mixBus) - 1);
+    const src = AllenHeathMixer._idx(inputCh);
+    const snk = AllenHeathMixer._idx(mixBus);
     const addr = nrpn2D(SEND_ASSIGN.inputToMix.msb, SEND_ASSIGN.inputToMix.lsb, SQ_COUNTS.mixes, src, snk);
     this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, assigned ? 0x01 : 0x00));
   }
@@ -483,8 +493,8 @@ class AllenHeathMixer {
    */
   async setInputToGroupAssign(inputCh, group, assigned) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const src = Math.max(0, parseInt(inputCh) - 1);
-    const snk = Math.max(0, parseInt(group) - 1);
+    const src = AllenHeathMixer._idx(inputCh);
+    const snk = AllenHeathMixer._idx(group);
     const addr = nrpn2D(SEND_ASSIGN.inputToGroup.msb, SEND_ASSIGN.inputToGroup.lsb, SQ_COUNTS.groups, src, snk);
     this._tcp.send(buildNrpnSet(this.midiCh, addr.msb, addr.lsb, 0x00, assigned ? 0x01 : 0x00));
   }
@@ -497,7 +507,7 @@ class AllenHeathMixer {
    */
   async setPan(ch, pan) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const n = Math.max(0, parseInt(ch) - 1);
+    const n = AllenHeathMixer._idx(ch);
     const p = Number(pan);
     if (!Number.isFinite(p)) throw new Error('pan must be a number');
     if (p < -1 || p > 1) throw new Error(`Pan out of range: ${pan} (valid: -1.0 to +1.0)`);
@@ -537,7 +547,7 @@ class AllenHeathMixer {
    */
   async pressSoftKey(key) {
     if (!this._online) throw new Error(`${this.model} not connected`);
-    const idx = Math.max(0, parseInt(key) - 1);
+    const idx = AllenHeathMixer._idx(key);
     this._tcp.send(buildSoftKey(this.midiCh, idx, true));
     await new Promise(r => setTimeout(r, 100));
     this._tcp.send(buildSoftKey(this.midiCh, idx, false));
