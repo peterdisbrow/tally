@@ -78,6 +78,7 @@ function getDiskInfo() {
       const raw = child_process.execSync('df -k /', { encoding: 'utf8', timeout: 5000 });
       const lines = raw.trim().split('\n');
       // Second line has the data; columns: Filesystem 1K-blocks Used Available Use% Mounted
+      if (lines.length < 2) return { total: 0, used: 0, free: 0, usage: 0, error: 'df returned no data' };
       const parts = lines[1].split(/\s+/);
       const total = parseInt(parts[1], 10) * 1024;
       const used = parseInt(parts[2], 10) * 1024;
