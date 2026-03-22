@@ -31,9 +31,13 @@ jobs:
         working-directory: relay-server
         run: npm ci
 
-      - name: Run relay tests (unit + integration)
+      - name: Run relay tests with coverage
         working-directory: relay-server
-        run: npm run test:all
+        run: npm run test:coverage
+
+      - name: Run relay integration tests
+        working-directory: relay-server
+        run: npm run test:integration
 
   church-client:
     name: Church Client Tests
@@ -51,11 +55,11 @@ jobs:
 
       - name: Install dependencies
         working-directory: church-client
-        run: npm ci --omit=dev
+        run: npm ci
 
-      - name: Run church-client tests
+      - name: Run church-client tests with coverage
         working-directory: church-client
-        run: npm test
+        run: npm run test:coverage
 
   electron-app:
     name: Electron App Tests
@@ -75,9 +79,9 @@ jobs:
         working-directory: electron-app
         run: npm ci
 
-      - name: Run electron-app tests
+      - name: Run electron-app unit tests with coverage
         working-directory: electron-app
-        run: npm run test:unit
+        run: npm run test:coverage
 
   quality-gate:
     name: CI Quality Gate
@@ -87,5 +91,5 @@ jobs:
       - church-client
       - electron-app
     steps:
-      - name: All suites passed
-        run: echo "All codebase test suites passed."
+      - name: All suites passed with coverage thresholds met
+        run: echo "All codebase test suites passed with coverage thresholds enforced."
