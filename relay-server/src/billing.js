@@ -459,8 +459,11 @@ class BillingSystem {
     const subId = invoice.subscription;
     const billing = this.db.prepare('SELECT * FROM billing_customers WHERE stripe_subscription_id = ?').get(subId);
     if (billing && billing.status === 'past_due') {
+      const now = new Date().toISOString();
       this.db.prepare(`UPDATE billing_customers SET status = 'active', updated_at = ? WHERE stripe_subscription_id = ?`)
-        .run(new Date().toISOString(), subId);
+        .run(now, subId);
+      this.db.prepare('UPDATE churches SET billing_status = ? WHERE churchId = ?')
+        .run('active', billing.church_id);
       console.log(`[Billing] ✅ Payment recovered for church ${billing.church_id}`);
     }
   }
