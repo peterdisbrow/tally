@@ -126,6 +126,17 @@ class BillingSystem {
   }
 
   _ensureSchema() {
+    // Webhook idempotency table — Stripe retries delivery on non-2xx responses.
+    // Without this guard the same event (e.g. checkout.session.completed) would
+    // be processed twice, causing double-activations and duplicate emails.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS processed_webhook_events (
+        event_id     TEXT PRIMARY KEY,
+        event_type   TEXT NOT NULL,
+        processed_at TEXT NOT NULL
+      )
+    `);
+
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS billing_customers (
         id TEXT PRIMARY KEY,
@@ -303,6 +314,25 @@ class BillingSystem {
       event = stripe.webhooks.constructEvent(rawBody, signature, process.env.STRIPE_WEBHOOK_SECRET);
     } catch (err) {
       throw new Error(`Webhook signature verification failed: ${err.message}`);
+    }
+
+    // Idempotency guard — Stripe retries webhooks on non-2xx responses.
+    // Record the event ID before processing; skip if already seen.
+    try {
+      const already = this.db.prepare(
+        'SELECT event_id FROM processed_webhook_events WHERE event_id = ?'
+      ).get(event.id);
+      if (already) {
+        console.log(`[Billing] Webhook ${event.id} (${event.type}) already processed — skipping`);
+        return { received: true };
+      }
+      this.db.prepare(
+        'INSERT INTO processed_webhook_events (event_id, event_type, processed_at) VALUES (?, ?, ?)'
+      ).run(event.id, event.type, new Date().toISOString());
+    } catch (e) {
+      // DB error writing idempotency record — log and continue processing
+      // rather than reject a valid webhook.
+      console.warn(`[Billing] Could not record webhook idempotency key: ${e.message}`);
     }
 
     console.log(`[Billing] Webhook: ${event.type}`);

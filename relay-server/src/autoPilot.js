@@ -185,6 +185,19 @@ class AutoPilot {
         template_id TEXT
       )
     `);
+
+    // Persisted per-session dedup so relay restarts don't re-fire rules in
+    // the same service session (in-memory _firedThisSession is supplemented
+    // by this table on every _hasFiredThisSession lookup).
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS autopilot_session_fires (
+        session_id TEXT NOT NULL,
+        rule_id    TEXT NOT NULL,
+        church_id  TEXT NOT NULL,
+        fired_at   TEXT NOT NULL,
+        PRIMARY KEY (session_id, rule_id)
+      )
+    `);
   }
 
   // ─── COMMAND LOGGING ──────────────────────────────────────────────────────
@@ -533,6 +546,11 @@ class AutoPilot {
     const sessionId = this.sessionRecap?.getActiveSessionId(churchId);
     if (sessionId) {
       this._firedThisSession.delete(sessionId);
+      // Also clear the persisted dedup rows so that rules can fire again
+      // in the new session (e.g. next week's service).
+      try {
+        this.db.prepare('DELETE FROM autopilot_session_fires WHERE session_id = ?').run(sessionId);
+      } catch { /* non-fatal */ }
     }
   }
 
@@ -565,17 +583,49 @@ class AutoPilot {
   _hasFiredThisSession(churchId, ruleId) {
     const sessionId = this.sessionRecap?.getActiveSessionId(churchId);
     if (!sessionId) return false;
+
+    // Fast path: in-memory cache (avoids DB hit on every evaluation)
     const fired = this._firedThisSession.get(sessionId);
-    return fired?.has(ruleId) || false;
+    if (fired?.has(ruleId)) return true;
+
+    // Slow path: check persisted table so relay restarts don't re-fire rules
+    // in an already-running service session.
+    try {
+      const row = this.db.prepare(
+        'SELECT 1 FROM autopilot_session_fires WHERE session_id = ? AND rule_id = ? LIMIT 1'
+      ).get(sessionId, ruleId);
+      if (row) {
+        // Warm the in-memory cache so subsequent checks stay fast
+        if (!this._firedThisSession.has(sessionId)) {
+          this._firedThisSession.set(sessionId, new Set());
+        }
+        this._firedThisSession.get(sessionId).add(ruleId);
+        return true;
+      }
+    } catch {
+      // DB error — fall through and allow the rule to fire (fail open)
+    }
+    return false;
   }
 
   _markFiredThisSession(churchId, ruleId) {
     const sessionId = this.sessionRecap?.getActiveSessionId(churchId);
     if (!sessionId) return;
+
+    // Update in-memory cache
     if (!this._firedThisSession.has(sessionId)) {
       this._firedThisSession.set(sessionId, new Set());
     }
     this._firedThisSession.get(sessionId).add(ruleId);
+
+    // Persist to DB so the dedup survives relay restarts mid-service
+    try {
+      this.db.prepare(
+        'INSERT OR IGNORE INTO autopilot_session_fires (session_id, rule_id, church_id, fired_at) VALUES (?, ?, ?, ?)'
+      ).run(sessionId, ruleId, churchId, new Date().toISOString());
+    } catch {
+      // Non-fatal — in-memory cache still prevents double-fires within the same process
+    }
   }
 
   async _fireRule(churchId, rule, triggerContext) {
