@@ -592,7 +592,7 @@ class StreamHealthMonitor {
         this._criticalEmitted = false;
       }
       const poorDuration = now - this._poorTierSince;
-      if (poorDuration > POOR_TIER_CRITICAL_MS && !this._criticalEmitted) {
+      if (poorDuration >= POOR_TIER_CRITICAL_MS && !this._criticalEmitted) {
         this._criticalEmitted = true;
         this._emitQualityEvent('stream_quality_critical', {
           tier,

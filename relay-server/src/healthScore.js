@@ -281,9 +281,9 @@ function _computeRecoveryRate(db, churchId, since, until) {
       `SELECT SUM(alert_count) as total_alerts, SUM(auto_recovered_count) as total_recovered
        FROM service_sessions
        WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL`
-    ).all(...params);
+    ).get(...params);
 
-    const row = sessions[0];
+    const row = sessions;
     const totalAlerts = row?.total_alerts || 0;
     const totalRecovered = row?.total_recovered || 0;
 

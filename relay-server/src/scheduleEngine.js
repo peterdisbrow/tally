@@ -2,6 +2,42 @@
  * Schedule Engine — Service window management per church
  */
 
+/**
+ * Get the current day-of-week (0=Sun) and minutes-since-midnight in a
+ * given IANA timezone.  Falls back to server local time when tz is empty
+ * or not recognised so existing behaviour is preserved for churches that
+ * haven't synced their timezone yet.
+ *
+ * @param {string} tz  IANA timezone string e.g. 'America/Chicago'
+ * @returns {{ day: number, minutesNow: number }}
+ */
+function _getLocalDayMinutes(tz) {
+  const now = new Date();
+  if (!tz) {
+    return { day: now.getDay(), minutesNow: now.getHours() * 60 + now.getMinutes() };
+  }
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(now);
+
+    const weekdayNames = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const weekday = parts.find(p => p.type === 'weekday')?.value;
+    // hour12:false can emit '24' for midnight; treat as 0
+    const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10) % 24;
+    const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+
+    const day = weekdayNames[weekday] ?? now.getDay();
+    return { day, minutesNow: hour * 60 + minute };
+  } catch {
+    return { day: now.getDay(), minutesNow: now.getHours() * 60 + now.getMinutes() };
+  }
+}
+
 class ScheduleEngine {
   constructor(db) {
     this.db = db;
@@ -31,6 +67,14 @@ class ScheduleEngine {
     try { return JSON.parse(row.service_times); } catch { return []; }
   }
 
+  /** Fetch the church's IANA timezone (empty string if unknown). */
+  _getTimezone(churchId) {
+    try {
+      const row = this.db.prepare('SELECT timezone FROM churches WHERE churchId = ?').get(churchId);
+      return row?.timezone || '';
+    } catch { return ''; }
+  }
+
   isServiceWindow(churchId) {
     // Event churches treat their entire monitoring window as one service window
     try {
@@ -44,9 +88,9 @@ class ScheduleEngine {
 
     const schedule = this.getSchedule(churchId);
     if (!schedule.length) return false;
-    const now = new Date();
-    const day = now.getDay();
-    const minutesNow = now.getHours() * 60 + now.getMinutes();
+
+    const tz = this._getTimezone(churchId);
+    const { day, minutesNow } = _getLocalDayMinutes(tz);
     const BUFFER = 30;
 
     for (const s of schedule) {
@@ -120,9 +164,9 @@ class ScheduleEngine {
   getNextService(churchId) {
     const schedule = this.getSchedule(churchId);
     if (!schedule.length) return null;
-    const now = new Date();
-    const day = now.getDay();
-    const minutesNow = now.getHours() * 60 + now.getMinutes();
+
+    const tz = this._getTimezone(churchId);
+    const { day, minutesNow } = _getLocalDayMinutes(tz);
 
     let best = null;
     let bestMinutesUntil = Infinity;

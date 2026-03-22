@@ -2123,9 +2123,14 @@ class TallyBot {
   }
 
   async _handleRemoveSlack(church, chatId) {
-    this.db.prepare('UPDATE churches SET slack_webhook_url = NULL, slack_channel = NULL WHERE churchId = ?')
-      .run(church.churchId);
-    return this.sendMessage(chatId, `✅ Slack integration removed for *${church.name}*.`, { parse_mode: 'Markdown' });
+    try {
+      this.db.prepare('UPDATE churches SET slack_webhook_url = NULL, slack_channel = NULL WHERE churchId = ?')
+        .run(church.churchId);
+      return this.sendMessage(chatId, `✅ Slack integration removed for *${church.name}*.`, { parse_mode: 'Markdown' });
+    } catch (e) {
+      console.error('[TallyBot] _handleRemoveSlack DB error:', e.message);
+      return this.sendMessage(chatId, `❌ Failed to remove Slack integration: ${e.message}`);
+    }
   }
 
   async _handleTestSlack(church, chatId) {
