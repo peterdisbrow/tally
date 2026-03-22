@@ -4015,6 +4015,8 @@ const commandHandlers = {
   'preset.list': presetList,
   'preset.recall': presetRecall,
   'preset.delete': presetDelete,
+
+  ...require('./commands/recovery'),
 };
 
 module.exports = { commandHandlers };
