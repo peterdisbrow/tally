@@ -3704,67 +3704,105 @@ server.listen(PORT, () => {
 
 // ─── GRACEFUL SHUTDOWN ─────────────────────────────────────────────────────────
 
-function gracefulShutdown(signal) {
-  log(`${signal} received — shutting down gracefully...`);
+let _shuttingDown = false;
+
+function gracefulShutdown(signal, exitCode = 0) {
+  if (_shuttingDown) return; // prevent re-entrant shutdown (e.g. second signal)
+  _shuttingDown = true;
+
+  log(`${signal} received — shutting down gracefully`, { signal, event: 'shutdown_start' });
+
+  // Force exit after 10s if graceful close hangs
+  const forceTimer = setTimeout(() => {
+    logError('Graceful shutdown timed out after 10s — forcing exit', { event: 'shutdown_timeout' });
+    process.exit(1);
+  }, 10_000);
+  forceTimer.unref(); // don't keep the event loop alive just for this timer
 
   // Clear all tracked intervals to prevent timer leaks / post-close errors
   for (const id of _intervals) clearInterval(id);
   _intervals.length = 0;
-
-  // Clean up subsystem timers (failover black/ack timers, Telegram bot polling)
-  try { signalFailover.cleanup(); } catch {}
-  try { tallyBot?.stop?.(); } catch {}
-
-  // Close WebSocket server (stops accepting new connections)
-  wss.close(() => {
-    log('WebSocket server closed');
-  });
-
-  // Close all church WebSocket connections
-  for (const church of churches.values()) {
-    if (church.ws?.readyState === WebSocket.OPEN) {
-      church.ws.close(1001, 'server shutting down');
-    }
-  }
-
-  // Close all controller connections
-  for (const ws of controllers) {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.close(1001, 'server shutting down');
-    }
-  }
+  log('Cleared tracked intervals', { event: 'shutdown_intervals_cleared' });
 
   // Stop heartbeat interval
   clearInterval(heartbeatInterval);
 
-  // Close HTTP server
-  server.close(() => {
-    log('HTTP server closed');
-    // Close database
-    try { db.close(); } catch {}
-    process.exit(0);
+  // Clean up subsystem timers (failover back/ack timers, Telegram bot polling)
+  try { signalFailover.cleanup(); } catch (e) {
+    logWarn('signalFailover.cleanup() threw during shutdown', { error: e?.message });
+  }
+  try { tallyBot?.stop?.(); } catch (e) {
+    logWarn('tallyBot.stop() threw during shutdown', { error: e?.message });
+  }
+
+  // Send close frames to all church WebSocket connections so clients know to reconnect
+  let churchWsClosed = 0;
+  for (const church of churches.values()) {
+    if (church.ws?.readyState === WebSocket.OPEN) {
+      church.ws.close(1001, 'server shutting down');
+      churchWsClosed++;
+    }
+  }
+  log(`Closed ${churchWsClosed} church WebSocket connection(s)`, { event: 'shutdown_church_ws_closed', count: churchWsClosed });
+
+  // Send close frames to all controller connections
+  let controllerWsClosed = 0;
+  for (const ws of controllers) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.close(1001, 'server shutting down');
+      controllerWsClosed++;
+    }
+  }
+  log(`Closed ${controllerWsClosed} controller WebSocket connection(s)`, { event: 'shutdown_controller_ws_closed', count: controllerWsClosed });
+
+  // Stop accepting new WebSocket connections
+  wss.close(() => {
+    log('WebSocket server closed', { event: 'shutdown_wss_closed' });
   });
 
-  // Force exit after 10s if graceful close hangs
-  setTimeout(() => {
-    console.error('Forced exit after 10s timeout');
-    process.exit(1);
-  }, 10_000).unref();
+  // Stop accepting new HTTP connections; wait for in-flight requests to finish
+  server.close(() => {
+    log('HTTP server closed', { event: 'shutdown_http_closed' });
+    // Close database (flushes WAL and pending writes)
+    try {
+      db.close();
+      log('Database closed', { event: 'shutdown_db_closed' });
+    } catch (e) {
+      logWarn('db.close() threw during shutdown', { error: e?.message });
+    }
+    clearTimeout(forceTimer);
+    log('Shutdown complete', { event: 'shutdown_complete', exitCode });
+    process.exit(exitCode);
+  });
 }
 
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[FATAL] Unhandled promise rejection:', reason);
-  log(`[FATAL] Unhandled rejection: ${reason?.message || reason}`);
+// ─── SAFETY NET: UNHANDLED REJECTIONS & UNCAUGHT EXCEPTIONS ───────────────────
+
+// Log and continue — an unhandled rejection means a single async operation
+// failed without a catch, but Node is still in a defined state.
+process.on('unhandledRejection', (reason, _promise) => {
+  logError('Unhandled promise rejection', {
+    event: 'unhandled_rejection',
+    error: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+  // Do NOT exit — the server can continue serving other requests.
 });
 
-process.on('uncaughtException', (err) => {
-  console.error('[FATAL] Uncaught exception:', err);
-  log(`[FATAL] Uncaught exception: ${err.message}`);
-  // Give log a moment to flush, then exit — continuing after uncaught exception is unsafe
-  setTimeout(() => process.exit(1), 1000).unref();
+// Log, attempt graceful shutdown, then exit.
+// Node docs: after uncaughtException the process is in an undefined state;
+// continuing to serve requests is unsafe.
+process.on('uncaughtException', (err, origin) => {
+  logError('Uncaught exception — initiating graceful shutdown', {
+    event: 'uncaught_exception',
+    origin,
+    error: err?.message,
+    stack: err?.stack,
+  });
+  gracefulShutdown('uncaughtException', 1);
 });
 
 // Export for testing
