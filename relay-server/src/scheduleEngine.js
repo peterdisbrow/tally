@@ -2,6 +2,9 @@
  * Schedule Engine — Service window management per church
  */
 
+const { createLogger } = require('./logger');
+const log = createLogger('ScheduleEngine');
+
 /**
  * Get the current day-of-week (0=Sun) and minutes-since-midnight in a
  * given IANA timezone.  Falls back to server local time when tz is empty
@@ -134,7 +137,7 @@ class ScheduleEngine {
     try {
       churches = this.db.prepare('SELECT churchId FROM churches').all();
     } catch (e) {
-      console.error('[ScheduleEngine] poll error:', e.message);
+      log.error('poll error', { event: 'schedule_poll_error', error: e.message });
       return;
     }
 
@@ -147,12 +150,12 @@ class ScheduleEngine {
         if (inWindow) {
           // Window just opened
           for (const fn of this._openCallbacks) {
-            try { fn(churchId); } catch (e) { console.error('[ScheduleEngine] onWindowOpen error:', e.message); }
+            try { fn(churchId); } catch (e) { log.error('onWindowOpen callback error', { event: 'window_open_error', churchId, error: e.message }); }
           }
         } else {
           // Window just closed
           for (const fn of this._closeCallbacks) {
-            try { fn(churchId); } catch (e) { console.error('[ScheduleEngine] onWindowClose error:', e.message); }
+            try { fn(churchId); } catch (e) { log.error('onWindowClose callback error', { event: 'window_close_error', churchId, error: e.message }); }
           }
         }
       } else {
