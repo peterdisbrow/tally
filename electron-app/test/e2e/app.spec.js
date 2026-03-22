@@ -465,58 +465,53 @@ test.describe('UI -- Wizard Structure', () => {
     await expect(page.locator('#wizard')).toHaveCount(1);
   });
 
-  test('wizard has 5 steps', async () => {
-    const steps = await page.locator('#wizard .wizard-step').count();
-    expect(steps).toBe(5);
+  test('wizard has 4 progress stages', async () => {
+    const stages = await page.locator('#wizard .ob-stage').count();
+    expect(stages).toBe(4);
   });
 
-  test('step 1 is ATEM discovery', async () => {
-    const text = await page.locator('#wizard .wizard-step[data-step="1"]').textContent();
-    expect(text).toContain('ATEM');
+  test('stage 1 is gear', async () => {
+    const text = await page.locator('#wizard .ob-stage[data-stage="gear"]').textContent();
+    expect(text).toContain('Gear');
   });
 
-  test('step 2 is encoder selection', async () => {
-    const text = await page.locator('#wizard .wizard-step[data-step="2"]').textContent();
-    expect(text).toContain('Encoder');
+  test('stage 2 is schedule', async () => {
+    const text = await page.locator('#wizard .ob-stage[data-stage="schedule"]').textContent();
+    expect(text).toContain('Schedule');
   });
 
-  test('step 3 is optional devices', async () => {
-    const text = await page.locator('#wizard .wizard-step[data-step="3"]').textContent();
-    expect(text).toContain('Companion');
+  test('stage 3 is team', async () => {
+    const text = await page.locator('#wizard .ob-stage[data-stage="tds"]').textContent();
+    expect(text).toContain('Team');
   });
 
-  test('step 4 is Tally Engineer profile', async () => {
-    const text = await page.locator('#wizard .wizard-step[data-step="4"]').textContent();
-    expect(text).toContain('Train Your Tally Engineer');
+  test('stage 4 is stream', async () => {
+    const text = await page.locator('#wizard .ob-stage[data-stage="stream"]').textContent();
+    expect(text).toContain('Stream');
   });
 
-  test('step 5 is completion', async () => {
-    const text = await page.locator('#wizard .wizard-step[data-step="5"]').textContent();
-    expect(text).toContain('All Set');
+  test('wizard chat input exists', async () => {
+    await expect(page.locator('#ob-input')).toHaveCount(1);
   });
 
-  test('wizard ATEM IP input exists', async () => {
-    await expect(page.locator('#wiz-atem')).toHaveCount(1);
+  test('wizard messages container exists', async () => {
+    await expect(page.locator('#ob-messages')).toHaveCount(1);
   });
 
-  test('wizard encoder type dropdown exists', async () => {
-    await expect(page.locator('#wiz-encoder-type')).toHaveCount(1);
+  test('wizard scroll container exists', async () => {
+    await expect(page.locator('#ob-scroll')).toHaveCount(1);
   });
 
-  test('wizard network interface selector exists', async () => {
-    await expect(page.locator('#wiz-scan-nic')).toHaveCount(1);
+  test('wizard send button exists', async () => {
+    await expect(page.locator('#ob-send')).toHaveCount(1);
   });
 
-  test('wizard auto-discover button exists', async () => {
-    await expect(page.locator('#btn-scan')).toHaveCount(1);
+  test('wizard progress bar exists', async () => {
+    await expect(page.locator('#ob-progress')).toHaveCount(1);
   });
 
-  test('wizard Next button exists', async () => {
-    await expect(page.locator('#wiz-next')).toHaveCount(1);
-  });
-
-  test('wizard Back button exists', async () => {
-    await expect(page.locator('#wiz-back')).toHaveCount(1);
+  test('wizard skip link exists', async () => {
+    await expect(page.locator('.ob-skip a')).toHaveCount(1);
   });
 });
 
