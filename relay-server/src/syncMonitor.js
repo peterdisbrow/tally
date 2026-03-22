@@ -60,7 +60,10 @@ function setupSyncMonitor(db, relay, telegramBot, notifyUpdate) {
 
     // Ensure state entry exists
     if (!state.has(churchId)) {
-      state.set(churchId, { history: [], lastStatus: null, lastWarnAlert: 0, lastCritAlert: 0 });
+      state.set(churchId, {
+        history: [], lastStatus: null, lastWarnAlert: 0, lastCritAlert: 0,
+        consecutiveFailures: 0, // transient-error filter
+      });
     }
     const cs = state.get(churchId);
 
@@ -72,8 +75,14 @@ function setupSyncMonitor(db, relay, telegramBot, notifyUpdate) {
       clearTimeout(timeout);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       data = await res.json();
+      cs.consecutiveFailures = 0; // reset on successful fetch
     } catch {
-      // Encoder unreachable — mark as unavailable
+      cs.consecutiveFailures += 1;
+      // Require 2 consecutive failures before reporting unavailable.
+      // A single network hiccup should not flip the dashboard or trigger alerts.
+      if (cs.consecutiveFailures < 2) {
+        return; // skip this poll cycle — keep last known status
+      }
       data = { avOffsetMs: null, status: 'unavailable' };
     }
 
@@ -110,13 +119,17 @@ function setupSyncMonitor(db, relay, telegramBot, notifyUpdate) {
 
     // ── Alert on status transitions ──────────────────────────────────────────
     if (newStatus === 'critical') {
-      // Alert immediately on critical (no throttle)
-      await sendTelegram(
-        `🔴 *A/V SYNC CRITICAL — ${churchName}*\n` +
-        `Offset: ${data.avOffsetMs}ms (>100ms)\n` +
-        `60s avg: ${avg60s ?? '—'}ms | max: ${maxDrift60s ?? '—'}ms`
-      );
-      cs.lastCritAlert = now;
+      // Alert on transition into critical, then throttle to once per 5 min.
+      // Without this guard the alert fires every 5 s (every poll cycle) while
+      // the offset stays critical, flooding the TD's Telegram.
+      if (prevStatus !== 'critical' || now - cs.lastCritAlert > WARN_THROTTLE_MS) {
+        await sendTelegram(
+          `🔴 *A/V SYNC CRITICAL — ${churchName}*\n` +
+          `Offset: ${data.avOffsetMs}ms (>100ms)\n` +
+          `60s avg: ${avg60s ?? '—'}ms | max: ${maxDrift60s ?? '—'}ms`
+        );
+        cs.lastCritAlert = now;
+      }
 
     } else if (newStatus === 'warn' && prevStatus !== 'warn' && prevStatus !== 'critical') {
       // Transition into warn — throttle to once per 5 min
