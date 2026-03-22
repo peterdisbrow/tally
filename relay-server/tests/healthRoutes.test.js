@@ -28,7 +28,7 @@ function makeCtx(overrides = {}) {
 function makeApp() {
   const routes = {};
   return {
-    app: { get: (path, handler) => { routes[path] = handler; } },
+    app: { get: (path, ...handlers) => { routes[path] = handlers[handlers.length - 1]; } },
     routes,
   };
 }

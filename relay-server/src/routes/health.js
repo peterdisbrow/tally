@@ -9,10 +9,21 @@
  *   GET /api/status        Machine-readable status for uptime monitors (BetterUptime, etc.)
  *
  * All endpoints are unauthenticated so external monitoring services can poll them.
+ * Rate-limited to 60 req/min per IP to prevent scraping / accidental DoS.
  *
  * @param {import('express').Express} app
  * @param {object} ctx - Shared server context
  */
+const { createRateLimit } = require('../rateLimit');
+
+// 60 requests per minute per IP — generous enough for any real monitor, restrictive enough
+// to block accidental hammering or automated scrapers.
+const healthRateLimit = createRateLimit({
+  scope: 'health',
+  maxAttempts: 60,
+  windowMs: 60 * 1000,
+});
+
 module.exports = function setupHealthRoutes(app, ctx) {
   const { churches, controllers, RELAY_VERSION, RELAY_BUILD, WebSocket } = ctx;
   // db is optional — when omitted (tests, early boot) DB checks report 'skipped'
@@ -78,7 +89,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
 
   // ─── GET / — basic liveness ─────────────────────────────────────────────────
 
-  app.get('/', (_req, res) => {
+  app.get('/', healthRateLimit, (_req, res) => {
     res.json({
       service:     'tally-relay',
       version:     RELAY_VERSION,
@@ -116,8 +127,8 @@ module.exports = function setupHealthRoutes(app, ctx) {
     });
   }
 
-  app.get('/api/health', detailedHealth);
-  app.get('/health',     detailedHealth);
+  app.get('/api/health', healthRateLimit, detailedHealth);
+  app.get('/health',     healthRateLimit, detailedHealth);
 
   // ─── GET /health/deep — thorough check (includes DB write test) ──────────────
   //
@@ -125,7 +136,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
   // isn't in read-only mode. Use for scheduled monitoring (e.g. every 5 min);
   // not as a liveness probe since it writes to the DB.
 
-  app.get('/health/deep', (_req, res) => {
+  app.get('/health/deep', healthRateLimit, (_req, res) => {
     const connectedCount = countConnected();
     const dbRead  = dbReadCheck();
 
@@ -175,7 +186,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
   // Status values: 'operational' | 'degraded' | 'partial_outage' | 'major_outage'
   // HTTP 200 for operational/degraded, 503 for outage states.
 
-  app.get('/api/status', (_req, res) => {
+  app.get('/api/status', healthRateLimit, (_req, res) => {
     const uptimeSeconds  = Math.floor(process.uptime());
     const connectedCount = Array.from(churches.values())
       .filter(c => c.ws?.readyState === WebSocket.OPEN).length;
