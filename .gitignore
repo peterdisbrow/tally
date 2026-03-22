@@ -10,3 +10,4 @@ electron-app/dist-mock-lab/
 .playwright-cli/
 */test-results/
 output/
+*/coverage/

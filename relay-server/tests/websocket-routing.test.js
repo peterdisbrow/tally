@@ -91,6 +91,7 @@ function buildTestServer(overrides = {}) {
         controllers,
         handlers,
         close: () => new Promise((res) => {
+          for (const ws of wss.clients) ws.terminate();
           wss.close(() => httpServer.close(res));
         }),
       });
@@ -103,10 +104,27 @@ function buildTestServer(overrides = {}) {
 /**
  * Open a WebSocket and wait for it to be connected (readyState === OPEN).
  * Rejects on close-before-open (gives you the close code/reason).
+ *
+ * Attaches a single internal 'message' router on the socket so that messages
+ * arriving before nextMessage() registers a listener (a common race on
+ * localhost where the server sends synchronously on 'connection') are queued
+ * and delivered in order.  nextMessage / nextMessages drain this queue.
  */
 function connect(url) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url);
+    // Queue: pending buffers for messages not yet consumed; waiters for callers
+    // already waiting.  The router delivers to a waiter immediately if one
+    // exists, otherwise buffers so the message is not lost.
+    const q = { pending: [], waiters: [] };
+    ws._q = q;
+    ws.on('message', (data) => {
+      if (q.waiters.length > 0) {
+        q.waiters.shift()(data);
+      } else {
+        q.pending.push(data);
+      }
+    });
     ws.once('open', () => resolve(ws));
     ws.once('error', reject);
     ws.once('close', (code, reason) => {
@@ -131,34 +149,62 @@ function connectAndGetClose(url) {
 
 /**
  * Wait for the next message on an open WebSocket.
+ * Drains the internal queue populated by connect() before waiting for a live
+ * event, so messages sent synchronously on connection are never missed.
  * Rejects after `timeoutMs` if no message arrives.
  */
 function nextMessage(ws, timeoutMs = 2000) {
+  const q = ws._q;
+  if (q?.pending.length > 0) {
+    return Promise.resolve(JSON.parse(q.pending.shift().toString()));
+  }
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('nextMessage timeout')), timeoutMs);
-    ws.once('message', (data) => {
+    const timer = setTimeout(() => {
+      if (q) {
+        const i = q.waiters.indexOf(waiter);
+        if (i !== -1) q.waiters.splice(i, 1);
+      }
+      reject(new Error('nextMessage timeout'));
+    }, timeoutMs);
+    function waiter(data) {
       clearTimeout(timer);
       resolve(JSON.parse(data.toString()));
-    });
+    }
+    if (q) {
+      q.waiters.push(waiter);
+    } else {
+      ws.once('message', waiter);
+    }
   });
 }
 
 /**
  * Collect the next N messages on an open WebSocket.
+ * Drains the internal queue before waiting for live events.
  */
 function nextMessages(ws, n, timeoutMs = 2000) {
-  const msgs = [];
+  const q = ws._q;
+  const msgs = q ? q.pending.splice(0).map(d => JSON.parse(d.toString())) : [];
+  if (msgs.length >= n) return Promise.resolve(msgs.slice(0, n));
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`nextMessages(${n}) timeout — got ${msgs.length}`)), timeoutMs);
-    function onMsg(data) {
+    function waiter(data) {
       msgs.push(JSON.parse(data.toString()));
       if (msgs.length >= n) {
         clearTimeout(timer);
-        ws.off('message', onMsg);
         resolve(msgs);
+      } else if (q) {
+        q.waiters.push(waiter);
       }
     }
-    ws.on('message', onMsg);
+    if (q) {
+      q.waiters.push(waiter);
+    } else {
+      ws.on('message', (data) => {
+        msgs.push(JSON.parse(data.toString()));
+        if (msgs.length >= n) { clearTimeout(timer); resolve(msgs); }
+      });
+    }
   });
 }
 
@@ -558,8 +604,7 @@ describe('WebSocket routing — real integration tests against createWebSocketHa
       await nextMessage(churchWs); // connected
 
       const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
-      await nextMessage(ctrl); // church_list
-      await nextMessage(ctrl); // church_connected (from church connect above)
+      await nextMessage(ctrl); // church_list (church-1 already connected — no separate church_connected)
 
       // Church waits for a command
       const cmdPromise = nextMessage(churchWs);
@@ -613,8 +658,7 @@ describe('WebSocket routing — real integration tests against createWebSocketHa
       await nextMessage(churchWs);
 
       const ctrl = await connect(`${server2.url}/controller?apikey=${ADMIN_API_KEY}`);
-      await nextMessage(ctrl); // church_list
-      await nextMessage(ctrl); // church_connected
+      await nextMessage(ctrl); // church_list (church already connected, no separate church_connected)
 
       send(ctrl, { type: 'command', churchId: 'church-1', command: 'atem.cut', params: {} });
 
@@ -723,9 +767,7 @@ describe('WebSocket routing — real integration tests against createWebSocketHa
       await nextMessage(ws2);
 
       const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
-      await nextMessage(ctrl);              // church_list
-      await nextMessage(ctrl);             // church_connected #1
-      await nextMessage(ctrl);             // church_connected #2
+      await nextMessage(ctrl); // church_list (both churches already connected — no separate church_connected events)
 
       // Only ws1 should get the command
       const cmdPromise = nextMessage(ws1);
@@ -754,9 +796,7 @@ describe('WebSocket routing — real integration tests against createWebSocketHa
       await nextMessage(ws1);
 
       const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
-      const list = await nextMessage(ctrl); // church_list (church-1 now connected)
-      // consume church_connected broadcast
-      await nextMessage(ctrl);
+      const list = await nextMessage(ctrl); // church_list (church-1 already connected; controller joined after, so no separate church_connected)
 
       const c1 = list.churches.find(c => c.churchId === 'church-1');
       const c2 = list.churches.find(c => c.churchId === 'church-2');
