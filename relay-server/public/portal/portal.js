@@ -786,13 +786,13 @@
     }
 
     /** Toggle between EN and ES, persist to localStorage, re-translate the page. */
-    // ── Lite Mode ──────────────────────────────────────────────────────────
-    function toggleLiteMode() {
-      var isLite = document.body.classList.toggle('lite-mode');
-      localStorage.setItem('portal_lite_mode', isLite ? '1' : '');
-      updateLiteToggleUI(isLite);
+    // ── Volunteer Mode ──────────────────────────────────────────────────────────
+    function toggleVolunteerMode() {
+      var isVolunteer = document.body.classList.toggle('volunteer-mode');
+      localStorage.setItem('portal_volunteer_mode', isVolunteer ? '1' : '');
+      updateVolunteerToggleUI(isVolunteer);
       // If currently on a hidden page, switch to overview
-      if (isLite) {
+      if (isVolunteer) {
         var activePage = document.querySelector('.page.active');
         if (activePage && activePage.style.display === 'none') {
           var overviewBtn = document.querySelector('.nav-item[data-page="overview"]');
@@ -800,22 +800,45 @@
         }
       }
     }
-    function updateLiteToggleUI(isLite) {
+    function updateVolunteerToggleUI(isVolunteer) {
       var sw = document.getElementById('lite-toggle-switch');
       var knob = document.getElementById('lite-toggle-knob');
       if (sw && knob) {
-        sw.style.background = isLite ? '#22c55e' : '#1e293b';
-        knob.style.left = isLite ? '18px' : '2px';
-        knob.style.background = isLite ? '#fff' : '#475569';
+        sw.style.background = isVolunteer ? '#22c55e' : '#1e293b';
+        knob.style.left = isVolunteer ? '18px' : '2px';
+        knob.style.background = isVolunteer ? '#fff' : '#475569';
       }
     }
     // Restore lite mode on load
-    if (localStorage.getItem('portal_lite_mode') === '1') {
-      document.body.classList.add('lite-mode');
-      updateLiteToggleUI(true);
+    if (localStorage.getItem('portal_volunteer_mode') === '1') {
+      document.body.classList.add('volunteer-mode');
+      updateVolunteerToggleUI(true);
     }
     // Expose globally for inline onclick in banner
-    window.toggleLiteMode = toggleLiteMode;
+    window.toggleVolunteerMode = toggleVolunteerMode;
+
+    // ── Theme Toggle ────────────────────────────────────────────────────────
+    function toggleTheme() {
+      var isLight = document.body.classList.toggle('light-theme');
+      localStorage.setItem('portal_theme', isLight ? 'light' : 'dark');
+      updateThemeToggleUI(isLight);
+    }
+    function updateThemeToggleUI(isLight) {
+      var sw = document.getElementById('theme-toggle-switch');
+      var knob = document.getElementById('theme-toggle-knob');
+      var label = document.getElementById('theme-label');
+      if (sw && knob) {
+        sw.style.background = isLight ? '#22c55e' : '#1e293b';
+        knob.style.left = isLight ? '18px' : '2px';
+        knob.style.background = isLight ? '#fff' : '#475569';
+      }
+      if (label) label.innerHTML = isLight ? '&#9788; Light' : '&#9790; Dark';
+    }
+    // Restore theme on load
+    if (localStorage.getItem('portal_theme') === 'light') {
+      document.body.classList.add('light-theme');
+      updateThemeToggleUI(true);
+    }
 
     function toggleLanguage() {
       const current = portalLocale();
@@ -5952,9 +5975,14 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof logout === 'function') logout();
         break;
 
-      // Lite mode
-      case 'toggleLiteMode':
-        if (typeof toggleLiteMode === 'function') toggleLiteMode();
+      // Volunteer mode
+      case 'toggleVolunteerMode':
+        if (typeof toggleVolunteerMode === 'function') toggleVolunteerMode();
+        break;
+
+      // Theme
+      case 'toggleTheme':
+        if (typeof toggleTheme === 'function') toggleTheme();
         break;
 
       // Demo mode
