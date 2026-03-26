@@ -3265,6 +3265,14 @@ const _wsHandlers = createWebSocketHandlers({
             const escalated = alertResult && alertResult.severity === 'EMERGENCY';
             sessionRecap.recordAlert(church.churchId, msg.alertType, false, escalated);
           }
+          // ── AutoPilot: evaluate alert-based rules ──
+          if (autoPilot) {
+            autoPilot.onAlert(church.churchId, {
+              alertType: msg.alertType,
+              severity: msg.severity || 'warning',
+              message: msg.message,
+            }).catch(() => {});
+          }
         } catch (e) {
           console.error(`Alert processing error for ${church.name}:`, e.message);
         }

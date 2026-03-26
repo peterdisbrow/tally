@@ -21,7 +21,7 @@
 
 const { v4: uuidv4 } = require('uuid');
 
-const TRIGGER_TYPES = ['propresenter_slide_change', 'schedule_timer', 'equipment_state_match'];
+const TRIGGER_TYPES = ['propresenter_slide_change', 'schedule_timer', 'equipment_state_match', 'alert_condition'];
 
 // Max rules per billing tier
 const MAX_RULES_PER_TIER = { connect: 0, plus: 5, pro: 10, managed: 25, enterprise: 25, event: 0 };
@@ -113,6 +113,52 @@ const RULE_TEMPLATES = [
     conditions: {},
     tier: 'pro',
     category: 'integration',
+  },
+  {
+    id: 'alert_stream_restart',
+    name: 'Auto-Restart Stream on Drop',
+    description: 'When stream_stopped alert fires, automatically restart the stream',
+    trigger: { type: 'alert_condition', config: { alertType: 'stream_stopped', minSeverity: 'warning' } },
+    action: [{ command: 'encoder.startStream', params: {} }],
+    conditions: {},
+    tier: 'plus',
+    category: 'recovery',
+  },
+  {
+    id: 'alert_audio_silence_notify',
+    name: 'Audio Silence Escalation',
+    description: 'When audio silence is detected for 2+ minutes, alert TD and mute stream audio',
+    trigger: { type: 'alert_condition', config: { alertType: 'audio_silence', minSeverity: 'critical' } },
+    action: [{ command: 'notify.alertTD', params: { message: 'Audio silence detected — check mixer and mic connections' } }],
+    conditions: {},
+    tier: 'plus',
+    category: 'recovery',
+  },
+  {
+    id: 'alert_encoder_reconnect',
+    name: 'Encoder Offline Recovery',
+    description: 'When encoder disconnects, attempt to reconnect and alert TD',
+    trigger: { type: 'alert_condition', config: { alertType: 'encoder_disconnected', minSeverity: 'warning' } },
+    action: [
+      { command: 'notify.alertTD', params: { message: 'Encoder went offline — attempting reconnect' } },
+      { command: 'encoder.startStream', params: {} },
+    ],
+    conditions: {},
+    tier: 'plus',
+    category: 'recovery',
+  },
+  {
+    id: 'alert_atem_failover',
+    name: 'ATEM Disconnect Failover',
+    description: 'When ATEM disconnects during service, switch to safe source via Companion',
+    trigger: { type: 'alert_condition', config: { alertType: 'atem_disconnected', minSeverity: 'critical' } },
+    action: [
+      { command: 'companion.pressNamed', params: { name: 'Safe Source' } },
+      { command: 'notify.alertTD', params: { message: 'ATEM disconnected — switched to safe source' } },
+    ],
+    conditions: {},
+    tier: 'pro',
+    category: 'recovery',
   },
 ];
 
@@ -535,6 +581,53 @@ class AutoPilot {
 
       if (match && Object.keys(config.conditions || {}).length > 0) {
         await this._fireRule(churchId, rule, { trigger: 'equipment_state_match', state });
+      }
+    }
+  }
+
+  /**
+   * Called when an alert fires. Evaluates alert_condition rules.
+   * @param {string} churchId
+   * @param {{ alertType: string, severity: string, message: string }} alertData
+   */
+  async onAlert(churchId, alertData) {
+    if (this.isPaused(churchId)) return;
+    if (!this._isInServiceWindow(churchId)) return;
+    if (!this._checkBilling(churchId)) return;
+
+    const rules = this._getActiveRules(churchId, 'alert_condition');
+    for (const rule of rules) {
+      if (this._hasFiredThisSession(churchId, rule.id)) continue;
+
+      const config = rule.trigger_config;
+      let match = false;
+
+      // Match by alert type pattern
+      if (config.alertType) {
+        const pattern = String(config.alertType).toLowerCase();
+        const actual = String(alertData.alertType || '').toLowerCase();
+        match = actual === pattern || actual.includes(pattern);
+      }
+
+      // Optionally filter by minimum severity
+      if (match && config.minSeverity) {
+        const severityOrder = { info: 0, warning: 1, critical: 2, emergency: 3 };
+        const alertSev = severityOrder[String(alertData.severity || 'info').toLowerCase()] || 0;
+        const minSev = severityOrder[String(config.minSeverity).toLowerCase()] || 0;
+        if (alertSev < minSev) match = false;
+      }
+
+      // Optionally require sustained duration (alert must persist for N seconds)
+      // This is checked by the caller — if durationSec is set, the alert engine
+      // should only call onAlert after the duration threshold is met.
+
+      if (match) {
+        await this._fireRule(churchId, rule, {
+          trigger: 'alert_condition',
+          alertType: alertData.alertType,
+          severity: alertData.severity,
+          message: alertData.message,
+        });
       }
     }
   }

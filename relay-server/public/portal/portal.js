@@ -5502,11 +5502,48 @@
         var checks = (triage.checks || []).map(function(c) {
           return (c.ok ? '\\u2705 ' : '\\u274C ') + c.note;
         }).join('<br>');
-        document.getElementById('support-triage-result').innerHTML =
-          '<div style=\"background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:10px\">' +
-          '<div style=\"font-weight:700;color:#F8FAFC;margin-bottom:6px\">Triage result: ' + escapeHtml(triage.triageResult || 'monitoring') + '</div>' +
-          '<div style=\"color:#94A3B8\">' + checks + '</div>' +
-          '</div>';
+        var html = '<div style="background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:14px">';
+        html += '<div style="font-weight:700;color:#F8FAFC;margin-bottom:8px">Triage: ' + escapeHtml(triage.triageResult || 'monitoring') + '</div>';
+        html += '<div style="color:#94A3B8;margin-bottom:10px">' + checks + '</div>';
+
+        // AI Analysis
+        var ai = triage.aiAnalysis;
+        if (ai && ai.primaryCause) {
+          html += '<div style="border-top:1px solid #1a2e1f;padding-top:10px;margin-top:10px">';
+          html += '<div style="font-weight:700;color:#22c55e;font-size:13px;margin-bottom:8px">AI Diagnosis</div>';
+          // Primary cause
+          var conf = ai.primaryCause.confidence || 0;
+          var confColor = conf >= 70 ? '#22c55e' : conf >= 40 ? '#eab308' : '#ef4444';
+          html += '<div style="margin-bottom:8px"><span style="font-weight:700;color:#F8FAFC">' + escapeHtml(ai.primaryCause.cause) + '</span>';
+          html += ' <span style="color:' + confColor + ';font-size:12px;font-weight:600">' + conf + '% confidence</span></div>';
+          if (ai.primaryCause.explanation) {
+            html += '<div style="color:#94A3B8;font-size:13px;margin-bottom:8px">' + escapeHtml(ai.primaryCause.explanation) + '</div>';
+          }
+          // Secondary causes
+          if (ai.secondaryCauses && ai.secondaryCauses.length) {
+            html += '<div style="font-size:12px;color:#475569;margin-bottom:8px">Also possible: ';
+            html += ai.secondaryCauses.map(function(s) { return escapeHtml(s.cause) + ' (' + s.confidence + '%)'; }).join(', ');
+            html += '</div>';
+          }
+          // Steps
+          if (ai.steps && ai.steps.length) {
+            html += '<div style="font-weight:600;color:#F8FAFC;font-size:12px;margin-bottom:4px">Recommended steps:</div>';
+            html += '<ol style="color:#94A3B8;font-size:13px;padding-left:20px;margin:0">';
+            ai.steps.forEach(function(step) { html += '<li style="margin-bottom:4px">' + escapeHtml(step) + '</li>'; });
+            html += '</ol>';
+          }
+          // Suggested AutoPilot rule
+          if (ai.suggestedRule) {
+            html += '<div style="margin-top:12px;padding:10px;background:#0c2818;border:1px solid #16532e;border-radius:8px">';
+            html += '<div style="font-size:12px;color:#22c55e;font-weight:600;margin-bottom:4px">💡 Suggested AutoPilot Rule</div>';
+            html += '<div style="font-size:13px;color:#F8FAFC;font-weight:600">' + escapeHtml(ai.suggestedRule.name) + '</div>';
+            html += '<div style="font-size:12px;color:#94A3B8">' + escapeHtml(ai.suggestedRule.description) + '</div>';
+            html += '</div>';
+          }
+          html += '</div>';
+        }
+        html += '</div>';
+        document.getElementById('support-triage-result').innerHTML = html;
         toast('Triage complete');
       } catch (e) {
         toast(e.message, true);

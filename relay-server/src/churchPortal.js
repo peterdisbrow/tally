@@ -3209,11 +3209,83 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         nowIso
       );
 
+      // ── AI-powered root cause analysis via Sonnet ──────────────────
+      let aiAnalysis = null;
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (apiKey) {
+        try {
+          const diagContext = require('./diagnostic-context').buildDiagnosticContext(
+            req.church.churchId, db, churches, null
+          );
+          const recentEvents = db.prepare(`
+            SELECT event_type, timestamp, auto_resolved, details
+            FROM service_events
+            WHERE church_id = ? AND timestamp >= datetime('now', '-1 hour')
+            ORDER BY timestamp DESC LIMIT 20
+          `).all(req.church.churchId);
+
+          const systemPrompt = `You are a church production diagnostic expert. Analyze the following system state and provide a root cause analysis.
+
+ISSUE REPORTED: ${issueCategory} (${severity})
+USER DESCRIPTION: ${summary || 'No description provided'}
+
+${diagContext}
+
+RECENT EVENTS (last hour):
+${recentEvents.map(e => `  ${e.timestamp}: ${e.event_type}${e.auto_resolved ? ' (auto-resolved)' : ''}${e.details ? ' — ' + e.details : ''}`).join('\n') || '  No recent events'}
+
+BASIC CHECKS:
+${checks.map(c => `  ${c.key}: ${c.ok ? '✓' : '✗'} ${c.note}`).join('\n')}
+
+Respond in EXACTLY this JSON format:
+{
+  "primaryCause": { "cause": "string", "confidence": 0-100, "explanation": "1-2 sentences" },
+  "secondaryCauses": [{ "cause": "string", "confidence": 0-100 }],
+  "steps": ["step 1", "step 2", "step 3"],
+  "canAutoFix": false,
+  "autoFixAction": null,
+  "suggestedRule": null
+}
+
+For suggestedRule, if an AutoPilot rule could prevent this in the future, include:
+{ "name": "rule name", "triggerType": "alert_condition|equipment_state_match", "description": "what it does" }`;
+
+          const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': apiKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-20250514',
+              system: systemPrompt,
+              messages: [{ role: 'user', content: 'Analyze this issue and provide your diagnosis.' }],
+              temperature: 0.3,
+              max_tokens: 1024,
+            }),
+            signal: AbortSignal.timeout(15000),
+          });
+
+          if (aiResp.ok) {
+            const aiData = await aiResp.json();
+            const text = aiData.content?.[0]?.text || '';
+            try {
+              const jsonMatch = text.match(/\{[\s\S]*\}/);
+              if (jsonMatch) aiAnalysis = JSON.parse(jsonMatch[0]);
+            } catch { /* parse failed, use raw text */ }
+          }
+        } catch (e) {
+          log.warn('[Triage] AI analysis failed: ' + e.message);
+        }
+      }
+
       res.status(201).json({
         triageId,
-        triageResult,
+        triageResult: aiAnalysis ? (aiAnalysis.primaryCause?.confidence > 70 ? 'diagnosed' : triageResult) : triageResult,
         checks,
         diagnostics,
+        aiAnalysis,
         createdAt: nowIso,
       });
     } catch (e) {
