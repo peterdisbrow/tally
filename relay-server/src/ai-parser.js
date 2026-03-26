@@ -669,6 +669,57 @@ RECORDING DEVICE SELECTION:
 STREAMING: Use the connected streaming device. For "start all" / "stop all", include all connected devices.`;
   }
 
+  // ATEM-specific switching and keyer detail rules (only when ATEM is connected)
+  const atemDetailRules = s.atem?.connected ? `
+ATEM SPECIAL INPUTS: Media Player 1=3010, Media Player 2=3020, Color Bars=1000, Color 1=2001, Color 2=2002, SuperSource=6000, Clean Feed 1=7001, Clean Feed 2=7002, Program=10010, Preview=10011.
+"Cut to MP1" or "go to media player" → atem.cut(input:3010). Do NOT ask to upload an image — just switch to the input directly. The media player already has content loaded.
+"Go to color bars" / "show bars" / "test pattern" → atem.cut(input:1000).
+
+TRANSITIONS:
+- "Cut to cam X" / "take cam X" / "go to cam X" → atem.cut(input:X). This is an instant switch.
+- "Dissolve to cam X" / "mix to cam X" / "crossfade to cam X" → multi-step: [atem.setTransitionStyle(style:mix), atem.setPreview(input:X), atem.auto()]. Dissolve and mix are the same thing.
+- "Dip to cam X" → multi-step: [atem.setTransitionStyle(style:dip), atem.setPreview(input:X), atem.auto()]
+- "Wipe to cam X" → multi-step: [atem.setTransitionStyle(style:wipe), atem.setPreview(input:X), atem.auto()]
+- "Faster/slower dissolve" → atem.setTransitionRate(rate:N). Default is 30 frames. Faster=15, slower=60.
+- "Preview cam X" / "put cam X on preview" / "take X to preview" / "set preview to X" / "can I see cam X in preview" → atem.setPreview(input:X). This does NOT cut or transition — it only sets the ATEM preview bus. NEVER use preview.snap for any of these — preview.snap is ONLY for screenshots.
+- "Take it" / "go" / "punch it" → atem.auto(). Transitions whatever is on preview to program.
+
+FADE TO BLACK:
+- "Fade to black" / "FTB" → atem.fadeToBlack(). This is a toggle — calling it again brings back from black.
+- "Cut to black" → atem.setProgram(input:2001) or atem.cut(input:2001). Uses Color 1 (black) as instant cut.
+- "Bring it back" / "come back from black" → atem.fadeToBlack(). Same toggle.
+
+PIP (Picture-in-Picture):
+- "Put cam X in a PIP" → multi-step: [atem.setUskType(keyer:0,mixEffectKeyType:3,flyEnabled:true), atem.setUskFillSource(keyer:0,fillSource:X), atem.setUskDVESettings(keyer:0,sizeX:0.33,sizeY:0.33,positionX:7,positionY:4), atem.setUskOnAir(keyer:0,onAir:true)]
+- "Remove PIP" / "kill PIP" / "PIP off" → atem.setUskOnAir(keyer:0,onAir:false)
+- "Make PIP bigger/smaller" → atem.setUskDVESettings(keyer:0,sizeX:N,sizeY:N). Bigger=0.5, smaller=0.25.
+- "Move PIP to top left" → positionX:-7,positionY:-4. Top right: positionX:7,positionY:-4. Bottom left: positionX:-7,positionY:4. Bottom right: positionX:7,positionY:4.
+
+LOWER THIRDS / KEYERS:
+- "Show lower third" / "put up the lower third" / "L3 on" → atem.setDskOnAir(keyer:0,onAir:true). DSK 1 (keyer:0) is typically the lower third.
+- "Hide lower third" / "take down the L3" / "L3 off" → atem.setDskOnAir(keyer:0,onAir:false)
+- "Auto lower third" → atem.autoDsk(keyer:0). Transitions DSK on/off with the configured rate.
+- "Show the bug" / "logo on" → atem.setDskOnAir(keyer:1,onAir:true). DSK 2 (keyer:1) is typically the bug/logo.
+- "Hide the bug" / "logo off" → atem.setDskOnAir(keyer:1,onAir:false)
+
+ATEM MODEL AWARENESS:
+- Context includes the ATEM model name. Use it:
+  - ATEM Mini / Mini Pro / Mini Pro ISO / Mini Extreme / Mini Extreme ISO → Classic Audio (NOT Fairlight). No SuperSource. Max 4-8 inputs.
+  - Television Studio / 1 M/E / 2 M/E / 4 M/E / Constellation → Fairlight Audio. SuperSource available on 1 M/E+ and above.
+- If user asks for a feature their ATEM doesn't support, explain: "Your [model] doesn't support [feature]. Here's what you can do instead: [alternative]."
+
+COLOR GENERATOR:
+- "Color 1" = index:0, "Color 2" = index:1. Default to index:0 unless user says "color 2".
+- atem.setColorGeneratorColour(index:N,hue:N,saturation:N,luminance:N). Hue is 0-3599 (tenths of degrees), saturation 0-1000, luminance 0-1000.
+- Common colors: black=hue:0,sat:0,lum:0. White=hue:0,sat:0,lum:1000. Red=hue:0,sat:1000,lum:500. Blue=hue:2400,sat:1000,lum:500. Green=hue:1200,sat:1000,lum:500. Yellow=hue:600,sat:1000,lum:500. Cyan=hue:1800,sat:1000,lum:500. Magenta=hue:3000,sat:1000,lum:500. Orange=hue:300,sat:1000,lum:500.
+- "Change color 1 to blue" → atem.setColorGeneratorColour(index:0,hue:2400,saturation:1000,luminance:500)
+
+DEVICE PRIORITY — CRITICAL:
+- If an ATEM is connected, DEFAULT all switching commands (cut, preview, program, transition, fade to black, PIP, keyers, DSK, aux) to atem.* commands.
+- Only use OBS/vMix for switching if the user explicitly mentions OBS or vMix by name (e.g., "switch OBS scene", "change vMix program", "in OBS go to...").
+- Generic commands like "put cam 1 in preview", "cut to cam 2", "go to camera 3" → ALWAYS use atem.* when ATEM is connected.
+- OBS/vMix without explicit mention are only for: streaming control, recording, and source/filter management.` : '';
+
   // Audio rules (only include the relevant set)
   let audioRules = '';
   if (hasMixer) {
@@ -701,38 +752,7 @@ WHEN UNSURE — ASK: If ambiguous, return a chat response asking the user to cla
 CONFIRM HIGH-IMPACT: fadeToBlack, stopStream, "end service" → ask for confirmation unless user already expressed clear intent or is repeating.
 
 OPERATOR LEVEL: Context "Operator: volunteer|intermediate|pro". volunteer=simple language, pro=concise. Auto-detect if missing.
-
-ATEM SPECIAL INPUTS: Media Player 1=3010, Media Player 2=3020, Color Bars=1000, Color 1=2001, Color 2=2002, SuperSource=6000, Clean Feed 1=7001, Clean Feed 2=7002, Program=10010, Preview=10011.
-"Cut to MP1" or "go to media player" → atem.cut(input:3010). Do NOT ask to upload an image — just switch to the input directly. The media player already has content loaded.
-"Go to color bars" / "show bars" / "test pattern" → atem.cut(input:1000).
-
-TRANSITIONS:
-- "Cut to cam X" / "take cam X" / "go to cam X" → atem.cut(input:X). This is an instant switch.
-- "Dissolve to cam X" / "mix to cam X" / "crossfade to cam X" → multi-step: [atem.setTransitionStyle(style:mix), atem.setPreview(input:X), atem.auto()]. Dissolve and mix are the same thing.
-- "Dip to cam X" → multi-step: [atem.setTransitionStyle(style:dip), atem.setPreview(input:X), atem.auto()]
-- "Wipe to cam X" → multi-step: [atem.setTransitionStyle(style:wipe), atem.setPreview(input:X), atem.auto()]
-- "Faster/slower dissolve" → atem.setTransitionRate(rate:N). Default is 30 frames. Faster=15, slower=60.
-- "Preview cam X" / "put cam X on preview" / "take X to preview" / "set preview to X" / "can I see cam X in preview" → atem.setPreview(input:X). This does NOT cut or transition — it only sets the ATEM preview bus. NEVER use preview.snap for any of these — preview.snap is ONLY for screenshots.
-- "Take it" / "go" / "punch it" → atem.auto(). Transitions whatever is on preview to program.
-
-FADE TO BLACK:
-- "Fade to black" / "FTB" → atem.fadeToBlack(). This is a toggle — calling it again brings back from black.
-- "Cut to black" → atem.setProgram(input:2001) or atem.cut(input:2001). Uses Color 1 (black) as instant cut.
-- "Bring it back" / "come back from black" → atem.fadeToBlack(). Same toggle.
-
-PIP (Picture-in-Picture):
-- "Put cam X in a PIP" → multi-step: [atem.setUskType(keyer:0,mixEffectKeyType:3,flyEnabled:true), atem.setUskFillSource(keyer:0,fillSource:X), atem.setUskDVESettings(keyer:0,sizeX:0.33,sizeY:0.33,positionX:7,positionY:4), atem.setUskOnAir(keyer:0,onAir:true)]
-- "Remove PIP" / "kill PIP" / "PIP off" → atem.setUskOnAir(keyer:0,onAir:false)
-- "Make PIP bigger/smaller" → atem.setUskDVESettings(keyer:0,sizeX:N,sizeY:N). Bigger=0.5, smaller=0.25.
-- "Move PIP to top left" → positionX:-7,positionY:-4. Top right: positionX:7,positionY:-4. Bottom left: positionX:-7,positionY:4. Bottom right: positionX:7,positionY:4.
-
-LOWER THIRDS / KEYERS:
-- "Show lower third" / "put up the lower third" / "L3 on" → atem.setDskOnAir(keyer:0,onAir:true). DSK 1 (keyer:0) is typically the lower third.
-- "Hide lower third" / "take down the L3" / "L3 off" → atem.setDskOnAir(keyer:0,onAir:false)
-- "Auto lower third" → atem.autoDsk(keyer:0). Transitions DSK on/off with the configured rate.
-- "Show the bug" / "logo on" → atem.setDskOnAir(keyer:1,onAir:true). DSK 2 (keyer:1) is typically the bug/logo.
-- "Hide the bug" / "logo off" → atem.setDskOnAir(keyer:1,onAir:false)
-
+${atemDetailRules}
 PROPRESENTER:
 - "Next slide" / "put up the lyrics" / "advance slides" / "next" → propresenter.next()
 - "Previous slide" / "go back a slide" → propresenter.previous()
@@ -772,24 +792,6 @@ RECORDING & STREAMING DEVICE PRIORITY:
   - If multiple devices are connected, use whichever is already configured for streaming/recording.
   - "Record to the deck" / "record on hyperdeck" → hyperdeck.record()
   - "Stop all" / "stop everything" → multi-step: stop streaming + stop recording on ALL connected devices.
-
-ATEM MODEL AWARENESS:
-- Context includes the ATEM model name. Use it:
-  - ATEM Mini / Mini Pro / Mini Pro ISO / Mini Extreme / Mini Extreme ISO → Classic Audio (NOT Fairlight). No SuperSource. Max 4-8 inputs.
-  - Television Studio / 1 M/E / 2 M/E / 4 M/E / Constellation → Fairlight Audio. SuperSource available on 1 M/E+ and above.
-- If user asks for a feature their ATEM doesn't support, explain: "Your [model] doesn't support [feature]. Here's what you can do instead: [alternative]."
-
-COLOR GENERATOR:
-- "Color 1" = index:0, "Color 2" = index:1. Default to index:0 unless user says "color 2".
-- atem.setColorGeneratorColour(index:N,hue:N,saturation:N,luminance:N). Hue is 0-3599 (tenths of degrees), saturation 0-1000, luminance 0-1000.
-- Common colors: black=hue:0,sat:0,lum:0. White=hue:0,sat:0,lum:1000. Red=hue:0,sat:1000,lum:500. Blue=hue:2400,sat:1000,lum:500. Green=hue:1200,sat:1000,lum:500. Yellow=hue:600,sat:1000,lum:500. Cyan=hue:1800,sat:1000,lum:500. Magenta=hue:3000,sat:1000,lum:500. Orange=hue:300,sat:1000,lum:500.
-- "Change color 1 to blue" → atem.setColorGeneratorColour(index:0,hue:2400,saturation:1000,luminance:500)
-
-DEVICE PRIORITY — CRITICAL:
-- If an ATEM is connected, DEFAULT all switching commands (cut, preview, program, transition, fade to black, PIP, keyers, DSK, aux) to atem.* commands.
-- Only use OBS/vMix for switching if the user explicitly mentions OBS or vMix by name (e.g., "switch OBS scene", "change vMix program", "in OBS go to...").
-- Generic commands like "put cam 1 in preview", "cut to cam 2", "go to camera 3" → ALWAYS use atem.* when ATEM is connected.
-- OBS/vMix without explicit mention are only for: streaming control, recording, and source/filter management.
 
 RULES:
 - Match camera labels from context when available. If user says "camera 1" and labels show 1=Main Cam, use input 1.

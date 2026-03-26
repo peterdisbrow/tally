@@ -75,7 +75,7 @@ test('atem.cut without input executes cut on ME 0', async () => {
 test('atem.cut with input calls changeProgramInput(input, me)', async () => {
   const agent = createAgent();
   const result = await handlers['atem.cut'](agent, { input: 1 });
-  assert.equal(result, 'Cut to input 1');
+  assert.equal(result, 'Cut to Cam 1');
   assert.deepStrictEqual(agent.calls[0], ['changeProgramInput', 1, 0]);
 });
 
@@ -102,7 +102,7 @@ test('atem.cut ME defaults to 0 when not provided', async () => {
 test('atem.cut allows input >= 1000 (special sources) even with labels present', async () => {
   const agent = createAgent({ inputLabels: { 1: 'Camera 1', 2: 'Camera 2' } });
   const result = await handlers['atem.cut'](agent, { input: 1000 });
-  assert.equal(result, 'Cut to input 1000');
+  assert.equal(result, 'Cut to Color Bars');
 });
 
 test('atem.cut rejects non-existent input when labels are known', async () => {
@@ -116,7 +116,7 @@ test('atem.cut rejects non-existent input when labels are known', async () => {
 test('atem.cut allows valid input when labels are known', async () => {
   const agent = createAgent({ inputLabels: { 1: 'Cam 1', 2: 'Cam 2' } });
   const result = await handlers['atem.cut'](agent, { input: 2 });
-  assert.equal(result, 'Cut to input 2');
+  assert.equal(result, 'Cut to Cam 2');
 });
 
 test('atem.cut error message lists available inputs', async () => {
@@ -150,7 +150,7 @@ test('atem.auto uses specified ME', async () => {
 test('atem.setProgram calls changeProgramInput(input, me)', async () => {
   const agent = createAgent();
   const result = await handlers['atem.setProgram'](agent, { input: 2 });
-  assert.equal(result, 'Program input set to 2');
+  assert.equal(result, 'Program set to Cam 2');
   assert.deepStrictEqual(agent.calls[0], ['changeProgramInput', 2, 0]);
 });
 
@@ -181,7 +181,7 @@ test('atem.setProgram rejects non-integer input', async () => {
 test('atem.setPreview calls changePreviewInput(input, me)', async () => {
   const agent = createAgent();
   const result = await handlers['atem.setPreview'](agent, { input: 3 });
-  assert.equal(result, 'Preview input set to 3');
+  assert.equal(result, 'Preview set to Cam 3');
   assert.deepStrictEqual(agent.calls[0], ['changePreviewInput', 3, 0]);
 });
 
@@ -317,7 +317,7 @@ test('atem.fadeToBlack throws when not supported', async () => {
 test('atem.setInputLabel returns confirmation string', async () => {
   const agent = createAgent();
   const result = await handlers['atem.setInputLabel'](agent, { input: 1, longName: 'Pulpit Cam' });
-  assert.equal(result, 'Input 1 labeled "Pulpit Cam"');
+  assert.equal(result, 'Cam 1 labeled "Pulpit Cam"');
 });
 
 test('atem.setInputLabel calls setInputSettings with longName and shortName', async () => {
@@ -594,14 +594,14 @@ test('atem.setDskOnAir accepts "key" as alias for keyer', async () => {
 test('validateAtemInput: passes when no inputLabels on agent', async () => {
   const agent = createAgent(); // no labels
   const result = await handlers['atem.cut'](agent, { input: 99 });
-  assert.equal(result, 'Cut to input 99');
+  assert.equal(result, 'Cut to 99');
 });
 
 test('validateAtemInput: passes when inputLabels is empty object', async () => {
   const agent = createAgent({ inputLabels: {} });
   // No inputs in range 1-40, so validation is skipped
   const result = await handlers['atem.cut'](agent, { input: 5 });
-  assert.equal(result, 'Cut to input 5');
+  assert.equal(result, 'Cut to Cam 5');
 });
 
 test('validateAtemInput: inputs outside 1-40 range are ignored in labels', async () => {
@@ -609,7 +609,7 @@ test('validateAtemInput: inputs outside 1-40 range are ignored in labels', async
   const agent = createAgent({ inputLabels: { 1000: 'Media Player 1', 2000: 'SuperSource' } });
   // knownIds in 1-40 range is empty → validation skipped
   const result = await handlers['atem.cut'](agent, { input: 3 });
-  assert.equal(result, 'Cut to input 3');
+  assert.equal(result, 'Cut to Cam 3');
 });
 
 test('validateAtemInput: input null skips validation entirely', async () => {
