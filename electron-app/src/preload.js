@@ -96,4 +96,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendCommand: (cmd, params) => ipcRenderer.invoke('send-command', cmd, params),
   // Diagnostic Bundle
   sendDiagnosticBundle: () => ipcRenderer.invoke('send-diagnostic-bundle'),
+  // Portable config export / import
+  exportPortableConfig: () => ipcRenderer.invoke('export-portable-config'),
+  importPortableConfig: () => ipcRenderer.invoke('import-portable-config'),
+  // Update events
+  onUpdateNotAvailable: (cb) => ipcRenderer.on('update-not-available', () => cb()),
+  onUpdateError: (cb) => ipcRenderer.on('update-error', (_, msg) => cb(msg)),
+  onUpdateProgress: (cb) => ipcRenderer.on('update-progress', (_, data) => cb(data)),
+  onWhatsNew: (cb) => ipcRenderer.on('whats-new', (_, data) => cb(data)),
+  // Connection quality
+  onConnectionQuality: (cb) => ipcRenderer.on('connection-quality', (_, data) => cb(data)),
 });

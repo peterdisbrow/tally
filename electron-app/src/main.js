@@ -743,7 +743,8 @@ const { checkTokenWithRelay, postJson, loginChurchWithCredentials,
 
 
 // ─── CONFIG (delegated to config-manager module) ─────────────────────────────
-const { loadConfig, saveConfig, loadConfigForUI, isMockValue, stripMockConfig } = configManager;
+const { loadConfig, saveConfig, loadConfigForUI, isMockValue, stripMockConfig,
+        exportPortableConfig, importPortableConfig } = configManager;
 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
 
@@ -765,6 +766,43 @@ ipcMain.handle('save-config', (_, config) => {
   saveConfig(sanitized);
   return true;
 });
+ipcMain.handle('export-portable-config', async () => {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const defaultPath = path.join(app.getPath('desktop'), `tally-config-${stamp}.json`);
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow || undefined, {
+    title: 'Export Tally Config',
+    defaultPath,
+    filters: [{ name: 'Tally Config', extensions: ['json'] }],
+  });
+  if (canceled || !filePath) return { canceled: true };
+  try {
+    const portable = exportPortableConfig();
+    fs.writeFileSync(filePath, JSON.stringify(portable, null, 2), 'utf8');
+    appendAppLog('SYSTEM', `Exported portable config to ${filePath}`);
+    return { canceled: false, filePath };
+  } catch (e) {
+    return { canceled: false, error: e.message };
+  }
+});
+
+ipcMain.handle('import-portable-config', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow || undefined, {
+    title: 'Import Tally Config',
+    filters: [{ name: 'Tally Config', extensions: ['json'] }],
+    properties: ['openFile'],
+  });
+  if (canceled || !filePaths[0]) return { canceled: true };
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePaths[0], 'utf8'));
+    const result = importPortableConfig(raw);
+    if (!result.ok) return { error: result.error };
+    appendAppLog('SYSTEM', `Imported portable config from ${filePaths[0]}`);
+    return { ok: true };
+  } catch (e) {
+    return { error: `Failed to read config file: ${e.message}` };
+  }
+});
+
 ipcMain.handle('get-status', () => agentStatus);
 ipcMain.handle('start-agent', () => { agentCrashCount = 0; startAgent(); });
 ipcMain.handle('stop-agent', () => stopAgent());

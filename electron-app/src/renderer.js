@@ -648,6 +648,32 @@ async function doSignOut() {
   }
 }
 
+async function exportPortableConfig() {
+  try {
+    const result = await api.exportPortableConfig();
+    if (result.canceled) return;
+    if (result.error) { addAlert(`Config export failed: ${result.error}`); return; }
+    addAlert(`Config exported to ${result.filePath}`);
+  } catch (e) {
+    addAlert(`Config export error: ${e.message}`);
+  }
+}
+
+async function importPortableConfig() {
+  if (!(await asyncConfirm('Import a config? This will overwrite your current equipment settings (but not your sign-in token).'))) return;
+  try {
+    const result = await api.importPortableConfig();
+    if (result.canceled) return;
+    if (result.error) { addAlert(`Config import failed: ${result.error}`); return; }
+    addAlert('Config imported successfully. Reloading settings...');
+    // Reload equipment UI to reflect new settings
+    const config = await api.getConfig();
+    if (config.name) document.getElementById('church-name').textContent = config.name;
+  } catch (e) {
+    addAlert(`Config import error: ${e.message}`);
+  }
+}
+
 function renderStepIndicator() {
   // Legacy — no-op (replaced by onboarding chat progress)
 }

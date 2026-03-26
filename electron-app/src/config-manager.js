@@ -181,6 +181,61 @@ function getSanitizedConfigForExport() {
   return sanitized;
 }
 
+/**
+ * Export config as a portable, non-encrypted JSON blob.
+ * Credentials that are machine-encrypted are written in plaintext so the
+ * export can be imported on another machine where safeStorage would differ.
+ *
+ * Sensitive auth fields (token, churchToken) are ALWAYS omitted — those must
+ * be re-entered after import.  Equipment IPs, ports, labels, and passwords
+ * are included so the equipment layout is fully portable.
+ */
+function exportPortableConfig() {
+  const config = loadConfig(); // decrypted in memory
+  const portable = { ...config };
+
+  // Drop auth tokens — not portable (machine-scoped JWTs)
+  const AUTH_FIELDS = ['token', 'churchToken', 'youtubeOAuthAccessToken', 'youtubeOAuthRefreshToken', 'facebookOAuthAccessToken'];
+  for (const f of AUTH_FIELDS) delete portable[f];
+
+  // Tag the export so the importer knows this is portable (not a diagnostic redacted copy)
+  portable._portableExport = true;
+  portable._exportedAt = new Date().toISOString();
+  portable._exportVersion = 1;
+
+  return portable;
+}
+
+/**
+ * Import a portable config blob.  Re-encrypts sensitive fields via
+ * encryptConfig / saveConfig so they are stored safely on the new machine.
+ *
+ * @param {object} portableBlob — the parsed JSON from exportPortableConfig()
+ * @returns {{ ok: boolean, warning?: string }}
+ */
+function importPortableConfig(portableBlob) {
+  if (!portableBlob || typeof portableBlob !== 'object') {
+    return { ok: false, error: 'Invalid config file — expected a JSON object.' };
+  }
+  if (!portableBlob._portableExport) {
+    return { ok: false, error: 'This file does not appear to be a Tally portable config export.' };
+  }
+
+  // Strip the export metadata before merging
+  const { _portableExport, _exportedAt, _exportVersion, ...incoming } = portableBlob;
+
+  // Auth tokens are never imported — the user must sign in on the new machine
+  const AUTH_FIELDS = ['token', 'churchToken', 'youtubeOAuthAccessToken', 'youtubeOAuthRefreshToken', 'facebookOAuthAccessToken'];
+  for (const f of AUTH_FIELDS) delete incoming[f];
+
+  // Merge over current config (keeps any local token if already signed in)
+  const current = loadConfig();
+  const merged = { ...current, ...incoming };
+
+  saveConfig(merged);
+  return { ok: true };
+}
+
 module.exports = {
   init,
   isMockValue,
@@ -189,6 +244,8 @@ module.exports = {
   saveConfig,
   loadConfigForUI,
   getSanitizedConfigForExport,
+  exportPortableConfig,
+  importPortableConfig,
   CONFIG_PATH,
   CONFIG_DIR,
 };
