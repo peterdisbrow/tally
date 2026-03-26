@@ -67,7 +67,7 @@ module.exports = function setupResellerRoutes(app, ctx) {
     const row = resellerSystem.getResellerById(req.params.resellerId);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
     const { password, email } = req.body;
-    if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
     const hashed = hashPassword(password);
     try { db.exec('ALTER TABLE resellers ADD COLUMN portal_password_hash TEXT'); } catch { /* exists */ }
     try { db.exec('ALTER TABLE resellers ADD COLUMN portal_email TEXT'); } catch { /* exists */ }

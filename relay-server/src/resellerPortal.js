@@ -35,7 +35,8 @@ function hashPassword(password) {
 
 function verifyPassword(password, stored) {
   try {
-    const [salt, hash] = stored.split(':');
+    const [salt, hash] = String(stored || '').split(':');
+    if (!salt || !hash) return false;
     const check = crypto.scryptSync(password, salt, 64).toString('hex');
     return crypto.timingSafeEqual(Buffer.from(check, 'hex'), Buffer.from(hash, 'hex'));
   } catch {
