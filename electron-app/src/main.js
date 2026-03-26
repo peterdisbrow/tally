@@ -6,6 +6,35 @@ const os = require('os');
 const WebSocket = require('ws');
 const { encryptConfig, decryptConfig } = require('./secureStorage');
 
+// ─── CLI PROVISIONING FLAGS ────────────────────────────────────────────────────
+// Supports MDM pre-seeding: --config-path, --relay-url, --church-id  (P2 item 17)
+// Electron passes all argv after '--' to the app; filter out Electron-internal flags.
+let _cliOpts = {};
+try {
+  const { Command } = require('commander');
+  const program = new Command();
+  program
+    .name('tally')
+    .description('Tally Connect — remote AV tally monitoring')
+    .option('--config-path <path>', 'Override default config file path (~/.church-av/config.json)')
+    .option('--relay-url <url>', 'Override relay server URL')
+    .option('--church-id <id>', 'Pre-provision a church ID (written to config on first launch)')
+    .option('--dev', 'Enable developer tools')
+    .allowUnknownOption(true)
+    .exitOverride(); // prevent process.exit() on --help in packaged builds
+  program.parse(process.argv);
+  _cliOpts = program.opts();
+} catch { /* commander may not be available in all build configurations */ }
+
+// Apply --config-path override before config-manager is used
+if (_cliOpts.configPath) {
+  process.env.TALLY_CONFIG_PATH = _cliOpts.configPath;
+}
+// Apply --relay-url override
+if (_cliOpts.relayUrl) {
+  process.env.TALLY_DEFAULT_RELAY_URL = _cliOpts.relayUrl;
+}
+
 // Extracted modules (pure refactoring — see config-manager.js, relay-client.js, equipment-tester.js)
 const configManager = require('./config-manager');
 const relayClient = require('./relay-client');
@@ -36,6 +65,7 @@ const DEFAULT_RELAY_URL = process.env.TALLY_DEFAULT_RELAY_URL || 'wss://api.tall
 const LOG_DIR = path.join(CONFIG_DIR, 'logs');
 const APP_LOG_PATH = path.join(LOG_DIR, 'tally-app.log');
 const MAX_RECENT_LOG_LINES = 2000;
+const MAX_LOG_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 let tray = null;
 let mainWindow = null;
@@ -122,6 +152,16 @@ function appendAppLog(source, message) {
     if (recentLogLines.length > MAX_RECENT_LOG_LINES) {
       recentLogLines.splice(0, recentLogLines.length - MAX_RECENT_LOG_LINES);
     }
+    // Log rotation: if file exceeds 10 MB, rename to .1 and start fresh (P2 item 16)
+    try {
+      const stat = fs.statSync(APP_LOG_PATH);
+      if (stat.size > MAX_LOG_FILE_BYTES) {
+        const rotatedPath = APP_LOG_PATH + '.1';
+        // Overwrite any previous .1 rotation
+        if (fs.existsSync(rotatedPath)) fs.unlinkSync(rotatedPath);
+        fs.renameSync(APP_LOG_PATH, rotatedPath);
+      }
+    } catch { /* file may not exist yet */ }
     // Non-blocking write — don't freeze the main process during live service
     fs.appendFile(APP_LOG_PATH, batch, 'utf8', () => {});
   } catch (e) {
@@ -800,6 +840,35 @@ setInterval(() => {
     }
   }
 }, 30_000); // Check every 30 seconds
+
+// ─── CONNECTION QUALITY INDICATOR ────────────────────────────────────────────
+// Periodic HTTP ping to relay to measure round-trip latency (P2 item 11).
+const https = require('https');
+const http  = require('http');
+
+let _lastPingMs = null;
+let _lastPingTime = null;
+
+function measureRelayLatency() {
+  const config = configManager.loadConfig();
+  const relayUrl = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  const startMs = Date.now();
+  const lib = relayUrl.startsWith('https') ? https : http;
+  const req = lib.get(relayUrl, { timeout: 5000 }, (res) => {
+    res.resume(); // drain
+    const ms = Date.now() - startMs;
+    _lastPingMs = ms;
+    _lastPingTime = new Date().toISOString();
+    mainWindow?.webContents.send('connection-quality', { latencyMs: ms, lastPingTime: _lastPingTime });
+  });
+  req.on('error', () => {});
+  req.on('timeout', () => req.destroy());
+}
+
+// Ping every 30s while connected
+setInterval(() => {
+  if (agentStatus.relay) measureRelayLatency();
+}, 30_000);
 
 // ─── TEST CONNECTION ──────────────────────────────────────────────────────────
 
@@ -1711,6 +1780,14 @@ process.on('unhandledRejection', (reason) => {
 
 app.whenReady().then(() => {
   appendAppLog('SYSTEM', `App ready (version=${app.getVersion()}, platform=${process.platform}/${process.arch})`);
+  // Apply --church-id provisioning flag (P2 item 17)
+  if (_cliOpts.churchId) {
+    const existing = configManager.loadConfig();
+    if (!existing.churchId) {
+      configManager.saveConfig({ churchId: _cliOpts.churchId });
+      appendAppLog('SYSTEM', `CLI: provisioned churchId=${_cliOpts.churchId}`);
+    }
+  }
   createWindow();
   createTray();
   setupAutoUpdate();

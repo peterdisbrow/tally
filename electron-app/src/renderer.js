@@ -22,6 +22,7 @@ function restoreCollapsibleStates() {
   const defaults = {
     'section-device-identity': true,
     'section-activity': true,
+    'section-raw-logs': true,
   };
   const merged = { ...defaults, ...states };
   for (const [id, collapsed] of Object.entries(merged)) {
@@ -144,6 +145,28 @@ function updateOfflineQueueBadge() {
     el.textContent = _offlineQueue.length || '';
     el.style.display = _offlineQueue.length ? '' : 'none';
   }
+}
+
+// ─── JWT EXPIRY WARNING ────────────────────────────────────────────────────
+function checkJwtExpiry(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (!payload.exp) return;
+    const expiresAt = new Date(payload.exp * 1000);
+    const msUntilExpiry = expiresAt - Date.now();
+    const daysUntilExpiry = msUntilExpiry / (1000 * 60 * 60 * 24);
+    if (daysUntilExpiry <= 0) return; // Already expired — auth flow handles this
+    if (daysUntilExpiry <= 7) {
+      const daysText = daysUntilExpiry < 1 ? 'today' : `in ${Math.ceil(daysUntilExpiry)} day${Math.ceil(daysUntilExpiry) !== 1 ? 's' : ''}`;
+      const banner = document.getElementById('jwt-expiry-banner');
+      if (banner) {
+        banner.textContent = `⚠ Your session expires ${daysText}. Sign out and sign in again to renew.`;
+        banner.style.display = '';
+      }
+    }
+  } catch { /* ignore — malformed token */ }
 }
 
 // ─── PROBLEM FINDER AUTO-RUN ───────────────────────────────────────────────
@@ -416,6 +439,9 @@ async function init() {
     _audioViaAtem = !!(config.audioViaAtem);
 
     if (config.token) {
+      // Check JWT expiry and warn if within 7 days (P2 item 12)
+      checkJwtExpiry(config.token);
+
       // Returning user — validate token silently
       showSignInLoading('Checking your account...');
       document.body.classList.add('ready');
@@ -1261,20 +1287,49 @@ async function runPreServiceCheck() {
 
 async function fixAllPreService() {
   const btn = document.getElementById('preservice-fix-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Fixing\u2026'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Fixing…'; }
+
+  // Show progress modal (P2 item 13)
+  const modal = document.getElementById('fix-all-modal');
+  const modalLog = document.getElementById('fix-all-modal-log');
+  if (modal) {
+    modal.style.display = 'flex';
+    if (modalLog) modalLog.innerHTML = '<div style="color:var(--muted)">Running fixes…</div>';
+  }
+
   try {
     const result = await api.fixAllPreService();
     if (result && result.results) {
       const fixed = result.results.filter(r => r.success).length;
       const failed = result.results.length - fixed;
       if (btn) btn.textContent = failed > 0 ? `${fixed} fixed, ${failed} failed` : `${fixed} fixed`;
+      // Populate modal with per-fix results
+      if (modalLog) {
+        modalLog.innerHTML = result.results.map(r => {
+          const icon = r.success ? '✓' : '✗';
+          const color = r.success ? 'var(--green)' : 'var(--danger)';
+          return `<div style="padding:4px 0; color:${color}; font-size:12px; font-family:var(--mono);">${icon} ${escapeText(r.label || r.check || '?')}: ${escapeText(r.message || (r.success ? 'Fixed' : 'Failed'))}</div>`;
+        }).join('');
+        const summary = document.createElement('div');
+        summary.style.cssText = 'margin-top:10px; font-size:12px; color:var(--muted);';
+        summary.textContent = `${fixed} of ${result.results.length} fix${result.results.length !== 1 ? 'es' : ''} applied.`;
+        modalLog.appendChild(summary);
+      }
+    } else if (result && result.error) {
+      if (modalLog) modalLog.innerHTML = `<div style="color:var(--danger); font-family:var(--mono); font-size:12px;">Error: ${escapeText(result.error)}</div>`;
     }
     // Reload panel after fixes
     setTimeout(() => loadPreServiceCheck(), 3000);
   } catch (e) {
     console.warn('Pre-service fix-all failed:', e);
     if (btn) { btn.disabled = false; btn.textContent = 'Fix All'; }
+    if (modalLog) modalLog.innerHTML = `<div style="color:var(--danger); font-family:var(--mono); font-size:12px;">Error: ${escapeText(e.message)}</div>`;
   }
+}
+
+function closeFixAllModal() {
+  const modal = document.getElementById('fix-all-modal');
+  if (modal) modal.style.display = 'none';
 }
 
 // ─── RUNDOWN PANEL ─────────────────────────────────────────────────────────
@@ -2467,8 +2522,28 @@ api.onLog((text) => {
     addAlert(t);
   }
 
+  // Append to raw-log output section (P2 item 14 — Show/Hide Logs)
+  const rawLog = document.getElementById('raw-log-output');
+  if (rawLog) {
+    const line = document.createElement('div');
+    line.textContent = t;
+    rawLog.appendChild(line);
+    // Cap at 500 lines to avoid memory growth
+    while (rawLog.children.length > 500) rawLog.removeChild(rawLog.firstChild);
+    // Only scroll if the section is visible
+    const section = document.getElementById('section-raw-logs');
+    if (section && !section.classList.contains('collapsed')) {
+      rawLog.scrollTop = rawLog.scrollHeight;
+    }
+  }
+
   // Status UI is driven by onStatus() — log handler only feeds the activity log.
 });
+
+function clearRawLogs() {
+  const rawLog = document.getElementById('raw-log-output');
+  if (rawLog) rawLog.innerHTML = '';
+}
 
 // ─── PREVIEW ───────────────────────────────────────────────────────────────
 
@@ -2591,6 +2666,19 @@ if (api.onWhatsNew) {
     whatsNew.innerHTML = `<strong>Updated to v${version}</strong> — check the <a href="#" onclick="event.preventDefault();api.openExternal('https://tallyconnect.app/changelog')" style="color:var(--green);">Changelog</a> for what's new.`;
     const log = document.getElementById('alerts-log');
     if (log) log.prepend(whatsNew);
+  });
+}
+
+// Connection quality indicator (P2 item 11)
+if (api.onConnectionQuality) {
+  api.onConnectionQuality(({ latencyMs, lastPingTime }) => {
+    const chip = document.getElementById('relay-latency-chip');
+    if (!chip) return;
+    const color = latencyMs < 100 ? 'var(--green)' : latencyMs < 300 ? '#f59e0b' : 'var(--danger)';
+    chip.textContent = `${latencyMs}ms`;
+    chip.style.color = color;
+    chip.style.display = '';
+    chip.title = `Last ping: ${lastPingTime ? new Date(lastPingTime).toLocaleTimeString() : '—'} · ${latencyMs}ms round-trip`;
   });
 }
 

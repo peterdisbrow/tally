@@ -9,7 +9,8 @@ const path = require('path');
 const os = require('os');
 const { encryptConfig, decryptConfig } = require('./secureStorage');
 
-const CONFIG_PATH = path.join(os.homedir(), '.church-av', 'config.json');
+// Support --config-path CLI override (P2 item 17)
+const CONFIG_PATH = process.env.TALLY_CONFIG_PATH || path.join(os.homedir(), '.church-av', 'config.json');
 const CONFIG_DIR  = path.dirname(CONFIG_PATH);
 
 // Injected dependency — set via init()
@@ -119,6 +120,11 @@ function saveConfig(config) {
   // Only persist defined values; undefined means "leave existing as-is" before merge.
   const toSave = stripMockConfig(Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined)));
   toSave.relay = _enforceRelayPolicy(toSave.relay);
+  // Backup existing config before overwriting (P2 item 15)
+  const bakPath = CONFIG_PATH + '.bak';
+  if (fs.existsSync(CONFIG_PATH)) {
+    try { fs.copyFileSync(CONFIG_PATH, bakPath); } catch { /* best effort */ }
+  }
   // Atomic write: write to temp file then rename (crash-safe)
   const tmpPath = CONFIG_PATH + '.tmp';
   fs.writeFileSync(tmpPath, JSON.stringify(encryptConfig(toSave), null, 2));
