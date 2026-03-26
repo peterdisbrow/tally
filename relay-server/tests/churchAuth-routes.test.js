@@ -56,7 +56,11 @@ function createDb() {
       campus_id TEXT,
       registration_code TEXT,
       reseller_id TEXT,
-      failover_enabled INTEGER DEFAULT 0
+      failover_enabled INTEGER DEFAULT 0,
+      locale TEXT,
+      room_id TEXT,
+      room_name TEXT,
+      campus_link_code TEXT
     )
   `);
   db.exec(`
@@ -205,11 +209,17 @@ function buildApp(db, overrides = {}) {
     createCheckout: vi.fn().mockResolvedValue({ url: null, sessionId: null }),
   };
 
+  function requireChurchWriteAccess(req, res, next) {
+    if (req.churchReadonly) return res.status(403).json({ error: 'This token is read-only.' });
+    next();
+  }
+
   const ctx = {
     db,
     churches,
     requireAdmin,
     requireChurchAppAuth,
+    requireChurchWriteAccess,
     rateLimit: () => (req, res, next) => next(),
     billing,
     hashPassword,
