@@ -78,6 +78,20 @@ function validateAtemInput(agent, input) {
   }
 }
 
+const SPECIAL_INPUT_NAMES = {
+  1000: 'Color Bars', 2001: 'Color 1', 2002: 'Color 2',
+  3010: 'Media Player 1', 3020: 'Media Player 2',
+  6000: 'SuperSource', 7001: 'Clean Feed 1', 7002: 'Clean Feed 2',
+  10010: 'Program', 10011: 'Preview',
+};
+
+function friendlyInputName(input, agent) {
+  if (SPECIAL_INPUT_NAMES[input]) return SPECIAL_INPUT_NAMES[input];
+  const labels = agent?.status?.atem?.inputLabels;
+  if (labels && labels[input]) return labels[input];
+  return `Camera ${input}`;
+}
+
 function resolvePtzRef(params = {}) {
   if (params.cameraName) return String(params.cameraName);
   return Number.parseInt(params.camera || 1, 10) || 1;
@@ -154,7 +168,7 @@ async function atemCut(agent, params) {
     }
     await agent.atem?.cut(me);
   });
-  return input != null ? `Cut to input ${input}` : 'Cut executed';
+  return input != null ? `Cut to ${friendlyInputName(input, agent)}` : 'Cut executed';
 }
 
 async function atemAuto(agent, params) {
@@ -170,7 +184,7 @@ async function atemSetProgram(agent, params) {
     if (isFakeAtem(agent)) return agent.atem?.changeProgramInput(me, input);
     return agent.atem?.changeProgramInput(input, me);
   });
-  return `Program input set to ${input}`;
+  return `Program set to ${friendlyInputName(input, agent)}`;
 }
 
 async function atemSetPreview(agent, params) {
@@ -181,7 +195,7 @@ async function atemSetPreview(agent, params) {
     if (isFakeAtem(agent)) return agent.atem?.changePreviewInput(me, input);
     return agent.atem?.changePreviewInput(input, me);
   });
-  return `Preview input set to ${input}`;
+  return `Preview set to ${friendlyInputName(input, agent)}`;
 }
 
 async function atemStartRecording(agent) {
@@ -3469,17 +3483,21 @@ async function preServiceCheck(agent) {
     checks.push({ name: 'Camera Inputs', pass: false, detail: 'Cannot check — ATEM not connected' });
   }
 
-  // 3. OBS connection and stream state
-  const obsConnected = agent.status.obs.connected;
-  checks.push({ name: 'OBS Connection', pass: obsConnected, detail: obsConnected ? 'Connected' : 'Not connected (optional)' });
+  // 3. OBS connection and stream state (only if OBS is the configured encoder)
+  const encoderType = agent.config?.encoderType || agent.config?.encoder?.type;
+  const obsIsConfigured = encoderType === 'obs' || (!encoderType && agent.status.obs.connected);
+  if (obsIsConfigured) {
+    const obsConnected = agent.status.obs.connected;
+    checks.push({ name: 'OBS Connection', pass: obsConnected, detail: obsConnected ? 'Connected' : 'Not connected' });
 
-  if (obsConnected) {
-    const alreadyStreaming = agent.status.obs.streaming;
-    checks.push({
-      name: 'OBS Stream State',
-      pass: !alreadyStreaming,
+    if (obsConnected) {
+      const alreadyStreaming = agent.status.obs.streaming;
+      checks.push({
+        name: 'OBS Stream State',
+        pass: !alreadyStreaming,
       detail: alreadyStreaming ? 'Already streaming (expected?)' : 'Not streaming — ready to go',
     });
+    }
   }
 
   // 4. Companion check

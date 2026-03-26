@@ -1,0 +1,1448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tally — Church Portal</title>
+  <link rel="stylesheet" href="/portal/portal.css">
+</head>
+
+<body>
+  <button class="hamburger" id="hamburger-btn" onclick="toggleMobileNav()" aria-label="Toggle menu"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="20" height="20" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd"/></svg></button>
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileNav()"></div>
+  <nav class="sidebar" id="sidebar-nav">
+    <div class="sidebar-logo">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="28" height="28">
+        <rect width="32" height="32" rx="6" fill="#09090B"/>
+        <circle cx="16" cy="16" r="6" fill="#22c55e"/>
+        <circle cx="16" cy="16" r="3" fill="#09090B"/>
+        <circle cx="16" cy="16" r="1.5" fill="#22c55e">
+          <animate attributeName="opacity" values="1;0.4;1" dur="2s" repeatCount="indefinite"/>
+        </circle>
+      </svg>
+      <div>
+        <div class="sidebar-brand">Tally</div>
+        <div class="sidebar-church" id="sidebar-church-name">{{CHURCH_NAME}}</div>
+      </div>
+    </div>
+    <button class="nav-item active" data-page="overview" onclick="showPage('overview', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></svg></span> <span data-i18n="nav.overview">Overview</span>
+    </button>
+    <button class="nav-item" data-page="profile" onclick="showPage('profile', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg></span> <span data-i18n="nav.profile">Profile</span>
+    </button>
+    <button class="nav-item" data-page="campuses" onclick="showPage('campuses', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z"/></svg></span> <span data-i18n="nav.campuses">Campuses</span>
+    </button>
+    <button class="nav-item" data-page="tds" onclick="showPage('tds', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg></span> <span data-i18n="nav.tds">Tech Directors</span>
+    </button>
+    <button class="nav-item" data-page="schedule" onclick="showPage('schedule', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg></span> <span data-i18n="nav.schedule">Schedule</span>
+    </button>
+    <button class="nav-item" data-page="notifications" onclick="showPage('notifications', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/></svg></span> <span data-i18n="nav.notifications">Notifications</span>
+    </button>
+    <button class="nav-item" data-page="engineer" onclick="showPage('engineer', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z"/></svg></span> <span data-i18n="nav.engineer">Tally Engineer</span>
+    </button>
+    <button class="nav-item" data-page="guests" onclick="showPage('guests', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 0 1 21.75 8.25Z"/></svg></span> <span data-i18n="nav.guests">Guest Access</span>
+    </button>
+    <button class="nav-item" data-page="macros" onclick="showPage('macros', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"/></svg></span> <span data-i18n="nav.macros">Macros</span>
+    </button>
+    <button class="nav-item" data-page="autopilot" onclick="showPage('autopilot', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z"/></svg></span> <span data-i18n="nav.autopilot">AutoPilot</span>
+    </button>
+    <button class="nav-item" data-page="sessions" onclick="showPage('sessions', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg></span> <span data-i18n="nav.sessions">Sessions</span>
+    </button>
+    <button class="nav-item" data-page="alerts" onclick="showPage('alerts',this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg></span> <span data-i18n="nav.alerts">Alerts</span>
+    </button>
+    <button class="nav-item" data-page="analytics" onclick="showPage('analytics', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg></span> <span data-i18n="nav.analytics">Analytics</span>
+    </button>
+    <button class="nav-item" data-page="migrate" onclick="showPage('migrate', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/></svg></span> <span data-i18n="nav.migrate">Migrate</span>
+    </button>
+    <button class="nav-item" data-page="referrals" onclick="showPage('referrals', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21 11.25v8.25a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 1 0 9.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1 1 14.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z"/></svg></span> <span>Referrals</span>
+    </button>
+    <button class="nav-item" data-page="billing" onclick="showPage('billing', this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z"/></svg></span> <span data-i18n="nav.billing">Billing</span>
+    </button>
+    <button class="nav-item" data-page="support" onclick="showPage('support',this)">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"/></svg></span> <span data-i18n="nav.support">Help &amp; Support</span>
+    </button>
+    <div class="sidebar-footer">
+      <button id="btn-lang-toggle" class="btn-secondary" onclick="toggleLanguage()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
+      <button class="btn-secondary" onclick="startDemoMode()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.7" title="See a simulated service without hardware" data-i18n="demo.try">Try Demo Mode</button>
+      <button class="btn-logout" onclick="logout()" data-i18n="btn.signout">Sign out</button>
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <div id="billing-banner"></div>
+
+    <!-- DEMO MODE BANNER -->
+    <div id="demo-mode-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:2000;background:#7c3aed;color:#fff;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;letter-spacing:0.5px">
+      <span data-i18n="demo.banner">DEMO MODE — This is simulated data. No real hardware connected.</span>
+      <button onclick="stopDemoMode()" style="margin-left:16px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:12px" data-i18n="demo.exit">Exit Demo</button>
+    </div>
+
+    <!-- OVERVIEW -->
+    <div class="page active" id="page-overview">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" id="overview-church-name">{{CHURCH_NAME}}</div>
+          <div class="page-sub" data-i18n="overview.sub">Church monitoring portal</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('overview')" title="What am I looking at?">?</button>
+      </div>
+
+      <!-- Onboarding Checklist -->
+      <div id="onboarding-checklist" style="display:none; margin-bottom:20px; background:#0F1613; border:1px solid #1a3a24; border-radius:12px; padding:20px 24px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+          <div>
+            <div style="font-size:15px; font-weight:700; color:#F8FAFC;" data-i18n="overview.getting_started">Getting Started</div>
+            <div style="font-size:12px; color:#64748B; margin-top:2px;" id="onboarding-progress-text" data-i18n="overview.setup_progress">Complete these steps to finish setup</div>
+          </div>
+          <button onclick="dismissOnboarding()" style="background:none; border:1px solid #1a2e1f; color:#64748B; font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;" data-i18n="overview.dismiss">Dismiss</button>
+        </div>
+        <div id="onboarding-items"></div>
+      </div>
+      <!-- Resume Setup Guide (shown when dismissed but not all steps complete) -->
+      <div id="onboarding-resume" style="display:none; margin-bottom:16px; text-align:center;">
+        <button onclick="undismissOnboarding()" style="background:none; border:none; color:#22c55e; font-size:12px; cursor:pointer; padding:4px 8px; opacity:0.7;" data-i18n="overview.resume_setup"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> Resume Setup Guide</button>
+      </div>
+
+      <!-- Upgrade Banner -->
+      <div id="upgrade-banner"></div>
+
+      <!-- Review Prompt Banner -->
+      <div id="review-prompt-banner" style="display:none"></div>
+
+      <!-- Referral Card -->
+      <div id="referral-card" style="display:none"></div>
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-value" id="stat-status" style="display:flex;align-items:center;gap:6px;justify-content:center"><span id="stat-status-dot" style="width:8px;height:8px;border-radius:50%;background:#475569;display:inline-block"></span> <span id="stat-status-text">—</span></div>
+          <div class="stat-label"><span class="tip" data-tip="Whether the Tally desktop app is currently connected to the relay server" data-i18n="overview.connection">Connection</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-sessions">—</div>
+          <div class="stat-label"><span class="tip" data-tip="Number of live service sessions detected in the last 30 days" data-i18n="overview.sessions_30d">Sessions (30d)</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-tds">—</div>
+          <div class="stat-label" data-i18n="overview.stat_tds">Tech Directors</div>
+        </div>
+      </div>
+
+      <!-- Live Viewer Count (visible during active sessions) -->
+      <div class="card" id="live-viewers-card" style="display:none;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="card-title" style="margin:0">Live Viewers</div>
+            <span id="live-viewers-total" style="font-size:24px;font-weight:800;color:#22c55e">0</span>
+          </div>
+          <div id="live-viewers-breakdown" style="display:flex;gap:12px;font-size:12px;color:#94A3B8"></div>
+        </div>
+        <div id="live-viewers-sparkline" style="margin-top:10px;height:40px;display:flex;align-items:flex-end;gap:2px"></div>
+      </div>
+
+      <!-- Pre-Service Check Card — prominent, always visible on dashboard -->
+      <div class="card" id="preservice-card-dashboard">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div class="card-title" style="margin:0"><span class="tip" data-tip="Tally runs a full system check ~30 min before your scheduled service. Run manually anytime." data-i18n="overview.preservice.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M9.66 1.2a5 5 0 0 0-5.956 6.437L1.146 10.2A.5.5 0 0 0 1 10.56V14a.5.5 0 0 0 .5.5h3.44a.5.5 0 0 0 .354-.146l2.563-2.558A5 5 0 0 0 13.8 6.34l-2.122 2.121a2.5 2.5 0 0 1-3.536-3.536L10.264 2.8A4.978 4.978 0 0 0 9.66 1.2Z" clip-rule="evenodd"/></svg> Pre-Service Check</span></div>
+            <span id="psc-dash-badge" class="badge badge-gray">—</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn-primary" id="psc-dash-fix-btn" onclick="fixAllPreServiceIssues()" style="display:none;font-size:12px;padding:5px 12px" data-i18n="overview.preservice.fix_all">Fix All Safe Issues</button>
+            <button class="btn-secondary" onclick="runPreServiceCheck()" style="font-size:12px;padding:5px 12px" data-i18n="overview.preservice.run_now">Run Check Now</button>
+          </div>
+        </div>
+        <div id="psc-dash-body">
+          <div style="color:#475569;text-align:center;padding:14px;font-size:13px">Loading…</div>
+        </div>
+        <div id="psc-dash-time" style="font-size:11px;color:#64748b;margin-top:8px;text-align:right"></div>
+      </div>
+
+      <!-- Multi-Campus Overview (shown only when campuses are linked) -->
+      <div class="card" id="campus-overview-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin:0">
+            <span class="tip" data-tip="Live status of all campuses linked to this account. Click a campus name to manage it." data-i18n="overview.campus.title">⊚ All Campuses</span>
+          </div>
+          <button class="btn-secondary" onclick="showPage('campuses', document.querySelector('[data-page=campuses]'))" style="padding:4px 10px;font-size:11px" data-i18n="overview.campus.manage">Manage Campuses</button>
+        </div>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th data-i18n="table.campus">Campus</th><th data-i18n="table.status">Status</th><th data-i18n="table.devices">Devices</th><th data-i18n="table.health">Health</th><th data-i18n="table.last_seen">Last Seen</th></tr></thead>
+          <tbody id="campus-overview-tbody"></tbody>
+        </table>
+        </div>
+      </div>
+
+      <!-- Live Incident Commander (shown only during active sessions) -->
+      <div class="card" id="incident-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin:0"><span id="incident-status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:8px;animation:pulse 2s infinite"></span>LIVE SESSION</div>
+          <span id="incident-duration" style="font-size:12px;color:#94A3B8"></span>
+        </div>
+        <div id="incident-meta" style="font-size:12px;color:#94A3B8;margin-bottom:12px"></div>
+        <div id="incident-body"></div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time status of each AV device Tally monitors (ATEM, OBS, HyperDeck, etc.)" data-i18n="overview.equip.title">Equipment Status</span> <span id="equip-room-label" style="font-size:12px;color:#22c55e;font-weight:normal;margin-left:8px"></span></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="equip-staleness" style="font-size:11px;color:#475569"></span>
+            <button class="btn-secondary" id="btn-refresh-equip" onclick="refreshEquipmentStatus()" style="padding:4px 10px;font-size:11px" title="Refresh" data-i18n="overview.equip.refresh">&#x21bb; Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th data-i18n="table.system">System</th><th data-i18n="table.status">Status</th><th data-i18n="table.version">Version</th><th data-i18n="table.detail">Detail</th></tr></thead>
+          <tbody id="equipment-tbody">
+            <tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      <!-- Live Stream Stats (shown when any source is streaming) -->
+      <div class="card" id="stream-stats-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin:0"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:8px;animation:pulse 2s infinite"></span><span data-i18n="overview.stream.title">Live Stream</span></div>
+          <span id="stream-source-label" style="font-size:12px;color:#94A3B8;background:#0F1613;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
+        </div>
+        <div class="grid-4col" style="text-align:center">
+          <div>
+            <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-bitrate">—</div>
+            <div style="font-size:11px;color:#64748B;margin-top:2px" data-i18n="overview.stream.bitrate">Bitrate (kbps)</div>
+          </div>
+          <div>
+            <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-fps">—</div>
+            <div style="font-size:11px;color:#64748B;margin-top:2px" data-i18n="overview.stream.fps">FPS</div>
+          </div>
+          <div>
+            <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-health">—</div>
+            <div style="font-size:11px;color:#64748B;margin-top:2px" data-i18n="overview.stream.health">Health</div>
+          </div>
+          <div>
+            <div style="font-size:22px;font-weight:700;color:#F8FAFC" id="ss-uptime">—</div>
+            <div style="font-size:11px;color:#64748B;margin-top:2px" data-i18n="overview.stream.uptime">Uptime</div>
+          </div>
+        </div>
+        <div id="ss-detail-row" style="margin-top:12px;display:flex;gap:16px;font-size:12px;color:#64748B;justify-content:center;flex-wrap:wrap"></div>
+      </div>
+
+      <!-- ATEM Switcher Detail Card -->
+      <div class="card" id="atem-detail-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="ATEM switcher state — program/preview inputs, recording & streaming status" data-i18n="overview.atem.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M3 3.5a.5.5 0 0 1 1 0V6a2 2 0 0 1 0 4v2.5a.5.5 0 0 1-1 0V10a2 2 0 0 1 0-4V3.5ZM8.5 3.5a.5.5 0 0 1 1 0v1A2 2 0 0 1 9.5 8.5v4a.5.5 0 0 1-1 0v-4a2 2 0 0 1 0-4v-1ZM12.5 5.5a.5.5 0 0 1 1 0v2a2 2 0 0 1 0 4v1a.5.5 0 0 1-1 0v-1a2 2 0 0 1 0-4v-2Z"/></svg> ATEM Switcher</span></div>
+          <span id="atem-model-label" style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
+        </div>
+        <div class="grid-2col" style="gap:16px;margin-bottom:14px">
+          <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.atem.program">Program</div>
+            <div style="font-size:22px;font-weight:700;color:#ef4444" id="atem-pgm-input">—</div>
+            <div style="font-size:12px;color:#94A3B8;margin-top:4px" id="atem-pgm-label"></div>
+          </div>
+          <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.atem.preview">Preview</div>
+            <div style="font-size:22px;font-weight:700;color:#22c55e" id="atem-pvw-input">—</div>
+            <div style="font-size:12px;color:#94A3B8;margin-top:4px" id="atem-pvw-label"></div>
+          </div>
+        </div>
+        <div id="atem-status-badges" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+      </div>
+
+      <!-- Audio Health Card -->
+      <div class="card" id="audio-health-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Audio monitoring — mute detection, silence alerts, source information" data-i18n="overview.audio.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z"/></svg> Audio Health</span></div>
+          <span id="audio-source-label" style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px"></span>
+        </div>
+        <div class="grid-3col" style="margin-bottom:14px">
+          <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.audio.mute">Mute</div>
+            <div style="font-size:18px;font-weight:700" id="audio-mute-status">—</div>
+          </div>
+          <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.audio.silence">Silence</div>
+            <div style="font-size:18px;font-weight:700" id="audio-silence-status">—</div>
+          </div>
+          <div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">
+            <div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px" data-i18n="overview.audio.monitoring">Monitoring</div>
+            <div style="font-size:18px;font-weight:700" id="audio-monitoring-status">—</div>
+          </div>
+        </div>
+        <div id="audio-detail-row" style="font-size:12px;color:#64748B;display:flex;gap:16px;flex-wrap:wrap"></div>
+      </div>
+
+      <!-- Pre-Service Check Card (legacy placeholder — real card is at top of overview) -->
+
+      <!-- Service Rundown Card -->
+      <div class="card" id="rundown-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Follow a step-by-step rundown during your service. Execute device commands directly from here." data-i18n="overview.rundown.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> Service Rundown</span></div>
+          <span id="rundown-status-badge" class="badge badge-gray">—</span>
+        </div>
+        <div id="rundown-body">
+          <div style="color:#475569;text-align:center;padding:16px;font-size:13px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Activity Feed -->
+      <div class="card" id="activity-feed-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time operational events — status changes, alerts, and auto-recovery actions" data-i18n="overview.activity.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/></svg> Activity Feed</span></div>
+          <span id="activity-feed-count" style="font-size:11px;color:#475569"></span>
+        </div>
+        <div id="activity-feed-body" style="max-height:300px;overflow-y:auto">
+          <div style="color:#475569;text-align:center;padding:16px;font-size:13px">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Campus Selector (multi-campus only) -->
+      <div id="pf-campus-picker" style="display:none; margin-bottom:16px;">
+        <label style="font-size:12px;color:#94A3B8;margin-right:8px;" data-i18n="overview.viewing">Viewing:</label>
+        <select id="pf-campus-select" onchange="loadProblems(this.value)" style="background:#0F1613;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;">
+          <option value="" data-i18n="overview.main_campus">Main Campus</option>
+        </select>
+      </div>
+
+      <!-- Tally Engineer Card -->
+      <div class="card" id="pf-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Automated diagnostics from Tally Engineer — shows what was found, what was auto-fixed, and what still needs attention" data-i18n="overview.engineer.title">Tally Engineer</span></div>
+          <span id="pf-badge" class="badge badge-gray">—</span>
+        </div>
+        <div id="pf-body">
+          <div style="color:#475569;text-align:center;padding:20px;font-size:13px">No diagnostics data yet — connect the Tally desktop app to see results.</div>
+        </div>
+      </div>
+
+      <div class="card" id="schedule-overview-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="Your configured service windows — alerts and automations follow this schedule" data-i18n="overview.schedule.title">Service Schedule</span></div>
+          <button class="btn-secondary" style="padding:4px 12px;font-size:11px" onclick="showPage('schedule', document.querySelector('[data-page=schedule]'))" data-i18n="btn.edit">Edit</button>
+        </div>
+        <div id="schedule-overview-body" style="font-size:13px;color:#94A3B8">Loading schedule…</div>
+      </div>
+      <div class="card">
+        <div class="card-title" data-i18n="overview.quickinfo.title">Quick Info</div>
+        <table>
+          <tbody>
+            <tr><td style="color:#94A3B8;width:160px" data-i18n="overview.quickinfo.church_id">Church ID</td><td><code style="font-size:12px;color:#475569" id="church-id-display">{{CHURCH_ID}}</code></td></tr>
+            <tr><td style="color:#94A3B8" data-i18n="overview.quickinfo.registered">Registered</td><td id="registered-date" style="color:#F8FAFC">—</td></tr>
+            <tr><td style="color:#94A3B8" data-i18n="overview.quickinfo.plan">Plan</td><td id="plan-name" style="color:#F8FAFC">—</td></tr>
+            <tr><td style="color:#94A3B8" data-i18n="overview.quickinfo.campuses">Campuses / Rooms</td><td id="plan-campus-limit" style="color:#F8FAFC">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PROFILE -->
+    <div class="page" id="page-profile">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.profile">Church Profile</div>
+          <div class="page-sub" data-i18n="profile.sub">Update your contact information</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('profile')" title="Help with Profile">?</button>
+      </div>
+      <div class="card">
+        <div class="card-title" data-i18n="profile.contact">Contact Information</div>
+        <div class="field-row">
+          <div class="field">
+            <label><span class="tip" data-tip="Contact support to change your church name" data-i18n="profile.church_name">Church Name</span></label>
+            <input type="text" id="profile-name" disabled style="opacity:0.5">
+          </div>
+          <div class="field">
+            <label data-i18n="profile.contact_email">Contact Email</label>
+            <input type="email" id="profile-email" placeholder="td@yourchurch.org">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label data-i18n="profile.phone">Phone Number</label>
+            <input type="tel" id="profile-phone" placeholder="+1 (555) 000-0000">
+          </div>
+          <div class="field">
+            <label data-i18n="profile.location">City / State</label>
+            <input type="text" id="profile-location" placeholder="Nashville, TN">
+          </div>
+        </div>
+        <div class="field">
+          <label><span class="tip" data-tip="Visible to ATEM School support when handling your tickets" data-i18n="profile.notes">Notes for Support Team</span></label>
+          <textarea id="profile-notes" placeholder="Any special setup notes, known issues, contact preferences..."></textarea>
+        </div>
+        <div class="field">
+          <label><span class="tip" data-tip="Send post-service recaps and weekly reports to leadership. Comma-separated email addresses." data-i18n="profile.leadership_emails">Leadership Email Recipients</span></label>
+          <input type="text" id="profile-leadership-emails" placeholder="pastor@church.org, board@church.org">
+          <div style="font-size:11px; color:#94a3b8; margin-top:4px;" data-i18n="profile.leadership_email_desc">Service recaps and weekly reports will be emailed to these addresses automatically.</div>
+        </div>
+        <div class="field">
+          <label><span class="tip" data-tip="Language used for Telegram bot messages sent to your tech directors" data-i18n="profile.bot_language">Bot Language (Telegram)</span></label>
+          <select id="profile-locale" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:8px 12px;font-size:14px;width:100%;max-width:240px">
+            <option value="en">English</option>
+            <option value="es">Español (Spanish)</option>
+          </select>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px;" data-i18n="profile.bot_language_desc">Tally bot messages will be sent in this language.</div>
+        </div>
+        <button class="btn-primary" id="btn-save-profile" onclick="saveProfile()" data-i18n="profile.save">Save Changes</button>
+      </div>
+      <div class="card">
+        <div class="card-title" data-i18n="profile.change_password">Change Password</div>
+        <div class="field-row">
+          <div class="field" style="flex:1">
+            <label data-i18n="profile.current_password">Current Password</label>
+            <input type="password" id="current-password" placeholder="••••••••">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label data-i18n="profile.new_password">New Password</label>
+            <input type="password" id="new-password" placeholder="••••••••">
+          </div>
+          <div class="field">
+            <label data-i18n="profile.confirm_password">Confirm Password</label>
+            <input type="password" id="confirm-password" placeholder="••••••••">
+          </div>
+        </div>
+        <button class="btn-secondary" onclick="changePassword()" data-i18n="profile.update_password">Update Password</button>
+      </div>
+    </div>
+
+    <!-- CAMPUSES -->
+    <div class="page" id="page-campuses">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.campuses">Multi-Campus</div>
+          <div class="page-sub" data-i18n="campus.page_sub">Manage additional campuses under this account</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('campuses')" title="Help with Campuses">?</button>
+      </div>
+
+      <!-- ── Campus Mode (Pro/Enterprise self-service campus linking) ─────── -->
+      <div class="card" id="campus-mode-card" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div class="card-title" style="margin:0">Campus Mode <span style="font-size:12px;color:#64748B;font-weight:normal;margin-left:8px">Pro &amp; Enterprise</span></div>
+          <span id="campus-mode-role-badge"></span>
+        </div>
+
+        <!-- Upgrade prompt (shown for Connect / Plus users) -->
+        <div id="campus-mode-upgrade" style="display:none;margin-top:16px">
+          <p style="color:#94A3B8;margin:0 0 12px;font-size:14px">Campus Mode lets existing churches link together without creating separate accounts or going through a reseller. Requires a <strong style="color:#F8FAFC">Pro or Enterprise</strong> plan.</p>
+          <button class="btn-primary" onclick="showPage('billing', document.querySelector('[data-page=billing]'))">Upgrade to Pro &rarr;</button>
+        </div>
+
+        <!-- Main campus view -->
+        <div id="campus-mode-main" style="display:none;margin-top:16px">
+          <p style="color:#94A3B8;margin:0 0 16px;font-size:14px">Share your link code with another church. They enter it on their own Campuses page to join your campus group. Each linked church keeps its own login and data.</p>
+          <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+            <div>
+              <label style="font-size:12px;color:#64748B;display:block;margin-bottom:6px">Campus Link Code</label>
+              <code id="campus-link-code-display" style="font-size:22px;color:#22c55e;letter-spacing:4px;padding:10px 18px;background:#0F1613;border:1px solid #1a2e1f;border-radius:6px;display:inline-block;min-width:120px;text-align:center">—</code>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <button class="btn-primary" id="btn-generate-link-code" onclick="generateCampusLinkCode()">Generate New Code</button>
+              <button class="btn-secondary" id="btn-copy-link-code" onclick="copyCampusLinkCode()" style="display:none">Copy Code</button>
+            </div>
+          </div>
+          <div id="campus-mode-satellites-section" style="margin-top:24px;display:none">
+            <div style="font-weight:600;color:#F8FAFC;margin-bottom:10px;font-size:14px">Linked Satellite Campuses</div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Campus</th><th>Status</th><th></th></tr></thead>
+                <tbody id="campus-mode-satellites-tbody">
+                  <tr><td colspan="3" style="color:#475569;text-align:center;padding:16px">No satellites linked yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Satellite view (this church joined another church's group) -->
+        <div id="campus-mode-satellite" style="display:none;margin-top:16px">
+          <div style="padding:14px 16px;background:#0F1613;border:1px solid #1a2e1f;border-radius:6px;margin-bottom:16px">
+            <div style="font-size:12px;color:#64748B;margin-bottom:4px">Linked to Main Campus</div>
+            <div id="campus-mode-main-name" style="color:#22c55e;font-weight:600;font-size:16px">—</div>
+          </div>
+          <button class="btn-danger" id="btn-campus-self-unlink" onclick="selfUnlinkFromCampusGroup()">Unlink from Campus Group</button>
+        </div>
+
+        <!-- Join form (Pro/Enterprise, not yet in a group) -->
+        <div id="campus-mode-join" style="display:none;margin-top:16px">
+          <p style="color:#94A3B8;margin:0 0 12px;font-size:14px">Already have a link code from your main campus? Enter it below to join their campus group.</p>
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <div class="field" style="flex:1;min-width:160px;margin-bottom:0">
+              <label>Link Code</label>
+              <input type="text" id="campus-join-code" placeholder="A1B2C3" maxlength="6" style="text-transform:uppercase;letter-spacing:3px;font-family:monospace;font-size:16px">
+            </div>
+            <button class="btn-primary" onclick="joinCampusGroup()" style="margin-bottom:0;white-space:nowrap">Join Campus Group</button>
+          </div>
+        </div>
+
+        <!-- Loading state -->
+        <div id="campus-mode-loading" style="margin-top:16px;color:#475569;font-size:13px">Loading…</div>
+      </div>
+      <!-- ── End Campus Mode ──────────────────────────────────────────────── -->
+
+      <p class="help-box"><strong>Add Campus (admin flow):</strong> Each campus created here gets its own Church ID, connection token, and Telegram registration code. Install the Tally app at each campus and connect using that campus token.</p>
+      <div id="campus-plan-note" class="help-box" style="display:none"></div>
+      <div id="campus-summary" class="stats-row grid-4col" style="display:none;margin-bottom:20px">
+        <div class="stat-card"><div class="stat-value" id="cs-total">0</div><div class="stat-label" data-i18n="campus.stat.total">Total Rooms</div></div>
+        <div class="stat-card"><div class="stat-value" id="cs-online" style="color:#22c55e">0</div><div class="stat-label" data-i18n="campus.stat.online">Online</div></div>
+        <div class="stat-card"><div class="stat-value" id="cs-offline">0</div><div class="stat-label" data-i18n="campus.stat.offline">Offline</div></div>
+        <div class="stat-card"><div class="stat-value" id="cs-alerts">0</div><div class="stat-label" data-i18n="campus.stat.alerts">Alerts (7d)</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title" data-i18n="campus.add.title">Add Campus</div>
+        <div class="field-row">
+          <div class="field">
+            <label data-i18n="campus.add.name">Campus Name</label>
+            <input type="text" id="campus-name" placeholder="North Campus">
+          </div>
+          <div class="field">
+            <label data-i18n="campus.add.location">City / State (optional)</label>
+            <input type="text" id="campus-location" placeholder="Franklin, TN">
+          </div>
+        </div>
+        <button class="btn-primary" id="btn-create-campus" onclick="addCampus()" data-i18n="campus.add.btn">Create Campus</button>
+      </div>
+      <div class="card">
+        <div class="card-title" data-i18n="campus.linked.title">Linked Campuses</div>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th data-i18n="table.campus">Campus</th><th data-i18n="table.status">Status</th><th data-i18n="table.health">Health</th><th data-i18n="table.code">Registration Code</th><th></th></tr></thead>
+          <tbody id="campuses-tbody">
+            <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      <!-- Room Management -->
+      <div class="card" id="rooms-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <div class="card-title" style="margin:0">Rooms</div>
+          <button class="btn-primary" onclick="addRoom()" style="font-size:12px;padding:6px 14px">+ Add Room</button>
+        </div>
+        <p style="color:#94A3B8;font-size:13px;margin-bottom:12px">Rooms are physical spaces (Main Sanctuary, Youth Room, etc). Assign each Tally desktop to a room from the app's Equipment tab.</p>
+        <div id="rooms-list" style="color:#475569;font-size:13px">Loading…</div>
+      </div>
+    </div>
+
+    <!-- TECH DIRECTORS -->
+    <div class="page" id="page-tds">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.tds">Tech Directors</div>
+          <div class="page-sub" data-i18n="tds.page_sub">People who receive alerts and have TD access</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('tds')" title="Help with Tech Directors">?</button>
+      </div>
+      <p class="help-box"><strong>How On-Call Routing Works:</strong> When Tally detects an issue during your service, it sends an alert to whichever TD is on-call that week. If no one responds within 90 seconds, it escalates to your primary TD. TDs can swap on-call duty via Telegram using <code style="color:#22c55e">/swap [name]</code>.</p>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+          <button class="btn-secondary" id="btn-copy-invite-link" onclick="copyTdInviteLink()" title="Generate a Telegram link — TDs click it to register automatically" data-i18n="tds.invite_link">Copy Invite Link</button>
+          <button class="btn-primary" onclick="document.getElementById('modal-add-td').classList.add('open')" data-i18n="tds.add_btn">+ Add TD</button>
+        </div>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th data-i18n="table.name">Name</th><th><span class="tip" data-tip="Job title or role in the tech team" data-i18n="table.role">Role</span></th><th><span class="tip" data-tip="Controls what this person can do in Tally via Telegram: viewer=status only, operator=control switcher, admin=full access">Access</span></th><th data-i18n="table.email">Email</th><th></th></tr></thead>
+          <tbody id="tds-tbody">
+            <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- SCHEDULE -->
+    <div class="page" id="page-schedule">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.schedule">Service Schedule</div>
+          <div class="page-sub" data-i18n="schedule.page_sub">Define your recurring service windows for smart alerts</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('schedule')" title="Help with Service Schedule">?</button>
+      </div>
+      <p class="help-box"><strong>Why set service windows?</strong> Tally uses these time windows to know when your services are live. Alerts only fire during (and around) these windows — so your TDs won't get notified at 3 AM for a test stream. Autopilot features (Pro plan) also use them to auto-start streaming and recording.</p>
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <div class="card-title" style="margin:0" data-i18n="schedule.card.title">Weekly Service Windows</div>
+          <div id="schedule-campus-picker" style="display:none">
+            <label style="font-size:12px;color:#94A3B8;margin-right:6px">Campus:</label>
+            <select id="schedule-campus-select" onchange="loadSchedule()" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:5px 8px;font-size:13px;cursor:pointer"></select>
+          </div>
+        </div>
+        <p style="font-size:12px;color:#94A3B8;margin-bottom:14px" data-i18n="schedule.desc">Add each recurring service window below. Alerts and automation use these time windows.</p>
+        <div id="schedule-empty" class="schedule-empty" data-i18n="schedule.empty">No service windows yet. Add your first one.</div>
+        <div id="schedule-rows" class="schedule-rows"></div>
+        <div class="schedule-actions">
+          <button class="btn-secondary" onclick="addScheduleRow()" data-i18n="schedule.add_btn">+ Add Service Window</button>
+          <span class="schedule-note" data-i18n="schedule.tip">Tip: set separate windows for Saturday rehearsal and Sunday service.</span>
+        </div>
+        <div style="margin-top:16px">
+          <button class="btn-primary" id="btn-save-schedule" onclick="saveSchedule()" data-i18n="schedule.save_btn">Save Schedule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- NOTIFICATIONS -->
+    <div class="page" id="page-notifications">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.notifications">Notifications</div>
+          <div class="page-sub" data-i18n="notif.page_sub">Control how and when you receive alerts</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('notifications')" title="Help with Notifications & Failover">?</button>
+      </div>
+      <p class="help-box"><strong>Alert Notifications:</strong> Tally classifies alerts by severity — INFO (logged only), WARNING (sent during services), CRITICAL (sent + escalated after 90s), and EMERGENCY (sent immediately). Configure your notification preferences below.</p>
+      <div class="card">
+        <div class="card-title" data-i18n="notif.prefs.title">Alert Preferences</div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label" data-i18n="notif.email.label">Email alerts</div>
+            <div class="toggle-desc" data-i18n="notif.email.desc">Receive offline + error alerts via email</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="notif-email"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label" data-i18n="notif.telegram.label">Telegram alerts</div>
+            <div class="toggle-desc" data-i18n="notif.telegram.desc">Receive alerts in Telegram (chat ID required)</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="notif-telegram"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label" data-i18n="notif.sync.label">A/V sync alerts</div>
+            <div class="toggle-desc" data-i18n="notif.sync.desc">Notify when audio/video drift exceeds threshold</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="notif-sync"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label" data-i18n="notif.digest.label">Weekly digest</div>
+            <div class="toggle-desc" data-i18n="notif.digest.desc">Summary email every Monday morning</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="notif-digest"><span class="slider"></span></label>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title" data-i18n="notif.recovery.title">Auto-Recovery</div>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label" data-i18n="notif.recovery.label">Automatic issue recovery</div>
+            <div class="toggle-desc" data-i18n="notif.recovery.desc">Tally Engineer will automatically attempt to fix common issues (stream drops, recording failures, encoder reconnects) before alerting your TD. Recovery actions are always logged in session reports.</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="notif-auto-recovery"><span class="slider"></span></label>
+        </div>
+        <button class="btn-primary" onclick="saveNotifications()" style="margin-top:12px" data-i18n="notif.save">Save Preferences</button>
+      </div>
+      <div class="card">
+        <div class="card-title" data-i18n="notif.failover.title">Stream Failover Protection</div>
+        <p style="font-size:12px;color:#94A3B8;margin-bottom:12px">When enabled, Tally monitors encoder bitrate and ATEM connection. If an outage is detected, your TD is alerted via Telegram. If no one responds within the ack timeout, Tally automatically switches to your configured safe source.</p>
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label" data-i18n="notif.failover.enable.label">Enable stream failover</div>
+            <div class="toggle-desc" data-i18n="notif.failover.enable.desc">Auto-switch to a safe source on confirmed signal loss</div>
+          </div>
+          <label class="toggle"><input type="checkbox" id="failover-enabled"><span class="slider"></span></label>
+        </div>
+        <div id="failover-config" style="margin-top:12px;display:none">
+          <div class="field" style="margin-bottom:10px">
+            <label>Failover action</label>
+            <select id="failover-action-type" onchange="toggleFailoverAction()" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+              <option value="">— Select —</option>
+              <option value="atem_switch">Switch ATEM program source</option>
+              <option value="videohub_route">Switch VideoHub route</option>
+            </select>
+          </div>
+          <div id="failover-atem-fields" style="display:none">
+            <div class="field" style="margin-bottom:10px">
+              <label>Safe source (ATEM input)</label>
+              <select id="failover-atem-input" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+                <option value="">Connect your ATEM to see inputs</option>
+              </select>
+            </div>
+          </div>
+          <div id="failover-videohub-fields" style="display:none">
+            <div class="field" style="margin-bottom:10px">
+              <label>VideoHub output (destination)</label>
+              <select id="failover-vh-output" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+                <option value="">Connect your VideoHub to see outputs</option>
+              </select>
+            </div>
+            <div class="field" style="margin-bottom:10px">
+              <label>Safe source (VideoHub input)</label>
+              <select id="failover-vh-input" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+                <option value="">Connect your VideoHub to see inputs</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;margin-bottom:10px">
+            <div class="field" style="flex:1">
+              <label>Black threshold (seconds)</label>
+              <input type="number" id="failover-black-threshold" value="5" min="3" max="15" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+            </div>
+            <div class="field" style="flex:1">
+              <label>Ack timeout (seconds)</label>
+              <input type="number" id="failover-ack-timeout" value="30" min="10" max="120" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+            </div>
+          </div>
+          <p style="font-size:11px;color:#64748B;margin-bottom:12px">Black threshold: how long to wait before confirming an outage. Ack timeout: how long to wait for TD response before auto-failover.</p>
+        </div>
+        <button class="btn-primary" onclick="saveFailoverSettings()" style="margin-top:8px" data-i18n="notif.failover.save">Save Failover Settings</button>
+      </div>
+      <div class="card" id="failover-drill-card">
+        <div class="card-title" data-i18n="notif.failover.drill.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5"/></svg> Failover Drill</div>
+        <p class="help-box"><strong>THIS IS A DRILL.</strong> Running a drill simulates a device failure and walks through the entire failover flow — alerts, ack window, and recovery — without touching any real equipment. Use this to train your team and verify your setup before Sunday.</p>
+        <div id="failover-drill-status" style="display:none;margin-bottom:12px;padding:12px 16px;border-radius:8px;font-size:13px;line-height:1.7"></div>
+        <button class="btn-primary" id="btn-run-drill" onclick="runFailoverDrill()" style="background:#eab308;border-color:#ca8a04;color:#000" data-i18n="notif.failover.drill.run">Run Failover Drill</button>
+        <span id="drill-spinner" style="display:none;margin-left:10px;font-size:12px;color:#64748B">Running drill…</span>
+      </div>
+      <div class="card">
+        <div class="card-title" data-i18n="notif.telegram_card.title">Telegram Integration</div>
+        <div class="field">
+          <label data-i18n="notif.telegram_chat_id">Your Telegram Chat ID</label>
+          <input type="text" id="telegram-chat-id" placeholder="1234567890">
+        </div>
+        <p style="font-size:12px;color:#94A3B8;margin-bottom:16px">Message <a href="https://t.me/userinfobot" target="_blank" style="color:#22c55e">@userinfobot</a> on Telegram to get your chat ID.</p>
+        <button class="btn-primary" onclick="saveNotifications()">Save Preferences</button>
+      </div>
+      <div class="card">
+        <div class="card-title">Email Preferences</div>
+        <p style="font-size:12px;color:#94A3B8;margin-bottom:14px">Choose which types of emails you receive from Tally. Critical billing and security emails are always sent.</p>
+        <div id="email-prefs-container" style="opacity:0.5">Loading...</div>
+      </div>
+    </div>
+
+    <!-- TALLY ENGINEER -->
+    <div class="page" id="page-engineer">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.engineer">Train Your Tally Engineer</div>
+          <div class="page-sub" data-i18n="engineer.page_sub">Help Tally Engineer understand your setup so it can diagnose problems faster and give better recommendations.</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('engineer')" title="Help with Tally Engineer">?</button>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="card-title" style="margin:0" data-i18n="engineer.training.title">Training Status</div>
+          <span id="engineer-training-badge" class="badge badge-gray">—</span>
+        </div>
+        <p style="color:#94A3B8;font-size:13px;line-height:1.6;margin:0">
+          The more Tally Engineer knows about your setup, the better it can diagnose issues and suggest fixes.
+          Fill in as many fields as you can — you can always update them later.
+        </p>
+      </div>
+      <div class="card">
+        <div class="card-title" data-i18n="engineer.setup.title">Setup Profile</div>
+        <div class="field-row">
+          <div class="field">
+            <label data-i18n="engineer.stream_platform">Stream Platform</label>
+            <select id="eng-stream-platform">
+              <option value="">— Select —</option>
+              <option value="YouTube">YouTube</option>
+              <option value="Facebook">Facebook</option>
+              <option value="Vimeo">Vimeo</option>
+              <option value="Resi">Resi</option>
+              <option value="Boxcast">Boxcast</option>
+              <option value="Church Online Platform">Church Online Platform</option>
+              <option value="Custom RTMP">Custom RTMP</option>
+              <option value="None">None (record only)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="engineer.expected_viewers">Expected Viewers</label>
+            <select id="eng-expected-viewers">
+              <option value="">— Select —</option>
+              <option value="Under 50">Under 50</option>
+              <option value="50-200">50–200</option>
+              <option value="200-500">200–500</option>
+              <option value="500-1000">500–1,000</option>
+              <option value="1000+">1,000+</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label data-i18n="engineer.operator_level">Operator Experience</label>
+            <select id="eng-operator-level">
+              <option value="">— Select —</option>
+              <option value="Volunteer (new)">Volunteer (new)</option>
+              <option value="Volunteer (experienced)">Volunteer (experienced)</option>
+              <option value="Part-time staff">Part-time staff</option>
+              <option value="Full-time TD">Full-time TD</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-i18n="engineer.backup_encoder">Backup Encoder</label>
+            <input type="text" id="eng-backup-encoder" placeholder="e.g. OBS on second laptop, none">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label data-i18n="engineer.backup_switcher">Backup Switcher</label>
+            <input type="text" id="eng-backup-switcher" placeholder="e.g. ATEM Mini Pro as backup, none">
+          </div>
+          <div class="field" style="flex:1"></div>
+        </div>
+        <div class="field">
+          <label><span class="tip" data-tip="Anything special about your AV setup — audio routing, dual streams, unique workflows, known quirks" data-i18n="engineer.special_notes">Special Notes</span></label>
+          <textarea id="eng-special-notes" placeholder="e.g. Audio feed comes from FOH board via USB, we run two simultaneous streams to YouTube and Facebook"></textarea>
+        </div>
+        <button class="btn-primary" onclick="saveEngineerProfile()" data-i18n="engineer.save">Save Profile</button>
+      </div>
+      <div class="card" id="coaching-card" style="display:none;margin-top:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin:0"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z"/></svg> Weekly Engineer Notes</div>
+          <span id="coaching-week" style="font-size:11px;color:#64748b"></span>
+        </div>
+        <div id="coaching-body">
+          <div style="color:#475569;text-align:center;padding:16px;font-size:13px">Loading coaching data…</div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin:0" data-i18n="engineer.chat.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/></svg> Chat with Tally Engineer</div>
+          <button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="clearEngineerChat()" data-i18n="btn.clear">Clear</button>
+        </div>
+        <div id="engineer-chat-messages" style="min-height:200px;max-height:500px;overflow-y:auto;border:1px solid #1a2e1f;border-radius:8px;padding:12px;background:#09090B;margin-bottom:12px">
+          <div id="engineer-chat-empty" style="text-align:center;padding:24px 16px">
+            <div style="color:#94A3B8;font-size:13px;margin-bottom:16px">Ask about your setup, troubleshooting, or available commands</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
+              <button class="engineer-pill" onclick="sendEngineerPill(this)" style="background:#0F1613;border:1px solid #1a2e1f;border-radius:999px;padding:6px 14px;color:#94A3B8;font-size:12px;cursor:pointer;transition:border-color 0.2s">What commands can I use?</button>
+              <button class="engineer-pill" onclick="sendEngineerPill(this)" style="background:#0F1613;border:1px solid #1a2e1f;border-radius:999px;padding:6px 14px;color:#94A3B8;font-size:12px;cursor:pointer;transition:border-color 0.2s">How does auto-recovery work?</button>
+              <button class="engineer-pill" onclick="sendEngineerPill(this)" style="background:#0F1613;border:1px solid #1a2e1f;border-radius:999px;padding:6px 14px;color:#94A3B8;font-size:12px;cursor:pointer;transition:border-color 0.2s">Help me troubleshoot my stream</button>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="engineer-chat-input" placeholder="Ask Tally Engineer a question..." data-i18n-placeholder="engineer.chat.placeholder"
+            style="flex:1;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:9px 12px;color:#F8FAFC;font-size:13px;outline:none"
+            onkeydown="if(event.key==='Enter')sendEngineerChat()">
+          <button class="btn-primary" onclick="sendEngineerChat()" style="min-width:80px" data-i18n="btn.send">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- GUEST ACCESS -->
+    <div class="page" id="page-guests">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.guests">Guest Access</div>
+          <div class="page-sub" data-i18n="guests.page_sub">Temporary tokens for visiting TDs, contractors, or trainers</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('guests')" title="Help with Guest Access">?</button>
+      </div>
+      <p class="help-box"><strong>What are guest tokens?</strong> Generate a temporary access token for visiting tech directors, contractors, or trainers. Share the token — the guest enters it in the Tally app or Telegram bot to get temporary monitoring access. Tokens auto-expire after the time you set (default 7 days). Revoke any token early from the table below.</p>
+      <div class="card">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+          <button class="btn-primary" onclick="generateGuestToken()" data-i18n="guests.generate">+ Generate Token</button>
+        </div>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th><span class="tip" data-tip="Share this code with the guest — they enter it in the Tally app or Telegram bot" data-i18n="table.token">Token</span></th><th data-i18n="table.label">Label</th><th><span class="tip" data-tip="Shows whether a guest TD has claimed this token via Telegram" data-i18n="table.status">Status</span></th><th data-i18n="table.created">Created</th><th><span class="tip" data-tip="Token stops working after this date. Revoke early if needed." data-i18n="table.expires">Expires</span></th><th></th></tr></thead>
+          <tbody id="guests-tbody">
+            <tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- MACROS -->
+    <div class="page" id="page-macros">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.macros">Telegram Macros</div>
+          <div class="page-sub" data-i18n="macros.page_sub">Custom command shortcuts for your tech directors</div>
+        </div>
+      </div>
+      <p class="help-box"><strong>What are macros?</strong> Macros let you create custom Telegram shortcuts for sequences of steps your team runs every week. For example, <code>/sunday</code> could run your full Sunday morning setup sequence. TDs type the shortcut in Telegram and Tally executes the sequence automatically.</p>
+      <div class="card">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+          <button class="btn-primary" onclick="document.getElementById('modal-add-macro').classList.add('open')" data-i18n="macros.add_btn">+ New Macro</button>
+        </div>
+        <div id="macros-list">
+          <div style="color:#475569;text-align:center;padding:20px;font-size:13px">Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Macro Modal -->
+    <div class="modal-backdrop" id="modal-add-macro">
+      <div class="modal" style="max-width:520px">
+        <div class="modal-header">
+          <div class="modal-title" id="macro-modal-title" data-i18n="macros.modal.title">New Macro</div>
+          <button class="modal-close" onclick="closeMacroModal()">✕</button>
+        </div>
+        <div style="padding:20px">
+          <input type="hidden" id="macro-edit-id">
+          <div class="field" style="margin-bottom:14px">
+            <label>Shortcut Name <span style="color:#64748b;font-size:11px">(e.g. "sunday", "warmup", "teststream")</span></label>
+            <div style="display:flex;align-items:center;gap:0">
+              <span style="color:#475569;padding:8px 10px;background:#09090B;border:1px solid #1a2e1f;border-right:none;border-radius:6px 0 0 6px;font-size:14px">/</span>
+              <input type="text" id="macro-name" placeholder="sunday" style="border-radius:0 6px 6px 0;flex:1" oninput="this.value=this.value.replace(/[^a-z0-9_]/g,'').toLowerCase()">
+            </div>
+            <div style="font-size:11px;color:#94a3b8;margin-top:4px">Lowercase letters, numbers, underscores only.</div>
+          </div>
+          <div class="field" style="margin-bottom:14px">
+            <label>Description <span style="color:#64748b;font-size:11px">(shown in /macros list)</span></label>
+            <input type="text" id="macro-description" placeholder="Sunday morning setup sequence">
+          </div>
+          <div class="field" style="margin-bottom:14px">
+            <label>Commands <span style="color:#64748b;font-size:11px">(one per line — same as Telegram commands)</span></label>
+            <textarea id="macro-steps" rows="5" placeholder="start stream\nstart recording\natem cut 1\nobs scene Main Service" style="font-family:monospace;font-size:13px"></textarea>
+            <div style="font-size:11px;color:#94a3b8;margin-top:4px">Enter commands exactly as you'd type them in Telegram. They run in order with a 1-second delay between each.</div>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn-secondary" onclick="closeMacroModal()" data-i18n="btn.cancel">Cancel</button>
+            <button class="btn-primary" onclick="saveMacro()" data-i18n="macros.modal.save">Save Macro</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUTOPILOT -->
+    <div class="page" id="page-autopilot">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.autopilot">AutoPilot</div>
+          <div class="page-sub" data-i18n="autopilot.subtitle">Automation rules that fire during your service windows</div>
+        </div>
+      </div>
+      <p class="help-box"><strong>What is AutoPilot?</strong> AutoPilot rules fire automatically during your service windows — no manual intervention needed. Triggers include ProPresenter slide changes, schedule timers, and equipment state events. Actions include OBS commands, ATEM switches, and TD notifications. Pro plan required.</p>
+
+      <!-- Upgrade gate for Connect/Plus plans -->
+      <div id="autopilot-upgrade-gate" style="display:none">
+        <div class="card" style="text-align:center;padding:40px 24px">
+          <div style="margin-bottom:16px;color:#94A3B8"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="40" height="40" aria-hidden="true"><rect x="3" y="5" width="10" height="7" rx="1.5" ry="1.5"/><circle cx="6" cy="8.5" r="1"/><circle cx="10" cy="8.5" r="1"/><rect x="6.5" y="2" width="3" height="3" rx=".5"/><path d="M5 5V4h1v1zm5 0V4h1v1z"/></svg></div>
+          <div style="font-size:18px;font-weight:700;color:#F8FAFC;margin-bottom:8px" data-i18n="autopilot.upgrade_gate_title">AutoPilot requires Pro or higher</div>
+          <div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:20px" data-i18n="autopilot.upgrade_gate_body">Set up automation rules that run during your service windows — auto-start recording, switch cameras on slide change, and more.</div>
+          <button class="btn-primary" onclick="showPage('billing', document.querySelector('[data-page=billing]'))" data-i18n="autopilot.upgrade_to_pro">Upgrade to Pro &rarr;</button>
+        </div>
+      </div>
+
+      <!-- AutoPilot content for Pro+ plans -->
+      <div id="autopilot-content" style="display:none">
+        <div id="autopilot-paused-banner" style="display:none;background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308" data-i18n="autopilot.paused_banner">
+          AutoPilot is paused — all rules are suspended.
+        </div>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <button id="btn-autopilot-pause" class="btn-secondary" onclick="toggleAutopilotPause()" data-i18n="autopilot.pause">Pause AutoPilot</button>
+            <button class="btn-primary" onclick="document.getElementById('modal-add-rule').classList.add('open')" data-i18n="autopilot.new_rule">+ New Rule</button>
+          </div>
+          <div id="autopilot-rules-list">
+            <div style="color:#475569;text-align:center;padding:20px;font-size:13px" data-i18n="status.loading">Loading\u2026</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Rule Modal -->
+    <div class="modal-backdrop" id="modal-add-rule">
+      <div class="modal" style="max-width:560px;width:560px">
+        <div class="modal-header">
+          <div class="modal-title">New AutoPilot Rule</div>
+          <button class="modal-close" onclick="document.getElementById('modal-add-rule').classList.remove('open')">&#x2715;</button>
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Rule Name</label>
+          <input type="text" id="rule-name" placeholder="e.g. Auto-Start Recording">
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Trigger Type</label>
+          <select id="rule-trigger-type" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:8px 12px;font-size:14px;width:100%">
+            <option value="">Select trigger&hellip;</option>
+            <option value="propresenter_slide_change">ProPresenter Slide Change</option>
+            <option value="schedule_timer">Schedule Timer</option>
+            <option value="equipment_state_match">Equipment State Match</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Trigger Config <span style="color:#64748b;font-size:11px">(JSON)</span></label>
+          <textarea id="rule-trigger-config" rows="3" placeholder='{"minutesIntoService": 5}' style="font-family:monospace;font-size:13px"></textarea>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px">Examples: <code>{"presentationPattern":"Sermon"}</code> &nbsp; <code>{"minutesIntoService":10}</code> &nbsp; <code>{"conditions":{"obs.streaming":true}}</code></div>
+        </div>
+        <div class="field" style="margin-bottom:14px">
+          <label>Actions <span style="color:#64748b;font-size:11px">(JSON array)</span></label>
+          <textarea id="rule-actions" rows="3" placeholder='[{"command":"obs.startRecording","params":{}}]' style="font-family:monospace;font-size:13px"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="document.getElementById('modal-add-rule').classList.remove('open')" data-i18n="btn.cancel">Cancel</button>
+          <button class="btn-primary" id="btn-save-rule" onclick="saveAutopilotRule()">Save Rule</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Test Rule Result Modal -->
+    <div class="modal-backdrop" id="modal-test-rule">
+      <div class="modal" style="max-width:500px;width:500px">
+        <div class="modal-header">
+          <div class="modal-title" data-i18n="autopilot.test.title">Test Rule &mdash; Dry Run</div>
+          <button class="modal-close" onclick="document.getElementById('modal-test-rule').classList.remove('open')">&#x2715;</button>
+        </div>
+        <div id="test-rule-result">
+          <div style="color:#475569;text-align:center;padding:16px" data-i18n="status.loading">Running\u2026</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" onclick="document.getElementById('modal-test-rule').classList.remove('open')" data-i18n="btn.cancel">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rule Limit / Upgrade Modal -->
+    <div class="modal-backdrop" id="modal-rule-limit">
+      <div class="modal" style="max-width:440px;width:440px;text-align:center">
+        <div class="modal-header">
+          <div class="modal-title" data-i18n="upgrade.rule_limit_title">Rule Limit Reached</div>
+          <button class="modal-close" onclick="document.getElementById('modal-rule-limit').classList.remove('open')">&#x2715;</button>
+        </div>
+        <div style="margin-bottom:12px;color:#94A3B8"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="32" height="32" aria-hidden="true"><path d="M8 1C4.686 1 2 3.686 2 7v1.5c0 .828.672 1.5 1.5 1.5H4v1a4 4 0 0 0 8 0v-1h.5c.828 0 1.5-.672 1.5-1.5V7c0-3.314-2.686-6-6-6Zm0 2a4 4 0 0 1 4 4H4a4 4 0 0 1 4-4Zm0 7a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2Z"/></svg></div>
+        <div style="font-size:15px;font-weight:700;color:#F8FAFC;margin-bottom:8px">You&rsquo;ve reached the rule limit for your plan</div>
+        <div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:20px" id="rule-limit-body" data-i18n="upgrade.rule_limit_default">Upgrade to Pro for up to 10 automation rules, or Enterprise for 25.</div>
+        <div class="modal-footer" style="justify-content:center">
+          <button class="btn-secondary" onclick="document.getElementById('modal-rule-limit').classList.remove('open')" data-i18n="upgrade.maybe_later">Maybe Later</button>
+          <button class="btn-primary" id="btn-rule-limit-upgrade" onclick="document.getElementById('modal-rule-limit').classList.remove('open');showPage('billing',document.querySelector('[data-page=billing]'))" data-i18n="upgrade.cta">Upgrade Plan &rarr;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SESSIONS -->
+    <div class="page" id="page-sessions">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.sessions">Service Sessions</div>
+          <div class="page-sub" data-i18n="sessions.page_sub">History of recent live service sessions</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('sessions')" title="Help with Sessions">?</button>
+      </div>
+      <p class="help-box"><strong>What counts as a session?</strong> A session is recorded each time Tally detects your live stream or recording starting during a service window. Duration, peak viewer count, and any alerts that fired are logged here.</p>
+      <div class="card">
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th data-i18n="table.date">Date</th><th data-i18n="table.duration">Duration</th><th data-i18n="table.peak_viewers">Peak Viewers</th><th data-i18n="table.status">Status</th></tr></thead>
+          <tbody id="sessions-tbody">
+            <tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      <!-- Post-Service AI Reports Card -->
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div class="card-title" style="margin:0"><span class="tip" data-tip="AI-generated summary reports automatically created after each service. Includes uptime, device health, failover events, and recommendations." data-i18n="sessions.reports.title"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path d="M12 2a1 1 0 0 1 1 1v10a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1ZM8 5a1 1 0 0 1 1 1v7a1 1 0 0 1-2 0V6a1 1 0 0 1 1-1ZM4 8a1 1 0 0 1 1 1v4a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1Z"/></svg> Service Reports</span></div>
+          <span style="font-size:11px;color:#64748b" data-i18n="sessions.reports.auto">Auto-generated after each service</span>
+        </div>
+        <div id="service-reports-body">
+          <div style="color:#475569;text-align:center;padding:20px;font-size:13px">Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ANALYTICS -->
+    <div class="page" id="page-analytics">
+      <div class="page-header">
+        <div class="page-title" data-i18n="page.analytics">Analytics</div>
+        <div class="page-sub" data-i18n="analytics.page_sub">Stream health, viewer trends, and equipment performance</div>
+      </div>
+
+      <div style="margin-bottom:20px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn-secondary analytics-range active" data-days="30" onclick="setAnalyticsRange(30, this)" data-i18n="analytics.last_30">Last 30 days</button>
+        <button class="btn-secondary analytics-range" data-days="90" onclick="setAnalyticsRange(90, this)" data-i18n="analytics.last_90">Last 90 days</button>
+        <button class="btn-secondary analytics-range" data-days="180" onclick="setAnalyticsRange(180, this)" data-i18n="analytics.last_180">Last 6 months</button>
+        <button class="btn-secondary analytics-range" data-days="365" onclick="setAnalyticsRange(365, this)" data-i18n="analytics.last_365">Last year</button>
+        <button class="btn-secondary" onclick="exportAnalyticsCSV()" style="margin-left:auto" title="Download session data as CSV" data-i18n="analytics.export">Export CSV</button>
+      </div>
+
+      <div class="stats-row grid-4col" id="analytics-kpi">
+        <div class="stat-card">
+          <div class="stat-value" id="a-uptime">\u2014</div>
+          <div class="stat-label" data-i18n="analytics.kpi.uptime">Stream Uptime</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="a-sessions-count">\u2014</div>
+          <div class="stat-label" data-i18n="analytics.kpi.sessions">Total Sessions</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="a-avg-viewers">\u2014</div>
+          <div class="stat-label" data-i18n="analytics.kpi.avg_viewers">Avg Peak Viewers</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="a-recovery-rate">\u2014</div>
+          <div class="stat-label" data-i18n="analytics.kpi.recovery">Auto-Recovery Rate</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" data-i18n="analytics.health.title">Stream Health & Reliability</div>
+        <div id="a-health-content" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" data-i18n="analytics.viewers.title">Viewer Trends</div>
+        <div id="a-viewer-chart" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" data-i18n="analytics.platform.title">Audience by Platform</div>
+        <div class="page-sub" style="margin-bottom:12px" data-i18n="analytics.platform.sub">Concurrent viewer counts from YouTube, Facebook, and Vimeo</div>
+        <div class="stats-row grid-4col" id="audience-kpi" style="margin-bottom:16px">
+          <div class="stat-card" style="border-left:3px solid #ff0000">
+            <div class="stat-value" id="aud-yt-peak">\u2014</div>
+            <div class="stat-label" data-i18n="analytics.platform.yt">YouTube Peak</div>
+          </div>
+          <div class="stat-card" style="border-left:3px solid #1877f2">
+            <div class="stat-value" id="aud-fb-peak">\u2014</div>
+            <div class="stat-label" data-i18n="analytics.platform.fb">Facebook Peak</div>
+          </div>
+          <div class="stat-card" style="border-left:3px solid #1ab7ea">
+            <div class="stat-value" id="aud-vim-peak">\u2014</div>
+            <div class="stat-label" data-i18n="analytics.platform.vim">Vimeo Peak</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="aud-total-avg">\u2014</div>
+            <div class="stat-label" data-i18n="analytics.platform.avg">Avg Total Viewers</div>
+          </div>
+        </div>
+        <div id="aud-platform-chart" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
+        <div id="aud-live-chart" style="margin-top:16px;color:#475569;text-align:center;padding:12px;display:none">
+          <div class="card-title" style="font-size:13px">Live Viewer Count (last 2 hours)</div>
+          <div id="aud-live-bars"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" data-i18n="analytics.session_stats.title">Session Duration & Frequency</div>
+        <div id="a-session-stats" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" data-i18n="analytics.equipment.title">Equipment Performance</div>
+        <div id="a-equipment-content" style="color:#475569;text-align:center;padding:20px">Loading\u2026</div>
+      </div>
+    </div>
+
+    <!-- ALERTS -->
+    <div class="page" id="page-alerts">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.alerts">Alert History</div>
+          <div class="page-sub" data-i18n="alerts.page_sub">Recent alerts from your services</div>
+        </div>
+        <button class="help-icon-btn" onclick="openHelp('alerts')" title="Help with Alerts">?</button>
+      </div>
+      <p class="help-box">Alerts are classified by severity: <span style="color:#22c55e">INFO</span> (logged only), <span style="color:#eab308">WARNING</span> (sent to on-call TD), <span style="color:#ef4444">CRITICAL</span> (sent + escalated after 90s), <span style="color:#ef4444;font-weight:700">EMERGENCY</span> (immediate escalation). Acknowledge alerts via Telegram with <code style="color:#22c55e">/ack_[code]</code>.</p>
+      <div id="alerts-content"><p style="color:#475569;text-align:center;padding:20px">Loading alerts...</p></div>
+    </div>
+
+    <!-- MIGRATION WIZARD -->
+    <div class="page" id="page-migrate">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.migrate">Migration Assistant</div>
+          <div class="page-sub" data-i18n="migrate.page_sub">Switching from another system? We'll guide you through.</div>
+        </div>
+      </div>
+      <div id="migration-wizard">
+        <!-- Step 1: pick source system -->
+        <div id="migrate-step-1">
+          <div class="card">
+            <div class="card-title" style="margin-bottom:16px" data-i18n="migrate.question">What are you switching from?</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px" id="migrate-source-grid"></div>
+          </div>
+        </div>
+
+        <!-- Step 2: comparison + setup guidance (populated by JS) -->
+        <div id="migrate-step-2" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- REFERRALS -->
+    <div class="page" id="page-referrals">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title">Referral Program</div>
+          <div class="page-sub">Share Tally with other churches and earn free months</div>
+        </div>
+      </div>
+
+      <!-- How it works -->
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="font-size:24px">&#127873;</span>
+          <div>
+            <div style="font-size:16px;font-weight:700;color:#F8FAFC">Give a month, get a month</div>
+            <div style="font-size:13px;color:#94A3B8">Share your referral link. When a church signs up and subscribes, you both get a free month.</div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">
+          <div style="flex:1;min-width:140px;background:#0F1613;border:1px solid #1a2e1f;border-radius:10px;padding:14px;text-align:center">
+            <div style="font-size:28px;margin-bottom:6px">1</div>
+            <div style="font-size:12px;color:#94A3B8;line-height:1.4">Share your unique link with a church you know</div>
+          </div>
+          <div style="flex:1;min-width:140px;background:#0F1613;border:1px solid #1a2e1f;border-radius:10px;padding:14px;text-align:center">
+            <div style="font-size:28px;margin-bottom:6px">2</div>
+            <div style="font-size:12px;color:#94A3B8;line-height:1.4">They sign up using your link and start their trial</div>
+          </div>
+          <div style="flex:1;min-width:140px;background:#0F1613;border:1px solid #1a2e1f;border-radius:10px;padding:14px;text-align:center">
+            <div style="font-size:28px;margin-bottom:6px">3</div>
+            <div style="font-size:12px;color:#94A3B8;line-height:1.4">When they subscribe, you both get one month free</div>
+          </div>
+        </div>
+
+        <!-- Share link -->
+        <div style="margin-bottom:12px">
+          <label style="font-size:12px;color:#64748B;margin-bottom:6px;display:block">Your referral link</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="flex:1;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:10px 14px;font-family:ui-monospace,monospace;font-size:13px;color:#F8FAFC;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="ref-page-link">—</div>
+            <button onclick="copyRefPageLink()" class="btn-primary" style="padding:8px 16px;font-size:13px;flex-shrink:0">Copy</button>
+          </div>
+        </div>
+
+        <!-- Share buttons -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="shareRefEmail()" class="btn-secondary" style="padding:6px 14px;font-size:12px">Email a Church</button>
+          <button onclick="shareRefSMS()" class="btn-secondary" style="padding:6px 14px;font-size:12px">Text a Friend</button>
+        </div>
+      </div>
+
+      <!-- Progress -->
+      <div class="card" id="ref-progress-card">
+        <div class="card-title">Your Referral Progress</div>
+        <div id="ref-progress-content" style="opacity:0.5">Loading...</div>
+      </div>
+
+      <!-- History -->
+      <div class="card">
+        <div class="card-title">Referral History</div>
+        <div id="ref-history-content" style="opacity:0.5">Loading...</div>
+      </div>
+
+      <p style="font-size:11px;color:#475569;text-align:center;margin-top:8px">Up to 5 free months. New accounts only. Credits applied to your next invoice as a Stripe balance credit.</p>
+    </div>
+
+    <!-- BILLING -->
+    <div class="page" id="page-billing">
+      <div class="page-header">
+        <div class="page-title" data-i18n="page.billing">Billing &amp; Subscription</div>
+        <div class="page-sub" data-i18n="billing.sub">Manage your plan, payment method, and invoices</div>
+      </div>
+      <p class="help-box"><strong>Plan tiers:</strong> <strong style="color:#22c55e">Connect</strong> (free — monitoring + alerts), <strong style="color:#22c55e">Plus</strong> (faster response + Telegram bot), <strong style="color:#22c55e">Pro</strong> (AI Autopilot + Planning Center sync), <strong style="color:#22c55e">Enterprise</strong> (dedicated support with 15-min response SLA).</p>
+      <div id="billing-content">
+        <div style="color:#475569;text-align:center;padding:30px">Loading billing info...</div>
+      </div>
+    </div>
+
+    <!-- HELP & SUPPORT -->
+    <div class="page" id="page-support">
+      <div class="page-header">
+        <div class="page-title" data-i18n="page.support">Help &amp; Support</div>
+        <div class="page-sub" data-i18n="support.page_sub">Run diagnostics, open tickets, and track platform status</div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" data-i18n="support.sla.title">Support SLA</div>
+        <p id="support-response-time" style="color:#475569;font-size:13px;margin-top:8px"></p>
+        <p style="color:#94A3B8;font-size:13px;line-height:1.6;margin-top:8px">
+          Direct support: <a href="mailto:support@tallyconnect.app" style="color:#22c55e">support@tallyconnect.app</a>
+        </p>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title">Download Tally Desktop</div>
+        <p style="color:#94A3B8;font-size:13px;line-height:1.6;margin-top:8px">Get the latest version of the Tally desktop app for your technical director's booth computer.</p>
+        <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+          <a href="https://github.com/peterdisbrow/tally/releases/latest/download/Tally-1.0.0-arm64.dmg" class="btn-primary" style="display:inline-block;text-decoration:none;padding:8px 16px;font-size:13px">Download for Mac (Apple Silicon)</a>
+          <a href="https://github.com/peterdisbrow/tally/releases/latest/download/Tally-1.0.0.dmg" class="btn-secondary" style="display:inline-block;text-decoration:none;padding:8px 16px;font-size:13px">Download for Mac (Intel)</a>
+        </div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" data-i18n="support.diag.title">Run Guided Diagnostics</div>
+        <div class="field">
+          <label data-i18n="support.diag.issue">Issue category</label>
+          <select id="support-issue">
+            <option value="stream_down">Stream down</option>
+            <option value="no_audio_stream">No audio on stream</option>
+            <option value="slides_issue">Slides / ProPresenter issue</option>
+            <option value="atem_connectivity">ATEM connectivity issue</option>
+            <option value="recording_issue">Recording issue</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label data-i18n="support.diag.severity">Severity</label>
+          <select id="support-severity">
+            <option value="P1">P1 - Critical outage</option>
+            <option value="P2" selected>P2 - High (service impact)</option>
+            <option value="P3">P3 - Medium</option>
+            <option value="P4">P4 - Low / question</option>
+          </select>
+        </div>
+        <div class="field">
+          <label data-i18n="support.diag.summary">Summary</label>
+          <textarea id="support-summary" rows="3" placeholder="What happened? Include timing and what changed."></textarea>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn-primary" onclick="runSupportTriage()" data-i18n="support.diag.triage">Run Triage</button>
+          <button class="btn-secondary" onclick="createSupportTicket()" data-i18n="support.diag.ticket">Open Ticket</button>
+          <button class="btn-secondary" onclick="loadSupportTickets()" data-i18n="support.diag.refresh">Refresh Tickets</button>
+        </div>
+        <div id="support-triage-result" style="margin-top:12px;color:#94A3B8;font-size:13px;line-height:1.6"></div>
+      </div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" data-i18n="support.platform.title">Platform Status</div>
+        <div id="support-status-components" style="display:flex;flex-direction:column;gap:8px;color:#94A3B8;font-size:13px"></div>
+        <div style="margin-top:10px">
+          <a href="/status" target="_blank" style="color:#22c55e" data-i18n="support.platform.link">Open full status page →</a>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title" data-i18n="support.tickets.title">Support Tickets</div>
+        <div class="table-wrap">
+        <table>
+          <thead><tr><th data-i18n="table.created">Created</th><th data-i18n="table.status">Status</th><th data-i18n="table.severity">Severity</th><th>Title</th><th data-i18n="table.action">Action</th></tr></thead>
+          <tbody id="support-tickets-tbody">
+            <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- CONTEXTUAL HELP MODAL -->
+  <div class="modal-backdrop" id="help-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="help-modal-title">Help</div>
+        <button class="modal-close" onclick="closeHelpModal()">×</button>
+      </div>
+      <div id="help-modal-body"></div>
+      <div class="modal-footer">
+        <button class="btn-primary" onclick="closeHelpModal()" data-i18n="modal.help.got_it">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD TD MODAL -->
+  <div class="modal-backdrop" id="modal-add-td">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" data-i18n="modal.td.title">Add Tech Director</div>
+        <button class="modal-close" onclick="document.getElementById('modal-add-td').classList.remove('open')">×</button>
+      </div>
+      <div class="field"><label data-i18n="table.name">Name</label><input type="text" id="td-name" placeholder="John Smith"></div>
+      <div class="field"><label data-i18n="table.role">Role</label>
+        <select id="td-role">
+          <option value="td">Tech Director</option>
+          <option value="volunteer">Volunteer</option>
+          <option value="engineer">Broadcast Engineer</option>
+          <option value="supervisor">Supervisor</option>
+        </select>
+      </div>
+      <div class="field"><label><span class="tip" data-tip="Controls what this person can do via Telegram: Viewer=status only, Operator=control switcher/stream, Admin=full access">Access Level</span></label>
+        <select id="td-access-level">
+          <option value="operator" selected>Operator — can control switcher &amp; stream</option>
+          <option value="viewer">Viewer — status &amp; diagnostics only</option>
+          <option value="admin">Admin — full access</option>
+        </select>
+      </div>
+      <div class="field"><label data-i18n="table.email">Email</label><input type="email" id="td-email" placeholder="john@yourchurch.org"></div>
+      <div class="field"><label data-i18n="table.phone">Phone</label><input type="tel" id="td-phone" placeholder="+1 (555) 000-0000"></div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="document.getElementById('modal-add-td').classList.remove('open')" data-i18n="btn.cancel">Cancel</button>
+        <button class="btn-primary" onclick="addTd()" data-i18n="modal.td.add">Add TD</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Review Modal -->
+  <div class="modal-backdrop" id="modal-review">
+    <div class="modal" style="max-width:480px">
+      <div id="review-form-content">
+        <div class="modal-header">
+          <div class="modal-title">Share Your Experience</div>
+          <button class="modal-close" onclick="closeReviewModal()">&times;</button>
+        </div>
+        <div style="margin:20px 0 16px;text-align:center">
+          <div style="font-size:13px;color:#94A3B8;margin-bottom:8px">How would you rate Tally?</div>
+          <div id="star-rating" style="display:flex;justify-content:center;gap:8px"></div>
+        </div>
+        <div class="field">
+          <label>Your review</label>
+          <textarea id="review-body" rows="4" maxlength="500" placeholder="What do you love about Tally? How has it helped your production team?" style="resize:vertical"></textarea>
+          <div style="font-size:11px;color:#475569;text-align:right;margin-top:4px"><span id="review-char-count">0</span>/500</div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Your name</label><input type="text" id="review-name" placeholder="Mike Johnson" maxlength="100"></div>
+          <div class="field"><label>Your role <span style="color:#475569">(optional)</span></label><input type="text" id="review-role" placeholder="Production Director" maxlength="100"></div>
+        </div>
+        <button class="btn-primary" id="btn-submit-review" onclick="submitReview()" style="width:100%;margin-top:8px">Submit Review</button>
+      </div>
+      <div id="review-thanks-content" style="display:none;text-align:center;padding:24px 20px">
+        <div style="font-size:40px;margin-bottom:12px">&#127881;</div>
+        <div style="font-size:18px;font-weight:700;color:#F8FAFC;margin-bottom:8px">Thank you!</div>
+        <div style="font-size:13px;color:#94A3B8;margin-bottom:20px;line-height:1.5">Your review has been submitted. Want to double the impact?<br>Post it on one of these platforms too:</div>
+        <div style="font-size:12px;color:#475569;margin-top:4px">Your review helps other churches discover Tally.</div>
+        <button onclick="closeReviewModal()" style="background:none;border:none;color:#475569;font-size:12px;cursor:pointer;margin-top:16px;padding:8px">Maybe later</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cancel Subscription / Retention Offer Modal -->
+  <div class="modal-backdrop" id="modal-cancel-retention">
+    <div class="modal" style="max-width:460px">
+      <div class="modal-header">
+        <div class="modal-title" data-i18n="billing.cancel.modal.title">We&rsquo;d hate to see you go.</div>
+        <button class="modal-close" onclick="document.getElementById('modal-cancel-retention').classList.remove('open')">&times;</button>
+      </div>
+      <p style="font-size:14px;color:#CBD5E1;line-height:1.7;margin:12px 0 24px" data-i18n="billing.cancel.modal.body">Before you cancel, we&rsquo;d like to offer you 50% off for the next 3 months. No strings attached.</p>
+      <div class="modal-footer" style="flex-direction:column;gap:10px;align-items:stretch">
+        <button id="btn-accept-retention" class="btn-primary" onclick="acceptRetentionOffer()" data-i18n="billing.cancel.accept">Accept 50% Off</button>
+        <button id="btn-confirm-cancel" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:10px 16px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600" onclick="confirmCancellation()" data-i18n="billing.cancel.decline">No thanks, cancel my account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Async Confirm / Prompt / Alert Modal -->
+  <div class="modal-backdrop" id="modal-dialog">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <div class="modal-title" id="dialog-title">Confirm</div>
+        <button class="modal-close" id="dialog-close-x">&times;</button>
+      </div>
+      <div id="dialog-body" style="font-size:13px;color:#CBD5E1;line-height:1.6;padding:4px 0 12px"></div>
+      <div id="dialog-input-wrap" style="display:none">
+        <input type="text" id="dialog-input" style="width:100%;box-sizing:border-box" />
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="dialog-cancel" data-i18n="modal.dialog.cancel">Cancel</button>
+        <button class="btn-primary" id="dialog-ok" data-i18n="modal.dialog.ok">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+    <script>const CHURCH_ID = '{{CHURCH_ID}}';</script>
+  <script src="/portal/portal.js"></script>
+</body>
+</html>

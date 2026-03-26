@@ -16,8 +16,8 @@ const { shell } = require('electron');
 const YOUTUBE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const YOUTUBE_SCOPES = 'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube';
 
-const FACEBOOK_AUTH_URL = 'https://www.facebook.com/v19.0/dialog/oauth';
-const FACEBOOK_SCOPES = 'pages_show_list,pages_manage_posts,publish_video';
+const FACEBOOK_AUTH_URL = 'https://www.facebook.com/v21.0/dialog/oauth';
+const FACEBOOK_SCOPES = 'pages_show_list,pages_manage_posts,publish_video,pages_read_engagement';
 
 // ─── MODULE STATE ────────────────────────────────────────────────────────────
 

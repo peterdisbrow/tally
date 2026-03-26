@@ -3,6 +3,62 @@ let _onboardingScanResults = {};
 let _onboardingSending = false;
 let isRunning = false;
 let alertCount = 0;
+let _activityCount = 0;
+
+// ─── COLLAPSIBLE SECTIONS ────────────────────────────────────────────────────
+// Persist open/closed state in localStorage
+function toggleCollapsible(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('collapsed');
+  const states = JSON.parse(localStorage.getItem('collapsedSections') || '{}');
+  states[id] = el.classList.contains('collapsed');
+  localStorage.setItem('collapsedSections', JSON.stringify(states));
+}
+
+function restoreCollapsibleStates() {
+  const states = JSON.parse(localStorage.getItem('collapsedSections') || '{}');
+  // Default collapsed sections (if no saved preference)
+  const defaults = {
+    'section-device-identity': true,
+    'section-activity': true,
+  };
+  const merged = { ...defaults, ...states };
+  for (const [id, collapsed] of Object.entries(merged)) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (collapsed) el.classList.add('collapsed');
+    else el.classList.remove('collapsed');
+  }
+}
+
+// ─── THEME TOGGLE ────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light-theme');
+  localStorage.setItem('theme', isLight ? 'light' : 'dark');
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = isLight ? '🌙' : '☀️';
+}
+
+function restoreTheme() {
+  const saved = localStorage.getItem('theme');
+  if (saved === 'light') {
+    document.body.classList.add('light-theme');
+    const btn = document.getElementById('theme-toggle');
+    if (btn) btn.textContent = '🌙';
+  }
+}
+
+function updateActivityBadge() {
+  const badge = document.getElementById('activity-badge');
+  if (!badge) return;
+  if (_activityCount > 0) {
+    badge.textContent = _activityCount > 99 ? '99+' : _activityCount;
+    badge.style.display = '';
+  } else {
+    badge.style.display = 'none';
+  }
+}
 let pendingDiscoveryNic = '';
 let _audioViaAtem = false; // synced from relay — true if church routes audio directly into ATEM
 const DEFAULT_RELAY_URL = 'wss://api.tallyconnect.app';
@@ -192,7 +248,7 @@ function showFatalInitError(message) {
   msg.textContent = message;
   const hint = document.createElement('div');
   hint.style.cssText = 'margin-top:10px;color:#94A3B8;';
-  hint.textContent = 'Please restart the app. If the problem continues, contact your tech director or visit atemschool.com/help.';
+  hint.textContent = 'Please restart the app. If the problem continues, contact your tech director or visit tallyconnect.app/help.';
   box.appendChild(title);
   box.appendChild(msg);
   box.appendChild(hint);
@@ -367,7 +423,10 @@ async function init() {
       try { const freshConfig = await api.getConfig(); _audioViaAtem = !!(freshConfig.audioViaAtem); } catch {}
       if (result.valid) {
         // Token is good — go to dashboard
-        if (config.name) document.getElementById('church-name').textContent = config.name;
+        if (config.name) {
+          const roomSuffix = config.roomName ? ' · ' + config.roomName : '';
+          document.getElementById('church-name').textContent = config.name + roomSuffix;
+        }
         if (config.setupComplete) {
           showDashboard();
           // Auto-start agent if config says so (default: true for backwards compat)
@@ -491,6 +550,11 @@ async function showDashboard() {
     if (ndiSection) ndiSection.style.display = ndiConfigured ? '' : 'none';
     if (ndiChip) ndiChip.style.display = ndiConfigured ? '' : 'none';
   } catch { /* ignore — status updates will set it later */ }
+
+  // Restore collapsible section states + theme
+  restoreCollapsibleStates();
+  restoreTheme();
+  loadRoomSelector();
 }
 
 function shouldRetryLoginOnDefaultRelay(result) {
@@ -1352,7 +1416,17 @@ function updateStatusUI(status) {
 
   setDot('relay', status.relay);
   setDot('atem', status.atem);
-  setDot('companion', status.companion);
+
+  // Only show companion chip if configured
+  const companionChip = document.getElementById('dot-companion')?.closest('.status-chip');
+  if (companionChip) {
+    if (status.companion === undefined || status.companion === null) {
+      companionChip.style.display = 'none';
+    } else {
+      companionChip.style.display = '';
+      setDot('companion', status.companion);
+    }
+  }
 
   // ── Offline / disconnection banner ──────────────────────────────────────
   const offlineBanner = document.getElementById('offline-banner');
@@ -1389,9 +1463,17 @@ function updateStatusUI(status) {
   const encoderTitleEl = document.getElementById('encoder-section-title');
   if (encoderTitleEl) encoderTitleEl.textContent = encoderLabel;
 
-  // Encoder dot: use encoder status if managed, fallback to OBS
+  // Encoder dot: use encoder status if managed, fallback to OBS — hide if not configured
+  const encoderChip = document.getElementById('dot-encoder')?.closest('.status-chip');
   const encoderConnected = status.encoder || getStatusActive(status.obs);
-  setDot('encoder', encoderConnected);
+  if (encoderChip) {
+    if (status.encoder === undefined && status.obs === undefined && !status.encoderType) {
+      encoderChip.style.display = 'none';
+    } else {
+      encoderChip.style.display = '';
+      setDot('encoder', encoderConnected);
+    }
+  }
 
   const atemConnected = getStatusActive(status.atem);
   const companionConnected = getStatusActive(status.companion);
@@ -2057,6 +2139,8 @@ function addActivity(type, text) {
   log.appendChild(entry);
   log.scrollTop = log.scrollHeight;
   alertCount++;
+  _activityCount++;
+  updateActivityBadge();
   while (log.children.length > 200) log.removeChild(log.firstChild);
 }
 
@@ -2686,6 +2770,68 @@ async function sendQuickChat() {
 // ─── EQUIPMENT ─────────────────────────────────────────────────────────────
 
 // Equipment state is managed by deviceState in equipment-ui.js
+
+// ─── ROOM ASSIGNMENT ─────────────────────────────────────────────────────────
+async function loadRoomSelector() {
+  try {
+    const config = await api.getConfig();
+    const relayUrl = (config.relay || DEFAULT_RELAY_URL).replace('wss://', 'https://').replace('ws://', 'http://');
+    const resp = await fetch(`${relayUrl}/api/church/app/rooms`, {
+      headers: { Authorization: `Bearer ${config.token}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const section = document.getElementById('room-assignment-section');
+    const select = document.getElementById('room-select');
+    if (!data.rooms || data.rooms.length === 0) {
+      if (section) section.style.display = 'none';
+      return;
+    }
+    if (section) section.style.display = '';
+    if (select) {
+      select.innerHTML = '<option value="">None (unassigned)</option>';
+      for (const room of data.rooms) {
+        const opt = document.createElement('option');
+        opt.value = room.id;
+        opt.textContent = room.name;
+        if (room.id === data.currentRoomId) opt.selected = true;
+        select.appendChild(opt);
+      }
+    }
+  } catch (e) {
+    console.warn('[Room] Failed to load rooms:', e.message);
+  }
+}
+
+async function assignRoom(roomId) {
+  try {
+    const config = await api.getConfig();
+    const relayUrl = (config.relay || DEFAULT_RELAY_URL).replace('wss://', 'https://').replace('ws://', 'http://');
+    const resp = await fetch(`${relayUrl}/api/church/app/room-assign`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${config.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId: roomId || null }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      await api.saveConfig({ roomId: data.roomId || '', roomName: data.roomName || '' });
+      // Update header subtitle
+      const nameEl = document.getElementById('church-name');
+      if (nameEl && data.roomName) {
+        const baseName = nameEl.textContent.split(' · ')[0];
+        nameEl.textContent = baseName + ' · ' + data.roomName;
+      } else if (nameEl) {
+        nameEl.textContent = nameEl.textContent.split(' · ')[0];
+      }
+      addAlert(data.roomName ? `Assigned to room: ${data.roomName}` : 'Room unassigned');
+    }
+  } catch (e) {
+    console.warn('[Room] Failed to assign room:', e.message);
+    addAlert('Failed to assign room: ' + e.message);
+  }
+}
 
 function setEquipMode(mode) {
   const simplePane = document.getElementById('equip-simple-mode');

@@ -92,11 +92,14 @@ Action types:
 - Parse times flexibly: "9", "9am", "9:00 AM", "9 o'clock" all mean 09:00
 - Default service duration: 1.5 hours
 - Default labels: "Worship" for Sunday, "Midweek" for weekdays, "Saturday Service" for Saturday
-- Let users skip any section — if they say "skip", "none", "not yet", or "we don't have that", move on
+- Let users skip any section — if they say "skip", "none", "not yet", "we don't have that", "we don't stream", "in-house only", "monitoring only", or similar, mark that section done and move to the NEXT state immediately
+- IMPORTANT: If a user says they don't stream, don't have streaming, use in-house monitoring only, or anything indicating no streaming — do NOT keep asking about streaming. Accept it, save the engineer profile with streamPlatform "none", and advance to review.
+- IMPORTANT: If a user says they only have an ATEM (or only one piece of gear), accept it and move on. Don't keep asking about additional gear after they've answered.
 - Be concise — church tech volunteers are busy
 - On the intro state, greet them warmly and ask about their equipment first
-- During the stream state, also ask about their operator experience level and expected viewer count — bundle this into the engineer profile action
+- During the stream state, also ask about their operator experience level and expected viewer count — bundle this into the engineer profile action. If they said no streaming, skip this entirely.
 - When all sections are done (or skipped), move to review state and propose the "complete" action
+- NEVER re-ask a question the user has already answered. If they said "just the ATEM" for gear, don't ask about gear again.
 - If a user wants to change something already configured, accept it naturally — emit a new action to overwrite
 - Never ask for information you already have in "Data Collected So Far"`;
 }
@@ -391,8 +394,25 @@ async function processOnboardingMessage(db, churchId, message, scanResults, chat
   }
 
   // Update session state
-  const nextState = parsed.nextState || session.state;
+  let nextState = parsed.nextState || session.state;
   const collectedData = { ...session.collectedData };
+
+  // ── Anti-loop safety valve ──
+  // If we've been in the same state for 3+ turns, force-advance to next state
+  const turnKey = `_turnsIn_${session.state}`;
+  const turnsInState = (session.collectedData[turnKey] || 0) + 1;
+  collectedData[turnKey] = turnsInState;
+  if (nextState === session.state && turnsInState >= 3) {
+    const stateIdx = STATES.indexOf(session.state);
+    if (stateIdx >= 0 && stateIdx < STATES.length - 2) {
+      nextState = STATES[stateIdx + 1];
+      collectedData[turnKey] = 0;
+    }
+  }
+  // Reset turn counter when state actually changes
+  if (nextState !== session.state) {
+    collectedData[turnKey] = 0;
+  }
 
   // Merge any action data into collected data for context
   if (parsed.actions?.length > 0) {

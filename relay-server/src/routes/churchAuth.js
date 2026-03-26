@@ -260,6 +260,45 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     });
   });
 
+  // GET /api/church/app/rooms — list available rooms for the desktop app
+  app.get('/api/church/app/rooms', requireChurchAppAuth, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const church = db.prepare('SELECT campus_id, campus_link_code FROM churches WHERE churchId = ?').get(churchId);
+      const campusIds = [churchId];
+      if (church?.campus_id) campusIds.push(church.campus_id);
+      if (church?.campus_link_code) {
+        const satellites = db.prepare('SELECT churchId FROM churches WHERE campus_id = ?').all(churchId);
+        for (const s of satellites) campusIds.push(s.churchId);
+      }
+      const placeholders = campusIds.map(() => '?').join(',');
+      const rooms = db.prepare(`SELECT id, campus_id, name, description FROM rooms WHERE campus_id IN (${placeholders}) ORDER BY name ASC`).all(...campusIds);
+      const currentRoomId = db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId)?.room_id || null;
+      res.json({ rooms, currentRoomId });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // POST /api/church/app/room-assign — assign this desktop to a room
+  app.post('/api/church/app/room-assign', requireChurchAppAuth, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const roomId = req.body?.roomId || null;
+      if (roomId) {
+        const room = db.prepare('SELECT id, name FROM rooms WHERE id = ?').get(roomId);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+        db.prepare('UPDATE churches SET room_id = ?, room_name = ? WHERE churchId = ?').run(roomId, room.name, churchId);
+        res.json({ ok: true, roomId, roomName: room.name });
+      } else {
+        db.prepare('UPDATE churches SET room_id = NULL, room_name = NULL WHERE churchId = ?').run(churchId);
+        res.json({ ok: true, roomId: null, roomName: null });
+      }
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // POST /api/pf/report — Problem Finder analysis results
   app.post('/api/pf/report', requireChurchAppAuth, (req, res) => {
     try {

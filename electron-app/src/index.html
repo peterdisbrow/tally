@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss://api.tallyconnect.app https://api.tallyconnect.app https://accounts.google.com https://www.facebook.com http://127.0.0.1:*; font-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; worker-src 'none'; navigate-to 'self' https://accounts.google.com https://www.facebook.com;">
-  <title>Tally by ATEM School</title>
+  <title>Tally</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -15,13 +15,13 @@
       <div class="header-dot"></div>
       <h1>Tally</h1>
     </div>
-    <p class="sub">by ATEM School</p>
+    <p class="sub">by Tally Connect</p>
   </div>
 
   <div class="content">
     <div class="sign-in-box">
       <div style="text-align:center; margin-bottom: 20px;">
-        <div class="wizard-badge">Tally by ATEM School</div>
+        <div class="wizard-badge">Tally</div>
         <div class="wizard-headline">Sign In</div>
       </div>
 
@@ -49,7 +49,7 @@
   </div>
 
   <div class="branding">
-    Powered by <a href="#" class="ext-link" data-url="https://atemschool.com">ATEM School</a>
+    Powered by <a href="#" class="ext-link" data-url="https://tallyconnect.app">Tally Connect</a>
   </div>
 </div>
 
@@ -60,7 +60,7 @@
       <div class="header-dot"></div>
       <h1>Tally</h1>
     </div>
-    <p class="sub">by ATEM School</p>
+    <p class="sub">by Tally Connect</p>
   </div>
 
   <div class="content" style="padding: 0; display: flex; flex-direction: column; height: calc(100% - 60px);">
@@ -98,7 +98,8 @@
       <div class="header-dot"></div>
       <h1>Tally <span class="live-badge" id="live-badge">LIVE</span></h1>
     </div>
-    <p class="sub" id="church-name">by ATEM School</p>
+    <p class="sub" id="church-name">by Tally Connect</p>
+    <button id="theme-toggle" onclick="toggleTheme()" style="position:absolute;top:12px;right:16px;background:none;border:none;cursor:pointer;font-size:16px;-webkit-app-region:no-drag;padding:4px;opacity:0.6;" title="Toggle light/dark theme">☀️</button>
   </div>
 
   <div class="status-bar">
@@ -300,33 +301,37 @@
       </div>
     </div>
 
-    <!-- Device Identity -->
-    <div class="section">
-      <h2>Device Identity</h2>
-      <div class="info-grid">
-        <div class="info-card">
-          <div class="label">Encoder</div>
-          <div class="value muted" id="val-id-encoder">—</div>
-        </div>
-        <div class="info-card">
-          <div class="label">ProPresenter</div>
-          <div class="value muted" id="val-id-propresenter">—</div>
-        </div>
-        <div class="info-card">
-          <div class="label">vMix</div>
-          <div class="value muted" id="val-id-vmix">—</div>
-        </div>
-        <div class="info-card">
-          <div class="label">Resolume</div>
-          <div class="value muted" id="val-id-resolume">—</div>
-        </div>
-        <div class="info-card">
-          <div class="label">Mixer</div>
-          <div class="value muted" id="val-id-mixer">—</div>
-        </div>
-        <div class="info-card">
-          <div class="label">Companion</div>
-          <div class="value muted" id="val-id-companion">—</div>
+    <!-- Device Identity (collapsed by default) -->
+    <div class="section collapsible-section collapsed" id="section-device-identity">
+      <div class="section-toggle" onclick="toggleCollapsible('section-device-identity')">
+        <h2>Device Identity</h2>
+      </div>
+      <div class="section-body">
+        <div class="info-grid">
+          <div class="info-card">
+            <div class="label">Encoder</div>
+            <div class="value muted" id="val-id-encoder">—</div>
+          </div>
+          <div class="info-card">
+            <div class="label">ProPresenter</div>
+            <div class="value muted" id="val-id-propresenter">—</div>
+          </div>
+          <div class="info-card">
+            <div class="label">vMix</div>
+            <div class="value muted" id="val-id-vmix">—</div>
+          </div>
+          <div class="info-card">
+            <div class="label">Resolume</div>
+            <div class="value muted" id="val-id-resolume">—</div>
+          </div>
+          <div class="info-card">
+            <div class="label">Mixer</div>
+            <div class="value muted" id="val-id-mixer">—</div>
+          </div>
+          <div class="info-card">
+            <div class="label">Companion</div>
+            <div class="value muted" id="val-id-companion">—</div>
+          </div>
         </div>
       </div>
     </div>
@@ -384,29 +389,23 @@
       </div>
     </div>
 
-    <!-- Quick Chat -->
-    <div class="quick-chat" id="quick-chat">
-      <div class="quick-chat-response" id="quick-chat-response" style="display:none;"></div>
-      <div class="quick-chat-input-row">
-        <span class="quick-chat-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v7A1.5 1.5 0 0 0 2.5 13H5v1.75a.75.75 0 0 0 1.28.53L9.06 13H13.5A1.5 1.5 0 0 0 15 11.5v-7A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg></span>
-        <input type="text" id="quick-chat-input" placeholder="Ask Tally something…" onkeydown="if(event.key==='Enter')sendQuickChat()">
-        <button class="quick-chat-send" onclick="sendQuickChat()">Send</button>
+    <!-- Quick Chat placeholder (moved to persistent bottom bar) -->
+
+    <!-- Activity Feed (collapsed by default) -->
+    <div class="section collapsible-section collapsed" id="section-activity">
+      <div class="section-toggle" onclick="toggleCollapsible('section-activity')">
+        <h2>Activity <span id="activity-badge" style="font-size:9px;background:var(--green);color:#000;padding:1px 5px;border-radius:var(--r-chip);margin-left:6px;display:none;">0</span></h2>
       </div>
-    </div>
-
-    <!-- Diagnostic Bundle -->
-    <div class="section" style="text-align:center;">
-      <button class="btn-small btn-secondary" id="btn-diagnostic-bundle" onclick="sendDiagnosticBundle()" title="Collect and send a full system diagnostic report to ATEM School support">
-        Send Diagnostic Report
-      </button>
-      <div id="diagnostic-bundle-status" style="font-size:11px; color:var(--muted); font-family:var(--mono); margin-top:6px; display:none;"></div>
-    </div>
-
-    <!-- Activity Feed -->
-    <div class="section">
-      <h2>Activity</h2>
-      <div class="activity-log" id="alerts-log">
-        <div class="activity-placeholder">Waiting for events…</div>
+      <div class="section-body">
+        <div class="activity-log" id="alerts-log">
+          <div class="activity-placeholder">Waiting for events…</div>
+        </div>
+        <div style="text-align:center; margin-top:8px;">
+          <button class="btn-small btn-secondary" id="btn-diagnostic-bundle" onclick="sendDiagnosticBundle()" title="Collect and send a full system diagnostic report to Tally Connect support">
+            Send Diagnostic Report
+          </button>
+          <div id="diagnostic-bundle-status" style="font-size:11px; color:var(--muted); font-family:var(--mono); margin-top:6px; display:none;"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -424,6 +423,16 @@
 
     <!-- ── SIMPLE MODE ── -->
     <div id="equip-simple-mode">
+      <!-- Room Assignment -->
+      <div id="room-assignment-section" style="display:none; margin:12px 0 16px;">
+        <div class="section-label" style="margin:0 0 8px;">ASSIGNED ROOM</div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <select id="room-select" style="flex:1; padding:8px 10px; background:var(--card); border:1px solid var(--border); border-radius:var(--r-input); color:var(--white); font-size:13px; font-family:var(--font);" onchange="assignRoom(this.value)">
+            <option value="">None (unassigned)</option>
+          </select>
+        </div>
+      </div>
+
       <div class="section-label" style="margin: 12px 0 8px;">YOUR DEVICES</div>
       <div id="simple-device-list"><div style="color:var(--muted); font-size:12px; padding:12px;">No devices configured yet. Scan your network to get started.</div></div>
 
@@ -693,19 +702,27 @@
           </div>
         </div>
 
-        <!-- Action Plan -->
-        <div class="section" style="margin-top:12px;">
-          <h2 style="font-size:13px; color:var(--white); margin-bottom:8px;">Action Plan</h2>
-          <div id="pf-action-plan">
-            <p style="color:var(--muted); font-size:12px;">No action plan yet.</p>
+        <!-- Action Plan (collapsed by default) -->
+        <div class="section collapsible-section collapsed" id="section-action-plan" style="margin-top:12px;">
+          <div class="section-toggle" onclick="toggleCollapsible('section-action-plan')">
+            <h2 style="font-size:13px; color:var(--white); margin-bottom:0;">Action Plan</h2>
+          </div>
+          <div class="section-body">
+            <div id="pf-action-plan">
+              <p style="color:var(--muted); font-size:12px;">No action plan yet.</p>
+            </div>
           </div>
         </div>
 
-        <!-- Recent Runs -->
-        <div class="section" style="margin-top:12px;">
-          <h2 style="font-size:13px; color:var(--white); margin-bottom:8px;">Recent Runs</h2>
-          <div id="pf-run-history">
-            <p style="color:var(--muted); font-size:12px;">No runs yet.</p>
+        <!-- Recent Runs (collapsed by default) -->
+        <div class="section collapsible-section collapsed" id="section-recent-runs" style="margin-top:12px;">
+          <div class="section-toggle" onclick="toggleCollapsible('section-recent-runs')">
+            <h2 style="font-size:13px; color:var(--white); margin-bottom:0;">Recent Runs</h2>
+          </div>
+          <div class="section-body">
+            <div id="pf-run-history">
+              <p style="color:var(--muted); font-size:12px;">No runs yet.</p>
+            </div>
           </div>
         </div>
 
@@ -744,8 +761,18 @@
     </div>
   </div><!-- /tab-engineer -->
 
+  <!-- Persistent Chat Bar (always visible at bottom) -->
+  <div class="chat-bar" id="quick-chat">
+    <div class="quick-chat-response" id="quick-chat-response" style="display:none; max-height:200px; overflow-y:auto; padding:8px 12px; font-size:12px; background:var(--card); border-top:1px solid var(--border);"></div>
+    <div class="quick-chat-input-row">
+      <span class="quick-chat-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v7A1.5 1.5 0 0 0 2.5 13H5v1.75a.75.75 0 0 0 1.28.53L9.06 13H13.5A1.5 1.5 0 0 0 15 11.5v-7A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg></span>
+      <input type="text" id="quick-chat-input" placeholder="Ask Tally…" onkeydown="if(event.key==='Enter')sendQuickChat()">
+      <button class="quick-chat-send" onclick="sendQuickChat()">Send</button>
+    </div>
+  </div>
+
   <div class="branding">
-    Powered by <a href="#" class="ext-link" data-url="https://atemschool.com">ATEM School</a>
+    Powered by <a href="#" class="ext-link" data-url="https://tallyconnect.app">Tally Connect</a>
   </div>
 
   <div class="autostart-bar" id="autostart-bar">

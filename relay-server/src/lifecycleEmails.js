@@ -14,7 +14,7 @@
  * Duplicate prevention via `email_sends` table — each email type sent once per church.
  */
 
-const GITHUB_RELEASES_URL = 'https://github.com/tallyconnect/tally/releases/latest';
+const DOWNLOAD_MAC_URL = 'https://github.com/peterdisbrow/tally/releases/download/v1.0.1/Tally-signed.dmg';
 
 class LifecycleEmails {
   constructor(db, { resendApiKey, fromEmail, appUrl }) {
@@ -51,6 +51,17 @@ class LifecycleEmails {
     // Migration: add subject column to email_sends
     try { this.db.exec('ALTER TABLE email_sends ADD COLUMN subject TEXT'); } catch { /* already exists */ }
 
+    // Email preferences table — lets users opt out of specific email categories
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS email_preferences (
+        church_id TEXT NOT NULL,
+        category TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (church_id, category)
+      )
+    `);
+
     // Sales leads table for lead capture + drip nurture sequences
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS sales_leads (
@@ -79,6 +90,11 @@ class LifecycleEmails {
 
     if (!to) {
       return { sent: false, reason: 'no-recipient' };
+    }
+
+    // Check email preferences — respect opt-outs
+    if (this._isOptedOut(churchId, emailType)) {
+      return { sent: false, reason: 'opted-out' };
     }
 
     // Check for admin template overrides
@@ -129,6 +145,70 @@ class LifecycleEmails {
       console.error(`[LifecycleEmails] Send failed: ${e.message}`);
       return { sent: false, reason: 'network-error' };
     }
+  }
+
+  // ─── EMAIL PREFERENCES ────────────────────────────────────────────────────
+
+  static EMAIL_CATEGORIES = {
+    'service-recaps':  { name: 'Service Recaps',      types: ['session-recap'] },
+    'weekly-digest':   { name: 'Weekly Digest',        types: ['weekly-digest'] },
+    'monthly-reports': { name: 'Monthly Reports',      types: ['monthly-roi-summary'] },
+    'onboarding':      { name: 'Setup & Onboarding',   types: ['setup-reminder', 'first-sunday-prep', 'week-one-checkin', 'activation-escalation', 'telegram-setup-nudge', 'pre-service-friday', 'trial-to-paid-onboarding'] },
+    'feature-tips':    { name: 'Feature Tips',          types: ['schedule-setup-nudge', 'multi-cam-nudge', 'viewer-analytics-nudge', 'nps-survey'] },
+    'billing':         { name: 'Billing & Trial',       types: ['trial-ending-7days', 'trial-ending-soon', 'trial-ending-tomorrow', 'trial-expired', 'payment-failed', 'grace-period-ending', 'grace-period-ending-early', 'annual-renewal-reminder', 'invoice-upcoming'] },
+    'referral':        { name: 'Referral Program',      types: ['referral-invite'] },
+    'win-back':        { name: 'Win-Back & Retention',  types: ['early-win-back', 'win-back', 'cancellation-survey', 'inactivity-alert'] },
+  };
+
+  /** Get category for a given email type */
+  _getCategoryForType(emailType) {
+    // Session recaps have dynamic keys like session-recap-{id}
+    if (emailType.startsWith('session-recap')) return 'service-recaps';
+    for (const [cat, def] of Object.entries(LifecycleEmails.EMAIL_CATEGORIES)) {
+      if (def.types.includes(emailType)) return cat;
+    }
+    return null; // uncategorized — always send
+  }
+
+  /** Check if a church has opted out of a category */
+  _isOptedOut(churchId, emailType) {
+    const category = this._getCategoryForType(emailType);
+    if (!category) return false; // uncategorized always sends
+    try {
+      const row = this.db.prepare(
+        'SELECT enabled FROM email_preferences WHERE church_id = ? AND category = ?'
+      ).get(churchId, category);
+      return row && row.enabled === 0;
+    } catch { return false; }
+  }
+
+  /** Get all preferences for a church */
+  getPreferences(churchId) {
+    const prefs = {};
+    for (const cat of Object.keys(LifecycleEmails.EMAIL_CATEGORIES)) {
+      prefs[cat] = true; // default enabled
+    }
+    try {
+      const rows = this.db.prepare(
+        'SELECT category, enabled FROM email_preferences WHERE church_id = ?'
+      ).all(churchId);
+      for (const row of rows) {
+        if (row.category in prefs) prefs[row.category] = row.enabled === 1;
+      }
+    } catch { /* table may not exist */ }
+    return prefs;
+  }
+
+  /** Update preference for a church */
+  setPreference(churchId, category, enabled) {
+    if (!(category in LifecycleEmails.EMAIL_CATEGORIES)) return false;
+    const now = new Date().toISOString();
+    try {
+      this.db.prepare(
+        'INSERT OR REPLACE INTO email_preferences (church_id, category, enabled, updated_at) VALUES (?, ?, ?, ?)'
+      ).run(churchId, category, enabled ? 1 : 0, now);
+      return true;
+    } catch { return false; }
   }
 
   _hasSent(churchId, emailType) {
@@ -361,6 +441,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
       // ── Referral ──
       await this._checkReferralInvite();           // GAP 10: Day 90, 4+ sessions
+
+      // ── Feature adoption ──
+      await this._checkScheduleSetupNudge();       // Day 7, no schedule configured
+      await this._checkMultiCamNudge();            // Day 21, single-camera only
+      await this._checkViewerAnalyticsNudge();     // Day 30, no stream platform connected
 
       // ── Reviews ──
       await this._checkReviewRequest();
@@ -723,7 +808,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   // ── 1. Setup Reminder ──
 
   _buildSetupReminderEmail(church) {
-    const downloadUrl = GITHUB_RELEASES_URL;
+    const downloadUrl = DOWNLOAD_MAC_URL;
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your booth computer isn't connected yet</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -1571,7 +1656,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
   _buildRegistrationEmail(church) {
     const portalUrl = `${this.appUrl}/portal`;
-    const downloadUrl = GITHUB_RELEASES_URL;
+    const downloadUrl = DOWNLOAD_MAC_URL;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Sunday production safety net starts here</h1>
@@ -2318,7 +2403,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     if (!church.portal_email) return { sent: false, reason: 'no-recipient' };
 
     const portalUrl = `${this.appUrl}/portal`;
-    const downloadUrl = GITHUB_RELEASES_URL;
+    const downloadUrl = DOWNLOAD_MAC_URL;
 
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">You're all set!</h1>
@@ -2570,7 +2655,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   }
 
   _buildActivationEscalationEmail(church) {
-    const downloadUrl = GITHUB_RELEASES_URL;
+    const downloadUrl = DOWNLOAD_MAC_URL;
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your setup isn't complete yet</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
@@ -3259,6 +3344,208 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     return { html, text };
   }
 
+  // ─── FEATURE ADOPTION: SCHEDULE SETUP NUDGE (Day 7) ────────────────────────
+  // 7 days after signup, app connected, but no service schedule configured
+
+  async _checkScheduleSetupNudge() {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+    let churches = [];
+    try {
+      churches = this.db.prepare(`
+        SELECT churchId, name, portal_email
+        FROM churches
+        WHERE portal_email IS NOT NULL
+          AND onboarding_app_connected_at IS NOT NULL
+          AND registeredAt <= ?
+          AND registeredAt >= ?
+          AND billing_status IN ('trialing', 'active')
+      `).all(sevenDaysAgo, fourteenDaysAgo);
+    } catch { return; }
+
+    for (const church of churches) {
+      // Skip if schedule already has entries
+      let hasSchedule = false;
+      try {
+        const row = this.db.prepare('SELECT 1 FROM service_schedules WHERE church_id = ? LIMIT 1').get(church.churchId);
+        hasSchedule = !!row;
+      } catch { /* table may not exist */ }
+      if (hasSchedule) continue;
+
+      const portalUrl = `${this.appUrl}/portal`;
+      const html = this._wrap(`
+        <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Tally works best when it knows your schedule</h1>
+        <p style="font-size: 15px; color: #333; line-height: 1.6;">
+          <strong>${this._esc(church.name)}</strong> is connected and monitoring &mdash; nice work.
+          But without a service schedule, Tally can't run pre-service health checks or send recap emails.
+        </p>
+
+        <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+          <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">What scheduling unlocks:</div>
+          <div style="font-size: 14px; color: #333; line-height: 2.2;">
+            &bull; <strong>Pre-service checks</strong> 30 minutes before go-live<br>
+            &bull; <strong>Automatic session tracking</strong> with grades and recaps<br>
+            &bull; <strong>Weekly digest emails</strong> to leadership<br>
+            &bull; <strong>Smarter alerts</strong> that only fire during services
+          </div>
+        </div>
+
+        <p style="font-size: 15px; color: #333; line-height: 1.6;">
+          Adding your schedule takes about 2 minutes in the portal.
+        </p>
+
+        ${this._cta('Set Up Your Schedule', portalUrl)}
+      `);
+
+      const text = `Tally works best when it knows your schedule\n\n${church.name} is connected but has no service schedule — so pre-service checks, recaps, and weekly digests aren't running.\n\nWhat scheduling unlocks:\n- Pre-service checks 30 min before go-live\n- Automatic session tracking with grades\n- Weekly digest emails to leadership\n\nSet up in 2 minutes: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
+
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'schedule-setup-nudge',
+        to: church.portal_email,
+        subject: 'Tally works best when it knows your schedule',
+        html, text,
+      });
+    }
+  }
+
+  // ─── FEATURE ADOPTION: MULTI-CAM NUDGE (Day 21) ──────────────────────────
+  // 3 weeks in, only using 1 camera — let them know multi-cam exists
+
+  async _checkMultiCamNudge() {
+    const twentyOneDaysAgo = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString();
+    const twentyEightDaysAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString();
+
+    let churches = [];
+    try {
+      churches = this.db.prepare(`
+        SELECT churchId, name, portal_email, billing_tier
+        FROM churches
+        WHERE portal_email IS NOT NULL
+          AND onboarding_app_connected_at IS NOT NULL
+          AND registeredAt <= ?
+          AND registeredAt >= ?
+          AND billing_status IN ('trialing', 'active')
+          AND billing_tier IN ('plus', 'pro', 'managed')
+      `).all(twentyOneDaysAgo, twentyEightDaysAgo);
+    } catch { return; }
+
+    for (const church of churches) {
+      // Skip if they already have multiple rooms or cameras
+      let roomCount = 0;
+      try {
+        const row = this.db.prepare('SELECT COUNT(*) as cnt FROM rooms WHERE church_id = ?').get(church.churchId);
+        roomCount = row?.cnt || 0;
+      } catch { /* table may not exist */ }
+      if (roomCount > 1) continue;
+
+      const portalUrl = `${this.appUrl}/portal`;
+      const html = this._wrap(`
+        <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Did you know Tally can monitor multiple cameras?</h1>
+        <p style="font-size: 15px; color: #333; line-height: 1.6;">
+          Your <strong>${this._esc(church.name)}</strong> account includes multi-camera monitoring.
+          If you have a second camera angle, a lobby display, or a kids' room feed &mdash;
+          Tally can watch all of them at once.
+        </p>
+
+        <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+          <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">Multi-camera use cases:</div>
+          <div style="font-size: 14px; color: #333; line-height: 2.2;">
+            &bull; <strong>Main + wide shot</strong> &mdash; catch issues on either feed<br>
+            &bull; <strong>Sanctuary + overflow</strong> &mdash; monitor both rooms<br>
+            &bull; <strong>Live stream + recording</strong> &mdash; verify both outputs
+          </div>
+        </div>
+
+        ${this._cta('Add Another Camera', portalUrl)}
+
+        <p style="font-size: 14px; color: #666;">
+          If you only have one camera, no worries &mdash; Tally is already protecting it.
+        </p>
+      `);
+
+      const text = `Did you know Tally can monitor multiple cameras?\n\nYour ${church.name} account supports multi-camera monitoring. If you have a second angle, overflow room, or kids' room — Tally can watch them all.\n\nUse cases:\n- Main + wide shot\n- Sanctuary + overflow room\n- Live stream + recording feed\n\nAdd a camera: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
+
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'multi-cam-nudge',
+        to: church.portal_email,
+        subject: "Did you know Tally can monitor multiple cameras?",
+        html, text,
+      });
+    }
+  }
+
+  // ─── FEATURE ADOPTION: VIEWER ANALYTICS NUDGE (Day 30) ────────────────────
+  // 30 days in, no stream platform connected — encourage YouTube/Facebook linking
+
+  async _checkViewerAnalyticsNudge() {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const fortyDaysAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+
+    let churches = [];
+    try {
+      churches = this.db.prepare(`
+        SELECT churchId, name, portal_email
+        FROM churches
+        WHERE portal_email IS NOT NULL
+          AND onboarding_app_connected_at IS NOT NULL
+          AND registeredAt <= ?
+          AND registeredAt >= ?
+          AND billing_status IN ('active')
+      `).all(thirtyDaysAgo, fortyDaysAgo);
+    } catch { return; }
+
+    for (const church of churches) {
+      // Skip if they have any stream platform configured
+      let hasPlatform = false;
+      try {
+        const row = this.db.prepare(
+          "SELECT 1 FROM stream_platforms WHERE church_id = ? AND status = 'active' LIMIT 1"
+        ).get(church.churchId);
+        hasPlatform = !!row;
+      } catch { /* table may not exist */ }
+      if (hasPlatform) continue;
+
+      const portalUrl = `${this.appUrl}/portal`;
+      const html = this._wrap(`
+        <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">See how many people are watching your stream</h1>
+        <p style="font-size: 15px; color: #333; line-height: 1.6;">
+          <strong>${this._esc(church.name)}</strong> has been running smooth services &mdash; great work.
+          Want to know how many people are actually tuning in?
+        </p>
+
+        <p style="font-size: 15px; color: #333; line-height: 1.6;">
+          Connect your YouTube or Facebook account and Tally will track live viewer counts
+          during every service. You'll see peak viewers in your session recaps and analytics dashboard.
+        </p>
+
+        <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
+          <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">What you'll get:</div>
+          <div style="font-size: 14px; color: #333; line-height: 2.2;">
+            &bull; <strong>Live viewer count</strong> during every service<br>
+            &bull; <strong>Peak viewers</strong> in your session recaps<br>
+            &bull; <strong>Viewer trends</strong> in your analytics dashboard<br>
+            &bull; <strong>Platform breakdown</strong> (YouTube vs Facebook)
+          </div>
+        </div>
+
+        ${this._cta('Connect Your Stream Platform', portalUrl)}
+      `);
+
+      const text = `See how many people are watching your stream\n\n${church.name} is running smooth services. Connect YouTube or Facebook to see live viewer counts, peak viewers in recaps, and viewer trends.\n\nWhat you'll get:\n- Live viewer count during services\n- Peak viewers in session recaps\n- Viewer trends in analytics\n- Platform breakdown\n\nConnect now: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
+
+      await this.sendEmail({
+        churchId: church.churchId,
+        emailType: 'viewer-analytics-nudge',
+        to: church.portal_email,
+        subject: 'See how many people are watching your stream',
+        html, text,
+      });
+    }
+  }
+
   // ─── GAP 12: FEATURE ANNOUNCEMENT ──────────────────────────────────────────
   // Manual trigger from admin for new feature releases.
 
@@ -3400,6 +3687,10 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     { type: 'inactivity-alert',        name: 'Inactivity Alert',         trigger: 'Auto — 4+ weeks no sessions' },
     { type: 'feature-announcement',    name: 'Feature Announcement',     trigger: 'Manual — admin triggered per release' },
     { type: 'grace-period-ending-early', name: 'Grace Period Early Warning', trigger: 'Auto — 5 days before grace expiry (day 2)' },
+    // Feature adoption drip
+    { type: 'schedule-setup-nudge',    name: 'Schedule Setup Nudge',     trigger: 'Auto — Day 7, no schedule configured' },
+    { type: 'multi-cam-nudge',         name: 'Multi-Camera Nudge',       trigger: 'Auto — Day 21, single-camera Plus+ only' },
+    { type: 'viewer-analytics-nudge',  name: 'Viewer Analytics Nudge',   trigger: 'Auto — Day 30, no stream platform connected' },
   ];
 
   /** Get email send history with optional filters */
@@ -3543,7 +3834,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       'review-request':          () => ({ ...this._buildReviewRequestEmail(sampleChurch, { sessionCount: 12, cleanCount: 9 }), subject: 'Sample Church is crushing it — mind sharing a quick review?' }),
       'welcome-verified':        () => {
         const portalUrl = `${this.appUrl}/portal`;
-        const downloadUrl = GITHUB_RELEASES_URL;
+        const downloadUrl = DOWNLOAD_MAC_URL;
         const html = this._wrap(`
           <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">You're all set!</h1>
           <p style="font-size: 15px; color: #333; line-height: 1.6;">

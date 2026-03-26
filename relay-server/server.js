@@ -75,6 +75,7 @@ app.use(express.json({
   },
 }));
 app.use(cookieParser());
+app.use('/portal', express.static(require('path').join(__dirname, 'public/portal')));
 
 const { csrfMiddleware } = require('./src/csrf');
 app.use(csrfMiddleware);
@@ -531,6 +532,9 @@ const _schemaMigrations = [
   // campus_link_code: 6-char code the main campus shares so satellites can join
   "ALTER TABLE churches ADD COLUMN campus_id TEXT",
   "ALTER TABLE churches ADD COLUMN campus_link_code TEXT",
+  // Room assignment — which room this desktop/agent monitors
+  "ALTER TABLE churches ADD COLUMN room_id TEXT",
+  "ALTER TABLE churches ADD COLUMN room_name TEXT",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -1172,6 +1176,18 @@ _intervals.push(setInterval(enforceGracePeriods, 60 * 60 * 1000));
 // ─── CHAT LOG PRUNING (nightly, 30-day retention) ────────────────────────────
 chatEngine.pruneOldMessages(30); // run on startup
 _intervals.push(setInterval(() => chatEngine.pruneOldMessages(30), 24 * 60 * 60 * 1000));
+
+// ─── VIEWER SNAPSHOTS PRUNING (daily, 90-day retention) ──────────────────────
+try {
+  const pruned = db.prepare("DELETE FROM viewer_snapshots WHERE captured_at < datetime('now', '-90 days')").run();
+  if (pruned.changes > 0) log(`[ViewerSnapshots] Pruned ${pruned.changes} snapshots older than 90 days`);
+} catch { /* table may not exist yet */ }
+_intervals.push(setInterval(() => {
+  try {
+    const pruned = db.prepare("DELETE FROM viewer_snapshots WHERE captured_at < datetime('now', '-90 days')").run();
+    if (pruned.changes > 0) log(`[ViewerSnapshots] Pruned ${pruned.changes} snapshots older than 90 days`);
+  } catch { /* ignore */ }
+}, 24 * 60 * 60 * 1000));
 billing.setLifecycleEmails(lifecycleEmails);
 sessionRecap.setLifecycleEmails(lifecycleEmails);
 weeklyDigest.setLifecycleEmails(lifecycleEmails);
@@ -3185,6 +3201,13 @@ const _wsHandlers = createWebSocketHandlers({
       try { db.prepare('UPDATE churches SET timezone = ? WHERE churchId = ?').run(church.timezone, church.churchId); }
       catch (e) { log(`[timezone] sync DB error: ${e.message}`); }
     }
+    // Sync room assignment from client
+    if (msg.status?.system?.roomId && church.room_id !== msg.status.system.roomId) {
+      church.room_id = msg.status.system.roomId;
+      church.room_name = msg.status.system.roomName || '';
+      try { db.prepare('UPDATE churches SET room_id = ?, room_name = ? WHERE churchId = ?').run(church.room_id, church.room_name, church.churchId); }
+      catch (e) { log(`[room] sync DB error: ${e.message}`); }
+    }
     _checkDeviceVersions(church, msg.status);
     scheduler.onEquipmentStateChange(church.churchId, church.status)
       .catch(e => console.error('[Scheduler] Equipment state change error:', e.message));
@@ -3253,6 +3276,7 @@ const _wsHandlers = createWebSocketHandlers({
         }
         if (total > 0) sessionRecap.recordPeakViewers(church.churchId, total);
         broadcastToControllers({ type: 'viewer_update', churchId: church.churchId, name: church.name, total, breakdown, timestamp: msg.timestamp });
+        broadcastToPortal(church.churchId, { type: 'viewer_update', total, breakdown, timestamp: msg.timestamp });
         break;
       }
       case 'propresenter_slide_change': {

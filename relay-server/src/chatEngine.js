@@ -183,10 +183,16 @@ class ChatEngine {
     }
 
     // Don't include the very last user message — that's the current message
-    // which will be appended by the caller
-    if (merged.length && merged[merged.length - 1].role === 'user') {
+    // which will be appended by the caller. But keep at least one user+assistant
+    // exchange for context (undo, "again", etc.)
+    if (merged.length > 2 && merged[merged.length - 1].role === 'user') {
+      merged.pop();
+    } else if (merged.length === 1 && merged[0].role === 'user') {
+      // Only a single user message with no assistant reply — drop it since caller appends current
       merged.pop();
     }
+    // If merged ends with user but has assistant before it, keep the full history
+    // so AI can reference previous commands for undo/again
 
     return merged;
   }

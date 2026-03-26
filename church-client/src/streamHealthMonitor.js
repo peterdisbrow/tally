@@ -22,8 +22,10 @@
 
 const CHECK_INTERVAL_MS      = 60_000;     // check every 60 seconds
 const DEDUP_WINDOW_MS        = 5 * 60_000; // don't re-alert same issue within 5 min
+const TOKEN_EXPIRY_DEDUP_MS  = 60 * 60_000; // throttle token expiry alerts to once per hour
 const BITRATE_DROP_THRESHOLD = 0.5;        // 50% drop from baseline triggers alert
 const BASELINE_SAMPLES       = 3;          // samples needed before baseline is set
+const RETRY_DELAY_MS         = 5_000;      // wait 5s before retrying a failed API call
 
 // Quality tier history retention (30 minutes)
 const TIER_HISTORY_WINDOW_MS = 30 * 60_000;
@@ -133,26 +135,21 @@ class StreamHealthMonitor {
     let platformChecked = false;
 
     // ── YouTube Live ─────────────────────────────────────────────────────────
-    if (config.youtubeApiKey) {
-      await this._checkYouTube(config.youtubeApiKey, streamSource).catch(e => {
-        console.warn('[StreamHealthMonitor] YouTube check failed:', e.message);
-      });
+    // Prefer OAuth token (works for private/unlisted), fall back to API key (public only)
+    if (config.youtubeAccessToken || config.youtubeApiKey) {
+      await this._retryOnce(() => this._checkYouTube(config.youtubeAccessToken, config.youtubeApiKey, streamSource), 'YouTube');
       platformChecked = true;
     }
 
     // ── Facebook Live ────────────────────────────────────────────────────────
     if (config.facebookAccessToken) {
-      await this._checkFacebook(config.facebookAccessToken, streamSource).catch(e => {
-        console.warn('[StreamHealthMonitor] Facebook check failed:', e.message);
-      });
+      await this._retryOnce(() => this._checkFacebook(config.facebookAccessToken, streamSource), 'Facebook');
       platformChecked = true;
     }
 
     // ── Vimeo Live ────────────────────────────────────────────────────────────
     if (config.vimeoAccessToken) {
-      await this._checkVimeo(config.vimeoAccessToken, streamSource).catch(e => {
-        console.warn('[StreamHealthMonitor] Vimeo check failed:', e.message);
-      });
+      await this._retryOnce(() => this._checkVimeo(config.vimeoAccessToken, streamSource), 'Vimeo');
       platformChecked = true;
     }
 
@@ -164,13 +161,44 @@ class StreamHealthMonitor {
     }
   }
 
+  // ─── Retry helper ──────────────────────────────────────────────────────────
+
+  async _retryOnce(fn, label) {
+    try {
+      await fn();
+    } catch (e) {
+      if (e.name === 'AbortError' || e.name === 'TimeoutError' || e.message?.includes('fetch')) {
+        console.warn(`[StreamHealthMonitor] ${label} check failed, retrying in ${RETRY_DELAY_MS / 1000}s: ${e.message}`);
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+        try {
+          await fn();
+        } catch (e2) {
+          console.warn(`[StreamHealthMonitor] ${label} retry also failed: ${e2.message}`);
+        }
+      } else {
+        console.warn(`[StreamHealthMonitor] ${label} check failed: ${e.message}`);
+      }
+    }
+  }
+
   // ─── YouTube ───────────────────────────────────────────────────────────────
 
-  async _checkYouTube(apiKey, streamSource) {
-    const url = `https://www.googleapis.com/youtube/v3/liveBroadcasts?part=status,statistics&broadcastStatus=active&key=${encodeURIComponent(apiKey)}`;
-    const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  async _checkYouTube(oauthToken, apiKey, streamSource) {
+    // Prefer OAuth (works for private/unlisted broadcasts), fall back to API key
+    let url, headers;
+    if (oauthToken) {
+      url = 'https://www.googleapis.com/youtube/v3/liveBroadcasts?part=status,statistics&broadcastStatus=active';
+      headers = { Authorization: `Bearer ${oauthToken}` };
+    } else {
+      url = `https://www.googleapis.com/youtube/v3/liveBroadcasts?part=status,statistics&broadcastStatus=active&key=${encodeURIComponent(apiKey)}`;
+      headers = {};
+    }
+    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
 
     if (!resp.ok) {
+      if ((resp.status === 401 || resp.status === 403) && oauthToken) {
+        this._sendTokenExpiryAlert('youtube', 'YouTube OAuth token expired or revoked. Reconnect YouTube in the portal.');
+      }
       console.warn(`[StreamHealthMonitor] YouTube API ${resp.status}`);
       return;
     }
@@ -216,13 +244,16 @@ class StreamHealthMonitor {
   // ─── Facebook ─────────────────────────────────────────────────────────────
 
   async _checkFacebook(accessToken, streamSource) {
-    const url = `https://graph.facebook.com/v19.0/me/live_videos?status=LIVE&fields=id,title,live_views`;
+    const url = `https://graph.facebook.com/v21.0/me/live_videos?status=LIVE&fields=id,title,live_views`;
     const resp = await fetch(url, {
       headers: { Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(10_000),
     });
 
     if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 190) {
+        this._sendTokenExpiryAlert('facebook', 'Facebook access token expired. Reconnect Facebook in the portal to restore viewer tracking.');
+      }
       console.warn(`[StreamHealthMonitor] Facebook API ${resp.status}`);
       return;
     }
@@ -263,6 +294,7 @@ class StreamHealthMonitor {
 
     if (!resp.ok) {
       if (resp.status === 401 || resp.status === 403) {
+        this._sendTokenExpiryAlert('vimeo', 'Vimeo access token expired or revoked. Reconnect Vimeo in the portal.');
         console.warn('[StreamHealthMonitor] Vimeo API auth failed — check vimeoAccessToken');
       } else {
         console.warn(`[StreamHealthMonitor] Vimeo API ${resp.status}`);
@@ -329,9 +361,7 @@ class StreamHealthMonitor {
     }
 
     // Record viewer snapshot (Vimeo viewer_count is Enterprise-only, may be 0)
-    if (totalVimeoViewers > 0) {
-      this._recordViewerSnapshot('vimeo', totalVimeoViewers);
-    }
+    this._recordViewerSnapshot('vimeo', totalVimeoViewers);
   }
 
   // ─── Viewer Snapshot Tracking ────────────────────────────────────────────
@@ -647,6 +677,26 @@ class StreamHealthMonitor {
         alertType: 'stream_platform_health',
         message,
         severity: 'warning',
+      });
+    }
+  }
+
+  _sendTokenExpiryAlert(platform, message) {
+    const key = `${platform}_token_expired`;
+    const now = Date.now();
+    const lastSent = this._lastAlertTimes.get(key) || 0;
+    if (now - lastSent < TOKEN_EXPIRY_DEDUP_MS) return; // throttle to once per hour
+
+    this._lastAlertTimes.set(key, now);
+    console.warn(`[StreamHealthMonitor] 🔑 ${message}`);
+
+    if (this.agent) {
+      this.agent.sendToRelay({
+        type: 'alert',
+        alertType: 'stream_token_expired',
+        message,
+        severity: 'warning',
+        platform,
       });
     }
   }

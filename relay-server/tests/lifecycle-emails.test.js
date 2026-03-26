@@ -101,8 +101,8 @@ describe('LifecycleEmails', () => {
       const church = mockChurch();
       const result = emails._buildSetupReminderEmail(church);
 
-      expect(result.html).toContain('github.com/tallyconnect/tally/releases');
-      expect(result.text).toContain('github.com/tallyconnect/tally/releases');
+      expect(result.html).toContain('github.com/peterdisbrow/tally/releases/download');
+      expect(result.text).toContain('github.com/peterdisbrow/tally/releases/download');
     });
 
     it('sends setup reminder via sendEmail and records it', async () => {

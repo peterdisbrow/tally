@@ -158,17 +158,21 @@ async function preServiceCheck(agent) {
     checks.push({ name: 'Camera Inputs', pass: false, detail: 'Cannot check — ATEM not connected' });
   }
 
-  // 3. OBS connection and stream state
-  const obsConnected = agent.status.obs.connected;
-  checks.push({ name: 'OBS Connection', pass: obsConnected, detail: obsConnected ? 'Connected' : 'Not connected (optional)' });
+  // 3. OBS connection and stream state (only if OBS is the configured encoder)
+  const encoderType = agent.config?.encoderType || agent.config?.encoder?.type;
+  const obsIsConfigured = encoderType === 'obs' || (!encoderType && agent.status.obs.connected);
+  if (obsIsConfigured) {
+    const obsConnected = agent.status.obs.connected;
+    checks.push({ name: 'OBS Connection', pass: obsConnected, detail: obsConnected ? 'Connected' : 'Not connected' });
 
-  if (obsConnected) {
-    const alreadyStreaming = agent.status.obs.streaming;
-    checks.push({
-      name: 'OBS Stream State',
-      pass: !alreadyStreaming,
-      detail: alreadyStreaming ? 'Already streaming (expected?)' : 'Not streaming — ready to go',
-    });
+    if (obsConnected) {
+      const alreadyStreaming = agent.status.obs.streaming;
+      checks.push({
+        name: 'OBS Stream State',
+        pass: !alreadyStreaming,
+        detail: alreadyStreaming ? 'Already streaming (expected?)' : 'Not streaming — ready to go',
+      });
+    }
   }
 
   // 4. Companion check

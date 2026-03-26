@@ -3,6 +3,26 @@
  */
 const { toInt } = require('./helpers');
 
+// ─── Friendly input name mapping ────────────────────────────────────────────
+function friendlyInputName(input) {
+  if (input == null) return '';
+  const n = Number(input);
+  if (n >= 1 && n <= 40) return `Cam ${n}`;
+  if (n >= 1000 && n < 2000) return `Color Bars`;
+  if (n === 2001) return `Color 1`;
+  if (n === 2002) return `Color 2`;
+  if (n >= 3010 && n <= 3010) return `MP1`;
+  if (n === 3011) return `MP1 Key`;
+  if (n === 3020) return `MP2`;
+  if (n === 3021) return `MP2 Key`;
+  if (n === 6000) return `Super Source`;
+  if (n === 7001) return `Clean Feed 1`;
+  if (n === 7002) return `Clean Feed 2`;
+  if (n === 10010) return `ME 1 PGM`;
+  if (n === 10011) return `ME 1 PVW`;
+  return `${n}`;
+}
+
 // ─── Fairlight enum mappings (accept both strings and integers) ─────────────
 
 const FAIRLIGHT_MIX_OPTION = {
@@ -86,7 +106,7 @@ async function atemCut(agent, params) {
     }
     await agent.atem?.cut(me);
   });
-  return input != null ? `Cut to input ${input}` : 'Cut executed';
+  return input != null ? `Cut to ${friendlyInputName(input)}` : 'Cut executed';
 }
 
 async function atemAuto(agent, params) {
@@ -102,7 +122,7 @@ async function atemSetProgram(agent, params) {
     if (isFakeAtem(agent)) return agent.atem?.changeProgramInput(me, input);
     return agent.atem?.changeProgramInput(input, me);
   });
-  return `Program input set to ${input}`;
+  return `Program set to ${friendlyInputName(input)}`;
 }
 
 async function atemSetPreview(agent, params) {
@@ -113,7 +133,7 @@ async function atemSetPreview(agent, params) {
     if (isFakeAtem(agent)) return agent.atem?.changePreviewInput(me, input);
     return agent.atem?.changePreviewInput(input, me);
   });
-  return `Preview input set to ${input}`;
+  return `Preview set to ${friendlyInputName(input)}`;
 }
 
 async function atemStartRecording(agent) {
@@ -178,7 +198,7 @@ async function atemSetInputLabel(agent, params) {
       input
     );
   });
-  return `Input ${input} labeled "${params.longName}"`;
+  return `${friendlyInputName(input)} labeled "${params.longName}"`;
 }
 
 async function atemRunMacro(agent, params) {

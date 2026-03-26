@@ -368,7 +368,7 @@ class ChurchAVAgent {
       mixer: { connected: false, type: null, model: null, firmware: null, mainMuted: false },
       ptz: [],
       audio: { monitoring: false, lastLevel: null, silenceDetected: false },
-      system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '' },
+      system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null, roomId: config.roomId || null, roomName: config.roomName || null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '' },
     };
 
     // Per-device health telemetry (latency, command success rate, reconnect count)

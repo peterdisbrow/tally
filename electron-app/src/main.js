@@ -323,7 +323,18 @@ function updateTray() {
     { type: 'separator' },
     { label: 'Client Portal', click: () => shell.openExternal('https://tallyconnect.app/portal') },
     { label: 'Help & Support', click: () => shell.openExternal('https://tallyconnect.app/help') },
-    { label: 'ATEM School', click: () => shell.openExternal('https://atemschool.com') },
+    { label: 'Tally Connect', click: () => shell.openExternal('https://tallyconnect.app') },
+    { type: 'separator' },
+    { label: 'Check for Updates', click: () => {
+      if (autoUpdater) {
+        autoUpdater.checkForUpdatesAndNotify().catch(() => {
+          dialog.showMessageBox({ type: 'info', title: 'Updates', message: 'You are running the latest version.' });
+        });
+      } else {
+        shell.openExternal('https://github.com/peterdisbrow/tally/releases/latest');
+      }
+    }},
+    { label: `Version ${app.getVersion()}`, enabled: false },
     { type: 'separator' },
     { label: 'Quit', click: () => { app.isQuitting = true; stopAgent(); app.exit(0); } },
   ]);

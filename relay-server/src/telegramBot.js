@@ -387,7 +387,7 @@ const patterns = [
   { match: /(?:set\s+)?(?:resolume\s+)?bpm\s*(\d+)/i, command: 'resolume.setBpm', extract: m => ({ bpm: parseInt(m[1]) }), desc: 'set resolume bpm' },
 
   // Preview
-  { match: /(?:show\s+me|preview|what\s+does\s+.+\s+look\s+like|screenshot|snap(?:shot)?|what'?s?\s+(?:on\s+(?:screen|camera)|live))/i, command: 'preview.snap', extract: () => ({}), desc: 'show me what\'s on screen' },
+  { match: /(?:show\s+me|what\s+does\s+.+\s+look\s+like|screenshot|snap(?:shot)?|what'?s?\s+(?:on\s+(?:screen|camera)|live))/i, command: 'preview.snap', extract: () => ({}), desc: 'show me what\'s on screen' },
 
   // System
   { match: /(?:pre[- ]?service|run)\s+(?:check|checklist)/i, command: 'system.preServiceCheck', extract: () => ({}), desc: 'pre-service check' },

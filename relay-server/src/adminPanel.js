@@ -247,10 +247,37 @@ tr:hover td{background:rgba(34,197,94,.02)}
 .modal-close{position:absolute;top:16px;right:16px;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
 .modal-close:hover{color:var(--text)}
 /* Slide-in panel */
-.detail-panel{position:fixed;right:-480px;top:0;height:100vh;width:460px;background:var(--surface);border-left:1px solid var(--border);z-index:90;transition:right .3s ease;overflow-y:auto;padding:28px}
+.detail-panel{position:fixed;right:-660px;top:0;height:100vh;width:640px;background:var(--surface);border-left:1px solid var(--border);z-index:90;transition:right .3s ease;overflow-y:auto;padding:28px}
 .detail-panel.open{right:0}
 .detail-panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
 .detail-panel-header h2{font-size:16px;font-weight:600}
+.detail-section{margin-bottom:20px}
+.detail-section-title{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px}
+.detail-grid .dg-label{font-size:11px;color:var(--dim)}
+.detail-grid .dg-value{font-size:13px;color:var(--text);word-break:break-all}
+.detail-chips{display:flex;flex-wrap:wrap;gap:6px}
+.detail-chip{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500}
+.detail-chip.on{background:rgba(34,197,94,.1);color:var(--green);border:1px solid rgba(34,197,94,.2)}
+.detail-chip.off{background:rgba(148,163,184,.08);color:var(--dim);border:1px solid rgba(148,163,184,.15)}
+.detail-mini-table{width:100%;font-size:12px;border-collapse:collapse}
+.detail-mini-table th{text-align:left;padding:4px 6px;font-size:10px;color:var(--dim);font-weight:500;text-transform:uppercase;border-bottom:1px solid var(--border)}
+.detail-mini-table td{padding:5px 6px;border-bottom:1px solid rgba(26,46,31,.3);color:var(--muted)}
+.detail-checklist{display:flex;flex-direction:column;gap:6px}
+.detail-check-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.detail-check-item .check-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.detail-check-item .check-dot.done{background:var(--green);box-shadow:0 0 4px var(--green)}
+.detail-check-item .check-dot.pending{background:var(--dim)}
+.health-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600}
+.health-badge.excellent{background:rgba(34,197,94,.15);color:var(--green)}
+.health-badge.good{background:rgba(34,197,94,.1);color:#86efac}
+.health-badge.fair{background:rgba(234,179,8,.1);color:var(--yellow)}
+.health-badge.poor{background:rgba(239,68,68,.1);color:#f87171}
+.detail-chat{max-height:200px;overflow-y:auto;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.detail-chat-msg{font-size:12px;line-height:1.4}
+.detail-chat-msg .sender{font-weight:600;color:var(--green);margin-right:4px}
+.detail-chat-msg .time{font-size:10px;color:var(--dim);margin-left:6px}
+.detail-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .panel-close{background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer}
 .panel-close:hover{color:var(--text)}
 .info-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(26,46,31,.5);font-size:13px}
@@ -1031,38 +1058,176 @@ async function openDetail(id) {
   const c = allChurches.find(x => x.churchId === id);
   if (!c) return;
   const reseller = allResellers.find(r => r.id === c.reseller_id);
-  const status = c.status || {};
-  const atem = status.atem;
-  const obs = status.obs;
-  const companion = status.companion;
-
-  function chip(label, ok) {
-    return \`<span class="chip \${ok ? 'chip-green' : 'chip-grey'}">\${label}: \${ok ? 'OK' : 'N/A'}</span>\`;
-  }
 
   document.getElementById('detail-name').textContent = c.name;
-  document.getElementById('detail-content').innerHTML = \`
-    <div class="info-row"><span class="info-label">Status</span><span>\${c.connected ? '<span class="status-dot status-online"></span>Online' : '<span class="status-dot status-offline"></span>Offline'}</span></div>
-    <div class="info-row"><span class="info-label">Type</span><span>\${esc(c.church_type||'recurring')}</span></div>
-    <div class="info-row"><span class="info-label">Reseller</span><span>\${reseller ? esc(reseller.brand_name||reseller.name) : 'Direct'}</span></div>
-    <div class="info-row"><span class="info-label">Registered</span><span>\${c.registeredAt ? new Date(c.registeredAt).toLocaleString() : '—'}</span></div>
-    <div class="info-row"><span class="info-label">Last Seen</span><span>\${c.lastSeen ? new Date(c.lastSeen).toLocaleString() : 'Never'}</span></div>
-    <div class="info-row" style="flex-direction:column;align-items:flex-start;gap:6px">
-      <span class="info-label">Devices</span>
-      <div>\${chip('ATEM', !!atem)}\${chip('OBS', !!obs)}\${chip('Companion', !!companion)}</div>
-    </div>
-    <div class="info-row" style="flex-direction:column;align-items:flex-start;gap:6px">
-      <span class="info-label">Token</span>
-      <div class="token-box" id="detail-token" style="font-size:11px;filter:blur(4px);cursor:pointer" onclick="revealToken()">
-        \${esc((c.token||'').substring(0,60))}...
-      </div>
-      <div style="display:flex;gap:8px;margin-top:4px">
-        <button class="btn-sm" onclick="revealToken()">Reveal</button>
-        <button class="btn-sm" onclick="copyToken(\${esc(JSON.stringify(c.token||''))})">Copy</button>
-      </div>
-    </div>
-  \`;
+  document.getElementById('detail-content').innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Loading...</div>';
   document.getElementById('church-detail').classList.add('open');
+
+  // Fetch comprehensive data
+  let sv = {};
+  try {
+    const r = await fetch('/api/admin/church/' + encodeURIComponent(id) + '/support-view', { headers: { 'Cookie': document.cookie } });
+    sv = await r.json();
+  } catch { sv = {}; }
+
+  const ch = sv.church || {};
+  const st = sv.status || {};
+  const hs = sv.healthScore || { score: 100, trend: 'stable' };
+  const bill = sv.billing || {};
+  const onb = sv.onboarding || {};
+  const integ = sv.integrations || {};
+  const cfg = sv.config || {};
+  const alerts = sv.recentAlerts || [];
+  const sessions = sv.recentSessions || [];
+  const tickets = sv.recentTickets || [];
+  const chat = sv.chatHistory || [];
+  const tds = sv.tds || [];
+  const devs = st.connectedDevices || {};
+
+  function chip(label, ok) { return '<span class="detail-chip ' + (ok ? 'on' : 'off') + '">' + esc(label) + '</span>'; }
+  function fmtDate(d) { return d ? new Date(d).toLocaleDateString() : '—'; }
+  function fmtTime(d) { return d ? new Date(d).toLocaleString() : '—'; }
+  function healthClass(s) { return s >= 90 ? 'excellent' : s >= 75 ? 'good' : s >= 50 ? 'fair' : 'poor'; }
+  function gradeBadge(g) {
+    if (!g) return '<span class="badge badge-gray">—</span>';
+    const cls = g === 'A' || g === 'A+' ? 'badge-green' : g === 'B' ? 'badge-green' : g === 'C' ? 'badge-yellow' : 'badge-red';
+    return '<span class="badge ' + cls + '">' + esc(g) + '</span>';
+  }
+  function sevBadge(s) {
+    const cls = s === 'critical' ? 'badge-red' : s === 'warning' ? 'badge-yellow' : 'badge-gray';
+    return '<span class="badge ' + cls + '">' + esc(s || 'info') + '</span>';
+  }
+  function checkItem(label, val) {
+    return '<div class="detail-check-item"><span class="check-dot ' + (val ? 'done' : 'pending') + '"></span>' + esc(label) + (val ? ' <span style="color:var(--dim);font-size:10px">' + fmtDate(val) + '</span>' : '') + '</div>';
+  }
+
+  const tierLabel = bill.tier || ch.plan || 'Free';
+  const billingStatus = bill.status || ch.billing_status || '—';
+
+  let html = '';
+
+  // ── Overview ──
+  html += '<div class="detail-section"><div class="detail-section-title">Overview</div><div class="detail-grid">';
+  html += '<div class="dg-label">Status</div><div class="dg-value">' + (st.online ? '<span class="status-dot status-online"></span>Online' : '<span class="status-dot status-offline"></span>Offline') + '</div>';
+  html += '<div class="dg-label">Type</div><div class="dg-value">' + esc(ch.church_type || 'recurring') + '</div>';
+  html += '<div class="dg-label">Tier</div><div class="dg-value"><span class="badge badge-green">' + esc(tierLabel) + '</span></div>';
+  html += '<div class="dg-label">Billing</div><div class="dg-value">' + esc(billingStatus) + (bill.billing_interval ? ' (' + esc(bill.billing_interval) + ')' : '') + '</div>';
+  if (bill.trial_ends_at) html += '<div class="dg-label">Trial Ends</div><div class="dg-value">' + fmtDate(bill.trial_ends_at) + '</div>';
+  if (bill.stripe_customer_id) html += '<div class="dg-label">Stripe</div><div class="dg-value"><a href="https://dashboard.stripe.com/customers/' + esc(bill.stripe_customer_id) + '" target="_blank" style="color:var(--green);font-size:12px">View in Stripe</a></div>';
+  html += '<div class="dg-label">Portal Email</div><div class="dg-value">' + esc(ch.portal_email || ch.email || '—') + '</div>';
+  html += '<div class="dg-label">Reg Code</div><div class="dg-value" style="font-family:monospace">' + esc(ch.registration_code || '—') + '</div>';
+  html += '<div class="dg-label">Referral Code</div><div class="dg-value" style="font-family:monospace">' + esc(ch.referral_code || '—') + '</div>';
+  if (ch.referred_by) html += '<div class="dg-label">Referred By</div><div class="dg-value">' + esc(ch.referred_by) + '</div>';
+  html += '<div class="dg-label">Reseller</div><div class="dg-value">' + (reseller ? esc(reseller.brand_name || reseller.name) : 'Direct') + '</div>';
+  html += '<div class="dg-label">Timezone</div><div class="dg-value">' + esc(ch.timezone || '—') + '</div>';
+  html += '<div class="dg-label">Registered</div><div class="dg-value">' + fmtTime(ch.registeredAt) + '</div>';
+  html += '<div class="dg-label">Last Seen</div><div class="dg-value">' + fmtTime(st.lastHeartbeat) + '</div>';
+  html += '</div></div>';
+
+  // ── Health ──
+  html += '<div class="detail-section"><div class="detail-section-title">Health</div>';
+  html += '<span class="health-badge ' + healthClass(hs.score) + '">' + hs.score + '/100</span> ';
+  html += '<span style="font-size:12px;color:var(--muted)">Trend: ' + esc(hs.trend || 'stable') + '</span>';
+  if (st.currentSession) {
+    html += '<div style="margin-top:8px;font-size:12px;color:var(--green)">Active session — ' + Math.floor(st.currentSession.duration / 60) + ' min</div>';
+  }
+  if (st.streamActive) html += '<div style="font-size:12px;color:var(--green);margin-top:4px">Stream active</div>';
+  html += '</div>';
+
+  // ── Devices ──
+  html += '<div class="detail-section"><div class="detail-section-title">Devices</div><div class="detail-chips">';
+  html += chip('ATEM', devs.atem) + chip('OBS', devs.obs) + chip('vMix', devs.vmix) + chip('Companion', devs.companion);
+  if (devs.encoders?.length) devs.encoders.forEach(function(e) { html += chip(e.name || 'Encoder', true); });
+  if (devs.mixers?.length) devs.mixers.forEach(function(m) { html += chip(m.name || 'Mixer', true); });
+  if (devs.ptz?.length) devs.ptz.forEach(function(p) { html += chip(p.name || 'PTZ', true); });
+  if (devs.hyperdeck?.length) devs.hyperdeck.forEach(function(h) { html += chip(h.name || 'HyperDeck', true); });
+  html += '</div>';
+  if (ch.audio_via_atem) html += '<div style="font-size:11px;color:var(--dim);margin-top:6px">Audio via ATEM</div>';
+  html += '</div>';
+
+  // ── Integrations ──
+  html += '<div class="detail-section"><div class="detail-section-title">Integrations</div><div class="detail-chips">';
+  html += chip('Planning Center', integ.planningCenter) + chip('YouTube', integ.youtube) + chip('Facebook', integ.facebook) + chip('Vimeo', integ.vimeo);
+  if (ch.slack_channel) html += chip('Slack', true);
+  html += '</div></div>';
+
+  // ── Onboarding ──
+  html += '<div class="detail-section"><div class="detail-section-title">Onboarding</div><div class="detail-checklist">';
+  html += checkItem('App Connected', onb.app_connected);
+  html += checkItem('ATEM Connected', onb.atem_connected);
+  html += checkItem('First Session', onb.first_session);
+  html += checkItem('Telegram Setup', onb.telegram);
+  html += checkItem('Failover Tested', onb.failover_tested);
+  html += checkItem('Team Invited', onb.team_invited);
+  html += '</div></div>';
+
+  // ── Config ──
+  html += '<div class="detail-section"><div class="detail-section-title">Configuration</div><div class="detail-chips">';
+  html += chip('Auto-Recovery', cfg.autoRecovery) + chip('Failover', cfg.failover);
+  if (cfg.failoverAction) html += '<span style="font-size:11px;color:var(--dim);margin-left:4px">(' + esc(cfg.failoverAction) + ')</span>';
+  html += '</div>';
+  if (cfg.autoPilotRulesCount > 0) html += '<div style="font-size:12px;color:var(--muted);margin-top:6px">' + cfg.autoPilotRulesCount + ' AutoPilot rule' + (cfg.autoPilotRulesCount !== 1 ? 's' : '') + '</div>';
+  html += '</div>';
+
+  // ── TDs ──
+  if (tds.length) {
+    html += '<div class="detail-section"><div class="detail-section-title">Tech Directors (' + tds.length + ')</div><table class="detail-mini-table"><thead><tr><th>Name</th><th>Email</th><th>Access</th></tr></thead><tbody>';
+    tds.forEach(function(td) {
+      html += '<tr><td style="color:var(--text)">' + esc(td.name || '—') + '</td><td>' + esc(td.email || '—') + '</td><td>' + esc(td.access_level || 'full') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // ── Recent Sessions ──
+  if (sessions.length) {
+    html += '<div class="detail-section"><div class="detail-section-title">Recent Sessions</div><table class="detail-mini-table"><thead><tr><th>Date</th><th>Duration</th><th>Grade</th><th>Alerts</th></tr></thead><tbody>';
+    sessions.forEach(function(s) {
+      html += '<tr><td style="color:var(--text)">' + fmtDate(s.startedAt) + '</td><td>' + (s.duration || '—') + ' min</td><td>' + gradeBadge(s.grade) + '</td><td>' + (s.alerts || 0) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // ── Recent Alerts ──
+  if (alerts.length) {
+    html += '<div class="detail-section"><div class="detail-section-title">Recent Alerts (' + alerts.length + ')</div><table class="detail-mini-table"><thead><tr><th>Type</th><th>Severity</th><th>Time</th><th>Status</th></tr></thead><tbody>';
+    alerts.slice(0, 10).forEach(function(a) {
+      html += '<tr><td style="color:var(--text)">' + esc(a.type || '—') + '</td><td>' + sevBadge(a.severity) + '</td><td>' + fmtTime(a.timestamp) + '</td><td>' + (a.resolved ? '<span class="badge badge-green">Resolved</span>' : '<span class="badge badge-red">Open</span>') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // ── Tickets ──
+  if (tickets.length) {
+    html += '<div class="detail-section"><div class="detail-section-title">Support Tickets</div><table class="detail-mini-table"><thead><tr><th>Title</th><th>Severity</th><th>Status</th><th>Created</th></tr></thead><tbody>';
+    tickets.forEach(function(t) {
+      html += '<tr><td style="color:var(--text)">' + esc(t.title || '—') + '</td><td>' + sevBadge(t.severity) + '</td><td><span class="badge badge-gray">' + esc(t.status || '—') + '</span></td><td>' + fmtDate(t.created_at) + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+  }
+
+  // ── Chat History ──
+  if (chat.length) {
+    html += '<div class="detail-section"><div class="detail-section-title">Chat History</div><div class="detail-chat">';
+    chat.forEach(function(m) {
+      html += '<div class="detail-chat-msg"><span class="sender">' + esc(m.sender_name || m.source || 'System') + '</span>' + esc(m.message || m.text || '') + '<span class="time">' + fmtTime(m.timestamp || m.created_at) + '</span></div>';
+    });
+    html += '</div></div>';
+  }
+
+  // ── Token ──
+  html += '<div class="detail-section"><div class="detail-section-title">Token</div>';
+  html += '<div class="token-box" id="detail-token" style="font-size:11px;filter:blur(4px);cursor:pointer" onclick="revealToken()">' + esc((c.token || '').substring(0, 60)) + '...</div>';
+  html += '<div style="display:flex;gap:8px;margin-top:6px"><button class="btn-sm" onclick="revealToken()">Reveal</button><button class="btn-sm" onclick="copyToken(' + esc(JSON.stringify(c.token || '')) + ')">Copy</button></div>';
+  html += '</div>';
+
+  // ── Actions ──
+  html += '<div class="detail-actions">';
+  html += '<button class="btn-primary" onclick="openSendCommand(\\\'' + esc(id) + '\\\')">Send Command</button>';
+  html += '<button class="btn-secondary" onclick="openSendMessage(\\\'' + esc(id) + '\\\')">Send Message</button>';
+  html += '<button class="btn-secondary" onclick="openRegenToken(\\\'' + esc(id) + '\\\')">Regen Token</button>';
+  html += '</div>';
+
+  document.getElementById('detail-content').innerHTML = html;
 }
 
 function revealToken() {
@@ -2831,6 +2996,47 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       billing_status: churchRow.billing_status || null,
       timezone: churchRow.timezone || null,
       setup_complete: !!churchRow.setup_complete,
+      church_type: churchRow.church_type || 'recurring',
+      event_expires_at: churchRow.event_expires_at || null,
+      event_label: churchRow.event_label || null,
+      portal_email: churchRow.portal_email || null,
+      registration_code: churchRow.registration_code || null,
+      referral_code: churchRow.referral_code || null,
+      referred_by: churchRow.referred_by || null,
+      registeredAt: churchRow.registeredAt || null,
+      email: churchRow.email || null,
+      reseller_id: churchRow.reseller_id || null,
+      slack_channel: churchRow.slack_channel || null,
+      audio_via_atem: !!churchRow.audio_via_atem,
+      schedule: churchRow.schedule ? JSON.parse(churchRow.schedule) : null,
+    };
+
+    // ── Billing ──
+    let billing = null;
+    try {
+      billing = db.prepare(
+        `SELECT tier, status, billing_interval, trial_ends_at, current_period_end,
+                cancel_at_period_end, stripe_customer_id, stripe_subscription_id, created_at
+         FROM billing_customers WHERE church_id = ? LIMIT 1`
+      ).get(churchId) || null;
+    } catch { /* table may not exist */ }
+
+    // ── Onboarding milestones ──
+    const onboarding = {
+      app_connected: churchRow.onboarding_app_connected_at || null,
+      atem_connected: churchRow.onboarding_atem_connected_at || null,
+      first_session: churchRow.onboarding_first_session_at || null,
+      telegram: churchRow.onboarding_telegram_registered_at || null,
+      failover_tested: churchRow.onboarding_failover_tested_at || null,
+      team_invited: churchRow.onboarding_team_invited_at || null,
+    };
+
+    // ── Integrations ──
+    const integrations = {
+      planningCenter: !!churchRow.planning_center_token,
+      youtube: !!churchRow.youtube_refresh_token,
+      facebook: !!churchRow.facebook_page_token,
+      vimeo: !!churchRow.vimeo_access_token,
     };
 
     // ── Status ──
@@ -2944,26 +3150,37 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     } catch { /* table may not exist */ }
 
     // ── Config summary ──
-    let config = { autoRecovery: false, failover: false, autoPilotRulesCount: 0 };
+    let config = { autoRecovery: false, failover: false, failoverAction: null, autoPilotRulesCount: 0 };
     try {
-      const churchRow = db.prepare('SELECT auto_recovery_enabled FROM churches WHERE churchId = ?').get(churchId);
-      config.autoRecovery = churchRow?.auto_recovery_enabled === 1 || churchRow?.auto_recovery_enabled === '1';
+      config.autoRecovery = churchRow.auto_recovery_enabled === 1 || churchRow.auto_recovery_enabled === '1';
+      config.failover = churchRow.failover_enabled === 1 || churchRow.failover_enabled === '1';
+      config.failoverAction = churchRow.failover_action || null;
     } catch { /* column may not exist */ }
     try {
       const apCount = db.prepare('SELECT COUNT(*) as cnt FROM automation_rules WHERE church_id = ?').get(churchId);
       config.autoPilotRulesCount = apCount?.cnt || 0;
     } catch { /* table may not exist */ }
 
+    // ── TDs ──
+    let tds = [];
+    try {
+      tds = db.prepare('SELECT id, name, email, access_level, created_at FROM church_tds WHERE church_id = ?').all(churchId);
+    } catch { /* table may not exist */ }
+
     res.json({
       church,
       status,
       healthScore,
+      billing,
+      onboarding,
+      integrations,
       recentAlerts,
       recentSessions,
       recentTickets,
       lastDiagnosticBundle,
       chatHistory,
       config,
+      tds,
     });
   });
 

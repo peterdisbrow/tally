@@ -15,7 +15,7 @@ function setAiUsageLogger(fn) { _logAiUsage = fn; }
 // ─── COST CONTROLS ──────────────────────────────────────────────────────────
 
 // Simple LRU cache for AI responses (keyed on normalized message text)
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 60 * 1000; // 1 minute
 const CACHE_MAX = 200;
 const responseCache = new Map();
 
@@ -55,7 +55,10 @@ let _incidentBypassCheck = null;
 function setIncidentBypassCheck(fn) { _incidentBypassCheck = fn; }
 
 function checkAiRateLimit(churchId, tier) {
-  if (!churchId) return true;
+  if (!churchId) {
+    console.warn('[ai-parser] Rate limit check called without churchId — applying default limit');
+    return true; // Allow but log — churchId should always be present
+  }
   // Active incident bypass: during CONFIRMED_OUTAGE / FAILOVER_ACTIVE, skip limits
   if (_incidentBypassCheck && _incidentBypassCheck(churchId)) return true;
   const limit = AI_RATE_LIMITS[tier] || AI_RATE_LIMITS.default;
@@ -320,7 +323,7 @@ const FALLBACK_COMMANDS = [
   'preset.list',
   'preset.recall',
   'preset.save',
-  'preview.snap',
+  // 'preview.snap', — removed from AI; TD says "preview X" meaning ATEM preview, not screenshot
   'preview.start',
   'preview.stop',
   // ── ProPresenter ──
@@ -511,7 +514,6 @@ AVAILABLE COMMANDS (JSON schema):
 {"command":"mixer.recallScene","params":{"scene":N}}
 {"command":"mixer.setFader","params":{"channel":N,"level":0.0-1.0}}
 {"command":"dante.scene","params":{"name":"X"}}
-{"command":"preview.snap","params":{}}                             — send live preview photo
 {"command":"system.preServiceCheck","params":{}}
 {"command":"status","params":{}}                                   — overall system status
 
@@ -700,16 +702,103 @@ CONFIRM HIGH-IMPACT: fadeToBlack, stopStream, "end service" → ask for confirma
 
 OPERATOR LEVEL: Context "Operator: volunteer|intermediate|pro". volunteer=simple language, pro=concise. Auto-detect if missing.
 
+ATEM SPECIAL INPUTS: Media Player 1=3010, Media Player 2=3020, Color Bars=1000, Color 1=2001, Color 2=2002, SuperSource=6000, Clean Feed 1=7001, Clean Feed 2=7002, Program=10010, Preview=10011.
+"Cut to MP1" or "go to media player" → atem.cut(input:3010). Do NOT ask to upload an image — just switch to the input directly. The media player already has content loaded.
+"Go to color bars" / "show bars" / "test pattern" → atem.cut(input:1000).
+
+TRANSITIONS:
+- "Cut to cam X" / "take cam X" / "go to cam X" → atem.cut(input:X). This is an instant switch.
+- "Dissolve to cam X" / "mix to cam X" / "crossfade to cam X" → multi-step: [atem.setTransitionStyle(style:mix), atem.setPreview(input:X), atem.auto()]. Dissolve and mix are the same thing.
+- "Dip to cam X" → multi-step: [atem.setTransitionStyle(style:dip), atem.setPreview(input:X), atem.auto()]
+- "Wipe to cam X" → multi-step: [atem.setTransitionStyle(style:wipe), atem.setPreview(input:X), atem.auto()]
+- "Faster/slower dissolve" → atem.setTransitionRate(rate:N). Default is 30 frames. Faster=15, slower=60.
+- "Preview cam X" / "put cam X on preview" / "take X to preview" / "set preview to X" / "can I see cam X in preview" → atem.setPreview(input:X). This does NOT cut or transition — it only sets the ATEM preview bus. NEVER use preview.snap for any of these — preview.snap is ONLY for screenshots.
+- "Take it" / "go" / "punch it" → atem.auto(). Transitions whatever is on preview to program.
+
+FADE TO BLACK:
+- "Fade to black" / "FTB" → atem.fadeToBlack(). This is a toggle — calling it again brings back from black.
+- "Cut to black" → atem.setProgram(input:2001) or atem.cut(input:2001). Uses Color 1 (black) as instant cut.
+- "Bring it back" / "come back from black" → atem.fadeToBlack(). Same toggle.
+
+PIP (Picture-in-Picture):
+- "Put cam X in a PIP" → multi-step: [atem.setUskType(keyer:0,mixEffectKeyType:3,flyEnabled:true), atem.setUskFillSource(keyer:0,fillSource:X), atem.setUskDVESettings(keyer:0,sizeX:0.33,sizeY:0.33,positionX:7,positionY:4), atem.setUskOnAir(keyer:0,onAir:true)]
+- "Remove PIP" / "kill PIP" / "PIP off" → atem.setUskOnAir(keyer:0,onAir:false)
+- "Make PIP bigger/smaller" → atem.setUskDVESettings(keyer:0,sizeX:N,sizeY:N). Bigger=0.5, smaller=0.25.
+- "Move PIP to top left" → positionX:-7,positionY:-4. Top right: positionX:7,positionY:-4. Bottom left: positionX:-7,positionY:4. Bottom right: positionX:7,positionY:4.
+
+LOWER THIRDS / KEYERS:
+- "Show lower third" / "put up the lower third" / "L3 on" → atem.setDskOnAir(keyer:0,onAir:true). DSK 1 (keyer:0) is typically the lower third.
+- "Hide lower third" / "take down the L3" / "L3 off" → atem.setDskOnAir(keyer:0,onAir:false)
+- "Auto lower third" → atem.autoDsk(keyer:0). Transitions DSK on/off with the configured rate.
+- "Show the bug" / "logo on" → atem.setDskOnAir(keyer:1,onAir:true). DSK 2 (keyer:1) is typically the bug/logo.
+- "Hide the bug" / "logo off" → atem.setDskOnAir(keyer:1,onAir:false)
+
+PROPRESENTER:
+- "Next slide" / "put up the lyrics" / "advance slides" / "next" → propresenter.next()
+- "Previous slide" / "go back a slide" → propresenter.previous()
+- "Go to slide 5" / "jump to slide X" → propresenter.goToSlide(index:X). Index is 0-based.
+- "Clear slides" / "clear the screen" / "blank ProPresenter" → propresenter.clearAll()
+- "What slide are we on?" / "slide status" → propresenter.status()
+- "Start the countdown" / "start timer" → propresenter.startTimer(name:X). Ask for timer name if unknown.
+- "Stop the timer" → propresenter.stopTimer(name:X)
+
+PTZ CAMERAS:
+- "Zoom in" → ptz.zoom(speed:0.3). "Zoom in more/faster" → ptz.zoom(speed:0.7). "Zoom out" → ptz.zoom(speed:-0.3).
+- "Pan left" → ptz.pan(speed:-0.3). "Pan right" → ptz.pan(speed:0.3).
+- "Tilt up" → ptz.tilt(speed:0.3). "Tilt down" → ptz.tilt(speed:-0.3).
+- "Stop" / "stop moving" → ptz.stop(). Stops all PTZ movement.
+- "Go to preset 1" / "recall position 1" → ptz.recallPreset(preset:1).
+- Default speed for gentle moves: 0.3. Fast moves: 0.7. Max: 1.0.
+- If multiple PTZ cameras, ask which one. If only one, use camera:1.
+
+AUDIO:
+- "Mute mic X" / "mute channel X" → mixer.mute(channel:X) or ATEM Fairlight: setFairlightAudioSourceProps(index:X,source:-256,mixOption:0). mixOption 0=off, 1=on, 2=AFV.
+- "Unmute mic X" → mixer.unmute(channel:X) or Fairlight: setFairlightAudioSourceProps(index:X,source:-256,mixOption:1).
+- "Turn up mic X" / "louder on X" → increase fader by +0.1 (mixer) or +300 faderGain (Fairlight). Do NOT ask what level — just bump it.
+- "Turn down mic X" / "quieter on X" → decrease fader by -0.1 (mixer) or -300 faderGain (Fairlight).
+- "Master louder" / "turn up the master" → mixer.setMaster(level:+0.1) or Fairlight: setFairlightAudioMasterProps(faderGain:+300).
+- If user says a name like "pastor's mic" or "drums", check input labels from context. If no match, ask: "Which channel is that? Give me the number."
+- "Audio follow video" / "AFV on input X" / "set cam X to AFV" → setFairlightAudioSourceProps(index:X,source:-256,mixOption:2). mixOption 2 = AFV.
+- "Turn off AFV on input X" / "take X off AFV" → setFairlightAudioSourceProps(index:X,source:-256,mixOption:1). Sets it back to always on.
+- "AFV all" / "set all inputs to AFV" → multi-step: one setFairlightAudioSourceProps per input with mixOption:2.
+- "What's on AFV?" / "which inputs are AFV?" → return a chat response listing current audio routing from context.
+
+UNDO:
+- "Undo" / "go back" / "that was wrong" → Look at the last command in conversation history. If it was atem.cut(input:X), look for the PREVIOUS program input from context and cut back to it. If it was a mute, unmute. If it was setDskOnAir(onAir:true), set onAir:false. If you can't determine the reverse, say "I'm not sure what to undo — what should I change back?"
+
+RECORDING & STREAMING DEVICE PRIORITY:
+- If user says "start recording" / "start streaming" without specifying device:
+  - Priority: ATEM streaming/recording first (if ATEM supports it). Then OBS/vMix. Then encoder. Then HyperDeck.
+  - If multiple devices are connected, use whichever is already configured for streaming/recording.
+  - "Record to the deck" / "record on hyperdeck" → hyperdeck.record()
+  - "Stop all" / "stop everything" → multi-step: stop streaming + stop recording on ALL connected devices.
+
+ATEM MODEL AWARENESS:
+- Context includes the ATEM model name. Use it:
+  - ATEM Mini / Mini Pro / Mini Pro ISO / Mini Extreme / Mini Extreme ISO → Classic Audio (NOT Fairlight). No SuperSource. Max 4-8 inputs.
+  - Television Studio / 1 M/E / 2 M/E / 4 M/E / Constellation → Fairlight Audio. SuperSource available on 1 M/E+ and above.
+- If user asks for a feature their ATEM doesn't support, explain: "Your [model] doesn't support [feature]. Here's what you can do instead: [alternative]."
+
+COLOR GENERATOR:
+- "Color 1" = index:0, "Color 2" = index:1. Default to index:0 unless user says "color 2".
+- atem.setColorGeneratorColour(index:N,hue:N,saturation:N,luminance:N). Hue is 0-3599 (tenths of degrees), saturation 0-1000, luminance 0-1000.
+- Common colors: black=hue:0,sat:0,lum:0. White=hue:0,sat:0,lum:1000. Red=hue:0,sat:1000,lum:500. Blue=hue:2400,sat:1000,lum:500. Green=hue:1200,sat:1000,lum:500. Yellow=hue:600,sat:1000,lum:500. Cyan=hue:1800,sat:1000,lum:500. Magenta=hue:3000,sat:1000,lum:500. Orange=hue:300,sat:1000,lum:500.
+- "Change color 1 to blue" → atem.setColorGeneratorColour(index:0,hue:2400,saturation:1000,luminance:500)
+
+DEVICE PRIORITY — CRITICAL:
+- If an ATEM is connected, DEFAULT all switching commands (cut, preview, program, transition, fade to black, PIP, keyers, DSK, aux) to atem.* commands.
+- Only use OBS/vMix for switching if the user explicitly mentions OBS or vMix by name (e.g., "switch OBS scene", "change vMix program", "in OBS go to...").
+- Generic commands like "put cam 1 in preview", "cut to cam 2", "go to camera 3" → ALWAYS use atem.* when ATEM is connected.
+- OBS/vMix without explicit mention are only for: streaming control, recording, and source/filter management.
+
 RULES:
-- Match camera labels from context when available. "take it"→atem.auto. DSK: "auto lower third"→autoDsk(keyer:0).
+- Match camera labels from context when available. If user says "camera 1" and labels show 1=Main Cam, use input 1.
 - Off-topic → {"type":"chat","text":"I'm only here for production. Try 'help' for what I can do."}
 - Use conversation history for "again", "undo that", etc. Up to 50 steps. Batch: "mute 1-8" → one step per channel.
-- "we're done"/"that's a wrap" → multi-step: fadeToBlack + stop all streams + stop all recordings.
-- Relative adjustments: "louder" → +0.1 fader or +300 Fairlight. "quieter" → reverse.
+- "we're done"/"that's a wrap" → multi-step: fadeToBlack + stop all streams + stop all recordings on all connected devices.
 - Troubleshooting: describe problem → return diagnosis with suggested commands.
 - Social phrases (thanks, hi) → friendly reply, NOT off-topic response.
-- Undo → reverse the last command from history.
-- Volunteer phrases: "put the words up"→propresenter.next, "zoom in"→ptz.zoom(speed:0.3), "are we live?"→status()`;
+- Volunteer phrases: "are we live?" → status()`;
 
   return prompt;
 }
@@ -777,13 +866,25 @@ async function callAnthropic(messages, timeout = 15000, systemPrompt = '') {
 // ─── JSON parser (handles markdown wrapping) ────────────────────────────────
 
 function parseJSON(raw) {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    // Strip markdown code block if present
-    const stripped = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
-    return JSON.parse(stripped);
+  // Try direct parse first
+  try { return JSON.parse(raw); } catch { /* continue */ }
+
+  // Strip markdown code blocks
+  let cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  try { return JSON.parse(cleaned); } catch { /* continue */ }
+
+  // Extract first JSON object from response (AI sometimes wraps in text)
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (match) {
+    try { return JSON.parse(match[0]); } catch { /* continue */ }
   }
+
+  // Strip trailing commas (common AI mistake)
+  cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
+  try { return JSON.parse(cleaned); } catch { /* continue */ }
+
+  console.warn('[ai-parser] Failed to parse AI response:', raw.substring(0, 200));
+  throw new Error('Failed to parse AI response as JSON');
 }
 
 // ─── Main parse function ────────────────────────────────────────────────────
@@ -863,7 +964,10 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     let obsInfo = `OBS: ${o.streaming ? 'live' : 'idle'}`;
     if (o.streaming && o.bitrate) obsInfo += `, ${o.bitrate}kbps`;
     if (o.fps) obsInfo += `, ${o.fps}fps`;
+    if (o.currentScene) obsInfo += `, scene="${o.currentScene}"`;
+    if (o.recording) obsInfo += ', recording';
     contextHint += obsInfo + '. ';
+    if (o.scenes?.length) contextHint += `OBS scenes: ${o.scenes.join(', ')}. `;
   }
 
   // vMix
@@ -889,6 +993,10 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   if (ctx.status?.mixer?.connected) {
     const m = ctx.status.mixer;
     contextHint += `Audio: ${m.type || ''} ${m.model || ''}${m.mainMuted ? ', MUTED' : ''}. `;
+    if (m.channelNames && Object.keys(m.channelNames).length) {
+      const chNames = Object.entries(m.channelNames).map(([k, v]) => `ch${k}=${v}`).join(', ');
+      contextHint += `Channels: ${chNames}. `;
+    }
   }
 
   // PTZ cameras
@@ -977,6 +1085,65 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
           type: 'chat',
           text: `I tried to run "${invalid.command}" but that command doesn't exist. Could you rephrase what you'd like to do?`,
         };
+      }
+    }
+
+    // ── Post-parse corrections: fix known AI misroutes ──
+    // If ATEM is connected and AI chose preview.snap but user meant preview switching, fix it
+    if (ctx.status?.atem?.connected) {
+      const lower = text.trim().toLowerCase();
+      const previewSwitchPattern = /(?:preview|pvw)\s*(?:cam|camera|input|source)?\s*(\d+)|(?:cam|camera|input|source)\s*(\d+)\s*(?:to|on|in)\s*preview|(?:take|put|set|show|see)\s*(?:cam|camera|input)?\s*(\d+)\s*(?:to|on|in)?\s*preview|^preview\s+(\d+)$/i;
+      const match = lower.match(previewSwitchPattern);
+
+      function fixPreviewSnap(cmd) {
+        if (cmd.command === 'preview.snap' && match) {
+          const inputNum = parseInt(match[1] || match[2] || match[3] || match[4], 10);
+          if (inputNum) {
+            console.log(`[ai-parser] Corrected preview.snap → atem.setPreview(input:${inputNum})`);
+            cmd.command = 'atem.setPreview';
+            cmd.params = { input: inputNum };
+          }
+        }
+        // Also fix obs.setPreviewScene when ATEM is connected and user didn't say "obs"
+        if (cmd.command === 'obs.setPreviewScene' && !lower.includes('obs')) {
+          const inputNum = parseInt(cmd.params?.input || cmd.params?.scene, 10);
+          if (inputNum) {
+            console.log(`[ai-parser] Corrected obs.setPreviewScene → atem.setPreview(input:${inputNum})`);
+            cmd.command = 'atem.setPreview';
+            cmd.params = { input: inputNum };
+          }
+        }
+      }
+
+      if (parsed.type === 'command') fixPreviewSnap(parsed);
+      if (parsed.type === 'commands' && Array.isArray(parsed.steps)) parsed.steps.forEach(fixPreviewSnap);
+    }
+
+    // ── Coerce common parameter types to prevent silent failures ──
+    function coerceParams(params) {
+      if (!params || typeof params !== 'object') return params;
+      const coerced = { ...params };
+      // Numeric fields that AI sometimes returns as strings
+      for (const key of ['input', 'aux', 'keyer', 'me', 'player', 'index', 'rate', 'macroIndex', 'preset', 'channel', 'hyperdeck', 'camera', 'box']) {
+        if (key in coerced && typeof coerced[key] === 'string' && /^\d+$/.test(coerced[key])) {
+          coerced[key] = parseInt(coerced[key], 10);
+        }
+      }
+      // Boolean fields
+      for (const key of ['onAir', 'tie', 'enabled', 'playing', 'loop', 'mute', 'solo', 'invertKey', 'preMultiplied', 'maskEnabled', 'flyEnabled', 'cropped']) {
+        if (key in coerced && typeof coerced[key] === 'string') {
+          coerced[key] = coerced[key] === 'true';
+        }
+      }
+      return coerced;
+    }
+
+    if (parsed.type === 'command' && parsed.params) {
+      parsed.params = coerceParams(parsed.params);
+    }
+    if (parsed.type === 'commands' && Array.isArray(parsed.steps)) {
+      for (const step of parsed.steps) {
+        if (step.params) step.params = coerceParams(step.params);
       }
     }
 

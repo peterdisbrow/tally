@@ -39,9 +39,9 @@ const CAMERA_KEYWORDS = [
 
 const MEDIA_KEYWORDS = [
   'upload to media', 'upload still', 'upload image to atem',
-  'media player', 'media pool', 'load image', 'send image to atem',
+  'upload to media player', 'media pool', 'load image', 'send image to atem',
   'put image on atem', 'add still', 'add image',
-  'mp1', 'mp2', 'mp 1', 'mp 2',
+  'upload to mp1', 'upload to mp2',
   'add this to', 'put this on', 'load this',
 ];
 
@@ -89,8 +89,8 @@ function detectIntentWithAttachment(message, mimeType) {
   if (mimeType && mimeType.startsWith('image/')) {
     const lower = (message || '').toLowerCase();
     // Check for any media-related language (mp1/mp2, aux, program, media, still, atem, etc.)
-    const mediaHints = ['media', 'still', 'atem', 'mp1', 'mp2', 'mp 1', 'mp 2',
-      'aux', 'pgm', 'program', 'preview', 'add this', 'put this', 'load this',
+    const mediaHints = ['media pool', 'still', 'upload to mp1', 'upload to mp2',
+      'add this', 'put this', 'load this',
       'upload this', 'send this'];
     if (mediaHints.some((h) => lower.includes(h))) return 'media';
     // Check for mixer/patch keywords in message — if present, it's a patch photo

@@ -1,6 +1,6 @@
 {
   "name": "tally-connect",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Tally — Remote monitoring for ATEM School customers",
   "main": "src/main.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "dev": "electron . --dev",
     "build:mac": "electron-builder --mac",
     "build:mac:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
-    "build:mac:dist": "mkdir -p \"$HOME/Desktop/Tally\" && rm -f \"dist/Tally by ATEM School-1.0.0-arm64.dmg\" \"dist/Tally by ATEM School-1.0.0-arm64.dmg.blockmap\" && electron-builder --mac && cp -f \"dist/Tally by ATEM School-1.0.0-arm64.dmg\" \"$HOME/Desktop/Tally/Tally-by-ATEM-School.dmg\"",
+    "build:mac:dist": "mkdir -p \"$HOME/Desktop/Tally\" && electron-builder --mac && cp -f dist/Tally-*.dmg \"$HOME/Desktop/Tally/\"",
     "build:win": "electron-builder --win",
     "build:all": "npm run build:mac:unsigned",
     "release:check": "node scripts/release-readiness-check.js",
@@ -20,9 +20,9 @@
     "test:e2e": "npx playwright test"
   },
   "build": {
-    "appId": "com.atemschool.tally",
-    "productName": "Tally by ATEM School",
-    "copyright": "Copyright © 2026 ATEM School",
+    "appId": "com.tallyconnect.tally",
+    "productName": "Tally",
+    "copyright": "Copyright © 2026 Tally Connect",
     "directories": {
       "output": "dist"
     },
@@ -47,11 +47,19 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64"
+            "arm64",
+            "x64"
           ]
         }
       ],
-      "icon": "assets/icon.icns"
+      "icon": "assets/icon.icns",
+      "notarize": true
+    },
+    "dmg": {
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
     },
     "win": {
       "target": [
