@@ -7,7 +7,7 @@
 module.exports = function setupResellerRoutes(app, ctx) {
   const { db, churches, requireAdmin, requireReseller, resellerSystem,
           hashPassword, safeErrorMessage, stmtInsert, stmtFindByName,
-          jwt, JWT_SECRET, log } = ctx;
+          lifecycleEmails, jwt, JWT_SECRET, log } = ctx;
   const WebSocket = require('ws').WebSocket;
 
   // ─── ADMIN CRUD (requires admin JWT) ──────────────────────────────────────
@@ -113,6 +113,14 @@ module.exports = function setupResellerRoutes(app, ctx) {
       });
 
       log(`Reseller "${reseller.name}" registered church: ${name} (${churchId})`);
+
+      // Send registration confirmation lifecycle email if the church has a contact email
+      if (lifecycleEmails && email) {
+        const regChurch = { churchId, name, portal_email: email };
+        lifecycleEmails.sendRegistrationConfirmation(regChurch)
+          .catch(e => log(`[Reseller] Registration email failed for ${email}: ${e.message}`));
+      }
+
       res.json({ churchId, name, token, resellerId: reseller.id, message: 'Church registered. Share this token with the church client app.' });
     } catch (e) {
       console.error('[/api/reseller/churches/register]', e.message);
@@ -218,6 +226,15 @@ module.exports = function setupResellerRoutes(app, ctx) {
       });
 
       log(`Reseller "${req.reseller.name}" created church token: ${result.churchName} (${result.churchId})`);
+
+      // Send registration confirmation lifecycle email to portal email or contact email
+      const emailRecipient = cleanPortalEmail || cleanContactEmail;
+      if (lifecycleEmails && emailRecipient) {
+        const regChurch = { churchId: result.churchId, name: result.churchName, portal_email: emailRecipient };
+        lifecycleEmails.sendRegistrationConfirmation(regChurch)
+          .catch(e => log(`[Reseller] Registration email failed for ${emailRecipient}: ${e.message}`));
+      }
+
       res.json({
         churchId: result.churchId, churchName: result.churchName,
         registrationCode: result.registrationCode,

@@ -2198,6 +2198,7 @@ function requireChurchWriteAccess(req, res, next) {
 require('./src/routes/supportTickets')(app, {
   db, churches, requireAdminJwt, stmtGet, scheduleEngine,
   JWT_SECRET, RELAY_VERSION, SUPPORT_TRIAGE_WINDOW_HOURS, rateLimit,
+  broadcastToSSE, lifecycleEmails,
 });
 console.log('[Server] ✓ Support ticket routes registered');
 

@@ -17,7 +17,8 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   // ─── ONBOARD (self-service signup) ───────────────────────────────────────────
 
   app.post('/api/church/app/onboard', rateLimit(10, 60 * 60 * 1000), async (req, res) => {
-    const { name, email, password, tier, successUrl, cancelUrl, tosAcceptedAt, referralCode } = req.body || {};
+    const { name, email, password, tier, successUrl, cancelUrl, tosAcceptedAt, referralCode, locale } = req.body || {};
+    const cleanLocale = locale && /^[a-z]{2}(-[A-Z]{2})?$/.test(String(locale)) ? String(locale) : null;
     const cleanName = String(name || '').trim();
     const cleanEmail = String(email || '').trim().toLowerCase();
     const cleanReferralCode = String(referralCode || '').trim().toUpperCase();
@@ -87,9 +88,9 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     db.prepare(`
       UPDATE churches
       SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?, billing_trial_ends = ?, billing_interval = ?, tos_accepted_at = ?, referral_code = ?,
-          email_verify_token = ?, email_verify_sent_at = ?
+          email_verify_token = ?, email_verify_sent_at = ?, locale = ?
       WHERE churchId = ?
-    `).run(cleanEmail, hashPassword(password), planTier, onboardStatus, trialEndsAt, planInterval, tosAcceptedAt || null, newReferralCode, emailVerifyToken, new Date().toISOString(), churchId);
+    `).run(cleanEmail, hashPassword(password), planTier, onboardStatus, trialEndsAt, planInterval, tosAcceptedAt || null, newReferralCode, emailVerifyToken, new Date().toISOString(), cleanLocale, churchId);
 
     // Track referral
     let referrerId = null;
@@ -460,7 +461,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
   // PUT /api/church/app/me — update profile
   app.put('/api/church/app/me', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
-    const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, newPassword, currentPassword, password } = req.body;
+    const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, newPassword, currentPassword, password, locale } = req.body;
     const churchId = req.church.churchId;
 
     const newPw = newPassword || password;
@@ -476,7 +477,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
         .run(hashPassword(newPw), churchId);
     }
 
-    const ALLOWED_PROFILE_COLUMNS = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'audio_via_atem'];
+    const ALLOWED_PROFILE_COLUMNS = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'audio_via_atem', 'locale'];
     const { audioViaAtem } = req.body;
     const patch = {};
     if (email !== undefined) {
@@ -494,6 +495,11 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     if (notifications  !== undefined) patch.notifications    = JSON.stringify(notifications);
     if (engineerProfile !== undefined) patch.engineer_profile = JSON.stringify(engineerProfile);
     if (audioViaAtem   !== undefined) patch.audio_via_atem   = audioViaAtem ? 1 : 0;
+    if (locale !== undefined) {
+      // Validate locale format (e.g. "en", "es", "en-US")
+      const cleanLocale = locale && /^[a-z]{2}(-[A-Z]{2})?$/.test(String(locale)) ? String(locale) : null;
+      patch.locale = cleanLocale;
+    }
 
     const safePatch = {};
     for (const [col, val] of Object.entries(patch)) {

@@ -178,15 +178,16 @@ module.exports = function setupSessionRoutes(app, ctx) {
     const session = db.prepare('SELECT * FROM service_sessions WHERE id = ? AND church_id = ?').get(sessionId, churchId);
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
+    const TIMELINE_LIMIT = 500; // per-table hard cap to protect in-memory sort
     const events = db.prepare(
-      'SELECT *, \'event\' as _type FROM service_events WHERE session_id = ? ORDER BY timestamp ASC'
-    ).all(sessionId);
+      'SELECT *, \'event\' as _type FROM service_events WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?'
+    ).all(sessionId, TIMELINE_LIMIT);
     const alerts = db.prepare(
-      'SELECT *, \'alert\' as _type FROM alerts WHERE session_id = ? AND church_id = ? ORDER BY created_at ASC'
-    ).all(sessionId, churchId);
+      'SELECT *, \'alert\' as _type FROM alerts WHERE session_id = ? AND church_id = ? ORDER BY created_at ASC LIMIT ?'
+    ).all(sessionId, churchId, TIMELINE_LIMIT);
     const chatMsgs = db.prepare(
-      'SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC'
-    ).all(sessionId);
+      'SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?'
+    ).all(sessionId, TIMELINE_LIMIT);
 
     const timeline = [
       { _type: 'marker', timestamp: session.started_at, label: 'Session Started', severity: 'INFO', td_name: session.td_name },
@@ -222,9 +223,10 @@ module.exports = function setupSessionRoutes(app, ctx) {
     const session = db.prepare('SELECT * FROM service_sessions WHERE id = ? AND church_id = ?').get(sessionId, churchId);
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
-    const events = db.prepare('SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC').all(sessionId);
-    const alerts = db.prepare('SELECT * FROM alerts WHERE session_id = ? AND church_id = ? ORDER BY created_at ASC').all(sessionId, churchId);
-    const chatMsgs = db.prepare('SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC').all(sessionId);
+    const DEBRIEF_LIMIT = 500;
+    const events = db.prepare('SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?').all(sessionId, DEBRIEF_LIMIT);
+    const alerts = db.prepare('SELECT * FROM alerts WHERE session_id = ? AND church_id = ? ORDER BY created_at ASC LIMIT ?').all(sessionId, churchId, DEBRIEF_LIMIT);
+    const chatMsgs = db.prepare('SELECT * FROM chat_messages WHERE session_id = ? ORDER BY timestamp ASC LIMIT ?').all(sessionId, DEBRIEF_LIMIT);
 
     const startTime = new Date(session.started_at);
     const endTime = session.ended_at ? new Date(session.ended_at) : null;
