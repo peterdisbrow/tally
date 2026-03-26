@@ -1289,6 +1289,39 @@
           <a href="https://github.com/peterdisbrow/tally/releases/latest/download/Tally-intel.dmg" class="btn-secondary" style="display:inline-block;text-decoration:none;padding:8px 16px;font-size:13px">Download for Mac (Intel)</a>
         </div>
       </div>
+      <!-- Companion Setup Guide -->
+      <div class="card" id="companion-setup-guide" style="margin-bottom:16px;display:none">
+        <div class="card-title">Companion Integration Guide</div>
+        <p style="color:#94A3B8;font-size:13px;line-height:1.6;margin-top:8px">
+          Tally connects to <a href="https://bitfocus.io/companion" target="_blank" style="color:#22c55e">Bitfocus Companion</a> to read device status and trigger buttons across 300+ supported modules.
+        </p>
+        <div id="companion-guide-status" style="margin-top:12px"></div>
+        <details style="margin-top:14px">
+          <summary style="color:#F8FAFC;font-weight:600;cursor:pointer;font-size:13px">Quick Setup (5 minutes)</summary>
+          <ol style="color:#94A3B8;font-size:13px;line-height:2;margin-top:10px;padding-left:20px">
+            <li>Install Companion from <a href="https://bitfocus.io/companion" target="_blank" style="color:#22c55e">bitfocus.io</a> on the same computer as Tally</li>
+            <li>Open Companion and add your devices (ATEM, OBS, ProPresenter, etc.)</li>
+            <li>Create buttons for common actions (Start Stream, Camera 1-4, etc.)</li>
+            <li>Tally auto-detects Companion on port 8888 &mdash; no extra config needed</li>
+            <li>Say <strong>"press Start Stream"</strong> in the Tally chat to trigger buttons by name</li>
+          </ol>
+        </details>
+        <details style="margin-top:10px">
+          <summary style="color:#F8FAFC;font-weight:600;cursor:pointer;font-size:13px">Recommended Buttons for Church Production</summary>
+          <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px" id="companion-suggested-buttons"></div>
+        </details>
+        <details style="margin-top:10px">
+          <summary style="color:#F8FAFC;font-weight:600;cursor:pointer;font-size:13px">What Tally Can Do With Companion</summary>
+          <ul style="color:#94A3B8;font-size:13px;line-height:2;margin-top:10px;padding-left:20px">
+            <li><strong>Trigger any button</strong> by name from chat, Telegram, or AutoPilot rules</li>
+            <li><strong>Read live device status</strong> through Companion variables (program source, scene, timecodes)</li>
+            <li><strong>Monitor all connections</strong> and alert if a device goes offline</li>
+            <li><strong>Set custom variables</strong> for bidirectional Tally &harr; Companion workflows</li>
+            <li><strong>Auto-watch</strong> common variables for ATEM, OBS, HyperDeck, ProPresenter, and more</li>
+          </ul>
+        </details>
+      </div>
+
       <div class="card" style="margin-bottom:16px">
         <div class="card-title" data-i18n="support.diag.title">Run Guided Diagnostics</div>
         <div class="field">

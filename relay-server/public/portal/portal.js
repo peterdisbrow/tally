@@ -4999,6 +4999,81 @@
       if (el) el.textContent = 'Response time for your plan: ' + (times[tier] || '48 hours');
       loadSupportStatus();
       loadSupportTickets();
+      loadCompanionGuide();
+    }
+
+    function loadCompanionGuide() {
+      var guide = document.getElementById('companion-setup-guide');
+      if (!guide) return;
+      var status = profileData && profileData.status || {};
+      var comp = status.companion || {};
+
+      // Always show the guide — useful even if Companion isn't connected yet
+      guide.style.display = '';
+
+      // Status section
+      var statusEl = document.getElementById('companion-guide-status');
+      if (statusEl) {
+        if (comp.connected) {
+          var cc = comp.connectionCount || 0;
+          var labels = (comp.connections || []).map(function(c) { return c.label; }).filter(Boolean);
+          statusEl.innerHTML = '<div style="padding:10px 14px;background:#0c2818;border:1px solid #16532e;border-radius:8px;font-size:13px">' +
+            '<span style="color:#22c55e;font-weight:700">✓ Companion Connected</span>' +
+            (cc > 0 ? ' — ' + cc + ' module' + (cc !== 1 ? 's' : '') + (labels.length ? ': ' + labels.join(', ') : '') : '') +
+            '</div>';
+        } else {
+          statusEl.innerHTML = '<div style="padding:10px 14px;background:#1e1e1e;border:1px solid #333;border-radius:8px;font-size:13px;color:#94A3B8">' +
+            '⚠ Companion not detected. Make sure it\'s running on the same machine as Tally (port 8888).' +
+            '</div>';
+        }
+      }
+
+      // Suggested buttons based on detected gear
+      var btnEl = document.getElementById('companion-suggested-buttons');
+      if (btnEl) {
+        var suggestions = [];
+        // Core buttons every church needs
+        suggestions.push({ name: 'Start Stream', module: 'OBS / vMix / Encoder', icon: '🔴' });
+        suggestions.push({ name: 'Stop Stream', module: 'OBS / vMix / Encoder', icon: '⏹' });
+        suggestions.push({ name: 'Start Recording', module: 'OBS / HyperDeck', icon: '⏺' });
+        suggestions.push({ name: 'Stop Recording', module: 'OBS / HyperDeck', icon: '⏹' });
+
+        // ATEM-specific
+        if (status.atem) {
+          suggestions.push({ name: 'Camera 1', module: 'ATEM', icon: '📷' });
+          suggestions.push({ name: 'Camera 2', module: 'ATEM', icon: '📷' });
+          suggestions.push({ name: 'Camera 3', module: 'ATEM', icon: '📷' });
+          suggestions.push({ name: 'Media Player 1', module: 'ATEM', icon: '🖼' });
+          suggestions.push({ name: 'Fade to Black', module: 'ATEM', icon: '⬛' });
+        }
+
+        // ProPresenter
+        if (status.proPresenter || status.propresenter) {
+          suggestions.push({ name: 'Next Slide', module: 'ProPresenter', icon: '▶' });
+          suggestions.push({ name: 'Previous Slide', module: 'ProPresenter', icon: '◀' });
+          suggestions.push({ name: 'Clear All', module: 'ProPresenter', icon: '🗑' });
+        }
+
+        // Audio
+        if (status.mixer) {
+          suggestions.push({ name: 'Mute Audience Mics', module: 'Audio Mixer', icon: '🔇' });
+          suggestions.push({ name: 'Worship Preset', module: 'Audio Mixer', icon: '🎵' });
+          suggestions.push({ name: 'Speaking Preset', module: 'Audio Mixer', icon: '🎤' });
+        }
+
+        // Lighting
+        suggestions.push({ name: 'House Lights Up', module: 'Lighting / ArtNet', icon: '💡' });
+        suggestions.push({ name: 'House Lights Down', module: 'Lighting / ArtNet', icon: '🌑' });
+        suggestions.push({ name: 'Stage Look: Worship', module: 'Lighting / ArtNet', icon: '✨' });
+
+        btnEl.innerHTML = suggestions.map(function(s) {
+          return '<div style="background:#0F1613;border:1px solid #1a2e1f;border-radius:8px;padding:10px 12px;font-size:12px">' +
+            '<div style="font-size:16px;margin-bottom:4px">' + s.icon + '</div>' +
+            '<div style="color:#F8FAFC;font-weight:600">' + s.name + '</div>' +
+            '<div style="color:#475569;font-size:11px;margin-top:2px">' + s.module + '</div>' +
+            '</div>';
+        }).join('');
+      }
     }
 
     function supportStateChip(state) {
