@@ -50,8 +50,8 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],  // portal uses inline scripts
-      scriptSrcAttr: ["'unsafe-inline'"],         // portal uses inline onclick handlers
+      scriptSrc: ["'self'"],
+      scriptSrcAttr: ["'none'"],
       styleSrc: ["'self'", "'unsafe-inline'"],    // portal uses inline styles
       imgSrc: ["'self'", 'data:', 'https:'],
       connectSrc: ["'self'", 'wss:', 'ws:'],
