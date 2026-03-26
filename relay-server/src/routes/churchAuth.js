@@ -6,7 +6,7 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupChurchAuthRoutes(app, ctx) {
-  const { db, churches, requireAdmin, requireChurchAppAuth, rateLimit,
+  const { db, churches, requireAdmin, requireChurchAppAuth, requireChurchWriteAccess, rateLimit,
           billing, hashPassword, verifyPassword, normalizeBillingInterval,
           issueChurchAppToken, checkChurchPaidAccess, generateRegistrationCode,
           sendOnboardingEmail, lifecycleEmails, broadcastToSSE,
@@ -158,7 +158,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
           <strong style="font-size: 16px; color: #111;">Tally</strong>
         </div>
         <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Confirm your email to activate your trial</h1>
-        <p style="font-size: 15px; color: #333; line-height: 1.6;">Click below to verify the email address for <strong>${cleanName}</strong>. Once confirmed, your 14-day trial will be fully active and you can access the portal.</p>
+        <p style="font-size: 15px; color: #333; line-height: 1.6;">Click below to verify the email address for <strong>${cleanName}</strong>. Once confirmed, your 30-day trial will be fully active and you can access the portal.</p>
         <p style="margin: 28px 0;">
           <a href="${verifyUrl}" style="display: inline-block; padding: 12px 28px; font-size: 15px; font-weight: 700; background: #22c55e; color: #000; text-decoration: none; border-radius: 8px;">Confirm Email &amp; Activate Trial</a>
         </p>
@@ -166,7 +166,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
         <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />
         <p style="font-size: 12px; color: #999;">Tally &mdash; tallyconnect.app</p>
       </div>`,
-      text: `Confirm your email to activate your trial\n\nClick this link to verify your email and activate your 14-day trial: ${verifyUrl}\n\nIf you didn't sign up for Tally, you can safely ignore this email.`,
+      text: `Confirm your email to activate your trial\n\nClick this link to verify your email and activate your 30-day trial: ${verifyUrl}\n\nIf you didn't sign up for Tally, you can safely ignore this email.`,
     }).catch(e => log(`[Onboarding] Verification email failed for ${cleanEmail}: ${e.message}`));
 
     if (lifecycleEmails) {
@@ -244,6 +244,27 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     });
   });
 
+  // ─── READONLY TOKEN (for staff / office managers who need view-only access) ──
+
+  // POST /api/church/app/readonly-token — issues a read-only JWT for church staff
+  // Requires full portal credentials; the resulting token rejects all write endpoints.
+  app.post('/api/church/app/readonly-token', rateLimit(5, 15 * 60 * 1000), (req, res) => {
+    const { email, password } = req.body || {};
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!cleanEmail || !password) {
+      return res.status(400).json({ error: 'email and password required' });
+    }
+    const church = db.prepare('SELECT * FROM churches WHERE portal_email = ?').get(cleanEmail);
+    if (!church || !church.portal_password_hash || !verifyPassword(password, church.portal_password_hash)) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    const token = issueChurchAppToken(church.churchId, church.name, { readonly: true });
+    res.json({
+      token, tokenType: 'Bearer', tokenExpiresIn: CHURCH_APP_TOKEN_TTL, readonly: true,
+      church: { churchId: church.churchId, name: church.name },
+    });
+  });
+
   // ─── CHURCH APP PROFILE ──────────────────────────────────────────────────────
 
   app.get('/api/church/app/me', requireChurchAppAuth, (req, res) => {
@@ -285,7 +306,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   });
 
   // POST /api/church/app/room-assign — assign this desktop to a room
-  app.post('/api/church/app/room-assign', requireChurchAppAuth, (req, res) => {
+  app.post('/api/church/app/room-assign', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
     try {
       const churchId = req.church.churchId;
       const roomId = req.body?.roomId || null;
@@ -304,7 +325,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   });
 
   // POST /api/pf/report — Problem Finder analysis results
-  app.post('/api/pf/report', requireChurchAppAuth, (req, res) => {
+  app.post('/api/pf/report', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
     try {
       const churchId = req.church.churchId;
       const b = req.body || {};
@@ -350,7 +371,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   });
 
   // PUT /api/church/app/me — update profile
-  app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
+  app.put('/api/church/app/me', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
     const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, newPassword, currentPassword, password } = req.body;
     const churchId = req.church.churchId;
 
