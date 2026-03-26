@@ -47,7 +47,7 @@ module.exports = function setupTelegramRoutes(app, ctx) {
   });
 
   // Set/update the bot webhook URL
-  app.post('/api/bot/set-webhook', requireAdmin, (req, res) => {
+  app.post('/api/bot/set-webhook', requireAdmin, async (req, res) => {
     if (!tallyBot) return res.status(503).json({ error: 'Telegram bot not configured' });
     const { url, secret_token } = req.body || {};
     const payload = {
@@ -56,6 +56,11 @@ module.exports = function setupTelegramRoutes(app, ctx) {
     const webhookSecret = secret_token || TALLY_BOT_WEBHOOK_SECRET;
     if (webhookSecret) payload.secret_token = webhookSecret;
     if (!payload.url) return res.status(400).json({ error: 'url required (or TALLY_BOT_WEBHOOK_URL env var)'});
-    tallyBot.setWebhook(payload).then(r => res.json(r)).catch(e => res.status(500).json({ error: safeErrorMessage(e) }));
+    try {
+      const r = await tallyBot.setWebhook(payload);
+      res.json(r);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 };

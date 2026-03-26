@@ -1108,7 +1108,7 @@ function buildArticlePageHtml(article, categories, articles) {
       btn.textContent = '\\u2713 Copied';
       btn.style.color = '#22c55e';
       setTimeout(function() { btn.innerHTML = '&#128203;'; btn.style.color = ''; }, 2000);
-    });
+    }).catch(function() { btn.textContent = '\\u2717 Failed'; });
   };
 
   // ── Checkbox counters ──

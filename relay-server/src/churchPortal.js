@@ -2188,6 +2188,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const currentIndex = TIER_ORDER.indexOf(currentTier);
       const newIndex = TIER_ORDER.indexOf(newTier);
 
+      if (currentIndex === -1 || newIndex === -1) {
+        return res.status(400).json({ error: 'Invalid tier configuration.' });
+      }
       if (newIndex >= currentIndex) {
         return res.status(400).json({ error: 'Use upgrade endpoint for higher tiers.' });
       }
@@ -2601,7 +2604,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         return res.status(409).json({ error: 'You have already submitted a review. Thank you!' });
       }
 
-      const id = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
+      const id = crypto.randomUUID();
       const now = new Date().toISOString();
 
       db.prepare(`

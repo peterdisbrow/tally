@@ -451,8 +451,9 @@ class WeeklyDigest {
   }
 
   startWeeklyTimer() {
+    if (this._weeklyTimer) clearInterval(this._weeklyTimer);
     // Check every 5 min if it's Monday 8am
-    setInterval(async () => {
+    this._weeklyTimer = setInterval(async () => {
       const now = new Date();
       if (now.getDay() === 1 && now.getHours() === 8 && now.getMinutes() < 5) {
         const todayStr = now.toISOString().slice(0, 10);
