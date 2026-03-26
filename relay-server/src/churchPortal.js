@@ -3109,7 +3109,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
   });
 
-  app.post('/api/church/support/triage', supportAuthMiddleware, (req, res) => {
+  app.post('/api/church/support/triage', supportAuthMiddleware, async (req, res) => {
     try {
       const issueCategory = String(req.body.issueCategory || 'other').trim().toLowerCase();
       const severity = String(req.body.severity || 'P3').trim().toUpperCase();
