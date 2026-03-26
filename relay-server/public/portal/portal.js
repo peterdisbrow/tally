@@ -1157,6 +1157,24 @@
           rows.push([mxName, mxSt, verInfo(mixerVer, mixerVerType), status.mixer.lastSeen || null]);
         }
 
+        // Companion module variables — show as sub-rows under Companion
+        if (status.companion && status.companion.variables) {
+          var compVars = status.companion.variables;
+          for (var connLabel in compVars) {
+            if (!compVars.hasOwnProperty(connLabel)) continue;
+            var varObj = compVars[connLabel];
+            var varParts = [];
+            for (var vk in varObj) {
+              if (varObj.hasOwnProperty(vk) && varObj[vk] != null) {
+                varParts.push(vk.replace(/_/g, ' ') + ': ' + varObj[vk]);
+              }
+            }
+            if (varParts.length) {
+              rows.push(['\u00A0\u00A0\u21B3 ' + connLabel, 'connected', null, varParts.join(' · ')]);
+            }
+          }
+        }
+
         // Room label
         var roomLabel = document.getElementById('equip-room-label');
         if (roomLabel) roomLabel.textContent = d.room_name ? '· ' + d.room_name : '';

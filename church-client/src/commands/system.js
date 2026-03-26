@@ -306,6 +306,35 @@ async function companionConnections(agent) {
   return await agent.companion.getConnections();
 }
 
+async function companionGetVariable(agent, params) {
+  if (!agent.companion) throw new Error('Companion not configured');
+  const value = await agent.companion.getVariable(params.connection, params.variable);
+  return { connection: params.connection, variable: params.variable, value };
+}
+
+async function companionGetCustomVariable(agent, params) {
+  if (!agent.companion) throw new Error('Companion not configured');
+  const value = await agent.companion.getCustomVariable(params.name);
+  return { name: params.name, value };
+}
+
+async function companionSetCustomVariable(agent, params) {
+  if (!agent.companion) throw new Error('Companion not configured');
+  const ok = await agent.companion.setCustomVariable(params.name, params.value);
+  return ok ? `Custom variable "${params.name}" set to "${params.value}"` : 'Failed to set custom variable';
+}
+
+async function companionWatchVariable(agent, params) {
+  if (!agent.companion) throw new Error('Companion not configured');
+  agent.companion.watchVariable(params.connection, params.variable);
+  return `Now watching ${params.connection}:${params.variable}`;
+}
+
+function companionGetWatchedVariables(agent) {
+  if (!agent.companion) throw new Error('Companion not configured');
+  return agent.companion.getWatchedVariables();
+}
+
 function systemSetWatchdogMode(agent, params) {
   agent.watchdogActive = params.active !== false;
   return `Watchdog ${agent.watchdogActive ? 'enabled' : 'disabled'}`;
@@ -332,6 +361,11 @@ module.exports = {
   'companion.pressNamed': companionPressNamed,
   'companion.getGrid': companionGetGrid,
   'companion.connections': companionConnections,
+  'companion.getVariable': companionGetVariable,
+  'companion.getCustomVariable': companionGetCustomVariable,
+  'companion.setCustomVariable': companionSetCustomVariable,
+  'companion.watchVariable': companionWatchVariable,
+  'companion.getWatchedVariables': companionGetWatchedVariables,
   'dante.scene': danteScene,
   'preset.save': presetSave,
   'preset.list': presetList,

@@ -219,6 +219,10 @@ const FALLBACK_COMMANDS = [
   'companion.getGrid',
   'companion.press',
   'companion.pressNamed',
+  'companion.getVariable',
+  'companion.getCustomVariable',
+  'companion.setCustomVariable',
+  'companion.getWatchedVariables',
   // ── Dante ──
   'dante.scene',
   // ── Ecamm Live ──
@@ -483,6 +487,10 @@ AVAILABLE COMMANDS (JSON schema):
 {"command":"encoder.stopRecording","params":{}}
 {"command":"encoder.status","params":{}}
 {"command":"companion.pressNamed","params":{"name":"X"}}           — press a named Companion button
+{"command":"companion.getVariable","params":{"connection":"atem","variable":"pgm1_input"}} — read a Companion module variable
+{"command":"companion.getCustomVariable","params":{"name":"X"}}    — read a Companion custom variable
+{"command":"companion.setCustomVariable","params":{"name":"X","value":"Y"}} — set a Companion custom variable
+{"command":"companion.getWatchedVariables","params":{}}            — list all watched Companion variables and current values
 {"command":"vmix.startStream","params":{}}
 {"command":"vmix.stopStream","params":{}}
 {"command":"vmix.startRecording","params":{}}
@@ -579,7 +587,7 @@ const CMD_SIGS = {
   obs: `obs: startStream(), stopStream(), startRecording(), stopRecording(), pauseRecording(), resumeRecording(), setScene(scene:X), getScenes(), getInputList(), setInputVolume(input:X,volume:0-1), setInputMute(input:X,muted:bool), setTransition(transition:X), setTransitionDuration(duration:N), getSourceFilters(source:X), setSourceFilterEnabled(source:X,filter:X,enabled:bool), setStudioMode(enabled:bool), setPreviewScene(scene:X), toggleVirtualCam(), getSceneItems(scene:X), setSceneItemEnabled(scene:X,itemId:N,enabled:bool), reduceBitrate(), configureMonitorStream()`,
   encoder: `encoder: startStream(), stopStream(), startRecording(), stopRecording(), status()`,
   webPresenter: `blackmagic (Web Presenter): getActivePlatform(), setActivePlatform(platform:X,server:X,key:X,quality:X), getPlatforms(), getPlatformConfig(name:X), getVideoFormat(), setVideoFormat(format:X), getSupportedVideoFormats(), getAudioSources(), setAudioSource(source:X)`,
-  companion: `companion: pressNamed(name:X), press(page:N,row:N,col:N), getGrid(), connections()`,
+  companion: `companion: pressNamed(name:X), press(page:N,row:N,col:N), getGrid(), connections(), getVariable(connection:X,variable:X), getCustomVariable(name:X), setCustomVariable(name:X,value:X), getWatchedVariables(). Use getVariable to read device state through Companion (e.g. getVariable("atem","pgm1_input") for current program source, getVariable("obs","current_scene") for OBS scene).`,
   vmix: `vmix: startStream(), stopStream(), startRecording(), stopRecording(), cut(), fade(ms:N), setPreview(input:N), setProgram(input:N), setVolume(value:N), mute(), unmute(), function(function:X,input:X), status(), listInputs(), isRunning(), startPlaylist(), stopPlaylist(), audioLevels(), fadeToBlack(), setInputVolume(input:X,volume:0-100), muteInput(input:X), unmuteInput(input:X), overlayInput(overlay:1-4,input:X), overlayOff(overlay:1-4), setText(input:X,text:X), replay(action:X)`,
   videohub: `videohub: route(input:N,output:N), getRoutes(), setInputLabel(index:N,label:X), setOutputLabel(index:N,label:X), getInputLabels(), getOutputLabels()`,
   propresenter: `propresenter: next(), previous(), goToSlide(index:N), status(), playlist(), clearAll(), clearSlide(), stageMessage(name:X), clearMessage(), getLooks(), setLook(name:X), getTimers(), startTimer(name:X), stopTimer(name:X), version(), messages()`,
@@ -1013,7 +1021,20 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   // Companion
   if (ctx.status?.companion?.connected) {
     const cc = ctx.status.companion.connectionCount || 0;
-    if (cc > 0) contextHint += `Companion: ${cc} module${cc > 1 ? 's' : ''}. `;
+    if (cc > 0) {
+      const connLabels = (ctx.status.companion.connections || []).map(c => c.label).filter(Boolean).join(', ');
+      contextHint += `Companion: ${cc} module${cc > 1 ? 's' : ''}${connLabels ? ' (' + connLabels + ')' : ''}. `;
+      // Include live variable values if available
+      const vars = ctx.status.companion.variables;
+      if (vars && Object.keys(vars).length > 0) {
+        const varParts = [];
+        for (const [conn, varObj] of Object.entries(vars)) {
+          const entries = Object.entries(varObj).filter(([, v]) => v != null).map(([k, v]) => `${k}=${v}`).join(', ');
+          if (entries) varParts.push(`${conn}: ${entries}`);
+        }
+        if (varParts.length) contextHint += `Companion vars: ${varParts.join('; ')}. `;
+      }
+    }
   }
 
   // Engineer profile (user-provided setup context)

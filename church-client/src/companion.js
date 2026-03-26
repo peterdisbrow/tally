@@ -30,6 +30,11 @@ class CompanionBridge extends EventEmitter {
     this._buttonIndexBuiltAt = 0;
     this._buttonIndexTTL = 60 * 1000; // rebuild after 60s
     this._buttonIndexBuilding = null;  // promise while building
+
+    // Variable watching
+    this._watchedVariables = new Map();  // key "connection:variable" → { connection, variable, lastValue }
+    this._variablePollTimer = null;
+    this._variableValues = {};           // { connectionLabel: { varName: value } }
   }
 
   // ─── HTTP helpers ──────────────────────────────────────────────────────────
@@ -391,13 +396,197 @@ class CompanionBridge extends EventEmitter {
   }
 
 
-  stopPolling() {
-    if (this._pollTimer) {
-      clearInterval(this._pollTimer);
-      this._pollTimer = null;
+  // ─── Variable Reading (Companion 4.x, PR #3119) ────────────────────────────
+
+  /**
+   * Read a module variable from Companion.
+   * @param {string} connectionLabel - The connection label (e.g. 'atem', 'obs')
+   * @param {string} variableName - The variable name (e.g. 'pgm1_input', 'current_scene')
+   * @returns {string|null} The variable value, or null if not found
+   */
+  async getVariable(connectionLabel, variableName) {
+    try {
+      const path = `/api/${encodeURIComponent(connectionLabel)}/${encodeURIComponent(variableName)}/value`;
+      const res = await this._request('GET', path);
+      if (res.status === 200 && res.body !== null && res.body !== undefined) {
+        // Response may be plain text or JSON
+        const val = typeof res.body === 'string' ? res.body : String(res.body);
+        return val;
+      }
+      return null;
+    } catch {
+      return null;
     }
-    this.stopButtonPolling();
   }
+
+  /**
+   * Read a custom variable from Companion.
+   * @param {string} name - The custom variable name
+   * @returns {string|null}
+   */
+  async getCustomVariable(name) {
+    try {
+      const path = `/api/custom-variable/${encodeURIComponent(name)}/value`;
+      const res = await this._request('GET', path);
+      if (res.status === 200 && res.body !== null && res.body !== undefined) {
+        return typeof res.body === 'string' ? res.body : String(res.body);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Set a custom variable in Companion (Tally → Companion communication).
+   * @param {string} name - The custom variable name
+   * @param {string} value - The value to set
+   * @returns {boolean} Whether the set was successful
+   */
+  async setCustomVariable(name, value) {
+    try {
+      const path = `/api/custom-variable/${encodeURIComponent(name)}/value`;
+      const res = await this._request('POST', path, { value: String(value) });
+      return res.status >= 200 && res.status < 300;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Read multiple variables for a connection.
+   * @param {string} connectionLabel
+   * @param {string[]} variableNames
+   * @returns {Object} { varName: value }
+   */
+  async getConnectionVariables(connectionLabel, variableNames) {
+    const result = {};
+    const promises = variableNames.map(async (name) => {
+      result[name] = await this.getVariable(connectionLabel, name);
+    });
+    await Promise.allSettled(promises);
+    return result;
+  }
+
+  // ─── Variable Watch System ────────────────────────────────────────────────
+
+  /**
+   * Subscribe to a variable — polls and emits 'variable_changed' on change.
+   */
+  watchVariable(connectionLabel, variableName) {
+    const key = `${connectionLabel}:${variableName}`;
+    if (this._watchedVariables.has(key)) return;
+    this._watchedVariables.set(key, { connection: connectionLabel, variable: variableName, lastValue: undefined });
+
+    // Start polling if not already running
+    if (!this._variablePollTimer && this._watchedVariables.size > 0) {
+      this._variablePollTimer = setInterval(() => this._pollVariables(), 2000);
+    }
+  }
+
+  /**
+   * Unsubscribe from a variable.
+   */
+  unwatchVariable(connectionLabel, variableName) {
+    const key = `${connectionLabel}:${variableName}`;
+    this._watchedVariables.delete(key);
+    if (this._watchedVariables.size === 0 && this._variablePollTimer) {
+      clearInterval(this._variablePollTimer);
+      this._variablePollTimer = null;
+    }
+  }
+
+  /**
+   * Get all currently watched variables and their values.
+   */
+  getWatchedVariables() {
+    const result = {};
+    for (const [key, entry] of this._watchedVariables) {
+      if (!result[entry.connection]) result[entry.connection] = {};
+      result[entry.connection][entry.variable] = entry.lastValue ?? null;
+    }
+    return result;
+  }
+
+  /** @private Poll all watched variables and emit changes */
+  async _pollVariables() {
+    if (!this.connected || this._watchedVariables.size === 0) return;
+
+    for (const [key, entry] of this._watchedVariables) {
+      try {
+        const value = await this.getVariable(entry.connection, entry.variable);
+        if (value !== entry.lastValue) {
+          const previousValue = entry.lastValue;
+          entry.lastValue = value;
+
+          // Update cached variable values
+          if (!this._variableValues[entry.connection]) this._variableValues[entry.connection] = {};
+          this._variableValues[entry.connection][entry.variable] = value;
+
+          if (previousValue !== undefined) {
+            this.emit('variable_changed', {
+              connection: entry.connection,
+              variable: entry.variable,
+              value,
+              previousValue,
+              timestamp: Date.now(),
+            });
+          }
+        }
+      } catch {
+        // Silently skip failed reads
+      }
+    }
+  }
+
+  // ─── Device Variable Profiles ─────────────────────────────────────────────
+
+  /**
+   * Auto-subscribe to common variables for detected Companion connections.
+   * Call after connections list is refreshed.
+   */
+  autoWatchConnections() {
+    const PROFILES = {
+      'bmd-atem':           ['pgm1_input', 'pvw1_input', 'streaming', 'recording', 'transition_active'],
+      'obs-studio':         ['current_scene', 'streaming', 'recording', 'fps', 'cpu_usage', 'stream_timecode'],
+      'bmd-hyperdeck':      ['status', 'remaining', 'clip_count', 'timecode', 'slot1_space'],
+      'generic-ndi':        ['source_name', 'connected'],
+      'resolume-arena':     ['composition_name', 'layer_1_clip', 'master_tempo'],
+      'ptzoptics-visca':    ['pan', 'tilt', 'zoom', 'preset_last_recalled'],
+      'bmd-videohub':       ['output_1_source', 'output_2_source'],
+      'shure-wireless':     ['battery', 'rf_level', 'audio_level', 'mute'],
+      'generic-artnet':     ['universe_1_status'],
+      'planb-remoteshowcontrol': ['connected', 'cue_running'],
+      'renewedvision-propresenter': ['current_slide', 'current_presentation', 'timer_1'],
+      'ecamm-live':         ['streaming', 'recording', 'scene_name'],
+      'vmix':               ['streaming', 'recording', 'active_input', 'preview_input', 'master_volume'],
+    };
+
+    for (const conn of this.connections) {
+      const moduleId = (conn.moduleId || '').toLowerCase();
+      const profile = PROFILES[moduleId];
+      if (profile) {
+        const label = conn.label || conn.id;
+        for (const varName of profile) {
+          this.watchVariable(label, varName);
+        }
+      }
+    }
+  }
+
+  /**
+   * Stop all variable watching and clean up.
+   */
+  stopVariablePolling() {
+    if (this._variablePollTimer) {
+      clearInterval(this._variablePollTimer);
+      this._variablePollTimer = null;
+    }
+    this._watchedVariables.clear();
+    this._variableValues = {};
+  }
+
+  // ─── Status ───────────────────────────────────────────────────────────────
 
   getStatus() {
     const pressedButtons = [];
@@ -413,7 +602,17 @@ class CompanionBridge extends EventEmitter {
         pressed: pressedButtons,
         recentPresses: this.getRecentButtonPresses(),
       },
+      variables: this._variableValues,
     };
+  }
+
+  stopPolling() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
+    this.stopButtonPolling();
+    this.stopVariablePolling();
   }
 }
 

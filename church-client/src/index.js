@@ -1494,6 +1494,8 @@ class ChurchAVAgent {
         this.status.companion.connectionCount = conns.length;
         this.status.companion.connections = conns.map(c => ({ id: c.id, label: c.label, moduleId: c.moduleId, status: c.status }));
         console.log(`   ${conns.length} Companion connections found`);
+        // Auto-subscribe to common variables for detected device types
+        this.companion.autoWatchConnections();
       } catch { /* ignore */ }
       this.companion.startPolling();
     } else {
@@ -1511,7 +1513,10 @@ class ChurchAVAgent {
           const conns = await this.companion.getConnections();
           this.status.companion.connectionCount = conns.length;
           this.status.companion.connections = conns.map(c => ({ id: c.id, label: c.label, moduleId: c.moduleId, status: c.status }));
+          this.companion.autoWatchConnections(); // refresh variable subscriptions for new connections
         }
+        // Update variable snapshot in status
+        if (this.companion._variableValues) this.status.companion.variables = this.companion._variableValues;
         // Log state changes so the Electron host picks them up
         if (avail && !wasConnected) { this.health.companion.reconnects++; console.log('✅ Companion connected'); }
         if (!avail && wasConnected) console.log('⚠️  Companion disconnected');
