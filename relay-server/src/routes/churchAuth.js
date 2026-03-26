@@ -6,7 +6,7 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupChurchAuthRoutes(app, ctx) {
-  const { db, churches, requireAdmin, requireChurchAppAuth, rateLimit,
+  const { db, churches, requireAdmin, requireChurchAppAuth, requireChurchWriteAccess, rateLimit,
           billing, hashPassword, verifyPassword, normalizeBillingInterval,
           issueChurchAppToken, checkChurchPaidAccess, generateRegistrationCode,
           sendOnboardingEmail, lifecycleEmails, broadcastToSSE,
@@ -17,7 +17,8 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   // ─── ONBOARD (self-service signup) ───────────────────────────────────────────
 
   app.post('/api/church/app/onboard', rateLimit(10, 60 * 60 * 1000), async (req, res) => {
-    const { name, email, password, tier, successUrl, cancelUrl, tosAcceptedAt, referralCode } = req.body || {};
+    const { name, email, password, tier, successUrl, cancelUrl, tosAcceptedAt, referralCode, locale } = req.body || {};
+    const cleanLocale = locale && /^[a-z]{2}(-[A-Z]{2})?$/.test(String(locale)) ? String(locale) : null;
     const cleanName = String(name || '').trim();
     const cleanEmail = String(email || '').trim().toLowerCase();
     const cleanReferralCode = String(referralCode || '').trim().toUpperCase();
@@ -87,9 +88,9 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     db.prepare(`
       UPDATE churches
       SET portal_email = ?, portal_password_hash = ?, billing_tier = ?, billing_status = ?, billing_trial_ends = ?, billing_interval = ?, tos_accepted_at = ?, referral_code = ?,
-          email_verify_token = ?, email_verify_sent_at = ?
+          email_verify_token = ?, email_verify_sent_at = ?, locale = ?
       WHERE churchId = ?
-    `).run(cleanEmail, hashPassword(password), planTier, onboardStatus, trialEndsAt, planInterval, tosAcceptedAt || null, newReferralCode, emailVerifyToken, new Date().toISOString(), churchId);
+    `).run(cleanEmail, hashPassword(password), planTier, onboardStatus, trialEndsAt, planInterval, tosAcceptedAt || null, newReferralCode, emailVerifyToken, new Date().toISOString(), cleanLocale, churchId);
 
     // Track referral
     let referrerId = null;
@@ -158,7 +159,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
           <strong style="font-size: 16px; color: #111;">Tally</strong>
         </div>
         <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Confirm your email to activate your trial</h1>
-        <p style="font-size: 15px; color: #333; line-height: 1.6;">Click below to verify the email address for <strong>${cleanName}</strong>. Once confirmed, your 14-day trial will be fully active and you can access the portal.</p>
+        <p style="font-size: 15px; color: #333; line-height: 1.6;">Click below to verify the email address for <strong>${cleanName}</strong>. Once confirmed, your 30-day trial will be fully active and you can access the portal.</p>
         <p style="margin: 28px 0;">
           <a href="${verifyUrl}" style="display: inline-block; padding: 12px 28px; font-size: 15px; font-weight: 700; background: #22c55e; color: #000; text-decoration: none; border-radius: 8px;">Confirm Email &amp; Activate Trial</a>
         </p>
@@ -166,7 +167,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
         <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />
         <p style="font-size: 12px; color: #999;">Tally &mdash; tallyconnect.app</p>
       </div>`,
-      text: `Confirm your email to activate your trial\n\nClick this link to verify your email and activate your 14-day trial: ${verifyUrl}\n\nIf you didn't sign up for Tally, you can safely ignore this email.`,
+      text: `Confirm your email to activate your trial\n\nClick this link to verify your email and activate your 30-day trial: ${verifyUrl}\n\nIf you didn't sign up for Tally, you can safely ignore this email.`,
     }).catch(e => log(`[Onboarding] Verification email failed for ${cleanEmail}: ${e.message}`));
 
     if (lifecycleEmails) {
@@ -244,6 +245,27 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     });
   });
 
+  // ─── READONLY TOKEN (for staff / office managers who need view-only access) ──
+
+  // POST /api/church/app/readonly-token — issues a read-only JWT for church staff
+  // Requires full portal credentials; the resulting token rejects all write endpoints.
+  app.post('/api/church/app/readonly-token', rateLimit(5, 15 * 60 * 1000), (req, res) => {
+    const { email, password } = req.body || {};
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!cleanEmail || !password) {
+      return res.status(400).json({ error: 'email and password required' });
+    }
+    const church = db.prepare('SELECT * FROM churches WHERE portal_email = ?').get(cleanEmail);
+    if (!church || !church.portal_password_hash || !verifyPassword(password, church.portal_password_hash)) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+    const token = issueChurchAppToken(church.churchId, church.name, { readonly: true });
+    res.json({
+      token, tokenType: 'Bearer', tokenExpiresIn: CHURCH_APP_TOKEN_TTL, readonly: true,
+      church: { churchId: church.churchId, name: church.name },
+    });
+  });
+
   // ─── CHURCH APP PROFILE ──────────────────────────────────────────────────────
 
   app.get('/api/church/app/me', requireChurchAppAuth, (req, res) => {
@@ -285,13 +307,22 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   });
 
   // POST /api/church/app/room-assign — assign this desktop to a room
-  app.post('/api/church/app/room-assign', requireChurchAppAuth, (req, res) => {
+  app.post('/api/church/app/room-assign', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
     try {
       const churchId = req.church.churchId;
       const roomId = req.body?.roomId || null;
       if (roomId) {
-        const room = db.prepare('SELECT id, name FROM rooms WHERE id = ?').get(roomId);
-        if (!room) return res.status(404).json({ error: 'Room not found' });
+        // Build the set of campus IDs this church is allowed to assign rooms from
+        const campusRow = db.prepare('SELECT campus_id, campus_link_code FROM churches WHERE churchId = ?').get(churchId);
+        const allowedCampusIds = [churchId];
+        if (campusRow?.campus_id) allowedCampusIds.push(campusRow.campus_id);
+        if (campusRow?.campus_link_code) {
+          const sats = db.prepare('SELECT churchId FROM churches WHERE campus_id = ?').all(churchId);
+          for (const s of sats) allowedCampusIds.push(s.churchId);
+        }
+        const placeholders = allowedCampusIds.map(() => '?').join(',');
+        const room = db.prepare(`SELECT id, name FROM rooms WHERE id = ? AND campus_id IN (${placeholders})`).get(roomId, ...allowedCampusIds);
+        if (!room) return res.status(404).json({ error: 'Room not found or not accessible by this church' });
         db.prepare('UPDATE churches SET room_id = ?, room_name = ? WHERE churchId = ?').run(roomId, room.name, churchId);
         res.json({ ok: true, roomId, roomName: room.name });
       } else {
@@ -303,8 +334,87 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     }
   });
 
+  // ─── CAMPUS MODE ─────────────────────────────────────────────────────────────
+
+  // POST /api/church/app/campus/generate-link
+  // Main campus calls this to get a campus_link_code that satellites can use to join.
+  app.post('/api/church/app/campus/generate-link', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      // Generate a fresh unique link code (reuse generateRegistrationCode for same uniqueness guarantees)
+      const linkCode = generateRegistrationCode();
+      db.prepare('UPDATE churches SET campus_link_code = ? WHERE churchId = ?').run(linkCode, churchId);
+      log(`[Campus] Link code generated for ${req.church.name} (${churchId}): ${linkCode}`);
+      res.json({ ok: true, campusLinkCode: linkCode });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/church/app/campus/join
+  // A satellite church calls this with the main campus's link code to join.
+  app.post('/api/church/app/campus/join', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const linkCode = String(req.body?.campusLinkCode || '').trim().toUpperCase();
+      if (!linkCode) return res.status(400).json({ error: 'campusLinkCode required' });
+
+      const mainCampus = db.prepare('SELECT churchId, name FROM churches WHERE campus_link_code = ?').get(linkCode);
+      if (!mainCampus) return res.status(404).json({ error: 'Invalid campus link code' });
+      if (mainCampus.churchId === churchId) {
+        return res.status(400).json({ error: 'A church cannot join itself as a satellite' });
+      }
+
+      // Check this church is not already linked elsewhere
+      const self = db.prepare('SELECT campus_id FROM churches WHERE churchId = ?').get(churchId);
+      if (self?.campus_id && self.campus_id !== mainCampus.churchId) {
+        return res.status(409).json({ error: 'Already linked to a different campus. Leave current campus first.' });
+      }
+
+      db.prepare('UPDATE churches SET campus_id = ? WHERE churchId = ?').run(mainCampus.churchId, churchId);
+      log(`[Campus] ${req.church.name} (${churchId}) joined campus of ${mainCampus.name} (${mainCampus.churchId})`);
+      res.json({ ok: true, campusId: mainCampus.churchId, campusName: mainCampus.name });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // DELETE /api/church/app/campus/leave
+  // A satellite church calls this to unlink from its main campus.
+  app.delete('/api/church/app/campus/leave', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      db.prepare('UPDATE churches SET campus_id = NULL WHERE churchId = ?').run(churchId);
+      log(`[Campus] ${req.church.name} (${churchId}) left campus`);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // GET /api/church/app/campus/status — returns campus membership info
+  app.get('/api/church/app/campus/status', requireChurchAppAuth, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const church = db.prepare('SELECT campus_id, campus_link_code FROM churches WHERE churchId = ?').get(churchId);
+      const satellites = db.prepare('SELECT churchId, name FROM churches WHERE campus_id = ?').all(churchId);
+      const mainCampus = church?.campus_id
+        ? db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(church.campus_id)
+        : null;
+      res.json({
+        isSatellite: !!church?.campus_id,
+        isMainCampus: satellites.length > 0,
+        mainCampus: mainCampus ? { churchId: mainCampus.churchId, name: mainCampus.name } : null,
+        satellites: satellites.map(s => ({ churchId: s.churchId, name: s.name })),
+        campusLinkCode: church?.campus_link_code || null,
+      });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
   // POST /api/pf/report — Problem Finder analysis results
-  app.post('/api/pf/report', requireChurchAppAuth, (req, res) => {
+  app.post('/api/pf/report', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
     try {
       const churchId = req.church.churchId;
       const b = req.body || {};
@@ -350,8 +460,8 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   });
 
   // PUT /api/church/app/me — update profile
-  app.put('/api/church/app/me', requireChurchAppAuth, (req, res) => {
-    const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, newPassword, currentPassword, password } = req.body;
+  app.put('/api/church/app/me', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
+    const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, newPassword, currentPassword, password, locale } = req.body;
     const churchId = req.church.churchId;
 
     const newPw = newPassword || password;
@@ -367,7 +477,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
         .run(hashPassword(newPw), churchId);
     }
 
-    const ALLOWED_PROFILE_COLUMNS = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'audio_via_atem'];
+    const ALLOWED_PROFILE_COLUMNS = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'audio_via_atem', 'locale'];
     const { audioViaAtem } = req.body;
     const patch = {};
     if (email !== undefined) {
@@ -385,6 +495,11 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     if (notifications  !== undefined) patch.notifications    = JSON.stringify(notifications);
     if (engineerProfile !== undefined) patch.engineer_profile = JSON.stringify(engineerProfile);
     if (audioViaAtem   !== undefined) patch.audio_via_atem   = audioViaAtem ? 1 : 0;
+    if (locale !== undefined) {
+      // Validate locale format (e.g. "en", "es", "en-US")
+      const cleanLocale = locale && /^[a-z]{2}(-[A-Z]{2})?$/.test(String(locale)) ? String(locale) : null;
+      patch.locale = cleanLocale;
+    }
 
     const safePatch = {};
     for (const [col, val] of Object.entries(patch)) {

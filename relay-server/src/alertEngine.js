@@ -56,7 +56,7 @@ const DIAGNOSIS_TEMPLATES = {
     likely_cause: 'Internet fluctuation or encoder/software crash',
     confidence: 85,
     steps: ['Check your streaming software — is it still running?', 'Restart the stream from your encoder or Tally', 'If still down, check your internet connection'],
-    canAutoFix: false,
+    canAutoFix: true,
   },
   'atem_disconnected': {
     likely_cause: 'ATEM lost network connection',
@@ -110,7 +110,7 @@ const DIAGNOSIS_TEMPLATES = {
     likely_cause: 'Audio signal lost — mixer may be muted or disconnected',
     confidence: 65,
     steps: ['Check mixer master fader and mute status', 'Verify audio routing from mixer to encoder', 'Check physical audio cable connections'],
-    canAutoFix: false,
+    canAutoFix: true,
   },
   'multiple_systems_down': {
     likely_cause: 'Possible network outage or power issue at venue',
@@ -122,7 +122,7 @@ const DIAGNOSIS_TEMPLATES = {
     likely_cause: 'Recording was not started before service',
     confidence: 95,
     steps: ['Start recording via Tally', 'Check ATEM recording settings'],
-    canAutoFix: false,
+    canAutoFix: true,
   },
   'encoder_disconnected': {
     likely_cause: 'Hardware encoder lost network connection or powered off',

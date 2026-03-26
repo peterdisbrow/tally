@@ -1661,7 +1661,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">Your Sunday production safety net starts here</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        <strong>${church.name}</strong> has been registered and your 14-day free trial is active.
+        <strong>${church.name}</strong> has been registered and your 30-day free trial is active.
         Check your inbox for a verification email, then follow these steps to get Tally running:
       </p>
 
@@ -1685,7 +1685,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Your Sunday production safety net starts here\n\n${church.name} has been registered and your 14-day free trial is active.\n\nQuick start:\n1. Download the Tally app: ${downloadUrl}\n2. Sign in with your registration code\n3. Our AI setup assistant walks you through the rest — just tell it about your gear and service times\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
+    const text = `Your Sunday production safety net starts here\n\n${church.name} has been registered and your 30-day free trial is active.\n\nQuick start:\n1. Download the Tally app: ${downloadUrl}\n2. Sign in with your registration code\n3. Our AI setup assistant walks you through the rest — just tell it about your gear and service times\n\nOpen your portal: ${portalUrl}\n\nTally — ${this.appUrl.replace('https://', '')}`;
 
     return { html, text };
   }
@@ -2272,7 +2272,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        14-day free trial, full access, no credit card required.
+        30-day free trial, full access, no credit card required.
       </p>
 
       ${this._cta('Start Your Free Trial', signupUrl)}
@@ -2282,7 +2282,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Every Sunday, something breaks in the booth\n\nHey ${name} — every church production team knows this: the stream drops mid-sermon, nobody catches it for 4 minutes, and the online audience is gone. We built Tally to fix that — automatically.\n\n- Auto-recovers dropped streams before anyone notices\n- Pre-service health checks 30 min before service\n- Real-time alerts via Telegram\n- Weekly reports for leadership\n\n14-day free trial, no credit card: ${signupUrl}\n\n— Andrew Disbrow`;
+    const text = `Every Sunday, something breaks in the booth\n\nHey ${name} — every church production team knows this: the stream drops mid-sermon, nobody catches it for 4 minutes, and the online audience is gone. We built Tally to fix that — automatically.\n\n- Auto-recovers dropped streams before anyone notices\n- Pre-service health checks 30 min before service\n- Real-time alerts via Telegram\n- Weekly reports for leadership\n\n30-day free trial, no credit card: ${signupUrl}\n\n— Andrew Disbrow`;
     return { html, text };
   }
 
@@ -2373,7 +2373,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       <div style="margin: 24px 0; padding: 20px; background: #f0fdf4; border-radius: 10px; border: 1px solid #bbf7d0;">
         <div style="font-size: 14px; font-weight: 700; color: #15803d; margin-bottom: 12px;">Your free trial includes:</div>
         <div style="font-size: 14px; color: #333; line-height: 2;">
-          &bull; 14 days of full access, no credit card needed<br>
+          &bull; 30 days of full access, no credit card needed<br>
           &bull; Auto-recovery, pre-service checks, real-time alerts<br>
           &bull; 10-minute setup &mdash; works with your existing gear<br>
           &bull; Personal support from our team if you need it
@@ -2393,7 +2393,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
     `);
 
-    const text = `Ready to try Tally?\n\n14 days free, no credit card, 10-minute setup.\n\nStart your trial: ${signupUrl}\n\nThis is the last email in this series. Visit tallyconnect.app/signup anytime.\n\n— Andrew Disbrow`;
+    const text = `Ready to try Tally?\n\n30 days free, no credit card, 10-minute setup.\n\nStart your trial: ${signupUrl}\n\nThis is the last email in this series. Visit tallyconnect.app/signup anytime.\n\n— Andrew Disbrow`;
     return { html, text };
   }
 

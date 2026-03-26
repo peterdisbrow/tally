@@ -50,8 +50,8 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],  // portal uses inline scripts
-      scriptSrcAttr: ["'unsafe-inline'"],         // portal uses inline onclick handlers
+      scriptSrc: ["'self'"],
+      scriptSrcAttr: ["'none'"],
       styleSrc: ["'self'", "'unsafe-inline'"],    // portal uses inline styles
       imgSrc: ["'self'", 'data:', 'https:'],
       connectSrc: ["'self'", 'wss:', 'ws:'],
@@ -257,7 +257,7 @@ app.use((req, res, next) => {
   }
 
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, x-reseller-key');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key, x-reseller-key, x-csrf-token');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
@@ -1600,8 +1600,10 @@ function generateRegistrationCode() {
   return _genRegCode(db);
 }
 
-function issueChurchAppToken(churchId, name) {
-  return jwt.sign({ type: 'church_app', churchId, name }, JWT_SECRET, { expiresIn: CHURCH_APP_TOKEN_TTL });
+function issueChurchAppToken(churchId, name, { readonly = false } = {}) {
+  const payload = { type: 'church_app', churchId, name };
+  if (readonly) payload.readonly = true;
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: CHURCH_APP_TOKEN_TTL });
 }
 
 function rateLimit(maxAttempts = 10, windowMs = 15 * 60 * 1000) {
@@ -2173,10 +2175,19 @@ function requireChurchAppAuth(req, res, next) {
     const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
     req.church = church;
+    req.churchReadonly = !!payload.readonly;
     next();
   } catch (e) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
+}
+
+// Rejects requests from readonly church_app tokens (staff view-only access).
+function requireChurchWriteAccess(req, res, next) {
+  if (req.churchReadonly) {
+    return res.status(403).json({ error: 'This token is read-only. Log in with full credentials to make changes.' });
+  }
+  next();
 }
 
 // GET/POST /api/church/app/me + /api/pf/report routes → src/routes/churchAuth.js
@@ -2187,6 +2198,7 @@ function requireChurchAppAuth(req, res, next) {
 require('./src/routes/supportTickets')(app, {
   db, churches, requireAdminJwt, stmtGet, scheduleEngine,
   JWT_SECRET, RELAY_VERSION, SUPPORT_TRIAGE_WINDOW_HOURS, rateLimit,
+  broadcastToSSE, lifecycleEmails,
 });
 console.log('[Server] ✓ Support ticket routes registered');
 
@@ -2198,7 +2210,7 @@ require('./src/routes/statusComponents')(app, {
 
 // ─── EXTRACTED ROUTE MODULES ───────────────────────────────────────────────
 const routeCtx = {
-  db, churches, requireAdmin, requireAdminJwt, requireChurchAppAuth,
+  db, churches, requireAdmin, requireAdminJwt, requireChurchAppAuth, requireChurchWriteAccess,
   requireChurchOrAdmin, requireReseller, requireFeature, rateLimit,
   billing, hashPassword, verifyPassword, normalizeBillingInterval,
   issueChurchAppToken, checkChurchPaidAccess, generateRegistrationCode,

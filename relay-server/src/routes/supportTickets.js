@@ -53,6 +53,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
   const {
     db, churches, requireAdminJwt, stmtGet, scheduleEngine,
     JWT_SECRET, RELAY_VERSION, SUPPORT_TRIAGE_WINDOW_HOURS, rateLimit,
+    broadcastToSSE, lifecycleEmails,
   } = ctx;
 
   function buildSupportDiagnostics(churchId, options = {}) {
@@ -567,6 +568,18 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     );
 
     db.prepare('UPDATE support_tickets SET status = ?, updated_at = ? WHERE id = ?').run(nextStatus, nowIso, ticket.id);
+
+    // Notify the church via SSE push when admin adds an update
+    if (broadcastToSSE && req.supportActor?.type !== 'church') {
+      broadcastToSSE({
+        type: 'support_ticket_update',
+        churchId: ticket.church_id,
+        ticketId: ticket.id,
+        status: nextStatus,
+        updatedAt: nowIso,
+      });
+    }
+
     res.json({ ok: true, ticketId: ticket.id, status: nextStatus, updatedAt: nowIso });
   });
 
@@ -595,6 +608,17 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     const columns = Object.keys(patch);
     const sets = columns.map((key) => `${key} = ?`).join(', ');
     db.prepare(`UPDATE support_tickets SET ${sets} WHERE id = ?`).run(...columns.map((key) => patch[key]), ticket.id);
+
+    // Notify the church via SSE push on any admin metadata change
+    if (broadcastToSSE) {
+      broadcastToSSE({
+        type: 'support_ticket_update',
+        churchId: ticket.church_id,
+        ticketId: ticket.id,
+        status: patch.status || ticket.status,
+        updatedAt: patch.updated_at,
+      });
+    }
 
     res.json({ ok: true, ticketId: ticket.id, ...patch });
   });

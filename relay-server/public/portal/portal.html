@@ -8,8 +8,8 @@
 </head>
 
 <body>
-  <button class="hamburger" id="hamburger-btn" onclick="toggleMobileNav()" aria-label="Toggle menu"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="20" height="20" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd"/></svg></button>
-  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileNav()"></div>
+  <button class="hamburger" id="hamburger-btn" data-action="toggleMobileNav" aria-label="Toggle menu"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" width="20" height="20" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z" clip-rule="evenodd"/></svg></button>
+  <div class="sidebar-overlay" id="sidebar-overlay" data-action="toggleMobileNav"></div>
   <nav class="sidebar" id="sidebar-nav">
     <div class="sidebar-logo">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="28" height="28">
@@ -25,61 +25,61 @@
         <div class="sidebar-church" id="sidebar-church-name">{{CHURCH_NAME}}</div>
       </div>
     </div>
-    <button class="nav-item active" data-page="overview" onclick="showPage('overview', this)">
+    <button class="nav-item active" data-page="overview" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z"/></svg></span> <span data-i18n="nav.overview">Overview</span>
     </button>
-    <button class="nav-item" data-page="profile" onclick="showPage('profile', this)">
+    <button class="nav-item" data-page="profile" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg></span> <span data-i18n="nav.profile">Profile</span>
     </button>
-    <button class="nav-item" data-page="campuses" onclick="showPage('campuses', this)">
+    <button class="nav-item" data-page="campuses" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z"/></svg></span> <span data-i18n="nav.campuses">Campuses</span>
     </button>
-    <button class="nav-item" data-page="tds" onclick="showPage('tds', this)">
+    <button class="nav-item" data-page="tds" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg></span> <span data-i18n="nav.tds">Tech Directors</span>
     </button>
-    <button class="nav-item" data-page="schedule" onclick="showPage('schedule', this)">
+    <button class="nav-item" data-page="schedule" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg></span> <span data-i18n="nav.schedule">Schedule</span>
     </button>
-    <button class="nav-item" data-page="notifications" onclick="showPage('notifications', this)">
+    <button class="nav-item" data-page="notifications" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/></svg></span> <span data-i18n="nav.notifications">Notifications</span>
     </button>
-    <button class="nav-item" data-page="engineer" onclick="showPage('engineer', this)">
+    <button class="nav-item" data-page="engineer" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437 1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008Z"/></svg></span> <span data-i18n="nav.engineer">Tally Engineer</span>
     </button>
-    <button class="nav-item" data-page="guests" onclick="showPage('guests', this)">
+    <button class="nav-item" data-page="guests" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 0 1 21.75 8.25Z"/></svg></span> <span data-i18n="nav.guests">Guest Access</span>
     </button>
-    <button class="nav-item" data-page="macros" onclick="showPage('macros', this)">
+    <button class="nav-item" data-page="macros" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"/></svg></span> <span data-i18n="nav.macros">Macros</span>
     </button>
-    <button class="nav-item" data-page="autopilot" onclick="showPage('autopilot', this)">
+    <button class="nav-item" data-page="autopilot" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 0 0 2.25-2.25V6.75a2.25 2.25 0 0 0-2.25-2.25H6.75A2.25 2.25 0 0 0 4.5 6.75v10.5a2.25 2.25 0 0 0 2.25 2.25Zm.75-12h9v9h-9v-9Z"/></svg></span> <span data-i18n="nav.autopilot">AutoPilot</span>
     </button>
-    <button class="nav-item" data-page="sessions" onclick="showPage('sessions', this)">
+    <button class="nav-item" data-page="sessions" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg></span> <span data-i18n="nav.sessions">Sessions</span>
     </button>
-    <button class="nav-item" data-page="alerts" onclick="showPage('alerts',this)">
+    <button class="nav-item" data-page="alerts" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg></span> <span data-i18n="nav.alerts">Alerts</span>
     </button>
-    <button class="nav-item" data-page="analytics" onclick="showPage('analytics', this)">
+    <button class="nav-item" data-page="analytics" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg></span> <span data-i18n="nav.analytics">Analytics</span>
     </button>
-    <button class="nav-item" data-page="migrate" onclick="showPage('migrate', this)">
+    <button class="nav-item" data-page="migrate" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/></svg></span> <span data-i18n="nav.migrate">Migrate</span>
     </button>
-    <button class="nav-item" data-page="referrals" onclick="showPage('referrals', this)">
+    <button class="nav-item" data-page="referrals" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M21 11.25v8.25a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5v-8.25M12 4.875A2.625 2.625 0 1 0 9.375 7.5H12m0-2.625V7.5m0-2.625A2.625 2.625 0 1 1 14.625 7.5H12m0 0V21m-8.625-9.75h18c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125h-18c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z"/></svg></span> <span>Referrals</span>
     </button>
-    <button class="nav-item" data-page="billing" onclick="showPage('billing', this)">
+    <button class="nav-item" data-page="billing" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z"/></svg></span> <span data-i18n="nav.billing">Billing</span>
     </button>
-    <button class="nav-item" data-page="support" onclick="showPage('support',this)">
+    <button class="nav-item" data-page="support" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"/></svg></span> <span data-i18n="nav.support">Help &amp; Support</span>
     </button>
     <div class="sidebar-footer">
-      <button id="btn-lang-toggle" class="btn-secondary" onclick="toggleLanguage()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
-      <button class="btn-secondary" onclick="startDemoMode()" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.7" title="See a simulated service without hardware" data-i18n="demo.try">Try Demo Mode</button>
-      <button class="btn-logout" onclick="logout()" data-i18n="btn.signout">Sign out</button>
+      <button id="btn-lang-toggle" class="btn-secondary" data-action="toggleLanguage" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
+      <button id="btn-start-demo" class="btn-secondary" data-action="startDemoMode" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.7" title="See a simulated service without hardware" data-i18n="demo.try">Try Demo Mode</button>
+      <button id="btn-logout" class="btn-logout" data-action="logout" data-i18n="btn.signout">Sign out</button>
     </div>
   </nav>
 
@@ -90,7 +90,7 @@
     <!-- DEMO MODE BANNER -->
     <div id="demo-mode-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:2000;background:#7c3aed;color:#fff;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;letter-spacing:0.5px">
       <span data-i18n="demo.banner">DEMO MODE — This is simulated data. No real hardware connected.</span>
-      <button onclick="stopDemoMode()" style="margin-left:16px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:12px" data-i18n="demo.exit">Exit Demo</button>
+      <button id="btn-stop-demo" data-action="stopDemoMode" style="margin-left:16px;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:12px" data-i18n="demo.exit">Exit Demo</button>
     </div>
 
     <!-- OVERVIEW -->
@@ -100,7 +100,7 @@
           <div class="page-title" id="overview-church-name">{{CHURCH_NAME}}</div>
           <div class="page-sub" data-i18n="overview.sub">Church monitoring portal</div>
         </div>
-        <button class="help-icon-btn" onclick="openHelp('overview')" title="What am I looking at?">?</button>
+        <button class="help-icon-btn" data-action="openHelp" data-help-page="overview" title="What am I looking at?">?</button>
       </div>
 
       <!-- Onboarding Checklist -->
@@ -110,13 +110,13 @@
             <div style="font-size:15px; font-weight:700; color:#F8FAFC;" data-i18n="overview.getting_started">Getting Started</div>
             <div style="font-size:12px; color:#64748B; margin-top:2px;" id="onboarding-progress-text" data-i18n="overview.setup_progress">Complete these steps to finish setup</div>
           </div>
-          <button onclick="dismissOnboarding()" style="background:none; border:1px solid #1a2e1f; color:#64748B; font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;" data-i18n="overview.dismiss">Dismiss</button>
+          <button id="btn-dismiss-onboarding" data-action="dismissOnboarding" style="background:none; border:1px solid #1a2e1f; color:#64748B; font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;" data-i18n="overview.dismiss">Dismiss</button>
         </div>
         <div id="onboarding-items"></div>
       </div>
       <!-- Resume Setup Guide (shown when dismissed but not all steps complete) -->
       <div id="onboarding-resume" style="display:none; margin-bottom:16px; text-align:center;">
-        <button onclick="undismissOnboarding()" style="background:none; border:none; color:#22c55e; font-size:12px; cursor:pointer; padding:4px 8px; opacity:0.7;" data-i18n="overview.resume_setup"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> Resume Setup Guide</button>
+        <button id="btn-undismiss-onboarding" data-action="undismissOnboarding" style="background:none; border:none; color:#22c55e; font-size:12px; cursor:pointer; padding:4px 8px; opacity:0.7;" data-i18n="overview.resume_setup"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> Resume Setup Guide</button>
       </div>
 
       <!-- Upgrade Banner -->
@@ -163,8 +163,8 @@
             <span id="psc-dash-badge" class="badge badge-gray">—</span>
           </div>
           <div style="display:flex;gap:8px">
-            <button class="btn-primary" id="psc-dash-fix-btn" onclick="fixAllPreServiceIssues()" style="display:none;font-size:12px;padding:5px 12px" data-i18n="overview.preservice.fix_all">Fix All Safe Issues</button>
-            <button class="btn-secondary" onclick="runPreServiceCheck()" style="font-size:12px;padding:5px 12px" data-i18n="overview.preservice.run_now">Run Check Now</button>
+            <button class="btn-primary" id="psc-dash-fix-btn" data-action="fixAllPreServiceIssues" style="display:none;font-size:12px;padding:5px 12px" data-i18n="overview.preservice.fix_all">Fix All Safe Issues</button>
+            <button class="btn-secondary" id="btn-run-preservice-check" data-action="runPreServiceCheck" style="font-size:12px;padding:5px 12px" data-i18n="overview.preservice.run_now">Run Check Now</button>
           </div>
         </div>
         <div id="psc-dash-body">
@@ -179,7 +179,7 @@
           <div class="card-title" style="margin:0">
             <span class="tip" data-tip="Live status of all campuses linked to this account. Click a campus name to manage it." data-i18n="overview.campus.title">⊚ All Campuses</span>
           </div>
-          <button class="btn-secondary" onclick="showPage('campuses', document.querySelector('[data-page=campuses]'))" style="padding:4px 10px;font-size:11px" data-i18n="overview.campus.manage">Manage Campuses</button>
+          <button class="btn-secondary" data-action="showPage" data-page="campuses" style="padding:4px 10px;font-size:11px" data-i18n="overview.campus.manage">Manage Campuses</button>
         </div>
         <div class="table-wrap">
         <table>
@@ -204,7 +204,7 @@
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time status of each AV device Tally monitors (ATEM, OBS, HyperDeck, etc.)" data-i18n="overview.equip.title">Equipment Status</span> <span id="equip-room-label" style="font-size:12px;color:#22c55e;font-weight:normal;margin-left:8px"></span></div>
           <div style="display:flex;align-items:center;gap:8px">
             <span id="equip-staleness" style="font-size:11px;color:#475569"></span>
-            <button class="btn-secondary" id="btn-refresh-equip" onclick="refreshEquipmentStatus()" style="padding:4px 10px;font-size:11px" title="Refresh" data-i18n="overview.equip.refresh">&#x21bb; Refresh</button>
+            <button class="btn-secondary" id="btn-refresh-equip" data-action="refreshEquipmentStatus" style="padding:4px 10px;font-size:11px" title="Refresh" data-i18n="overview.equip.refresh">&#x21bb; Refresh</button>
           </div>
         </div>
         <div class="table-wrap">
@@ -315,7 +315,7 @@
       <!-- Campus Selector (multi-campus only) -->
       <div id="pf-campus-picker" style="display:none; margin-bottom:16px;">
         <label style="font-size:12px;color:#94A3B8;margin-right:8px;" data-i18n="overview.viewing">Viewing:</label>
-        <select id="pf-campus-select" onchange="loadProblems(this.value)" style="background:#0F1613;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;">
+        <select id="pf-campus-select" data-action-change="loadProblems" style="background:#0F1613;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;">
           <option value="" data-i18n="overview.main_campus">Main Campus</option>
         </select>
       </div>
@@ -334,7 +334,7 @@
       <div class="card" id="schedule-overview-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Your configured service windows — alerts and automations follow this schedule" data-i18n="overview.schedule.title">Service Schedule</span></div>
-          <button class="btn-secondary" style="padding:4px 12px;font-size:11px" onclick="showPage('schedule', document.querySelector('[data-page=schedule]'))" data-i18n="btn.edit">Edit</button>
+          <button class="btn-secondary" data-action="showPage" data-page="schedule" style="padding:4px 12px;font-size:11px" data-i18n="btn.edit">Edit</button>
         </div>
         <div id="schedule-overview-body" style="font-size:13px;color:#94A3B8">Loading schedule…</div>
       </div>
@@ -358,7 +358,7 @@
           <div class="page-title" data-i18n="page.profile">Church Profile</div>
           <div class="page-sub" data-i18n="profile.sub">Update your contact information</div>
         </div>
-        <button class="help-icon-btn" onclick="openHelp('profile')" title="Help with Profile">?</button>
+        <button class="help-icon-btn" data-action="openHelp" data-help-page="profile" title="Help with Profile">?</button>
       </div>
       <div class="card">
         <div class="card-title" data-i18n="profile.contact">Contact Information</div>
@@ -399,7 +399,7 @@
           </select>
           <div style="font-size:11px;color:#94a3b8;margin-top:4px;" data-i18n="profile.bot_language_desc">Tally bot messages will be sent in this language.</div>
         </div>
-        <button class="btn-primary" id="btn-save-profile" onclick="saveProfile()" data-i18n="profile.save">Save Changes</button>
+        <button class="btn-primary" id="btn-save-profile" data-action="saveProfile" data-i18n="profile.save">Save Changes</button>
       </div>
       <div class="card">
         <div class="card-title" data-i18n="profile.change_password">Change Password</div>
@@ -419,7 +419,7 @@
             <input type="password" id="confirm-password" placeholder="••••••••">
           </div>
         </div>
-        <button class="btn-secondary" onclick="changePassword()" data-i18n="profile.update_password">Update Password</button>
+        <button class="btn-secondary" id="btn-change-password" data-action="changePassword" data-i18n="profile.update_password">Update Password</button>
       </div>
     </div>
 
@@ -430,7 +430,7 @@
           <div class="page-title" data-i18n="page.campuses">Multi-Campus</div>
           <div class="page-sub" data-i18n="campus.page_sub">Manage additional campuses under this account</div>
         </div>
-        <button class="help-icon-btn" onclick="openHelp('campuses')" title="Help with Campuses">?</button>
+        <button class="help-icon-btn" data-action="openHelp" data-help-page="campuses" title="Help with Campuses">?</button>
       </div>
 
       <!-- ── Campus Mode (Pro/Enterprise self-service campus linking) ─────── -->
@@ -443,7 +443,7 @@
         <!-- Upgrade prompt (shown for Connect / Plus users) -->
         <div id="campus-mode-upgrade" style="display:none;margin-top:16px">
           <p style="color:#94A3B8;margin:0 0 12px;font-size:14px">Campus Mode lets existing churches link together without creating separate accounts or going through a reseller. Requires a <strong style="color:#F8FAFC">Pro or Enterprise</strong> plan.</p>
-          <button class="btn-primary" onclick="showPage('billing', document.querySelector('[data-page=billing]'))">Upgrade to Pro &rarr;</button>
+          <button class="btn-primary" data-action="showPage" data-page="billing">Upgrade to Pro &rarr;</button>
         </div>
 
         <!-- Main campus view -->
@@ -455,8 +455,8 @@
               <code id="campus-link-code-display" style="font-size:22px;color:#22c55e;letter-spacing:4px;padding:10px 18px;background:#0F1613;border:1px solid #1a2e1f;border-radius:6px;display:inline-block;min-width:120px;text-align:center">—</code>
             </div>
             <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn-primary" id="btn-generate-link-code" onclick="generateCampusLinkCode()">Generate New Code</button>
-              <button class="btn-secondary" id="btn-copy-link-code" onclick="copyCampusLinkCode()" style="display:none">Copy Code</button>
+              <button class="btn-primary" id="btn-generate-link-code" data-action="generateCampusLinkCode">Generate New Code</button>
+              <button class="btn-secondary" id="btn-copy-link-code" data-action="copyCampusLinkCode" style="display:none">Copy Code</button>
             </div>
           </div>
           <div id="campus-mode-satellites-section" style="margin-top:24px;display:none">
@@ -478,7 +478,7 @@
             <div style="font-size:12px;color:#64748B;margin-bottom:4px">Linked to Main Campus</div>
             <div id="campus-mode-main-name" style="color:#22c55e;font-weight:600;font-size:16px">—</div>
           </div>
-          <button class="btn-danger" id="btn-campus-self-unlink" onclick="selfUnlinkFromCampusGroup()">Unlink from Campus Group</button>
+          <button class="btn-danger" id="btn-campus-self-unlink" data-action="selfUnlinkFromCampusGroup">Unlink from Campus Group</button>
         </div>
 
         <!-- Join form (Pro/Enterprise, not yet in a group) -->
@@ -489,7 +489,7 @@
               <label>Link Code</label>
               <input type="text" id="campus-join-code" placeholder="A1B2C3" maxlength="6" style="text-transform:uppercase;letter-spacing:3px;font-family:monospace;font-size:16px">
             </div>
-            <button class="btn-primary" onclick="joinCampusGroup()" style="margin-bottom:0;white-space:nowrap">Join Campus Group</button>
+            <button class="btn-primary" id="btn-join-campus-group" data-action="joinCampusGroup" style="margin-bottom:0;white-space:nowrap">Join Campus Group</button>
           </div>
         </div>
 
@@ -518,7 +518,7 @@
             <input type="text" id="campus-location" placeholder="Franklin, TN">
           </div>
         </div>
-        <button class="btn-primary" id="btn-create-campus" onclick="addCampus()" data-i18n="campus.add.btn">Create Campus</button>
+        <button class="btn-primary" id="btn-create-campus" data-action="addCampus" data-i18n="campus.add.btn">Create Campus</button>
       </div>
       <div class="card">
         <div class="card-title" data-i18n="campus.linked.title">Linked Campuses</div>
@@ -536,7 +536,7 @@
       <div class="card" id="rooms-card">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
           <div class="card-title" style="margin:0">Rooms</div>
-          <button class="btn-primary" onclick="addRoom()" style="font-size:12px;padding:6px 14px">+ Add Room</button>
+          <button class="btn-primary" id="btn-add-room" data-action="addRoom" style="font-size:12px;padding:6px 14px">+ Add Room</button>
         </div>
         <p style="color:#94A3B8;font-size:13px;margin-bottom:12px">Rooms are physical spaces (Main Sanctuary, Youth Room, etc). Assign each Tally desktop to a room from the app's Equipment tab.</p>
         <div id="rooms-list" style="color:#475569;font-size:13px">Loading…</div>
@@ -550,13 +550,13 @@
           <div class="page-title" data-i18n="page.tds">Tech Directors</div>
           <div class="page-sub" data-i18n="tds.page_sub">People who receive alerts and have TD access</div>
         </div>
-        <button class="help-icon-btn" onclick="openHelp('tds')" title="Help with Tech Directors">?</button>
+        <button class="help-icon-btn" data-action="openHelp" data-help-page="tds" title="Help with Tech Directors">?</button>
       </div>
       <p class="help-box"><strong>How On-Call Routing Works:</strong> When Tally detects an issue during your service, it sends an alert to whichever TD is on-call that week. If no one responds within 90 seconds, it escalates to your primary TD. TDs can swap on-call duty via Telegram using <code style="color:#22c55e">/swap [name]</code>.</p>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
-          <button class="btn-secondary" id="btn-copy-invite-link" onclick="copyTdInviteLink()" title="Generate a Telegram link — TDs click it to register automatically" data-i18n="tds.invite_link">Copy Invite Link</button>
-          <button class="btn-primary" onclick="document.getElementById('modal-add-td').classList.add('open')" data-i18n="tds.add_btn">+ Add TD</button>
+          <button class="btn-secondary" id="btn-copy-invite-link" data-action="copyTdInviteLink" title="Generate a Telegram link — TDs click it to register automatically" data-i18n="tds.invite_link">Copy Invite Link</button>
+          <button class="btn-primary" id="btn-open-add-td" data-action="openModal" data-modal="modal-add-td" data-i18n="tds.add_btn">+ Add TD</button>
         </div>
         <div class="table-wrap">
         <table>
@@ -576,7 +576,7 @@
           <div class="page-title" data-i18n="page.schedule">Service Schedule</div>
           <div class="page-sub" data-i18n="schedule.page_sub">Define your recurring service windows for smart alerts</div>
         </div>
-        <button class="help-icon-btn" onclick="openHelp('schedule')" title="Help with Service Schedule">?</button>
+        <button class="help-icon-btn" data-action="openHelp" data-help-page="schedule" title="Help with Service Schedule">?</button>
       </div>
       <p class="help-box"><strong>Why set service windows?</strong> Tally uses these time windows to know when your services are live. Alerts only fire during (and around) these windows — so your TDs won't get notified at 3 AM for a test stream. Autopilot features (Pro plan) also use them to auto-start streaming and recording.</p>
       <div class="card">
@@ -584,18 +584,18 @@
           <div class="card-title" style="margin:0" data-i18n="schedule.card.title">Weekly Service Windows</div>
           <div id="schedule-campus-picker" style="display:none">
             <label style="font-size:12px;color:#94A3B8;margin-right:6px">Campus:</label>
-            <select id="schedule-campus-select" onchange="loadSchedule()" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:5px 8px;font-size:13px;cursor:pointer"></select>
+            <select id="schedule-campus-select" data-action-change="loadSchedule" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:5px 8px;font-size:13px;cursor:pointer"></select>
           </div>
         </div>
         <p style="font-size:12px;color:#94A3B8;margin-bottom:14px" data-i18n="schedule.desc">Add each recurring service window below. Alerts and automation use these time windows.</p>
         <div id="schedule-empty" class="schedule-empty" data-i18n="schedule.empty">No service windows yet. Add your first one.</div>
         <div id="schedule-rows" class="schedule-rows"></div>
         <div class="schedule-actions">
-          <button class="btn-secondary" onclick="addScheduleRow()" data-i18n="schedule.add_btn">+ Add Service Window</button>
+          <button class="btn-secondary" id="btn-add-schedule-row" data-action="addScheduleRow" data-i18n="schedule.add_btn">+ Add Service Window</button>
           <span class="schedule-note" data-i18n="schedule.tip">Tip: set separate windows for Saturday rehearsal and Sunday service.</span>
         </div>
         <div style="margin-top:16px">
-          <button class="btn-primary" id="btn-save-schedule" onclick="saveSchedule()" data-i18n="schedule.save_btn">Save Schedule</button>
+          <button class="btn-primary" id="btn-save-schedule" data-action="saveSchedule" data-i18n="schedule.save_btn">Save Schedule</button>
         </div>
       </div>
     </div>
@@ -607,7 +607,7 @@
           <div class="page-title" data-i18n="page.notifications">Notifications</div>
           <div class="page-sub" data-i18n="notif.page_sub">Control how and when you receive alerts</div>
         </div>
-        <button class="help-icon-btn" onclick="openHelp('notifications')" title="Help with Notifications & Failover">?</button>
+        <button class="help-icon-btn" data-action="openHelp" data-help-page="notifications" title="Help with Notifications &amp; Failover">?</button>
       </div>
       <p class="help-box"><strong>Alert Notifications:</strong> Tally classifies alerts by severity — INFO (logged only), WARNING (sent during services), CRITICAL (sent + escalated after 90s), and EMERGENCY (sent immediately). Configure your notification preferences below.</p>
       <div class="card">
@@ -650,7 +650,7 @@
           </div>
           <label class="toggle"><input type="checkbox" id="notif-auto-recovery"><span class="slider"></span></label>
         </div>
-        <button class="btn-primary" onclick="saveNotifications()" style="margin-top:12px" data-i18n="notif.save">Save Preferences</button>
+        <button class="btn-primary" id="btn-save-notifications-1" data-action="saveNotifications" style="margin-top:12px" data-i18n="notif.save">Save Preferences</button>
       </div>
       <div class="card">
         <div class="card-title" data-i18n="notif.failover.title">Stream Failover Protection</div>
@@ -665,7 +665,7 @@
         <div id="failover-config" style="margin-top:12px;display:none">
           <div class="field" style="margin-bottom:10px">
             <label>Failover action</label>
-            <select id="failover-action-type" onchange="toggleFailoverAction()" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
+            <select id="failover-action-type" data-action-change="toggleFailoverAction" style="width:100%;padding:8px;background:#1E293B;border:1px solid #334155;border-radius:6px;color:#F8FAFC;font-size:13px">
               <option value="">— Select —</option>
               <option value="atem_switch">Switch ATEM program source</option>
               <option value="videohub_route">Switch VideoHub route</option>
@@ -705,13 +705,13 @@
           </div>
           <p style="font-size:11px;color:#64748B;margin-bottom:12px">Black threshold: how long to wait before confirming an outage. Ack timeout: how long to wait for TD response before auto-failover.</p>
         </div>
-        <button class="btn-primary" onclick="saveFailoverSettings()" style="margin-top:8px" data-i18n="notif.failover.save">Save Failover Settings</button>
+        <button class="btn-primary" id="btn-save-failover" data-action="saveFailoverSettings" style="margin-top:8px" data-i18n="notif.failover.save">Save Failover Settings</button>
       </div>
       <div class="card" id="failover-drill-card">
         <div class="card-title" data-i18n="notif.failover.drill.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5"/></svg> Failover Drill</div>
         <p class="help-box"><strong>THIS IS A DRILL.</strong> Running a drill simulates a device failure and walks through the entire failover flow — alerts, ack window, and recovery — without touching any real equipment. Use this to train your team and verify your setup before Sunday.</p>
         <div id="failover-drill-status" style="display:none;margin-bottom:12px;padding:12px 16px;border-radius:8px;font-size:13px;line-height:1.7"></div>
-        <button class="btn-primary" id="btn-run-drill" onclick="runFailoverDrill()" style="background:#eab308;border-color:#ca8a04;color:#000" data-i18n="notif.failover.drill.run">Run Failover Drill</button>
+        <button class="btn-primary" id="btn-run-drill" data-action="runFailoverDrill" style="background:#eab308;border-color:#ca8a04;color:#000" data-i18n="notif.failover.drill.run">Run Failover Drill</button>
         <span id="drill-spinner" style="display:none;margin-left:10px;font-size:12px;color:#64748B">Running drill…</span>
       </div>
       <div class="card">
@@ -721,7 +721,7 @@
           <input type="text" id="telegram-chat-id" placeholder="1234567890">
         </div>
         <p style="font-size:12px;color:#94A3B8;margin-bottom:16px">Message <a href="https://t.me/userinfobot" target="_blank" style="color:#22c55e">@userinfobot</a> on Telegram to get your chat ID.</p>
-        <button class="btn-primary" onclick="saveNotifications()">Save Preferences</button>
+        <button class="btn-primary" id="btn-save-notifications-2" data-action="saveNotifications">Save Preferences</button>
       </div>
       <div class="card">
         <div class="card-title">Email Preferences</div>
@@ -737,7 +737,7 @@
           <div class="page-title" data-i18n="page.engineer">Train Your Tally Engineer</div>
           <div class="page-sub" data-i18n="engineer.page_sub">Help Tally Engineer understand your setup so it can diagnose problems faster and give better recommendations.</div>
         </div>
-        <button class="help-icon-btn" onclick="openHelp('engineer')" title="Help with Tally Engineer">?</button>
+        <button class="help-icon-btn" data-action="openHelp" data-help-page="engineer" title="Help with Tally Engineer">?</button>
       </div>
       <div class="card" style="margin-bottom:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -805,7 +805,7 @@
           <label><span class="tip" data-tip="Anything special about your AV setup — audio routing, dual streams, unique workflows, known quirks" data-i18n="engineer.special_notes">Special Notes</span></label>
           <textarea id="eng-special-notes" placeholder="e.g. Audio feed comes from FOH board via USB, we run two simultaneous streams to YouTube and Facebook"></textarea>
         </div>
-        <button class="btn-primary" onclick="saveEngineerProfile()" data-i18n="engineer.save">Save Profile</button>
+        <button class="btn-primary" id="btn-save-engineer-profile" data-action="saveEngineerProfile" data-i18n="engineer.save">Save Profile</button>
       </div>
       <div class="card" id="coaching-card" style="display:none;margin-top:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -819,23 +819,23 @@
       <div class="card" style="margin-top:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="card-title" style="margin:0" data-i18n="engineer.chat.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"/></svg> Chat with Tally Engineer</div>
-          <button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="clearEngineerChat()" data-i18n="btn.clear">Clear</button>
+          <button class="btn-secondary" id="btn-clear-engineer-chat" style="font-size:11px;padding:4px 10px" data-action="clearEngineerChat" data-i18n="btn.clear">Clear</button>
         </div>
         <div id="engineer-chat-messages" style="min-height:200px;max-height:500px;overflow-y:auto;border:1px solid #1a2e1f;border-radius:8px;padding:12px;background:#09090B;margin-bottom:12px">
           <div id="engineer-chat-empty" style="text-align:center;padding:24px 16px">
             <div style="color:#94A3B8;font-size:13px;margin-bottom:16px">Ask about your setup, troubleshooting, or available commands</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
-              <button class="engineer-pill" onclick="sendEngineerPill(this)" style="background:#0F1613;border:1px solid #1a2e1f;border-radius:999px;padding:6px 14px;color:#94A3B8;font-size:12px;cursor:pointer;transition:border-color 0.2s">What commands can I use?</button>
-              <button class="engineer-pill" onclick="sendEngineerPill(this)" style="background:#0F1613;border:1px solid #1a2e1f;border-radius:999px;padding:6px 14px;color:#94A3B8;font-size:12px;cursor:pointer;transition:border-color 0.2s">How does auto-recovery work?</button>
-              <button class="engineer-pill" onclick="sendEngineerPill(this)" style="background:#0F1613;border:1px solid #1a2e1f;border-radius:999px;padding:6px 14px;color:#94A3B8;font-size:12px;cursor:pointer;transition:border-color 0.2s">Help me troubleshoot my stream</button>
+              <button class="engineer-pill" data-action="sendEngineerPill" style="background:#0F1613;border:1px solid #1a2e1f;border-radius:999px;padding:6px 14px;color:#94A3B8;font-size:12px;cursor:pointer;transition:border-color 0.2s">What commands can I use?</button>
+              <button class="engineer-pill" data-action="sendEngineerPill" style="background:#0F1613;border:1px solid #1a2e1f;border-radius:999px;padding:6px 14px;color:#94A3B8;font-size:12px;cursor:pointer;transition:border-color 0.2s">How does auto-recovery work?</button>
+              <button class="engineer-pill" data-action="sendEngineerPill" style="background:#0F1613;border:1px solid #1a2e1f;border-radius:999px;padding:6px 14px;color:#94A3B8;font-size:12px;cursor:pointer;transition:border-color 0.2s">Help me troubleshoot my stream</button>
             </div>
           </div>
         </div>
         <div style="display:flex;gap:8px">
           <input type="text" id="engineer-chat-input" placeholder="Ask Tally Engineer a question..." data-i18n-placeholder="engineer.chat.placeholder"
             style="flex:1;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:9px 12px;color:#F8FAFC;font-size:13px;outline:none"
-            onkeydown="if(event.key==='Enter')sendEngineerChat()">
-          <button class="btn-primary" onclick="sendEngineerChat()" style="min-width:80px" data-i18n="btn.send">Send</button>
+            data-action-keydown="sendEngineerChatOnEnter">
+          <button class="btn-primary" id="btn-send-engineer-chat" data-action="sendEngineerChat" style="min-width:80px" data-i18n="btn.send">Send</button>
         </div>
       </div>
     </div>
@@ -847,12 +847,12 @@
           <div class="page-title" data-i18n="page.guests">Guest Access</div>
           <div class="page-sub" data-i18n="guests.page_sub">Temporary tokens for visiting TDs, contractors, or trainers</div>
         </div>
-        <button class="help-icon-btn" onclick="openHelp('guests')" title="Help with Guest Access">?</button>
+        <button class="help-icon-btn" data-action="openHelp" data-help-page="guests" title="Help with Guest Access">?</button>
       </div>
       <p class="help-box"><strong>What are guest tokens?</strong> Generate a temporary access token for visiting tech directors, contractors, or trainers. Share the token — the guest enters it in the Tally app or Telegram bot to get temporary monitoring access. Tokens auto-expire after the time you set (default 7 days). Revoke any token early from the table below.</p>
       <div class="card">
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
-          <button class="btn-primary" onclick="generateGuestToken()" data-i18n="guests.generate">+ Generate Token</button>
+          <button class="btn-primary" id="btn-generate-guest-token" data-action="generateGuestToken" data-i18n="guests.generate">+ Generate Token</button>
         </div>
         <div class="table-wrap">
         <table>
@@ -876,7 +876,7 @@
       <p class="help-box"><strong>What are macros?</strong> Macros let you create custom Telegram shortcuts for sequences of steps your team runs every week. For example, <code>/sunday</code> could run your full Sunday morning setup sequence. TDs type the shortcut in Telegram and Tally executes the sequence automatically.</p>
       <div class="card">
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
-          <button class="btn-primary" onclick="document.getElementById('modal-add-macro').classList.add('open')" data-i18n="macros.add_btn">+ New Macro</button>
+          <button class="btn-primary" id="btn-open-add-macro" data-action="openModal" data-modal="modal-add-macro" data-i18n="macros.add_btn">+ New Macro</button>
         </div>
         <div id="macros-list">
           <div style="color:#475569;text-align:center;padding:20px;font-size:13px">Loading…</div>
@@ -889,7 +889,7 @@
       <div class="modal" style="max-width:520px">
         <div class="modal-header">
           <div class="modal-title" id="macro-modal-title" data-i18n="macros.modal.title">New Macro</div>
-          <button class="modal-close" onclick="closeMacroModal()">✕</button>
+          <button class="modal-close" data-action="closeMacroModal">✕</button>
         </div>
         <div style="padding:20px">
           <input type="hidden" id="macro-edit-id">
@@ -897,7 +897,7 @@
             <label>Shortcut Name <span style="color:#64748b;font-size:11px">(e.g. "sunday", "warmup", "teststream")</span></label>
             <div style="display:flex;align-items:center;gap:0">
               <span style="color:#475569;padding:8px 10px;background:#09090B;border:1px solid #1a2e1f;border-right:none;border-radius:6px 0 0 6px;font-size:14px">/</span>
-              <input type="text" id="macro-name" placeholder="sunday" style="border-radius:0 6px 6px 0;flex:1" oninput="this.value=this.value.replace(/[^a-z0-9_]/g,'').toLowerCase()">
+              <input type="text" id="macro-name" placeholder="sunday" style="border-radius:0 6px 6px 0;flex:1" data-action-input="sanitizeMacroName">
             </div>
             <div style="font-size:11px;color:#94a3b8;margin-top:4px">Lowercase letters, numbers, underscores only.</div>
           </div>
@@ -911,8 +911,8 @@
             <div style="font-size:11px;color:#94a3b8;margin-top:4px">Enter commands exactly as you'd type them in Telegram. They run in order with a 1-second delay between each.</div>
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end">
-            <button class="btn-secondary" onclick="closeMacroModal()" data-i18n="btn.cancel">Cancel</button>
-            <button class="btn-primary" onclick="saveMacro()" data-i18n="macros.modal.save">Save Macro</button>
+            <button class="btn-secondary" data-action="closeMacroModal" data-i18n="btn.cancel">Cancel</button>
+            <button class="btn-primary" id="btn-save-macro" data-action="saveMacro" data-i18n="macros.modal.save">Save Macro</button>
           </div>
         </div>
       </div>
@@ -934,7 +934,7 @@
           <div style="margin-bottom:16px;color:#94A3B8"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="40" height="40" aria-hidden="true"><rect x="3" y="5" width="10" height="7" rx="1.5" ry="1.5"/><circle cx="6" cy="8.5" r="1"/><circle cx="10" cy="8.5" r="1"/><rect x="6.5" y="2" width="3" height="3" rx=".5"/><path d="M5 5V4h1v1zm5 0V4h1v1z"/></svg></div>
           <div style="font-size:18px;font-weight:700;color:#F8FAFC;margin-bottom:8px" data-i18n="autopilot.upgrade_gate_title">AutoPilot requires Pro or higher</div>
           <div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:20px" data-i18n="autopilot.upgrade_gate_body">Set up automation rules that run during your service windows — auto-start recording, switch cameras on slide change, and more.</div>
-          <button class="btn-primary" onclick="showPage('billing', document.querySelector('[data-page=billing]'))" data-i18n="autopilot.upgrade_to_pro">Upgrade to Pro &rarr;</button>
+          <button class="btn-primary" data-action="showPage" data-page="billing" data-i18n="autopilot.upgrade_to_pro">Upgrade to Pro &rarr;</button>
         </div>
       </div>
 
@@ -945,8 +945,8 @@
         </div>
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-            <button id="btn-autopilot-pause" class="btn-secondary" onclick="toggleAutopilotPause()" data-i18n="autopilot.pause">Pause AutoPilot</button>
-            <button class="btn-primary" onclick="document.getElementById('modal-add-rule').classList.add('open')" data-i18n="autopilot.new_rule">+ New Rule</button>
+            <button id="btn-autopilot-pause" class="btn-secondary" data-action="toggleAutopilotPause" data-i18n="autopilot.pause">Pause AutoPilot</button>
+            <button class="btn-primary" id="btn-open-add-rule" data-action="openModal" data-modal="modal-add-rule" data-i18n="autopilot.new_rule">+ New Rule</button>
           </div>
           <div id="autopilot-rules-list">
             <div style="color:#475569;text-align:center;padding:20px;font-size:13px" data-i18n="status.loading">Loading\u2026</div>
@@ -960,7 +960,7 @@
       <div class="modal" style="max-width:560px;width:560px">
         <div class="modal-header">
           <div class="modal-title">New AutoPilot Rule</div>
-          <button class="modal-close" onclick="document.getElementById('modal-add-rule').classList.remove('open')">&#x2715;</button>
+          <button class="modal-close" data-action="closeModal" data-modal="modal-add-rule">&#x2715;</button>
         </div>
         <div class="field" style="margin-bottom:14px">
           <label>Rule Name</label>
@@ -985,8 +985,8 @@
           <textarea id="rule-actions" rows="3" placeholder='[{"command":"obs.startRecording","params":{}}]' style="font-family:monospace;font-size:13px"></textarea>
         </div>
         <div class="modal-footer">
-          <button class="btn-secondary" onclick="document.getElementById('modal-add-rule').classList.remove('open')" data-i18n="btn.cancel">Cancel</button>
-          <button class="btn-primary" id="btn-save-rule" onclick="saveAutopilotRule()">Save Rule</button>
+          <button class="btn-secondary" data-action="closeModal" data-modal="modal-add-rule" data-i18n="btn.cancel">Cancel</button>
+          <button class="btn-primary" id="btn-save-rule" data-action="saveAutopilotRule">Save Rule</button>
         </div>
       </div>
     </div>
@@ -996,13 +996,13 @@
       <div class="modal" style="max-width:500px;width:500px">
         <div class="modal-header">
           <div class="modal-title" data-i18n="autopilot.test.title">Test Rule &mdash; Dry Run</div>
-          <button class="modal-close" onclick="document.getElementById('modal-test-rule').classList.remove('open')">&#x2715;</button>
+          <button class="modal-close" data-action="closeModal" data-modal="modal-test-rule">&#x2715;</button>
         </div>
         <div id="test-rule-result">
           <div style="color:#475569;text-align:center;padding:16px" data-i18n="status.loading">Running\u2026</div>
         </div>
         <div class="modal-footer">
-          <button class="btn-secondary" onclick="document.getElementById('modal-test-rule').classList.remove('open')" data-i18n="btn.cancel">Close</button>
+          <button class="btn-secondary" data-action="closeModal" data-modal="modal-test-rule" data-i18n="btn.cancel">Close</button>
         </div>
       </div>
     </div>
@@ -1012,14 +1012,14 @@
       <div class="modal" style="max-width:440px;width:440px;text-align:center">
         <div class="modal-header">
           <div class="modal-title" data-i18n="upgrade.rule_limit_title">Rule Limit Reached</div>
-          <button class="modal-close" onclick="document.getElementById('modal-rule-limit').classList.remove('open')">&#x2715;</button>
+          <button class="modal-close" data-action="closeModal" data-modal="modal-rule-limit">&#x2715;</button>
         </div>
         <div style="margin-bottom:12px;color:#94A3B8"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="32" height="32" aria-hidden="true"><path d="M8 1C4.686 1 2 3.686 2 7v1.5c0 .828.672 1.5 1.5 1.5H4v1a4 4 0 0 0 8 0v-1h.5c.828 0 1.5-.672 1.5-1.5V7c0-3.314-2.686-6-6-6Zm0 2a4 4 0 0 1 4 4H4a4 4 0 0 1 4-4Zm0 7a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2Z"/></svg></div>
         <div style="font-size:15px;font-weight:700;color:#F8FAFC;margin-bottom:8px">You&rsquo;ve reached the rule limit for your plan</div>
         <div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:20px" id="rule-limit-body" data-i18n="upgrade.rule_limit_default">Upgrade to Pro for up to 10 automation rules, or Enterprise for 25.</div>
         <div class="modal-footer" style="justify-content:center">
-          <button class="btn-secondary" onclick="document.getElementById('modal-rule-limit').classList.remove('open')" data-i18n="upgrade.maybe_later">Maybe Later</button>
-          <button class="btn-primary" id="btn-rule-limit-upgrade" onclick="document.getElementById('modal-rule-limit').classList.remove('open');showPage('billing',document.querySelector('[data-page=billing]'))" data-i18n="upgrade.cta">Upgrade Plan &rarr;</button>
+          <button class="btn-secondary" data-action="closeModal" data-modal="modal-rule-limit" data-i18n="upgrade.maybe_later">Maybe Later</button>
+          <button class="btn-primary" id="btn-rule-limit-upgrade" data-action="closeModalAndShowPage" data-modal="modal-rule-limit" data-page="billing" data-i18n="upgrade.cta">Upgrade Plan &rarr;</button>
         </div>
       </div>
     </div>
@@ -1031,7 +1031,7 @@
           <div class="page-title" data-i18n="page.sessions">Service Sessions</div>
           <div class="page-sub" data-i18n="sessions.page_sub">History of recent live service sessions</div>
         </div>
-        <button class="help-icon-btn" onclick="openHelp('sessions')" title="Help with Sessions">?</button>
+        <button class="help-icon-btn" data-action="openHelp" data-help-page="sessions" title="Help with Sessions">?</button>
       </div>
       <p class="help-box"><strong>What counts as a session?</strong> A session is recorded each time Tally detects your live stream or recording starting during a service window. Duration, peak viewer count, and any alerts that fired are logged here.</p>
       <div class="card">
@@ -1065,11 +1065,11 @@
       </div>
 
       <div style="margin-bottom:20px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="btn-secondary analytics-range active" data-days="30" onclick="setAnalyticsRange(30, this)" data-i18n="analytics.last_30">Last 30 days</button>
-        <button class="btn-secondary analytics-range" data-days="90" onclick="setAnalyticsRange(90, this)" data-i18n="analytics.last_90">Last 90 days</button>
-        <button class="btn-secondary analytics-range" data-days="180" onclick="setAnalyticsRange(180, this)" data-i18n="analytics.last_180">Last 6 months</button>
-        <button class="btn-secondary analytics-range" data-days="365" onclick="setAnalyticsRange(365, this)" data-i18n="analytics.last_365">Last year</button>
-        <button class="btn-secondary" onclick="exportAnalyticsCSV()" style="margin-left:auto" title="Download session data as CSV" data-i18n="analytics.export">Export CSV</button>
+        <button class="btn-secondary analytics-range active" data-days="30" data-action="setAnalyticsRange" data-i18n="analytics.last_30">Last 30 days</button>
+        <button class="btn-secondary analytics-range" data-days="90" data-action="setAnalyticsRange" data-i18n="analytics.last_90">Last 90 days</button>
+        <button class="btn-secondary analytics-range" data-days="180" data-action="setAnalyticsRange" data-i18n="analytics.last_180">Last 6 months</button>
+        <button class="btn-secondary analytics-range" data-days="365" data-action="setAnalyticsRange" data-i18n="analytics.last_365">Last year</button>
+        <button class="btn-secondary" id="btn-export-analytics-csv" data-action="exportAnalyticsCSV" style="margin-left:auto" title="Download session data as CSV" data-i18n="analytics.export">Export CSV</button>
       </div>
 
       <div class="stats-row grid-4col" id="analytics-kpi">
@@ -1147,7 +1147,7 @@
           <div class="page-title" data-i18n="page.alerts">Alert History</div>
           <div class="page-sub" data-i18n="alerts.page_sub">Recent alerts from your services</div>
         </div>
-        <button class="help-icon-btn" onclick="openHelp('alerts')" title="Help with Alerts">?</button>
+        <button class="help-icon-btn" data-action="openHelp" data-help-page="alerts" title="Help with Alerts">?</button>
       </div>
       <p class="help-box">Alerts are classified by severity: <span style="color:#22c55e">INFO</span> (logged only), <span style="color:#eab308">WARNING</span> (sent to on-call TD), <span style="color:#ef4444">CRITICAL</span> (sent + escalated after 90s), <span style="color:#ef4444;font-weight:700">EMERGENCY</span> (immediate escalation). Acknowledge alerts via Telegram with <code style="color:#22c55e">/ack_[code]</code>.</p>
       <div id="alerts-content"><p style="color:#475569;text-align:center;padding:20px">Loading alerts...</p></div>
@@ -1214,14 +1214,14 @@
           <label style="font-size:12px;color:#64748B;margin-bottom:6px;display:block">Your referral link</label>
           <div style="display:flex;align-items:center;gap:8px">
             <div style="flex:1;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:10px 14px;font-family:ui-monospace,monospace;font-size:13px;color:#F8FAFC;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="ref-page-link">—</div>
-            <button onclick="copyRefPageLink()" class="btn-primary" style="padding:8px 16px;font-size:13px;flex-shrink:0">Copy</button>
+            <button id="btn-copy-ref-link" data-action="copyRefPageLink" class="btn-primary" style="padding:8px 16px;font-size:13px;flex-shrink:0">Copy</button>
           </div>
         </div>
 
         <!-- Share buttons -->
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button onclick="shareRefEmail()" class="btn-secondary" style="padding:6px 14px;font-size:12px">Email a Church</button>
-          <button onclick="shareRefSMS()" class="btn-secondary" style="padding:6px 14px;font-size:12px">Text a Friend</button>
+          <button id="btn-share-ref-email" data-action="shareRefEmail" class="btn-secondary" style="padding:6px 14px;font-size:12px">Email a Church</button>
+          <button id="btn-share-ref-sms" data-action="shareRefSMS" class="btn-secondary" style="padding:6px 14px;font-size:12px">Text a Friend</button>
         </div>
       </div>
 
@@ -1300,9 +1300,9 @@
           <textarea id="support-summary" rows="3" placeholder="What happened? Include timing and what changed."></textarea>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <button class="btn-primary" onclick="runSupportTriage()" data-i18n="support.diag.triage">Run Triage</button>
-          <button class="btn-secondary" onclick="createSupportTicket()" data-i18n="support.diag.ticket">Open Ticket</button>
-          <button class="btn-secondary" onclick="loadSupportTickets()" data-i18n="support.diag.refresh">Refresh Tickets</button>
+          <button class="btn-primary" id="btn-run-support-triage" data-action="runSupportTriage" data-i18n="support.diag.triage">Run Triage</button>
+          <button class="btn-secondary" id="btn-create-support-ticket" data-action="createSupportTicket" data-i18n="support.diag.ticket">Open Ticket</button>
+          <button class="btn-secondary" id="btn-load-support-tickets" data-action="loadSupportTickets" data-i18n="support.diag.refresh">Refresh Tickets</button>
         </div>
         <div id="support-triage-result" style="margin-top:12px;color:#94A3B8;font-size:13px;line-height:1.6"></div>
       </div>
@@ -1333,11 +1333,11 @@
     <div class="modal">
       <div class="modal-header">
         <div class="modal-title" id="help-modal-title">Help</div>
-        <button class="modal-close" onclick="closeHelpModal()">×</button>
+        <button class="modal-close" data-action="closeHelpModal">×</button>
       </div>
       <div id="help-modal-body"></div>
       <div class="modal-footer">
-        <button class="btn-primary" onclick="closeHelpModal()" data-i18n="modal.help.got_it">Got it</button>
+        <button class="btn-primary" id="btn-help-modal-got-it" data-action="closeHelpModal" data-i18n="modal.help.got_it">Got it</button>
       </div>
     </div>
   </div>
@@ -1347,7 +1347,7 @@
     <div class="modal">
       <div class="modal-header">
         <div class="modal-title" data-i18n="modal.td.title">Add Tech Director</div>
-        <button class="modal-close" onclick="document.getElementById('modal-add-td').classList.remove('open')">×</button>
+        <button class="modal-close" data-action="closeModal" data-modal="modal-add-td">×</button>
       </div>
       <div class="field"><label data-i18n="table.name">Name</label><input type="text" id="td-name" placeholder="John Smith"></div>
       <div class="field"><label data-i18n="table.role">Role</label>
@@ -1368,8 +1368,8 @@
       <div class="field"><label data-i18n="table.email">Email</label><input type="email" id="td-email" placeholder="john@yourchurch.org"></div>
       <div class="field"><label data-i18n="table.phone">Phone</label><input type="tel" id="td-phone" placeholder="+1 (555) 000-0000"></div>
       <div class="modal-footer">
-        <button class="btn-secondary" onclick="document.getElementById('modal-add-td').classList.remove('open')" data-i18n="btn.cancel">Cancel</button>
-        <button class="btn-primary" onclick="addTd()" data-i18n="modal.td.add">Add TD</button>
+        <button class="btn-secondary" data-action="closeModal" data-modal="modal-add-td" data-i18n="btn.cancel">Cancel</button>
+        <button class="btn-primary" id="btn-add-td" data-action="addTd" data-i18n="modal.td.add">Add TD</button>
       </div>
     </div>
   </div>
@@ -1380,7 +1380,7 @@
       <div id="review-form-content">
         <div class="modal-header">
           <div class="modal-title">Share Your Experience</div>
-          <button class="modal-close" onclick="closeReviewModal()">&times;</button>
+          <button class="modal-close" data-action="closeReviewModal">&times;</button>
         </div>
         <div style="margin:20px 0 16px;text-align:center">
           <div style="font-size:13px;color:#94A3B8;margin-bottom:8px">How would you rate Tally?</div>
@@ -1395,14 +1395,14 @@
           <div class="field"><label>Your name</label><input type="text" id="review-name" placeholder="Mike Johnson" maxlength="100"></div>
           <div class="field"><label>Your role <span style="color:#475569">(optional)</span></label><input type="text" id="review-role" placeholder="Production Director" maxlength="100"></div>
         </div>
-        <button class="btn-primary" id="btn-submit-review" onclick="submitReview()" style="width:100%;margin-top:8px">Submit Review</button>
+        <button class="btn-primary" id="btn-submit-review" data-action="submitReview" style="width:100%;margin-top:8px">Submit Review</button>
       </div>
       <div id="review-thanks-content" style="display:none;text-align:center;padding:24px 20px">
         <div style="font-size:40px;margin-bottom:12px">&#127881;</div>
         <div style="font-size:18px;font-weight:700;color:#F8FAFC;margin-bottom:8px">Thank you!</div>
         <div style="font-size:13px;color:#94A3B8;margin-bottom:20px;line-height:1.5">Your review has been submitted. Want to double the impact?<br>Post it on one of these platforms too:</div>
         <div style="font-size:12px;color:#475569;margin-top:4px">Your review helps other churches discover Tally.</div>
-        <button onclick="closeReviewModal()" style="background:none;border:none;color:#475569;font-size:12px;cursor:pointer;margin-top:16px;padding:8px">Maybe later</button>
+        <button data-action="closeReviewModal" style="background:none;border:none;color:#475569;font-size:12px;cursor:pointer;margin-top:16px;padding:8px">Maybe later</button>
       </div>
     </div>
   </div>
@@ -1412,12 +1412,12 @@
     <div class="modal" style="max-width:460px">
       <div class="modal-header">
         <div class="modal-title" data-i18n="billing.cancel.modal.title">We&rsquo;d hate to see you go.</div>
-        <button class="modal-close" onclick="document.getElementById('modal-cancel-retention').classList.remove('open')">&times;</button>
+        <button class="modal-close" data-action="closeModal" data-modal="modal-cancel-retention">&times;</button>
       </div>
       <p style="font-size:14px;color:#CBD5E1;line-height:1.7;margin:12px 0 24px" data-i18n="billing.cancel.modal.body">Before you cancel, we&rsquo;d like to offer you 50% off for the next 3 months. No strings attached.</p>
       <div class="modal-footer" style="flex-direction:column;gap:10px;align-items:stretch">
-        <button id="btn-accept-retention" class="btn-primary" onclick="acceptRetentionOffer()" data-i18n="billing.cancel.accept">Accept 50% Off</button>
-        <button id="btn-confirm-cancel" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:10px 16px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600" onclick="confirmCancellation()" data-i18n="billing.cancel.decline">No thanks, cancel my account</button>
+        <button id="btn-accept-retention" class="btn-primary" data-action="acceptRetentionOffer" data-i18n="billing.cancel.accept">Accept 50% Off</button>
+        <button id="btn-confirm-cancel" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#ef4444;padding:10px 16px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600" data-action="confirmCancellation" data-i18n="billing.cancel.decline">No thanks, cancel my account</button>
       </div>
     </div>
   </div>

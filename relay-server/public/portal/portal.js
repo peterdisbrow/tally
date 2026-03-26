@@ -5883,3 +5883,274 @@
         }
       });
     })();
+
+// ── CSP-safe event delegation ─────────────────────────────────────────────────
+// Replaces all inline onclick/onchange/onkeydown/oninput handlers that were
+// removed from portal.html so that 'unsafe-inline' can be dropped from CSP.
+document.addEventListener('DOMContentLoaded', function() {
+
+  // ── Click delegation ────────────────────────────────────────────────────────
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    var action = btn.dataset.action;
+    var page   = btn.dataset.page;
+    var modal  = btn.dataset.modal;
+
+    switch (action) {
+      // Navigation
+      case 'showPage':
+        if (typeof showPage === 'function') {
+          var navBtn = document.querySelector('.nav-item[data-page="' + page + '"]') || btn;
+          showPage(page, navBtn);
+        }
+        break;
+
+      // Mobile nav
+      case 'toggleMobileNav':
+        if (typeof toggleMobileNav === 'function') toggleMobileNav();
+        break;
+
+      // Language
+      case 'toggleLanguage':
+        if (typeof toggleLanguage === 'function') toggleLanguage();
+        break;
+
+      // Auth
+      case 'logout':
+        if (typeof logout === 'function') logout();
+        break;
+
+      // Demo mode
+      case 'startDemoMode':
+        if (typeof startDemoMode === 'function') startDemoMode();
+        break;
+      case 'stopDemoMode':
+        if (typeof stopDemoMode === 'function') stopDemoMode();
+        break;
+
+      // Contextual help
+      case 'openHelp':
+        if (typeof openHelp === 'function') openHelp(btn.dataset.helpPage);
+        break;
+      case 'closeHelpModal':
+        if (typeof closeHelpModal === 'function') closeHelpModal();
+        break;
+
+      // Onboarding checklist
+      case 'dismissOnboarding':
+        if (typeof dismissOnboarding === 'function') dismissOnboarding();
+        break;
+      case 'undismissOnboarding':
+        if (typeof undismissOnboarding === 'function') undismissOnboarding();
+        break;
+
+      // Pre-service check
+      case 'fixAllPreServiceIssues':
+        if (typeof fixAllPreServiceIssues === 'function') fixAllPreServiceIssues();
+        break;
+      case 'runPreServiceCheck':
+        if (typeof runPreServiceCheck === 'function') runPreServiceCheck();
+        break;
+
+      // Equipment
+      case 'refreshEquipmentStatus':
+        if (typeof refreshEquipmentStatus === 'function') refreshEquipmentStatus();
+        break;
+
+      // Profile
+      case 'saveProfile':
+        if (typeof saveProfile === 'function') saveProfile();
+        break;
+      case 'changePassword':
+        if (typeof changePassword === 'function') changePassword();
+        break;
+
+      // Campus mode
+      case 'generateCampusLinkCode':
+        if (typeof generateCampusLinkCode === 'function') generateCampusLinkCode();
+        break;
+      case 'copyCampusLinkCode':
+        if (typeof copyCampusLinkCode === 'function') copyCampusLinkCode();
+        break;
+      case 'selfUnlinkFromCampusGroup':
+        if (typeof selfUnlinkFromCampusGroup === 'function') selfUnlinkFromCampusGroup();
+        break;
+      case 'joinCampusGroup':
+        if (typeof joinCampusGroup === 'function') joinCampusGroup();
+        break;
+      case 'addCampus':
+        if (typeof addCampus === 'function') addCampus();
+        break;
+      case 'addRoom':
+        if (typeof addRoom === 'function') addRoom();
+        break;
+
+      // Tech directors
+      case 'copyTdInviteLink':
+        if (typeof copyTdInviteLink === 'function') copyTdInviteLink();
+        break;
+      case 'addTd':
+        if (typeof addTd === 'function') addTd();
+        break;
+
+      // Schedule
+      case 'addScheduleRow':
+        if (typeof addScheduleRow === 'function') addScheduleRow();
+        break;
+      case 'saveSchedule':
+        if (typeof saveSchedule === 'function') saveSchedule();
+        break;
+
+      // Notifications / failover
+      case 'saveNotifications':
+        if (typeof saveNotifications === 'function') saveNotifications();
+        break;
+      case 'saveFailoverSettings':
+        if (typeof saveFailoverSettings === 'function') saveFailoverSettings();
+        break;
+      case 'runFailoverDrill':
+        if (typeof runFailoverDrill === 'function') runFailoverDrill();
+        break;
+
+      // Tally Engineer
+      case 'saveEngineerProfile':
+        if (typeof saveEngineerProfile === 'function') saveEngineerProfile();
+        break;
+      case 'clearEngineerChat':
+        if (typeof clearEngineerChat === 'function') clearEngineerChat();
+        break;
+      case 'sendEngineerPill':
+        if (typeof sendEngineerPill === 'function') sendEngineerPill(btn);
+        break;
+      case 'sendEngineerChat':
+        if (typeof sendEngineerChat === 'function') sendEngineerChat();
+        break;
+
+      // Guest tokens
+      case 'generateGuestToken':
+        if (typeof generateGuestToken === 'function') generateGuestToken();
+        break;
+
+      // Macros
+      case 'closeMacroModal':
+        if (typeof closeMacroModal === 'function') closeMacroModal();
+        break;
+      case 'saveMacro':
+        if (typeof saveMacro === 'function') saveMacro();
+        break;
+
+      // AutoPilot
+      case 'toggleAutopilotPause':
+        if (typeof toggleAutopilotPause === 'function') toggleAutopilotPause();
+        break;
+      case 'saveAutopilotRule':
+        if (typeof saveAutopilotRule === 'function') saveAutopilotRule();
+        break;
+
+      // Analytics
+      case 'setAnalyticsRange':
+        if (typeof setAnalyticsRange === 'function') setAnalyticsRange(parseInt(btn.dataset.days, 10), btn);
+        break;
+      case 'exportAnalyticsCSV':
+        if (typeof exportAnalyticsCSV === 'function') exportAnalyticsCSV();
+        break;
+
+      // Referrals
+      case 'copyRefPageLink':
+        if (typeof copyRefPageLink === 'function') copyRefPageLink();
+        break;
+      case 'shareRefEmail':
+        if (typeof shareRefEmail === 'function') shareRefEmail();
+        break;
+      case 'shareRefSMS':
+        if (typeof shareRefSMS === 'function') shareRefSMS();
+        break;
+
+      // Support
+      case 'runSupportTriage':
+        if (typeof runSupportTriage === 'function') runSupportTriage();
+        break;
+      case 'createSupportTicket':
+        if (typeof createSupportTicket === 'function') createSupportTicket();
+        break;
+      case 'loadSupportTickets':
+        if (typeof loadSupportTickets === 'function') loadSupportTickets();
+        break;
+
+      // Review modal
+      case 'closeReviewModal':
+        if (typeof closeReviewModal === 'function') closeReviewModal();
+        break;
+      case 'submitReview':
+        if (typeof submitReview === 'function') submitReview();
+        break;
+
+      // Billing / retention
+      case 'acceptRetentionOffer':
+        if (typeof acceptRetentionOffer === 'function') acceptRetentionOffer();
+        break;
+      case 'confirmCancellation':
+        if (typeof confirmCancellation === 'function') confirmCancellation();
+        break;
+
+      // Generic modal open/close
+      case 'openModal':
+        if (modal) { var m = document.getElementById(modal); if (m) m.classList.add('open'); }
+        break;
+      case 'closeModal':
+        if (modal) { var mc = document.getElementById(modal); if (mc) mc.classList.remove('open'); }
+        break;
+      case 'closeModalAndShowPage':
+        if (modal) { var mcsp = document.getElementById(modal); if (mcsp) mcsp.classList.remove('open'); }
+        if (page && typeof showPage === 'function') {
+          var navBtnCmsp = document.querySelector('.nav-item[data-page="' + page + '"]') || btn;
+          showPage(page, navBtnCmsp);
+        }
+        break;
+    }
+  });
+
+  // ── Change delegation (select elements with data-action-change) ─────────────
+  document.addEventListener('change', function(e) {
+    var el = e.target;
+    if (!el.dataset.actionChange) return;
+    var action = el.dataset.actionChange;
+    switch (action) {
+      case 'loadProblems':
+        if (typeof loadProblems === 'function') loadProblems(el.value);
+        break;
+      case 'toggleFailoverAction':
+        if (typeof toggleFailoverAction === 'function') toggleFailoverAction();
+        break;
+      case 'loadSchedule':
+        if (typeof loadSchedule === 'function') loadSchedule();
+        break;
+    }
+  });
+
+  // ── Keydown delegation (inputs with data-action-keydown) ────────────────────
+  document.addEventListener('keydown', function(e) {
+    var el = e.target;
+    if (!el.dataset.actionKeydown) return;
+    var action = el.dataset.actionKeydown;
+    switch (action) {
+      case 'sendEngineerChatOnEnter':
+        if (e.key === 'Enter' && typeof sendEngineerChat === 'function') sendEngineerChat();
+        break;
+    }
+  });
+
+  // ── Input delegation (inputs with data-action-input) ────────────────────────
+  document.addEventListener('input', function(e) {
+    var el = e.target;
+    if (!el.dataset.actionInput) return;
+    var action = el.dataset.actionInput;
+    switch (action) {
+      case 'sanitizeMacroName':
+        el.value = el.value.replace(/[^a-z0-9_]/g, '').toLowerCase();
+        break;
+    }
+  });
+
+});

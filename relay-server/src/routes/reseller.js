@@ -7,7 +7,7 @@
 module.exports = function setupResellerRoutes(app, ctx) {
   const { db, churches, requireAdmin, requireReseller, resellerSystem,
           hashPassword, safeErrorMessage, stmtInsert, stmtFindByName,
-          jwt, JWT_SECRET, log } = ctx;
+          lifecycleEmails, jwt, JWT_SECRET, log } = ctx;
   const WebSocket = require('ws').WebSocket;
 
   // ─── ADMIN CRUD (requires admin JWT) ──────────────────────────────────────
@@ -67,7 +67,7 @@ module.exports = function setupResellerRoutes(app, ctx) {
     const row = resellerSystem.getResellerById(req.params.resellerId);
     if (!row) return res.status(404).json({ error: 'Reseller not found' });
     const { password, email } = req.body;
-    if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
     const hashed = hashPassword(password);
     try { db.exec('ALTER TABLE resellers ADD COLUMN portal_password_hash TEXT'); } catch { /* exists */ }
     try { db.exec('ALTER TABLE resellers ADD COLUMN portal_email TEXT'); } catch { /* exists */ }
@@ -113,6 +113,14 @@ module.exports = function setupResellerRoutes(app, ctx) {
       });
 
       log(`Reseller "${reseller.name}" registered church: ${name} (${churchId})`);
+
+      // Send registration confirmation lifecycle email if the church has a contact email
+      if (lifecycleEmails && email) {
+        const regChurch = { churchId, name, portal_email: email };
+        lifecycleEmails.sendRegistrationConfirmation(regChurch)
+          .catch(e => log(`[Reseller] Registration email failed for ${email}: ${e.message}`));
+      }
+
       res.json({ churchId, name, token, resellerId: reseller.id, message: 'Church registered. Share this token with the church client app.' });
     } catch (e) {
       console.error('[/api/reseller/churches/register]', e.message);
@@ -168,7 +176,13 @@ module.exports = function setupResellerRoutes(app, ctx) {
       if (name !== undefined) patch.name = name;
       if (brand_name !== undefined) patch.brand_name = brand_name;
       if (support_email !== undefined) patch.support_email = support_email;
-      if (logo_url !== undefined) patch.logo_url = logo_url;
+      if (logo_url !== undefined) {
+        if (logo_url !== null && logo_url !== '') {
+          try { const u = new URL(logo_url); if (!['http:', 'https:'].includes(u.protocol)) throw new Error(); }
+          catch { return res.status(400).json({ error: 'logo_url must be a valid http/https URL' }); }
+        }
+        patch.logo_url = logo_url || null;
+      }
       if (primary_color !== undefined) patch.primary_color = primary_color;
       if (custom_domain !== undefined) patch.custom_domain = custom_domain;
       if (!Object.keys(patch).length) return res.status(400).json({ error: 'No valid fields provided' });
@@ -218,6 +232,15 @@ module.exports = function setupResellerRoutes(app, ctx) {
       });
 
       log(`Reseller "${req.reseller.name}" created church token: ${result.churchName} (${result.churchId})`);
+
+      // Send registration confirmation lifecycle email to portal email or contact email
+      const emailRecipient = cleanPortalEmail || cleanContactEmail;
+      if (lifecycleEmails && emailRecipient) {
+        const regChurch = { churchId: result.churchId, name: result.churchName, portal_email: emailRecipient };
+        lifecycleEmails.sendRegistrationConfirmation(regChurch)
+          .catch(e => log(`[Reseller] Registration email failed for ${emailRecipient}: ${e.message}`));
+      }
+
       res.json({
         churchId: result.churchId, churchName: result.churchName,
         registrationCode: result.registrationCode,

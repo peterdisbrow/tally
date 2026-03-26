@@ -29,6 +29,11 @@ class MonthlyReport {
     // Check every 15 minutes — fires when it's the 1st at 9 AM
     this._timer = setInterval(() => this._tick(), 15 * 60 * 1000);
     console.log('[MonthlyReport] Started — fires on 1st of each month at 9 AM');
+
+    // Catch-up: if the relay restarted on the 1st between 9:00 and 9:14 we would
+    // have missed the window. Run immediately at startup if it's the 1st and the
+    // hour is 9 and we have not yet sent for this month-key.
+    setImmediate(() => this._tick());
   }
 
   stop() {
