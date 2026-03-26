@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, Notification, clipboard, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, Notification, clipboard, dialog, screen } = require('electron');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
@@ -215,11 +215,55 @@ function computeTrayState() {
 
 // ─── WINDOW ───────────────────────────────────────────────────────────────────
 
+function clampBoundsToDisplay(bounds) {
+  // Get the total usable area across all displays
+  const displays = screen.getAllDisplays();
+  if (!displays.length) return bounds;
+
+  const { x, y, width, height } = bounds;
+  const w = width || 900;
+  const h = height || 820;
+
+  // Find a display that overlaps the saved bounds
+  const overlap = displays.find((d) => {
+    const { x: dx, y: dy, width: dw, height: dh } = d.workArea;
+    return x < dx + dw && x + w > dx && y < dy + dh && y + h > dy;
+  });
+
+  if (overlap) {
+    const { x: dx, y: dy, width: dw, height: dh } = overlap.workArea;
+    return {
+      x: Math.max(dx, Math.min(x, dx + dw - w)),
+      y: Math.max(dy, Math.min(y, dy + dh - h)),
+      width: Math.min(w, dw),
+      height: Math.min(h, dh),
+    };
+  }
+
+  // Saved bounds are entirely off-screen — reset to primary display center
+  const primary = screen.getPrimaryDisplay().workArea;
+  return {
+    x: primary.x + Math.round((primary.width - w) / 2),
+    y: primary.y + Math.round((primary.height - h) / 2),
+    width: w,
+    height: h,
+  };
+}
+
 function createWindow() {
   const savedBounds = loadPrefs().windowBounds || {};
+  const rawWidth  = savedBounds.width  || 900;
+  const rawHeight = savedBounds.height || 820;
+
+  // Clamp saved position to visible display area (Persona 6 P2 item 9)
+  let clamped = null;
+  if (savedBounds.x != null && savedBounds.y != null) {
+    clamped = clampBoundsToDisplay({ x: savedBounds.x, y: savedBounds.y, width: rawWidth, height: rawHeight });
+  }
+
   const winOpts = {
-    width: savedBounds.width || 900,
-    height: savedBounds.height || 820,
+    width: clamped ? clamped.width : rawWidth,
+    height: clamped ? clamped.height : rawHeight,
     minWidth: 580,
     minHeight: 720,
     resizable: true,
@@ -233,8 +277,8 @@ function createWindow() {
     title: 'Tally',
     show: false,
   };
-  if (savedBounds.x != null) winOpts.x = savedBounds.x;
-  if (savedBounds.y != null) winOpts.y = savedBounds.y;
+  if (clamped) { winOpts.x = clamped.x; winOpts.y = clamped.y; }
+  else if (savedBounds.x != null) { winOpts.x = savedBounds.x; winOpts.y = savedBounds.y; }
   mainWindow = new BrowserWindow(winOpts);
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
@@ -270,6 +314,8 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    // Check if this is the first launch after an update
+    setTimeout(() => checkWhatsNew(), 1500);
   });
 }
 
@@ -1551,18 +1597,67 @@ function setupAutoUpdate() {
   if (!autoUpdater) return;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+
   autoUpdater.on('update-available', (info) => {
     sendNotification('Update Available', `Version ${info.version} is downloading...`);
     mainWindow?.webContents.send('log', `Update available: v${info.version}`);
+    mainWindow?.webContents.send('update-available-info', { version: info.version });
   });
-  autoUpdater.on('update-downloaded', () => {
-    sendNotification('Update Ready', 'Restart to install the update.');
+
+  autoUpdater.on('update-not-available', (info) => {
+    appendAppLog('SYSTEM', `Auto-update: already on latest version (${info?.version || app.getVersion()})`);
+    mainWindow?.webContents.send('update-not-available');
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    mainWindow?.webContents.send('update-progress', {
+      percent: Math.round(progress.percent || 0),
+      transferred: progress.transferred,
+      total: progress.total,
+      bytesPerSecond: progress.bytesPerSecond,
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    sendNotification('Update Ready', `v${info.version} is ready — restart to install.`);
     mainWindow?.webContents.send('update-ready', true);
+    mainWindow?.webContents.send('update-downloaded-info', { version: info.version, releaseNotes: info.releaseNotes || '' });
   });
+
   autoUpdater.on('error', (err) => {
-    console.log('Auto-update error:', err.message);
+    const msg = err?.message || 'Unknown update error';
+    appendAppLog('SYSTEM', `Auto-update error: ${msg}`);
+    mainWindow?.webContents.send('update-error', msg);
   });
-  autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+
+  // Check for updates; the interval setting is read from prefs
+  const prefs = loadPrefs();
+  const intervalHours = Math.max(1, Math.min(168, Number(prefs.updateCheckIntervalHours) || 24));
+  autoUpdater.checkForUpdatesAndNotify().catch((e) => {
+    appendAppLog('SYSTEM', `Update check failed: ${e?.message}`);
+    mainWindow?.webContents.send('update-error', e?.message || 'Update check failed');
+  });
+
+  // Periodic re-check based on interval setting
+  if (intervalHours < 168) {
+    setInterval(() => {
+      autoUpdater.checkForUpdates().catch(() => {});
+    }, intervalHours * 60 * 60 * 1000);
+  }
+}
+
+// ─── WHAT'S NEW SPLASH ────────────────────────────────────────────────────────
+// After an update, show a "What's New" notification on first launch of the new version.
+function checkWhatsNew() {
+  const currentVersion = app.getVersion();
+  const prefs = loadPrefs();
+  if (prefs.lastSeenVersion !== currentVersion) {
+    savePrefs({ lastSeenVersion: currentVersion });
+    // Defer until window is ready
+    if (mainWindow?.webContents) {
+      mainWindow.webContents.send('whats-new', { version: currentVersion });
+    }
+  }
 }
 
 // ─── SINGLE INSTANCE LOCK ─────────────────────────────────────────────────────

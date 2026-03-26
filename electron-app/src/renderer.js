@@ -2516,6 +2516,47 @@ api.onUpdateReady(() => {
   addAlert('Update downloaded — restart to install');
 });
 
+// Surface update-not-available and error to user (P1 item 4)
+if (api.onUpdateNotAvailable) {
+  api.onUpdateNotAvailable(() => {
+    const updateStatusEl = document.getElementById('update-status-msg');
+    if (updateStatusEl) {
+      updateStatusEl.textContent = "You're up to date.";
+      updateStatusEl.style.display = '';
+      setTimeout(() => { updateStatusEl.style.display = 'none'; }, 4000);
+    }
+  });
+}
+
+if (api.onUpdateError) {
+  api.onUpdateError((msg) => {
+    addAlert(`Update check failed: ${msg}`);
+  });
+}
+
+if (api.onUpdateProgress) {
+  api.onUpdateProgress((data) => {
+    const updateStatusEl = document.getElementById('update-status-msg');
+    if (updateStatusEl) {
+      updateStatusEl.textContent = `Downloading update: ${data.percent}%`;
+      updateStatusEl.style.display = '';
+    }
+  });
+}
+
+// What's New splash on first launch after update (P2 item 8)
+if (api.onWhatsNew) {
+  api.onWhatsNew(({ version }) => {
+    addAlert(`Updated to v${version} — see Changelog for What's New.`);
+    // Show a brief banner at top of activity feed
+    const whatsNew = document.createElement('div');
+    whatsNew.style.cssText = 'padding:8px 12px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);border-radius:6px;margin-bottom:8px;font-size:12px;color:var(--green);';
+    whatsNew.innerHTML = `<strong>Updated to v${version}</strong> — check the <a href="#" onclick="event.preventDefault();api.openExternal('https://tallyconnect.app/changelog')" style="color:var(--green);">Changelog</a> for what's new.`;
+    const log = document.getElementById('alerts-log');
+    if (log) log.prepend(whatsNew);
+  });
+}
+
 // Pause chat polling when window is hidden to tray
 api.onWindowVisibility?.((visible) => {
   if (!visible) {
