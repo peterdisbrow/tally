@@ -176,7 +176,13 @@ module.exports = function setupResellerRoutes(app, ctx) {
       if (name !== undefined) patch.name = name;
       if (brand_name !== undefined) patch.brand_name = brand_name;
       if (support_email !== undefined) patch.support_email = support_email;
-      if (logo_url !== undefined) patch.logo_url = logo_url;
+      if (logo_url !== undefined) {
+        if (logo_url !== null && logo_url !== '') {
+          try { const u = new URL(logo_url); if (!['http:', 'https:'].includes(u.protocol)) throw new Error(); }
+          catch { return res.status(400).json({ error: 'logo_url must be a valid http/https URL' }); }
+        }
+        patch.logo_url = logo_url || null;
+      }
       if (primary_color !== undefined) patch.primary_color = primary_color;
       if (custom_domain !== undefined) patch.custom_domain = custom_domain;
       if (!Object.keys(patch).length) return res.status(400).json({ error: 'No valid fields provided' });
