@@ -58,7 +58,7 @@ module.exports = function setupBillingRoutes(app, ctx) {
       res.json(result);
     } catch (e) {
       console.error('[Billing] Webhook error:', e.message);
-      res.status(400).json({ error: e.message });
+      res.status(400).json({ error: safeErrorMessage(e, 'Webhook processing failed') });
     }
   });
 

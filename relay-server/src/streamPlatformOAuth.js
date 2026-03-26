@@ -140,7 +140,7 @@ class StreamPlatformOAuth {
       };
     } catch (e) {
       console.error('[StreamOAuth] YouTube exchange error:', e.message);
-      return { success: false, error: e.message };
+      return { success: false, error: process.env.NODE_ENV === 'production' ? 'OAuth exchange failed' : e.message };
     }
   }
 
@@ -296,7 +296,7 @@ class StreamPlatformOAuth {
       return { success: true, pages };
     } catch (e) {
       console.error('[StreamOAuth] Facebook exchange error:', e.message);
-      return { success: false, error: e.message };
+      return { success: false, error: process.env.NODE_ENV === 'production' ? 'OAuth exchange failed' : e.message };
     }
   }
 
@@ -351,7 +351,7 @@ class StreamPlatformOAuth {
       };
     } catch (e) {
       console.error('[StreamOAuth] Facebook page selection error:', e.message);
-      return { success: false, error: e.message };
+      return { success: false, error: process.env.NODE_ENV === 'production' ? 'OAuth exchange failed' : e.message };
     }
   }
 

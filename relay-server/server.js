@@ -1188,6 +1188,18 @@ _intervals.push(setInterval(() => {
     if (pruned.changes > 0) log(`[ViewerSnapshots] Pruned ${pruned.changes} snapshots older than 90 days`);
   } catch { /* ignore */ }
 }, 24 * 60 * 60 * 1000));
+
+// ─── AUDIT LOG PRUNING (daily, 90-day retention) ─────────────────────────────
+try {
+  const pruned = db.prepare("DELETE FROM audit_log WHERE created_at < datetime('now', '-90 days')").run();
+  if (pruned.changes > 0) log(`[AuditLog] Pruned ${pruned.changes} entries older than 90 days`);
+} catch { /* table may not exist yet */ }
+_intervals.push(setInterval(() => {
+  try {
+    const pruned = db.prepare("DELETE FROM audit_log WHERE created_at < datetime('now', '-90 days')").run();
+    if (pruned.changes > 0) log(`[AuditLog] Pruned ${pruned.changes} entries older than 90 days`);
+  } catch { /* ignore */ }
+}, 24 * 60 * 60 * 1000));
 billing.setLifecycleEmails(lifecycleEmails);
 sessionRecap.setLifecycleEmails(lifecycleEmails);
 weeklyDigest.setLifecycleEmails(lifecycleEmails);

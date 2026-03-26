@@ -170,7 +170,14 @@ function logRateLimitStatus() {
   if (hasRedisRateLimitConfig()) {
     console.log('[rateLimit] ✓ Redis/Upstash backend configured');
   } else if (isProduction) {
-    console.warn('[rateLimit] ⚠️  PRODUCTION: No Redis/Upstash configured — rate limits use in-memory store (not distributed). Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for multi-instance safety.');
+    console.warn('='.repeat(80));
+    console.warn('[rateLimit] WARNING — PRODUCTION WITHOUT REDIS');
+    console.warn('[rateLimit] Rate limits are using an in-memory store which is NOT distributed.');
+    console.warn('[rateLimit] Each server instance maintains its own counters, so rate limits');
+    console.warn('[rateLimit] will not be enforced correctly across multiple instances.');
+    console.warn('[rateLimit] Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for');
+    console.warn('[rateLimit] production-safe distributed rate limiting.');
+    console.warn('='.repeat(80));
   } else {
     console.log('[rateLimit] Using in-memory store (dev mode — no Redis configured)');
   }

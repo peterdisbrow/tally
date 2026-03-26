@@ -1476,8 +1476,10 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
         registrationCode: result.registrationCode,
       });
     } catch(e) {
-      const status = e.message.includes('limit') ? 403 : e.message.includes('already exists') ? 409 : 500;
-      res.status(status).json({ error: e.message });
+      const msg = String(e.message || '');
+      const status = msg.includes('limit') ? 403 : msg.includes('already exists') ? 409 : 500;
+      const safeMsg = process.env.NODE_ENV === 'production' ? 'Church provisioning failed' : e.message;
+      res.status(status).json({ error: safeMsg });
     }
   });
 

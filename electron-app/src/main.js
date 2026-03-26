@@ -16,21 +16,21 @@ const problemFinderBridge = require('./problem-finder-bridge');
 let autoUpdater;
 try {
   autoUpdater = require('electron-updater').autoUpdater;
-} catch { autoUpdater = null; }
+} catch (e) { console.warn('electron-updater not available:', e?.message); autoUpdater = null; }
 
 const CONFIG_PATH = path.join(os.homedir(), '.church-av', 'config.json');
 const CONFIG_DIR  = path.dirname(CONFIG_PATH);
 const PREFS_PATH  = path.join(CONFIG_DIR, 'prefs.json');
 
 function loadPrefs() {
-  try { return JSON.parse(fs.readFileSync(PREFS_PATH, 'utf8')); } catch { return {}; }
+  try { return JSON.parse(fs.readFileSync(PREFS_PATH, 'utf8')); } catch (e) { console.warn('loadPrefs failed:', e?.message); return {}; }
 }
 function savePrefs(updates) {
   try {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
     const prefs = loadPrefs();
     fs.writeFileSync(PREFS_PATH, JSON.stringify({ ...prefs, ...updates }, null, 2), 'utf8');
-  } catch { /* non-critical */ }
+  } catch (e) { console.warn('savePrefs failed:', e?.message); }
 }
 const DEFAULT_RELAY_URL = process.env.TALLY_DEFAULT_RELAY_URL || 'wss://api.tallyconnect.app';
 const LOG_DIR = path.join(CONFIG_DIR, 'logs');
@@ -94,7 +94,7 @@ problemFinderBridge.init({
     try {
       const pkgPath = path.join(process.resourcesPath || '', 'problem-finder-lab');
       if (fs.existsSync(path.join(pkgPath, 'src', 'engine.js'))) return pkgPath;
-    } catch { /* ignore */ }
+    } catch (e) { console.warn('problem-finder-lab lookup failed:', e?.message); }
     return null;
   },
 });
@@ -124,8 +124,9 @@ function appendAppLog(source, message) {
     }
     // Non-blocking write — don't freeze the main process during live service
     fs.appendFile(APP_LOG_PATH, batch, 'utf8', () => {});
-  } catch {
+  } catch (e) {
     // Logging should never crash the app
+    console.warn('appendAppLog failed:', e?.message);
   }
 }
 
@@ -615,7 +616,7 @@ function startAgent() {
       try {
         agentStatus.atem.inputLabels = JSON.parse(labelsMatch[1]);
         statusChanged = true;
-      } catch { /* ignore parse errors */ }
+      } catch (e) { console.warn('ATEM labels parse error:', e?.message); }
     }
     if (text.includes('recording STARTED') && agentStatus.atem && typeof agentStatus.atem === 'object') {
       agentStatus.atem.recording = true; statusChanged = true;
@@ -636,7 +637,7 @@ function startAgent() {
       try {
         const chatMsg = JSON.parse(chatLineMatch[1]);
         mainWindow?.webContents.send('chat-message', chatMsg);
-      } catch { /* ignore parse errors */ }
+      } catch (e) { console.warn('Chat line parse error:', e?.message); }
     }
 
     // Only run expensive notification/UI updates when status actually changed
@@ -707,7 +708,7 @@ function stopAgent() {
     proc.kill();
     // Return a promise that resolves when the process actually exits
     return new Promise((resolve) => {
-      const timeout = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} resolve(); }, 5000);
+      const timeout = setTimeout(() => { try { proc.kill('SIGKILL'); } catch (e) { console.warn('SIGKILL failed:', e?.message); } resolve(); }, 5000);
       proc.on('close', () => { clearTimeout(timeout); resolve(); });
     });
   } else {
@@ -785,8 +786,9 @@ ipcMain.handle('validate-token', async () => {
           return { valid: false, reason: 'expired', churchName: payload.name || config.name || '' };
         }
       }
-    } catch {
+    } catch (e) {
       // If we can't decode the JWT, still try server validation
+      console.warn('JWT decode failed:', e?.message);
     }
 
     // Server-side validation — always enforce relay policy so stale config URLs don't persist
@@ -806,7 +808,7 @@ ipcMain.handle('validate-token', async () => {
             saveConfig({ audioViaAtem: profile.audio_via_atem ? 1 : 0 });
           }
         }
-      } catch { /* non-critical — profile sync can fail silently */ }
+      } catch (e) { console.warn('Profile sync failed:', e?.message); }
       return { valid: true, churchName: config.name || '' };
     }
     return { valid: false, reason: result.error || 'invalid', churchName: config.name || '' };
@@ -970,7 +972,8 @@ ipcMain.handle('get-chat', async (_, opts = {}) => {
       headers: { 'Authorization': `Bearer ${config.token}` },
     });
     return await resp.json();
-  } catch {
+  } catch (e) {
+    console.warn('Chat fetch failed:', e?.message);
     return { messages: [] };
   }
 });
@@ -1082,7 +1085,7 @@ ipcMain.handle('get-active-rundown', async () => {
     });
     if (!resp.ok) return { active: false };
     return await resp.json();
-  } catch { return { active: false }; }
+  } catch (e) { console.warn('Rundown fetch failed:', e?.message); return { active: false }; }
 });
 
 ipcMain.handle('execute-rundown-step', async () => {
@@ -1398,7 +1401,8 @@ ipcMain.handle('get-failover-config', async () => {
     });
     if (!res.ok) return { enabled: false };
     return await res.json();
-  } catch {
+  } catch (e) {
+    console.warn('Failover config fetch failed:', e?.message);
     return { enabled: false };
   }
 });
@@ -1433,7 +1437,8 @@ ipcMain.handle('get-failover-sources', async () => {
     });
     if (!res.ok) return { atem: [], videohub: [], obs: [] };
     return await res.json();
-  } catch {
+  } catch (e) {
+    console.warn('Failover sources fetch failed:', e?.message);
     return { atem: [], videohub: [], obs: [] };
   }
 });
@@ -1484,7 +1489,8 @@ ipcMain.handle('onboarding-state', async () => {
     });
     if (!res.ok) return { state: null };
     return await res.json();
-  } catch {
+  } catch (e) {
+    console.warn('Onboarding state fetch failed:', e?.message);
     return { state: null };
   }
 });

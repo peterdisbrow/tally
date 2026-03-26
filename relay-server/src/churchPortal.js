@@ -1985,7 +1985,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.json({ id, name, description, steps });
     } catch (e) {
       if (e.message && e.message.includes('UNIQUE')) return res.status(409).json({ error: `Macro "/${name}" already exists` });
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -2000,7 +2000,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.json({ ok: true });
     } catch (e) {
       if (e.message && e.message.includes('UNIQUE')) return res.status(409).json({ error: `Macro "/${name}" already exists` });
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -2062,7 +2062,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         failover_events: (() => { try { return JSON.parse(report.failover_events || '[]'); } catch { return []; } })(),
         device_health: (() => { try { return JSON.parse(report.device_health || '{}'); } catch { return {}; } })(),
       });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
   // ── GET /api/church/guest-tokens ──────────────────────────────────────────────

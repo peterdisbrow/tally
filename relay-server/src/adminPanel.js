@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const { WebSocket } = require('ws');
 
 const COOKIE_NAME = 'tally_session';
-const COOKIE_MAX_AGE = 28800; // 8 hours in seconds
+const COOKIE_MAX_AGE = 7200; // 2 hours in seconds
 
 function safeErrorMessage(err, fallback = 'Internal server error') {
   if (process.env.NODE_ENV === 'production') return fallback;
@@ -18,10 +18,7 @@ function safeErrorMessage(err, fallback = 'Internal server error') {
 function getSessionSecret() {
   const s = process.env.SESSION_SECRET;
   if (!s) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('[CONFIG] SESSION_SECRET is required in production');
-    }
-    return 'dev-session-secret-not-for-production';
+    throw new Error('[CONFIG] SESSION_SECRET environment variable is required. Set a strong random secret (e.g. openssl rand -hex 32).');
   }
   return s;
 }
@@ -1832,8 +1829,8 @@ function renderTemplateGrid(templates) {
       </div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:16px">\${esc(t.trigger)}</div>
       <div style="display:flex;gap:8px">
-        <button class="btn-sm" onclick="previewTemplate(\${JSON.stringify(t.type)})">Preview</button>
-        <button class="btn-sm" onclick="editTemplate(\${JSON.stringify(t.type)})">Edit</button>
+        <button class="btn-sm" onclick="previewTemplate(\${esc(JSON.stringify(t.type))})">Preview</button>
+        <button class="btn-sm" onclick="editTemplate(\${esc(JSON.stringify(t.type))})">Edit</button>
       </div>
     </div>
   \`).join('');
@@ -2343,7 +2340,7 @@ function renderFleet() {
       <td>\${s.obs ? '<span class="chip chip-green">OK</span>' : '<span class="chip chip-grey">N/A</span>'}</td>
       <td>\${s.companion ? '<span class="chip chip-green">OK</span>' : '<span class="chip chip-grey">N/A</span>'}</td>
       <td>\${lastSeen}</td>
-      <td><button class="btn-sm" onclick="openFleetDetail(\${JSON.stringify(c.churchId)})">Details</button></td>
+      <td><button class="btn-sm" onclick="openFleetDetail(\${esc(JSON.stringify(c.churchId))})">Details</button></td>
     </tr>\`;
   }).join('');
 }
@@ -2761,20 +2758,35 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     const church = churches.get(id);
     if (church?.ws?.readyState === WebSocket.OPEN) church.ws.close(1000, 'deleted by admin');
 
-    // Cascade-delete all related records via FK introspection (same logic as adminChurches.js)
+    // Cascade-delete all related records via explicit allowlist (no dynamic SQL)
+    const ALLOWED_CASCADE_DELETES = [
+      { table: 'chat_messages', column: 'churchId' },
+      { table: 'alerts', column: 'church_id' },
+      { table: 'support_tickets', column: 'church_id' },
+      { table: 'support_triage_runs', column: 'church_id' },
+      { table: 'church_tds', column: 'church_id' },
+      { table: 'church_schedules', column: 'church_id' },
+      { table: 'church_reviews', column: 'church_id' },
+      { table: 'guest_tokens', column: 'churchId' },
+      { table: 'maintenance_windows', column: 'churchId' },
+      { table: 'email_sends', column: 'church_id' },
+      { table: 'referrals', column: 'referrer_id' },
+      { table: 'referrals', column: 'referred_id' },
+      { table: 'viewer_snapshots', column: 'church_id' },
+      { table: 'audit_log', column: 'target_id' },
+      { table: 'ai_usage_log', column: 'church_id' },
+      { table: 'onboarding_sessions', column: 'church_id' },
+      { table: 'automation_rules', column: 'church_id' },
+      { table: 'church_documents', column: 'church_id' },
+      { table: 'church_macros', column: 'church_id' },
+      { table: 'rooms', column: 'campus_id' },
+    ];
     try {
-      const ident = /^[A-Za-z_][A-Za-z0-9_]*$/;
-      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
       const tx = db.transaction((churchId) => {
-        for (const { name: table } of tables) {
-          if (!table || table === 'churches' || !ident.test(table)) continue;
-          const fks = db.prepare(`PRAGMA foreign_key_list(${table})`).all();
-          for (const fk of fks) {
-            if (fk.table !== 'churches') continue;
-            const col = fk.from;
-            if (!col || !ident.test(col)) continue;
-            db.prepare(`DELETE FROM ${table} WHERE ${col} = ?`).run(churchId);
-          }
+        for (const { table, column } of ALLOWED_CASCADE_DELETES) {
+          try {
+            db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(churchId);
+          } catch { /* table may not exist */ }
         }
         db.prepare('DELETE FROM churches WHERE churchId = ?').run(churchId);
       });
@@ -3495,7 +3507,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       const upgraded = hashPortalPassword(password);
       db.prepare('UPDATE resellers SET portal_password=? WHERE id=?').run(upgraded, reseller.id);
     }
-    const payload = { role: 'reseller', resellerId: reseller.id, exp: Date.now() + 8 * 60 * 60 * 1000 };
+    const payload = { role: 'reseller', resellerId: reseller.id, exp: Date.now() + COOKIE_MAX_AGE * 1000 };
     setCookieHeader(res, payload);
     res.redirect('/portal');
   });

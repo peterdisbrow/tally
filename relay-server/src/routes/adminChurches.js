@@ -24,24 +24,36 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
   }
   const WebSocket = require('ws').WebSocket;
 
-  // ─── Helper: cascade-delete all church data ──────────────────────────────────
-  function deleteChurchCascade(churchId) {
-    const ident = /^[A-Za-z_][A-Za-z0-9_]*$/;
-    const tables = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
-    ).all();
+  // ─── Helper: cascade-delete all church data (explicit allowlist, no dynamic SQL) ─
+  const ALLOWED_CASCADE_DELETES = [
+    { table: 'chat_messages', column: 'churchId' },
+    { table: 'alerts', column: 'church_id' },
+    { table: 'support_tickets', column: 'church_id' },
+    { table: 'support_triage_runs', column: 'church_id' },
+    { table: 'church_tds', column: 'church_id' },
+    { table: 'church_schedules', column: 'church_id' },
+    { table: 'church_reviews', column: 'church_id' },
+    { table: 'guest_tokens', column: 'churchId' },
+    { table: 'maintenance_windows', column: 'churchId' },
+    { table: 'email_sends', column: 'church_id' },
+    { table: 'referrals', column: 'referrer_id' },
+    { table: 'referrals', column: 'referred_id' },
+    { table: 'viewer_snapshots', column: 'church_id' },
+    { table: 'audit_log', column: 'target_id' },
+    { table: 'ai_usage_log', column: 'church_id' },
+    { table: 'onboarding_sessions', column: 'church_id' },
+    { table: 'automation_rules', column: 'church_id' },
+    { table: 'church_documents', column: 'church_id' },
+    { table: 'church_macros', column: 'church_id' },
+    { table: 'rooms', column: 'campus_id' },
+  ];
 
+  function deleteChurchCascade(churchId) {
     const tx = db.transaction((id) => {
-      for (const row of tables) {
-        const table = row?.name;
-        if (!table || table === 'churches' || !ident.test(table)) continue;
-        const fks = db.prepare(`PRAGMA foreign_key_list(${table})`).all();
-        for (const fk of fks) {
-          if (fk.table !== 'churches') continue;
-          const col = fk.from;
-          if (!col || !ident.test(col)) continue;
-          db.prepare(`DELETE FROM ${table} WHERE ${col} = ?`).run(id);
-        }
+      for (const { table, column } of ALLOWED_CASCADE_DELETES) {
+        try {
+          db.prepare(`DELETE FROM ${table} WHERE ${column} = ?`).run(id);
+        } catch { /* table may not exist */ }
       }
       stmtDelete.run(id);
     });

@@ -229,7 +229,7 @@ module.exports = function setupResellerRoutes(app, ctx) {
       const status = msg.includes('limit') ? 403 :
         (msg.includes('already exists') || msg.includes('UNIQUE constraint failed')) ? 409 :
         (msg.includes('required') || msg.includes('at least 8')) ? 400 : 500;
-      res.status(status).json({ error: e.message });
+      res.status(status).json({ error: safeErrorMessage(e, 'Church provisioning failed') });
     }
   });
 

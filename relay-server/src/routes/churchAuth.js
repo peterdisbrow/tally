@@ -143,7 +143,11 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     }
 
     // Send email verification (non-blocking)
-    const verifyUrl = `${process.env.RELAY_URL || 'https://api.tallyconnect.app'}/api/church/verify-email?token=${emailVerifyToken}`;
+    const relayBase = process.env.RELAY_URL || 'https://api.tallyconnect.app';
+    if (process.env.NODE_ENV === 'production' && !relayBase.startsWith('https://')) {
+      log('[Onboarding] CRITICAL: RELAY_URL must start with https:// in production. Skipping verification email.');
+    }
+    const verifyUrl = `${relayBase}/api/church/verify-email?token=${emailVerifyToken}`;
     sendOnboardingEmail({
       to: cleanEmail,
       subject: 'Confirm your email to activate your trial',
@@ -276,7 +280,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       const currentRoomId = db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId)?.room_id || null;
       res.json({ rooms, currentRoomId });
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 
@@ -295,7 +299,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
         res.json({ ok: true, roomId: null, roomName: null });
       }
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
 

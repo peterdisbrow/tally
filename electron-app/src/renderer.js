@@ -2377,7 +2377,7 @@ function startPreServiceRefresh() {
 startPreServiceRefresh();
 
 // Update stale timestamp display every 30s while disconnected
-setInterval(() => {
+let _staleDisplayTimer = setInterval(() => {
   if (_relayDisconnectedAt && _cachedStatusTime) {
     const staleEl = document.getElementById('offline-banner-stale');
     if (staleEl && staleEl.style.display !== 'none') {
@@ -3806,6 +3806,14 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('click', (e) => {
   const link = e.target.closest('.ext-link');
   if (link) { e.preventDefault(); api.openExternal(link.dataset.url); }
+});
+
+// ─── CLEANUP ON UNLOAD ──────────────────────────────────────────────────────
+window.addEventListener('beforeunload', () => {
+  if (_reconnectCountdownTimer) { clearInterval(_reconnectCountdownTimer); _reconnectCountdownTimer = null; }
+  if (_preServiceRefreshTimer) { clearInterval(_preServiceRefreshTimer); _preServiceRefreshTimer = null; }
+  if (_staleDisplayTimer) { clearInterval(_staleDisplayTimer); _staleDisplayTimer = null; }
+  if (chatPollInterval) { clearInterval(chatPollInterval); chatPollInterval = null; }
 });
 
 init();

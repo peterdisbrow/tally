@@ -118,14 +118,14 @@ module.exports = function setupAutomationRoutes(app, ctx) {
         const NEXT_TIER = { connect: 'plus', plus: 'pro', pro: 'managed', managed: 'managed' };
         const suggestedPlan = NEXT_TIER[e.currentTier] || 'pro';
         return res.status(402).json({
-          error: e.message,
+          error: safeErrorMessage(e, 'Rule limit reached'),
           upgradeUrl: `https://tallyconnect.app/signup?plan=${suggestedPlan}`,
           suggestedPlan,
           currentTier: e.currentTier,
           ruleLimit: e.ruleLimit,
         });
       }
-      res.status(400).json({ error: e.message });
+      res.status(400).json({ error: safeErrorMessage(e, 'Failed to create rule') });
     }
   });
 
@@ -134,7 +134,7 @@ module.exports = function setupAutomationRoutes(app, ctx) {
       const rule = autoPilot.updateRule(req.params.ruleId, req.body);
       res.json(rule);
     } catch (e) {
-      res.status(400).json({ error: e.message });
+      res.status(400).json({ error: safeErrorMessage(e, 'Failed to update rule') });
     }
   });
 

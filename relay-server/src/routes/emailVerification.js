@@ -53,6 +53,10 @@ module.exports = function setupEmailVerificationRoutes(app, ctx) {
 
     // Send verification email (non-blocking)
     const relayBase = process.env.RELAY_URL || 'https://api.tallyconnect.app';
+    if (process.env.NODE_ENV === 'production' && !relayBase.startsWith('https://')) {
+      log('[EmailVerify] CRITICAL: RELAY_URL must start with https:// in production. Refusing to send verification email with insecure URL.');
+      return res.status(500).json({ error: 'Server misconfiguration' });
+    }
     const verifyUrl = `${relayBase.replace(/\/+$/, '')}/api/church/verify-email?token=${verifyToken}`;
     sendOnboardingEmail({
       to: cleanEmail,

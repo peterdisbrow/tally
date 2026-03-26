@@ -6,7 +6,8 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build:mac": "electron-builder --mac",
+    "build:mac": "bash ../scripts/bump-version.sh patch && electron-builder --mac",
+    "build:mac:nobump": "electron-builder --mac",
     "build:mac:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac",
     "build:mac:dist": "mkdir -p \"$HOME/Desktop/Tally\" && electron-builder --mac && cp -f dist/Tally-*.dmg \"$HOME/Desktop/Tally/\"",
     "build:win": "electron-builder --win",

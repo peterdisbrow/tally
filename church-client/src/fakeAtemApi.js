@@ -241,7 +241,7 @@ function buildUiHtml() {
 
   <script>
     async function api(path, method = 'GET', body) {
-      const opts = { method, headers: { 'content-type': 'application/json' } };
+      const opts = { method, headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(10000) };
       if (body !== undefined) opts.body = JSON.stringify(body);
       const res = await fetch(path, opts);
       const data = await res.json().catch(() => ({}));
