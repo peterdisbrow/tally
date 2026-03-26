@@ -1,6 +1,6 @@
 {
   "name": "tally",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Connect your church AV system to ATEM School remote monitoring",
   "main": "src/index.js",
   "bin": {
@@ -34,8 +34,14 @@
     "nodemon": "^3.1.14"
   },
   "c8": {
-    "include": ["src/**"],
-    "reporter": ["text", "html", "lcov"],
+    "include": [
+      "src/**"
+    ],
+    "reporter": [
+      "text",
+      "html",
+      "lcov"
+    ],
     "check-coverage": true,
     "statements": 53,
     "branches": 80,

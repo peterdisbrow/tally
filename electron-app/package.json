@@ -1,6 +1,6 @@
 {
   "name": "tally-connect",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Tally — Remote monitoring for ATEM School customers",
   "main": "src/main.js",
   "scripts": {
@@ -58,8 +58,16 @@
     },
     "dmg": {
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     },
     "win": {
@@ -133,8 +141,14 @@
     "playwright": "^1.58.2"
   },
   "c8": {
-    "include": ["src/**"],
-    "reporter": ["text", "html", "lcov"],
+    "include": [
+      "src/**"
+    ],
+    "reporter": [
+      "text",
+      "html",
+      "lcov"
+    ],
     "check-coverage": true,
     "statements": 48,
     "branches": 68,
