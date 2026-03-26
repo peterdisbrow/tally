@@ -1,10 +1,44 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, Notification, clipboard, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, shell, Notification, clipboard, dialog, screen } = require('electron');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const WebSocket = require('ws');
 const { encryptConfig, decryptConfig } = require('./secureStorage');
+
+// ─── CLI PROVISIONING FLAGS ────────────────────────────────────────────────────
+// Supports MDM pre-seeding: --config-path, --relay-url, --church-id  (P2 item 17)
+// Electron passes all argv after '--' to the app; filter out Electron-internal flags.
+let _cliOpts = {};
+try {
+  const { Command } = require('commander');
+  const program = new Command();
+  program
+    .name('tally')
+    .description('Tally Connect — remote AV tally monitoring')
+    .option('--config-path <path>', 'Override default config file path (~/.church-av/config.json)')
+    .option('--relay-url <url>', 'Override relay server URL')
+    .option('--church-id <id>', 'Pre-provision a church ID (written to config on first launch)')
+    .option('--dev', 'Enable developer tools')
+    .allowUnknownOption(true)
+    .exitOverride(); // prevent process.exit() on --help in packaged builds
+  program.parse(process.argv);
+  _cliOpts = program.opts();
+} catch { /* commander may not be available in all build configurations */ }
+
+// Apply --config-path override before config-manager is used
+if (_cliOpts.configPath) {
+  process.env.TALLY_CONFIG_PATH = _cliOpts.configPath;
+}
+// Apply --relay-url override
+if (_cliOpts.relayUrl) {
+  process.env.TALLY_DEFAULT_RELAY_URL = _cliOpts.relayUrl;
+}
+
+// i18n — applied after prefs are loadable (prefs.json may have a saved locale)
+const i18n = require('./i18n');
+// Locale will be properly set after app.whenReady() + loadPrefs(); default to OS locale for now.
+i18n.detectAndApplyLocale();
 
 // Extracted modules (pure refactoring — see config-manager.js, relay-client.js, equipment-tester.js)
 const configManager = require('./config-manager');
@@ -36,6 +70,7 @@ const DEFAULT_RELAY_URL = process.env.TALLY_DEFAULT_RELAY_URL || 'wss://api.tall
 const LOG_DIR = path.join(CONFIG_DIR, 'logs');
 const APP_LOG_PATH = path.join(LOG_DIR, 'tally-app.log');
 const MAX_RECENT_LOG_LINES = 2000;
+const MAX_LOG_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 let tray = null;
 let mainWindow = null;
@@ -122,6 +157,16 @@ function appendAppLog(source, message) {
     if (recentLogLines.length > MAX_RECENT_LOG_LINES) {
       recentLogLines.splice(0, recentLogLines.length - MAX_RECENT_LOG_LINES);
     }
+    // Log rotation: if file exceeds 10 MB, rename to .1 and start fresh (P2 item 16)
+    try {
+      const stat = fs.statSync(APP_LOG_PATH);
+      if (stat.size > MAX_LOG_FILE_BYTES) {
+        const rotatedPath = APP_LOG_PATH + '.1';
+        // Overwrite any previous .1 rotation
+        if (fs.existsSync(rotatedPath)) fs.unlinkSync(rotatedPath);
+        fs.renameSync(APP_LOG_PATH, rotatedPath);
+      }
+    } catch { /* file may not exist yet */ }
     // Non-blocking write — don't freeze the main process during live service
     fs.appendFile(APP_LOG_PATH, batch, 'utf8', () => {});
   } catch (e) {
@@ -215,11 +260,55 @@ function computeTrayState() {
 
 // ─── WINDOW ───────────────────────────────────────────────────────────────────
 
+function clampBoundsToDisplay(bounds) {
+  // Get the total usable area across all displays
+  const displays = screen.getAllDisplays();
+  if (!displays.length) return bounds;
+
+  const { x, y, width, height } = bounds;
+  const w = width || 900;
+  const h = height || 820;
+
+  // Find a display that overlaps the saved bounds
+  const overlap = displays.find((d) => {
+    const { x: dx, y: dy, width: dw, height: dh } = d.workArea;
+    return x < dx + dw && x + w > dx && y < dy + dh && y + h > dy;
+  });
+
+  if (overlap) {
+    const { x: dx, y: dy, width: dw, height: dh } = overlap.workArea;
+    return {
+      x: Math.max(dx, Math.min(x, dx + dw - w)),
+      y: Math.max(dy, Math.min(y, dy + dh - h)),
+      width: Math.min(w, dw),
+      height: Math.min(h, dh),
+    };
+  }
+
+  // Saved bounds are entirely off-screen — reset to primary display center
+  const primary = screen.getPrimaryDisplay().workArea;
+  return {
+    x: primary.x + Math.round((primary.width - w) / 2),
+    y: primary.y + Math.round((primary.height - h) / 2),
+    width: w,
+    height: h,
+  };
+}
+
 function createWindow() {
   const savedBounds = loadPrefs().windowBounds || {};
+  const rawWidth  = savedBounds.width  || 900;
+  const rawHeight = savedBounds.height || 820;
+
+  // Clamp saved position to visible display area (Persona 6 P2 item 9)
+  let clamped = null;
+  if (savedBounds.x != null && savedBounds.y != null) {
+    clamped = clampBoundsToDisplay({ x: savedBounds.x, y: savedBounds.y, width: rawWidth, height: rawHeight });
+  }
+
   const winOpts = {
-    width: savedBounds.width || 900,
-    height: savedBounds.height || 820,
+    width: clamped ? clamped.width : rawWidth,
+    height: clamped ? clamped.height : rawHeight,
     minWidth: 580,
     minHeight: 720,
     resizable: true,
@@ -233,8 +322,8 @@ function createWindow() {
     title: 'Tally',
     show: false,
   };
-  if (savedBounds.x != null) winOpts.x = savedBounds.x;
-  if (savedBounds.y != null) winOpts.y = savedBounds.y;
+  if (clamped) { winOpts.x = clamped.x; winOpts.y = clamped.y; }
+  else if (savedBounds.x != null) { winOpts.x = savedBounds.x; winOpts.y = savedBounds.y; }
   mainWindow = new BrowserWindow(winOpts);
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
@@ -270,6 +359,8 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    // Check if this is the first launch after an update
+    setTimeout(() => checkWhatsNew(), 1500);
   });
 }
 
@@ -314,22 +405,23 @@ function updateTray() {
     billingLine = `\u2705 Plan: ${tierNames[billingTier] || billingTier}`;
   }
 
+  const { t } = i18n;
   const menu = Menu.buildFromTemplate([
     { label: 'Tally', enabled: false },
     { label: statusLine, enabled: false },
     ...(billingLine ? [{ label: billingLine, enabled: false }] : []),
     { type: 'separator' },
-    { label: 'Open Dashboard', click: () => mainWindow?.show() },
-    { label: connected ? 'Stop Monitoring' : 'Start Monitoring', click: () => connected ? stopAgent() : startAgent() },
+    { label: t('tray.openDashboard'), click: () => mainWindow?.show() },
+    { label: connected ? t('tray.stopMonitoring') : t('tray.startMonitoring'), click: () => connected ? stopAgent() : startAgent() },
     { type: 'separator' },
-    { label: 'Client Portal', click: () => shell.openExternal('https://tallyconnect.app/portal') },
-    { label: 'Help & Support', click: () => shell.openExternal('https://tallyconnect.app/help') },
+    { label: t('tray.clientPortal'), click: () => shell.openExternal('https://tallyconnect.app/portal') },
+    { label: t('tray.helpSupport'), click: () => shell.openExternal('https://tallyconnect.app/help') },
     { label: 'Tally Connect', click: () => shell.openExternal('https://tallyconnect.app') },
     { type: 'separator' },
-    { label: 'Check for Updates', click: () => {
+    { label: t('tray.checkForUpdates'), click: () => {
       if (autoUpdater) {
-        autoUpdater.checkForUpdatesAndNotify().catch(() => {
-          dialog.showMessageBox({ type: 'info', title: 'Updates', message: 'You are running the latest version.' });
+        autoUpdater.checkForUpdates().then(() => {}).catch(() => {
+          mainWindow?.webContents.send('update-not-available');
         });
       } else {
         shell.openExternal('https://github.com/peterdisbrow/tally/releases/latest');
@@ -337,7 +429,7 @@ function updateTray() {
     }},
     { label: `Version ${app.getVersion()}`, enabled: false },
     { type: 'separator' },
-    { label: 'Quit', click: () => { app.isQuitting = true; stopAgent(); app.exit(0); } },
+    { label: t('tray.quit'), click: () => { app.isQuitting = true; stopAgent(); app.exit(0); } },
   ]);
 
   tray.setContextMenu(menu);
@@ -445,6 +537,33 @@ function resolveChurchClientPaths() {
   return null;
 }
 
+// ─── AUTH FAILURE DETECTOR ────────────────────────────────────────────────────
+// Detect JWT expiry / rejection in agent output and fire auth-invalid immediately,
+// stopping the crash-restart loop (P1 item 7 / Persona 12).
+let _authInvalidFired = false;
+function _detectAgentAuthFailure(text) {
+  if (_authInvalidFired) return; // Already handled — don't fire multiple times
+  const AUTH_PATTERNS = [
+    '1008', 'Invalid token', 'Authentication failed', 'Token expired',
+    'token expired', 'jwt expired', 'Unauthorized', 'auth rejected',
+    'auth: reject', 'Not authorized',
+  ];
+  const isAuthFailure = AUTH_PATTERNS.some((p) => text.includes(p));
+  if (!isAuthFailure) return;
+
+  _authInvalidFired = true;
+  appendAppLog('SYSTEM', 'Auth failure detected in agent output — stopping restart loop');
+  agentStatus.relay = false;
+  mainWindow?.webContents.send('status', agentStatus);
+  updateTray();
+  mainWindow?.webContents.send('auth-invalid');
+
+  // Stop the agent immediately to prevent the 5-crash escalation loop
+  const proc = agentProcess;
+  agentProcess = null; // Prevent auto-restart in close handler
+  try { proc?.kill(); } catch { /* ignore */ }
+}
+
 function startAgent() {
   if (agentProcess) return;
 
@@ -525,10 +644,13 @@ function startAgent() {
     agentProcess = null;
   });
 
+  _authInvalidFired = false; // Reset on each fresh agent start
+
   agentProcess.stdout.on('data', (data) => {
     const text = data.toString();
     console.log('[Agent]', text.trim());
     appendAppLog('AGENT', text);
+    _detectAgentAuthFailure(text); // Catch auth failures in stdout too
 
     let statusChanged = false;
 
@@ -654,14 +776,7 @@ function startAgent() {
     const text = data.toString();
     appendAppLog('AGENT_ERR', text);
     mainWindow?.webContents.send('log', '[err] ' + text);
-
-    // Detect auth rejection (WebSocket close code 1008) and notify renderer
-    if (text.includes('1008') || text.includes('Invalid token') || text.includes('Authentication failed') || text.includes('auth') && text.includes('reject')) {
-      agentStatus.relay = false;
-      mainWindow?.webContents.send('status', agentStatus);
-      updateTray();
-      mainWindow?.webContents.send('auth-invalid');
-    }
+    _detectAgentAuthFailure(text);
   });
 
   agentProcess.on('close', (code) => {
@@ -732,6 +847,35 @@ setInterval(() => {
   }
 }, 30_000); // Check every 30 seconds
 
+// ─── CONNECTION QUALITY INDICATOR ────────────────────────────────────────────
+// Periodic HTTP ping to relay to measure round-trip latency (P2 item 11).
+const https = require('https');
+const http  = require('http');
+
+let _lastPingMs = null;
+let _lastPingTime = null;
+
+function measureRelayLatency() {
+  const config = configManager.loadConfig();
+  const relayUrl = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  const startMs = Date.now();
+  const lib = relayUrl.startsWith('https') ? https : http;
+  const req = lib.get(relayUrl, { timeout: 5000 }, (res) => {
+    res.resume(); // drain
+    const ms = Date.now() - startMs;
+    _lastPingMs = ms;
+    _lastPingTime = new Date().toISOString();
+    mainWindow?.webContents.send('connection-quality', { latencyMs: ms, lastPingTime: _lastPingTime });
+  });
+  req.on('error', () => {});
+  req.on('timeout', () => req.destroy());
+}
+
+// Ping every 30s while connected
+setInterval(() => {
+  if (agentStatus.relay) measureRelayLatency();
+}, 30_000);
+
 // ─── TEST CONNECTION ──────────────────────────────────────────────────────────
 
 // ─── RELAY HELPERS (delegated to relay-client module) ─────────────────────────
@@ -743,7 +887,8 @@ const { checkTokenWithRelay, postJson, loginChurchWithCredentials,
 
 
 // ─── CONFIG (delegated to config-manager module) ─────────────────────────────
-const { loadConfig, saveConfig, loadConfigForUI, isMockValue, stripMockConfig } = configManager;
+const { loadConfig, saveConfig, loadConfigForUI, isMockValue, stripMockConfig,
+        exportPortableConfig, importPortableConfig } = configManager;
 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
 
@@ -765,6 +910,57 @@ ipcMain.handle('save-config', (_, config) => {
   saveConfig(sanitized);
   return true;
 });
+// i18n locale data for renderer
+ipcMain.handle('get-locale-data', () => ({
+  locale: i18n.getLocale(),
+  locales: i18n.LOCALES,
+}));
+ipcMain.handle('set-locale', (_, locale) => {
+  i18n.setLocale(locale);
+  const prefs = loadPrefs();
+  savePrefs({ ...prefs, locale });
+  // Rebuild tray with new locale
+  updateTray();
+  return i18n.getLocale();
+});
+
+ipcMain.handle('export-portable-config', async () => {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const defaultPath = path.join(app.getPath('desktop'), `tally-config-${stamp}.json`);
+  const { canceled, filePath } = await dialog.showSaveDialog(mainWindow || undefined, {
+    title: 'Export Tally Config',
+    defaultPath,
+    filters: [{ name: 'Tally Config', extensions: ['json'] }],
+  });
+  if (canceled || !filePath) return { canceled: true };
+  try {
+    const portable = exportPortableConfig();
+    fs.writeFileSync(filePath, JSON.stringify(portable, null, 2), 'utf8');
+    appendAppLog('SYSTEM', `Exported portable config to ${filePath}`);
+    return { canceled: false, filePath };
+  } catch (e) {
+    return { canceled: false, error: e.message };
+  }
+});
+
+ipcMain.handle('import-portable-config', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow || undefined, {
+    title: 'Import Tally Config',
+    filters: [{ name: 'Tally Config', extensions: ['json'] }],
+    properties: ['openFile'],
+  });
+  if (canceled || !filePaths[0]) return { canceled: true };
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePaths[0], 'utf8'));
+    const result = importPortableConfig(raw);
+    if (!result.ok) return { error: result.error };
+    appendAppLog('SYSTEM', `Imported portable config from ${filePaths[0]}`);
+    return { ok: true };
+  } catch (e) {
+    return { error: `Failed to read config file: ${e.message}` };
+  }
+});
+
 ipcMain.handle('get-status', () => agentStatus);
 ipcMain.handle('start-agent', () => { agentCrashCount = 0; startAgent(); });
 ipcMain.handle('stop-agent', () => stopAgent());
@@ -1513,33 +1709,136 @@ function setupAutoUpdate() {
   if (!autoUpdater) return;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+
   autoUpdater.on('update-available', (info) => {
     sendNotification('Update Available', `Version ${info.version} is downloading...`);
     mainWindow?.webContents.send('log', `Update available: v${info.version}`);
+    mainWindow?.webContents.send('update-available-info', { version: info.version });
   });
-  autoUpdater.on('update-downloaded', () => {
-    sendNotification('Update Ready', 'Restart to install the update.');
+
+  autoUpdater.on('update-not-available', (info) => {
+    appendAppLog('SYSTEM', `Auto-update: already on latest version (${info?.version || app.getVersion()})`);
+    mainWindow?.webContents.send('update-not-available');
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    mainWindow?.webContents.send('update-progress', {
+      percent: Math.round(progress.percent || 0),
+      transferred: progress.transferred,
+      total: progress.total,
+      bytesPerSecond: progress.bytesPerSecond,
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    sendNotification('Update Ready', `v${info.version} is ready — restart to install.`);
     mainWindow?.webContents.send('update-ready', true);
+    mainWindow?.webContents.send('update-downloaded-info', { version: info.version, releaseNotes: info.releaseNotes || '' });
   });
+
   autoUpdater.on('error', (err) => {
-    console.log('Auto-update error:', err.message);
+    const msg = err?.message || 'Unknown update error';
+    appendAppLog('SYSTEM', `Auto-update error: ${msg}`);
+    mainWindow?.webContents.send('update-error', msg);
   });
-  autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+
+  // Check for updates; the interval setting is read from prefs
+  const prefs = loadPrefs();
+  const intervalHours = Math.max(1, Math.min(168, Number(prefs.updateCheckIntervalHours) || 24));
+  autoUpdater.checkForUpdatesAndNotify().catch((e) => {
+    appendAppLog('SYSTEM', `Update check failed: ${e?.message}`);
+    mainWindow?.webContents.send('update-error', e?.message || 'Update check failed');
+  });
+
+  // Periodic re-check based on interval setting
+  if (intervalHours < 168) {
+    setInterval(() => {
+      autoUpdater.checkForUpdates().catch(() => {});
+    }, intervalHours * 60 * 60 * 1000);
+  }
+}
+
+// ─── WHAT'S NEW SPLASH ────────────────────────────────────────────────────────
+// After an update, show a "What's New" notification on first launch of the new version.
+function checkWhatsNew() {
+  const currentVersion = app.getVersion();
+  const prefs = loadPrefs();
+  if (prefs.lastSeenVersion !== currentVersion) {
+    savePrefs({ lastSeenVersion: currentVersion });
+    // Defer until window is ready
+    if (mainWindow?.webContents) {
+      mainWindow.webContents.send('whats-new', { version: currentVersion });
+    }
+  }
 }
 
 // ─── SINGLE INSTANCE LOCK ─────────────────────────────────────────────────────
+
+// ─── DEEP LINK (tally:// URL scheme) ─────────────────────────────────────────
+
+/**
+ * Handle a tally:// deep link URL.
+ * Supported schemes:
+ *   tally://open              — focus the main window
+ *   tally://config?key=value  — pre-fill config fields (non-sensitive only)
+ */
+function handleDeepLink(url) {
+  if (!url || !url.startsWith('tally://')) return;
+  appendAppLog('SYSTEM', `Deep link: ${url}`);
+
+  try {
+    const parsed = new URL(url);
+    const action = parsed.hostname || parsed.pathname.replace(/^\/+/, '');
+
+    if (action === 'open') {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    } else if (action === 'config') {
+      // Only allow whitelisted, non-sensitive keys
+      const ALLOWED_KEYS = ['relayUrl', 'churchId', 'atemHost', 'companionHost', 'obsHost'];
+      const patch = {};
+      for (const [k, v] of parsed.searchParams) {
+        if (ALLOWED_KEYS.includes(k)) patch[k] = v;
+      }
+      if (Object.keys(patch).length > 0) {
+        const existing = configManager.loadConfig();
+        configManager.saveConfig(Object.assign({}, existing, patch));
+        appendAppLog('SYSTEM', `Deep link patched config: ${JSON.stringify(patch)}`);
+        if (mainWindow) mainWindow.webContents.send('config-updated');
+      }
+    }
+  } catch (err) {
+    appendAppLog('WARN', `Deep link parse error: ${err.message}`);
+  }
+}
+
+// Register tally:// as the app's URL protocol handler
+if (process.platform !== 'linux') {
+  app.setAsDefaultProtocolClient('tally');
+}
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
     // Someone tried to launch a second instance — focus our window
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
       mainWindow.focus();
     }
+    // Windows/Linux deep link arrives as a CLI arg in the second instance
+    const deepLinkUrl = argv.find((a) => a.startsWith('tally://'));
+    if (deepLinkUrl) handleDeepLink(deepLinkUrl);
+  });
+
+  // macOS: deep link via open-url event (arrives before or after ready)
+  app.on('open-url', (_event, url) => {
+    handleDeepLink(url);
   });
 }
 
@@ -1555,6 +1854,17 @@ process.on('unhandledRejection', (reason) => {
 
 app.whenReady().then(() => {
   appendAppLog('SYSTEM', `App ready (version=${app.getVersion()}, platform=${process.platform}/${process.arch})`);
+  // Apply saved locale preference
+  const prefs = loadPrefs();
+  if (prefs.locale) i18n.setLocale(prefs.locale);
+  // Apply --church-id provisioning flag (P2 item 17)
+  if (_cliOpts.churchId) {
+    const existing = configManager.loadConfig();
+    if (!existing.churchId) {
+      configManager.saveConfig({ churchId: _cliOpts.churchId });
+      appendAppLog('SYSTEM', `CLI: provisioned churchId=${_cliOpts.churchId}`);
+    }
+  }
   createWindow();
   createTray();
   setupAutoUpdate();

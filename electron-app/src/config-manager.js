@@ -9,7 +9,8 @@ const path = require('path');
 const os = require('os');
 const { encryptConfig, decryptConfig } = require('./secureStorage');
 
-const CONFIG_PATH = path.join(os.homedir(), '.church-av', 'config.json');
+// Support --config-path CLI override (P2 item 17)
+const CONFIG_PATH = process.env.TALLY_CONFIG_PATH || path.join(os.homedir(), '.church-av', 'config.json');
 const CONFIG_DIR  = path.dirname(CONFIG_PATH);
 
 // Injected dependency — set via init()
@@ -23,6 +24,30 @@ function init({ enforceRelayPolicy }) {
   if (typeof enforceRelayPolicy === 'function') {
     _enforceRelayPolicy = enforceRelayPolicy;
   }
+}
+
+// ─── Schema version & migrations ──────────────────────────────────────────────
+
+const CURRENT_SCHEMA_VERSION = 1;
+
+/**
+ * Migrate a loaded config object from an older schemaVersion to the current one.
+ * Add a new `case` block here whenever a breaking field rename/restructure lands.
+ *
+ * @param {object} config — decrypted, mock-stripped config from disk
+ * @returns {object} — migrated config (may be same reference if no migration needed)
+ */
+function migrateConfig(config) {
+  let version = config.schemaVersion || 0;
+
+  // v0 → v1: nothing structural changed yet; just stamp the version field.
+  // Future migrations go here as:
+  //   case 1: config = { ...config, newField: config.oldField }; delete config.oldField; // fall through
+  if (version < 1) {
+    version = 1;
+  }
+
+  return { ...config, schemaVersion: version };
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -71,7 +96,8 @@ function loadConfig() {
   if (_isCacheValid()) return { ..._configCache };
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    const config = stripMockConfig(decryptConfig(raw)); // decrypt secure fields on load
+    const decrypted = stripMockConfig(decryptConfig(raw)); // decrypt secure fields on load
+    const config = migrateConfig(decrypted); // upgrade schema if needed
     config.relay = _enforceRelayPolicy(config.relay);
     // Cache the result
     _configCache = { ...config };
@@ -94,6 +120,11 @@ function saveConfig(config) {
   // Only persist defined values; undefined means "leave existing as-is" before merge.
   const toSave = stripMockConfig(Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined)));
   toSave.relay = _enforceRelayPolicy(toSave.relay);
+  // Backup existing config before overwriting (P2 item 15)
+  const bakPath = CONFIG_PATH + '.bak';
+  if (fs.existsSync(CONFIG_PATH)) {
+    try { fs.copyFileSync(CONFIG_PATH, bakPath); } catch { /* best effort */ }
+  }
   // Atomic write: write to temp file then rename (crash-safe)
   const tmpPath = CONFIG_PATH + '.tmp';
   fs.writeFileSync(tmpPath, JSON.stringify(encryptConfig(toSave), null, 2));
@@ -181,14 +212,73 @@ function getSanitizedConfigForExport() {
   return sanitized;
 }
 
+/**
+ * Export config as a portable, non-encrypted JSON blob.
+ * Credentials that are machine-encrypted are written in plaintext so the
+ * export can be imported on another machine where safeStorage would differ.
+ *
+ * Sensitive auth fields (token, churchToken) are ALWAYS omitted — those must
+ * be re-entered after import.  Equipment IPs, ports, labels, and passwords
+ * are included so the equipment layout is fully portable.
+ */
+function exportPortableConfig() {
+  const config = loadConfig(); // decrypted in memory
+  const portable = { ...config };
+
+  // Drop auth tokens — not portable (machine-scoped JWTs)
+  const AUTH_FIELDS = ['token', 'churchToken', 'youtubeOAuthAccessToken', 'youtubeOAuthRefreshToken', 'facebookOAuthAccessToken'];
+  for (const f of AUTH_FIELDS) delete portable[f];
+
+  // Tag the export so the importer knows this is portable (not a diagnostic redacted copy)
+  portable._portableExport = true;
+  portable._exportedAt = new Date().toISOString();
+  portable._exportVersion = 1;
+
+  return portable;
+}
+
+/**
+ * Import a portable config blob.  Re-encrypts sensitive fields via
+ * encryptConfig / saveConfig so they are stored safely on the new machine.
+ *
+ * @param {object} portableBlob — the parsed JSON from exportPortableConfig()
+ * @returns {{ ok: boolean, warning?: string }}
+ */
+function importPortableConfig(portableBlob) {
+  if (!portableBlob || typeof portableBlob !== 'object') {
+    return { ok: false, error: 'Invalid config file — expected a JSON object.' };
+  }
+  if (!portableBlob._portableExport) {
+    return { ok: false, error: 'This file does not appear to be a Tally portable config export.' };
+  }
+
+  // Strip the export metadata before merging
+  const { _portableExport, _exportedAt, _exportVersion, ...incoming } = portableBlob;
+
+  // Auth tokens are never imported — the user must sign in on the new machine
+  const AUTH_FIELDS = ['token', 'churchToken', 'youtubeOAuthAccessToken', 'youtubeOAuthRefreshToken', 'facebookOAuthAccessToken'];
+  for (const f of AUTH_FIELDS) delete incoming[f];
+
+  // Merge over current config (keeps any local token if already signed in)
+  const current = loadConfig();
+  const merged = { ...current, ...incoming };
+
+  saveConfig(merged);
+  return { ok: true };
+}
+
 module.exports = {
   init,
   isMockValue,
   stripMockConfig,
+  migrateConfig,
+  CURRENT_SCHEMA_VERSION,
   loadConfig,
   saveConfig,
   loadConfigForUI,
   getSanitizedConfigForExport,
+  exportPortableConfig,
+  importPortableConfig,
   CONFIG_PATH,
   CONFIG_DIR,
 };

@@ -1,0 +1,79 @@
+{
+  "app": {
+    "title": "Tally",
+    "subtitle": "by Tally Connect"
+  },
+  "signIn": {
+    "title": "Sign In",
+    "emailPlaceholder": "Church email address",
+    "passwordPlaceholder": "Password",
+    "submitButton": "Sign In",
+    "signingIn": "Signing in...",
+    "createAccount": "Create an account",
+    "forgotPassword": "Forgot password?"
+  },
+  "status": {
+    "relay": "Relay",
+    "atem": "ATEM",
+    "encoder": "Encoder",
+    "companion": "Companion",
+    "ndi": "NDI",
+    "failover": "Failover",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "offline": "Relay disconnected — monitoring is paused"
+  },
+  "tabs": {
+    "status": "Status",
+    "equipment": "Equipment",
+    "engineer": "Tally Engineer"
+  },
+  "dashboard": {
+    "startMonitoring": "Start Monitoring",
+    "stopMonitoring": "Stop Monitoring",
+    "testConnection": "Test",
+    "exportLogs": "Logs",
+    "setup": "Setup",
+    "signOut": "Sign Out",
+    "exportConfig": "Export Config",
+    "importConfig": "Import Config"
+  },
+  "tray": {
+    "openDashboard": "Open Dashboard",
+    "startMonitoring": "Start Monitoring",
+    "stopMonitoring": "Stop Monitoring",
+    "clientPortal": "Client Portal",
+    "helpSupport": "Help & Support",
+    "checkForUpdates": "Check for Updates",
+    "quit": "Quit"
+  },
+  "notifications": {
+    "atemDisconnected": "ATEM Disconnected",
+    "atemDisconnectedBody": "The ATEM switcher has lost connection.",
+    "streamStopped": "Stream Stopped",
+    "streamStoppedBody": "The live stream has stopped unexpectedly.",
+    "lowFps": "Low FPS Warning",
+    "updateAvailable": "Update Available",
+    "updateReady": "Update Ready",
+    "stillRunning": "Tally Connect is still running",
+    "stillRunningBody": "Tally Connect is still running in your system tray."
+  },
+  "errors": {
+    "wrongPassword": "Wrong password. Please check your password and try again.",
+    "accountNotFound": "Account not found. Check your email address or create an account at tallyconnect.app.",
+    "rateLimited": "Too many sign-in attempts. Please wait a few minutes and try again.",
+    "networkUnreachable": "Could not reach the Tally Connect server. Check your internet connection.",
+    "sessionExpired": "Session expired. Please sign in again.",
+    "sessionInvalidated": "Session was invalidated by the server. Please sign in again."
+  },
+  "preService": {
+    "runCheck": "Run Check Now",
+    "fixAll": "Fix All",
+    "fixing": "Fixing…"
+  },
+  "logs": {
+    "agentLogs": "Agent Logs",
+    "showHide": "(Show/Hide)",
+    "clear": "Clear"
+  }
+}

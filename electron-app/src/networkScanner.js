@@ -245,8 +245,47 @@ function probeDevice(ip, port, type, timeoutMs) {
 }
 
 /**
+ * Convert a netmask string (e.g. "255.255.255.0") to a prefix length (e.g. 24).
+ */
+function netmaskToPrefixLen(netmask) {
+  if (!netmask) return 24;
+  const parts = netmask.split('.').map(Number);
+  let bits = 0;
+  for (const p of parts) {
+    let n = p;
+    while (n) { bits += (n & 1); n >>= 1; }
+  }
+  return bits;
+}
+
+/**
+ * Given an IP and its prefix length, generate all host addresses in the subnet.
+ * Caps at 65534 hosts (/16) to prevent scanning runaway.
+ */
+function expandSubnet(ip, prefixLen) {
+  const clamped = Math.max(16, Math.min(30, prefixLen)); // clamp to /16–/30
+  const parts = ip.split('.').map(Number);
+  const ipNum = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
+  const mask = ~((1 << (32 - clamped)) - 1) >>> 0;
+  const network = (ipNum & mask) >>> 0;
+  const broadcast = (network | (~mask >>> 0)) >>> 0;
+  const hosts = [];
+  for (let h = network + 1; h < broadcast; h++) {
+    hosts.push([
+      (h >>> 24) & 0xFF,
+      (h >>> 16) & 0xFF,
+      (h >>> 8)  & 0xFF,
+       h         & 0xFF,
+    ].join('.'));
+  }
+  return hosts;
+}
+
+/**
  * Build the full list of IPs to scan, supporting multi-subnet discovery.
  * Scans all available non-internal interfaces plus any extra subnets/IPs.
+ * Uses each interface's actual netmask (not a hardcoded /24) to support
+ * /23, /22, and other subnet sizes. (P3 item 19)
  *
  * @param {object} options
  * @param {string}   [options.interfaceName] - scan only this interface (single-subnet mode)
@@ -256,39 +295,40 @@ function probeDevice(ip, port, type, timeoutMs) {
  */
 function buildScanTargets(options = {}) {
   const localIps = new Set();
-  const subnetSet = new Set();
+  const ipSet = new Set();
+  const subnetLabels = [];
 
-  if (options.interfaceName) {
-    // Single-interface mode (legacy behavior)
-    const { subnet, localIp } = getLocalSubnet(options.interfaceName);
-    localIps.add(localIp);
-    subnetSet.add(subnet);
-  } else {
-    // Scan all interfaces
-    for (const iface of listAvailableInterfaces()) {
-      localIps.add(iface.ip);
-      const parts = iface.ip.split('.');
-      subnetSet.add(`${parts[0]}.${parts[1]}.${parts[2]}`);
-    }
-    // Fallback if no interfaces found
-    if (subnetSet.size === 0) {
-      subnetSet.add('192.168.1');
-      localIps.add('127.0.0.1');
-    }
+  const ifaces = listAvailableInterfaces();
+
+  const targetIfaces = options.interfaceName
+    ? ifaces.filter((i) => i.name === options.interfaceName)
+    : ifaces;
+
+  for (const iface of targetIfaces) {
+    localIps.add(iface.ip);
+    const prefixLen = netmaskToPrefixLen(iface.netmask);
+    const hosts = expandSubnet(iface.ip, prefixLen);
+    for (const h of hosts) ipSet.add(h);
+    const ipParts = iface.ip.split('.');
+    subnetLabels.push(`${ipParts[0]}.${ipParts[1]}.${ipParts[2]}.x/${prefixLen}`);
   }
 
-  // Add extra subnets from config
+  // Fallback if no interfaces found
+  if (ipSet.size === 0) {
+    for (let i = 1; i <= 254; i++) ipSet.add(`192.168.1.${i}`);
+    localIps.add('127.0.0.1');
+    subnetLabels.push('192.168.1.x/24');
+  }
+
+  // Add extra subnets from config (treated as /24)
   if (Array.isArray(options.extraSubnets)) {
     for (const s of options.extraSubnets) {
       const trimmed = String(s).trim().replace(/\.+$/, '');
-      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(trimmed)) subnetSet.add(trimmed);
+      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(trimmed)) {
+        for (let i = 1; i <= 254; i++) ipSet.add(`${trimmed}.${i}`);
+        subnetLabels.push(`${trimmed}.x/24`);
+      }
     }
-  }
-
-  // Build IP list from all subnets
-  const ipSet = new Set();
-  for (const subnet of subnetSet) {
-    for (let i = 1; i <= 254; i++) ipSet.add(`${subnet}.${i}`);
   }
 
   // Add extra individual IPs
@@ -299,10 +339,9 @@ function buildScanTargets(options = {}) {
     }
   }
 
-  const subnets = Array.from(subnetSet);
-  const label = subnets.length === 1
-    ? `${subnets[0]}.x`
-    : `${subnets.length} subnets (${subnets.join(', ')})`;
+  const label = subnetLabels.length === 1
+    ? subnetLabels[0]
+    : `${subnetLabels.length} subnets (${subnetLabels.join(', ')})`;
 
   return { ips: Array.from(ipSet), localIps, label };
 }

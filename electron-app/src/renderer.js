@@ -22,6 +22,7 @@ function restoreCollapsibleStates() {
   const defaults = {
     'section-device-identity': true,
     'section-activity': true,
+    'section-raw-logs': true,
   };
   const merged = { ...defaults, ...states };
   for (const [id, collapsed] of Object.entries(merged)) {
@@ -105,7 +106,9 @@ function _renderBitrateSparkline() {
   // Color: green if latest >= 4000 Kbps, yellow if >= 2000, red below
   const latest = _bitrateHistory[_bitrateHistory.length - 1];
   const color = latest >= 4000 ? '#22c55e' : latest >= 2000 ? '#f59e0b' : '#ef4444';
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:inline-block;vertical-align:middle;margin-right:5px;flex-shrink:0;"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+  const latestKbps = Math.round(latest);
+  const trendLabel = `Bitrate trend: ${latestKbps} Kbps (${latest >= 4000 ? 'healthy' : latest >= 2000 ? 'marginal' : 'low'})`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${trendLabel}" style="display:inline-block;vertical-align:middle;margin-right:5px;flex-shrink:0;"><title>${trendLabel}</title><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
 
 function queueOfflineAction(action) {
@@ -142,6 +145,28 @@ function updateOfflineQueueBadge() {
     el.textContent = _offlineQueue.length || '';
     el.style.display = _offlineQueue.length ? '' : 'none';
   }
+}
+
+// ─── JWT EXPIRY WARNING ────────────────────────────────────────────────────
+function checkJwtExpiry(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if (!payload.exp) return;
+    const expiresAt = new Date(payload.exp * 1000);
+    const msUntilExpiry = expiresAt - Date.now();
+    const daysUntilExpiry = msUntilExpiry / (1000 * 60 * 60 * 24);
+    if (daysUntilExpiry <= 0) return; // Already expired — auth flow handles this
+    if (daysUntilExpiry <= 7) {
+      const daysText = daysUntilExpiry < 1 ? 'today' : `in ${Math.ceil(daysUntilExpiry)} day${Math.ceil(daysUntilExpiry) !== 1 ? 's' : ''}`;
+      const banner = document.getElementById('jwt-expiry-banner');
+      if (banner) {
+        banner.textContent = `⚠ Your session expires ${daysText}. Sign out and sign in again to renew.`;
+        banner.style.display = '';
+      }
+    }
+  } catch { /* ignore — malformed token */ }
 }
 
 // ─── PROBLEM FINDER AUTO-RUN ───────────────────────────────────────────────
@@ -414,6 +439,9 @@ async function init() {
     _audioViaAtem = !!(config.audioViaAtem);
 
     if (config.token) {
+      // Check JWT expiry and warn if within 7 days (P2 item 12)
+      checkJwtExpiry(config.token);
+
       // Returning user — validate token silently
       showSignInLoading('Checking your account...');
       document.body.classList.add('ready');
@@ -577,6 +605,38 @@ function shouldRetryLoginOnDefaultRelay(result) {
   ].some((needle) => errorText.includes(needle));
 }
 
+/**
+ * Classify a failed login API response into a specific, actionable message.
+ * Maps HTTP status codes and error strings to human-readable explanations.
+ */
+function classifySignInError(result) {
+  const status = result?.status;
+  const errText = String(result?.error || result?.data?.error || result?.data?.message || '').toLowerCase();
+
+  // HTTP 401 Unauthorized → wrong credentials
+  if (status === 401 || errText.includes('invalid password') || errText.includes('incorrect password') || errText.includes('wrong password') || errText.includes('invalid credentials')) {
+    return 'Wrong password. Please check your password and try again.';
+  }
+  // HTTP 404 Not Found → account doesn't exist
+  if (status === 404 || errText.includes('not found') || errText.includes('no account') || errText.includes('does not exist') || errText.includes('user not found')) {
+    return 'Account not found. Check your email address or create an account at tallyconnect.app.';
+  }
+  // HTTP 429 Rate Limited
+  if (status === 429 || errText.includes('too many') || errText.includes('rate limit')) {
+    return 'Too many sign-in attempts. Please wait a few minutes and try again.';
+  }
+  // Network / relay unreachable
+  if (!status && (errText.includes('timeout') || errText.includes('timed out') || errText.includes('network') || errText.includes('fetch') || errText.includes('enotfound') || errText.includes('econnrefused'))) {
+    return 'Could not reach the Tally Connect server. Check your internet connection.';
+  }
+  // Generic 5xx server error
+  if (status >= 500) {
+    return `Server error (${status}). Please try again in a moment.`;
+  }
+  // Fallback with raw error for debugging
+  return `Sign-in failed: ${friendlyError(result?.error || result?.data?.error || 'unknown error')}`;
+}
+
 async function doSignIn() {
   if (document.getElementById('si-btn').disabled) return;
   const email = document.getElementById('si-email').value.trim();
@@ -623,10 +683,15 @@ async function doSignIn() {
         showEquipmentWizard();
       }
     } else {
-      showSignInMessage(`Sign-in failed: ${friendlyError(result.error || result.data?.error || 'connection issue')}`, 'var(--warn)');
+      showSignInMessage(classifySignInError(result), 'var(--warn)');
     }
   } catch (e) {
-    showSignInMessage(`Sign-in error: ${friendlyError(e)}`, 'var(--danger)');
+    const lower = (e?.message || '').toLowerCase();
+    if (lower.includes('fetch') || lower.includes('network') || lower.includes('failed to fetch') || lower.includes('enotfound')) {
+      showSignInMessage('Network unreachable. Check your internet connection and try again.', 'var(--warn)');
+    } else {
+      showSignInMessage(`Sign-in error: ${friendlyError(e)}`, 'var(--danger)');
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = 'Sign In';
@@ -643,6 +708,32 @@ async function doSignOut() {
     showSignInMessage('Signed out.', 'var(--muted)');
   } catch (e) {
     addAlert(`Sign-out failed: ${e.message}`);
+  }
+}
+
+async function exportPortableConfig() {
+  try {
+    const result = await api.exportPortableConfig();
+    if (result.canceled) return;
+    if (result.error) { addAlert(`Config export failed: ${result.error}`); return; }
+    addAlert(`Config exported to ${result.filePath}`);
+  } catch (e) {
+    addAlert(`Config export error: ${e.message}`);
+  }
+}
+
+async function importPortableConfig() {
+  if (!(await asyncConfirm('Import a config? This will overwrite your current equipment settings (but not your sign-in token).'))) return;
+  try {
+    const result = await api.importPortableConfig();
+    if (result.canceled) return;
+    if (result.error) { addAlert(`Config import failed: ${result.error}`); return; }
+    addAlert('Config imported successfully. Reloading settings...');
+    // Reload equipment UI to reflect new settings
+    const config = await api.getConfig();
+    if (config.name) document.getElementById('church-name').textContent = config.name;
+  } catch (e) {
+    addAlert(`Config import error: ${e.message}`);
   }
 }
 
@@ -1196,20 +1287,49 @@ async function runPreServiceCheck() {
 
 async function fixAllPreService() {
   const btn = document.getElementById('preservice-fix-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Fixing\u2026'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Fixing…'; }
+
+  // Show progress modal (P2 item 13)
+  const modal = document.getElementById('fix-all-modal');
+  const modalLog = document.getElementById('fix-all-modal-log');
+  if (modal) {
+    modal.style.display = 'flex';
+    if (modalLog) modalLog.innerHTML = '<div style="color:var(--muted)">Running fixes…</div>';
+  }
+
   try {
     const result = await api.fixAllPreService();
     if (result && result.results) {
       const fixed = result.results.filter(r => r.success).length;
       const failed = result.results.length - fixed;
       if (btn) btn.textContent = failed > 0 ? `${fixed} fixed, ${failed} failed` : `${fixed} fixed`;
+      // Populate modal with per-fix results
+      if (modalLog) {
+        modalLog.innerHTML = result.results.map(r => {
+          const icon = r.success ? '✓' : '✗';
+          const color = r.success ? 'var(--green)' : 'var(--danger)';
+          return `<div style="padding:4px 0; color:${color}; font-size:12px; font-family:var(--mono);">${icon} ${escapeText(r.label || r.check || '?')}: ${escapeText(r.message || (r.success ? 'Fixed' : 'Failed'))}</div>`;
+        }).join('');
+        const summary = document.createElement('div');
+        summary.style.cssText = 'margin-top:10px; font-size:12px; color:var(--muted);';
+        summary.textContent = `${fixed} of ${result.results.length} fix${result.results.length !== 1 ? 'es' : ''} applied.`;
+        modalLog.appendChild(summary);
+      }
+    } else if (result && result.error) {
+      if (modalLog) modalLog.innerHTML = `<div style="color:var(--danger); font-family:var(--mono); font-size:12px;">Error: ${escapeText(result.error)}</div>`;
     }
     // Reload panel after fixes
     setTimeout(() => loadPreServiceCheck(), 3000);
   } catch (e) {
     console.warn('Pre-service fix-all failed:', e);
     if (btn) { btn.disabled = false; btn.textContent = 'Fix All'; }
+    if (modalLog) modalLog.innerHTML = `<div style="color:var(--danger); font-family:var(--mono); font-size:12px;">Error: ${escapeText(e.message)}</div>`;
   }
+}
+
+function closeFixAllModal() {
+  const modal = document.getElementById('fix-all-modal');
+  if (modal) modal.style.display = 'none';
 }
 
 // ─── RUNDOWN PANEL ─────────────────────────────────────────────────────────
@@ -2402,8 +2522,28 @@ api.onLog((text) => {
     addAlert(t);
   }
 
+  // Append to raw-log output section (P2 item 14 — Show/Hide Logs)
+  const rawLog = document.getElementById('raw-log-output');
+  if (rawLog) {
+    const line = document.createElement('div');
+    line.textContent = t;
+    rawLog.appendChild(line);
+    // Cap at 500 lines to avoid memory growth
+    while (rawLog.children.length > 500) rawLog.removeChild(rawLog.firstChild);
+    // Only scroll if the section is visible
+    const section = document.getElementById('section-raw-logs');
+    if (section && !section.classList.contains('collapsed')) {
+      rawLog.scrollTop = rawLog.scrollHeight;
+    }
+  }
+
   // Status UI is driven by onStatus() — log handler only feeds the activity log.
 });
+
+function clearRawLogs() {
+  const rawLog = document.getElementById('raw-log-output');
+  if (rawLog) rawLog.innerHTML = '';
+}
 
 // ─── PREVIEW ───────────────────────────────────────────────────────────────
 
@@ -2487,6 +2627,60 @@ api.onPreviewFrame((data) => {
 api.onUpdateReady(() => {
   addAlert('Update downloaded — restart to install');
 });
+
+// Surface update-not-available and error to user (P1 item 4)
+if (api.onUpdateNotAvailable) {
+  api.onUpdateNotAvailable(() => {
+    const updateStatusEl = document.getElementById('update-status-msg');
+    if (updateStatusEl) {
+      updateStatusEl.textContent = "You're up to date.";
+      updateStatusEl.style.display = '';
+      setTimeout(() => { updateStatusEl.style.display = 'none'; }, 4000);
+    }
+  });
+}
+
+if (api.onUpdateError) {
+  api.onUpdateError((msg) => {
+    addAlert(`Update check failed: ${msg}`);
+  });
+}
+
+if (api.onUpdateProgress) {
+  api.onUpdateProgress((data) => {
+    const updateStatusEl = document.getElementById('update-status-msg');
+    if (updateStatusEl) {
+      updateStatusEl.textContent = `Downloading update: ${data.percent}%`;
+      updateStatusEl.style.display = '';
+    }
+  });
+}
+
+// What's New splash on first launch after update (P2 item 8)
+if (api.onWhatsNew) {
+  api.onWhatsNew(({ version }) => {
+    addAlert(`Updated to v${version} — see Changelog for What's New.`);
+    // Show a brief banner at top of activity feed
+    const whatsNew = document.createElement('div');
+    whatsNew.style.cssText = 'padding:8px 12px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.3);border-radius:6px;margin-bottom:8px;font-size:12px;color:var(--green);';
+    whatsNew.innerHTML = `<strong>Updated to v${version}</strong> — check the <a href="#" onclick="event.preventDefault();api.openExternal('https://tallyconnect.app/changelog')" style="color:var(--green);">Changelog</a> for what's new.`;
+    const log = document.getElementById('alerts-log');
+    if (log) log.prepend(whatsNew);
+  });
+}
+
+// Connection quality indicator (P2 item 11)
+if (api.onConnectionQuality) {
+  api.onConnectionQuality(({ latencyMs, lastPingTime }) => {
+    const chip = document.getElementById('relay-latency-chip');
+    if (!chip) return;
+    const color = latencyMs < 100 ? 'var(--green)' : latencyMs < 300 ? '#f59e0b' : 'var(--danger)';
+    chip.textContent = `${latencyMs}ms`;
+    chip.style.color = color;
+    chip.style.display = '';
+    chip.title = `Last ping: ${lastPingTime ? new Date(lastPingTime).toLocaleTimeString() : '—'} · ${latencyMs}ms round-trip`;
+  });
+}
 
 // Pause chat polling when window is hidden to tray
 api.onWindowVisibility?.((visible) => {
