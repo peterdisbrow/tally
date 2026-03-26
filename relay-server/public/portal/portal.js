@@ -786,6 +786,37 @@
     }
 
     /** Toggle between EN and ES, persist to localStorage, re-translate the page. */
+    // ── Lite Mode ──────────────────────────────────────────────────────────
+    function toggleLiteMode() {
+      var isLite = document.body.classList.toggle('lite-mode');
+      localStorage.setItem('portal_lite_mode', isLite ? '1' : '');
+      updateLiteToggleUI(isLite);
+      // If currently on a hidden page, switch to overview
+      if (isLite) {
+        var activePage = document.querySelector('.page.active');
+        if (activePage && activePage.style.display === 'none') {
+          var overviewBtn = document.querySelector('.nav-item[data-page="overview"]');
+          if (overviewBtn) showPage('overview', overviewBtn);
+        }
+      }
+    }
+    function updateLiteToggleUI(isLite) {
+      var sw = document.getElementById('lite-toggle-switch');
+      var knob = document.getElementById('lite-toggle-knob');
+      if (sw && knob) {
+        sw.style.background = isLite ? '#22c55e' : '#1e293b';
+        knob.style.left = isLite ? '18px' : '2px';
+        knob.style.background = isLite ? '#fff' : '#475569';
+      }
+    }
+    // Restore lite mode on load
+    if (localStorage.getItem('portal_lite_mode') === '1') {
+      document.body.classList.add('lite-mode');
+      updateLiteToggleUI(true);
+    }
+    // Expose globally for inline onclick in banner
+    window.toggleLiteMode = toggleLiteMode;
+
     function toggleLanguage() {
       const current = portalLocale();
       const next = current === 'es' ? 'en' : 'es';
@@ -806,7 +837,7 @@
         (PORTAL_STRINGS[locale] && PORTAL_STRINGS[locale][key]) ||
         (PORTAL_STRINGS.en && PORTAL_STRINGS.en[key]) ||
         key;
-      return str.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? String(vars[k]) : `{{\${k}}}`);
+      return str.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? String(vars[k]) : `{{${k}}}`);
     }
 
     /**
@@ -1139,10 +1170,10 @@
             detailHtml = new Date(ts).toLocaleTimeString();
           }
           return `<tr>
-            <td>\${name}</td>
-            <td><span class="badge \${badgeCls}">\${label}</span></td>
-            <td style="font-size:12px">\${verHtml}</td>
-            <td style="color:#475569;font-size:12px">\${detailHtml}</td>
+            <td>${name}</td>
+            <td><span class="badge ${badgeCls}">${label}</span></td>
+            <td style="font-size:12px">${verHtml}</td>
+            <td style="color:#475569;font-size:12px">${detailHtml}</td>
           </tr>`;
         }).join('');
 
@@ -3030,17 +3061,17 @@
         }
         tbody.innerHTML = tds.map(td => `
           <tr>
-            <td>\${escapeHtml(td.name || '')}</td>
-            <td><span class="badge badge-gray">\${escapeHtml(td.role || 'td')}</span></td>
+            <td>${escapeHtml(td.name || '')}</td>
+            <td><span class="badge badge-gray">${escapeHtml(td.role || 'td')}</span></td>
             <td>
-              <select style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer" onchange="setTdAccessLevel('\${escapeHtml(String(td.id || ''))}', this.value)">
-                <option value="viewer" \${(td.access_level||'operator')==='viewer'?'selected':''}>Viewer</option>
-                <option value="operator" \${(!td.access_level||td.access_level==='operator')?'selected':''}>Operator</option>
-                <option value="admin" \${(td.access_level||'')==='admin'?'selected':''}>Admin</option>
+              <select style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer" onchange="setTdAccessLevel('${escapeHtml(String(td.id || ''))}', this.value)">
+                <option value="viewer" ${(td.access_level||'operator')==='viewer'?'selected':''}>Viewer</option>
+                <option value="operator" ${(!td.access_level||td.access_level==='operator')?'selected':''}>Operator</option>
+                <option value="admin" ${(td.access_level||'')==='admin'?'selected':''}>Admin</option>
               </select>
             </td>
-            <td style="color:#94A3B8">\${escapeHtml(td.email || '—')}</td>
-            <td><button class="btn-danger" onclick="removeTd('\${escapeHtml(String(td.id || ''))}')">Remove</button></td>
+            <td style="color:#94A3B8">${escapeHtml(td.email || '—')}</td>
+            <td><button class="btn-danger" onclick="removeTd('${escapeHtml(String(td.id || ''))}')">Remove</button></td>
           </tr>`).join('');
         document.getElementById('stat-tds').textContent = tds.length;
       } catch(e) { toast('Failed to load TDs', true); }
@@ -3655,12 +3686,12 @@
           const remainingColor = msLeft < 3600000 ? '#f59e0b' : msLeft < 14400000 ? '#fbbf24' : '#22c55e';
           return `
           <tr>
-            <td><code style="font-size:11px;color:#22c55e">\${t.token.slice(0,16)}…</code></td>
-            <td style="color:#94A3B8">\${t.label || '—'}</td>
-            <td style="color:\${t.registered ? '#22c55e' : '#64748B'};font-size:12px">\${t.registered ? '\\u2713 Claimed' : 'Unclaimed'}</td>
-            <td style="color:#94A3B8;font-size:12px">\${new Date(t.createdAt).toLocaleDateString()}</td>
-            <td style="font-size:12px"><span style="color:\${remainingColor};font-weight:600">\${remaining}</span><br><span style="color:#475569;font-size:11px">\${t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : ''}</span></td>
-            <td><button class="btn-danger" onclick="revokeToken('\${t.token}')">Revoke</button></td>
+            <td><code style="font-size:11px;color:#22c55e">${t.token.slice(0,16)}…</code></td>
+            <td style="color:#94A3B8">${t.label || '—'}</td>
+            <td style="color:${t.registered ? '#22c55e' : '#64748B'};font-size:12px">${t.registered ? '\\u2713 Claimed' : 'Unclaimed'}</td>
+            <td style="color:#94A3B8;font-size:12px">${new Date(t.createdAt).toLocaleDateString()}</td>
+            <td style="font-size:12px"><span style="color:${remainingColor};font-weight:600">${remaining}</span><br><span style="color:#475569;font-size:11px">${t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : ''}</span></td>
+            <td><button class="btn-danger" onclick="revokeToken('${t.token}')">Revoke</button></td>
           </tr>`;
         }).join('');
       } catch(e) { toast('Failed to load tokens', true); }
@@ -3940,10 +3971,10 @@
             const end = s.ended_at ? new Date(s.ended_at) : null;
             const dur = end ? Math.round((end - start) / 60000) + 'm' : 'Active';
             return `<tr>
-              <td>\${start.toLocaleDateString()} <span style="color:#475569">\${start.toLocaleTimeString()}</span></td>
-              <td>\${dur}</td>
-              <td>\${s.peak_viewers || '—'}</td>
-              <td><span class="badge \${s.ended_at ? 'badge-gray' : 'badge-green'}">\${s.ended_at ? 'Ended' : 'Live'}</span></td>
+              <td>${start.toLocaleDateString()} <span style="color:#475569">${start.toLocaleTimeString()}</span></td>
+              <td>${dur}</td>
+              <td>${s.peak_viewers || '—'}</td>
+              <td><span class="badge ${s.ended_at ? 'badge-gray' : 'badge-green'}">${s.ended_at ? 'Ended' : 'Live'}</span></td>
             </tr>`;
           }).join('');
           document.getElementById('stat-sessions').textContent = sessions.length;
@@ -5919,6 +5950,11 @@ document.addEventListener('DOMContentLoaded', function() {
       // Auth
       case 'logout':
         if (typeof logout === 'function') logout();
+        break;
+
+      // Lite mode
+      case 'toggleLiteMode':
+        if (typeof toggleLiteMode === 'function') toggleLiteMode();
         break;
 
       // Demo mode

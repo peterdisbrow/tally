@@ -295,122 +295,12 @@ function _findNextService(sched, now) {
 
 // ─── HTML builders ─────────────────────────────────────────────────────────────
 
+const _loginHtmlTemplate = require('fs').readFileSync(require('path').join(__dirname, '../public/portal/login.html'), 'utf8');
 function buildChurchLoginHtml(error = '') {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Church Portal — Tally</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: #09090B;
-      color: #F8FAFC;
-      font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .card {
-      background: #0F1613;
-      border: 1px solid #1a2e1f;
-      border-radius: 12px;
-      padding: 40px;
-      width: 100%;
-      max-width: 400px;
-    }
-    .logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 32px;
-    }
-    .logo svg { flex-shrink: 0; }
-    .logo-text {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-    }
-    .logo-sub {
-      font-size: 12px;
-      color: #94A3B8;
-      margin-left: auto;
-    }
-    h1 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
-    .subtitle { color: #94A3B8; font-size: 14px; margin-bottom: 28px; }
-    label { display: block; font-size: 13px; color: #94A3B8; margin-bottom: 6px; }
-    input {
-      width: 100%;
-      background: #09090B;
-      border: 1px solid #1a2e1f;
-      border-radius: 8px;
-      padding: 10px 14px;
-      color: #F8FAFC;
-      font-size: 14px;
-      outline: none;
-      transition: border-color 0.15s;
-      margin-bottom: 16px;
-    }
-    input:focus { border-color: #22c55e; }
-    .btn {
-      width: 100%;
-      background: #22c55e;
-      color: #09090B;
-      border: none;
-      border-radius: 8px;
-      padding: 11px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: opacity 0.15s;
-      margin-top: 4px;
-    }
-    .btn:hover { opacity: 0.9; }
-    .error {
-      background: rgba(239,68,68,0.1);
-      border: 1px solid rgba(239,68,68,0.3);
-      color: #f87171;
-      border-radius: 8px;
-      padding: 10px 14px;
-      font-size: 13px;
-      margin-bottom: 16px;
-    }
-    .footer { text-align: center; margin-top: 24px; font-size: 12px; color: #475569; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="logo">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="36" height="36">
-        <rect width="32" height="32" rx="6" fill="#09090B"/>
-        <circle cx="16" cy="16" r="6" fill="#22c55e"/>
-        <circle cx="16" cy="16" r="3" fill="#09090B"/>
-        <circle cx="16" cy="16" r="1.5" fill="#22c55e">
-          <animate attributeName="opacity" values="1;0.4;1" dur="2s" repeatCount="indefinite"/>
-        </circle>
-      </svg>
-      <span class="logo-text">Tally</span>
-      <span class="logo-sub">Church Portal</span>
-    </div>
-    <h1>Sign in</h1>
-    <p class="subtitle">Access your church's monitoring dashboard</p>
-    ${error ? `<div class="error">${error.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}</div>` : ''}
-    <form method="POST" action="/api/church/login">
-      <label>Email address</label>
-      <input type="email" name="email" placeholder="td@yourchurch.org" required autocomplete="email">
-      <label>Password</label>
-      <input type="password" name="password" placeholder="••••••••" required autocomplete="current-password">
-      <button type="submit" class="btn">Sign in</button>
-    </form>
-    <div class="footer" style="display:flex;justify-content:space-between;align-items:center;">
-      <a href="https://tallyconnect.app/forgot-password" style="color:#22c55e;text-decoration:none;font-size:12px;">Forgot password?</a>
-      <span>Tally — <a href="https://tallyconnect.app" style="color:#22c55e;text-decoration:none">tallyconnect.app</a></span>
-    </div>
-  </div>
-</body>
-</html>`;
+  const errorBlock = error
+    ? `<div class="error">${error.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}</div>`
+    : '';
+  return _loginHtmlTemplate.replace('{{ERROR_BLOCK}}', errorBlock);
 }
 
 // Portal HTML is served from separate static files (public/portal/)

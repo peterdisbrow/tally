@@ -77,6 +77,12 @@
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"/></svg></span> <span data-i18n="nav.support">Help &amp; Support</span>
     </button>
     <div class="sidebar-footer">
+      <div id="lite-mode-toggle" style="display:flex;align-items:center;justify-content:space-between;padding:8px 4px;margin-bottom:8px;border:1px solid #1a2e1f;border-radius:8px;cursor:pointer" data-action="toggleLiteMode" title="Show only essentials for service">
+        <span style="font-size:12px;color:#94A3B8;font-weight:600">Lite Mode</span>
+        <div id="lite-toggle-switch" style="width:36px;height:20px;border-radius:10px;background:#1e293b;position:relative;transition:background 0.2s">
+          <div id="lite-toggle-knob" style="width:16px;height:16px;border-radius:50%;background:#475569;position:absolute;top:2px;left:2px;transition:all 0.2s"></div>
+        </div>
+      </div>
       <button id="btn-lang-toggle" class="btn-secondary" data-action="toggleLanguage" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
       <button id="btn-start-demo" class="btn-secondary" data-action="startDemoMode" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.7" title="See a simulated service without hardware" data-i18n="demo.try">Try Demo Mode</button>
       <button id="btn-logout" class="btn-logout" data-action="logout" data-i18n="btn.signout">Sign out</button>
@@ -95,6 +101,10 @@
 
     <!-- OVERVIEW -->
     <div class="page active" id="page-overview">
+      <div class="lite-banner" id="lite-banner">
+        <span>&#9889; <strong>Lite Mode</strong> &mdash; showing only what you need for service. <a href="#" onclick="toggleLiteMode();return false" style="color:#22c55e">Switch to full view</a></span>
+        <button class="lite-banner-dismiss" onclick="document.getElementById('lite-banner').style.display='none'">&times;</button>
+      </div>
       <div class="page-header">
         <div class="page-header-text">
           <div class="page-title" id="overview-church-name">{{CHURCH_NAME}}</div>

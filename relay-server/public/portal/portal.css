@@ -456,3 +456,48 @@
       /* Tighten stream/ATEM mini-grids */
       .grid-4col > div { padding: 10px 6px !important; }
     }
+
+    /* ─── Lite Mode ─────────────────────────────────────────────────── */
+    body.lite-mode [data-page="profile"],
+    body.lite-mode [data-page="campuses"],
+    body.lite-mode [data-page="tds"],
+    body.lite-mode [data-page="schedule"],
+    body.lite-mode [data-page="notifications"],
+    body.lite-mode [data-page="engineer"],
+    body.lite-mode [data-page="guests"],
+    body.lite-mode [data-page="macros"],
+    body.lite-mode [data-page="autopilot"],
+    body.lite-mode [data-page="sessions"],
+    body.lite-mode [data-page="analytics"],
+    body.lite-mode [data-page="migrate"],
+    body.lite-mode [data-page="referrals"],
+    body.lite-mode [data-page="billing"] { display: none !important; }
+
+    /* Hide non-essential overview sections in lite mode */
+    body.lite-mode #referral-card,
+    body.lite-mode #setup-guide-resume,
+    body.lite-mode #campus-summary,
+    body.lite-mode .service-rundown-card { display: none !important; }
+
+    /* Lite mode banner */
+    .lite-banner {
+      display: none;
+      background: #0c1f17;
+      border: 1px solid #1a2e1f;
+      border-radius: 8px;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      color: #94A3B8;
+      align-items: center;
+      justify-content: space-between;
+    }
+    body.lite-mode .lite-banner { display: flex; }
+    .lite-banner-dismiss {
+      background: none;
+      border: none;
+      color: #475569;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 0 4px;
+    }
