@@ -25,6 +25,30 @@ function init({ enforceRelayPolicy }) {
   }
 }
 
+// ─── Schema version & migrations ──────────────────────────────────────────────
+
+const CURRENT_SCHEMA_VERSION = 1;
+
+/**
+ * Migrate a loaded config object from an older schemaVersion to the current one.
+ * Add a new `case` block here whenever a breaking field rename/restructure lands.
+ *
+ * @param {object} config — decrypted, mock-stripped config from disk
+ * @returns {object} — migrated config (may be same reference if no migration needed)
+ */
+function migrateConfig(config) {
+  let version = config.schemaVersion || 0;
+
+  // v0 → v1: nothing structural changed yet; just stamp the version field.
+  // Future migrations go here as:
+  //   case 1: config = { ...config, newField: config.oldField }; delete config.oldField; // fall through
+  if (version < 1) {
+    version = 1;
+  }
+
+  return { ...config, schemaVersion: version };
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 function isMockValue(value) {
@@ -71,7 +95,8 @@ function loadConfig() {
   if (_isCacheValid()) return { ..._configCache };
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    const config = stripMockConfig(decryptConfig(raw)); // decrypt secure fields on load
+    const decrypted = stripMockConfig(decryptConfig(raw)); // decrypt secure fields on load
+    const config = migrateConfig(decrypted); // upgrade schema if needed
     config.relay = _enforceRelayPolicy(config.relay);
     // Cache the result
     _configCache = { ...config };
@@ -240,6 +265,8 @@ module.exports = {
   init,
   isMockValue,
   stripMockConfig,
+  migrateConfig,
+  CURRENT_SCHEMA_VERSION,
   loadConfig,
   saveConfig,
   loadConfigForUI,

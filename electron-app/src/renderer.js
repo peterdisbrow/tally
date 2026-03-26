@@ -579,6 +579,38 @@ function shouldRetryLoginOnDefaultRelay(result) {
   ].some((needle) => errorText.includes(needle));
 }
 
+/**
+ * Classify a failed login API response into a specific, actionable message.
+ * Maps HTTP status codes and error strings to human-readable explanations.
+ */
+function classifySignInError(result) {
+  const status = result?.status;
+  const errText = String(result?.error || result?.data?.error || result?.data?.message || '').toLowerCase();
+
+  // HTTP 401 Unauthorized → wrong credentials
+  if (status === 401 || errText.includes('invalid password') || errText.includes('incorrect password') || errText.includes('wrong password') || errText.includes('invalid credentials')) {
+    return 'Wrong password. Please check your password and try again.';
+  }
+  // HTTP 404 Not Found → account doesn't exist
+  if (status === 404 || errText.includes('not found') || errText.includes('no account') || errText.includes('does not exist') || errText.includes('user not found')) {
+    return 'Account not found. Check your email address or create an account at tallyconnect.app.';
+  }
+  // HTTP 429 Rate Limited
+  if (status === 429 || errText.includes('too many') || errText.includes('rate limit')) {
+    return 'Too many sign-in attempts. Please wait a few minutes and try again.';
+  }
+  // Network / relay unreachable
+  if (!status && (errText.includes('timeout') || errText.includes('timed out') || errText.includes('network') || errText.includes('fetch') || errText.includes('enotfound') || errText.includes('econnrefused'))) {
+    return 'Could not reach the Tally Connect server. Check your internet connection.';
+  }
+  // Generic 5xx server error
+  if (status >= 500) {
+    return `Server error (${status}). Please try again in a moment.`;
+  }
+  // Fallback with raw error for debugging
+  return `Sign-in failed: ${friendlyError(result?.error || result?.data?.error || 'unknown error')}`;
+}
+
 async function doSignIn() {
   if (document.getElementById('si-btn').disabled) return;
   const email = document.getElementById('si-email').value.trim();
@@ -625,10 +657,15 @@ async function doSignIn() {
         showEquipmentWizard();
       }
     } else {
-      showSignInMessage(`Sign-in failed: ${friendlyError(result.error || result.data?.error || 'connection issue')}`, 'var(--warn)');
+      showSignInMessage(classifySignInError(result), 'var(--warn)');
     }
   } catch (e) {
-    showSignInMessage(`Sign-in error: ${friendlyError(e)}`, 'var(--danger)');
+    const lower = (e?.message || '').toLowerCase();
+    if (lower.includes('fetch') || lower.includes('network') || lower.includes('failed to fetch') || lower.includes('enotfound')) {
+      showSignInMessage('Network unreachable. Check your internet connection and try again.', 'var(--warn)');
+    } else {
+      showSignInMessage(`Sign-in error: ${friendlyError(e)}`, 'var(--danger)');
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = 'Sign In';

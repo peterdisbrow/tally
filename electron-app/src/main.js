@@ -491,6 +491,33 @@ function resolveChurchClientPaths() {
   return null;
 }
 
+// ─── AUTH FAILURE DETECTOR ────────────────────────────────────────────────────
+// Detect JWT expiry / rejection in agent output and fire auth-invalid immediately,
+// stopping the crash-restart loop (P1 item 7 / Persona 12).
+let _authInvalidFired = false;
+function _detectAgentAuthFailure(text) {
+  if (_authInvalidFired) return; // Already handled — don't fire multiple times
+  const AUTH_PATTERNS = [
+    '1008', 'Invalid token', 'Authentication failed', 'Token expired',
+    'token expired', 'jwt expired', 'Unauthorized', 'auth rejected',
+    'auth: reject', 'Not authorized',
+  ];
+  const isAuthFailure = AUTH_PATTERNS.some((p) => text.includes(p));
+  if (!isAuthFailure) return;
+
+  _authInvalidFired = true;
+  appendAppLog('SYSTEM', 'Auth failure detected in agent output — stopping restart loop');
+  agentStatus.relay = false;
+  mainWindow?.webContents.send('status', agentStatus);
+  updateTray();
+  mainWindow?.webContents.send('auth-invalid');
+
+  // Stop the agent immediately to prevent the 5-crash escalation loop
+  const proc = agentProcess;
+  agentProcess = null; // Prevent auto-restart in close handler
+  try { proc?.kill(); } catch { /* ignore */ }
+}
+
 function startAgent() {
   if (agentProcess) return;
 
@@ -571,10 +598,13 @@ function startAgent() {
     agentProcess = null;
   });
 
+  _authInvalidFired = false; // Reset on each fresh agent start
+
   agentProcess.stdout.on('data', (data) => {
     const text = data.toString();
     console.log('[Agent]', text.trim());
     appendAppLog('AGENT', text);
+    _detectAgentAuthFailure(text); // Catch auth failures in stdout too
 
     let statusChanged = false;
 
@@ -700,14 +730,7 @@ function startAgent() {
     const text = data.toString();
     appendAppLog('AGENT_ERR', text);
     mainWindow?.webContents.send('log', '[err] ' + text);
-
-    // Detect auth rejection (WebSocket close code 1008) and notify renderer
-    if (text.includes('1008') || text.includes('Invalid token') || text.includes('Authentication failed') || text.includes('auth') && text.includes('reject')) {
-      agentStatus.relay = false;
-      mainWindow?.webContents.send('status', agentStatus);
-      updateTray();
-      mainWindow?.webContents.send('auth-invalid');
-    }
+    _detectAgentAuthFailure(text);
   });
 
   agentProcess.on('close', (code) => {
