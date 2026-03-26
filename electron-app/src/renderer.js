@@ -105,7 +105,9 @@ function _renderBitrateSparkline() {
   // Color: green if latest >= 4000 Kbps, yellow if >= 2000, red below
   const latest = _bitrateHistory[_bitrateHistory.length - 1];
   const color = latest >= 4000 ? '#22c55e' : latest >= 2000 ? '#f59e0b' : '#ef4444';
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:inline-block;vertical-align:middle;margin-right:5px;flex-shrink:0;"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+  const latestKbps = Math.round(latest);
+  const trendLabel = `Bitrate trend: ${latestKbps} Kbps (${latest >= 4000 ? 'healthy' : latest >= 2000 ? 'marginal' : 'low'})`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${trendLabel}" style="display:inline-block;vertical-align:middle;margin-right:5px;flex-shrink:0;"><title>${trendLabel}</title><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 }
 
 function queueOfflineAction(action) {
