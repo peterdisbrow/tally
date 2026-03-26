@@ -1,0 +1,79 @@
+{
+  "app": {
+    "title": "Tally",
+    "subtitle": "por Tally Connect"
+  },
+  "signIn": {
+    "title": "Iniciar sesión",
+    "emailPlaceholder": "Correo electrónico de la iglesia",
+    "passwordPlaceholder": "Contraseña",
+    "submitButton": "Iniciar sesión",
+    "signingIn": "Iniciando sesión...",
+    "createAccount": "Crear una cuenta",
+    "forgotPassword": "¿Olvidaste tu contraseña?"
+  },
+  "status": {
+    "relay": "Relay",
+    "atem": "ATEM",
+    "encoder": "Codificador",
+    "companion": "Companion",
+    "ndi": "NDI",
+    "failover": "Conmutación",
+    "connected": "Conectado",
+    "disconnected": "Desconectado",
+    "offline": "Relay desconectado — el monitoreo está pausado"
+  },
+  "tabs": {
+    "status": "Estado",
+    "equipment": "Equipos",
+    "engineer": "Ingeniero de Tally"
+  },
+  "dashboard": {
+    "startMonitoring": "Iniciar monitoreo",
+    "stopMonitoring": "Detener monitoreo",
+    "testConnection": "Probar",
+    "exportLogs": "Registros",
+    "setup": "Configurar",
+    "signOut": "Cerrar sesión",
+    "exportConfig": "Exportar config",
+    "importConfig": "Importar config"
+  },
+  "tray": {
+    "openDashboard": "Abrir panel",
+    "startMonitoring": "Iniciar monitoreo",
+    "stopMonitoring": "Detener monitoreo",
+    "clientPortal": "Portal del cliente",
+    "helpSupport": "Ayuda y soporte",
+    "checkForUpdates": "Buscar actualizaciones",
+    "quit": "Salir"
+  },
+  "notifications": {
+    "atemDisconnected": "ATEM desconectado",
+    "atemDisconnectedBody": "El conmutador ATEM ha perdido la conexión.",
+    "streamStopped": "Transmisión detenida",
+    "streamStoppedBody": "La transmisión en vivo se detuvo inesperadamente.",
+    "lowFps": "Advertencia de FPS bajo",
+    "updateAvailable": "Actualización disponible",
+    "updateReady": "Actualización lista",
+    "stillRunning": "Tally Connect sigue ejecutándose",
+    "stillRunningBody": "Tally Connect sigue ejecutándose en la bandeja del sistema."
+  },
+  "errors": {
+    "wrongPassword": "Contraseña incorrecta. Por favor verifica tu contraseña e intenta de nuevo.",
+    "accountNotFound": "Cuenta no encontrada. Verifica tu correo electrónico o crea una cuenta en tallyconnect.app.",
+    "rateLimited": "Demasiados intentos de inicio de sesión. Por favor espera unos minutos e intenta de nuevo.",
+    "networkUnreachable": "No se pudo conectar al servidor de Tally Connect. Verifica tu conexión a internet.",
+    "sessionExpired": "Sesión expirada. Por favor inicia sesión de nuevo.",
+    "sessionInvalidated": "La sesión fue invalidada por el servidor. Por favor inicia sesión de nuevo."
+  },
+  "preService": {
+    "runCheck": "Verificar ahora",
+    "fixAll": "Corregir todo",
+    "fixing": "Corrigiendo…"
+  },
+  "logs": {
+    "agentLogs": "Registros del agente",
+    "showHide": "(Mostrar/Ocultar)",
+    "clear": "Limpiar"
+  }
+}

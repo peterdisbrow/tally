@@ -35,6 +35,11 @@ if (_cliOpts.relayUrl) {
   process.env.TALLY_DEFAULT_RELAY_URL = _cliOpts.relayUrl;
 }
 
+// i18n — applied after prefs are loadable (prefs.json may have a saved locale)
+const i18n = require('./i18n');
+// Locale will be properly set after app.whenReady() + loadPrefs(); default to OS locale for now.
+i18n.detectAndApplyLocale();
+
 // Extracted modules (pure refactoring — see config-manager.js, relay-client.js, equipment-tester.js)
 const configManager = require('./config-manager');
 const relayClient = require('./relay-client');
@@ -400,22 +405,23 @@ function updateTray() {
     billingLine = `\u2705 Plan: ${tierNames[billingTier] || billingTier}`;
   }
 
+  const { t } = i18n;
   const menu = Menu.buildFromTemplate([
     { label: 'Tally', enabled: false },
     { label: statusLine, enabled: false },
     ...(billingLine ? [{ label: billingLine, enabled: false }] : []),
     { type: 'separator' },
-    { label: 'Open Dashboard', click: () => mainWindow?.show() },
-    { label: connected ? 'Stop Monitoring' : 'Start Monitoring', click: () => connected ? stopAgent() : startAgent() },
+    { label: t('tray.openDashboard'), click: () => mainWindow?.show() },
+    { label: connected ? t('tray.stopMonitoring') : t('tray.startMonitoring'), click: () => connected ? stopAgent() : startAgent() },
     { type: 'separator' },
-    { label: 'Client Portal', click: () => shell.openExternal('https://tallyconnect.app/portal') },
-    { label: 'Help & Support', click: () => shell.openExternal('https://tallyconnect.app/help') },
+    { label: t('tray.clientPortal'), click: () => shell.openExternal('https://tallyconnect.app/portal') },
+    { label: t('tray.helpSupport'), click: () => shell.openExternal('https://tallyconnect.app/help') },
     { label: 'Tally Connect', click: () => shell.openExternal('https://tallyconnect.app') },
     { type: 'separator' },
-    { label: 'Check for Updates', click: () => {
+    { label: t('tray.checkForUpdates'), click: () => {
       if (autoUpdater) {
-        autoUpdater.checkForUpdatesAndNotify().catch(() => {
-          dialog.showMessageBox({ type: 'info', title: 'Updates', message: 'You are running the latest version.' });
+        autoUpdater.checkForUpdates().then(() => {}).catch(() => {
+          mainWindow?.webContents.send('update-not-available');
         });
       } else {
         shell.openExternal('https://github.com/peterdisbrow/tally/releases/latest');
@@ -423,7 +429,7 @@ function updateTray() {
     }},
     { label: `Version ${app.getVersion()}`, enabled: false },
     { type: 'separator' },
-    { label: 'Quit', click: () => { app.isQuitting = true; stopAgent(); app.exit(0); } },
+    { label: t('tray.quit'), click: () => { app.isQuitting = true; stopAgent(); app.exit(0); } },
   ]);
 
   tray.setContextMenu(menu);
@@ -904,6 +910,20 @@ ipcMain.handle('save-config', (_, config) => {
   saveConfig(sanitized);
   return true;
 });
+// i18n locale data for renderer
+ipcMain.handle('get-locale-data', () => ({
+  locale: i18n.getLocale(),
+  locales: i18n.LOCALES,
+}));
+ipcMain.handle('set-locale', (_, locale) => {
+  i18n.setLocale(locale);
+  const prefs = loadPrefs();
+  savePrefs({ ...prefs, locale });
+  // Rebuild tray with new locale
+  updateTray();
+  return i18n.getLocale();
+});
+
 ipcMain.handle('export-portable-config', async () => {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const defaultPath = path.join(app.getPath('desktop'), `tally-config-${stamp}.json`);
@@ -1754,17 +1774,71 @@ function checkWhatsNew() {
 
 // ─── SINGLE INSTANCE LOCK ─────────────────────────────────────────────────────
 
+// ─── DEEP LINK (tally:// URL scheme) ─────────────────────────────────────────
+
+/**
+ * Handle a tally:// deep link URL.
+ * Supported schemes:
+ *   tally://open              — focus the main window
+ *   tally://config?key=value  — pre-fill config fields (non-sensitive only)
+ */
+function handleDeepLink(url) {
+  if (!url || !url.startsWith('tally://')) return;
+  appendAppLog('SYSTEM', `Deep link: ${url}`);
+
+  try {
+    const parsed = new URL(url);
+    const action = parsed.hostname || parsed.pathname.replace(/^\/+/, '');
+
+    if (action === 'open') {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    } else if (action === 'config') {
+      // Only allow whitelisted, non-sensitive keys
+      const ALLOWED_KEYS = ['relayUrl', 'churchId', 'atemHost', 'companionHost', 'obsHost'];
+      const patch = {};
+      for (const [k, v] of parsed.searchParams) {
+        if (ALLOWED_KEYS.includes(k)) patch[k] = v;
+      }
+      if (Object.keys(patch).length > 0) {
+        const existing = configManager.loadConfig();
+        configManager.saveConfig(Object.assign({}, existing, patch));
+        appendAppLog('SYSTEM', `Deep link patched config: ${JSON.stringify(patch)}`);
+        if (mainWindow) mainWindow.webContents.send('config-updated');
+      }
+    }
+  } catch (err) {
+    appendAppLog('WARN', `Deep link parse error: ${err.message}`);
+  }
+}
+
+// Register tally:// as the app's URL protocol handler
+if (process.platform !== 'linux') {
+  app.setAsDefaultProtocolClient('tally');
+}
+
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
     // Someone tried to launch a second instance — focus our window
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
       mainWindow.focus();
     }
+    // Windows/Linux deep link arrives as a CLI arg in the second instance
+    const deepLinkUrl = argv.find((a) => a.startsWith('tally://'));
+    if (deepLinkUrl) handleDeepLink(deepLinkUrl);
+  });
+
+  // macOS: deep link via open-url event (arrives before or after ready)
+  app.on('open-url', (_event, url) => {
+    handleDeepLink(url);
   });
 }
 
@@ -1780,6 +1854,9 @@ process.on('unhandledRejection', (reason) => {
 
 app.whenReady().then(() => {
   appendAppLog('SYSTEM', `App ready (version=${app.getVersion()}, platform=${process.platform}/${process.arch})`);
+  // Apply saved locale preference
+  const prefs = loadPrefs();
+  if (prefs.locale) i18n.setLocale(prefs.locale);
   // Apply --church-id provisioning flag (P2 item 17)
   if (_cliOpts.churchId) {
     const existing = configManager.loadConfig();
