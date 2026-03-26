@@ -808,7 +808,15 @@ RULES:
 - "we're done"/"that's a wrap" → multi-step: fadeToBlack + stop all streams + stop all recordings on all connected devices.
 - Troubleshooting: describe problem → return diagnosis with suggested commands.
 - Social phrases (thanks, hi) → friendly reply, NOT off-topic response.
-- Volunteer phrases: "are we live?" → status()`;
+- Volunteer phrases: "are we live?" → status()
+
+MEMORY & PERSONALITY:
+- The context block may contain [Memory: ...] with learned observations about this specific church.
+- When memories are relevant, reference them naturally: "I remember last time this happened..." or "Based on your setup history..."
+- Be specific: use their camera labels, mixer channel names, and encoder type — not generic terms.
+- Think like a veteran TD who knows this room personally.
+- If a memory mentions a fix that worked before, suggest it first.
+- Never say "I don't have access to that information" — use the live status data in the context block.`;
 
   return prompt;
 }
@@ -816,7 +824,7 @@ RULES:
 
 // ─── Anthropic API call ───────────────────────────────────────────────────
 
-async function callAnthropic(messages, timeout = 15000, systemPrompt = '') {
+async function callAnthropic(messages, timeout = 15000, systemPrompt = '', model = 'claude-haiku-4-5-20251001') {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
 
@@ -838,11 +846,11 @@ async function callAnthropic(messages, timeout = 15000, systemPrompt = '') {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
+          model,
           system: systemPrompt,
           messages,
-          temperature: 0.2,
-          max_tokens: 2048,
+          temperature: model.includes('sonnet') ? 0.4 : 0.2,
+          max_tokens: model.includes('sonnet') ? 4096 : 2048,
         }),
         signal: controller.signal,
       });
@@ -913,6 +921,28 @@ function parseJSON(raw) {
  *   { type: 'chat', text }
  *   { type: 'error', message }   — if API call fails
  */
+/**
+ * Detect if a message is a diagnostic/troubleshooting question that warrants Sonnet.
+ * Commands like "cut to cam 1" stay on Haiku. Questions like "why did my stream drop?" go to Sonnet.
+ */
+function _isDiagnosticQuestion(text) {
+  const t = text.toLowerCase().trim();
+  // Diagnostic keywords / patterns
+  const diagnosticPatterns = [
+    /\bwhy\b.*\b(drop|fail|stop|crash|disconnect|die|broke|down|lost|mute|silent|freeze|lag|buffer)/,
+    /\bwhat('s| is)\b.*\b(wrong|happening|issue|problem|cause|going on)/,
+    /\bhow\b.*\b(fix|solve|troubleshoot|diagnose|resolve|prevent|avoid)/,
+    /\bhelp\b.*\b(me|with|troubleshoot|diagnose|figure|understand)/,
+    /\b(diagnos|troubleshoot|root cause|investigate|debug)/,
+    /\b(keeps? (dropping|crashing|disconnecting|failing|stopping|freezing))/,
+    /\b(not working|won't connect|can't connect|no signal|no audio|no video)/,
+    /\b(stream|encoder|atem|obs|mixer|camera|audio)\b.*\b(issue|problem|error|fail|broke)/,
+    /\b(what happened|what went wrong|what caused|explain|tell me about)/,
+    /\b(should i|do i need|is it normal|is something wrong)/,
+  ];
+  return diagnosticPatterns.some(p => p.test(t));
+}
+
 async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   // ── Pre-filter: reject obviously off-topic messages before calling AI ──
   if (!isOnTopic(text)) {
@@ -1061,24 +1091,46 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   // Build messages array: conversation history + current message
   const messages = [...conversationHistory, { role: 'user', content: userContent }];
 
+  // ── Detect diagnostic/troubleshooting intent → upgrade to Sonnet ──
+  const isDiagnostic = _isDiagnosticQuestion(text);
+  const useSonnet = isDiagnostic && !!ctx.diagnosticContext;
+  const modelId = useSonnet ? 'claude-sonnet-4-20250514' : 'claude-haiku-4-5-20251001';
+
   // Build dynamic system prompt based on connected devices
-  const systemPrompt = buildSystemPrompt(ctx.status || {});
+  let systemPrompt = buildSystemPrompt(ctx.status || {});
+
+  // For diagnostic questions, inject diagnostic context + memory referencing instructions
+  if (useSonnet) {
+    systemPrompt += `\n\n--- DIAGNOSTIC CONTEXT ---\n${ctx.diagnosticContext}\n`;
+    systemPrompt += `\n--- INCIDENT CHAINS ---\n${ctx.incidentChains || 'No known incident chains yet.'}\n`;
+    systemPrompt += `\n--- INSTRUCTIONS FOR DIAGNOSTIC RESPONSES ---
+When troubleshooting:
+1. Reference specific memories if relevant: "Last time this happened (2 weeks ago), it was caused by..."
+2. Correlate current symptoms with past patterns: "I've seen this pattern 3 times — encoder drops followed by stream failure within 30s"
+3. Walk the user through diagnosis step by step — ask follow-up questions if needed
+4. Rank possible causes by likelihood based on their specific equipment and history
+5. Be specific to THEIR gear: "Your ${ctx.status?.atem?.model || 'ATEM'} + ${ctx.status?.mixer?.model || 'mixer'} setup typically has issue X"
+6. If you see a memory about a fix that worked before, suggest it first: "This worked last time: [specific fix]"
+7. Think like a veteran TD who knows this specific room — reference their camera labels, mixer channels, encoder type
+8. Keep responses conversational — you're their engineer buddy, not a manual\n`;
+  }
+
   const promptTokenEst = Math.round(systemPrompt.length / 4);
   try {
-    console.log(`[ai-parser] Calling Haiku (${messages.length} msg, ~${promptTokenEst} prompt tokens) for: "${text.slice(0, 60)}"`);
-    const { text: raw, usage, latencyMs } = await callAnthropic(messages, 15000, systemPrompt);
-    console.log(`[ai-parser] Raw response (${latencyMs}ms): ${raw.slice(0, 300)}`);
+    console.log(`[ai-parser] Calling ${useSonnet ? 'Sonnet (diagnostic)' : 'Haiku'} (${messages.length} msg, ~${promptTokenEst} prompt tokens) for: "${text.slice(0, 60)}"`);
+    const { text: raw, usage, latencyMs } = await callAnthropic(messages, useSonnet ? 25000 : 15000, systemPrompt, modelId);
+    console.log(`[ai-parser] ${useSonnet ? 'Sonnet' : 'Haiku'} response (${latencyMs}ms): ${raw.slice(0, 300)}`);
 
     // Log AI usage
     if (_logAiUsage && usage) {
       _logAiUsage({
         churchId: ctx.churchId || null,
-        feature: 'command_parser',
-        model: 'claude-haiku-4-5-20251001',
+        feature: useSonnet ? 'diagnostic_engineer' : 'command_parser',
+        model: modelId,
         inputTokens: usage.input_tokens || 0,
         outputTokens: usage.output_tokens || 0,
         latencyMs,
-        intent: 'command',
+        intent: useSonnet ? 'diagnostic' : 'command',
       });
     }
 

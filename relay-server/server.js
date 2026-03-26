@@ -882,6 +882,66 @@ function logAiUsage({ churchId, feature, model, inputTokens, outputTokens, cache
 setParserLogger(logAiUsage);
 setSetupLogger(logAiUsage);
 
+// ─── INCIDENT CHAIN TRACKING ─────────────────────────────────────────────────
+// Track sequences of alerts that occur within 5 minutes of each other.
+// These chains help the AI understand causal relationships.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS incident_chains (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      church_id TEXT NOT NULL,
+      chain TEXT NOT NULL,
+      occurrence_count INTEGER DEFAULT 1,
+      last_seen TEXT NOT NULL,
+      first_seen TEXT NOT NULL
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_incident_chains_church ON incident_chains(church_id)');
+} catch {}
+
+const _recentAlertsByChurch = new Map(); // churchId → [{ type, timestamp }]
+const CHAIN_WINDOW_MS = 5 * 60_000; // 5 minutes
+
+function recordAlertForChaining(churchId, alertType) {
+  if (!_recentAlertsByChurch.has(churchId)) _recentAlertsByChurch.set(churchId, []);
+  const recent = _recentAlertsByChurch.get(churchId);
+  const now = Date.now();
+  // Prune old alerts outside window
+  while (recent.length > 0 && now - recent[0].timestamp > CHAIN_WINDOW_MS) recent.shift();
+  recent.push({ type: alertType, timestamp: now });
+  // If we have 2+ alerts in the window, record the chain
+  if (recent.length >= 2) {
+    const chain = recent.map(a => a.type).join(' → ');
+    const nowIso = new Date().toISOString();
+    try {
+      const existing = db.prepare('SELECT id, occurrence_count FROM incident_chains WHERE church_id = ? AND chain = ?').get(churchId, chain);
+      if (existing) {
+        db.prepare('UPDATE incident_chains SET occurrence_count = occurrence_count + 1, last_seen = ? WHERE id = ?').run(nowIso, existing.id);
+      } else {
+        db.prepare('INSERT INTO incident_chains (church_id, chain, first_seen, last_seen) VALUES (?, ?, ?, ?)').run(churchId, chain, nowIso, nowIso);
+      }
+    } catch {}
+  }
+}
+
+function _getIncidentChains(churchId) {
+  try {
+    const chains = db.prepare(`
+      SELECT chain, occurrence_count, last_seen
+      FROM incident_chains
+      WHERE church_id = ? AND occurrence_count >= 2
+      ORDER BY occurrence_count DESC
+      LIMIT 10
+    `).all(churchId);
+    if (!chains.length) return 'No known incident chains yet.';
+    return chains.map(c =>
+      `"${c.chain}" — seen ${c.occurrence_count} times (last: ${c.last_seen})`
+    ).join('\n');
+  } catch {
+    return 'No known incident chains yet.';
+  }
+}
+
 // Slack integration columns (safe to run multiple times)
 for (const col of ['slack_webhook_url', 'slack_channel']) {
   try { db.exec(`ALTER TABLE churches ADD COLUMN ${col} TEXT`); } catch { /* already exists */ }
@@ -2898,6 +2958,14 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
   const docContext = (typeof churchDocuments !== 'undefined' && churchDocuments)
     ? churchDocuments.getDocumentContext(churchId, intent.prompt)
     : '';
+  // Build diagnostic context for Sonnet (only used if question is diagnostic)
+  let diagnosticCtx = '';
+  let incidentChainCtx = '';
+  try {
+    diagnosticCtx = require('./src/diagnostic-context').buildDiagnosticContext(churchId, db, churches, signalFailover);
+    incidentChainCtx = _getIncidentChains(churchId);
+  } catch {}
+
   const aiResult = await aiParseCommand(intent.prompt, {
     churchId,
     churchName: church?.name || '',
@@ -2906,6 +2974,8 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     engineerProfile,
     memorySummary: churchRow?.memory_summary || '',
     documentContext: docContext,
+    diagnosticContext: diagnosticCtx,
+    incidentChains: incidentChainCtx,
   }, conversationHistory);
 
   if (aiResult.type === 'error' || aiResult.type === 'rate_limited') {
@@ -3247,6 +3317,7 @@ const _wsHandlers = createWebSocketHandlers({
   onAlert(church, msg) {
     if (msg.alertType) {
       if (msg.alertType === 'audio_silence') sessionRecap.recordAudioSilence(church.churchId);
+      recordAlertForChaining(church.churchId, msg.alertType);
       (async () => {
         try {
           const activeSessionId = sessionRecap.getActiveSessionId(church.churchId);
