@@ -64,8 +64,9 @@ class Resolume {
 
   async isRunning() {
     try {
+      // Use GET (not HEAD) — Resolume Arena 7's REST API may not support HEAD
+      // on /product and returns 405, causing false negatives on the connected check.
       const resp = await fetch(`${this.baseUrl}/product`, {
-        method: 'HEAD',
         signal: AbortSignal.timeout(3000),
       });
       this.running = resp.ok;
