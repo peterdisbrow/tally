@@ -1,4 +1,5 @@
-// CHURCH_ID is set via inline script in portal.html
+// CHURCH_ID is injected via data-church-id on <body> to avoid inline scripts (CSP)
+const CHURCH_ID = document.body.dataset.churchId || '';
     let profileData = {};
     let notifData = {};
     let campusData = [];
