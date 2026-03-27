@@ -434,6 +434,14 @@ async function init() {
       showSignInMessage('Session was invalidated by the server. Please sign in again.', 'var(--warn)');
     });
 
+    // Listen for sign-out triggered from the system tray
+    api.onSignedOut(() => {
+      isRunning = false;
+      updateToggleBtn();
+      showSignIn();
+      showSignInMessage('Signed out.', 'var(--muted)');
+    });
+
     const config = await api.getConfig();
     isRunning = await api.isRunning();
     _audioViaAtem = !!(config.audioViaAtem);

@@ -45,6 +45,7 @@
     "clientPortal": "Client Portal",
     "helpSupport": "Help & Support",
     "checkForUpdates": "Check for Updates",
+    "signOut": "Sign Out",
     "quit": "Quit"
   },
   "notifications": {
