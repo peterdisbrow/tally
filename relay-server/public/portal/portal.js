@@ -1142,6 +1142,12 @@
           const ppVer = pp.version || null;
           rows.push(['ProPresenter', ppSt, verInfo(ppVer, 'proPresenter'), pp.lastSeen || null]);
         }
+        const res = status.resolume;
+        if (res && res.host) {
+          const resSt = res.connected ? 'connected' : 'unknown';
+          const resVer = res.version || null;
+          rows.push(['Resolume Arena', resSt, resVer ? verInfo(resVer, null) : null, null]);
+        }
         if (status.ptz || status.cameras) {
           const cams = status.cameras || (status.ptz ? [status.ptz] : []);
           (Array.isArray(cams) ? cams : [cams]).forEach(function(cam, i) {
