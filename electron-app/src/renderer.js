@@ -3830,7 +3830,7 @@ async function loadPreServiceReadiness() {
     const widget = document.getElementById('preservice-readiness');
     if (!widget) return;
 
-    if (data.error) {
+    if (!data || data.error) {
       // Show widget in dimmed state instead of hiding
       widget.style.display = '';
       widget.style.opacity = '0.5';
