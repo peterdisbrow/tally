@@ -862,8 +862,8 @@ function logAudit({ adminUserId, adminEmail, action, targetType, targetId, detai
 const MODEL_PRICING = {
   'claude-haiku-4-5-20251001':  { input: 1.00,  output: 5.00  },  // $/M tokens
   'claude-sonnet-4-20250514':   { input: 3.00,  output: 15.00 },
-  'claude-sonnet-4-6-20250627':  { input: 3.00,  output: 15.00 },
-  'claude-opus-4-6-20250805':   { input: 15.00, output: 75.00 },
+  'claude-sonnet-4-6':           { input: 3.00,  output: 15.00 },
+  'claude-opus-4-6':            { input: 15.00, output: 75.00 },
 };
 function logAiUsage({ churchId, feature, model, inputTokens, outputTokens, cached, latencyMs, intent }) {
   const m = model || 'claude-haiku-4-5-20251001';
@@ -2359,7 +2359,7 @@ function formatResultForChat(result) {
 // ─── DIAGNOSTIC AI (Sonnet) — deep troubleshooting + question answering ──────
 // Commands stay on Haiku (lean context). Diagnostics go to Sonnet (full context).
 
-const DIAGNOSTIC_MODEL = 'claude-sonnet-4-6-20250627';
+const DIAGNOSTIC_MODEL = 'claude-sonnet-4-6';
 const DIAGNOSTIC_TIMEOUT = 25000; // Sonnet is slower — 25s acceptable for diagnostics
 
 async function callDiagnosticAI(churchId, question) {

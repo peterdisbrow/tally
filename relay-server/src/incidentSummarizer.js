@@ -19,7 +19,7 @@ const TIERS = {
   RECOVERY: 'recovery',
 };
 
-const SONNET_MODEL = 'claude-sonnet-4-6-20250627';
+const SONNET_MODEL = 'claude-sonnet-4-6';
 const AI_TIMEOUT_MS = 8000;  // Strict: 8s max (not the 25s diagnostic timeout)
 const MAX_SUMMARY_TOKENS = 200;
 const NARRATIVE_TIMEOUT_MS = 15000;
