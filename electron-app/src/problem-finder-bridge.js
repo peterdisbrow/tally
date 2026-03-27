@@ -229,6 +229,7 @@ function buildLiveSnapshot() {
       tokenPresent: !!config.token,
       relayUrl: config.relay || '',
       encoderConfigured: !!(config.encoder && config.encoder.type),
+      atemConfigured: !!config.atemIp,
       atemModel: atemModel,
     },
     logs: logs.slice(-200),
