@@ -84,7 +84,7 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "atemschool",
+      "owner": "peterdisbrow",
       "repo": "tally"
     },
     "nsis": {
