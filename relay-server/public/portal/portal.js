@@ -1157,6 +1157,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           const mxName = status.mixer.name || 'Audio Mixer';
           rows.push([mxName, mxSt, verInfo(mixerVer, mixerVerType), status.mixer.lastSeen || null]);
         }
+        if (status.resolume && typeof status.resolume === 'object') {
+          const rs = status.resolume;
+          const rsSt = rs.connected ? 'connected' : 'unknown';
+          const rsDetail = rs.currentColumn != null ? 'Column: ' + rs.currentColumn : null;
+          rows.push(['Resolume Arena', rsSt, verInfo(rs.version || null, null), rsDetail]);
+        }
 
         // Companion module variables — show as sub-rows under Companion
         if (status.companion && status.companion.variables) {
