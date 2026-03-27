@@ -1825,6 +1825,9 @@ class ChurchAVAgent {
       console.log('⚠️  Resolume Arena not reachable (will skip — optional device)');
       this.status.resolume = { connected: false, host: cfg.host, port: cfg.port || 8080, version: null };
     }
+    // Push the initial connected state to the relay. connectRelay() fires sendStatus()
+    // before connectResolume() runs (default: connected:false), so this corrects it.
+    this.sendStatus();
 
     // Periodically refresh Resolume status (guard against duplicate intervals on re-entry)
     if (this._resolumePollTimer) clearInterval(this._resolumePollTimer);
