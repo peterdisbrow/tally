@@ -2,7 +2,7 @@
 
 **Reviewed:** 2026-02-18  
 **Reviewer:** Automated Multi-Pass Review  
-**Codebase:** Tally (relay-server, church-client, electron-app, OpenClaw skill)
+**Codebase:** Tally Connect (relay-server, church-client, electron-app)
 
 ---
 
@@ -107,7 +107,7 @@
 - [ ] Deploy relay-server to Railway (push to GitHub, connect repo)
 - [ ] Set `ADMIN_API_KEY` and `JWT_SECRET` as Railway environment variables
 - [ ] Verify health check: `curl https://your-relay.up.railway.app/`
-- [ ] Set `CHURCH_AV_RELAY_URL` and `CHURCH_AV_API_KEY` in OpenClaw skill config
+- [ ] Set `TALLY_BOT_TOKEN` and `TALLY_BOT_WEBHOOK_URL` in relay server config
 - [ ] Register first test church via API or skill
 - [ ] Test full round-trip: register → connect client → send command → verify result
 - [ ] Run integration tests: `cd test && node integration.js`

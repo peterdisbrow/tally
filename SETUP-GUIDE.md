@@ -1,4 +1,4 @@
-# Tally by ATEM School — Church Setup Guide
+# Tally Connect — Church Setup Guide
 
 **Version 1.0 · tallyconnect.app**
 
@@ -6,7 +6,7 @@
 
 ## What You're Setting Up
 
-Tally connects your production booth to ATEM School's remote monitoring system. Once it's running:
+Tally Connect connects your production booth to Tally's remote monitoring system. Once it's running:
 
 - Your TD gets a phone alert the moment something goes wrong during service
 - Andrew can see your system status and control it remotely if needed
@@ -277,4 +277,4 @@ When activating a new church:
 
 ---
 
-*Tally by ATEM School · tallyconnect.app · Built for people who care about Sunday morning.*
+*Tally Connect · tallyconnect.app · Built for people who care about Sunday morning.*
