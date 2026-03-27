@@ -1,6 +1,6 @@
 {
   "name": "tally-connect",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "description": "Tally — Remote monitoring for ATEM School customers",
   "main": "src/main.js",
   "scripts": {
@@ -84,7 +84,7 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "atemschool",
+      "owner": "peterdisbrow",
       "repo": "tally"
     },
     "nsis": {
