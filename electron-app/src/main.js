@@ -623,6 +623,14 @@ function startAgent() {
   };
   agentStatus.encoderType = encoderTypeNames[config.encoder?.type] || '';
 
+  // Mark unconfigured devices as null so the UI hides their status pills
+  if (!config.atemIp) agentStatus.atem = null;
+  if (!config.companionUrl) agentStatus.companion = null;
+  if (!config.encoder?.type) agentStatus.encoder = null;
+  agentStatus.resolume = config.resolume?.host
+    ? { connected: false, host: config.resolume.host, port: config.resolume.port || 8080, version: null }
+    : null;
+
   const nodeLabel = useElectronAsNode ? `${nodeBinary} (ELECTRON_RUN_AS_NODE)` : nodeBinary;
   appendAppLog('SYSTEM', `Starting agent (relay=${agentRelay}, name=${config.name || 'n/a'}, node=${nodeLabel}, script=${clientPaths.script})`);
 
@@ -663,6 +671,24 @@ function startAgent() {
     if (text.includes('Companion disconnected'))     { agentStatus.companion = false; statusChanged = true; }
     if (text.includes('Encoder connected'))          { agentStatus.encoder = true; statusChanged = true; }
     if (text.includes('Encoder disconnected'))       { agentStatus.encoder = false; statusChanged = true; }
+    if (text.includes('Resolume Arena connected')) {
+      if (!agentStatus.resolume || typeof agentStatus.resolume !== 'object') agentStatus.resolume = {};
+      agentStatus.resolume.connected = true;
+      const vm = text.match(/Resolume Arena connected \((.+?)\)/);
+      if (vm) agentStatus.resolume.version = vm[1];
+      statusChanged = true;
+    }
+    if (text.includes('Resolume Arena not reachable')) {
+      if (!agentStatus.resolume || typeof agentStatus.resolume !== 'object') agentStatus.resolume = {};
+      agentStatus.resolume.connected = false;
+      statusChanged = true;
+    }
+    const resolumePollMatch = text.match(/Resolume version detected:\s*(.+)/i);
+    if (resolumePollMatch) {
+      if (!agentStatus.resolume || typeof agentStatus.resolume !== 'object') agentStatus.resolume = {};
+      agentStatus.resolume.version = resolumePollMatch[1].trim();
+      statusChanged = true;
+    }
     if (text.includes('Relay disconnected')) {
       agentStatus.relay = false;
       agentStatus._relayDisconnectedAt = Date.now();
@@ -783,7 +809,20 @@ function startAgent() {
     const wasManualStop = agentProcess === null; // stopAgent() sets this to null before kill
     agentProcess = null;
     const savedEncoderType = agentStatus.encoderType;
-    agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: savedEncoderType, audio: {}, failover: null };
+    const closedConfig = loadConfig();
+    agentStatus = {
+      relay: false,
+      atem: closedConfig.atemIp ? false : null,
+      obs: false,
+      companion: closedConfig.companionUrl ? false : null,
+      encoder: closedConfig.encoder?.type ? false : null,
+      encoderType: savedEncoderType,
+      audio: {},
+      failover: null,
+      resolume: closedConfig.resolume?.host
+        ? { connected: false, host: closedConfig.resolume.host, port: closedConfig.resolume.port || 8080, version: null }
+        : null,
+    };
     mainWindow?.webContents.send('status', agentStatus);
     updateTray();
     console.log(`Agent exited with code ${code}`);

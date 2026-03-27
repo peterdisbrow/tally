@@ -1535,9 +1535,21 @@ function updateStatusUI(status) {
   }
 
   setDot('relay', status.relay);
-  setDot('atem', status.atem);
 
-  // Only show companion chip if configured
+  // Only show ATEM chip if configured (null = not configured)
+  const atemChip = document.getElementById('dot-atem')?.closest('.status-chip');
+  if (atemChip) {
+    if (status.atem === null) {
+      atemChip.style.display = 'none';
+    } else {
+      atemChip.style.display = '';
+      setDot('atem', status.atem);
+    }
+  } else {
+    setDot('atem', status.atem);
+  }
+
+  // Only show companion chip if configured (null = not configured)
   const companionChip = document.getElementById('dot-companion')?.closest('.status-chip');
   if (companionChip) {
     if (status.companion === undefined || status.companion === null) {
@@ -1545,6 +1557,17 @@ function updateStatusUI(status) {
     } else {
       companionChip.style.display = '';
       setDot('companion', status.companion);
+    }
+  }
+
+  // Only show Resolume chip if configured (null = not configured)
+  const resolumeChip = document.getElementById('dot-resolume-chip');
+  if (resolumeChip) {
+    if (!status.resolume) {
+      resolumeChip.style.display = 'none';
+    } else {
+      resolumeChip.style.display = '';
+      setDot('resolume', status.resolume);
     }
   }
 
@@ -1587,7 +1610,7 @@ function updateStatusUI(status) {
   const encoderChip = document.getElementById('dot-encoder')?.closest('.status-chip');
   const encoderConnected = status.encoder || getStatusActive(status.obs);
   if (encoderChip) {
-    if (status.encoder === undefined && status.obs === undefined && !status.encoderType) {
+    if (status.encoder === null || (status.encoder === undefined && status.obs === undefined && !status.encoderType)) {
       encoderChip.style.display = 'none';
     } else {
       encoderChip.style.display = '';
@@ -1752,7 +1775,9 @@ function updateStatusUI(status) {
   else setStatusValue('val-id-vmix', '—', false);
 
   const resolumeData = status.resolume && typeof status.resolume === 'object' ? status.resolume : {};
-  const resolumeIdentity = resolumeData.version ? String(resolumeData.version) : '';
+  const resolumeIdentity = resolumeData.version
+    ? String(resolumeData.version)
+    : (resolumeData.host ? `${resolumeData.host}:${resolumeData.port || 8080}` : '');
   if (resolumeIdentity) setStatusValue('val-id-resolume', resolumeIdentity, getStatusActive(resolumeData));
   else setStatusValue('val-id-resolume', '—', false);
 
