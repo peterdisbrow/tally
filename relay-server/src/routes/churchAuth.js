@@ -300,7 +300,10 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       const placeholders = campusIds.map(() => '?').join(',');
       const rooms = db.prepare(`SELECT id, campus_id, name, description FROM rooms WHERE campus_id IN (${placeholders}) ORDER BY name ASC`).all(...campusIds);
       const currentRoomId = db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId)?.room_id || null;
-      res.json({ rooms, currentRoomId });
+      // Include campus names so the app can group rooms by campus
+      const campusRows = db.prepare(`SELECT churchId, name FROM churches WHERE churchId IN (${placeholders})`).all(...campusIds);
+      const campuses = campusRows.map(c => ({ id: c.churchId, name: c.name }));
+      res.json({ rooms, currentRoomId, campuses });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }

@@ -597,7 +597,7 @@ async function showDashboard() {
   // Restore collapsible section states + theme
   restoreCollapsibleStates();
   restoreTheme();
-  loadRoomSelector();
+  loadRoomPicker();
 }
 
 function shouldRetryLoginOnDefaultRelay(result) {
@@ -2965,63 +2965,20 @@ async function sendChatMessage() {
   }
 }
 
-// ─── QUICK CHAT (Status tab) ───────────────────────────────────────────────
-
-async function sendQuickChat() {
-  const input = document.getElementById('quick-chat-input');
-  const message = input.value.trim();
-  if (!message) return;
-  input.value = '';
-  input.disabled = true;
-  const responseEl = document.getElementById('quick-chat-response');
-  responseEl.style.display = 'block';
-  responseEl.innerHTML = '<div class="chat-label">Tally</div>Thinking\u2026';
-
-  const timeoutMs = 15000;
-  let didTimeout = false;
-  const timer = setTimeout(() => {
-    didTimeout = true;
-    responseEl.innerHTML = '<div class="chat-label">Tally</div>Couldn\u2019t reach Tally \u2014 check your connection';
-    input.disabled = false;
-    input.value = message;
-  }, timeoutMs);
-
-  try {
-    const resp = await api.sendChat({ message });
-    clearTimeout(timer);
-    if (didTimeout) return;
-    if (resp?.error) {
-      responseEl.innerHTML = `<div class="chat-label">Tally</div>\u274C ${escapeHtml(resp.error)}`;
-      input.value = message;
-    } else if (resp?.message) {
-      responseEl.innerHTML = `<div class="chat-label">Tally</div>${escapeHtml(resp.message)}`;
-      // Also push into engineer chat so it stays in history
-      chatMessages.push(resp);
-      chatLastTimestamp = resp.timestamp;
-    }
-  } catch (e) {
-    clearTimeout(timer);
-    if (didTimeout) return;
-    responseEl.innerHTML = `<div class="chat-label">Tally</div>\u274C ${escapeHtml(e.message)}`;
-    input.value = message;
-  } finally {
-    if (!didTimeout) input.disabled = false;
-  }
-}
 
 // ─── EQUIPMENT ─────────────────────────────────────────────────────────────
 
 // Equipment state is managed by deviceState in equipment-ui.js
 
-// ─── ROOM ASSIGNMENT ─────────────────────────────────────────────────────────
-async function loadRoomSelector() {
-  const noRoomsMsg = document.getElementById('room-no-rooms-msg');
-  const selectorWrap = document.getElementById('room-selector-wrap');
-  const select = document.getElementById('room-select');
-  const nudge = document.getElementById('room-nudge');
+// ─── ROOM / CAMPUS PICKER (header) ──────────────────────────────────────────
+async function loadRoomPicker() {
+  const picker = document.getElementById('room-picker');
+  const select = document.getElementById('room-picker-select');
+  if (!picker || !select) return;
 
   try {
     const config = await api.getConfig();
+    if (!config.token) return; // not signed in
     const relayUrl = (config.relay || DEFAULT_RELAY_URL).replace('wss://', 'https://').replace('ws://', 'http://');
     const resp = await fetch(`${relayUrl}/api/church/app/rooms`, {
       headers: { Authorization: `Bearer ${config.token}` },
@@ -3031,39 +2988,59 @@ async function loadRoomSelector() {
     const data = await resp.json();
 
     if (!data.rooms || data.rooms.length === 0) {
-      // No rooms — show "create rooms in portal" message
-      const portalLink = document.getElementById('room-portal-link');
-      if (portalLink) {
-        const portalUrl = relayUrl.replace(/\/+$/, '');
-        portalLink.onclick = (e) => { e.preventDefault(); api.openExternal?.(portalUrl); };
-      }
-      if (noRoomsMsg) noRoomsMsg.style.display = '';
-      if (selectorWrap) selectorWrap.style.display = 'none';
+      picker.style.display = 'none';
       return;
     }
 
-    // Rooms exist — show dropdown
-    if (noRoomsMsg) noRoomsMsg.style.display = 'none';
-    if (selectorWrap) selectorWrap.style.display = '';
+    // Build campus name lookup
+    const campusNames = {};
+    if (data.campuses) {
+      for (const c of data.campuses) campusNames[c.id] = c.name;
+    }
 
-    if (select) {
-      select.innerHTML = '<option value="">None (unassigned)</option>';
-      for (const room of data.rooms) {
+    // Group rooms by campus
+    const grouped = {};
+    for (const room of data.rooms) {
+      const cid = room.campus_id;
+      if (!grouped[cid]) grouped[cid] = [];
+      grouped[cid].push(room);
+    }
+
+    select.innerHTML = '<option value="">Select a room\u2026</option>';
+    const campusIds = Object.keys(grouped);
+
+    if (campusIds.length === 1) {
+      // Single campus — flat list, no optgroups
+      for (const room of grouped[campusIds[0]]) {
         const opt = document.createElement('option');
         opt.value = room.id;
         opt.textContent = room.name;
         if (room.id === data.currentRoomId) opt.selected = true;
         select.appendChild(opt);
       }
-      // Show nudge if no room is assigned
-      if (nudge) nudge.style.display = data.currentRoomId ? 'none' : '';
+    } else {
+      // Multiple campuses — group with optgroups
+      for (const cid of campusIds) {
+        const grp = document.createElement('optgroup');
+        grp.label = campusNames[cid] || 'Campus';
+        for (const room of grouped[cid]) {
+          const opt = document.createElement('option');
+          opt.value = room.id;
+          opt.textContent = room.name;
+          if (room.id === data.currentRoomId) opt.selected = true;
+          grp.appendChild(opt);
+        }
+        select.appendChild(grp);
+      }
     }
+
+    picker.style.display = '';
   } catch (e) {
-    console.warn('[Room] Failed to load rooms:', e.message);
+    console.warn('[Room] Failed to load room picker:', e.message);
   }
 }
 
-async function assignRoom(roomId) {
+async function assignRoomFromPicker(roomId) {
   try {
     const config = await api.getConfig();
     const relayUrl = (config.relay || DEFAULT_RELAY_URL).replace('wss://', 'https://').replace('ws://', 'http://');
@@ -3076,13 +3053,12 @@ async function assignRoom(roomId) {
     const data = await resp.json();
     if (data.ok) {
       await api.saveConfig({ roomId: data.roomId || '', roomName: data.roomName || '' });
-      // Update header subtitle
       const nameEl = document.getElementById('church-name');
       if (nameEl && data.roomName) {
         const baseName = nameEl.textContent.split(' · ')[0];
-        nameEl.textContent = baseName + ' · ' + data.roomName;
+        nameEl.textContent = baseName + ' \xb7 ' + data.roomName;
       } else if (nameEl) {
-        nameEl.textContent = nameEl.textContent.split(' · ')[0];
+        nameEl.textContent = nameEl.textContent.split(' \xb7 ')[0];
       }
       addAlert(data.roomName ? `Assigned to room: ${data.roomName}` : 'Room unassigned');
     }
