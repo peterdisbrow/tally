@@ -769,9 +769,14 @@ class ChurchAVAgent {
       const url = `${this.config.relay}/church?token=${this.config.token}`;
       console.log(`\n📡 Connecting to relay...`);
 
-      // Terminate any stale socket (CONNECTING=0 or OPEN=1) before creating a new one
-      if (this.relay && (this.relay.readyState === 0 || this.relay.readyState === 1)) {
-        try { this.relay.terminate(); } catch { /* ignore */ }
+      // Kill any stale socket before creating a new one.
+      // CRITICAL: remove all listeners first to prevent the old socket's close handler
+      // from scheduling yet another reconnect (which causes an infinite replacement loop).
+      if (this.relay) {
+        try { this.relay.removeAllListeners(); } catch { /* ignore */ }
+        if (this.relay.readyState === 0 || this.relay.readyState === 1) {
+          try { this.relay.terminate(); } catch { /* ignore */ }
+        }
       }
 
       this.relay = new WebSocket(url);

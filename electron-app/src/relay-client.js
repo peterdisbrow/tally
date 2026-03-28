@@ -78,52 +78,26 @@ function decodeChurchIdFromToken(token) {
   }
 }
 
-function checkTokenWithRelay(token, relayUrl, ms = 5000) {
-  return new Promise((resolve) => {
-    const wsUrl = normalizeRelayUrl(relayUrl).replace(/\/$/, '') + '/church';
-    const target = `${wsUrl}?token=${encodeURIComponent(token)}`;
-    const socket = new WebSocket(target);
-    const AUTH_STABILITY_MS = 1200;
-    let opened = false;
-    let authTimer = null;
-    let done = false;
-
-    const finish = (result) => {
-      if (done) return;
-      done = true;
-      if (authTimer) clearTimeout(authTimer);
-      try { socket.removeAllListeners(); } catch {}
-      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-        try { socket.close(); } catch {}
-      }
-      resolve(result);
-    };
-
-    const timer = setTimeout(() => finish({ success: false, error: 'Token validation timed out' }), ms);
-    socket.once('open', () => {
-      opened = true;
-      authTimer = setTimeout(() => {
-        clearTimeout(timer);
-        finish({ success: true, message: 'Token handshake succeeded' });
-      }, AUTH_STABILITY_MS);
+async function checkTokenWithRelay(token, relayUrl, ms = 5000) {
+  // Validate token via HTTP (GET /api/church/app/me) instead of WebSocket.
+  // The old WebSocket approach connected to /church which REPLACED the agent's
+  // active relay connection, causing an infinite reconnect storm.
+  try {
+    const httpUrl = relayHttpUrl(relayUrl).replace(/\/+$/, '');
+    const resp = await fetch(`${httpUrl}/api/church/app/me`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      signal: AbortSignal.timeout(ms),
     });
-    socket.once('error', (err) => {
-      clearTimeout(timer);
-      finish({ success: false, error: err.message || 'Token validation failed' });
-    });
-    socket.once('close', (code) => {
-      clearTimeout(timer);
-      if (code === 1008) {
-        finish({ success: false, error: 'Invalid token for this relay' });
-        return;
-      }
-      if (!opened) {
-        finish({ success: false, error: `Connection closed before auth (${code})` });
-        return;
-      }
-      finish({ success: false, error: `Relay closed connection (${code})` });
-    });
-  });
+    if (resp.ok) {
+      return { success: true, message: 'Token validated via HTTP' };
+    }
+    if (resp.status === 401 || resp.status === 403) {
+      return { success: false, error: 'Invalid token for this relay' };
+    }
+    return { success: false, error: `Relay returned ${resp.status}` };
+  } catch (e) {
+    return { success: false, error: e.message || 'Token validation failed' };
+  }
 }
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
