@@ -576,7 +576,7 @@ async function showDashboard() {
     const encNames = {
       obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
       aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek', tricaster: 'TriCaster', birddog: 'BirdDog',
-      ndi: 'NDI Decoder', yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
+      yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
       'custom-rtmp': 'Custom RTMP', 'rtmp-generic': 'RTMP', 'atem-streaming': 'ATEM Mini',
     };
     const label = encNames[eq.encoderType] || 'Encoder';
@@ -584,14 +584,7 @@ async function showDashboard() {
     if (dotLabel) dotLabel.textContent = label;
     const sectionTitle = document.getElementById('encoder-section-title');
     if (sectionTitle) sectionTitle.textContent = label;
-    // Cache for NDI status display
     window._savedEquipment = eq;
-    // Show/hide NDI section + dot
-    const ndiConfigured = !!(eq.ndiSource && String(eq.ndiSource).trim());
-    const ndiSection = document.getElementById('ndi-status-section');
-    const ndiChip = document.getElementById('dot-ndi-chip');
-    if (ndiSection) ndiSection.style.display = ndiConfigured ? '' : 'none';
-    if (ndiChip) ndiChip.style.display = ndiConfigured ? '' : 'none';
   } catch { /* ignore — status updates will set it later */ }
 
   // Restore collapsible section states + theme
@@ -1816,9 +1809,6 @@ function updateStatusUI(status) {
   if (companionIdentity) setStatusValue('val-id-companion', companionIdentity, getStatusActive(companionData));
   else setStatusValue('val-id-companion', '—', false);
 
-  // NDI Decoder status (independent of encoder)
-  updateNdiStatus(status);
-
   // Signal Failover status
   if (status.failover) updateFailoverUI(status.failover);
 }
@@ -2595,61 +2585,6 @@ function clearRawLogs() {
 
 // ─── PREVIEW ───────────────────────────────────────────────────────────────
 
-let lastPreviewTime = 0;
-let previewTimeout = null;
-
-async function requestPreview() {
-  addAlert('Preview requested');
-  addAlert('Waiting for preview frames…');
-  try {
-    const result = await api.requestPreview('start');
-    if (!result?.success) throw new Error(result?.error || 'preview command failed');
-  } catch (e) {
-    addAlert(`Preview request failed: ${e.message}`);
-  }
-}
-
-async function stopPreview() {
-  const container = document.getElementById('ndi-preview-container');
-  if (container) container.classList.remove('has-image');
-  const img = document.getElementById('ndi-preview-img');
-  if (img) img.style.display = 'none';
-  const placeholder = document.getElementById('ndi-preview-placeholder');
-  if (placeholder) { placeholder.style.display = 'flex'; placeholder.textContent = 'No preview yet'; }
-  const tsEl = document.getElementById('ndi-preview-ts');
-  if (tsEl) tsEl.textContent = '';
-  addAlert('Preview stopped');
-  try {
-    await api.requestPreview('stop');
-  } catch (e) {
-    // no-op: UI-level best effort
-  }
-}
-
-function handlePreviewFrame(data) {
-  const img = document.getElementById('ndi-preview-img');
-  const placeholder = document.getElementById('ndi-preview-placeholder');
-  const tsEl = document.getElementById('ndi-preview-ts');
-  const container = document.getElementById('ndi-preview-container');
-
-  if (!img || !container) return; // elements may not exist in current layout
-
-  img.src = 'data:image/jpeg;base64,' + data.data;
-  img.style.display = 'block';
-  if (placeholder) placeholder.style.display = 'none';
-  container.classList.add('has-image');
-  lastPreviewTime = Date.now();
-  if (tsEl) tsEl.textContent = new Date(data.timestamp).toLocaleTimeString();
-
-  clearTimeout(previewTimeout);
-  previewTimeout = setTimeout(() => {
-    if (Date.now() - lastPreviewTime > 14000) {
-      img.style.display = 'none';
-      if (placeholder) { placeholder.style.display = 'flex'; placeholder.textContent = 'Preview unavailable (timeout)'; }
-      container.classList.remove('has-image');
-    }
-  }, 15000);
-}
 
 // Live stream URL
 async function setupLiveStreamLink() {
@@ -2667,10 +2602,6 @@ async function setupLiveStreamLink() {
   }
 }
 // setupLiveStreamLink() — disabled: no 'live-stream-link' element exists in index.html
-
-api.onPreviewFrame((data) => {
-  handlePreviewFrame(data);
-});
 
 api.onUpdateReady(() => {
   addAlert('Update downloaded — restart to install');
@@ -3068,6 +2999,16 @@ async function assignRoomFromPicker(roomId) {
   }
 }
 
+async function confirmFactoryReset() {
+  const confirmed = await asyncConfirm('Reset all settings to factory defaults? This will sign you out, erase all equipment configuration, and return to the initial setup screen. A backup of your config will be saved.');
+  if (!confirmed) return;
+  try {
+    await api.factoryReset();
+  } catch (e) {
+    addAlert('Factory reset failed: ' + e.message);
+  }
+}
+
 function setEquipMode(mode) {
   const simplePane = document.getElementById('equip-simple-mode');
   const advancedPane = document.getElementById('equip-advanced-mode');
@@ -3100,7 +3041,6 @@ function renderSimpleDeviceList(eq) {
   if (eq.companionUrl) items.push({ icon: '[cmp]', name: 'Companion', detail: eq.companionUrl.replace(/^https?:\/\//, '') });
   if (eq.propresenterIp) items.push({ icon: '⛪', name: 'ProPresenter', detail: eq.propresenterIp });
   if (eq.vmixIp) items.push({ icon: '[vmx]', name: 'vMix', detail: eq.vmixIp });
-  if (eq.ndiSource) items.push({ icon: '[ndi]', name: 'NDI Source', detail: eq.ndiSource });
   if (eq.audioMixerIp) items.push({ icon: '[aud]', name: 'Audio Mixer', detail: eq.audioMixerIp });
   if (items.length === 0) {
     container.innerHTML = '<div style="color:var(--muted); font-size:12px; padding:12px;">No devices configured yet. Scan your network to get started.</div>';
@@ -3165,17 +3105,12 @@ async function loadEquipment() {
   const resolumeConfigured = !!eq.resolumeConfigured || !!(eq.resolumeHost && String(eq.resolumeHost).trim());
   deviceState.resolume = { host: eq.resolumeHost || '', port: String(eq.resolumePort || '8080'), configured: resolumeConfigured };
 
-  const ndiConfigured = !!(eq.ndiSource && String(eq.ndiSource).trim());
-  deviceState.ndi = { source: eq.ndiSource || '', label: eq.ndiLabel || '', configured: ndiConfigured };
-
   // Restore mixer type dropdown from audioViaAtem + override flags
   const mixerType = eq.audioViaAtemOverride === 'on' ? 'atem-direct'
     : eq.audioViaAtemOverride === 'off' ? 'atem-none'
     : eq.audioViaAtem ? 'atem-auto'
     : (eq.mixerType || '');
   deviceState.mixer = { type: mixerType, host: eq.mixerHost || '', port: eq.mixerPort ? String(eq.mixerPort) : '' };
-  deviceState.dante = { host: eq.danteNmosHost || '', port: String(eq.danteNmosPort || '8080') };
-
   deviceState.hyperdeck = (eq.hyperdecks || []).map(ip => ({ ip: typeof ip === 'string' ? ip : (ip.ip || '') }));
   deviceState.ptz = (eq.ptz || []).map((cam, i) => ({
     ip: cam.ip || '', name: cam.name || `PTZ ${i + 1}`,
@@ -3196,9 +3131,7 @@ async function loadEquipment() {
   if (vmixConfigured) expandedDevices.add('vmix');
   if (resolumeConfigured) expandedDevices.add('resolume');
   if (deviceState.videohub.length > 0) expandedDevices.add('videohub');
-  if (ndiConfigured) expandedDevices.add('ndi');
   if (deviceState.mixer.type || deviceState.mixer.host) expandedDevices.add('mixer');
-  if (deviceState.dante.host) expandedDevices.add('dante');
 
   // ── Render dynamic catalog + summary ──
   renderDeviceCatalog();
@@ -3213,11 +3146,6 @@ async function loadEquipment() {
   document.getElementById('equip-rtmp-url').value = eq.rtmpUrl || '';
   document.getElementById('equip-rtmp-key').placeholder = eq.rtmpKeySet ? '(saved \u2014 enter new to change)' : 'live_xxxxxxxx';
 
-  // ── Dashboard NDI visibility ──
-  const ndiSection = document.getElementById('ndi-status-section');
-  const ndiChip = document.getElementById('dot-ndi-chip');
-  if (ndiSection) ndiSection.style.display = ndiConfigured ? '' : 'none';
-  if (ndiChip) ndiChip.style.display = ndiConfigured ? '' : 'none';
 }
 
 
@@ -3402,10 +3330,6 @@ async function testEquip(type) {
   } else if (type === 'resolume') {
     params.ip = (state.host || '').trim() || 'localhost';
     params.port = parseInt(state.port) || 8080;
-  } else if (type === 'dante') {
-    params.ip = (state.host || '').trim();
-    params.port = parseInt(state.port) || 8080;
-    if (!params.ip) { if (detailEl) detailEl.textContent = 'Enter NMOS registry IP to test'; setEquipDot(dotId, false); return; }
   } else if (type === 'encoder') {
     // Encoder is multi-instance — redirect to testEquipIdx for primary
     return testEquipIdx('encoder', 0);
@@ -3415,10 +3339,6 @@ async function testEquip(type) {
     params.port = parseInt(state.port) || 0;
     if (!params.ip) { if (detailEl) detailEl.textContent = 'Enter console IP address'; setEquipDot(dotId, false); return; }
     if (!params.mixerType) { if (detailEl) detailEl.textContent = 'Select console type first'; setEquipDot(dotId, false); return; }
-  } else if (type === 'ndi') {
-    params.type = 'ndi';
-    params.source = (state.source || '').trim();
-    if (!params.source) { if (detailEl) detailEl.textContent = 'Enter NDI source name'; setEquipDot(dotId, false); return; }
   }
 
   if (detailEl) detailEl.textContent = 'Testing\u2026';
@@ -3443,8 +3363,6 @@ async function testEquipIdx(type, idx) {
     params.source = (entry.source || '').trim();
     if (!params.encoderType) return;
     if (params.encoderType === 'ecamm') { params.ip = '127.0.0.1'; params.port = 65194; }
-    else if (params.encoderType === 'ndi' && !params.ip) return;
-    else if (params.encoderType === 'ndi') { params.source = params.source || params.ip; }
     else if (!params.ip && !['yolobox', 'custom-rtmp', 'rtmp-generic', 'atem-streaming'].includes(params.encoderType)) return;
   } else if (type === 'hyperdeck') {
     params.ip = (entry.ip || '').trim();
@@ -3481,80 +3399,6 @@ function toggleEquipGroup(groupName) {
   const isOpen = header.classList.contains('open');
   header.classList.toggle('open', !isOpen);
   body.classList.toggle('open', !isOpen);
-}
-
-// ── NDI MONITORING ──────────────────────────────────────────────────────────
-
-async function testNdi() {
-  const source = (document.getElementById('equip-ndi-source')?.value || '').trim();
-  const detailEl = document.getElementById('equip-ndi-detail');
-  const dotId = 'equip-dot-ndi-active';
-  if (!source) {
-    if (detailEl) detailEl.textContent = 'Enter an NDI source name first';
-    setEquipDot(dotId, false);
-    return;
-  }
-  if (detailEl) detailEl.textContent = 'Probing NDI source…';
-  setEquipDot(dotId, null);
-  try {
-    const result = await api.probeNdi(source);
-    if (detailEl) detailEl.textContent = result.details || (result.success ? 'Connected' : 'Failed');
-    setEquipDot(dotId, result.success);
-  } catch (e) {
-    if (detailEl) detailEl.textContent = e.message;
-    setEquipDot(dotId, false);
-  }
-}
-
-async function captureNdiFrame() {
-  const eq = await api.getEquipment();
-  const source = (eq.ndiSource || '').trim();
-  if (!source) return;
-  const tsEl = document.getElementById('ndi-preview-ts');
-  if (tsEl) tsEl.textContent = 'Capturing…';
-  try {
-    const result = await api.captureNdiFrame(source);
-    const imgEl = document.getElementById('ndi-preview-img');
-    const placeholderEl = document.getElementById('ndi-preview-placeholder');
-    if (result.success && result.frame) {
-      if (imgEl) { imgEl.src = `data:image/jpeg;base64,${result.frame}`; imgEl.style.display = ''; }
-      if (placeholderEl) placeholderEl.style.display = 'none';
-      if (tsEl) tsEl.textContent = new Date().toLocaleTimeString();
-    } else {
-      if (tsEl) tsEl.textContent = result.details || 'Capture failed';
-    }
-  } catch (e) {
-    if (tsEl) tsEl.textContent = e.message;
-  }
-}
-
-function updateNdiStatus(status) {
-  const ndiData = status.ndi && typeof status.ndi === 'object' ? status.ndi : null;
-  const eq = window._savedEquipment || {};
-  const ndiConfigured = !!(eq.ndiSource && String(eq.ndiSource).trim());
-
-  // Show/hide NDI section + dot
-  const section = document.getElementById('ndi-status-section');
-  const chip = document.getElementById('dot-ndi-chip');
-  if (section) section.style.display = ndiConfigured ? '' : 'none';
-  if (chip) chip.style.display = ndiConfigured ? '' : 'none';
-
-  if (!ndiConfigured) return;
-
-  if (ndiData) {
-    setDot('ndi', ndiData.connected);
-    setStatusValue('val-ndi-source', ndiData.ndiSource || eq.ndiSource || '—', ndiData.connected);
-    const res = ndiData.width && ndiData.height ? `${ndiData.width}x${ndiData.height}` : '—';
-    setStatusValue('val-ndi-resolution', res, ndiData.connected);
-    setStatusValue('val-ndi-fps', ndiData.fps ? String(ndiData.fps) : '—', ndiData.connected);
-    setStatusValue('val-ndi-codec', ndiData.codec || '—', ndiData.connected);
-  } else {
-    setDot('ndi', false);
-    setStatusValue('val-ndi-source', eq.ndiSource || '—', false);
-    setStatusValue('val-ndi-resolution', '—', false);
-    setStatusValue('val-ndi-fps', '—', false);
-    setStatusValue('val-ndi-codec', '—', false);
-  }
 }
 
 // ── SAVE EQUIPMENT ─────────────────────────────────────────────────────────
@@ -3625,11 +3469,6 @@ async function _doSaveEquipment() {
     audioViaAtemOverride: deviceState.mixer.type === 'atem-direct' ? 'on'
       : deviceState.mixer.type === 'atem-none' ? 'off'
       : null,
-    danteNmosHost: (deviceState.dante.host || '').trim(),
-    danteNmosPort: parseInt(deviceState.dante.port) || 8080,
-    // NDI
-    ndiSource: deviceState.ndi.configured ? (deviceState.ndi.source || '').trim() : '',
-    ndiLabel: deviceState.ndi.configured ? (deviceState.ndi.label || '').trim() : '',
     // Streaming keys (read from static DOM section)
     youtubeApiKey: document.getElementById('equip-youtube-key').value.trim(),
     facebookAccessToken: document.getElementById('equip-facebook-token').value.trim(),
@@ -3660,14 +3499,8 @@ async function _doSaveEquipment() {
     if (sectionTitle) sectionTitle.textContent = newLabel;
     // Update audio-via-ATEM flag for dashboard status rendering
     _audioViaAtem = !!(config.audioViaAtem);
-    // Cache + NDI visibility
     window._savedEquipment = config;
     window._encoderConfig = { _type: encType, host: (enc.host || '').trim(), port: enc.port || '', password: enc.password || '', label: (enc.label || '').trim(), statusUrl: (enc.statusUrl || '').trim(), source: (enc.source || '').trim() };
-    const ndiConfigured = !!(config.ndiSource && config.ndiSource.trim());
-    const ndiSection = document.getElementById('ndi-status-section');
-    const ndiChip = document.getElementById('dot-ndi-chip');
-    if (ndiSection) ndiSection.style.display = ndiConfigured ? '' : 'none';
-    if (ndiChip) ndiChip.style.display = ndiConfigured ? '' : 'none';
     // Refresh summary chips
     renderActiveSummary();
     // Auto-restart agent so new equipment config takes effect immediately

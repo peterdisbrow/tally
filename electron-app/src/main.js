@@ -444,6 +444,24 @@ function updateTray() {
       performSignOut();
       mainWindow?.show();
     }},
+    { label: 'Reset to Factory Defaults', click: async () => {
+      const { response } = await dialog.showMessageBox({
+        type: 'warning',
+        buttons: ['Reset Everything', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        message: 'Reset all settings to factory defaults?',
+        detail: 'This will sign you out, erase all equipment configuration, and return to the initial setup screen. A backup of your current config will be saved.',
+      });
+      if (response !== 0) return;
+      stopAgent();
+      resetConfig();
+      agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
+      mainWindow?.webContents.send('status', agentStatus);
+      mainWindow?.webContents.send('signed-out');
+      mainWindow?.show();
+    }},
+    { type: 'separator' },
     { label: t('tray.quit'), click: () => { app.isQuitting = true; stopAgent(); app.exit(0); } },
   ]);
 
@@ -633,7 +651,7 @@ function startAgent() {
     obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
     aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek',
     yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder',
-    ndi: 'NDI Decoder', custom: 'Custom', 'custom-rtmp': 'Custom RTMP', 'rtmp-generic': 'RTMP',
+    custom: 'Custom', 'custom-rtmp': 'Custom RTMP', 'rtmp-generic': 'RTMP',
     'atem-streaming': 'ATEM Mini',
   };
   agentStatus.encoderType = encoderTypeNames[config.encoder?.type] || '';
@@ -1087,6 +1105,18 @@ ipcMain.handle('sign-out', async () => {
     return { success: false, error: e.message };
   }
 });
+ipcMain.handle('factory-reset', async () => {
+  try {
+    stopAgent();
+    resetConfig();
+    agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
+    mainWindow?.webContents.send('status', agentStatus);
+    mainWindow?.webContents.send('signed-out');
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
 ipcMain.handle('copy-to-clipboard', (_, text) => { clipboard.writeText(text); return true; });
 ipcMain.handle('open-external', (_, url) => {
   if (typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'))) {
@@ -1432,52 +1462,11 @@ ipcMain.handle('oauth-stream-keys', () => oauthFlow.getStreamKeys());
 
 // ─── EQUIPMENT CONFIG IPC ─────────────────────────────────────────────────────
 
-ipcMain.handle('request-preview', async (_, action) => {
-  const command = action === 'stop' ? 'preview.stop' : 'preview.start';
-  return sendPreviewCommand(command);
-});
-ipcMain.handle('request-preview-frame', async () => sendPreviewCommand('preview.snap'));
-
 const { discoverDevices, listAvailableInterfaces } = require('./networkScanner');
 
 // ─── EQUIPMENT TESTING (delegated to equipment-tester module) ─────────────────
-const { runLocalCommand, probeNdiSourceLocal } = equipmentTester;
+const { runLocalCommand } = equipmentTester;
 
-// ─── NDI MONITORING IPC ──────────────────────────────────────────────────────
-
-ipcMain.handle('probe-ndi', async (_, source) => {
-  return probeNdiSourceLocal(source, 5000);
-});
-
-ipcMain.handle('capture-ndi-frame', async (_, source) => {
-  const ndiSource = String(source || '').trim();
-  if (!ndiSource) return { success: false, details: 'No NDI source configured' };
-
-  const args = [
-    '-f', 'libndi_newtek',
-    '-i', ndiSource,
-    '-vframes', '1',
-    '-f', 'mjpeg',
-    '-q:v', '5',
-    'pipe:1',
-  ];
-
-  const result = await runLocalCommand('ffmpeg', args, 8000);
-  if (result.error && result.error.code === 'ENOENT') {
-    return { success: false, details: 'ffmpeg not installed (required for NDI snapshot)' };
-  }
-  if (result.timedOut) {
-    return { success: false, details: `NDI frame capture timed out for "${ndiSource}"` };
-  }
-  if (!result.ok || !result.stdoutBuf || result.stdoutBuf.length === 0) {
-    return { success: false, details: `Could not capture frame from "${ndiSource}"` };
-  }
-  return {
-    success: true,
-    frame: result.stdoutBuf.toString('base64'),
-    details: 'Frame captured',
-  };
-});
 
 ipcMain.handle('scan-network', async (event, options = {}) => {
   const results = await discoverDevices((percent, message) => {
@@ -1524,7 +1513,6 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
       ? { host: sanitizeHost(equipConfig.proPresenterHost), port: sanitizePort(equipConfig.proPresenterPort, 1025) }
       : null;
   }
-  if (equipConfig.danteNmosHost !== undefined) config.dante = { nmosHost: sanitizeHost(equipConfig.danteNmosHost), nmosPort: sanitizePort(equipConfig.danteNmosPort, 8080) };
   if (equipConfig.vmixHost !== undefined) {
     config.vmix = equipConfig.vmixHost
       ? { host: sanitizeHost(equipConfig.vmixHost), port: sanitizePort(equipConfig.vmixPort, 8088) }
@@ -1609,8 +1597,6 @@ ipcMain.handle('get-equipment', () => {
     proPresenterConfigured: !!config.proPresenter?.host,
     proPresenterHost: config.proPresenter?.host || '',
     proPresenterPort: config.proPresenter?.port || 1025,
-    danteNmosHost: config.dante?.nmosHost || '',
-    danteNmosPort: config.dante?.nmosPort || 8080,
     vmixConfigured: !!config.vmix?.host,
     vmixHost: config.vmix?.host || '',
     vmixPort: config.vmix?.port || 8088,

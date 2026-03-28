@@ -1,5 +1,5 @@
 /**
- * equipment-tester.js — Equipment connection testing (TCP, UDP, HTTP, NDI probes).
+ * equipment-tester.js — Equipment connection testing (TCP, UDP, HTTP probes).
  *
  * Protocol notes:
  *  - ATEM: UDP port 9910 (Blackmagic proprietary protocol)
@@ -100,22 +100,6 @@ function tryUdpProbeLocal(host, port, packet, timeoutMs = 2000) {
   });
 }
 
-function parseProbeRate(value) {
-  if (!value || typeof value !== 'string') return null;
-  const raw = value.trim();
-  if (!raw) return null;
-  if (raw.includes('/')) {
-    const [numRaw, denRaw] = raw.split('/');
-    const num = Number(numRaw);
-    const den = Number(denRaw);
-    if (Number.isFinite(num) && Number.isFinite(den) && den > 0) {
-      return Number((num / den).toFixed(2));
-    }
-    return null;
-  }
-  const asNum = Number(raw);
-  return Number.isFinite(asNum) ? Number(asNum.toFixed(2)) : null;
-}
 
 function runLocalCommand(command, args, timeoutMs = 5000) {
   return new Promise((resolve) => {
@@ -145,56 +129,6 @@ function runLocalCommand(command, args, timeoutMs = 5000) {
       resolve({ ok: code === 0 && !timedOut, code, stdout, stderr, timedOut, error: null });
     });
   });
-}
-
-async function probeNdiSourceLocal(source, timeoutMs = 5000) {
-  const ndiSource = String(source || '').trim();
-  if (!ndiSource) {
-    return { success: false, details: 'Enter NDI source name' };
-  }
-
-  const args = [
-    '-v', 'error',
-    '-f', 'libndi_newtek',
-    '-i', ndiSource,
-    '-select_streams', 'v:0',
-    '-show_entries', 'stream=width,height,avg_frame_rate,r_frame_rate',
-    '-of', 'json',
-    '-read_intervals', '%+1',
-  ];
-
-  const result = await runLocalCommand('ffprobe', args, timeoutMs);
-  if (result.error && result.error.code === 'ENOENT') {
-    return { success: false, details: 'ffprobe not installed (required for NDI monitoring)' };
-  }
-  if (result.timedOut) {
-    return { success: false, details: `NDI probe timed out for "${ndiSource}"` };
-  }
-  if (!result.ok) {
-    const errText = `${result.stderr || ''} ${result.stdout || ''}`.toLowerCase();
-    const pluginMissing = errText.includes('unknown input format') || errText.includes('libndi_newtek');
-    if (pluginMissing) return { success: false, details: 'ffprobe lacks libndi_newtek support' };
-    return { success: false, details: `NDI source "${ndiSource}" not reachable` };
-  }
-
-  let stream = null;
-  try {
-    const parsed = JSON.parse(result.stdout || '{}');
-    stream = Array.isArray(parsed.streams) ? parsed.streams[0] : null;
-  } catch {
-    stream = null;
-  }
-
-  const width = stream && Number.isFinite(Number(stream.width)) ? Number(stream.width) : null;
-  const height = stream && Number.isFinite(Number(stream.height)) ? Number(stream.height) : null;
-  const fps = parseProbeRate(stream?.avg_frame_rate || stream?.r_frame_rate || '');
-  const resolution = width && height ? `${width}x${height}` : null;
-  const fpsText = Number.isFinite(fps) ? `${fps} fps` : null;
-
-  return {
-    success: true,
-    details: `NDI source reachable (${ndiSource})${resolution ? ` · ${resolution}` : ''}${fpsText ? ` @ ${fpsText}` : ''}`,
-  };
 }
 
 // ─── Main test dispatcher ─────────────────────────────────────────────────────
@@ -263,10 +197,6 @@ async function testEquipmentConnection(params) {
       case 'propresenter': {
         const resp = await _tryHttpGet(`http://${ip}:${port || 1025}/v1/version`, 3000);
         return { success: resp.success, details: resp.success ? 'ProPresenter running' : 'Cannot reach ProPresenter' };
-      }
-      case 'dante': {
-        const resp = await _tryHttpGet(`http://${ip}:${port || 8080}/x-nmos/node/v1.2/self`, 3000);
-        return { success: resp.success, details: resp.success ? 'NMOS registry reachable' : 'Cannot reach NMOS registry' };
       }
       case 'vmix': {
         const resp = await _tryHttpGet(`http://${ip}:${port || 8088}/api/?Function=GetShortXML`, 3000);
@@ -395,9 +325,6 @@ async function testEquipmentConnection(params) {
           const resp = await _tryHttpGet(`http://${ip}:${port || 7070}/health`, 3000);
           return { success: resp.success, details: resp.success ? 'Tally Encoder reachable' : 'Cannot reach Tally Encoder' };
         }
-        if (et === 'ndi') {
-          return probeNdiSourceLocal(source || params.ip, 5000);
-        }
         if (et === 'custom') {
           const statusUrl = params.statusUrl || '/status';
           const resp = await _tryHttpGet(`http://${ip}:${port || 80}${statusUrl}`, 3000);
@@ -436,7 +363,5 @@ module.exports = {
   tryTcpConnectLocal,
   tryUdpSendLocal,
   tryUdpProbeLocal,
-  parseProbeRate,
   runLocalCommand,
-  probeNdiSourceLocal,
 };

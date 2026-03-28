@@ -1117,6 +1117,18 @@ button:focus-visible {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .btn-save:disabled { opacity: 0.5; cursor: default; }
+.factory-reset-link {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--font);
+  cursor: pointer;
+  opacity: 0.7;
+  text-decoration: underline;
+  padding: 4px 8px;
+}
+.factory-reset-link:hover { color: var(--danger); opacity: 1; }
 
 /* ── Sign-In Screen ────────────────────────────────────────── */
 /* Fade-in on init. Explicit pointer-events prevents GPU compositing layer from

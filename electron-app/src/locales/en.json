@@ -17,7 +17,6 @@
     "atem": "ATEM",
     "encoder": "Encoder",
     "companion": "Companion",
-    "ndi": "NDI",
     "failover": "Failover",
     "connected": "Connected",
     "disconnected": "Disconnected",

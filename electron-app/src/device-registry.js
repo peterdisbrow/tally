@@ -9,7 +9,6 @@ const DEVICE_CATEGORIES = [
   { id: 'core', name: 'Core' },
   { id: 'recording', name: 'Recording & Playback' },
   { id: 'presentation', name: 'Presentation & Video' },
-  { id: 'monitoring', name: 'Monitoring' },
   { id: 'audio', name: 'Audio' },
 ];
 
@@ -72,7 +71,7 @@ const DEVICE_REGISTRY = {
     id: 'ptz',
     name: 'PTZ Camera',
     icon: '\u{1F4F7}',
-    category: 'recording',
+    category: 'core',
     description: 'Supports ONVIF and VISCA over IP (TCP/UDP)',
     multi: true,
     maxInstances: 8,
@@ -152,20 +151,6 @@ const DEVICE_REGISTRY = {
     testType: 'videohub',
   },
 
-  ndi: {
-    id: 'ndi',
-    name: 'NDI Decoder',
-    icon: '\u{1F4E1}',
-    category: 'monitoring',
-    description: 'Receive-only NDI stream via ffprobe + libndi',
-    multi: false,
-    fields: [
-      { key: 'source', label: 'NDI Source', type: 'text', placeholder: 'NDI source name (e.g. Camera 1 (OBS))' },
-      { key: 'label', label: 'Label', type: 'text', placeholder: 'Label (optional, e.g. Main Camera)' },
-    ],
-    testType: 'ndi',
-  },
-
   mixer: {
     id: 'mixer',
     name: 'Audio Console',
@@ -192,20 +177,6 @@ const DEVICE_REGISTRY = {
     ],
     testType: 'mixer',
     detailHint: 'Default ports: X32/M32=10023, A&H SQ=51326, A&H dLive/Avantis=51325, Yamaha CL/QL=8765, TF=49280',
-  },
-
-  dante: {
-    id: 'dante',
-    name: 'Dante (via Companion)',
-    icon: '\u{1F3B5}',
-    category: 'audio',
-    description: 'Dante routing via Companion buttons',
-    multi: false,
-    fields: [
-      { key: 'host', label: 'NMOS Registry IP', type: 'text', placeholder: 'optional' },
-      { key: 'port', label: 'Port', type: 'text', placeholder: '8080', style: 'max-width:80px' },
-    ],
-    testType: 'dante',
   },
 };
 
@@ -269,7 +240,7 @@ const SCAN_TO_DEVICE = {
 const ENCODER_DISPLAY_NAMES = {
   obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
   aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek', tricaster: 'TriCaster', birddog: 'BirdDog',
-  ndi: 'NDI Decoder', yolobox: 'YoloBox', 'youtube-live': 'YouTube Live', 'facebook-live': 'Facebook Live', 'vimeo-live': 'Vimeo Live', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
+  yolobox: 'YoloBox', 'youtube-live': 'YouTube Live', 'facebook-live': 'Facebook Live', 'vimeo-live': 'Vimeo Live', 'tally-encoder': 'Tally Encoder', custom: 'Custom',
   'atem-streaming': 'ATEM Mini',
 };
 

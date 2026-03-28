@@ -17,9 +17,7 @@ const deviceState = {
   propresenter:  { host: '', port: '1025', configured: false },
   vmix:          { host: '', port: '8088', configured: false },
   resolume:      { host: '', port: '8080', configured: false },
-  ndi:           { source: '', label: '', configured: false },
   mixer:         { type: '', host: '', port: '' },
-  dante:         { host: '', port: '8080' },
   hyperdeck:     [],  // [{ ip }]
   ptz:           [],  // [{ ip, name, protocol, port, username, password, profileToken }]
   videohub:      [],  // [{ ip, name }]
@@ -58,9 +56,7 @@ function renderActiveSummary() {
   if (deviceState.vmix.configured) addChip('vmix', 'vMix', deviceState.vmix.host || 'localhost');
   if (deviceState.resolume.configured) addChip('resolume', 'Resolume', deviceState.resolume.host || 'localhost');
   deviceState.videohub.forEach((h, i) => { if (h.ip) addChip('videohub', h.name || `VHub${i + 1}`, h.ip); });
-  if (deviceState.ndi.configured) addChip('ndi', 'NDI', deviceState.ndi.source || '');
   if (deviceState.mixer.type) addChip('mixer', 'Mixer', deviceState.mixer.host || '');
-  if (deviceState.dante.host) addChip('dante', 'Dante', deviceState.dante.host);
 
   container.innerHTML = chips.length ? chips.join('') : '';
 }
