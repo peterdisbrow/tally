@@ -303,10 +303,11 @@ describe('VMix._parseAudio()', () => {
 // ─── isRunning ────────────────────────────────────────────────────────────────
 
 describe('VMix.isRunning()', () => {
-  it('returns true when HEAD succeeds', async () => {
+  it('returns true when GET succeeds', async () => {
     const v = new VMix();
     global.fetch = async (url, opts) => {
-      assert.equal(opts.method, 'HEAD');
+      // Must use GET (not HEAD) — some vMix versions return 405 for HEAD
+      assert.ok(!opts?.method || opts.method === 'GET');
       return { ok: true };
     };
     const result = await v.isRunning();
@@ -314,7 +315,7 @@ describe('VMix.isRunning()', () => {
     assert.equal(v.running, true);
   });
 
-  it('returns false when HEAD returns non-ok', async () => {
+  it('returns false when GET returns non-ok', async () => {
     const v = new VMix();
     mockFetchOk(false);
     const result = await v.isRunning();
@@ -322,21 +323,7 @@ describe('VMix.isRunning()', () => {
     assert.equal(v.running, false);
   });
 
-  it('falls back to GET when HEAD throws', async () => {
-    const v = new VMix();
-    let callCount = 0;
-    global.fetch = async (url, opts) => {
-      callCount++;
-      if (opts?.method === 'HEAD') throw new Error('HEAD not allowed');
-      return { ok: true };
-    };
-    const result = await v.isRunning();
-    assert.equal(result, true);
-    assert.equal(v.running, true);
-    assert.equal(callCount, 2);
-  });
-
-  it('returns false when both HEAD and GET throw', async () => {
+  it('returns false when GET throws', async () => {
     const v = new VMix();
     mockFetchThrows();
     const result = await v.isRunning();

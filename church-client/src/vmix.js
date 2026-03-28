@@ -92,24 +92,16 @@ class VMix {
 
   async isRunning() {
     try {
+      // Use GET (not HEAD) — some vMix versions return 405 for HEAD requests,
+      // causing false negatives on the connected check.
       const resp = await fetch(`${this.baseUrl}?Function=GetShortXML`, {
-        method: 'HEAD',
         signal: AbortSignal.timeout(3000),
       });
       this.running = resp.ok;
       return this.running;
     } catch {
-      // HEAD may not work — try GET of a minimal endpoint
-      try {
-        const resp = await fetch(`${this.baseUrl}?Function=GetShortXML`, {
-          signal: AbortSignal.timeout(3000),
-        });
-        this.running = resp.ok;
-        return this.running;
-      } catch {
-        this.running = false;
-        return false;
-      }
+      this.running = false;
+      return false;
     }
   }
 

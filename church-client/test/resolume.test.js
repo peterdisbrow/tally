@@ -225,10 +225,11 @@ describe('Resolume._delete()', () => {
 // ─── isRunning ────────────────────────────────────────────────────────────────
 
 describe('Resolume.isRunning()', () => {
-  it('returns true when HEAD /product succeeds', async () => {
+  it('returns true when GET /product succeeds', async () => {
     const r = new Resolume();
     global.fetch = async (url, opts) => {
-      assert.equal(opts.method, 'HEAD');
+      // Must use GET (not HEAD) — Resolume Arena 7 returns 405 for HEAD
+      assert.ok(!opts?.method || opts.method === 'GET');
       assert.ok(url.includes('/product'));
       return { ok: true };
     };
