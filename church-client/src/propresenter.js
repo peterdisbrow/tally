@@ -118,16 +118,25 @@ class ProPresenter extends EventEmitter {
 
   async getCurrentSlide() {
     const data = await this._fetch('/v1/presentation/active');
-    if (!data) return null;
+    if (!data || typeof data !== 'object') return this._currentSlide || null;
+    // Log once for debugging PP 21 response format
+    if (!this._activeSlideFormatLogged) {
+      console.log('[ProPresenter] /v1/presentation/active response keys:', Object.keys(data).join(', '));
+      this._activeSlideFormatLogged = true;
+    }
+    const pres = data.presentation || data;
     const result = {
-      presentationName: data.presentation?.name || data.name || 'Unknown',
-      presentationUUID: data.presentation?.uuid || data.uuid || null,
-      slideIndex: data.slideIndex ?? data.presentation?.slideIndex ?? 0,
-      slideTotal: data.slideCount ?? data.presentation?.slideCount ?? 0,
-      slideNotes: data.notes || data.presentation?.notes || '',
+      presentationName: pres.name || data.id?.name || this._currentSlide?.presentationName || 'Unknown',
+      presentationUUID: pres.uuid || data.id?.uuid || this._currentSlide?.presentationUUID || null,
+      slideIndex: data.slideIndex ?? pres.slideIndex ?? data.index ?? this._currentSlide?.slideIndex ?? 0,
+      slideTotal: data.slideCount ?? pres.slideCount ?? data.slide_count ?? pres.groups?.reduce((a, g) => a + (g.slides?.length || 0), 0) ?? this._currentSlide?.slideTotal ?? 0,
+      slideNotes: data.notes || pres.notes || this._currentSlide?.slideNotes || '',
     };
-    this._currentSlide = result;
-    return result;
+    // Don't overwrite good poll data with 'Unknown' from a sparse /active response
+    if (result.presentationName !== 'Unknown' || !this._currentSlide?.presentationName) {
+      this._currentSlide = result;
+    }
+    return this._currentSlide;
   }
 
   async nextSlide() {
@@ -175,7 +184,11 @@ class ProPresenter extends EventEmitter {
 
   async getActiveLook() {
     const data = await this._fetch('/v1/looks/current');
-    if (!data) return null;
+    if (!data || typeof data !== 'object') return null;
+    if (!this._lookFormatLogged) {
+      console.log('[ProPresenter] /v1/looks/current response keys:', Object.keys(data).join(', '));
+      this._lookFormatLogged = true;
+    }
     const look = { id: data.id?.uuid || data.uuid || null, name: data.id?.name || data.name || 'Unknown' };
     const prev = this._activeLook;
     this._activeLook = look;
@@ -206,6 +219,11 @@ class ProPresenter extends EventEmitter {
     const data = await this._fetch('/v1/status/screens')
       || await this._fetch('/v1/status/audience_screens');
     if (!data || typeof data !== 'object') return null;
+    // Log once for debugging PP 21 response format
+    if (!this._screenFormatLogged) {
+      console.log('[ProPresenter] Screen status response:', JSON.stringify(data).slice(0, 500));
+      this._screenFormatLogged = true;
+    }
     // PP7 format: { audience: true, stage: false }
     // PP 21 may use: { screens: [{ name, enabled }] } or similar
     let audience, stage;
@@ -468,9 +486,32 @@ class ProPresenter extends EventEmitter {
           if (indexRes.ok) {
             try { indexData = await indexRes.json(); } catch { /* empty */ }
           } else { await indexRes.text(); }
+          // Log once for debugging PP 21 response format
+          if (!this._pollFormatLogged && (slideData || indexData)) {
+            if (slideData) console.log('[ProPresenter] /v1/status/slide keys:', JSON.stringify(Object.keys(slideData)));
+            if (indexData) console.log('[ProPresenter] /v1/presentation/slide_index:', JSON.stringify(indexData).slice(0, 500));
+            this._pollFormatLogged = true;
+          }
 
           const uuid = slideData?.current?.uuid;
           const currentIndex = indexData?.presentation_index?.index ?? null;
+
+          // Extract presentation info from both endpoints
+          const presIndex = indexData?.presentation_index;
+          const presName = presIndex?.presentation_id?.name || null;
+          const presUuid = presIndex?.presentation_id?.uuid || null;
+          const slideCount = presIndex?.slide_count ?? slideData?.current?.slide_count ?? null;
+
+          // Always update _currentSlide from poll data (more reliable than /v1/presentation/active in PP 21)
+          if (presName || currentIndex != null) {
+            this._currentSlide = {
+              presentationName: presName || this._currentSlide?.presentationName || null,
+              presentationUUID: presUuid || this._currentSlide?.presentationUUID || null,
+              slideIndex: currentIndex ?? this._currentSlide?.slideIndex ?? 0,
+              slideTotal: slideCount ?? this._currentSlide?.slideTotal ?? 0,
+              slideNotes: slideData?.current?.notes || this._currentSlide?.slideNotes || '',
+            };
+          }
 
           if ((uuid && uuid !== this._lastSlideUuid) || (currentIndex != null && currentIndex !== this._lastSlideIndex)) {
             this._lastSlideUuid = uuid || this._lastSlideUuid;
@@ -479,8 +520,9 @@ class ProPresenter extends EventEmitter {
               current: slideData?.current || {},
               next: slideData?.next || {},
               slideIndex: currentIndex,
-              presentationName: indexData?.presentation_index?.presentation_id?.name || null,
-              presentationUuid: indexData?.presentation_index?.presentation_id?.uuid || null,
+              slideCount,
+              presentationName: presName,
+              presentationUuid: presUuid,
             });
           }
         } catch (err) {
