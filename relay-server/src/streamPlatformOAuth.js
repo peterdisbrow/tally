@@ -113,7 +113,7 @@ class StreamPlatformOAuth {
         WHERE churchId = ?
       `).run(tokens.access_token, tokens.refresh_token || null, expiresAt, churchId);
 
-      // Fetch channel name
+      // Fetch channel name (YouTube Data API) or fall back to Google user profile
       let channelName = '';
       try {
         const chResp = await fetch(`${YT_CHANNELS_URL}?part=snippet&mine=true`, {
@@ -123,11 +123,24 @@ class StreamPlatformOAuth {
         if (chResp.ok) {
           const chData = await chResp.json();
           channelName = chData.items?.[0]?.snippet?.title || '';
-          if (channelName) {
-            this.db.prepare('UPDATE churches SET yt_channel_name = ? WHERE churchId = ?').run(channelName, churchId);
-          }
         }
       } catch { /* non-fatal */ }
+      // Fallback: Google userinfo (doesn't require YouTube Data API)
+      if (!channelName) {
+        try {
+          const uResp = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+            headers: { Authorization: `Bearer ${tokens.access_token}` },
+            signal: AbortSignal.timeout(5000),
+          });
+          if (uResp.ok) {
+            const uData = await uResp.json();
+            channelName = uData.name || uData.email || '';
+          }
+        } catch { /* non-fatal */ }
+      }
+      if (channelName) {
+        this.db.prepare('UPDATE churches SET yt_channel_name = ? WHERE churchId = ?').run(channelName, churchId);
+      }
 
       // Fetch stream key
       const streamResult = await this.fetchYouTubeStreamKey(churchId, tokens.access_token);
