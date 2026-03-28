@@ -36,13 +36,14 @@ module.exports = async function afterPack(context) {
     return;
   }
 
-  // Determine target arch from electron-builder context
+  // Determine target arch and platform from electron-builder context
   const targetArch = context.arch ? { 1: 'x64', 3: 'arm64' }[context.arch] || context.arch : process.arch;
-  console.log(`[afterPack] Installing church-client dependencies for ${targetArch}...`);
-  execSync(`npm ci --omit=dev --cpu=${targetArch} --os=darwin`, {
+  const targetPlatform = context.electronPlatformName || process.platform; // darwin, win32, linux
+  console.log(`[afterPack] Installing church-client dependencies for ${targetPlatform}-${targetArch}...`);
+  execSync(`npm ci --omit=dev --cpu=${targetArch} --os=${targetPlatform}`, {
     cwd: churchClient,
     stdio: 'inherit',
-    env: { ...process.env, NODE_ENV: 'production', npm_config_arch: targetArch, npm_config_platform: 'darwin' },
+    env: { ...process.env, NODE_ENV: 'production', npm_config_arch: targetArch, npm_config_platform: targetPlatform },
   });
   console.log('[afterPack] church-client dependencies installed ✅');
 };
