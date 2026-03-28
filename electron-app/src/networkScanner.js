@@ -92,14 +92,15 @@ function tryTcpConnect(ip, port, timeoutMs = 300) {
 
 /**
  * Fingerprint a Blackmagic Videohub by reading the TCP banner on port 9990.
- * Real Videohubs send a multi-block banner starting with "PROTOCOL PREAMBLE:"
- * followed by a "VIDEOHUB DEVICE:" block identifying the model.
  *
- * Other Blackmagic products (SmartScope, MultiView, cameras) also speak this
- * protocol on 9990 but identify as their own device type, so we specifically
- * require the "VIDEOHUB DEVICE" block — "PROTOCOL PREAMBLE" alone is not enough.
+ * MANY Blackmagic products expose a Videohub-compatible routing protocol on
+ * port 9990 — ATEM switchers, SmartScopes, MultiViews, cameras, etc. They all
+ * send a "VIDEOHUB DEVICE:" block with a "Model name:" line. The ONLY way to
+ * distinguish a real Videohub router from everything else is to check that the
+ * model name actually contains "Videohub".
  *
- * Returns { match: true, model } on success, or { match: false } otherwise.
+ * Returns { match: true, model } for actual Videohub routers,
+ *         { match: false, model? } otherwise.
  */
 function tryVideohubFingerprint(ip, port = 9990, timeoutMs = 2500) {
   return new Promise((resolve) => {
@@ -114,21 +115,24 @@ function tryVideohubFingerprint(ip, port = 9990, timeoutMs = 2500) {
     };
     socket.setTimeout(timeoutMs);
     socket.on('connect', () => {
-      // Videohub sends its banner immediately — wait for data
+      // Blackmagic devices send their banner immediately — wait for data
     });
     socket.on('data', (chunk) => {
       buf += chunk.toString('utf8');
 
-      // Must contain the device-specific identification block, not just the
-      // generic protocol header that all Blackmagic devices share.
-      if (buf.includes('VIDEOHUB DEVICE')) {
-        const modelMatch = buf.match(/Model name:\s*(.+)/i);
-        done({ match: true, model: modelMatch ? modelMatch[1].trim() : null });
+      // We need the Model name line to decide — it arrives after "VIDEOHUB DEVICE:"
+      const modelMatch = buf.match(/Model name:\s*(.+)/i);
+      if (modelMatch) {
+        const model = modelMatch[1].trim();
+        // Only accept models that are actual Videohub routers.
+        // ATEMs, SmartScopes, MultiViews, etc. all fail this check.
+        const isVideohub = /videohub|video\s*hub/i.test(model);
+        done({ match: isVideohub, model });
       } else if (buf.length > 2048) {
-        // Received a large banner without "VIDEOHUB DEVICE" — not a Videohub
+        // Large banner with no Model name line — not a Blackmagic device at all
         done({ match: false });
       }
-      // Otherwise keep accumulating — the device block may arrive in a later chunk
+      // Otherwise keep accumulating — Model name may arrive in a later chunk
     });
     socket.on('timeout', () => done({ match: false }));
     socket.on('error', () => done({ match: false }));
