@@ -1592,6 +1592,17 @@ function updateStatusUI(status) {
     }
   }
 
+  // Only show ProPresenter chip if configured (null = not configured)
+  const ppChip = document.getElementById('dot-propresenter-chip');
+  if (ppChip) {
+    if (!status.proPresenter) {
+      ppChip.style.display = 'none';
+    } else {
+      ppChip.style.display = '';
+      setDot('propresenter', status.proPresenter);
+    }
+  }
+
   // ── Offline / disconnection banner ──────────────────────────────────────
   const offlineBanner = document.getElementById('offline-banner');
   const offlineBannerText = document.getElementById('offline-banner-text');
@@ -3062,7 +3073,7 @@ function renderSimpleDeviceList(eq) {
     items.push({ icon: '[enc]', name: nameMap[encType] || 'Encoder', detail: encIp });
   }
   if (eq.companionUrl) items.push({ icon: '[cmp]', name: 'Companion', detail: eq.companionUrl.replace(/^https?:\/\//, '') });
-  if (eq.propresenterIp) items.push({ icon: '⛪', name: 'ProPresenter', detail: eq.propresenterIp });
+  if (eq.proPresenterHost || eq.propresenterIp) items.push({ icon: '⛪', name: 'ProPresenter', detail: eq.proPresenterHost || eq.propresenterIp });
   if (eq.vmixIp) items.push({ icon: '[vmx]', name: 'vMix', detail: eq.vmixIp });
   if (eq.audioMixerIp) items.push({ icon: '[aud]', name: 'Audio Mixer', detail: eq.audioMixerIp });
   if (items.length === 0) {

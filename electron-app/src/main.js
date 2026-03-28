@@ -147,9 +147,12 @@ function startRelayStatusSSE(relayUrl, token) {
 }
 
 function _mergeRelayStatus(status) {
-  // Deep merge relay status into agentStatus, preserving local-only fields
+  // Deep merge relay status into agentStatus, preserving local-only fields.
+  // IMPORTANT: preserve null for unconfigured devices — null means "hide the pill"
   for (const key of Object.keys(status)) {
     if (key.startsWith('_')) continue;
+    // Don't overwrite null (unconfigured device) with relay data
+    if (agentStatus[key] === null) continue;
     const val = status[key];
     if (val && typeof val === 'object' && !Array.isArray(val) && agentStatus[key] && typeof agentStatus[key] === 'object') {
       Object.assign(agentStatus[key], val);
