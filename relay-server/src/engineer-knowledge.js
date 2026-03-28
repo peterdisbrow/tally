@@ -80,9 +80,12 @@ PTZ Cameras:
 - Controls: pan, tilt, zoom, presets (recall/save), home, stop
 
 ProPresenter:
-- Protocol: HTTP REST API + WebSocket on port 1025
+- Protocol: HTTP REST API + WebSocket on same port (default 1025)
 - Config: proPresenter.host, proPresenter.port
+- Versioning: ProPresenter rebranded from "ProPresenter 7.x" to year-based versions starting in 2025 (e.g. 21.2, 22.x). Versions 21.x+ are the successor to PP7 and use the same /v1/ REST API. "ProPresenter 21.2" is valid and current — do NOT tell users it doesn't exist.
 - Controls: next/previous slide, go to slide, playlist, looks, timers, stage messages, clear all
+- Stage App must be enabled in PP Network settings for WebSocket events to work
+- ProPresenter Remote must be enabled (with a password) for the REST API to accept connections
 
 Companion (Bitfocus):
 - Protocol: HTTP API on port 8000
