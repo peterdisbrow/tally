@@ -162,7 +162,7 @@ const { createBackupSnapshot } = require('./src/dbBackup');
 const { createRateLimit, consumeRateLimit, logRateLimitStatus } = require('./src/rateLimit');
 const { createWebSocketHandlers } = require('./src/websocketRouter');
 const relayPackage = require('./package.json');
-const { initRtmpIngest, shutdownRtmpIngest, getActiveStreams, getStreamMeta, isStreamActive: isIngestActive, disconnectStream, getHlsDir, generateStreamKey } = require('./src/rtmpIngest');
+const { initRtmpIngest, shutdownRtmpIngest, getActiveStreams, getStreamMeta, getStreamInfo, isStreamActive: isIngestActive, disconnectStream, getHlsDir, generateStreamKey } = require('./src/rtmpIngest');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 const JWT_SECRET    = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
@@ -3925,7 +3925,7 @@ app.get('/api/admin/stream/:churchId/key', requireAdmin, (req, res) => {
   const rtmpHost = process.env.RTMP_PUBLIC_URL || `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}`;
   const rtmpUrl = `${rtmpHost}/live/${key}`;
   const active = isIngestActive(church.churchId);
-  const meta = active ? getStreamMeta(church.churchId) : null;
+  const info = active ? getStreamInfo(church.churchId) : null;
   const hlsToken = createHlsToken(church.churchId);
   const relayBase = process.env.RELAY_PUBLIC_URL || `https://${req.hostname}`;
   const hlsUrl = `${relayBase}/api/admin/stream/${church.churchId}/live.m3u8?token=${encodeURIComponent(hlsToken)}`;
@@ -3935,7 +3935,8 @@ app.get('/api/admin/stream/:churchId/key', requireAdmin, (req, res) => {
     streamKey: key,
     rtmpUrl,
     active,
-    meta,
+    meta: info?.meta || null,
+    startedAt: info?.startedAt || null,
     hlsUrl,
   });
 });

@@ -309,6 +309,21 @@ function getStreamMeta(churchId) {
 }
 
 /**
+ * Get full stream info for a specific church.
+ */
+function getStreamInfo(churchId) {
+  for (const info of activeStreams.values()) {
+    if (info.churchId === churchId) {
+      return {
+        startedAt: info.startedAt,
+        meta: info.meta || {},
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * Check if a church has an active stream.
  */
 function isStreamActive(churchId) {
@@ -365,6 +380,7 @@ module.exports = {
   generateStreamKey,
   getActiveStreams,
   getStreamMeta,
+  getStreamInfo,
   isStreamActive,
   disconnectStream,
   getHlsDir,
