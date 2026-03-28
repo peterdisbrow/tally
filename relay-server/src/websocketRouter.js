@@ -203,6 +203,10 @@ function createWebSocketHandlers({
     // ── Disconnect handler ─────────────────────────────────────────────────
     ws.on('close', () => {
       if (wsPingInterval) clearInterval(wsPingInterval);
+      // Guard: if this socket was already replaced by a newer connection, skip state
+      // reset. Without this, the stale close fires after replacement and incorrectly
+      // broadcasts church_disconnected even though the church is still connected.
+      if (church.ws !== ws) return;
       church.lastSeen = new Date().toISOString();
       church.disconnectedAt = Date.now();
       // Reset device status so the dashboard doesn't show stale connected states
@@ -359,7 +363,12 @@ function createWebSocketHandlers({
       if (wsPingInterval) clearInterval(wsPingInterval);
       controllers.delete(ws);
       const prev = wsConnectionsByIp.get(clientIp) || 1;
-      wsConnectionsByIp.set(clientIp, Math.max(0, prev - 1));
+      const next = Math.max(0, prev - 1);
+      if (next === 0) {
+        wsConnectionsByIp.delete(clientIp);
+      } else {
+        wsConnectionsByIp.set(clientIp, next);
+      }
       onControllerDisconnected(ws);
     });
 

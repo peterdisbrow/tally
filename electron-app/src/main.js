@@ -429,6 +429,34 @@ function updateTray() {
     }},
     { label: `Version ${app.getVersion()}`, enabled: false },
     { type: 'separator' },
+    { label: t('tray.signOut'), click: async () => {
+      const { response } = await dialog.showMessageBox({
+        type: 'question',
+        buttons: ['Cancel', 'Sign Out'],
+        defaultId: 0,
+        cancelId: 0,
+        message: 'Sign out of Tally Connect?',
+        detail: 'This will stop monitoring and remove your credentials from this device.',
+      });
+      if (response === 1) {
+        stopAgent();
+        const config = loadConfig();
+        const SENSITIVE_KEYS = [
+          'token', 'churchToken', 'setupComplete',
+          'obsPassword', 'youtubeApiKey', 'facebookAccessToken',
+          'rtmpStreamKey', 'twitchStreamKey', 'adminApiKey',
+          'youtubeOAuthAccessToken', 'youtubeOAuthRefreshToken',
+          'facebookOAuthAccessToken', 'youtubeStreamKey', 'facebookStreamKey',
+          'youtubeStreamUrl', 'facebookStreamUrl', 'facebookPageName',
+        ];
+        for (const key of SENSITIVE_KEYS) { delete config[key]; }
+        saveConfig(config);
+        agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
+        mainWindow?.webContents.send('status', agentStatus);
+        mainWindow?.webContents.send('auth-invalid');
+        mainWindow?.show();
+      }
+    }},
     { label: t('tray.quit'), click: () => { app.isQuitting = true; stopAgent(); app.exit(0); } },
   ]);
 

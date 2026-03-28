@@ -813,7 +813,20 @@ class ChurchAVAgent {
 
       this.relay.on('close', (code, reason) => {
         this._relayConnecting = false;
-        console.warn(`⚠️  Relay disconnected (${code}: ${reason}). Reconnecting in ${this.reconnectDelay / 1000}s...`);
+        const reasonStr = reason?.toString() || '';
+        const isReplaced = code === 1000 && reasonStr.includes('replaced by new connection');
+        if (isReplaced) {
+          // The relay replaced this connection with a newer one from the same church.
+          // Don't fight for the slot — the newer connection should be authoritative.
+          // Log but suppress the normal reconnect; the Electron watchdog will restart
+          // the agent if relay stays offline for 2+ minutes.
+          console.warn(`⚠️  Relay disconnected (${code}: ${reasonStr}). A newer connection took over — not reconnecting.`);
+          if (this._relayPingTimer) clearInterval(this._relayPingTimer);
+          this.health.relay.reconnects++;
+          doResolve();
+          return;
+        }
+        console.warn(`⚠️  Relay disconnected (${code}: ${reasonStr}). Reconnecting in ${this.reconnectDelay / 1000}s...`);
         if (this._relayPingTimer) clearInterval(this._relayPingTimer);
         this.health.relay.reconnects++;
         doResolve(); // Don't block startup if relay is down

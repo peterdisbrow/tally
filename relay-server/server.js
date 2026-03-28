@@ -93,6 +93,11 @@ const HEARTBEAT_PONG_TIMEOUT_MS  = 10_000;
 const heartbeatInterval = setInterval(() => {
   for (const ws of wss.clients) {
     if (ws.readyState !== WebSocket.OPEN) continue;
+    // Clear any previous timeout before setting a new one — guards against the
+    // edge case where a pong arrives just before the next ping cycle and the old
+    // timeout ID is overwritten, leaving a stale timer that would falsely terminate
+    // an otherwise healthy connection.
+    if (ws._pongTimeout) { clearTimeout(ws._pongTimeout); ws._pongTimeout = null; }
     // Set a 10-second timeout; cleared when pong arrives
     ws._pongTimeout = setTimeout(() => {
       const label = ws._churchName ? `church "${ws._churchName}"` : 'controller';
