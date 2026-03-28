@@ -4,6 +4,7 @@ let _onboardingSending = false;
 let isRunning = false;
 let alertCount = 0;
 let _activityCount = 0;
+let _hasReceivedRelayStatus = false; // true after first real status from relay SSE
 
 // ─── COLLAPSIBLE SECTIONS ────────────────────────────────────────────────────
 // Persist open/closed state in localStorage
@@ -519,7 +520,7 @@ async function init() {
     if (typeof initProblemFinderListener === 'function') initProblemFinderListener();
     // Auto-run problem finder after agent connects (background, delayed)
     if (isRunning && getStatusActive(status.relay)) {
-      setTimeout(() => pfAutoRun(), 3000);
+      setTimeout(() => pfAutoRun(), 15000);
     }
   } catch (err) {
     console.error('Init failed:', err);
@@ -1538,6 +1539,7 @@ function updateStatusUI(status) {
   // ── Cache status for offline mode ─────────────────────────────────────
   const relayOk = getStatusActive(status.relay);
   if (relayOk) {
+    _hasReceivedRelayStatus = true;
     const wasOffline = !!_relayDisconnectedAt;
     _cachedStatus = JSON.parse(JSON.stringify(status));
     _cachedStatusTime = new Date();
@@ -2124,6 +2126,13 @@ function getStatusActive(active) {
 }
 
 function getDotState(active) {
+  // Before first relay status, show grey (neutral) instead of red for disconnected devices
+  if (!_hasReceivedRelayStatus) {
+    if (active === true) return 'green';
+    if (active && typeof active === 'object' && (active.connected === true || active.online === true)) return 'green';
+    return ''; // grey/neutral
+  }
+
   if (typeof active === 'boolean') return active ? 'green' : 'red';
   if (typeof active === 'number') return active > 0 ? 'green' : 'red';
 
@@ -2527,8 +2536,8 @@ api.onStatus((status) => {
 
   // Trigger auto-run after first successful relay connection
   if (getStatusActive(status.relay) && !_pfAutoRunDone && isRunning) {
-    // Delay slightly to let agent stabilize
-    setTimeout(() => pfAutoRun(), 5000);
+    // Delay to let all devices connect before scanning for issues
+    setTimeout(() => pfAutoRun(), 15000);
   }
 });
 
