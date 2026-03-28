@@ -499,6 +499,27 @@ class StreamPlatformOAuth {
     return { code: entry.code };
   }
 
+  /**
+   * List available Facebook destinations (personal + pages) for an already-connected account.
+   */
+  async listFacebookDestinations(churchId) {
+    const church = this.db.prepare('SELECT fb_access_token FROM churches WHERE churchId = ?').get(churchId);
+    if (!church?.fb_access_token) return { success: false, error: 'Not connected to Facebook' };
+    const pages = await this._listFacebookPages(church.fb_access_token);
+    let userName = 'My Account';
+    try {
+      const meResp = await fetch(`${FB_GRAPH_URL}/me?fields=name`, {
+        headers: { Authorization: `Bearer ${church.fb_access_token}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (meResp.ok) { const me = await meResp.json(); userName = me.name || userName; }
+    } catch { /* ignore */ }
+    return {
+      success: true,
+      pages: [{ id: 'me', name: `${userName} (Personal)` }, ...pages.map(p => ({ id: p.id, name: p.name }))],
+    };
+  }
+
   // ─── YOUTUBE CALLBACK HANDLING ────────────────────────────────────────────────
   // Same relay-redirect + polling pattern as Facebook.
 

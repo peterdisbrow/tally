@@ -206,6 +206,10 @@ async function selectFacebookPage(pageId) {
 
 // ─── DISCONNECT ──────────────────────────────────────────────────────────────
 
+async function listFacebookPages() {
+  return _relayGet('/api/church/app/oauth/facebook/pages');
+}
+
 async function disconnectPlatform(platform) {
   const result = await _relayDelete(`/api/church/app/oauth/${platform}`);
   // Clear local keys
@@ -264,6 +268,7 @@ module.exports = {
   startYouTubeOAuth,
   startFacebookOAuth,
   selectFacebookPage,
+  listFacebookPages,
   disconnectPlatform,
   getOAuthStatus,
   getStreamKeys,

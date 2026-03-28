@@ -3277,6 +3277,42 @@ async function selectFbPage() {
   }
 }
 
+function _ensureFbChangeBtn(afterBtnId) {
+  const suffix = afterBtnId.includes('simple') ? '-simple' : '';
+  const existingId = `btn-fb-change-page${suffix}`;
+  if (document.getElementById(existingId)) return;
+  const afterBtn = document.getElementById(afterBtnId);
+  if (!afterBtn) return;
+  const btn = document.createElement('button');
+  btn.id = existingId;
+  btn.className = 'btn-oauth';
+  btn.textContent = 'Change';
+  btn.style.marginLeft = '6px';
+  btn.onclick = changeFbPage;
+  afterBtn.parentElement.insertBefore(btn, afterBtn.nextSibling);
+}
+
+async function changeFbPage() {
+  const isSimple = document.getElementById('equip-simple-mode')?.style.display !== 'none';
+  const status = document.getElementById(isSimple ? 'oauth-fb-status-simple' : 'oauth-fb-status');
+  if (status) status.textContent = 'Loading pages...';
+  try {
+    const result = await api.oauthFacebookListPages();
+    if (!result.success || !result.pages?.length) {
+      if (status) { status.textContent = result.error || 'No pages found'; status.style.color = 'var(--red, #f44)'; }
+      return;
+    }
+    const pagesHtml = result.pages.map(p => `<option value="${escapeHtml(String(p.id))}">${escapeHtml(p.name)}</option>`).join('');
+    const selector = document.getElementById(isSimple ? 'fb-page-selector-simple' : 'fb-page-selector');
+    const select = document.getElementById(isSimple ? 'fb-page-select-simple' : 'fb-page-select');
+    if (select) select.innerHTML = pagesHtml;
+    if (selector) selector.style.display = 'block';
+    if (status) { status.textContent = 'Select a destination below'; status.style.color = 'var(--yellow)'; }
+  } catch (e) {
+    if (status) { status.textContent = e.message; status.style.color = 'var(--red, #f44)'; }
+  }
+}
+
 async function disconnectYouTube() {
   if (!(await asyncConfirm('Disconnect YouTube? Stream keys will be removed.'))) return;
   await api.oauthYouTubeDisconnect();
@@ -3324,12 +3360,18 @@ async function updateOAuthUI() {
       fbBtn.textContent = 'Disconnect';
       fbBtn.className = 'btn-oauth connected';
       fbBtn.onclick = disconnectFacebook;
+      // Show "Change" button
+      _ensureFbChangeBtn('btn-oauth-fb');
+      _ensureFbChangeBtn('btn-oauth-fb-simple');
     } else {
       fbStatus.textContent = 'Not connected';
       fbStatus.style.color = 'var(--muted)';
       fbBtn.textContent = 'Connect Facebook';
       fbBtn.className = 'btn-oauth';
       fbBtn.onclick = connectFacebook;
+      // Remove "Change" buttons
+      document.getElementById('btn-fb-change-page')?.remove();
+      document.getElementById('btn-fb-change-page-simple')?.remove();
     }
     // Sync to simple mode
     const fbSimple = document.getElementById('oauth-fb-status-simple');

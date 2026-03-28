@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   oauthYouTubeConnect: () => ipcRenderer.invoke('oauth-youtube-connect'),
   oauthFacebookConnect: () => ipcRenderer.invoke('oauth-facebook-connect'),
   oauthFacebookSelectPage: (opts) => ipcRenderer.invoke('oauth-facebook-select-page', opts),
+  oauthFacebookListPages: () => ipcRenderer.invoke('oauth-facebook-list-pages'),
   oauthYouTubeDisconnect: () => ipcRenderer.invoke('oauth-youtube-disconnect'),
   oauthFacebookDisconnect: () => ipcRenderer.invoke('oauth-facebook-disconnect'),
   oauthStatus: () => ipcRenderer.invoke('oauth-status'),

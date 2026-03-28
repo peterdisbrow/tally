@@ -1668,6 +1668,7 @@ oauthFlow.init({ loadConfig, saveConfig, relayHttpUrl, getMainWindow: () => main
 ipcMain.handle('oauth-youtube-connect', () => oauthFlow.startYouTubeOAuth());
 ipcMain.handle('oauth-facebook-connect', () => oauthFlow.startFacebookOAuth());
 ipcMain.handle('oauth-facebook-select-page', (_, { pageId }) => oauthFlow.selectFacebookPage(pageId));
+ipcMain.handle('oauth-facebook-list-pages', () => oauthFlow.listFacebookPages());
 ipcMain.handle('oauth-youtube-disconnect', () => oauthFlow.disconnectPlatform('youtube'));
 ipcMain.handle('oauth-facebook-disconnect', () => oauthFlow.disconnectPlatform('facebook'));
 ipcMain.handle('oauth-status', () => oauthFlow.getOAuthStatus());

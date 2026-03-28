@@ -75,6 +75,14 @@ module.exports = function setupStreamPlatformRoutes(app, ctx) {
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
+  // Facebook: list available pages/destinations (for changing page after initial connect)
+  app.get('/api/church/app/oauth/facebook/pages', requireChurchAppAuth, async (req, res) => {
+    try {
+      const result = await streamOAuth.listFacebookDestinations(req.church.churchId);
+      res.json(result);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
   // Facebook: select page (creates live video, gets stream key)
   app.post('/api/church/app/oauth/facebook/select-page', requireChurchAppAuth, async (req, res) => {
     try {
