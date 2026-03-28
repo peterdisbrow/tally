@@ -701,12 +701,12 @@ function startAgent() {
     if (text.includes('Connected to relay server'))  { agentStatus.relay = true; statusChanged = true; agentCrashCount = 0; _agentEscalatedAt = 0; }
     if (text.includes('ATEM connected'))             { agentStatus.atem = { connected: true, model: (agentStatus.atem && agentStatus.atem.model) || '' }; statusChanged = true; }
     if (text.includes('OBS connected'))              { agentStatus.obs = true; statusChanged = true; }
-    if (text.includes('Companion connected'))        { agentStatus.companion = true; statusChanged = true; }
+    if (text.includes('Companion connected'))        { if (!agentStatus.companion || typeof agentStatus.companion !== 'object') agentStatus.companion = {}; agentStatus.companion.connected = true; statusChanged = true; }
     if (text.includes('ATEM disconnected'))          { agentStatus.atem = false; statusChanged = true; }
     if (text.includes('OBS disconnected'))           { agentStatus.obs = false; statusChanged = true; }
-    if (text.includes('Companion disconnected'))     { agentStatus.companion = false; statusChanged = true; }
-    if (text.includes('Encoder connected'))          { agentStatus.encoder = true; statusChanged = true; }
-    if (text.includes('Encoder disconnected'))       { agentStatus.encoder = false; statusChanged = true; }
+    if (text.includes('Companion disconnected'))     { if (!agentStatus.companion || typeof agentStatus.companion !== 'object') agentStatus.companion = {}; agentStatus.companion.connected = false; statusChanged = true; }
+    if (text.includes('Encoder connected'))          { if (!agentStatus.encoder || typeof agentStatus.encoder !== 'object') agentStatus.encoder = {}; agentStatus.encoder.connected = true; statusChanged = true; }
+    if (text.includes('Encoder disconnected'))       { if (!agentStatus.encoder || typeof agentStatus.encoder !== 'object') agentStatus.encoder = {}; agentStatus.encoder.connected = false; statusChanged = true; }
     if (text.includes('ProPresenter connected') || text.includes('ProPresenter WebSocket connected')) {
       if (!agentStatus.proPresenter || typeof agentStatus.proPresenter !== 'object') agentStatus.proPresenter = {};
       agentStatus.proPresenter.connected = true;
@@ -734,6 +734,73 @@ function startAgent() {
     if (resolumePollMatch) {
       if (!agentStatus.resolume || typeof agentStatus.resolume !== 'object') agentStatus.resolume = {};
       agentStatus.resolume.version = resolumePollMatch[1].trim();
+      statusChanged = true;
+    }
+    // vMix connected: "✅ vMix connected (Edition Version) — Streaming: ..."
+    const vmixConnMatch = text.match(/vMix connected\s*\(([^)]+)\)/i);
+    if (vmixConnMatch) {
+      if (!agentStatus.vmix || typeof agentStatus.vmix !== 'object') agentStatus.vmix = {};
+      agentStatus.vmix.connected = true;
+      const parts = vmixConnMatch[1].match(/^(.+?)\s+([\d.]+.*)$/);
+      if (parts) { agentStatus.vmix.edition = parts[1]; agentStatus.vmix.version = parts[2]; }
+      else { agentStatus.vmix.edition = vmixConnMatch[1]; }
+      statusChanged = true;
+    }
+    if (text.includes('vMix not reachable')) {
+      if (!agentStatus.vmix || typeof agentStatus.vmix !== 'object') agentStatus.vmix = {};
+      agentStatus.vmix.connected = false;
+      statusChanged = true;
+    }
+    // Mixer connected: "✅ <type> console connected"
+    const mixerConnMatch = text.match(/(\w+) console connected/i);
+    if (mixerConnMatch) {
+      if (!agentStatus.mixer || typeof agentStatus.mixer !== 'object') agentStatus.mixer = {};
+      agentStatus.mixer.connected = true;
+      agentStatus.mixer.type = mixerConnMatch[1];
+      statusChanged = true;
+    }
+    if (text.includes('console not reachable')) {
+      if (!agentStatus.mixer || typeof agentStatus.mixer !== 'object') agentStatus.mixer = {};
+      agentStatus.mixer.connected = false;
+      statusChanged = true;
+    }
+    // Parse device identity log lines from church-client
+    const encoderIdMatch = text.match(/Encoder identity:\s*(.+)/i);
+    if (encoderIdMatch) {
+      if (!agentStatus.encoder || typeof agentStatus.encoder !== 'object') agentStatus.encoder = {};
+      agentStatus.encoder.details = encoderIdMatch[1].trim();
+      statusChanged = true;
+    }
+    const ppVersionMatch = text.match(/ProPresenter version detected:\s*(.+)/i);
+    if (ppVersionMatch) {
+      if (!agentStatus.proPresenter || typeof agentStatus.proPresenter !== 'object') agentStatus.proPresenter = {};
+      agentStatus.proPresenter.version = ppVersionMatch[1].trim();
+      statusChanged = true;
+    }
+    const vmixIdMatch = text.match(/vMix identity:\s*(.+)/i);
+    if (vmixIdMatch) {
+      if (!agentStatus.vmix || typeof agentStatus.vmix !== 'object') agentStatus.vmix = {};
+      const parts = vmixIdMatch[1].trim();
+      // Format: "Edition Version" e.g. "vMix Pro 27.0.0.48"
+      const vmixParts = parts.match(/^(\S+(?:\s+\S+)?)\s+([\d.]+.*)$/);
+      if (vmixParts) { agentStatus.vmix.edition = vmixParts[1]; agentStatus.vmix.version = vmixParts[2]; }
+      else { agentStatus.vmix.edition = parts; }
+      statusChanged = true;
+    }
+    const mixerIdMatch = text.match(/Mixer identity:\s*(.+)/i);
+    if (mixerIdMatch) {
+      if (!agentStatus.mixer || typeof agentStatus.mixer !== 'object') agentStatus.mixer = {};
+      const parts = mixerIdMatch[1].trim();
+      // Format: "TYPE Model" e.g. "BEHRINGER XR18"
+      const sp = parts.indexOf(' ');
+      if (sp > 0) { agentStatus.mixer.type = parts.slice(0, sp); agentStatus.mixer.model = parts.slice(sp + 1); }
+      else { agentStatus.mixer.type = parts; }
+      statusChanged = true;
+    }
+    const companionIdMatch = text.match(/Companion identity:\s*(.+)/i);
+    if (companionIdMatch) {
+      if (!agentStatus.companion || typeof agentStatus.companion !== 'object') agentStatus.companion = {};
+      agentStatus.companion.endpoint = companionIdMatch[1].trim();
       statusChanged = true;
     }
     if (text.includes('Relay disconnected')) {

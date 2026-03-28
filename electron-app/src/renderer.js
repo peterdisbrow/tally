@@ -1624,7 +1624,7 @@ function updateStatusUI(status) {
 
   // Encoder dot: use encoder status if managed, fallback to OBS — hide if not configured
   const encoderChip = document.getElementById('dot-encoder')?.closest('.status-chip');
-  const encoderConnected = status.encoder || getStatusActive(status.obs);
+  const encoderConnected = getStatusActive(status.encoder) || getStatusActive(status.obs);
   if (encoderChip) {
     if (status.encoder === null || (status.encoder === undefined && status.obs === undefined && !status.encoderType)) {
       encoderChip.style.display = 'none';
