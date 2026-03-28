@@ -817,13 +817,16 @@ class ChurchAVAgent {
         const isReplaced = code === 1000 && reasonStr.includes('replaced by new connection');
         if (isReplaced) {
           // The relay replaced this connection with a newer one from the same church.
-          // Don't fight for the slot — the newer connection should be authoritative.
-          // Log but suppress the normal reconnect; the Electron watchdog will restart
-          // the agent if relay stays offline for 2+ minutes.
-          console.warn(`⚠️  Relay disconnected (${code}: ${reasonStr}). A newer connection took over — not reconnecting.`);
+          // Wait 5s then reconnect — the replacing connection may have been a stale
+          // duplicate from a stop/start race, not a genuinely newer agent.
+          console.warn(`⚠️  Relay disconnected (${code}: ${reasonStr}). Will reconnect in 5s...`);
           if (this._relayPingTimer) clearInterval(this._relayPingTimer);
           this.health.relay.reconnects++;
           doResolve();
+          if (!this._stopping && !this._reconnectScheduled) {
+            this._reconnectScheduled = true;
+            setTimeout(() => { this._reconnectScheduled = false; this.connectRelay(); }, 5000);
+          }
           return;
         }
         console.warn(`⚠️  Relay disconnected (${code}: ${reasonStr}). Reconnecting in ${this.reconnectDelay / 1000}s...`);
@@ -1797,26 +1800,23 @@ class ChurchAVAgent {
   async _updateProPresenterStatus() {
     if (!this.proPresenter) return;
     try {
-      const running = await this.proPresenter.isRunning();
-      this.status.proPresenter.running = running;
-      if (running) {
-        // Fetch all status in parallel — one failure doesn't block others
-        const [slideRes, lookRes, timerRes, screenRes, playlistRes] = await Promise.allSettled([
-          this.proPresenter.getCurrentSlide(),
-          this.proPresenter.getActiveLook(),
-          this.proPresenter.getTimerStatus(),
-          this.proPresenter.getAudienceScreenStatus(),
-          this.proPresenter.getPlaylistFocused(),
-        ]);
-        // Spread the full toStatus() so all fields flow through automatically
-        Object.assign(this.status.proPresenter, this.proPresenter.toStatus());
-        // HTTP is reachable → commands work regardless of WebSocket state.
-        // Override the WS-based `connected` flag so the relay and AI parser
-        // correctly see PP as available and include its commands in context.
-        this.status.proPresenter.connected = true;
-      } else {
-        this.status.proPresenter.connected = this.proPresenter.connected;
+      // Trust the ProPresenter instance's own connected state (managed by its 2s poll loop).
+      // Don't call isRunning() here — that would create a competing connection check.
+      if (!this.proPresenter.connected) {
+        this.status.proPresenter.connected = false;
+        this.status.proPresenter.running = this.proPresenter.running;
+        return;
       }
+      // Fetch all rich status in parallel — one failure doesn't block others
+      await Promise.allSettled([
+        this.proPresenter.getCurrentSlide(),
+        this.proPresenter.getActiveLook(),
+        this.proPresenter.getTimerStatus(),
+        this.proPresenter.getAudienceScreenStatus(),
+        this.proPresenter.getPlaylistFocused(),
+      ]);
+      // Spread the full toStatus() so all fields flow through automatically
+      Object.assign(this.status.proPresenter, this.proPresenter.toStatus());
     } catch { /* ignore */ }
   }
 

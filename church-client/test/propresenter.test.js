@@ -55,14 +55,12 @@ describe('ProPresenter', () => {
       const pp = new ProPresenter();
       assert.equal(pp.host, 'localhost');
       assert.equal(pp.port, 1025);
-      assert.equal(pp.wsPort, 1026);
     });
 
     it('accepts custom host and port', () => {
       const pp = new ProPresenter({ host: '10.0.0.5', port: 2025 });
       assert.equal(pp.host, '10.0.0.5');
       assert.equal(pp.port, 2025);
-      assert.equal(pp.wsPort, 2026);
     });
 
     it('baseUrl returns correct URL', () => {

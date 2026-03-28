@@ -1,8 +1,8 @@
 /**
  * ProPresenter Integration (PP7 / PP 21.x+)
  * Uses the official /v1/ REST API on port 1025.
- * Real-time slide updates via chunked HTTP status polling (PP 21 removed
- * the old "Remote Classic" WebSocket protocol).
+ * Real-time slide updates via 2s polling (PP 21 removed the old
+ * "Remote Classic" WebSocket protocol).
  * Supports presentation & playlist trigger modes, library browsing,
  * slide thumbnails, and optional backup PP mirroring.
  */
@@ -17,7 +17,7 @@ class ProPresenter extends EventEmitter {
     this.triggerMode = triggerMode; // 'presentation' or 'playlist'
     this.connected = false;
     this.running = false;
-    this._statusAbort = null;
+    this._pollAbort = null;
     this._reconnectTimer = null;
     this._reconnectDelay = 5000;
     this._pollInterval = null;
@@ -53,21 +53,37 @@ class ProPresenter extends EventEmitter {
     }
   }
 
+  /** Fire-and-forget HTTP request (for triggers that return 204/empty). */
+  async _fire(path, options = {}) {
+    const url = `${this.baseUrl}${path}`;
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(5000), ...options });
+      // Consume body to prevent socket hang
+      await resp.text();
+      return resp.ok || resp.status === 204;
+    } catch {
+      return false;
+    }
+  }
+
   /** Mirror a command to the backup PP instance (fire-and-forget). */
   _mirror(path, options = {}) {
     if (!this._backup) return;
-    this._backup._fetch(path, options).catch(() => {});
+    this._backup._fire(path, options).catch(() => {});
   }
 
   // ─── PUBLIC API ───────────────────────────────────────────────────────
 
   async isRunning() {
     try {
+      // Use /v1/status/slide (proven reliable in PP 21.x, same as Tally Clicker).
       // Any HTTP response (even 404) proves PP is running.
       // Only a network-level failure (ECONNREFUSED, timeout) means not running.
-      await fetch(`${this.baseUrl}/v1/version`, {
+      const resp = await fetch(`${this.baseUrl}/v1/status/slide`, {
         signal: AbortSignal.timeout(3000),
       });
+      // Consume body to prevent socket hang
+      await resp.text();
       this.running = true;
       return true;
     } catch {
@@ -77,10 +93,11 @@ class ProPresenter extends EventEmitter {
   }
 
   async getVersion() {
-    const data = await this._fetch('/v1/version');
+    // Per PP spec, version endpoint lives at /version (not /v1/version)
+    const data = await this._fetch('/version');
     if (!data) return null;
     if (typeof data === 'string') { this._version = data; return data; }
-    const v = data.version || data.appVersion || data.product || null;
+    const v = data.host_description || data.version || data.appVersion || data.product || null;
     this._version = v;
     return v;
   }
@@ -103,8 +120,8 @@ class ProPresenter extends EventEmitter {
     const path = this.triggerMode === 'playlist'
       ? '/v1/trigger/next'
       : '/v1/presentation/focused/next/trigger';
-    await this._fetch(path, { method: 'GET' });
-    this._mirror(path, { method: 'GET' });
+    await this._fire(path);
+    this._mirror(path);
     return true;
   }
 
@@ -112,15 +129,15 @@ class ProPresenter extends EventEmitter {
     const path = this.triggerMode === 'playlist'
       ? '/v1/trigger/previous'
       : '/v1/presentation/focused/previous/trigger';
-    await this._fetch(path, { method: 'GET' });
-    this._mirror(path, { method: 'GET' });
+    await this._fire(path);
+    this._mirror(path);
     return true;
   }
 
   async goToSlide(index) {
-    const path = `/v1/presentation/active/${index}/trigger`;
-    await this._fetch(path, { method: 'GET' });
-    this._mirror(`/v1/presentation/focused/${index}/trigger`, { method: 'GET' });
+    const path = `/v1/presentation/focused/${index}/trigger`;
+    await this._fire(path);
+    this._mirror(path);
     return true;
   }
 
@@ -251,14 +268,14 @@ class ProPresenter extends EventEmitter {
 
   async clearAll() {
     const layers = ['slide', 'media', 'props', 'messages'];
-    await Promise.all(layers.map(l => this._fetch(`/v1/clear/layer/${l}`, { method: 'GET' })));
-    for (const l of layers) this._mirror(`/v1/clear/layer/${l}`, { method: 'GET' });
+    await Promise.allSettled(layers.map(l => this._fire(`/v1/clear/layer/${l}`)));
+    for (const l of layers) this._mirror(`/v1/clear/layer/${l}`);
     return true;
   }
 
   async clearSlide() {
-    await this._fetch('/v1/clear/layer/slide', { method: 'GET' });
-    this._mirror('/v1/clear/layer/slide', { method: 'GET' });
+    await this._fire('/v1/clear/layer/slide');
+    this._mirror('/v1/clear/layer/slide');
     return true;
   }
 
@@ -282,15 +299,15 @@ class ProPresenter extends EventEmitter {
       if (found) msgId = found.id;
     }
     const body = tokens.length > 0 ? JSON.stringify(tokens) : undefined;
-    const fetchOpts = { method: 'GET', ...(body ? { body, headers: { 'Content-Type': 'application/json' } } : {}) };
-    await this._fetch(`/v1/message/${encodeURIComponent(msgId)}/trigger`, fetchOpts);
+    const fetchOpts = body ? { body, headers: { 'Content-Type': 'application/json' } } : {};
+    await this._fire(`/v1/message/${encodeURIComponent(msgId)}/trigger`, fetchOpts);
     this._mirror(`/v1/message/${encodeURIComponent(msgId)}/trigger`, fetchOpts);
     return true;
   }
 
   async clearMessages() {
-    await this._fetch('/v1/clear/layer/messages', { method: 'GET' });
-    this._mirror('/v1/clear/layer/messages', { method: 'GET' });
+    await this._fire('/v1/clear/layer/messages');
+    this._mirror('/v1/clear/layer/messages');
     return true;
   }
 
@@ -312,7 +329,7 @@ class ProPresenter extends EventEmitter {
     if (!found) throw new Error(`Look "${nameOrId}" not found. Available: ${looks.map(l => l.name).join(', ')}`);
     const body = JSON.stringify({ id: { uuid: found.id, name: found.name } });
     const headers = { 'Content-Type': 'application/json' };
-    await this._fetch('/v1/looks/current', { method: 'PUT', body, headers });
+    await this._fire('/v1/looks/current', { method: 'PUT', body, headers });
     this._mirror('/v1/looks/current', { method: 'PUT', body, headers });
     return found.name;
   }
@@ -334,8 +351,8 @@ class ProPresenter extends EventEmitter {
       t.id === nameOrId
     );
     if (!found) throw new Error(`Timer "${nameOrId}" not found. Available: ${timers.map(t => t.name).join(', ')}`);
-    await this._fetch(`/v1/timer/${encodeURIComponent(found.id)}/start`, { method: 'GET' });
-    this._mirror(`/v1/timer/${encodeURIComponent(found.id)}/start`, { method: 'GET' });
+    await this._fire(`/v1/timer/${encodeURIComponent(found.id)}/start`);
+    this._mirror(`/v1/timer/${encodeURIComponent(found.id)}/start`);
     return found.name;
   }
 
@@ -346,22 +363,22 @@ class ProPresenter extends EventEmitter {
       t.id === nameOrId
     );
     if (!found) throw new Error(`Timer "${nameOrId}" not found. Available: ${timers.map(t => t.name).join(', ')}`);
-    await this._fetch(`/v1/timer/${encodeURIComponent(found.id)}/stop`, { method: 'GET' });
-    this._mirror(`/v1/timer/${encodeURIComponent(found.id)}/stop`, { method: 'GET' });
+    await this._fire(`/v1/timer/${encodeURIComponent(found.id)}/stop`);
+    this._mirror(`/v1/timer/${encodeURIComponent(found.id)}/stop`);
     return found.name;
   }
 
   // ─── AUDIENCE SCREENS ───────────────────────────────────────────────
 
   async setAudienceScreens(on) {
-    await this._fetch('/v1/status/audience_screens', {
+    await this._fire('/v1/status/audience_screens', {
       method: 'PUT',
-      body: JSON.stringify({ audience: !!on }),
+      body: JSON.stringify(!!on),
       headers: { 'Content-Type': 'application/json' },
     });
     this._mirror('/v1/status/audience_screens', {
       method: 'PUT',
-      body: JSON.stringify({ audience: !!on }),
+      body: JSON.stringify(!!on),
       headers: { 'Content-Type': 'application/json' },
     });
     return on ? 'Audience screens ON' : 'Audience screens OFF';
@@ -369,8 +386,8 @@ class ProPresenter extends EventEmitter {
 
   // ─── STATUS POLLING CONNECTION ───────────────────────────────────────
   // PP 21 removed the old WebSocket "Remote Classic" protocol.
-  // We use chunked HTTP on /v1/status/slide for real-time slide events,
-  // with a fallback poll loop for other status (looks, timers, screens).
+  // We poll /v1/status/slide + /v1/presentation/slide_index every 2s
+  // (same proven pattern as Tally Clicker).
 
   async connect() {
     if (this._pollInterval) return;
@@ -388,11 +405,8 @@ class ProPresenter extends EventEmitter {
     this._reconnectDelay = 5000;
     this.emit('connected');
 
-    // Start chunked status/slide listener for real-time slide changes
-    this._startSlideStatusStream();
-
-    // Poll for other status every 5 seconds (looks, timers, screens)
-    this._pollInterval = setInterval(() => this._pollStatus(), 5000);
+    // Start slide polling (2s interval, same as proven Tally Clicker pattern)
+    this._startSlidePoll();
 
     // Also connect backup if configured (no status, just ready for mirroring)
     if (this._backup) {
@@ -400,70 +414,69 @@ class ProPresenter extends EventEmitter {
     }
   }
 
-  /** Listen to /v1/status/slide via chunked HTTP for real-time slide events */
-  async _startSlideStatusStream() {
-    if (this._statusAbort) this._statusAbort.abort();
-    const controller = new AbortController();
-    this._statusAbort = controller;
+  /** Poll /v1/status/slide + /v1/presentation/slide_index every 2s for slide changes */
+  _startSlidePoll() {
+    this._stopPolling();
+    this._lastSlideUuid = null;
+    this._lastSlideIndex = null;
+    this._pollAbort = new AbortController();
 
-    try {
-      const resp = await fetch(`${this.baseUrl}/v1/status/slide`, {
-        signal: controller.signal,
-      });
-      if (!resp.ok || !resp.body) {
-        // Chunked streaming not supported — fall back to poll-only
-        return;
-      }
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
+    const poll = async () => {
+      while (this._pollAbort && !this._pollAbort.signal.aborted) {
+        try {
+          const [slideRes, indexRes] = await Promise.all([
+            fetch(`${this.baseUrl}/v1/status/slide`, { signal: AbortSignal.timeout(3000) }),
+            fetch(`${this.baseUrl}/v1/presentation/slide_index`, { signal: AbortSignal.timeout(3000) }),
+          ]);
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+          // Connection is alive
+          if (!this.connected) {
+            this.connected = true;
+            this.running = true;
+            this.emit('connected');
+          }
 
-        // Chunked responses may contain multiple JSON objects
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            const data = JSON.parse(trimmed);
-            this.emit('slideChanged', data);
-          } catch { /* not JSON yet */ }
+          let slideData = null, indexData = null;
+          if (slideRes.ok) {
+            try { slideData = await slideRes.json(); } catch { /* empty */ }
+          } else { await slideRes.text(); }
+          if (indexRes.ok) {
+            try { indexData = await indexRes.json(); } catch { /* empty */ }
+          } else { await indexRes.text(); }
+
+          const uuid = slideData?.current?.uuid;
+          const currentIndex = indexData?.presentation_index?.index ?? null;
+
+          if ((uuid && uuid !== this._lastSlideUuid) || (currentIndex != null && currentIndex !== this._lastSlideIndex)) {
+            this._lastSlideUuid = uuid || this._lastSlideUuid;
+            this._lastSlideIndex = currentIndex;
+            this.emit('slideChanged', {
+              current: slideData?.current || {},
+              next: slideData?.next || {},
+              slideIndex: currentIndex,
+              presentationName: indexData?.presentation_index?.presentation_id?.name || null,
+              presentationUuid: indexData?.presentation_index?.presentation_id?.uuid || null,
+            });
+          }
+        } catch (err) {
+          if (this._pollAbort?.signal.aborted) return;
+          // Connection lost
+          if (this.connected) {
+            console.warn('⚠️  ProPresenter disconnected:', err.message);
+            this.connected = false;
+            this.running = false;
+            this.emit('disconnected');
+            this._stopPolling();
+            this._scheduleReconnect();
+            return;
+          }
         }
-      }
-    } catch (err) {
-      if (err.name === 'AbortError') return; // intentional disconnect
-      console.warn('ProPresenter slide status stream ended:', err.message);
-    }
-  }
 
-  /** Poll PP status (timers, looks, screens) */
-  async _pollStatus() {
-    try {
-      const running = await this.isRunning();
-      if (!running) {
-        if (this.connected) {
-          console.warn('⚠️  ProPresenter disconnected');
-          this.connected = false;
-          this.running = false;
-          this.emit('disconnected');
-          this._stopPolling();
-          this._scheduleReconnect();
-        }
-        return;
+        // Wait 2 seconds before next poll
+        await new Promise(r => setTimeout(r, 2000));
       }
-      if (!this.connected) {
-        this.connected = true;
-        this.running = true;
-        this.emit('connected');
-      }
-    } catch {
-      // ignore poll errors
-    }
+    };
+    poll();
   }
 
   _stopPolling() {
@@ -471,9 +484,9 @@ class ProPresenter extends EventEmitter {
       clearInterval(this._pollInterval);
       this._pollInterval = null;
     }
-    if (this._statusAbort) {
-      this._statusAbort.abort();
-      this._statusAbort = null;
+    if (this._pollAbort) {
+      this._pollAbort.abort();
+      this._pollAbort = null;
     }
   }
 
