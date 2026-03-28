@@ -1375,6 +1375,9 @@ class ChurchAVAgent {
     } else {
       console.log('⚠️  Encoder not available (will retry)');
     }
+    // Push initial connected state — connectRelay() fires sendStatus() before
+    // connectEncoder() runs (default: connected:false), so this corrects it.
+    this.sendStatus();
 
     // Adaptive encoder polling: 3s during active streams (for failover detection), 15s otherwise
     this._encoderPollTimer = null;
@@ -1397,12 +1400,15 @@ class ChurchAVAgent {
 
       if (s.connected && !wasConnected) { this.health.encoder.reconnects++; console.log('✅ Encoder connected'); }
       if (!s.connected && wasConnected) console.log('⚠️  Encoder disconnected');
+      // Push status immediately on connection state changes
+      if (s.connected !== wasConnected) this.sendStatus();
 
       // Detect encoder stream started/stopped
       const isLive = s.live || s.streaming;
       if (wasLive && !isLive && s.connected) {
         const encoderType = s.type || this.config.encoder?.type || 'Encoder';
         this.sendAlert(`🔴 ${encoderType} stream stopped`, 'critical');
+        this.sendStatus();
         // Reset bitrate tracking + switch back to slow poll
         this._bitrateBaseline = null;
         this._bitrateSamples = [];
@@ -1415,6 +1421,7 @@ class ChurchAVAgent {
       if (!wasLive && isLive) {
         const encoderType = s.type || this.config.encoder?.type || 'Encoder';
         this.sendAlert(`✅ ${encoderType} streaming started`, 'info');
+        this.sendStatus();
         // Switch to fast poll for failover detection
         if (!this._fastEncoderPoll) {
           this._fastEncoderPoll = true;
@@ -1501,6 +1508,9 @@ class ChurchAVAgent {
     } else {
       console.log('⚠️  Companion not available (optional)');
     }
+    // Push initial connected state — connectRelay() fires sendStatus() before
+    // connectCompanion() runs (default: connected:false), so this corrects it.
+    this.sendStatus();
 
     // Periodically refresh companion status (guard against duplicate intervals on re-entry)
     if (this._companionPollTimer) clearInterval(this._companionPollTimer);
@@ -1517,6 +1527,8 @@ class ChurchAVAgent {
         }
         // Update variable snapshot in status
         if (this.companion._variableValues) this.status.companion.variables = this.companion._variableValues;
+        // Push status immediately on connection state changes
+        if (avail !== wasConnected) this.sendStatus();
         // Log state changes so the Electron host picks them up
         if (avail && !wasConnected) { this.health.companion.reconnects++; console.log('✅ Companion connected'); }
         if (!avail && wasConnected) console.log('⚠️  Companion disconnected');
@@ -1875,6 +1887,9 @@ class ChurchAVAgent {
       console.log('⚠️  vMix not reachable (will retry on watchdog tick — optional device)');
       this.status.vmix = { connected: false, streaming: false, recording: false, edition: null, version: null };
     }
+    // Push initial connected state — connectRelay() fires sendStatus() before
+    // connectVMix() runs (default: connected:false), so this corrects it.
+    this.sendStatus();
 
     // Poll vMix status every 30s (guard against duplicate intervals on re-entry)
     if (this._vmixPollTimer) clearInterval(this._vmixPollTimer);
@@ -1936,6 +1951,9 @@ class ChurchAVAgent {
       console.log(`⚠️  ${mixerConfig.type} console not reachable (will retry on poll)`);
       this.status.mixer = { connected: false, type: mixerConfig.type, model: null, mainMuted: false };
     }
+    // Push initial connected state — connectRelay() fires sendStatus() before
+    // connectMixer() runs (default: connected:false), so this corrects it.
+    this.sendStatus();
 
     // Poll every 30s — alert if master gets muted during service (guard against duplicate intervals)
     if (this._mixerPollTimer) clearInterval(this._mixerPollTimer);
