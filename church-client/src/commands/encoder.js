@@ -107,8 +107,18 @@ async function blackmagicGetActivePlatform(agent) {
 
 async function blackmagicSetActivePlatform(agent, params) {
   const adapter = ensureEncoderAdapter(agent, 'blackmagic');
-  if (!params.config) throw new Error('config object required');
-  const result = await adapter.setActivePlatform(params.config);
+  // Accept either params.config (object) or individual fields (platform, server, key, quality)
+  const config = params.config || {};
+  if (!params.config) {
+    // AI may send individual params — assemble into config object
+    if (params.platform) config.platform = params.platform;
+    if (params.server) config.server = params.server;
+    if (params.key) config.key = params.key;
+    if (params.quality) config.quality = params.quality;
+    if (params.url) config.url = params.url;
+  }
+  if (!Object.keys(config).length) throw new Error('config object or individual params (platform, server, key, quality) required');
+  const result = await adapter.setActivePlatform(config);
   if (!result.ok) throw new Error(`Failed to set active platform (HTTP ${result.status})`);
   return 'Active platform updated';
 }

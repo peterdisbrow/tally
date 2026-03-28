@@ -255,7 +255,7 @@ describe('Device-conditional command inclusion', () => {
     const prompt = buildSystemPrompt({ webPresenter: { connected: true } });
     expect(prompt).toContain('blackmagic (Web Presenter)');
     expect(prompt).toContain('getActivePlatform()');
-    expect(prompt).toContain('setActivePlatform(platform:X,server:X,key:X,quality:X)');
+    expect(prompt).toContain('setActivePlatform(config:{platform:X,server:X,key:X,quality:X})');
     expect(prompt).toContain('getPlatforms()');
     expect(prompt).toContain('getPlatformConfig(name:X)');
     expect(prompt).toContain('getVideoFormat()');
@@ -274,10 +274,20 @@ describe('Device-conditional command inclusion', () => {
     expect(prompt).not.toContain('setPreview(input:N)');
   });
 
-  it('encoder only → does NOT include blackmagic sigs', () => {
-    const prompt = buildSystemPrompt({ encoder: { connected: true } });
+  it('encoder (non-blackmagic) → does NOT include blackmagic sigs', () => {
+    const prompt = buildSystemPrompt({ encoder: { connected: true, type: 'obs' } });
     expect(prompt).not.toContain('getActivePlatform');
     expect(prompt).not.toContain('blackmagic (Web Presenter)');
+  });
+
+  it('encoder (blackmagic type) → includes blackmagic sigs automatically', () => {
+    const prompt = buildSystemPrompt({ encoder: { connected: true, type: 'blackmagic' } });
+    expect(prompt).toContain('encoder: startStream()');
+    expect(prompt).toContain('blackmagic (Web Presenter)');
+    expect(prompt).toContain('getActivePlatform()');
+    // Should also include Web Presenter detail rules
+    expect(prompt).toContain('WEB PRESENTER (Blackmagic)');
+    expect(prompt).toContain('ALWAYS EXECUTE, NEVER SUGGEST');
   });
 
   it('encoder + webPresenter → includes both generic and blackmagic sigs', () => {
@@ -429,9 +439,9 @@ describe('Device-conditional command inclusion', () => {
   // ── Resolume ──
   it('Resolume → includes all Resolume commands', () => {
     const prompt = buildSystemPrompt({ resolume: { connected: true } });
-    expect(prompt).toContain('resolume: playClip(name:X)');
-    expect(prompt).toContain('stopClip()');
-    expect(prompt).toContain('triggerColumn(column:N)');
+    expect(prompt).toContain('resolume: playClip(name:X OR layer:N,clip:N)');
+    expect(prompt).toContain('stopClip(layer:N,clip:N)');
+    expect(prompt).toContain('triggerColumn(column:N OR name:X)');
     expect(prompt).toContain('clearAll()');
     expect(prompt).toContain('setBpm(bpm:N)');
     expect(prompt).toContain('getBpm()');
@@ -485,12 +495,12 @@ describe('Device-conditional command inclusion', () => {
   it('Epiphan → includes all Epiphan commands', () => {
     const prompt = buildSystemPrompt({ epiphan: { connected: true } });
     expect(prompt).toContain('epiphan (Epiphan Pearl)');
-    expect(prompt).toContain('startPublisher(publisher:X)');
-    expect(prompt).toContain('stopPublisher(publisher:X)');
-    expect(prompt).toContain('getLayouts()');
-    expect(prompt).toContain('setActiveLayout(layout:X)');
-    expect(prompt).toContain('getStreamingParams()');
-    expect(prompt).toContain('setStreamingParams(params:X)');
+    expect(prompt).toContain('startPublisher(channel:X,publisher:X)');
+    expect(prompt).toContain('stopPublisher(channel:X,publisher:X)');
+    expect(prompt).toContain('getLayouts(channel:X)');
+    expect(prompt).toContain('setActiveLayout(channel:X,layout:X)');
+    expect(prompt).toContain('getStreamingParams(channel:X)');
+    expect(prompt).toContain('setStreamingParams(channel:X,params:X)');
   });
 
   // ── Ecamm Live ──

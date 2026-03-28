@@ -588,17 +588,17 @@ const CMD_SIGS = {
   camera: `camera: setIris(camera:N,value:0-1), autoIris(camera:N), setGain(camera:N,gain:N), setISO(camera:N,iso:N), setWhiteBalance(camera:N,kelvin:N,tint:N), autoWhiteBalance(camera:N), setShutter(camera:N,speed:N), setFocus(camera:N,value:0-1), autoFocus(camera:N), setLift(camera:N,r:N,g:N,b:N,y:N), setGamma(camera:N,r:N,g:N,b:N,y:N), setColorGain(camera:N,r:N,g:N,b:N,y:N), setContrast(camera:N,pivot:N,adjust:N), setSaturation(camera:N,saturation:N), resetColorCorrection(camera:N)`,
   obs: `obs: startStream(), stopStream(), startRecording(), stopRecording(), pauseRecording(), resumeRecording(), setScene(scene:X), getScenes(), getInputList(), setInputVolume(input:X,volume:0-1), setInputMute(input:X,muted:bool), setTransition(transition:X), setTransitionDuration(duration:N), getSourceFilters(source:X), setSourceFilterEnabled(source:X,filter:X,enabled:bool), setStudioMode(enabled:bool), setPreviewScene(scene:X), toggleVirtualCam(), getSceneItems(scene:X), setSceneItemEnabled(scene:X,itemId:N,enabled:bool), reduceBitrate(), configureMonitorStream()`,
   encoder: `encoder: startStream(), stopStream(), startRecording(), stopRecording(), status()`,
-  webPresenter: `blackmagic (Web Presenter): getActivePlatform(), setActivePlatform(platform:X,server:X,key:X,quality:X), getPlatforms(), getPlatformConfig(name:X), getVideoFormat(), setVideoFormat(format:X), getSupportedVideoFormats(), getAudioSources(), setAudioSource(source:X)`,
+  webPresenter: `blackmagic (Web Presenter): getActivePlatform(), setActivePlatform(config:{platform:X,server:X,key:X,quality:X}), getPlatforms(), getPlatformConfig(name:X), getVideoFormat(), setVideoFormat(format:X), getSupportedVideoFormats(), getAudioSources(), setAudioSource(source:X)`,
   companion: `companion: pressNamed(name:X), press(page:N,row:N,col:N), getGrid(), connections(), getVariable(connection:X,variable:X), getCustomVariable(name:X), setCustomVariable(name:X,value:X), getWatchedVariables(). Use getVariable to read device state through Companion (e.g. getVariable("atem","pgm1_input") for current program source, getVariable("obs","current_scene") for OBS scene).`,
   vmix: `vmix: startStream(), stopStream(), startRecording(), stopRecording(), cut(), fade(ms:N), setPreview(input:N), setProgram(input:N), setVolume(value:N), mute(), unmute(), function(function:X,input:X), status(), listInputs(), isRunning(), startPlaylist(), stopPlaylist(), audioLevels(), fadeToBlack(), setInputVolume(input:X,volume:0-100), muteInput(input:X), unmuteInput(input:X), overlayInput(overlay:1-4,input:X), overlayOff(overlay:1-4), setText(input:X,text:X), replay(action:X)`,
   videohub: `videohub: route(input:N,output:N), getRoutes(), setInputLabel(index:N,label:X), setOutputLabel(index:N,label:X), getInputLabels(), getOutputLabels()`,
   propresenter: `propresenter: next(), previous(), goToSlide(index:N), lastSlide(), status(), playlist(), clearAll(), clearSlide(), stageMessage(name:X), clearMessage(), getLooks(), setLook(name:X), getTimers(), startTimer(name:X), stopTimer(name:X), version(), messages()`,
-  resolume: `resolume: playClip(name:X), stopClip(), triggerColumn(column:N), clearAll(), setBpm(bpm:N), getBpm(), setLayerOpacity(layer:N,value:0-1), setMasterOpacity(value:0-1), getLayers(), getColumns(), isRunning(), version(), status(), playClipByName(name:X), triggerColumnByName(name:X)`,
+  resolume: `resolume: playClip(name:X OR layer:N,clip:N), stopClip(layer:N,clip:N), triggerColumn(column:N OR name:X), clearAll(), setBpm(bpm:N), getBpm(), setLayerOpacity(layer:N,value:0-1), setMasterOpacity(value:0-1), getLayers(), getColumns(), isRunning(), version(), status(), playClipByName(name:X), triggerColumnByName(name:X)`,
   mixer: `mixer: status(), mute(channel:master|N), unmute(channel:master|N), recallScene(scene:N), saveScene(scene:N,name:X), setFader(channel:N,level:0-1), setChannelName(channel:N,name:X), setHpf(channel:N,enabled:bool,frequency:N), setEq(channel:N,enabled:bool,bands:[...]), setCompressor(channel:N,enabled:bool,threshold:N,ratio:N,attack:N,release:N,knee:N), setGate(channel:N,enabled:bool,threshold:N,range:N,attack:N,hold:N,release:N), setPreampGain(channel:N,gain:N), setPhantom(channel:N,enabled:bool), setPan(channel:N,pan:-1to1), setSendLevel(channel:N,bus:N,level:0-1), assignToBus(channel:N,bus:N,enabled:bool), assignToDca(channel:N,dca:N,enabled:bool), muteDca(dca:N), unmuteDca(dca:N), setDcaFader(dca:N,level:0-1), activateMuteGroup(group:N), deactivateMuteGroup(group:N), pressSoftKey(key:N), clearSolos(), channelStatus(channel:N), getMeters(), capabilities(), setChannelColor(channel:N,color:X), setChannelIcon(channel:N,icon:X)`,
   dante: `dante: scene(name:X)`,
   ecamm: `ecamm: togglePause(), getScenes(), setScene(id:X), nextScene(), prevScene(), toggleMute(), getInputs(), setInput(id:X), togglePIP(), getOverlays()`,
   aja: `aja (AJA HELO): setVideoInput(source:N), setAudioInput(source:N), setStreamProfile(profile:X), setRecordProfile(profile:X), setMute(muted:bool), recallPreset(preset:X)`,
-  epiphan: `epiphan (Epiphan Pearl): startPublisher(publisher:X), stopPublisher(publisher:X), getLayouts(), setActiveLayout(layout:X), getStreamingParams(), setStreamingParams(params:X)`,
+  epiphan: `epiphan (Epiphan Pearl): startPublisher(channel:X,publisher:X), stopPublisher(channel:X,publisher:X), getLayouts(channel:X), setActiveLayout(channel:X,layout:X), getStreamingParams(channel:X), setStreamingParams(channel:X,params:X)`,
   ndi: `ndi: getSource(), setSource(source:X)`,
 };
 
@@ -632,7 +632,9 @@ function buildSystemPrompt(status = {}) {
   if (s.atem?.connected)          sigs.push(CMD_SIGS.camera); // BMD camera control requires ATEM
   if (s.obs?.connected)           sigs.push(CMD_SIGS.obs);
   if (s.encoder?.connected)       sigs.push(CMD_SIGS.encoder);
-  if (s.webPresenter?.connected)  sigs.push(CMD_SIGS.webPresenter);
+  // Web Presenter commands are available when encoder type is 'blackmagic'
+  const isWebPresenter = s.encoder?.connected && (s.encoder.type || '').toLowerCase() === 'blackmagic';
+  if (isWebPresenter || s.webPresenter?.connected)  sigs.push(CMD_SIGS.webPresenter);
   if (s.companion?.connected)     sigs.push(CMD_SIGS.companion);
   if (s.vmix?.connected)          sigs.push(CMD_SIGS.vmix);
   if (s.videohub?.connected)      sigs.push(CMD_SIGS.videohub);
@@ -730,6 +732,175 @@ DEVICE PRIORITY — CRITICAL:
 - Generic commands like "put cam 1 in preview", "cut to cam 2", "go to camera 3" → ALWAYS use atem.* when ATEM is connected.
 - OBS/vMix without explicit mention are only for: streaming control, recording, and source/filter management.` : '';
 
+  // Web Presenter / Blackmagic encoder detail rules
+  const webPresenterRules = (isWebPresenter || s.webPresenter?.connected) ? `
+WEB PRESENTER (Blackmagic):
+- The encoder.* commands (startStream, stopStream, status) AND the blackmagic.* commands both control the SAME Blackmagic Web Presenter device. Use encoder.* for basic stream control and status. Use blackmagic.* for platform, bitrate, video format, and audio configuration.
+- BITRATE: The Web Presenter does NOT have a direct "set bitrate" command. Bitrate is controlled through quality profiles:
+  1. First get the current platform: blackmagic.getActivePlatform() — returns the configured platform, server URL, stream key, and quality profile
+  2. To see available quality profiles: blackmagic.getPlatformConfig(name:X) — returns servers and quality profiles with preset bitrates
+  3. To change bitrate: blackmagic.setActivePlatform(config:{platform:X,server:X,key:X,quality:X}) — set a different quality profile
+  4. If user asks to "change bitrate" → first run blackmagic.getActivePlatform() to see current config, then explain the quality profile options
+- "Where are we streaming?" / "streaming location" / "stream URL" / "stream destination" / "what platform" → blackmagic.getActivePlatform()
+- "What platforms are available?" / "list platforms" → blackmagic.getPlatforms()
+- "Show YouTube config" / "YouTube settings" → blackmagic.getPlatformConfig(name:"YouTube")
+- "Change resolution" / "set to 720p" → first blackmagic.getSupportedVideoFormats(), then blackmagic.setVideoFormat(format:X)
+- "What audio input?" / "audio sources" → blackmagic.getAudioSources()
+- NEVER tell the user to "run a command" — YOU run the command. If you need information before acting, run the query command yourself and use the result to help the user.` : '';
+
+  // OBS detail rules
+  const obsRules = s.obs?.connected ? `
+OBS:
+- "Switch to scene X" / "go to scene X" → obs.setScene(scene:X). Use exact scene name from context.
+- "What scenes do I have?" → obs.getScenes(). Returns the list of available scene names.
+- "Show/hide source X in scene Y" → obs.setSceneItemEnabled(scene:Y,itemId:N,enabled:bool). Must know itemId — run obs.getSceneItems(scene:Y) first.
+- "Enable/disable filter X on source Y" → obs.setSourceFilterEnabled(source:Y,filter:X,enabled:bool).
+- "Reduce bitrate" / "stream is buffering" → obs.reduceBitrate(). Reduces current bitrate by 20%.
+- OBS volume is 0-1 (normalized). "Mute desktop audio" → obs.setInputMute(input:"Desktop Audio",muted:true).
+- Transition duration is in MILLISECONDS: obs.setTransitionDuration(duration:1000) = 1 second.
+- "Enable studio mode" → obs.setStudioMode(enabled:true). "Preview scene X" requires studio mode on first.` : '';
+
+  // vMix detail rules
+  const vmixRules = s.vmix?.connected ? `
+VMIX:
+- "Cut to input X" → vmix.setProgram(input:X) for instant, or vmix.cut() to transition preview→program.
+- "Fade to input X" → multi-step: [vmix.setPreview(input:X), vmix.fade(ms:2000)]. Fade duration is MILLISECONDS (not frames).
+- "Show overlay" / "put X in overlay" → vmix.overlayInput(overlay:1,input:X). Overlays 1-4 available. "Remove overlay" → vmix.overlayOff(overlay:1).
+- "What inputs do I have?" → vmix.listInputs(). Returns numbered list of all inputs.
+- Master volume is 0-100: vmix.setVolume(value:80). Per-input: vmix.setInputVolume(input:X,volume:80).
+- "Update lower third text" / "change title" → vmix.setText(input:X,text:"New text").
+- vmix.function(function:X) is the escape hatch for any vMix function not explicitly listed.
+- "Replay" → vmix.replay(action:"PlayLastEvent"). Other actions: "PlayAllEvents", "StopEvents".` : '';
+
+  // HyperDeck detail rules
+  const hyperdeckRules = s.hyperdeck?.connected ? `
+HYPERDECK:
+- "Record to the deck" / "start recording on hyperdeck" → hyperdeck.record(hyperdeck:1). If multiple HyperDecks, ask which one.
+- "Play back" / "play the recording" → hyperdeck.play(hyperdeck:1). "Stop playback" → hyperdeck.stop(hyperdeck:1).
+- "Next clip" / "skip forward" → hyperdeck.nextClip(hyperdeck:1). "Previous clip" → hyperdeck.prevClip(hyperdeck:1).
+- "Check disk space" / "how much recording time?" → hyperdeck.status(hyperdeck:1). Returns disk space and estimated time remaining.
+- "Go to timecode 00:05:00:00" → hyperdeck.goToTimecode(hyperdeck:1,timecode:"00:05:00:00").
+- "Switch to slot 2" / "use the other disk" → hyperdeck.selectSlot(hyperdeck:1,slot:2). Requires direct connection (not ATEM bridge).
+- Playback speed: hyperdeck.setPlaySpeed(hyperdeck:1,speed:200) = 2x speed. 100 = normal, 50 = half speed.
+- HyperDeck index is 1-based (hyperdeck:1 = first deck).` : '';
+
+  // PTZ camera detail rules
+  const ptzRules = (s.ptz || []).some(c => c?.connected) ? `
+PTZ DETAIL:
+- Speed range is -1.0 to 1.0. Gentle moves: 0.3. Fast moves: 0.7. Max: 1.0. Negative = reverse direction.
+- "Zoom in" → ptz.zoom(camera:1,speed:0.3). "Zoom out" → ptz.zoom(camera:1,speed:-0.3). "Stop" → ptz.stop(camera:1).
+- "Go to preset 3" / "recall position 3" → ptz.preset(camera:1,preset:3). Presets are 1-based.
+- "Save this position as preset 5" → ptz.setPreset(camera:1,preset:5). Network PTZ only.
+- "Home" / "center the camera" → ptz.home(camera:1). Network PTZ only — will error on ATEM-controlled cameras.
+- Focus commands (autoFocus, manualFocus, focusNear, focusFar) require VISCA protocol — will error on ATEM-controlled cameras.
+- If only one PTZ camera, default to camera:1. If multiple, ask which camera.
+- Pan/tilt/zoom commands run for ~350ms then auto-stop. For longer moves, user says "keep going" → use higher speed.` : '';
+
+  // VideoHub detail rules
+  const videohubRules = s.videohub?.connected ? `
+VIDEOHUB:
+- "Route input 3 to output 5" / "send camera 3 to monitor 5" → videohub.route(input:3,output:5).
+- "Show me the routes" / "what's routed where?" → videohub.getRoutes(). Returns all output→input mappings.
+- "What are the inputs called?" → videohub.getInputLabels(). "What are the outputs called?" → videohub.getOutputLabels().
+- "Rename input 1 to Main Camera" → videohub.setInputLabel(index:1,label:"Main Camera").
+- Routes are 1-based (input 1, output 1 = first port). Use labels from context to match user intent.` : '';
+
+  // ProPresenter detail rules
+  const propresenterRules = s.proPresenter?.connected ? `
+PROPRESENTER:
+- "Next slide" / "advance" → propresenter.next(). "Previous slide" / "go back" → propresenter.previous().
+- "Go to slide 5" → propresenter.goToSlide(index:5). Use 1-based numbers (the system converts internally).
+- "Clear the screen" / "blank it" → propresenter.clearAll(). Clears all layers (slides, media, messages).
+- "Clear just the slide" → propresenter.clearSlide(). Keeps media/messages visible.
+- "What slide are we on?" → propresenter.status(). Returns current slide, total slides, presentation name.
+- "Show the playlist" → propresenter.playlist(). Lists all playlist items.
+- "Start the countdown" → propresenter.startTimer(name:X). Must know timer name — run propresenter.getTimers() first if unknown.
+- "Put up a message" → propresenter.stageMessage(name:X). "Clear the message" → propresenter.clearMessage().
+- "Switch the look" → propresenter.setLook(name:X). Run propresenter.getLooks() first if name unknown.` : '';
+
+  // Resolume detail rules
+  const resolumeRules = s.resolume?.connected ? `
+RESOLUME:
+- "Play clip X" → resolume.playClipByName(name:X). Use clip name. For layer/clip index: resolume.playClip(name:X) also accepts layer:N,clip:N.
+- "Trigger column 3" / "scene 3" → resolume.triggerColumn(column:3). Plays all clips in that column across all layers (like a scene).
+- "Black out" / "clear everything" → resolume.clearAll(). Disconnects all clips instantly.
+- "Fade layer 2 out" → resolume.setLayerOpacity(layer:2,value:0). value is 0-1 (0=invisible, 1=full).
+- "Master opacity down" → resolume.setMasterOpacity(value:0.5). Affects everything.
+- "Set BPM to 120" → resolume.setBpm(bpm:120). Range: 20-300.
+- "What layers do I have?" → resolume.getLayers(). "What columns?" → resolume.getColumns().
+- Note: stopClip() requires layer AND clip index — prefer clearAll() for general blackout.` : '';
+
+  // Mixer detail rules
+  const mixerRules = hasMixer ? `
+MIXER:
+- "Mute channel 5" → mixer.mute(channel:5). "Unmute" → mixer.unmute(channel:5). "Mute master" → mixer.mute(channel:"master").
+- Fader levels are 0.0 to 1.0. On Behringer X32/M32: 0.75 = unity (0 dB), NOT 1.0. "Set channel 1 to unity" → mixer.setFader(channel:1,level:0.75).
+- "Turn up mic 3" / "louder on 3" → increase fader by +0.1. "Turn down" → decrease by -0.1. Don't ask what level — just bump it.
+- "Recall scene 5" → mixer.recallScene(scene:5). "Save current as scene 10" → mixer.saveScene(scene:10,name:"Service Start").
+- "What's the mixer status?" → mixer.status(). Returns main fader, mute state, channel names.
+- "Check channel 3 levels" → mixer.channelStatus(channel:3). Detailed per-channel info.
+- DCA groups: mixer.muteDca(dca:1), mixer.unmuteDca(dca:1), mixer.setDcaFader(dca:1,level:0.75).
+- Mute groups: mixer.activateMuteGroup(group:1), mixer.deactivateMuteGroup(group:1).
+- "What can this mixer do?" → mixer.capabilities(). Returns supported features for this specific model.
+- Channel names from context: if user says "pastor's mic" and channels show ch3=Pastor, use channel:3.` : '';
+
+  // Companion detail rules
+  const companionRules = s.companion?.connected ? `
+COMPANION:
+- "Press the X button" → companion.pressNamed(name:"X"). Uses fuzzy name matching on button labels.
+- "Press page 2, row 1, column 3" → companion.press(page:2,row:1,col:3). Direct grid position.
+- "Show me the buttons" → companion.getGrid(). Returns button layout for page 1.
+- "What connections are set up?" → companion.connections(). Lists all Companion modules.
+- "Read ATEM program input" → companion.getVariable(connection:"atem",variable:"pgm1_input").
+- "Set custom variable X to Y" → companion.setCustomVariable(name:"X",value:"Y").
+- Companion is a bridge to other systems — if user asks about a device not directly connected, check if Companion has a module for it.` : '';
+
+  // Ecamm detail rules
+  const ecammRules = s.ecamm?.connected ? `
+ECAMM:
+- "Go live" / "start streaming" → use encoder.startStream() (generic). Ecamm uses button toggling internally.
+- "Switch to scene X" → first ecamm.getScenes() to get scene UUIDs, then ecamm.setScene(id:uuid).
+- "Next scene" → ecamm.nextScene(). "Previous scene" → ecamm.prevScene().
+- "Toggle mute" → ecamm.toggleMute(). This is a TOGGLE — calling it again unmutes.
+- "Show PIP" / "picture in picture" → ecamm.togglePIP(). Also a toggle.
+- "What inputs?" → ecamm.getInputs(). "Switch input" → ecamm.setInput(id:uuid) — requires UUID from getInputs.
+- "Show overlays" → ecamm.getOverlays(). Lists available overlay options.
+- "Pause" → ecamm.togglePause(). Toggle — calling again resumes.` : '';
+
+  // AJA HELO detail rules
+  const ajaRules = (s.encoder?.connected && (s.encoder.type || '').toLowerCase() === 'aja') ? `
+AJA HELO:
+- The encoder.* commands (startStream, stopStream, status) control the AJA HELO for basic streaming.
+- aja.* commands give deeper control: input selection, profiles, presets.
+- "Switch to SDI input" → aja.setVideoInput(source:0). HDMI=1, Test Pattern=2.
+- "Switch audio to HDMI" → aja.setAudioInput(source:1). SDI=0, HDMI=1, Analog=2, None=4.
+- BITRATE on AJA is profile-based: aja.setStreamProfile(profile:N). Profiles 0-9 are pre-configured on the device. Change profile BEFORE starting stream.
+- "Recall preset 3" → aja.recallPreset(preset:3). Restores a saved configuration (up to 20 presets).
+- "Mute audio" → aja.setMute(muted:true). "Unmute" → aja.setMute(muted:false).
+- AJA can stream AND record simultaneously — they are independent.` : '';
+
+  // Epiphan Pearl detail rules
+  const epiphanRules = (s.encoder?.connected && (s.encoder.type || '').toLowerCase() === 'epiphan') ? `
+EPIPHAN PEARL:
+- ALL Epiphan commands require a channel parameter. Ask user which channel if unknown.
+- "Start publishing" → epiphan.startPublisher(channel:X,publisher:X). Both channel and publisher name required.
+- "Stop publishing" → epiphan.stopPublisher(channel:X,publisher:X).
+- "Show layouts" → epiphan.getLayouts(channel:X). "Switch layout" → epiphan.setActiveLayout(channel:X,layout:X).
+- "Show stream settings" → epiphan.getStreamingParams(channel:X).
+- "Change stream settings" → epiphan.setStreamingParams(channel:X,params:{...}).` : '';
+
+  // Camera control detail rules (BMD cameras via ATEM)
+  const cameraRules = s.atem?.connected ? `
+CAMERA CONTROL (Blackmagic cameras via ATEM):
+- "Open the iris" / "brighten camera 1" → camera.setIris(camera:1,value:0.7). Range 0-1 (0=closed, 1=fully open).
+- "Auto iris" / "auto exposure" → camera.autoIris(camera:1).
+- "Set white balance to 5600K" → camera.setWhiteBalance(camera:1,kelvin:5600). Common: 3200K=tungsten, 5600K=daylight.
+- "Auto white balance" → camera.autoWhiteBalance(camera:1).
+- "Focus camera 1" → camera.autoFocus(camera:1). Manual: camera.setFocus(camera:1,value:0.5).
+- "Reset color correction" → camera.resetColorCorrection(camera:1). Resets lift/gamma/gain/contrast/saturation to defaults.
+- Shutter: values ≤360 are treated as shutter ANGLE (degrees). Values >360 are shutter SPEED (microseconds).
+- Camera numbers match ATEM input numbers (camera:1 = ATEM input 1).` : '';
+
   // Audio rules (only include the relevant set)
   let audioRules = '';
   if (hasMixer) {
@@ -749,6 +920,20 @@ AVAILABLE COMMANDS (N=number, X=string):
 ${sigs.join('\n')}
 ${streamingRules}
 ${audioRules}
+${webPresenterRules}
+${obsRules}
+${vmixRules}
+${hyperdeckRules}
+${ptzRules}
+${videohubRules}
+${propresenterRules}
+${resolumeRules}
+${mixerRules}
+${companionRules}
+${ecammRules}
+${ajaRules}
+${epiphanRules}
+${cameraRules}
 
 OUTPUT FORMAT — return exactly one of these JSON shapes:
 Single: {"type":"command","command":"atem.cut","params":{"input":2}}
@@ -806,6 +991,8 @@ RECORDING & STREAMING DEVICE PRIORITY:
   - "Stop all" / "stop everything" → multi-step: stop streaming + stop recording on ALL connected devices.
 
 RULES:
+- ALWAYS EXECUTE, NEVER SUGGEST: If you can map the user's intent to a command, return the command JSON. NEVER return a chat response telling the user to "run" or "try" a command. If you need more info before acting, run a query command yourself, then act on the result. The user talks to you so YOU can do things — not so you can tell them what to do.
+- If the user types something that looks like a command name (e.g. "status", "getPlatforms"), treat it as a direct request to execute that command.
 - Match camera labels from context when available. If user says "camera 1" and labels show 1=Main Cam, use input 1.
 - Off-topic → {"type":"chat","text":"I'm only here for production. Try 'help' for what I can do."}
 - Use conversation history for "again", "undo that", etc. Up to 50 steps. Batch: "mute 1-8" → one step per channel.
@@ -1016,21 +1203,41 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
 
   // vMix
   if (ctx.status?.vmix?.connected) {
-    contextHint += `vMix: ${ctx.status.vmix.streaming ? 'live' : 'idle'}. `;
+    const v = ctx.status.vmix;
+    let vmixInfo = `vMix: ${v.streaming ? 'live' : 'idle'}`;
+    if (v.recording) vmixInfo += ', recording';
+    if (v.edition) vmixInfo += ` (${v.edition})`;
+    if (v.activeInput) vmixInfo += `, active=${v.activeInput}`;
+    if (v.masterVolume != null) vmixInfo += `, vol=${v.masterVolume}`;
+    if (v.masterMuted) vmixInfo += ', MUTED';
+    contextHint += vmixInfo + '. ';
   }
 
   // Encoder bridge
   if (ctx.status?.encoder?.connected) {
     const e = ctx.status.encoder;
-    let encInfo = `Encoder: ${e.live ? 'live' : 'idle'}`;
+    let encInfo = `Encoder: ${e.type || 'unknown'}, ${e.live ? 'live' : 'idle'}`;
     if (e.bitrateKbps) encInfo += `, ${e.bitrateKbps}kbps`;
+    if (e.fps) encInfo += `, ${e.fps}fps`;
     contextHint += encInfo + '. ';
+  }
+
+  // Web Presenter extended info (platform, quality profile)
+  const wpStatus = ctx.status?.webPresenter || (ctx.status?.encoder?.type?.toLowerCase() === 'blackmagic' ? ctx.status.encoder : null);
+  if (wpStatus?.connected) {
+    // Note: platform/quality/server may not be in basic status — getActivePlatform fetches it on demand
+    let wpInfo = 'WebPresenter: use blackmagic.* commands for platform/bitrate/format config';
+    if (wpStatus.platform) wpInfo += `, platform=${wpStatus.platform}`;
+    if (wpStatus.quality) wpInfo += `, quality=${wpStatus.quality}`;
+    contextHint += wpInfo + '. ';
   }
 
   // ProPresenter
   if (ctx.status?.proPresenter?.connected) {
     const pp = ctx.status.proPresenter;
-    contextHint += `ProPresenter: slide ${pp.slideIndex != null ? pp.slideIndex + 1 : '?'}/${pp.slideTotal || '?'}. `;
+    let ppInfo = `ProPresenter: slide ${pp.slideIndex != null ? pp.slideIndex + 1 : '?'}/${pp.slideTotal || '?'}`;
+    if (pp.presentationName) ppInfo += ` ("${pp.presentationName}")`;
+    contextHint += ppInfo + '. ';
   }
 
   // Audio mixer
@@ -1049,7 +1256,27 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
 
   // HyperDecks
   if (ctx.status?.hyperdeck?.connected) {
-    contextHint += `HyperDeck: ${ctx.status.hyperdeck.recording ? 'recording' : 'idle'}. `;
+    const hd = ctx.status.hyperdeck;
+    let hdInfo = `HyperDeck: ${hd.recording ? 'recording' : hd.playing ? 'playing' : 'idle'}`;
+    if (hd.diskPercent != null) hdInfo += `, disk=${hd.diskPercent}%`;
+    if (hd.estimatedMinutesRemaining != null) hdInfo += `, ~${hd.estimatedMinutesRemaining}min remaining`;
+    contextHint += hdInfo + '. ';
+  }
+
+  // VideoHub
+  if (ctx.status?.videohub?.connected) {
+    contextHint += 'VideoHub: connected. ';
+  }
+
+  // Resolume
+  if (ctx.status?.resolume?.connected) {
+    contextHint += 'Resolume: connected. ';
+  }
+
+  // Ecamm
+  if (ctx.status?.ecamm?.connected) {
+    const ec = ctx.status.ecamm;
+    contextHint += `Ecamm: ${ec.live ? 'live' : 'idle'}${ec.recording ? ', recording' : ''}. `;
   }
 
   // Companion
