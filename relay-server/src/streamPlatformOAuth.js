@@ -25,6 +25,7 @@ const FB_WARN_DAYS = 7; // warn 7 days before Facebook token expiry
 
 // Temporary store for Facebook OAuth callback codes (state → code)
 const _fbPendingCodes = new Map(); // state → { code, createdAt }
+const _ytPendingCodes = new Map(); // state → { code, createdAt }
 const FB_PENDING_TTL = 5 * 60 * 1000; // 5 min
 
 class StreamPlatformOAuth {
@@ -464,6 +465,23 @@ class StreamPlatformOAuth {
     const entry = _fbPendingCodes.get(state);
     if (!entry) return null;
     _fbPendingCodes.delete(state);
+    return { code: entry.code };
+  }
+
+  // ─── YOUTUBE CALLBACK HANDLING ────────────────────────────────────────────────
+  // Same relay-redirect + polling pattern as Facebook.
+
+  storeYouTubePendingCode(state, code) {
+    _ytPendingCodes.set(state, { code, createdAt: Date.now() });
+    for (const [k, v] of _ytPendingCodes) {
+      if (Date.now() - v.createdAt > FB_PENDING_TTL) _ytPendingCodes.delete(k);
+    }
+  }
+
+  getYouTubePendingCode(state) {
+    const entry = _ytPendingCodes.get(state);
+    if (!entry) return null;
+    _ytPendingCodes.delete(state);
     return { code: entry.code };
   }
 

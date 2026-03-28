@@ -9,7 +9,7 @@
  * touch the desktop app binary.
  */
 
-const http = require('http');
+
 const crypto = require('crypto');
 const { shell } = require('electron');
 
@@ -94,81 +94,45 @@ async function startYouTubeOAuth() {
     return { success: false, error: 'YouTube OAuth not configured on relay server (missing client ID)' };
   }
 
-  return new Promise((resolve, reject) => {
-    const state = crypto.randomBytes(16).toString('hex');
+  // Use relay server as redirect target (same pattern as Facebook).
+  // Register this URL in Google Cloud Console as an authorized redirect URI.
+  const state = crypto.randomBytes(16).toString('hex');
+  const relayHttp = _getRelayHttp();
+  const redirectUri = `${relayHttp}/api/oauth/youtube/callback`;
 
-    // Start local HTTP server to receive redirect
-    const server = http.createServer(async (req, res) => {
-      try {
-        const url = new URL(req.url, `http://127.0.0.1`);
-        if (!url.pathname.startsWith('/callback')) {
-          res.writeHead(404);
-          res.end();
-          return;
-        }
+  const authUrl = `${YOUTUBE_AUTH_URL}?` + new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: YOUTUBE_SCOPES,
+    access_type: 'offline',
+    prompt: 'consent',
+    state,
+  });
 
-        const code = url.searchParams.get('code');
-        const returnedState = url.searchParams.get('state');
-        const error = url.searchParams.get('error');
+  shell.openExternal(authUrl);
 
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-
-        if (error || !code || returnedState !== state) {
-          res.end('<html><body><h2>Authorization failed</h2><p>You can close this window.</p></body></html>');
-          server.close();
-          resolve({ success: false, error: error || 'Invalid response' });
-          return;
-        }
-
-        res.end('<html><body><h2>&#10003; Connected to YouTube</h2><p>You can close this window and return to Tally.</p></body></html>');
-        server.close();
-
-        // Exchange code with relay server
-        const port = server.address()?.port;
-        const redirectUri = `http://127.0.0.1:${port}/callback`;
-        const result = await _relayPost('/api/church/app/oauth/youtube/exchange', { code, redirectUri });
-
+  // Poll relay for the auth code (Google redirects to relay, not localhost)
+  const maxPolls = 150; // 2s x 150 = 5 minutes
+  for (let i = 0; i < maxPolls; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const pending = await _relayGet(`/api/church/app/oauth/youtube/pending?state=${state}`);
+      if (pending.ready && pending.code) {
+        const result = await _relayPost('/api/church/app/oauth/youtube/exchange', {
+          code: pending.code,
+          redirectUri,
+        });
         if (result.success && result.streamKey) {
           _saveStreamKeys('youtube', result.streamUrl, result.streamKey);
         }
-
         _notifyRenderer('youtube', result.success ? 'connected' : 'error');
-        resolve(result);
-      } catch (e) {
-        server.close();
-        resolve({ success: false, error: e.message });
+        return result;
       }
-    });
+    } catch { /* keep polling */ }
+  }
 
-    server.listen(0, '127.0.0.1', () => {
-      const port = server.address().port;
-      const redirectUri = `http://127.0.0.1:${port}/callback`;
-
-      // Build Google OAuth URL
-      // Client ID comes from relay server env — we fetch it or use a shared constant
-      const authUrl = `${YOUTUBE_AUTH_URL}?` + new URLSearchParams({
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        response_type: 'code',
-        scope: YOUTUBE_SCOPES,
-        access_type: 'offline',
-        prompt: 'consent',
-        state,
-      });
-
-      shell.openExternal(authUrl);
-
-      // Timeout after 5 minutes
-      setTimeout(() => {
-        server.close();
-        resolve({ success: false, error: 'OAuth timed out (5 min)' });
-      }, 5 * 60 * 1000);
-    });
-
-    server.on('error', (e) => {
-      resolve({ success: false, error: `Local server error: ${e.message}` });
-    });
-  });
+  return { success: false, error: 'YouTube OAuth timed out (5 min)' };
 }
 
 // ─── FACEBOOK OAUTH (relay redirect + polling) ──────────────────────────────

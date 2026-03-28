@@ -7,6 +7,25 @@
 module.exports = function setupStreamPlatformRoutes(app, ctx) {
   const { requireChurchAppAuth, streamOAuth, safeErrorMessage } = ctx;
 
+  // YouTube OAuth callback (public — receives redirect from Google)
+  app.get('/api/oauth/youtube/callback', (req, res) => {
+    const { code, state, error } = req.query;
+    if (error || !code || !state) {
+      return res.status(400).send('<html><body><h2>Authorization failed</h2><p>You can close this window.</p></body></html>');
+    }
+    streamOAuth.storeYouTubePendingCode(state, code);
+    res.send('<html><body><h2>&#10003; Connected to YouTube</h2><p>You can close this window and return to Tally.</p></body></html>');
+  });
+
+  // Poll for pending YouTube auth code (Electron polls this)
+  app.get('/api/church/app/oauth/youtube/pending', requireChurchAppAuth, (req, res) => {
+    const { state } = req.query;
+    if (!state) return res.status(400).json({ error: 'state required' });
+    const pending = streamOAuth.getYouTubePendingCode(state);
+    if (!pending) return res.json({ ready: false });
+    res.json({ ready: true, code: pending.code });
+  });
+
   // Facebook OAuth callback (public — receives redirect from Facebook)
   app.get('/api/oauth/facebook/callback', (req, res) => {
     const { code, state, error } = req.query;
