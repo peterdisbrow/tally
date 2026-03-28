@@ -179,7 +179,9 @@ function tryHttpGet(url, timeoutMs = 2000) {
 // ─── Device fingerprint helpers ──────────────────────────────────────────────
 
 function isLikelyResolume(data) {
-  return data && typeof data === 'object' && typeof (data.name || data.title || data.productName || data.version) === 'string';
+  if (!data || typeof data !== 'object') return false;
+  const nameField = String(data.name || data.productName || data.title || '').toLowerCase();
+  return nameField.includes('resolume');
 }
 
 function isLikelyVmixXml(xml) {
@@ -374,6 +376,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { type: 'hyperdeck', ip: '127.0.0.1', port: 9993 },
     { type: 'propresenter', ip: '127.0.0.1', port: 1025 },
     { type: 'resolume', ip: '127.0.0.1', port: 8080 },
+    { type: 'resolume', ip: '127.0.0.1', port: 7000 },
     { type: 'vmix', ip: '127.0.0.1', port: 8088 },
     { type: 'tricaster-control', ip: '127.0.0.1', port: 5951 },
     { type: 'tricaster-http', ip: '127.0.0.1', port: 5952 },
@@ -487,7 +490,8 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { port: 4455,  type: 'obs' },                  // TCP — OBS WebSocket
     { port: 9993,  type: 'hyperdeck' },            // TCP — HyperDeck telnet
     { port: 1025,  type: 'propresenter' },         // TCP — ProPresenter HTTP
-    { port: 8080,  type: 'resolume' },             // TCP — Resolume Arena REST
+    { port: 8080,  type: 'resolume' },             // TCP — Resolume Arena REST (default port)
+    { port: 7000,  type: 'resolume' },             // TCP — Resolume Arena REST (alt port)
     { port: 8080,  type: 'birddog' },              // TCP — BirdDog HTTP
     { port: 8088,  type: 'vmix' },                 // TCP — vMix HTTP API
     { port: 5951,  type: 'tricaster-control' },    // TCP — TriCaster control
