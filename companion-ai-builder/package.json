@@ -1,0 +1,15 @@
+{
+  "name": "companion-ai-builder",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Standalone AI-assisted Companion layout generator",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test src/engine/*.test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

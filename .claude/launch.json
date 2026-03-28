@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "electron-app-static",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "electron-app/src", "--no-clipboard"],
+      "port": 5557,
+      "autoPort": false
+    }
+  ]
+}

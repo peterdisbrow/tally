@@ -1,0 +1,33 @@
+{
+  "title": "",
+  "meta_title": " — Tally",
+  "meta_description": "",
+  "slug": "",
+  "canonical_url": "https://tallyconnect.app/blog/",
+  "search_intent": "informational",
+  "primary_keyword": "",
+  "secondary_keywords": [],
+  "word_count": 0,
+  "keyword_placement_checklist": {
+    "in_title": false,
+    "in_slug": false,
+    "in_meta_description": false,
+    "in_opening_paragraph": false,
+    "in_at_least_one_h2": false,
+    "in_faq_section": false
+  },
+  "target_serp_features": [],
+  "suggested_internal_links": [
+    { "anchor_text": "", "target": "/signup" },
+    { "anchor_text": "", "target": "/blog/" }
+  ],
+  "suggested_external_links": [
+    { "anchor_text": "", "url": "", "rel": "noopener noreferrer" }
+  ],
+  "cannibalization_risk": "none",
+  "cannibalization_notes": "",
+  "faq_schema_candidates": [
+    { "question": "", "answer": "" },
+    { "question": "", "answer": "" }
+  ]
+}

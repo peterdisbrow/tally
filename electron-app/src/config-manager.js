@@ -267,6 +267,23 @@ function importPortableConfig(portableBlob) {
   return { ok: true };
 }
 
+/**
+ * Atomically wipe the config file without merging.
+ * Used by sign-out to guarantee no credential bleed.
+ */
+function resetConfig() {
+  if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  const bakPath = CONFIG_PATH + '.bak';
+  if (fs.existsSync(CONFIG_PATH)) {
+    try { fs.copyFileSync(CONFIG_PATH, bakPath); } catch { /* best effort */ }
+  }
+  const tmpPath = CONFIG_PATH + '.tmp';
+  fs.writeFileSync(tmpPath, JSON.stringify({}, null, 2));
+  fs.renameSync(tmpPath, CONFIG_PATH);
+  _configCache = null;
+  _configMtime = 0;
+}
+
 module.exports = {
   init,
   isMockValue,
@@ -275,6 +292,7 @@ module.exports = {
   CURRENT_SCHEMA_VERSION,
   loadConfig,
   saveConfig,
+  resetConfig,
   loadConfigForUI,
   getSanitizedConfigForExport,
   exportPortableConfig,

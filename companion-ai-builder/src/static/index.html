@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Companion AI Builder</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-glow glow-a"></div>
+    <div class="bg-glow glow-b"></div>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Standalone Builder MVP</p>
+          <h1>Companion AI Builder</h1>
+        </div>
+        <div class="status-pill" id="healthPill">Checking service...</div>
+      </header>
+
+      <section class="panel form-panel">
+        <h2>Describe what you want</h2>
+        <p>
+          Example: "I have a Stream Deck XL and want an M/E 2 control surface with full transition
+          controls and live status feedback."
+        </p>
+
+        <label for="prompt">Goal Prompt</label>
+        <textarea id="prompt" rows="5" placeholder="Describe desired control surface..."></textarea>
+
+        <div class="grid two">
+          <div>
+            <label for="deckModel">Deck Model</label>
+            <select id="deckModel">
+              <option value="streamdeck-xl" selected>Stream Deck XL</option>
+              <option value="streamdeck-mk2">Stream Deck MK.2</option>
+              <option value="streamdeck-mini">Stream Deck Mini</option>
+              <option value="streamdeck-plus">Stream Deck Plus</option>
+              <option value="mobile">Companion Mobile</option>
+            </select>
+          </div>
+          <div>
+            <label for="layoutName">Export Name</label>
+            <input id="layoutName" type="text" placeholder="atem-me2-surface" />
+          </div>
+        </div>
+
+        <label for="companionUrl">Companion URL</label>
+        <input id="companionUrl" type="text" placeholder="http://localhost:8888" />
+
+        <fieldset>
+          <legend>Connected Gear</legend>
+          <div class="gear-grid">
+            <label><input type="checkbox" data-gear="atem" checked /> ATEM Switcher</label>
+            <label><input type="checkbox" data-gear="obs" /> OBS</label>
+            <label><input type="checkbox" data-gear="vmix" /> vMix</label>
+            <label><input type="checkbox" data-gear="propresenter" /> ProPresenter</label>
+            <label><input type="checkbox" data-gear="x32" /> Behringer X32/M32</label>
+            <label><input type="checkbox" data-gear="wing" /> Behringer WING</label>
+          </div>
+        </fieldset>
+
+        <div class="button-row">
+          <button id="generateBtn" class="btn btn-primary" type="button">Generate Layout</button>
+          <button id="exportBtn" class="btn btn-secondary" type="button" disabled>Export Files</button>
+        </div>
+
+        <div class="button-row">
+          <button id="compatBtn" class="btn btn-secondary" type="button" disabled>Check Compatibility</button>
+          <button id="deployBtn" class="btn btn-secondary" type="button" disabled>Deploy Dry-Run</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="results-head">
+          <h2>Preview</h2>
+          <div id="summary" class="summary"></div>
+        </div>
+        <div id="warnings" class="warnings"></div>
+        <div id="compatibility" class="compatibility"></div>
+        <div id="deploy" class="deploy"></div>
+        <div id="pages" class="pages"></div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

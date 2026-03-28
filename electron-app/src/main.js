@@ -703,7 +703,11 @@ function startAgent() {
     }
     if (text.includes('Relay disconnected')) {
       agentStatus.relay = false;
-      agentStatus._relayDisconnectedAt = Date.now();
+      // Don't start the watchdog timer when the relay intentionally replaced
+      // this connection — the newer connection is already active.
+      if (!text.includes('newer connection took over')) {
+        agentStatus._relayDisconnectedAt = Date.now();
+      }
       statusChanged = true;
     }
     if (text.includes('Connected to relay server')) {
@@ -938,7 +942,7 @@ const { checkTokenWithRelay, postJson, loginChurchWithCredentials,
 
 
 // ─── CONFIG (delegated to config-manager module) ─────────────────────────────
-const { loadConfig, saveConfig, loadConfigForUI, isMockValue, stripMockConfig,
+const { loadConfig, saveConfig, resetConfig, loadConfigForUI, isMockValue, stripMockConfig,
         exportPortableConfig, importPortableConfig } = configManager;
 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
@@ -1066,20 +1070,7 @@ ipcMain.handle('validate-token', async () => {
 
 function performSignOut() {
   stopAgent();
-  const config = loadConfig();
-  // Clear all sensitive credentials — not just the session token
-  const SENSITIVE_KEYS = [
-    'token', 'churchToken', 'setupComplete',
-    'obsPassword', 'youtubeApiKey', 'facebookAccessToken',
-    'rtmpStreamKey', 'twitchStreamKey', 'adminApiKey',
-    'youtubeOAuthAccessToken', 'youtubeOAuthRefreshToken',
-    'facebookOAuthAccessToken', 'youtubeStreamKey', 'facebookStreamKey',
-    'youtubeStreamUrl', 'facebookStreamUrl', 'facebookPageName',
-  ];
-  for (const key of SENSITIVE_KEYS) {
-    delete config[key];
-  }
-  saveConfig(config);
+  resetConfig(); // atomic wipe — no credential bleed via saveConfig merge
   agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
   mainWindow?.webContents.send('status', agentStatus);
   mainWindow?.webContents.send('signed-out');

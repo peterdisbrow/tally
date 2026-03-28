@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tally Redesign Mockup v2</title>
+<style>
+  :root {
+    --bg: #09090B;
+    --card: #0F1613;
+    --border: #1a2e1f;
+    --green: #22c55e;
+    --green-light: #4ade80;
+    --white: #F8FAFC;
+    --muted: #94A3B8;
+    --dim: #475569;
+    --danger: #ef4444;
+    --warn: #eab308;
+    --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'SF Mono', 'Fira Code', monospace;
+    --r-card: 8px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: var(--font); background: var(--bg); color: var(--white);
+    width: 900px; min-height: 820px; margin: 0 auto;
+    display: flex; flex-direction: column;
+    border: 1px solid var(--border);
+  }
+
+  /* ─── COMPACT HEADER ─── */
+  .header-new {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(34,197,94,0.04) 0%, transparent 100%);
+  }
+  .header-left { display: flex; align-items: center; gap: 10px; }
+  .header-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 12px var(--green);
+  }
+  .header-left h1 { font-size: 18px; font-weight: 900; letter-spacing: -0.02em; }
+  .live-badge {
+    font-size: 9px; font-weight: 800; color: #fff; background: #ef4444;
+    padding: 2px 6px; border-radius: 4px; margin-left: 6px;
+    animation: pulse 1.5s ease infinite; vertical-align: middle;
+  }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+  .church-name-inline {
+    font-size: 10px; color: var(--muted); font-family: var(--mono);
+    letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .header-status-dots { display: flex; gap: 6px; align-items: center; }
+  .mini-dot {
+    display: flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 999px;
+    border: 1px solid var(--border); font-size: 9px; color: var(--dim);
+    font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .mini-dot .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .mini-dot .dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .mini-dot .dot.yellow { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+  .mini-dot .dot.red { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+  .mini-dot .dot.dim { background: var(--dim); }
+  .header-actions { display: flex; gap: 6px; }
+  .header-icon-btn {
+    background: transparent; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); padding: 5px 10px; cursor: pointer; font-size: 16px;
+    transition: all 0.15s;
+  }
+  .header-icon-btn:hover { border-color: var(--green); color: var(--white); background: rgba(34,197,94,0.08); }
+  .header-icon-btn.active-btn { border-color: var(--green); color: var(--green); background: rgba(34,197,94,0.1); }
+
+  /* ─── CONTENT AREA ─── */
+  .content { flex:1; overflow-y:auto; padding: 14px 16px; }
+
+  /* ─── HEALTH HERO ─── */
+  .health-hero {
+    display: flex; align-items: center; gap: 18px;
+    padding: 24px 22px; margin-bottom: 14px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--r-card); transition: all 0.3s ease;
+  }
+  .health-hero.all-go { border-color: var(--green); box-shadow: 0 0 30px rgba(34,197,94,0.12); }
+  .health-hero.has-issues { border-color: var(--warn); box-shadow: 0 0 30px rgba(234,179,8,0.1); }
+  .health-hero.has-critical { border-color: var(--danger); box-shadow: 0 0 30px rgba(239,68,68,0.1); }
+  .health-hero-icon { font-size: 44px; line-height: 1; }
+  .health-hero-title { font-size: 20px; font-weight: 900; letter-spacing: -0.02em; }
+  .health-hero-subtitle { font-size: 11px; color: var(--muted); font-family: var(--mono); margin-top: 4px; }
+
+  /* ─── PRE-SERVICE CHECK ─── */
+  .preservice-card {
+    padding: 14px 16px; margin-bottom: 14px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--r-card);
+  }
+  .preservice-card.pass { border-color: var(--green); }
+  .preservice-card.warn { border-color: var(--warn); }
+  .preservice-card.fail { border-color: var(--danger); }
+  .preservice-top {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .preservice-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 700;
+  }
+  .preservice-badge.pass { color: var(--green); }
+  .preservice-badge.warn { color: var(--warn); }
+  .preservice-meta { font-size: 10px; color: var(--dim); font-family: var(--mono); }
+  .preservice-checks { display: flex; flex-wrap: wrap; gap: 6px; }
+  .preservice-check-item {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 11px; color: var(--muted); font-family: var(--mono);
+    padding: 3px 8px; background: rgba(255,255,255,0.02);
+    border-radius: 4px;
+  }
+  .check-dot { width: 5px; height: 5px; border-radius: 50%; }
+  .check-dot.pass { background: var(--green); }
+  .check-dot.fail { background: var(--danger); }
+  .check-dot.warn { background: var(--warn); }
+  .preservice-actions { display: flex; gap: 6px; margin-top: 10px; }
+
+  /* ─── DEVICE HEALTH GRID ─── */
+  .device-health-grid { display: flex; flex-direction: column; gap: 3px; margin-bottom: 14px; }
+  .device-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 14px; background: var(--card);
+    border: 1px solid var(--border); border-radius: var(--r-card);
+    cursor: pointer; transition: all 0.15s; user-select: none;
+  }
+  .device-row:hover { border-color: rgba(34,197,94,0.3); }
+  .device-row-icon { font-size: 18px; width: 26px; text-align: center; flex-shrink: 0; }
+  .device-row-name { flex: 1; font-size: 13px; font-weight: 600; }
+  .device-row-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .device-row-dot.green { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .device-row-dot.yellow { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  .device-row-dot.red { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+  .device-row-dot.dim { background: var(--dim); }
+  .device-row-status { font-size: 11px; color: var(--muted); font-family: var(--mono); min-width: 80px; text-align: right; }
+  .device-row-chevron { font-size: 10px; color: var(--dim); transition: transform 0.2s; }
+  .device-row.expanded .device-row-chevron { transform: rotate(180deg); }
+
+  .device-detail {
+    padding: 10px 14px 14px; background: var(--card);
+    border: 1px solid var(--border); border-top: none;
+    border-radius: 0 0 var(--r-card) var(--r-card);
+    margin-top: -4px; margin-bottom: 3px;
+  }
+  .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; }
+  .info-card {
+    background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px; padding: 8px 10px;
+  }
+  .info-card .label {
+    font-size: 9px; color: var(--green); font-family: var(--mono);
+    text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px;
+  }
+  .info-card .value { font-size: 14px; font-weight: 700; }
+  .info-card .value.muted { color: var(--muted); font-weight: 400; font-size: 12px; }
+
+  /* ─── DEVICE IDENTITY ─── */
+  .section-label {
+    font-size: 10px; color: var(--green); font-family: var(--mono);
+    text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .identity-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+    margin-bottom: 14px;
+  }
+  .identity-card {
+    padding: 8px 10px; background: var(--card);
+    border: 1px solid var(--border); border-radius: 6px;
+  }
+  .identity-card .label {
+    font-size: 9px; color: var(--dim); font-family: var(--mono);
+    text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px;
+  }
+  .identity-card .value { font-size: 11px; font-weight: 600; }
+  .identity-card .value.active { color: var(--green); }
+  .identity-card .value.inactive { color: var(--dim); }
+
+  /* ─── RUNDOWN PANEL ─── */
+  .rundown-panel {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--r-card); padding: 14px; margin-bottom: 14px;
+  }
+  .rundown-panel h2 {
+    font-size: 10px; color: var(--green); font-family: var(--mono);
+    text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .rundown-current {
+    padding: 10px 12px; background: rgba(34,197,94,0.06);
+    border: 1px solid rgba(34,197,94,0.3); border-radius: 6px;
+    font-size: 13px; font-weight: 600;
+  }
+  .rundown-current .cue-num { color: var(--green); font-family: var(--mono); font-size: 11px; }
+  .rundown-progress-bar {
+    height: 3px; background: var(--border); border-radius: 2px; margin-top: 10px; overflow: hidden;
+  }
+  .rundown-progress-fill { height: 100%; background: var(--green); transition: width 0.3s; }
+  .rundown-controls { display: flex; gap: 6px; margin-top: 10px; }
+  .btn-cue {
+    padding: 6px 14px; border: 1px solid var(--border); border-radius: 5px;
+    background: transparent; color: var(--muted); font-size: 11px; cursor: pointer;
+    font-weight: 600; font-family: var(--font);
+  }
+  .btn-cue.primary { background: var(--green); color: #000; border-color: var(--green); }
+  .btn-cue.danger { color: var(--danger); border-color: rgba(239,68,68,0.3); }
+
+  /* ─── ACTIVITY FEED ─── */
+  .activity-section { margin-top: 4px; }
+  .activity-header {
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; padding: 6px 0;
+  }
+  .activity-header h2 {
+    font-size: 10px; color: var(--green); font-family: var(--mono);
+    text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700;
+  }
+  .activity-toggle { font-size: 10px; color: var(--dim); transition: transform 0.2s; }
+  .activity-log {
+    background: #060608; border: 1px solid var(--border); border-radius: 6px;
+    font-family: var(--mono); font-size: 11px; padding: 0;
+    max-height: 0; overflow: hidden; transition: max-height 0.3s ease, padding 0.3s ease;
+    border-width: 0;
+  }
+  .activity-log.expanded { max-height: 140px; overflow-y: auto; border-width: 1px; padding: 8px 10px; }
+  .log-entry { padding: 3px 0; color: var(--muted); display: flex; gap: 8px; }
+  .log-entry .ts { color: var(--dim); min-width: 50px; }
+  .log-badge { font-size: 8px; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
+  .log-badge.ok { background: rgba(34,197,94,0.2); color: var(--green); }
+  .log-badge.sys { background: rgba(59,130,246,0.2); color: #60a5fa; }
+  .log-badge.alert { background: rgba(239,68,68,0.2); color: var(--danger); }
+  .log-badge.ai { background: rgba(168,85,247,0.2); color: #a855f7; }
+
+  /* ─── QUICK CHAT BAR (dashboard bottom) ─── */
+  .quick-chat {
+    display: flex; gap: 8px; padding: 8px 16px;
+    border-top: 1px solid var(--border); background: var(--bg);
+  }
+  .quick-chat input {
+    flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+    padding: 9px 12px; color: var(--white); font-size: 12px; font-family: var(--font);
+    outline: none;
+  }
+  .quick-chat input:focus { border-color: var(--green); }
+  .quick-chat button {
+    background: var(--green); color: #000; border: none; border-radius: 6px;
+    padding: 9px 16px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+
+  /* ─── FOOTER ─── */
+  .actions {
+    display: flex; gap: 6px; padding: 10px 16px;
+    border-top: 1px solid var(--border); align-items: center;
+  }
+  .btn-start {
+    flex: 1; padding: 10px; border: none; border-radius: 6px;
+    font-weight: 700; font-size: 12px; cursor: pointer;
+    background: var(--green); color: #000;
+  }
+  .btn-secondary {
+    padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+    background: transparent; color: var(--muted); font-size: 11px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-secondary:hover { border-color: var(--green); color: var(--white); }
+
+  /* ─── SETTINGS PANEL ─── */
+  .settings-panel {
+    position: absolute; inset: 0; background: var(--bg); z-index: 50;
+    display: flex; flex-direction: column;
+  }
+  .settings-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+  }
+  .settings-back {
+    background: transparent; border: none; color: var(--green);
+    cursor: pointer; font-size: 13px; font-weight: 600; font-family: var(--font);
+  }
+  .settings-header h2 { flex: 1; font-size: 15px; font-weight: 700; }
+  .mode-toggle {
+    display: flex; gap: 3px; background: var(--card); border-radius: 6px;
+    padding: 2px; border: 1px solid var(--border);
+  }
+  .mode-btn {
+    padding: 5px 14px; border: none; border-radius: 5px;
+    background: transparent; color: var(--muted); font-size: 11px;
+    font-weight: 600; cursor: pointer; transition: all 0.15s; font-family: var(--font);
+  }
+  .mode-btn.active { background: var(--green); color: #000; }
+  .settings-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
+  .settings-body h3 {
+    font-size: 10px; color: var(--green); font-family: var(--mono);
+    text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 10px; font-weight: 700;
+  }
+  .simple-device-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 14px; background: var(--card);
+    border: 1px solid var(--border); border-radius: var(--r-card);
+    margin-bottom: 4px;
+  }
+  .simple-device-item .device-icon { font-size: 16px; }
+  .simple-device-item .device-name { flex: 1; font-size: 12px; font-weight: 600; }
+  .simple-device-item .device-ip { font-size: 10px; color: var(--dim); font-family: var(--mono); }
+  .simple-device-item .sdot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+  }
+  .btn-scan {
+    width: 100%; padding: 12px; margin-top: 12px;
+    background: rgba(34,197,94,0.08); border: 1px dashed var(--green);
+    border-radius: var(--r-card); color: var(--green); font-size: 13px;
+    font-weight: 600; cursor: pointer; transition: all 0.15s; font-family: var(--font);
+  }
+  .btn-scan:hover { background: rgba(34,197,94,0.15); }
+  .oauth-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; background: var(--card);
+    border: 1px solid var(--border); border-radius: var(--r-card);
+    margin-bottom: 4px;
+  }
+  .oauth-row .platform-name { flex: 1; font-size: 12px; font-weight: 600; }
+  .oauth-status { font-size: 10px; color: var(--green); font-family: var(--mono); }
+  .btn-oauth {
+    padding: 5px 12px; border: 1px solid var(--border); border-radius: 5px;
+    background: transparent; color: var(--muted); font-size: 10px; cursor: pointer;
+  }
+  .portal-link {
+    text-align: center; margin-top: 20px; padding: 14px;
+    border: 1px solid var(--border); border-radius: var(--r-card); background: var(--card);
+  }
+  .portal-link a { color: var(--green); text-decoration: none; font-size: 12px; font-weight: 600; }
+
+  /* ─── ENGINEER OVERLAY ─── */
+  .engineer-overlay {
+    position: absolute; inset: 0; background: var(--bg); z-index: 60;
+    display: flex; flex-direction: column;
+    animation: slideIn 0.2s ease-out;
+  }
+  @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  .engineer-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+  }
+  .engineer-header h2 { font-size: 15px; font-weight: 700; }
+  .overlay-close {
+    background: transparent; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); padding: 5px 12px; cursor: pointer; font-size: 14px;
+  }
+  .engineer-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
+  .pf-go-badge {
+    text-align: center; padding: 20px; margin-bottom: 14px;
+    border-radius: var(--r-card); font-size: 28px; font-weight: 900;
+  }
+  .pf-go-badge.go { background: rgba(34,197,94,0.12); border: 2px solid var(--green); color: var(--green); }
+  .pf-go-badge.nogo { background: rgba(239,68,68,0.12); border: 2px solid var(--danger); color: var(--danger); }
+  .engineer-chat {
+    padding: 8px 16px; border-top: 1px solid var(--border);
+    display: flex; gap: 8px;
+  }
+  .engineer-chat input {
+    flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+    padding: 9px 12px; color: var(--white); font-size: 12px; font-family: var(--font); outline: none;
+  }
+  .engineer-chat input:focus { border-color: var(--green); }
+  .engineer-chat button {
+    background: var(--green); color: #000; border: none; border-radius: 6px;
+    padding: 9px 16px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .chat-msg {
+    padding: 8px 10px; margin-bottom: 6px; border-radius: 6px;
+    font-size: 12px; line-height: 1.5;
+  }
+  .chat-msg.ai { background: rgba(59,130,246,0.08); border-left: 3px solid #3b82f6; color: var(--muted); }
+  .chat-msg.user { background: rgba(34,197,94,0.06); border-left: 3px solid var(--green); color: var(--muted); }
+  .chat-msg .sender { font-size: 10px; font-weight: 700; font-family: var(--mono); margin-bottom: 3px; }
+  .chat-msg .sender.ai-label { color: #60a5fa; }
+  .chat-msg .sender.user-label { color: var(--green); }
+
+  /* Utility */
+  .hidden { display: none !important; }
+
+  /* Mockup nav */
+  .mockup-nav {
+    display: flex; gap: 4px; padding: 8px 16px; background: #050507;
+    border-bottom: 1px solid var(--border); font-size: 11px;
+  }
+  .mockup-nav button {
+    padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px;
+    background: transparent; color: var(--dim); cursor: pointer; font-family: var(--font);
+    font-size: 11px; font-weight: 600;
+  }
+  .mockup-nav button.active { background: var(--green); color: #000; border-color: var(--green); }
+  .mockup-label { font-size: 9px; color: var(--dim); padding: 3px 16px; font-family: var(--mono); background: #050507; }
+  .wrapper { position: relative; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+</style>
+</head>
+<body>
+
+<div class="mockup-nav">
+  <span style="color:var(--dim); padding:6px 0; margin-right:8px;">MOCKUP v2:</span>
+  <button class="active" onclick="showView('dashboard')">Dashboard ✅</button>
+  <button onclick="showView('dashboard-issues')">Dashboard ⚠️</button>
+  <button onclick="showView('settings')">Settings (Simple)</button>
+  <button onclick="showView('settings-adv')">Settings (Advanced)</button>
+  <button onclick="showView('engineer')">Tally Engineer</button>
+</div>
+<div class="mockup-label" id="view-label">VIEW: Health Dashboard — All Systems Go (click device rows to expand details)</div>
+
+<div class="wrapper">
+
+<!-- ═══════ HEADER ═══════ -->
+<div class="header-new">
+  <div class="header-left">
+    <div class="header-dot"></div>
+    <h1>Tally <span class="live-badge">LIVE</span></h1>
+    <span class="church-name-inline">Grace Community</span>
+  </div>
+  <div class="header-status-dots">
+    <span class="mini-dot"><span class="dot green" id="md-relay"></span>Relay</span>
+    <span class="mini-dot"><span class="dot green" id="md-atem"></span>ATEM</span>
+    <span class="mini-dot"><span class="dot green" id="md-encoder"></span>OBS</span>
+    <span class="mini-dot"><span class="dot green" id="md-comp"></span>Comp</span>
+  </div>
+  <div class="header-actions">
+    <button class="header-icon-btn" id="btn-eng" onclick="showView('engineer')" title="Tally Engineer">🧠</button>
+    <button class="header-icon-btn" id="btn-gear" onclick="showView('settings')" title="Settings">⚙️</button>
+  </div>
+</div>
+
+<!-- ═══════ HEALTH DASHBOARD ═══════ -->
+<div class="content" id="view-dashboard">
+
+  <!-- HERO -->
+  <div class="health-hero all-go" id="hero">
+    <div class="health-hero-icon" id="hero-icon">✅</div>
+    <div>
+      <div class="health-hero-title" id="hero-title">All Systems Go</div>
+      <div class="health-hero-subtitle" id="hero-sub">4 devices connected and healthy</div>
+    </div>
+  </div>
+
+  <!-- PRE-SERVICE CHECK -->
+  <div class="preservice-card pass" id="preservice-panel">
+    <div class="preservice-top">
+      <div class="preservice-badge pass">✓ Pre-Service Check Passed</div>
+      <div class="preservice-meta">9:58 AM · 100%</div>
+    </div>
+    <div class="preservice-checks">
+      <span class="preservice-check-item"><span class="check-dot pass"></span>ATEM</span>
+      <span class="preservice-check-item"><span class="check-dot pass"></span>Stream</span>
+      <span class="preservice-check-item"><span class="check-dot pass"></span>Recording</span>
+      <span class="preservice-check-item"><span class="check-dot pass"></span>Audio</span>
+      <span class="preservice-check-item"><span class="check-dot pass"></span>Cameras</span>
+      <span class="preservice-check-item"><span class="check-dot pass"></span>Slides</span>
+      <span class="preservice-check-item"><span class="check-dot pass"></span>Network</span>
+      <span class="preservice-check-item"><span class="check-dot pass"></span>Companion</span>
+    </div>
+    <div class="preservice-actions">
+      <button class="btn-cue" onclick="return false;">Run Check Now</button>
+    </div>
+  </div>
+
+  <!-- DEVICE HEALTH GRID -->
+  <div class="device-health-grid" id="device-grid">
+    <div class="device-row" onclick="toggleDetail('relay')">
+      <span class="device-row-icon">🌐</span>
+      <span class="device-row-name">Cloud Relay</span>
+      <span class="device-row-dot green" id="dot-relay"></span>
+      <span class="device-row-status" id="lbl-relay">Connected</span>
+      <span class="device-row-chevron">▼</span>
+    </div>
+
+    <div class="device-row" onclick="toggleDetail('atem')">
+      <span class="device-row-icon">🎛️</span>
+      <span class="device-row-name">ATEM Switcher</span>
+      <span class="device-row-dot green" id="dot-atem"></span>
+      <span class="device-row-status" id="lbl-atem">Connected</span>
+      <span class="device-row-chevron">▼</span>
+    </div>
+    <div class="device-detail hidden" id="detail-atem">
+      <div class="info-grid">
+        <div class="info-card"><div class="label">Model</div><div class="value">ATEM Mini Pro ISO</div></div>
+        <div class="info-card"><div class="label">Program</div><div class="value">Cam 1</div></div>
+        <div class="info-card"><div class="label">Preview</div><div class="value">Cam 2</div></div>
+        <div class="info-card"><div class="label">Recording</div><div class="value" style="color:var(--green)">● On</div></div>
+      </div>
+    </div>
+
+    <div class="device-row" onclick="toggleDetail('encoder')">
+      <span class="device-row-icon">📡</span>
+      <span class="device-row-name">OBS Studio</span>
+      <span class="device-row-dot green" id="dot-enc"></span>
+      <span class="device-row-status" id="lbl-enc">Streaming</span>
+      <span class="device-row-chevron">▼</span>
+    </div>
+    <div class="device-detail hidden" id="detail-encoder">
+      <div class="info-grid">
+        <div class="info-card"><div class="label">Stream</div><div class="value">YouTube</div></div>
+        <div class="info-card"><div class="label">FPS</div><div class="value">29.97</div></div>
+        <div class="info-card"><div class="label">Bitrate</div><div class="value">4500 kbps</div></div>
+        <div class="info-card"><div class="label">Audio</div><div class="value">2ch 48kHz</div></div>
+      </div>
+    </div>
+
+    <div class="device-row" onclick="toggleDetail('companion')">
+      <span class="device-row-icon">🔘</span>
+      <span class="device-row-name">Companion</span>
+      <span class="device-row-dot green" id="dot-comp"></span>
+      <span class="device-row-status" id="lbl-comp">Connected</span>
+      <span class="device-row-chevron">▼</span>
+    </div>
+
+    <div class="device-row" onclick="toggleDetail('propresenter')">
+      <span class="device-row-icon">📺</span>
+      <span class="device-row-name">ProPresenter</span>
+      <span class="device-row-dot green" id="dot-pp"></span>
+      <span class="device-row-status" id="lbl-pp">Connected</span>
+      <span class="device-row-chevron">▼</span>
+    </div>
+  </div>
+
+  <!-- DEVICE IDENTITY -->
+  <div style="margin-bottom: 14px;">
+    <div class="section-label">Device Identity</div>
+    <div class="identity-grid">
+      <div class="identity-card">
+        <div class="label">Encoder</div>
+        <div class="value active">OBS 30.2</div>
+      </div>
+      <div class="identity-card">
+        <div class="label">ProPresenter</div>
+        <div class="value active">Pro7 7.17</div>
+      </div>
+      <div class="identity-card">
+        <div class="label">vMix</div>
+        <div class="value inactive">—</div>
+      </div>
+      <div class="identity-card">
+        <div class="label">Resolume</div>
+        <div class="value inactive">—</div>
+      </div>
+      <div class="identity-card">
+        <div class="label">Mixer</div>
+        <div class="value inactive">—</div>
+      </div>
+      <div class="identity-card">
+        <div class="label">Companion</div>
+        <div class="value active">3.4.1</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RUNDOWN PANEL -->
+  <div class="rundown-panel">
+    <h2>Rundown — Sunday Morning</h2>
+    <div class="rundown-current">
+      <span class="cue-num">CUE 3/8</span> &nbsp; ✋ Worship — Camera 1
+    </div>
+    <div class="rundown-progress-bar"><div class="rundown-progress-fill" style="width:37.5%"></div></div>
+    <div class="rundown-controls">
+      <button class="btn-cue primary">▶ Go</button>
+      <button class="btn-cue">⏭ Skip</button>
+      <button class="btn-cue">⏮ Back</button>
+      <button class="btn-cue danger" style="margin-left:auto;">End</button>
+    </div>
+  </div>
+
+  <!-- ACTIVITY FEED (collapsed) -->
+  <div class="activity-section">
+    <div class="activity-header" onclick="toggleActivity()">
+      <h2>Activity</h2>
+      <span class="activity-toggle" id="act-toggle">▼</span>
+    </div>
+    <div class="activity-log" id="activity-log">
+      <div class="log-entry"><span class="ts">10:02</span><span class="log-badge ok">OK</span> Stream started on YouTube</div>
+      <div class="log-entry"><span class="ts">10:01</span><span class="log-badge sys">SYS</span> Recording started</div>
+      <div class="log-entry"><span class="ts">9:58</span><span class="log-badge ok">OK</span> Pre-service check passed (8/8)</div>
+      <div class="log-entry"><span class="ts">9:55</span><span class="log-badge sys">SYS</span> Rundown activated: Sunday Morning</div>
+      <div class="log-entry"><span class="ts">9:50</span><span class="log-badge ok">OK</span> ATEM connected — ATEM Mini Pro ISO</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════ QUICK CHAT BAR (always on dashboard) ═══════ -->
+<div class="quick-chat" id="quick-chat">
+  <input type="text" placeholder="💬 Ask Tally something... (e.g. 'is my stream healthy?')">
+  <button>Send</button>
+</div>
+
+<!-- ═══════ SETTINGS PANEL ═══════ -->
+<div class="settings-panel hidden" id="view-settings">
+  <div class="settings-header">
+    <button class="settings-back" onclick="showView('dashboard')">← Back</button>
+    <h2>Settings</h2>
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="mode-simple" onclick="setMode('simple')">Simple</button>
+      <button class="mode-btn" id="mode-adv" onclick="setMode('advanced')">Advanced</button>
+    </div>
+  </div>
+  <div class="settings-body" id="settings-simple-body">
+    <h3>Your Devices</h3>
+    <div class="simple-device-item">
+      <span class="device-icon">🎛️</span>
+      <span class="device-name">ATEM Switcher</span>
+      <span class="device-ip">192.168.1.10</span>
+      <span class="sdot"></span>
+    </div>
+    <div class="simple-device-item">
+      <span class="device-icon">📡</span>
+      <span class="device-name">OBS Studio</span>
+      <span class="device-ip">localhost:4455</span>
+      <span class="sdot"></span>
+    </div>
+    <div class="simple-device-item">
+      <span class="device-icon">🔘</span>
+      <span class="device-name">Companion</span>
+      <span class="device-ip">localhost:8888</span>
+      <span class="sdot"></span>
+    </div>
+    <div class="simple-device-item">
+      <span class="device-icon">📺</span>
+      <span class="device-name">ProPresenter</span>
+      <span class="device-ip">localhost:1025</span>
+      <span class="sdot"></span>
+    </div>
+    <button class="btn-scan">🔍 Scan Network for More Devices</button>
+
+    <h3 style="margin-top:20px;">Stream Platforms</h3>
+    <div class="oauth-row">
+      <span style="font-size:16px;">▶</span>
+      <span class="platform-name">YouTube</span>
+      <span class="oauth-status">✓ Connected</span>
+      <button class="btn-oauth">Disconnect</button>
+    </div>
+    <div class="oauth-row">
+      <span style="font-size:16px;">◉</span>
+      <span class="platform-name">Facebook</span>
+      <span class="oauth-status" style="color:var(--dim);">Not connected</span>
+      <button class="btn-oauth">Connect</button>
+    </div>
+    <div class="portal-link">
+      <a href="#">Advanced Settings → Church Portal</a>
+    </div>
+  </div>
+  <div class="settings-body hidden" id="settings-adv-body">
+    <h3>Device Catalog</h3>
+    <p style="color:var(--muted); font-size:12px; padding: 40px 0; text-align:center;">
+      Full device catalog with 15 device types, manual IP entry,<br>
+      multi-instance configs, encoder type selection, etc.<br><br>
+      <span style="color:var(--dim); font-size:10px;">(Same as current Equipment tab — all functionality preserved)</span>
+    </p>
+  </div>
+</div>
+
+<!-- ═══════ ENGINEER OVERLAY ═══════ -->
+<div class="engineer-overlay hidden" id="view-engineer">
+  <div class="engineer-header">
+    <h2>🧠 Tally Engineer</h2>
+    <button class="overlay-close" onclick="showView('dashboard')">✕</button>
+  </div>
+  <div class="engineer-body">
+    <div class="pf-go-badge go">GO</div>
+
+    <div class="info-grid" style="margin-bottom:14px;">
+      <div class="info-card"><div class="label">Critical / High</div><div class="value" style="color:var(--green)">0</div></div>
+      <div class="info-card"><div class="label">Coverage</div><div class="value">95%</div></div>
+      <div class="info-card"><div class="label">Total Issues</div><div class="value">1</div></div>
+      <div class="info-card"><div class="label">Last Run</div><div class="value muted">2 min ago</div></div>
+    </div>
+
+    <div style="display:flex; gap:8px; margin-bottom:14px;">
+      <button class="btn-cue" style="flex:1;">▶ Check System</button>
+      <button class="btn-cue" style="flex:1;">🛫 Pre-Service Check</button>
+    </div>
+
+    <div class="section-label" style="margin-top:16px;">Active Issues</div>
+    <div style="padding:10px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; margin-bottom:14px;">
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span style="font-size:12px;">⚠️</span>
+        <span style="font-size:12px; font-weight:600;">Low: NDI frame rate below 25fps</span>
+      </div>
+      <p style="font-size:11px; color:var(--muted); margin-top:4px;">NDI source is at 24fps. Check source device or network bandwidth.</p>
+    </div>
+
+    <div class="section-label">Chat History</div>
+    <div style="background:#060608; border:1px solid var(--border); border-radius:6px; padding:10px; min-height:120px;">
+      <div class="chat-msg user">
+        <div class="sender user-label">YOU</div>
+        Is my stream healthy?
+      </div>
+      <div class="chat-msg ai">
+        <div class="sender ai-label">TALLY AI</div>
+        Your stream looks great! YouTube is receiving 4500 kbps at 29.97fps with stable audio. The only minor note is your NDI source is running slightly below 25fps — likely a network bandwidth issue, but it's not affecting your main output.
+      </div>
+      <div class="chat-msg user">
+        <div class="sender user-label">YOU</div>
+        Should I be worried about the NDI?
+      </div>
+      <div class="chat-msg ai">
+        <div class="sender ai-label">TALLY AI</div>
+        Not for today's service. Your main stream and recording are unaffected. If you want to fix it long-term, try connecting the NDI source via ethernet instead of WiFi.
+      </div>
+    </div>
+  </div>
+  <div class="engineer-chat">
+    <button style="background:var(--card); border:1px solid var(--border); border-radius:6px; padding:8px 10px; font-size:14px; cursor:pointer; color:var(--muted);">📎</button>
+    <input type="text" placeholder="Ask Tally Engineer a question...">
+    <button>Send</button>
+  </div>
+</div>
+
+</div><!-- /wrapper -->
+
+<!-- ═══════ FOOTER ═══════ -->
+<div class="actions" id="footer-actions">
+  <button class="btn-start" style="background: var(--danger);">■ Stop Monitoring</button>
+  <button class="btn-secondary">🔌 Test</button>
+  <button class="btn-secondary">🧾 Logs</button>
+  <button class="btn-secondary">🚪 Sign Out</button>
+</div>
+
+<script>
+function showView(view) {
+  document.getElementById('view-dashboard').classList.add('hidden');
+  document.getElementById('view-settings').classList.add('hidden');
+  document.getElementById('view-engineer').classList.add('hidden');
+  document.getElementById('footer-actions').style.display = '';
+  document.getElementById('quick-chat').style.display = '';
+  document.getElementById('btn-eng').classList.remove('active-btn');
+  document.getElementById('btn-gear').classList.remove('active-btn');
+  document.querySelectorAll('.mockup-nav button').forEach(b => b.classList.remove('active'));
+  const label = document.getElementById('view-label');
+
+  if (view === 'dashboard') {
+    document.getElementById('view-dashboard').classList.remove('hidden');
+    setHero('go');
+    setPreservice('pass');
+    label.textContent = 'VIEW: Health Dashboard — All Systems Go (click device rows to expand details)';
+    document.querySelectorAll('.mockup-nav button')[0].classList.add('active');
+    setDots('green','green','green','green');
+  }
+  else if (view === 'dashboard-issues') {
+    document.getElementById('view-dashboard').classList.remove('hidden');
+    setHero('issues');
+    setPreservice('warn');
+    label.textContent = 'VIEW: Health Dashboard — Issues Detected';
+    document.querySelectorAll('.mockup-nav button')[1].classList.add('active');
+    setDots('green','red','green','yellow');
+  }
+  else if (view === 'settings' || view === 'settings-adv') {
+    document.getElementById('view-settings').classList.remove('hidden');
+    document.getElementById('footer-actions').style.display = 'none';
+    document.getElementById('quick-chat').style.display = 'none';
+    document.getElementById('btn-gear').classList.add('active-btn');
+    setMode(view === 'settings-adv' ? 'advanced' : 'simple');
+    label.textContent = view === 'settings-adv' ? 'VIEW: Settings — Advanced Mode' : 'VIEW: Settings — Simple Mode';
+    document.querySelectorAll('.mockup-nav button')[view === 'settings-adv' ? 3 : 2].classList.add('active');
+  }
+  else if (view === 'engineer') {
+    document.getElementById('view-engineer').classList.remove('hidden');
+    document.getElementById('footer-actions').style.display = 'none';
+    document.getElementById('quick-chat').style.display = 'none';
+    document.getElementById('btn-eng').classList.add('active-btn');
+    label.textContent = 'VIEW: Tally Engineer — Full AI Diagnostics + Chat History';
+    document.querySelectorAll('.mockup-nav button')[4].classList.add('active');
+  }
+}
+
+function setHero(state) {
+  const hero = document.getElementById('hero');
+  const icon = document.getElementById('hero-icon');
+  const title = document.getElementById('hero-title');
+  const sub = document.getElementById('hero-sub');
+  hero.classList.remove('all-go','has-issues','has-critical');
+  if (state === 'go') {
+    hero.classList.add('all-go');
+    icon.textContent = '✅'; title.textContent = 'All Systems Go';
+    sub.textContent = '5 devices connected and healthy';
+    document.getElementById('dot-atem').className = 'device-row-dot green';
+    document.getElementById('lbl-atem').textContent = 'Connected';
+    document.getElementById('dot-comp').className = 'device-row-dot green';
+    document.getElementById('lbl-comp').textContent = 'Connected';
+  } else {
+    hero.classList.add('has-critical');
+    icon.textContent = '⚠️'; title.textContent = '2 Issues Found';
+    sub.textContent = '1 offline, 1 warning — check devices below';
+    document.getElementById('dot-atem').className = 'device-row-dot red';
+    document.getElementById('lbl-atem').textContent = 'Offline';
+    document.getElementById('dot-comp').className = 'device-row-dot yellow';
+    document.getElementById('lbl-comp').textContent = 'Reconnecting';
+  }
+}
+
+function setPreservice(state) {
+  const panel = document.getElementById('preservice-panel');
+  panel.classList.remove('pass','warn','fail');
+  panel.classList.add(state);
+  const badge = panel.querySelector('.preservice-badge');
+  badge.classList.remove('pass','warn');
+  if (state === 'pass') {
+    badge.classList.add('pass');
+    badge.innerHTML = '✓ Pre-Service Check Passed';
+  } else {
+    badge.classList.add('warn');
+    badge.innerHTML = '⚠ Pre-Service Check — 1 Warning';
+    panel.querySelectorAll('.check-dot')[3].className = 'check-dot warn';
+  }
+}
+
+function setDots(relay, atem, encoder, comp) {
+  document.getElementById('md-relay').className = 'dot ' + relay;
+  document.getElementById('md-atem').className = 'dot ' + atem;
+  document.getElementById('md-encoder').className = 'dot ' + encoder;
+  document.getElementById('md-comp').className = 'dot ' + comp;
+}
+
+function toggleDetail(id) {
+  const d = document.getElementById('detail-' + id);
+  if (!d) return;
+  d.classList.toggle('hidden');
+  d.previousElementSibling.classList.toggle('expanded');
+}
+
+function toggleActivity() {
+  const log = document.getElementById('activity-log');
+  const toggle = document.getElementById('act-toggle');
+  log.classList.toggle('expanded');
+  toggle.textContent = log.classList.contains('expanded') ? '▲' : '▼';
+}
+
+function setMode(mode) {
+  document.getElementById('mode-simple').classList.toggle('active', mode === 'simple');
+  document.getElementById('mode-adv').classList.toggle('active', mode === 'advanced');
+  document.getElementById('settings-simple-body').classList.toggle('hidden', mode !== 'simple');
+  document.getElementById('settings-adv-body').classList.toggle('hidden', mode !== 'advanced');
+}
+</script>
+</body>
+</html>

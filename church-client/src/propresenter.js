@@ -62,10 +62,8 @@ class ProPresenter extends EventEmitter {
 
   async isRunning() {
     try {
-      // Any HTTP response (200, 404, etc.) means ProPresenter is listening on
-      // this port. Only a thrown exception (ECONNREFUSED, timeout) means it's
-      // not running. PP7 may not have /v1/version on all builds, so we treat
-      // every HTTP status code as proof that the process is up.
+      // Any HTTP response (even 404) proves PP is running.
+      // Only a network-level failure (ECONNREFUSED, timeout) means not running.
       await fetch(`${this.baseUrl}/v1/version`, {
         signal: AbortSignal.timeout(3000),
       });
