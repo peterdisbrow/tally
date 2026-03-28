@@ -358,7 +358,7 @@ function createWebSocketHandlers({
           setTimeout(async () => {
             try {
               const verification = await streamOAuth.verifyStreamOnPlatforms(church.churchId);
-              if (!verification || (!verification.youtube && !verification.facebook)) break;
+              if (!verification || (!verification.youtube && !verification.facebook)) return;
 
               // Store in church status for SSE clients
               church.status = { ...church.status, streamVerification: verification };
