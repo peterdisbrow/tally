@@ -698,6 +698,27 @@ function startAgent() {
 
     let statusChanged = false;
 
+    // Parse full structured status JSON from church-client (authoritative source for all device data)
+    const jsonIdx = text.indexOf('[STATUS_JSON] ');
+    if (jsonIdx !== -1) {
+      try {
+        const jsonStr = text.slice(jsonIdx + 14).split('\n')[0];
+        const parsed = JSON.parse(jsonStr);
+        // Deep merge: preserve local-only fields (relay, _relayDisconnectedAt, failover, etc.)
+        // but accept all device status from the agent
+        for (const key of Object.keys(parsed)) {
+          if (key.startsWith('_')) continue; // skip private fields
+          const val = parsed[key];
+          if (val && typeof val === 'object' && !Array.isArray(val) && agentStatus[key] && typeof agentStatus[key] === 'object') {
+            Object.assign(agentStatus[key], val);
+          } else {
+            agentStatus[key] = val;
+          }
+        }
+        statusChanged = true;
+      } catch { /* ignore parse errors */ }
+    }
+
     if (text.includes('Connected to relay server'))  { agentStatus.relay = true; statusChanged = true; agentCrashCount = 0; _agentEscalatedAt = 0; }
     if (text.includes('ATEM connected'))             { agentStatus.atem = { connected: true, model: (agentStatus.atem && agentStatus.atem.model) || '' }; statusChanged = true; }
     if (text.includes('OBS connected'))              { agentStatus.obs = true; statusChanged = true; }
@@ -1048,7 +1069,7 @@ const { checkTokenWithRelay, postJson, loginChurchWithCredentials,
 
 // ─── CONFIG (delegated to config-manager module) ─────────────────────────────
 const { loadConfig, saveConfig, resetConfig, loadConfigForUI, isMockValue, stripMockConfig,
-        exportPortableConfig, importPortableConfig } = configManager;
+        exportPortableConfig, importPortableConfig, switchRoomConfig, saveCurrentRoomEquipment } = configManager;
 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
 
@@ -1060,7 +1081,7 @@ ipcMain.handle('save-config', (_, config) => {
     'liveStreamUrl', 'setupComplete', 'encoderType', 'encoderHost', 'encoderPort',
     'encoderPassword', 'encoderLabel', 'encoderStatusUrl', 'encoderSource',
     'youtubeApiKey', 'facebookToken', 'rtmpUrl', 'rtmpKey',
-    'autoStartMonitoring',
+    'autoStartMonitoring', 'roomId', 'roomName',
   ]);
   if (!config || typeof config !== 'object' || Array.isArray(config)) return false;
   const sanitized = {};
@@ -1565,6 +1586,14 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
 });
 
 
+// ─── Per-room equipment switching ────────────────────────────────────────────
+// Called from renderer before saving roomId/roomName. Persists current equipment
+// under the old room name, then loads saved equipment for the new room.
+ipcMain.handle('switch-room', (_, { fromRoom, toRoom }) => {
+  const result = switchRoomConfig(fromRoom || '', toRoom || '');
+  return result;
+});
+
 ipcMain.handle('save-equipment', (_, equipConfig) => {
   if (!equipConfig || typeof equipConfig !== 'object' || Array.isArray(equipConfig)) return;
 
@@ -1663,6 +1692,9 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
       signal: AbortSignal.timeout(5000),
     }).catch(() => {}); // non-critical
   }
+
+  // Auto-persist equipment under the current room name
+  saveCurrentRoomEquipment();
 
   return true;
 });

@@ -766,7 +766,10 @@ class ChurchAVAgent {
     this._relayConnecting = true;
 
     return new Promise((resolve) => {
-      const url = `${this.config.relay}/church?token=${this.config.token}`;
+      // Include instance name so the relay can track multiple Tally agents per church
+      // (e.g. multi-room / multi-campus). Without this, each agent replaces the previous one.
+      const instanceName = this.config.name || os.hostname();
+      const url = `${this.config.relay}/church?token=${this.config.token}&instance=${encodeURIComponent(instanceName)}`;
       console.log(`\n📡 Connecting to relay...`);
 
       // Kill any stale socket before creating a new one.
@@ -819,6 +822,16 @@ class ChurchAVAgent {
       this.relay.on('close', (code, reason) => {
         this._relayConnecting = false;
         const reasonStr = reason?.toString() || '';
+
+        // Room limit reached — do NOT reconnect (would just get rejected again)
+        if (code === 1008 && reasonStr.startsWith('room_limit')) {
+          const limit = reasonStr.split(':')[1] || '1';
+          console.error(`🚫 Relay rejected connection: room limit reached (${limit} room(s) max for your plan). Another instance is already connected.`);
+          if (this._relayPingTimer) clearInterval(this._relayPingTimer);
+          doResolve();
+          return; // Don't reconnect
+        }
+
         const isReplaced = code === 1000 && reasonStr.includes('replaced by new connection');
         if (isReplaced) {
           // The relay replaced this connection with a newer one from the same church.
@@ -2046,7 +2059,10 @@ class ChurchAVAgent {
     if (this._statusDebounce) return;
     this._statusDebounce = true;
     // Send immediately on first call, then coalesce subsequent calls within 100ms
-    this.sendToRelay({ type: 'status_update', status: { ...this.status, health: this.health } });
+    const fullStatus = { ...this.status, health: this.health };
+    this.sendToRelay({ type: 'status_update', status: fullStatus });
+    // Emit full status as structured JSON for Electron main process to parse
+    try { console.log('[STATUS_JSON] ' + JSON.stringify(fullStatus)); } catch { /* ignore */ }
     setTimeout(() => {
       this._statusDebounce = false;
     }, 100);

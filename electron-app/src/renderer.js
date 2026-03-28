@@ -2983,15 +2983,33 @@ async function assignRoomFromPicker(roomId) {
     });
     const data = await resp.json();
     if (data.ok) {
-      await api.saveConfig({ roomId: data.roomId || '', roomName: data.roomName || '' });
+      const oldRoom = config.roomName || '';
+      const newRoom = data.roomName || '';
+
+      // Switch per-room equipment config: save current room's gear, load target room's gear
+      if (oldRoom !== newRoom) {
+        const result = await api.switchRoom(oldRoom, newRoom);
+        if (result.loaded) {
+          console.log(`[Room] Loaded saved equipment config for "${newRoom}"`);
+        } else {
+          console.log(`[Room] No saved equipment config for "${newRoom}" — keeping current gear`);
+        }
+      }
+
+      await api.saveConfig({ roomId: data.roomId || '', roomName: newRoom });
       const nameEl = document.getElementById('church-name');
-      if (nameEl && data.roomName) {
+      if (nameEl && newRoom) {
         const baseName = nameEl.textContent.split(' · ')[0];
-        nameEl.textContent = baseName + ' \xb7 ' + data.roomName;
+        nameEl.textContent = baseName + ' \xb7 ' + newRoom;
       } else if (nameEl) {
         nameEl.textContent = nameEl.textContent.split(' \xb7 ')[0];
       }
-      addAlert(data.roomName ? `Assigned to room: ${data.roomName}` : 'Room unassigned');
+      addAlert(newRoom ? `Assigned to room: ${newRoom}` : 'Room unassigned');
+
+      // Refresh equipment UI if it's currently visible
+      if (typeof loadEquipmentConfig === 'function') {
+        try { loadEquipmentConfig(); } catch { /* ignore */ }
+      }
     }
   } catch (e) {
     console.warn('[Room] Failed to assign room:', e.message);

@@ -94,12 +94,26 @@ class ProPresenter extends EventEmitter {
 
   async getVersion() {
     // Per PP spec, version endpoint lives at /version (not /v1/version)
-    const data = await this._fetch('/version');
-    if (!data) return null;
-    if (typeof data === 'string') { this._version = data; return data; }
-    const v = data.host_description || data.version || data.appVersion || data.product || null;
-    this._version = v;
-    return v;
+    // Try JSON parse first, fall back to raw text (PP 21 may return plain text)
+    try {
+      const resp = await fetch(`${this.baseUrl}/version`, { signal: AbortSignal.timeout(5000) });
+      if (!resp.ok) return null;
+      const text = (await resp.text()).trim();
+      if (!text) return null;
+      let data;
+      try { data = JSON.parse(text); } catch { /* not JSON */ }
+      if (data && typeof data === 'object') {
+        const v = data.host_description || data.version || data.appVersion || data.product || null;
+        this._version = v;
+        return v;
+      }
+      // Raw text response (strip surrounding quotes if present)
+      const cleaned = text.replace(/^["']|["']$/g, '');
+      if (cleaned) { this._version = cleaned; return cleaned; }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   async getCurrentSlide() {
@@ -188,20 +202,31 @@ class ProPresenter extends EventEmitter {
   }
 
   async getAudienceScreenStatus() {
-    const data = await this._fetch('/v1/status/screens');
-    if (!data) {
-      // Fallback to audience_screens endpoint
-      const fallback = await this._fetch('/v1/status/audience_screens');
-      if (!fallback) return null;
-      const status = { audience: !!fallback.audience, stage: !!fallback.stage };
-      const prev = this._screenStatus;
-      this._screenStatus = status;
-      if (prev && (prev.audience !== status.audience || prev.stage !== status.stage)) {
-        this.emit('screenStateChanged', status);
+    // Try /v1/status/screens first, then /v1/status/audience_screens
+    const data = await this._fetch('/v1/status/screens')
+      || await this._fetch('/v1/status/audience_screens');
+    if (!data || typeof data !== 'object') return null;
+    // PP7 format: { audience: true, stage: false }
+    // PP 21 may use: { screens: [{ name, enabled }] } or similar
+    let audience, stage;
+    if (data.audience !== undefined) {
+      audience = !!data.audience;
+      stage = !!data.stage;
+    } else if (Array.isArray(data.screens)) {
+      audience = data.screens.some(s => /audience/i.test(s.name || s.type || '') && s.enabled !== false);
+      stage = data.screens.some(s => /stage/i.test(s.name || s.type || '') && s.enabled !== false);
+    } else if (Array.isArray(data)) {
+      audience = data.some(s => /audience/i.test(s.name || s.type || '') && s.enabled !== false);
+      stage = data.some(s => /stage/i.test(s.name || s.type || '') && s.enabled !== false);
+    } else {
+      // Unknown format — log once for debugging
+      if (!this._screenFormatLogged) {
+        console.log('[ProPresenter] Screen status response format:', JSON.stringify(data));
+        this._screenFormatLogged = true;
       }
-      return status;
+      return null;
     }
-    const status = { audience: !!data.audience, stage: !!data.stage };
+    const status = { audience, stage };
     const prev = this._screenStatus;
     this._screenStatus = status;
     if (prev && (prev.audience !== status.audience || prev.stage !== status.stage)) {
