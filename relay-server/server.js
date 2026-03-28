@@ -3922,7 +3922,8 @@ app.get('/api/admin/stream/:churchId/key', requireAdmin, (req, res) => {
     db.prepare('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?').run(key, church.churchId);
   }
 
-  const rtmpUrl = `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}/live/${key}`;
+  const rtmpHost = process.env.RTMP_PUBLIC_URL || `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}`;
+  const rtmpUrl = `${rtmpHost}/live/${key}`;
   res.json({
     churchId: church.churchId,
     churchName: church.name,
@@ -3943,7 +3944,8 @@ app.post('/api/admin/stream/:churchId/key/regenerate', requireAdmin, (req, res) 
   const key = generateStreamKey();
   db.prepare('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?').run(key, church.churchId);
 
-  const rtmpUrl = `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}/live/${key}`;
+  const rtmpHost = process.env.RTMP_PUBLIC_URL || `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}`;
+  const rtmpUrl = `${rtmpHost}/live/${key}`;
   res.json({ churchId: church.churchId, streamKey: key, rtmpUrl });
 });
 
