@@ -3283,7 +3283,8 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       WHERE billing_status = 'active'
         AND portal_email IS NOT NULL
         AND onboarding_app_connected_at IS NOT NULL
-    `).all();
+        AND registeredAt <= ?
+    `).all(thirtyDaysAgo);
 
     for (const church of churches) {
       // Check last session date

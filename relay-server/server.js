@@ -55,6 +55,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],    // portal uses inline styles
       imgSrc: ["'self'", 'data:', 'https:'],
       connectSrc: ["'self'", 'wss:', 'ws:'],
+      mediaSrc: ["'self'", "blob:"],
       fontSrc: ["'self'"],
       frameSrc: ["'none'"],
       frameAncestors: ["'none'"],
@@ -161,6 +162,7 @@ const { createBackupSnapshot } = require('./src/dbBackup');
 const { createRateLimit, consumeRateLimit, logRateLimitStatus } = require('./src/rateLimit');
 const { createWebSocketHandlers } = require('./src/websocketRouter');
 const relayPackage = require('./package.json');
+const { initRtmpIngest, shutdownRtmpIngest, getActiveStreams, isStreamActive: isIngestActive, disconnectStream, getHlsDir, generateStreamKey } = require('./src/rtmpIngest');
 
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 const JWT_SECRET    = process.env.JWT_SECRET || 'dev-jwt-secret-change-me';
@@ -540,6 +542,8 @@ const _schemaMigrations = [
   // Room assignment — which room this desktop/agent monitors
   "ALTER TABLE churches ADD COLUMN room_id TEXT",
   "ALTER TABLE churches ADD COLUMN room_name TEXT",
+  // RTMP ingest stream key (for test stream preview in admin portal)
+  "ALTER TABLE churches ADD COLUMN ingest_stream_key TEXT",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -3897,12 +3901,104 @@ app.get('/api/docs', (_req, res) => {
   }
 });
 
+// ─── ADMIN STREAM PREVIEW ROUTES ─────────────────────────────────────────────
+
+const _fs = require('fs');
+const _path = require('path');
+
+// List active RTMP ingest streams
+app.get('/api/admin/streams', requireAdmin, (req, res) => {
+  res.json({ streams: getActiveStreams() });
+});
+
+// Get or generate stream key for a church
+app.get('/api/admin/stream/:churchId/key', requireAdmin, (req, res) => {
+  const church = db.prepare('SELECT churchId, name, ingest_stream_key FROM churches WHERE churchId = ?').get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+
+  let key = church.ingest_stream_key;
+  if (!key) {
+    key = generateStreamKey();
+    db.prepare('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?').run(key, church.churchId);
+  }
+
+  const rtmpUrl = `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}/live/${key}`;
+  res.json({
+    churchId: church.churchId,
+    churchName: church.name,
+    streamKey: key,
+    rtmpUrl,
+    active: isIngestActive(church.churchId),
+  });
+});
+
+// Regenerate stream key (disconnects active stream)
+app.post('/api/admin/stream/:churchId/key/regenerate', requireAdmin, (req, res) => {
+  const church = db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(req.params.churchId);
+  if (!church) return res.status(404).json({ error: 'Church not found' });
+
+  // Disconnect active stream if any
+  disconnectStream(church.churchId);
+
+  const key = generateStreamKey();
+  db.prepare('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?').run(key, church.churchId);
+
+  const rtmpUrl = `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}/live/${key}`;
+  res.json({ churchId: church.churchId, streamKey: key, rtmpUrl });
+});
+
+// Serve HLS playlist
+app.get('/api/admin/stream/:churchId/live.m3u8', requireAdmin, (req, res) => {
+  const hlsDir = getHlsDir(req.params.churchId);
+  const m3u8Path = _path.join(hlsDir, 'live.m3u8');
+
+  if (!_fs.existsSync(m3u8Path)) {
+    return res.status(404).json({ error: 'Stream not active' });
+  }
+
+  res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+  res.setHeader('Cache-Control', 'no-cache, no-store');
+  res.sendFile(m3u8Path);
+});
+
+// Serve HLS segments
+app.get('/api/admin/stream/:churchId/:filename', requireAdmin, (req, res) => {
+  const { churchId, filename } = req.params;
+  // Only allow .ts files
+  if (!filename.endsWith('.ts')) {
+    return res.status(400).json({ error: 'Invalid segment file' });
+  }
+
+  const hlsDir = getHlsDir(churchId);
+  const segPath = _path.join(hlsDir, filename);
+
+  if (!_fs.existsSync(segPath)) {
+    return res.status(404).json({ error: 'Segment not found' });
+  }
+
+  res.setHeader('Content-Type', 'video/mp2t');
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  res.sendFile(segPath);
+});
+
 // ─── SENTRY ERROR HANDLER (must be after all routes) ─────────────────────────
 if (process.env.SENTRY_DSN) {
   Sentry.setupExpressErrorHandler(app);
 }
 
 // ─── START ────────────────────────────────────────────────────────────────────
+
+// Start RTMP ingest server if enabled
+const RTMP_ENABLED = (process.env.RTMP_ENABLED || 'false') === 'true';
+if (RTMP_ENABLED) {
+  try {
+    initRtmpIngest(db, broadcastToSSE);
+  } catch (e) {
+    console.error(`[RTMP] Failed to start RTMP ingest server: ${e.message}`);
+  }
+} else {
+  console.log('[RTMP] Ingest server disabled (set RTMP_ENABLED=true to enable)');
+}
 
 server.listen(PORT, () => {
   log(`Tally Relay running on port ${PORT}`);
@@ -3943,6 +4039,9 @@ function gracefulShutdown(signal, exitCode = 0) {
   }
   try { tallyBot?.stop?.(); } catch (e) {
     logWarn('tallyBot.stop() threw during shutdown', { error: e?.message });
+  }
+  try { shutdownRtmpIngest(); } catch (e) {
+    logWarn('shutdownRtmpIngest() threw during shutdown', { error: e?.message });
   }
 
   // Send close frames to all church WebSocket connections so clients know to reconnect

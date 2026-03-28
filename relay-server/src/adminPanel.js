@@ -310,6 +310,8 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 /* Hamburger menu */
 .hamburger{display:none;position:fixed;top:14px;left:14px;z-index:110;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 10px;cursor:pointer;color:var(--text);font-size:20px;line-height:1}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99}
+/* Stream Preview */
+@keyframes pulse-live{0%,100%{opacity:1}50%{opacity:.5}}
 @media(max-width:768px){
   .sidebar{display:none;position:fixed;z-index:100;top:0;left:0;height:100vh;width:220px}
   .sidebar.open{display:flex;flex-direction:column}
@@ -318,6 +320,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
   .main{margin-left:0;padding-top:56px}
   .stats-grid,.summary-row{grid-template-columns:1fr 1fr}
   #ai-summary,#email-summary{grid-template-columns:1fr 1fr}
+  .stream-layout{grid-template-columns:1fr !important}
 }
 </style></head>
 <body>
@@ -364,6 +367,10 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
     <div class="nav-item" onclick="showPage('emails')" id="nav-emails">
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/></svg>
       Emails
+    </div>
+    <div class="nav-item" onclick="showPage('streams')" id="nav-streams">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>
+      Stream Preview
     </div>
     <div style="flex:1"></div>
     <div class="nav-item" onclick="showPage('settings')" id="nav-settings">
@@ -630,6 +637,72 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
       </div>
     </div>
 
+    <!-- STREAM PREVIEW PAGE -->
+    <div id="page-streams" style="display:none">
+      <div class="stream-toolbar" style="display:flex;gap:12px;align-items:center;margin-bottom:20px;flex-wrap:wrap">
+        <select id="stream-church-select" class="search-input" style="width:280px" onchange="onStreamChurchSelect()">
+          <option value="">— Select a church —</option>
+        </select>
+        <div id="stream-live-badge" style="display:none;background:#e53e3e;color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;letter-spacing:0.5px;animation:pulse-live 1.5s ease-in-out infinite">LIVE</div>
+        <div id="stream-offline-badge" style="display:none;background:var(--border);color:var(--muted);font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px">OFFLINE</div>
+        <div style="flex:1"></div>
+        <span id="stream-active-count" style="color:var(--muted);font-size:13px"></span>
+      </div>
+
+      <div class="stream-layout" style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start">
+        <!-- Video Player -->
+        <div>
+          <div class="stream-player-wrap" style="position:relative;width:100%;padding-top:56.25%;background:#000;border-radius:10px;overflow:hidden">
+            <video id="stream-video" style="position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain" autoplay muted playsinline></video>
+            <div id="stream-placeholder" style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#555;font-size:14px">
+              Select a church to preview their stream
+            </div>
+          </div>
+
+          <!-- Stream Key Info Card -->
+          <div id="stream-key-card" class="card" style="margin-top:16px;display:none">
+            <div class="card-title" style="margin-bottom:12px">RTMP Ingest Details</div>
+            <div style="display:grid;grid-template-columns:auto 1fr auto;gap:8px 12px;align-items:center;font-size:13px">
+              <span style="color:var(--muted)">RTMP URL</span>
+              <code id="stream-rtmp-url" style="background:var(--bg);padding:6px 10px;border-radius:6px;font-size:12px;word-break:break-all"></code>
+              <button class="btn-sm" onclick="copyStreamUrl()" title="Copy">Copy</button>
+
+              <span style="color:var(--muted)">Stream Key</span>
+              <code id="stream-key-display" style="background:var(--bg);padding:6px 10px;border-radius:6px;font-size:12px;font-family:monospace"></code>
+              <button class="btn-sm" onclick="copyStreamKey()" title="Copy">Copy</button>
+            </div>
+            <div style="margin-top:12px;display:flex;gap:8px">
+              <button class="btn-sm" onclick="regenerateStreamKey()" style="color:var(--red)">Regenerate Key</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tally / Equipment Status Sidebar -->
+        <div id="stream-status-panel" style="display:none">
+          <div class="card" style="margin-bottom:12px">
+            <div class="card-title" style="margin-bottom:10px">Equipment Status</div>
+            <div id="stream-equipment-list" style="font-size:13px">
+              <div style="color:var(--muted);padding:12px 0;text-align:center">No data yet</div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-bottom:12px">
+            <div class="card-title" style="margin-bottom:10px">Tally Indicators</div>
+            <div id="stream-tally-indicators" style="display:flex;flex-wrap:wrap;gap:6px">
+              <div style="color:var(--muted);font-size:13px;padding:8px 0">No tally data</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title" style="margin-bottom:10px">Stream Info</div>
+            <div id="stream-meta-info" style="font-size:13px">
+              <div style="color:var(--muted);padding:8px 0">Stream not active</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -795,6 +868,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
   </div>
 </div>
 
+<script src="/portal/hls.min.js"></script>
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
 let currentPage = 'overview';
@@ -814,7 +888,7 @@ let ticketFilter = 'all';
 let allBilling = [];
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
-const allPages = ['overview','churches','resellers','alerts','tickets','billing','aiusage','emails','settings'];
+const allPages = ['overview','churches','resellers','alerts','tickets','billing','aiusage','emails','streams','settings'];
 function showPage(page) {
   allPages.forEach(p => {
     const el = document.getElementById('page-'+p);
@@ -822,7 +896,7 @@ function showPage(page) {
     const nav = document.getElementById('nav-'+p);
     if (nav) nav.classList.toggle('active', p === page);
   });
-  const titles = {overview:'Overview',churches:'Churches',resellers:'Resellers',alerts:'Alerts',tickets:'Tickets',billing:'Billing',aiusage:'AI Usage',emails:'Emails',settings:'Settings'};
+  const titles = {overview:'Overview',churches:'Churches',resellers:'Resellers',alerts:'Alerts',tickets:'Tickets',billing:'Billing',aiusage:'AI Usage',emails:'Emails',streams:'Stream Preview',settings:'Settings'};
   document.getElementById('page-title').textContent = titles[page]||page;
   currentPage = page;
   // Close mobile nav on page switch
@@ -838,6 +912,7 @@ function showPage(page) {
   else if (page === 'billing') loadBilling();
   else if (page === 'aiusage') loadAIUsage();
   else if (page === 'emails') loadEmails();
+  else if (page === 'streams') loadStreamPreview();
   else if (page === 'settings') loadSettings();
 }
 
@@ -2070,6 +2145,267 @@ async function signOut(e) {
   window.location.href = '/admin/login';
 }
 
+// ─── Stream Preview ────────────────────────────────────────────────────────────
+let streamHls = null;
+let streamChurchId = null;
+let streamKeyData = null;
+let streamChurchStatus = {}; // churchId → latest status from SSE
+
+async function loadStreamPreview() {
+  // Populate church selector
+  try {
+    const r = await fetch('/api/admin/churches');
+    const data = await r.json();
+    const sel = document.getElementById('stream-church-select');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— Select a church —</option>';
+    (data.churches || data).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.churchId;
+      opt.textContent = c.name + (c.connected ? ' (online)' : '');
+      sel.appendChild(opt);
+    });
+    if (current) sel.value = current;
+  } catch(e) { console.error('Failed to load churches for stream select', e); }
+
+  // Fetch active streams count
+  try {
+    const r = await fetch('/api/admin/streams');
+    const data = await r.json();
+    const count = (data.streams || []).length;
+    document.getElementById('stream-active-count').textContent = count > 0 ? count + ' active stream' + (count > 1 ? 's' : '') : 'No active streams';
+
+    // If a stream is active and no church is selected, auto-select the first one
+    if (!streamChurchId && count > 0) {
+      const first = data.streams[0];
+      document.getElementById('stream-church-select').value = first.churchId;
+      onStreamChurchSelect();
+      return;
+    }
+  } catch(e) {}
+
+  // If church already selected, refresh its state
+  if (streamChurchId) {
+    refreshStreamState(streamChurchId);
+  }
+}
+
+async function onStreamChurchSelect() {
+  const sel = document.getElementById('stream-church-select');
+  const churchId = sel.value;
+
+  // Cleanup previous HLS player
+  destroyStreamPlayer();
+
+  if (!churchId) {
+    streamChurchId = null;
+    document.getElementById('stream-key-card').style.display = 'none';
+    document.getElementById('stream-status-panel').style.display = 'none';
+    document.getElementById('stream-live-badge').style.display = 'none';
+    document.getElementById('stream-offline-badge').style.display = 'none';
+    document.getElementById('stream-placeholder').style.display = 'flex';
+    return;
+  }
+
+  streamChurchId = churchId;
+  document.getElementById('stream-status-panel').style.display = '';
+
+  // Load stream key + status
+  await refreshStreamState(churchId);
+  // Render equipment status from SSE data
+  renderStreamEquipmentStatus(churchId);
+}
+
+async function refreshStreamState(churchId) {
+  try {
+    const r = await fetch('/api/admin/stream/' + churchId + '/key');
+    if (!r.ok) throw new Error('Failed: ' + r.status);
+    streamKeyData = await r.json();
+
+    // Show stream key card
+    const card = document.getElementById('stream-key-card');
+    card.style.display = '';
+    document.getElementById('stream-rtmp-url').textContent = streamKeyData.rtmpUrl.replace(streamKeyData.streamKey, '{STREAM_KEY}');
+    document.getElementById('stream-key-display').textContent = streamKeyData.streamKey;
+
+    // Update badges
+    if (streamKeyData.active) {
+      document.getElementById('stream-live-badge').style.display = '';
+      document.getElementById('stream-offline-badge').style.display = 'none';
+      document.getElementById('stream-placeholder').style.display = 'none';
+      startStreamPlayer(churchId);
+    } else {
+      document.getElementById('stream-live-badge').style.display = 'none';
+      document.getElementById('stream-offline-badge').style.display = '';
+      document.getElementById('stream-placeholder').style.display = 'flex';
+      document.getElementById('stream-placeholder').textContent = 'Stream offline — waiting for RTMP input';
+    }
+  } catch(e) {
+    console.error('Failed to fetch stream key', e);
+  }
+}
+
+function startStreamPlayer(churchId) {
+  const video = document.getElementById('stream-video');
+  const src = '/api/admin/stream/' + churchId + '/live.m3u8';
+
+  if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+    streamHls = new Hls({
+      liveDurationInfinity: true,
+      liveBackBufferLength: 0,
+      maxBufferLength: 6,
+      maxMaxBufferLength: 12,
+      xhrSetup: function(xhr) {
+        // Admin auth cookie is sent automatically (same origin)
+      }
+    });
+    streamHls.loadSource(src);
+    streamHls.attachMedia(video);
+    streamHls.on(Hls.Events.MANIFEST_PARSED, () => {
+      video.play().catch(() => {});
+    });
+    streamHls.on(Hls.Events.ERROR, (event, data) => {
+      if (data.fatal) {
+        console.error('[HLS] Fatal error', data);
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          // Stream may have ended, retry in 3s
+          setTimeout(() => {
+            if (streamChurchId === churchId) streamHls.loadSource(src);
+          }, 3000);
+        }
+      }
+    });
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    // Safari native HLS
+    video.src = src;
+    video.addEventListener('loadedmetadata', () => video.play().catch(() => {}));
+  }
+}
+
+function destroyStreamPlayer() {
+  if (streamHls) {
+    streamHls.destroy();
+    streamHls = null;
+  }
+  const video = document.getElementById('stream-video');
+  if (video) {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }
+}
+
+function copyStreamUrl() {
+  if (!streamKeyData) return;
+  navigator.clipboard.writeText(streamKeyData.rtmpUrl).then(() => {
+    showToast('RTMP URL copied');
+  });
+}
+
+function copyStreamKey() {
+  if (!streamKeyData) return;
+  navigator.clipboard.writeText(streamKeyData.streamKey).then(() => {
+    showToast('Stream key copied');
+  });
+}
+
+async function regenerateStreamKey() {
+  if (!streamChurchId) return;
+  if (!confirm('Regenerate stream key? This will disconnect any active stream.')) return;
+  try {
+    const r = await fetch('/api/admin/stream/' + streamChurchId + '/key/regenerate', { method: 'POST' });
+    if (!r.ok) throw new Error('Failed: ' + r.status);
+    const data = await r.json();
+    streamKeyData = { ...streamKeyData, ...data };
+    document.getElementById('stream-key-display').textContent = data.streamKey;
+    document.getElementById('stream-rtmp-url').textContent = data.rtmpUrl.replace(data.streamKey, '{STREAM_KEY}');
+    destroyStreamPlayer();
+    document.getElementById('stream-live-badge').style.display = 'none';
+    document.getElementById('stream-offline-badge').style.display = '';
+    document.getElementById('stream-placeholder').style.display = 'flex';
+    document.getElementById('stream-placeholder').textContent = 'Key regenerated — stream disconnected';
+    showToast('Stream key regenerated');
+  } catch(e) {
+    showToast('Failed to regenerate key');
+  }
+}
+
+// Fetch and render equipment/tally status from support-view API
+async function renderStreamEquipmentStatus(churchId) {
+  const eqEl = document.getElementById('stream-equipment-list');
+  const tallyEl = document.getElementById('stream-tally-indicators');
+  const metaEl = document.getElementById('stream-meta-info');
+
+  try {
+    const r = await fetch('/api/admin/church/' + encodeURIComponent(churchId) + '/support-view');
+    if (!r.ok) throw new Error('Failed');
+    const data = await r.json();
+
+    const st = data.status || {};
+    const devices = st.connectedDevices || {};
+    const online = st.online;
+
+    // Equipment list
+    const items = [];
+    const dot = (ok) => '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + (ok ? 'var(--green)' : '#555') + ';margin-right:8px"></span>';
+
+    items.push(dot(online) + 'App ' + (online ? '(Connected)' : '(Offline)'));
+    if (devices.atem !== undefined) items.push(dot(devices.atem) + 'ATEM');
+    if (devices.obs !== undefined) items.push(dot(devices.obs) + 'OBS');
+    if (devices.vmix !== undefined) items.push(dot(devices.vmix) + 'vMix');
+    if (devices.companion !== undefined) items.push(dot(devices.companion) + 'Companion');
+    if (devices.encoders) {
+      const encs = Array.isArray(devices.encoders) ? devices.encoders : [];
+      encs.forEach((e, i) => items.push(dot(e.connected || e.active) + 'Encoder' + (encs.length > 1 ? ' ' + (i+1) : '') + (e.name ? ' (' + e.name + ')' : '')));
+    }
+    if (devices.mixers) {
+      const mixers = Array.isArray(devices.mixers) ? devices.mixers : [];
+      mixers.forEach((m, i) => items.push(dot(m.connected) + 'Audio' + (m.name ? ' (' + m.name + ')' : '')));
+    }
+    if (devices.ptz) {
+      const cams = Array.isArray(devices.ptz) ? devices.ptz : [];
+      items.push(dot(cams.length > 0) + 'PTZ Cameras (' + cams.length + ')');
+    }
+    if (devices.hyperdeck) {
+      const hds = Array.isArray(devices.hyperdeck) ? devices.hyperdeck : [];
+      hds.forEach(h => items.push(dot(h.connected) + 'HyperDeck' + (h.name ? ' (' + h.name + ')' : '')));
+    }
+
+    eqEl.innerHTML = items.length ? items.map(i => '<div style="padding:4px 0">' + i + '</div>').join('') : '<div style="color:var(--muted);padding:8px 0;text-align:center">No equipment detected</div>';
+
+    // Tally indicators — not available from support-view (would need raw WebSocket status)
+    tallyEl.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">Tally data available when streaming</div>';
+
+    // Stream meta
+    const meta = [];
+    if (st.streamActive !== undefined) meta.push('Stream Active: ' + (st.streamActive ? 'Yes' : 'No'));
+    if (st.currentSession) {
+      meta.push('Session: Active');
+      if (st.currentSession.duration) {
+        const mins = Math.floor(st.currentSession.duration / 60);
+        meta.push('Duration: ' + mins + ' min');
+      }
+    }
+    metaEl.innerHTML = meta.length ? meta.map(m => '<div style="padding:3px 0">' + m + '</div>').join('') : '<div style="color:var(--muted);padding:8px 0">No stream metadata</div>';
+  } catch(e) {
+    eqEl.innerHTML = '<div style="color:var(--muted);padding:8px 0;text-align:center">Failed to load status</div>';
+  }
+}
+
+function showToast(msg) {
+  // Simple toast notification
+  let toast = document.getElementById('stream-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'stream-toast';
+    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface);color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;z-index:10000;border:1px solid var(--border);opacity:0;transition:opacity 0.3s';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.opacity = '1';
+  setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────────────
 loadOverview();
 // Auto-refresh every 30 seconds for the active page
@@ -2077,6 +2413,13 @@ setInterval(() => {
   if (currentPage === 'overview') loadOverview();
   else if (currentPage === 'churches') loadChurches();
 }, 30000);
+// Stream preview refreshes more frequently (every 10s) for live status
+setInterval(() => {
+  if (currentPage === 'streams' && streamChurchId) {
+    refreshStreamState(streamChurchId);
+    renderStreamEquipmentStatus(streamChurchId);
+  }
+}, 10000);
 </script>
 </body></html>`;
 }
