@@ -1,25 +1,26 @@
 /**
- * ProPresenter 7 Integration
- * REST API + WebSocket on same port (default 1025).
+ * ProPresenter Integration (PP7 / PP 21.x+)
+ * Uses the official /v1/ REST API on port 1025.
+ * Real-time slide updates via chunked HTTP status polling (PP 21 removed
+ * the old "Remote Classic" WebSocket protocol).
  * Supports presentation & playlist trigger modes, library browsing,
  * slide thumbnails, and optional backup PP mirroring.
  */
 
 const { EventEmitter } = require('events');
-const WebSocket = require('ws');
 
 class ProPresenter extends EventEmitter {
   constructor({ host = 'localhost', port = 1025, triggerMode = 'presentation', backupHost, backupPort } = {}) {
     super();
     this.host = host;
     this.port = port;
-    this.wsPort = port; // PP 21.x serves WebSocket on the same port as REST API
     this.triggerMode = triggerMode; // 'presentation' or 'playlist'
     this.connected = false;
     this.running = false;
-    this._ws = null;
+    this._statusAbort = null;
     this._reconnectTimer = null;
     this._reconnectDelay = 5000;
+    this._pollInterval = null;
     this._currentSlide = null;
     this._version = null;
     this._activeLook = null;
@@ -366,10 +367,13 @@ class ProPresenter extends EventEmitter {
     return on ? 'Audience screens ON' : 'Audience screens OFF';
   }
 
-  // ─── WEBSOCKET CONNECTION ─────────────────────────────────────────────
+  // ─── STATUS POLLING CONNECTION ───────────────────────────────────────
+  // PP 21 removed the old WebSocket "Remote Classic" protocol.
+  // We use chunked HTTP on /v1/status/slide for real-time slide events,
+  // with a fallback poll loop for other status (looks, timers, screens).
 
   async connect() {
-    if (this._ws) return;
+    if (this._pollInterval) return;
 
     const running = await this.isRunning();
     if (!running) {
@@ -378,40 +382,17 @@ class ProPresenter extends EventEmitter {
       return;
     }
 
-    const wsUrl = `ws://${this.host}:${this.wsPort}/stagedisplay`;
-    try {
-      this._ws = new WebSocket(wsUrl);
+    console.log('✅ ProPresenter connected (REST API)');
+    this.connected = true;
+    this.running = true;
+    this._reconnectDelay = 5000;
+    this.emit('connected');
 
-      this._ws.on('open', () => {
-        console.log('✅ ProPresenter WebSocket connected');
-        this.connected = true;
-        this._reconnectDelay = 5000;
-        this.emit('connected');
-      });
+    // Start chunked status/slide listener for real-time slide changes
+    this._startSlideStatusStream();
 
-      this._ws.on('message', (data) => {
-        try {
-          const msg = JSON.parse(data.toString());
-          this._handleWSMessage(msg);
-        } catch { /* ignore parse errors */ }
-      });
-
-      this._ws.on('close', () => {
-        console.warn('⚠️  ProPresenter WebSocket disconnected');
-        this.connected = false;
-        this._ws = null;
-        this.emit('disconnected');
-        this._scheduleReconnect();
-      });
-
-      this._ws.on('error', (err) => {
-        console.error('ProPresenter WS error:', err.message);
-        this._ws?.close();
-      });
-    } catch (err) {
-      console.error('ProPresenter WS connection failed:', err.message);
-      this._scheduleReconnect();
-    }
+    // Poll for other status every 5 seconds (looks, timers, screens)
+    this._pollInterval = setInterval(() => this._pollStatus(), 5000);
 
     // Also connect backup if configured (no status, just ready for mirroring)
     if (this._backup) {
@@ -419,12 +400,80 @@ class ProPresenter extends EventEmitter {
     }
   }
 
-  _handleWSMessage(msg) {
-    if (msg.action === 'slideChanged' || msg.acn === 'fv') {
-      this.emit('slideChanged', msg);
+  /** Listen to /v1/status/slide via chunked HTTP for real-time slide events */
+  async _startSlideStatusStream() {
+    if (this._statusAbort) this._statusAbort.abort();
+    const controller = new AbortController();
+    this._statusAbort = controller;
+
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1/status/slide`, {
+        signal: controller.signal,
+      });
+      if (!resp.ok || !resp.body) {
+        // Chunked streaming not supported — fall back to poll-only
+        return;
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Chunked responses may contain multiple JSON objects
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const data = JSON.parse(trimmed);
+            this.emit('slideChanged', data);
+          } catch { /* not JSON yet */ }
+        }
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') return; // intentional disconnect
+      console.warn('ProPresenter slide status stream ended:', err.message);
     }
-    if (msg.action === 'presentationChanged') {
-      this.emit('presentationChanged', msg);
+  }
+
+  /** Poll PP status (timers, looks, screens) */
+  async _pollStatus() {
+    try {
+      const running = await this.isRunning();
+      if (!running) {
+        if (this.connected) {
+          console.warn('⚠️  ProPresenter disconnected');
+          this.connected = false;
+          this.running = false;
+          this.emit('disconnected');
+          this._stopPolling();
+          this._scheduleReconnect();
+        }
+        return;
+      }
+      if (!this.connected) {
+        this.connected = true;
+        this.running = true;
+        this.emit('connected');
+      }
+    } catch {
+      // ignore poll errors
+    }
+  }
+
+  _stopPolling() {
+    if (this._pollInterval) {
+      clearInterval(this._pollInterval);
+      this._pollInterval = null;
+    }
+    if (this._statusAbort) {
+      this._statusAbort.abort();
+      this._statusAbort = null;
     }
   }
 
@@ -443,10 +492,7 @@ class ProPresenter extends EventEmitter {
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;
     }
-    if (this._ws) {
-      this._ws.close();
-      this._ws = null;
-    }
+    this._stopPolling();
     this.connected = false;
     if (this._backup) this._backup.disconnect();
   }

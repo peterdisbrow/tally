@@ -707,13 +707,13 @@ function startAgent() {
     if (text.includes('Companion disconnected'))     { agentStatus.companion = false; statusChanged = true; }
     if (text.includes('Encoder connected'))          { agentStatus.encoder = true; statusChanged = true; }
     if (text.includes('Encoder disconnected'))       { agentStatus.encoder = false; statusChanged = true; }
-    if (text.includes('ProPresenter WebSocket connected')) {
+    if (text.includes('ProPresenter connected') || text.includes('ProPresenter WebSocket connected')) {
       if (!agentStatus.proPresenter || typeof agentStatus.proPresenter !== 'object') agentStatus.proPresenter = {};
       agentStatus.proPresenter.connected = true;
       agentStatus.proPresenter.running = true;
       statusChanged = true;
     }
-    if (text.includes('ProPresenter WebSocket disconnected') || text.includes('ProPresenter not reachable')) {
+    if (text.includes('ProPresenter disconnected') || text.includes('ProPresenter WebSocket disconnected') || text.includes('ProPresenter not reachable')) {
       if (!agentStatus.proPresenter || typeof agentStatus.proPresenter !== 'object') agentStatus.proPresenter = {};
       agentStatus.proPresenter.connected = false;
       statusChanged = true;
