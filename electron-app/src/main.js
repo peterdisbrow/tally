@@ -80,6 +80,92 @@ let lastNotifiedState = {};
 const recentLogLines = [];
 let agentCrashCount = 0;
 let _agentEscalatedAt = 0;      // timestamp of last crash-escalation notification
+
+// ─── RELAY STATUS SSE CLIENT ─────────────────────────────────────────────────
+// Pulls full device status directly from the relay server via SSE, replacing
+// fragile stdout log-line parsing for rich status data.
+let _sseAbort = null;
+let _sseRetryTimer = null;
+let _sseRetryDelay = 3000;
+
+function startRelayStatusSSE(relayUrl, token) {
+  stopRelayStatusSSE();
+  if (!relayUrl || !token) return;
+  const httpUrl = relayUrl.replace(/^ws(s)?:/, 'http$1:').replace(/\/+$/, '');
+  const url = `${httpUrl}/api/church/app/status/stream`;
+  _sseAbort = new AbortController();
+  _sseRetryDelay = 3000;
+
+  (async function connect() {
+    try {
+      appendAppLog('SYSTEM', `SSE connecting to ${url}`);
+      const resp = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: _sseAbort.signal,
+      });
+      if (!resp.ok) {
+        appendAppLog('SYSTEM', `SSE auth failed: ${resp.status}`);
+        return;
+      }
+      appendAppLog('SYSTEM', 'SSE connected — receiving relay status');
+      _sseRetryDelay = 3000; // reset on success
+
+      // Read the SSE text stream
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // Parse SSE frames: lines starting with "data: " followed by "\n\n"
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop(); // keep incomplete frame
+        for (const frame of frames) {
+          for (const line of frame.split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const msg = JSON.parse(line.slice(6));
+              const status = msg.status;
+              if (status && typeof status === 'object') {
+                _mergeRelayStatus(status);
+              }
+            } catch { /* ignore parse errors */ }
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') return; // intentional close
+      appendAppLog('SYSTEM', `SSE error: ${err.message}`);
+    }
+    // Reconnect with backoff (unless aborted)
+    if (_sseAbort && !_sseAbort.signal.aborted) {
+      _sseRetryTimer = setTimeout(() => connect(), _sseRetryDelay);
+      _sseRetryDelay = Math.min(_sseRetryDelay * 2, 30_000);
+    }
+  })();
+}
+
+function _mergeRelayStatus(status) {
+  // Deep merge relay status into agentStatus, preserving local-only fields
+  for (const key of Object.keys(status)) {
+    if (key.startsWith('_')) continue;
+    const val = status[key];
+    if (val && typeof val === 'object' && !Array.isArray(val) && agentStatus[key] && typeof agentStatus[key] === 'object') {
+      Object.assign(agentStatus[key], val);
+    } else {
+      agentStatus[key] = val;
+    }
+  }
+  checkAndNotify();
+  mainWindow?.webContents.send('status', agentStatus);
+  updateTray();
+}
+
+function stopRelayStatusSSE() {
+  if (_sseRetryTimer) { clearTimeout(_sseRetryTimer); _sseRetryTimer = null; }
+  if (_sseAbort) { _sseAbort.abort(); _sseAbort = null; }
+}
 const MAX_AGENT_CRASHES = 5;    // threshold for sending an escalation alert
 const MAX_AGENT_BACKOFF_MS = 60_000; // cap backoff at 60s after repeated crashes
 
@@ -679,6 +765,9 @@ function startAgent() {
     env: spawnEnv,
   });
 
+  // Connect to relay SSE for real-time device status (replaces stdout parsing for rich data)
+  startRelayStatusSSE(agentRelay, config.token);
+
   agentProcess.on('error', (err) => {
     const msg = `Failed to start agent process (${nodeBinary}): ${err.message}`;
     console.error(msg);
@@ -997,6 +1086,7 @@ function startAgent() {
 }
 
 function stopAgent() {
+  stopRelayStatusSSE();
   if (agentProcess) {
     appendAppLog('SYSTEM', 'Stopping agent');
     const proc = agentProcess;
@@ -1064,7 +1154,8 @@ const { normalizeRelayUrl, isLocalRelayUrl, enforceRelayPolicy, relayHttpUrl,
         decodeChurchIdFromToken } = relayClient;
 
 const { checkTokenWithRelay, postJson, loginChurchWithCredentials,
-        testConnection, sendPreviewCommand } = relayClient;
+        testConnection, sendPreviewCommand,
+        syncEquipmentToRelay, fetchEquipmentFromRelay } = relayClient;
 
 
 // ─── CONFIG (delegated to config-manager module) ─────────────────────────────
@@ -1186,6 +1277,38 @@ ipcMain.handle('validate-token', async () => {
           }
         }
       } catch (e) { console.warn('Profile sync failed:', e?.message); }
+
+      // Bootstrap equipment from relay (non-blocking)
+      const freshConfig = loadConfig();
+      if (freshConfig.roomId && freshConfig.token) {
+        // One-time migration: push existing local equipment to relay if never synced
+        if (!freshConfig._equipmentSyncedToRelay) {
+          const equip = configManager.extractEquipment(freshConfig);
+          const hasEquip = Object.values(equip).some(v => v !== undefined && v !== '' && v !== null);
+          if (hasEquip) {
+            syncEquipmentToRelay(freshConfig.roomId, equip).then(r => {
+              if (r.success) saveConfig({ _equipmentSyncedToRelay: true });
+            }).catch(() => {});
+          } else {
+            saveConfig({ _equipmentSyncedToRelay: true });
+          }
+        }
+
+        // Fetch latest equipment from relay and update local cache
+        fetchEquipmentFromRelay(freshConfig.roomId).then(remoteEquip => {
+          if (remoteEquip) {
+            const current = loadConfig();
+            for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
+              current[key] = remoteEquip[key] !== undefined ? remoteEquip[key] : undefined;
+            }
+            if (!current.roomConfigs) current.roomConfigs = {};
+            current.roomConfigs[current.roomName || '_default'] = remoteEquip;
+            saveConfig(current);
+            mainWindow?.webContents.send('config-updated');
+          }
+        }).catch(() => {});
+      }
+
       return { valid: true, churchName: config.name || '' };
     }
     return { valid: false, reason: result.error || 'invalid', churchName: config.name || '' };
@@ -1589,9 +1712,36 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
 // ─── Per-room equipment switching ────────────────────────────────────────────
 // Called from renderer before saving roomId/roomName. Persists current equipment
 // under the old room name, then loads saved equipment for the new room.
-ipcMain.handle('switch-room', (_, { fromRoom, toRoom }) => {
+ipcMain.handle('switch-room', async (_, { fromRoom, toRoom, toRoomId }) => {
+  // 1. Save current equipment locally under fromRoom (existing behavior)
   const result = switchRoomConfig(fromRoom || '', toRoom || '');
-  return result;
+
+  // 2. Push current room equipment to relay (fire-and-forget)
+  const config = loadConfig();
+  const fromRoomId = config.roomId;
+  if (fromRoomId && config.token) {
+    const { extractEquipment } = configManager;
+    syncEquipmentToRelay(fromRoomId, extractEquipment(config)).catch(() => {});
+  }
+
+  // 3. Try to fetch equipment from relay for the target room
+  if (toRoomId && config.token) {
+    const remoteEquip = await fetchEquipmentFromRelay(toRoomId);
+    if (remoteEquip) {
+      // Apply remote equipment to config and update local cache
+      const fresh = loadConfig();
+      for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
+        fresh[key] = remoteEquip[key] !== undefined ? remoteEquip[key] : undefined;
+      }
+      if (!fresh.roomConfigs) fresh.roomConfigs = {};
+      fresh.roomConfigs[toRoom || '_default'] = remoteEquip;
+      saveConfig(fresh);
+      return { loaded: true, source: 'relay' };
+    }
+  }
+
+  // 4. Fallback: local cache (already applied by switchRoomConfig above)
+  return { ...result, source: result.loaded ? 'local' : 'none' };
 });
 
 ipcMain.handle('save-equipment', (_, equipConfig) => {
@@ -1695,6 +1845,12 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
 
   // Auto-persist equipment under the current room name
   saveCurrentRoomEquipment();
+
+  // Push full equipment config to relay (fire-and-forget)
+  const { extractEquipment, ROOM_EQUIPMENT_KEYS } = configManager;
+  if (config.roomId && config.token) {
+    syncEquipmentToRelay(config.roomId, extractEquipment(config)).catch(() => {});
+  }
 
   return true;
 });

@@ -146,7 +146,7 @@ const { buildDiagnosticContext } = require('./src/diagnostic-context');
 const { LifecycleEmails } = require('./src/lifecycleEmails');
 const PostServiceReport = require('./src/postServiceReport');
 
-const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS } = require('./src/billing');
+const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS, TIER_LIMITS } = require('./src/billing');
 const { setupSyncMonitor } = require('./src/syncMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
 const { RundownEngine } = require('./src/rundownEngine');
@@ -573,6 +573,19 @@ db.exec(`
   )
 `);
 
+// ─── ROOM EQUIPMENT TABLE ───────────────────────────────────────────────────
+// Stores per-room equipment config (JSON blob) so any machine can pull it on sign-in.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS room_equipment (
+    room_id     TEXT PRIMARY KEY,
+    church_id   TEXT NOT NULL,
+    equipment   TEXT NOT NULL DEFAULT '{}',
+    updated_at  TEXT NOT NULL,
+    updated_by  TEXT DEFAULT ''
+  )
+`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_room_equipment_church ON room_equipment(church_id)`);
+
 // ─── ADMIN USERS TABLE ──────────────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS admin_users (
@@ -651,6 +664,7 @@ for (const row of stmtAll.all()) {
     email: row.email,
     token: row.token,
     ws: null,
+    sockets: new Map(),  // Map<instanceName, ws> — multi-instance support
     status: { connected: false, atem: null, obs: null },
     lastSeen: null,
     lastHeartbeat: null, // updated on status_update messages
@@ -1102,12 +1116,13 @@ incidentSummarizer.setAiUsageLogger(logAiUsage);
 signalFailover.onTransition((churchId, from, to, trigger, snapshot) => {
   incidentSummarizer.handleTransition(churchId, from, to, trigger, snapshot);
 
-  // Broadcast failover state to the church's connected client (for Electron app display)
+  // Broadcast failover state to ALL connected instances (for Electron app display)
   const church = churches.get(churchId);
-  if (church?.ws?.readyState === 1) {
-    try {
-      church.ws.send(JSON.stringify({ type: 'failover_state', ...snapshot }));
-    } catch { /* best effort */ }
+  if (church?.sockets?.size) {
+    const payload = JSON.stringify({ type: 'failover_state', ...snapshot });
+    for (const sock of church.sockets.values()) {
+      try { if (sock.readyState === 1) sock.send(payload); } catch { /* best effort */ }
+    }
   }
 });
 console.log('[Server] ✓ Incident Summarizer initialized');
@@ -1167,8 +1182,10 @@ function checkExpiredTrials() {
 
       // Disconnect the church if it's currently connected
       const runtime = churches.get(church.churchId);
-      if (runtime?.ws?.readyState === 1) {
-        runtime.ws.close(1008, 'billing_trial_expired');
+      if (runtime?.sockets?.size) {
+        for (const sock of runtime.sockets.values()) {
+          if (sock.readyState === 1) sock.close(1008, 'billing_trial_expired');
+        }
         log(`[TrialExpiry] Disconnected "${church.name}" due to expired trial`);
       }
     }
@@ -1201,8 +1218,10 @@ function enforceGracePeriods() {
 
       // Disconnect client
       const runtime = churches.get(row.church_id);
-      if (runtime?.ws?.readyState === 1) {
-        runtime.ws.close(1008, 'billing_grace_expired');
+      if (runtime?.sockets?.size) {
+        for (const sock of runtime.sockets.values()) {
+          if (sock.readyState === 1) sock.close(1008, 'billing_grace_expired');
+        }
       }
 
       log(`[GracePeriod] ⏰ Grace period expired for "${row.name}" (${row.church_id}) — deactivated`);
@@ -1371,8 +1390,8 @@ if (Number.isFinite(DB_BACKUP_INTERVAL_MINUTES) && DB_BACKUP_INTERVAL_MINUTES > 
 chatEngine.setBroadcasters({
   broadcastToChurch: (churchId, msg) => {
     const church = churches.get(churchId);
-    if (church?.ws?.readyState === WebSocket.OPEN) {
-      safeSend(church.ws, msg);
+    if (church?.sockets?.size) {
+      for (const sock of church.sockets.values()) safeSend(sock, msg);
     }
   },
   broadcastToControllers: (msg) => broadcastToControllers(msg),
@@ -1560,7 +1579,7 @@ app.get('/api/church/stream', (req, res) => {
   const church = churches.get(churchId);
   const initialPayload = {
     type: 'status_snapshot',
-    connected: church ? church.ws?.readyState === 1 : false,
+    connected: church ? !!(church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === 1)) : false,
     status: church ? church.status : {},
     lastSeen: church ? church.lastSeen : null,
   };
@@ -1593,6 +1612,42 @@ function broadcastToPortal(churchId, data) {
   }
 }
 console.log('[Server] ✓ Church Portal SSE stream registered');
+
+// ─── CHURCH APP STATUS SSE (Bearer token auth for Electron desktop app) ──────
+app.get('/api/church/app/status/stream', requireChurchAppAuth, (req, res) => {
+  const churchId = req.church.churchId;
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  // Send current snapshot immediately
+  const church = churches.get(churchId);
+  const snapshot = {
+    type: 'status_snapshot',
+    connected: church ? !!(church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === 1)) : false,
+    status: church ? church.status : {},
+    lastSeen: church ? church.lastSeen : null,
+  };
+  res.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+
+  // Reuse portal SSE client set so broadcastToPortal() pushes updates here too
+  if (!portalSseClients.has(churchId)) portalSseClients.set(churchId, new Set());
+  portalSseClients.get(churchId).add(res);
+
+  const keepAlive = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 20_000);
+
+  req.on('close', () => {
+    clearInterval(keepAlive);
+    const clients = portalSseClients.get(churchId);
+    if (clients) {
+      clients.delete(res);
+      if (clients.size === 0) portalSseClients.delete(churchId);
+    }
+  });
+});
+console.log('[Server] ✓ Church App Status SSE stream registered');
 
 // Reseller Portal — self-service login for integrators/resellers
 setupResellerPortal(app, db, churches, resellerSystem, JWT_SECRET, requireAdmin);
@@ -1737,6 +1792,9 @@ function checkChurchPaidAccess(churchId) {
   if (!snapshot.exists) {
     return { allowed: false, status: 'not_found', message: 'Church account not found.' };
   }
+  // Attach room limit so the WebSocket router can enforce multi-instance caps
+  const tierLimits = TIER_LIMITS[snapshot.tier] || TIER_LIMITS.connect;
+  snapshot.maxRooms = tierLimits.rooms;
 
   if (!REQUIRE_ACTIVE_BILLING || !billing.isEnabled()) {
     return { allowed: true, ...snapshot, bypassed: true };
@@ -2192,7 +2250,7 @@ app.post('/api/churches/register', requireAdmin, rateLimit(10, 60_000), (req, re
 
   churches.set(churchId, {
     churchId, name, email: email || '',
-    token, ws: null,
+    token, ws: null, sockets: new Map(),
     status: { connected: false, atem: null, obs: null },
     lastSeen: null, registeredAt, disconnectedAt: null,
     registrationCode,
@@ -2304,6 +2362,7 @@ require('./src/routes/reseller')(app, routeCtx);
 require('./src/routes/automation')(app, routeCtx);
 require('./src/routes/scheduler')(app, routeCtx);
 require('./src/routes/churchOps')(app, routeCtx);
+require('./src/routes/roomEquipment')(app, routeCtx);
 console.log('[Server] ✓ Route modules registered');
 
 // Admin auth, users, AI usage routes → src/routes/adminAuth.js
@@ -3148,7 +3207,7 @@ app.get('/api/dashboard/stream', (req, res) => {
   const initialState = filtered.map(c => ({
     churchId:         c.churchId,
     name:             c.name,
-    connected:        c.ws?.readyState === WebSocket.OPEN,
+    connected:        !!(c.sockets?.size && [...c.sockets.values()].some(s => s.readyState === WebSocket.OPEN)),
     status:           c.status,
     lastSeen:         c.lastSeen,
     lastHeartbeat:    c.lastHeartbeat,
@@ -3648,13 +3707,27 @@ function requireChurchOrAdmin(req, res, next) {
 function makeCommandSender(church) {
   return (command, params) => new Promise((resolve, reject) => {
     const { WebSocket: WS } = require('ws');
-    if (!church.ws || church.ws.readyState !== WS.OPEN) {
+    // Gather all open sockets for this church (multi-instance)
+    const openSockets = [];
+    if (church.sockets?.size) {
+      for (const sock of church.sockets.values()) {
+        if (sock.readyState === WS.OPEN) openSockets.push(sock);
+      }
+    }
+    if (openSockets.length === 0) {
       return reject(new Error('Church client not connected'));
     }
     const { v4: uuid } = require('uuid');
     const id = uuid();
+
+    const cleanup = () => {
+      for (const sock of openSockets) {
+        try { sock.removeListener('message', handler); } catch { /* ignore */ }
+      }
+    };
+
     const timeout = setTimeout(() => {
-      church.ws.removeListener('message', handler);
+      cleanup();
       reject(new Error('Command timeout (15s)'));
     }, 15000);
 
@@ -3663,14 +3736,18 @@ function makeCommandSender(church) {
         const msg = JSON.parse(data.toString());
         if (msg.type === 'command_result' && msg.id === id) {
           clearTimeout(timeout);
-          church.ws.removeListener('message', handler);
+          cleanup();
           if (msg.error) reject(new Error(msg.error));
           else resolve(msg.result);
         }
       } catch { /* ignore */ }
     };
-    church.ws.on('message', handler);
-    safeSend(church.ws, { type: 'command', command, params, id });
+
+    // Listen for response on ALL open sockets and send command to ALL
+    for (const sock of openSockets) {
+      sock.on('message', handler);
+      safeSend(sock, { type: 'command', command, params, id });
+    }
   });
 }
 
@@ -3871,7 +3948,14 @@ function gracefulShutdown(signal, exitCode = 0) {
   // Send close frames to all church WebSocket connections so clients know to reconnect
   let churchWsClosed = 0;
   for (const church of churches.values()) {
-    if (church.ws?.readyState === WebSocket.OPEN) {
+    if (church.sockets?.size) {
+      for (const sock of church.sockets.values()) {
+        if (sock.readyState === WebSocket.OPEN) {
+          sock.close(1001, 'server shutting down');
+          churchWsClosed++;
+        }
+      }
+    } else if (church.ws?.readyState === WebSocket.OPEN) {
       church.ws.close(1001, 'server shutting down');
       churchWsClosed++;
     }
