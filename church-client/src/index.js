@@ -46,6 +46,7 @@ program
   .option('-t, --token <token>', 'Your church connection token (from ATEM School)')
   .option('-r, --relay <url>', 'Relay server URL', 'wss://api.tallyconnect.app')
   .option('-a, --atem <ip>', 'ATEM switcher IP address')
+  .option('--atem-auto-record', 'Auto-start/stop ATEM recording with stream')
   .option('-o, --obs <url>', 'OBS WebSocket URL')
   .option('-p, --obs-password <password>', 'OBS WebSocket password')
   .option('-n, --name <name>', 'Label for this system (e.g., "Main Sanctuary")')
@@ -183,6 +184,7 @@ function loadConfig() {
   if (opts.token || process.env.TALLY_TOKEN) config.token = opts.token || process.env.TALLY_TOKEN;
   if (opts.relay) config.relay = opts.relay;
   if (opts.atem) config.atemIp = opts.atem;
+  if (opts.atemAutoRecord) config.atemAutoRecord = true;
   if (opts.obs !== undefined) config.obsUrl = opts.obs;
   if (opts.obsPassword || process.env.TALLY_OBS_PASSWORD) config.obsPassword = opts.obsPassword || process.env.TALLY_OBS_PASSWORD;
   if (opts.name) config.name = opts.name;
@@ -1031,9 +1033,18 @@ class ChurchAVAgent {
       const recording = state.recording;
       if (recording !== undefined) {
         const wasRecording = this.status.atem.recording;
-        this.status.atem.recording = recording?.status === 'Recording';
-        if (wasRecording !== this.status.atem.recording) {
-          this.sendAlert(`ATEM recording ${this.status.atem.recording ? 'STARTED' : 'STOPPED'}`, 'info');
+        // Check both string and enum forms of recording status
+        const recStatus = recording?.status;
+        const isRecording = recStatus === 'Recording' || recStatus?.state === 1 || recStatus === 1;
+        this.status.atem.recording = isRecording;
+        // Capture duration, available time, and error info
+        if (recording.duration) this.status.atem.recordingDuration = recording.duration;
+        if (recStatus && typeof recStatus === 'object') {
+          if (recStatus.recordingTimeAvailable != null) this.status.atem.recordingTimeAvailable = recStatus.recordingTimeAvailable;
+          if (recStatus.error != null) this.status.atem.recordingError = recStatus.error;
+        }
+        if (wasRecording !== isRecording) {
+          this.sendAlert(`ATEM recording ${isRecording ? 'STARTED' : 'STOPPED'}`, 'info');
         }
       }
 
@@ -1451,6 +1462,14 @@ class ChurchAVAgent {
           this._fastEncoderPoll = false;
           this._startEncoderPoll(15_000);
         }
+        // Auto-record: stop ATEM recording when stream stops
+        if (this.config.atemAutoRecord && this.atem && this.status.atem?.connected && this.status.atem?.recording) {
+          try {
+            if (typeof this.atem.stopRecording === 'function') await this.atem.stopRecording();
+            else if (typeof this.atem.setRecordingAction === 'function') await this.atem.setRecordingAction({ action: 0 });
+            console.log('[AutoRecord] ATEM recording stopped (stream ended)');
+          } catch (e) { console.warn('[AutoRecord] Failed to stop ATEM recording:', e.message); }
+        }
       }
       if (!wasLive && isLive) {
         const encoderType = s.type || this.config.encoder?.type || 'Encoder';
@@ -1461,6 +1480,14 @@ class ChurchAVAgent {
           this._fastEncoderPoll = true;
           this._startEncoderPoll(3_000);
           console.log('[SignalFailover] Fast encoder poll enabled (3s)');
+        }
+        // Auto-record: start ATEM recording when stream starts
+        if (this.config.atemAutoRecord && this.atem && this.status.atem?.connected && !this.status.atem?.recording) {
+          try {
+            if (typeof this.atem.startRecording === 'function') await this.atem.startRecording();
+            else if (typeof this.atem.setRecordingAction === 'function') await this.atem.setRecordingAction({ action: 1 });
+            console.log('[AutoRecord] ATEM recording started (stream went live)');
+          } catch (e) { console.warn('[AutoRecord] Failed to start ATEM recording:', e.message); }
         }
       }
 

@@ -216,9 +216,14 @@
             <div class="label">Preview</div>
             <div class="value muted" id="val-preview">—</div>
           </div>
-          <div class="info-card" title="Whether the ATEM is currently recording to disk">
+          <div class="info-card" title="ATEM built-in recording status and controls" style="grid-column: 1 / -1;">
             <div class="label">Recording</div>
-            <div class="value muted" id="val-recording">—</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div class="value muted" id="val-recording">—</div>
+              <button class="btn-small" id="btn-atem-rec-start" onclick="atemRecordStart()" style="display:none; font-size:10px; padding:2px 8px;">Start</button>
+              <button class="btn-small btn-secondary" id="btn-atem-rec-stop" onclick="atemRecordStop()" style="display:none; font-size:10px; padding:2px 8px;">Stop</button>
+            </div>
+            <div id="atem-rec-detail" style="display:none; font-size:10px; color:var(--dim); margin-top:4px; font-family:var(--mono);"></div>
           </div>
           <div class="info-card" title="Bitfocus Companion macro controller connection">
             <div class="label">Companion</div>

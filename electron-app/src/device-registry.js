@@ -53,6 +53,18 @@ const DEVICE_REGISTRY = {
     testType: 'companion',
   },
 
+  'atem-recording': {
+    id: 'atem-recording',
+    name: 'ATEM Recording',
+    icon: '\u23FA',
+    category: 'recording',
+    description: 'Record to USB/SSD on ATEM switchers with built-in recording',
+    multi: false,
+    fields: [
+      { key: 'autoRecord', label: 'Auto-record when stream starts', type: 'checkbox' },
+    ],
+  },
+
   hyperdeck: {
     id: 'hyperdeck',
     name: 'HyperDeck',

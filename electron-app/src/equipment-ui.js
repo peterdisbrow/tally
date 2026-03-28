@@ -18,6 +18,7 @@ const deviceState = {
   vmix:          { host: '', port: '8088', configured: false },
   resolume:      { host: '', port: '8080', configured: false },
   mixer:         { type: '', host: '', port: '' },
+  'atem-recording': { autoRecord: false },
   hyperdeck:     [],  // [{ ip }]
   ptz:           [],  // [{ ip, name, protocol, port, username, password, profileToken }]
   videohub:      [],  // [{ ip, name }]

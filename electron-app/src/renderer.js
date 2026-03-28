@@ -1533,6 +1533,22 @@ async function endRundown() {
   }
 }
 
+// ─── ATEM RECORDING CONTROLS ──────────────────────────────────────────────
+async function atemRecordStart() {
+  const btn = document.getElementById('btn-atem-rec-start');
+  if (btn) { btn.disabled = true; btn.textContent = 'Starting...'; }
+  try { await api.sendCommand('atem.startRecording'); }
+  catch { /* ignore */ }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'Start'; } }
+}
+async function atemRecordStop() {
+  const btn = document.getElementById('btn-atem-rec-stop');
+  if (btn) { btn.disabled = true; btn.textContent = 'Stopping...'; }
+  try { await api.sendCommand('atem.stopRecording'); }
+  catch { /* ignore */ }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'Stop'; } }
+}
+
 // ─── DASHBOARD ─────────────────────────────────────────────────────────────
 
 function updateStatusUI(status) {
@@ -1690,10 +1706,39 @@ function updateStatusUI(status) {
     setStatusValue('val-preview', atemConnected ? 'Detecting...' : '—', false);
   }
 
+  // ATEM recording status + controls
+  const recStartBtn = document.getElementById('btn-atem-rec-start');
+  const recStopBtn = document.getElementById('btn-atem-rec-stop');
+  const recDetail = document.getElementById('atem-rec-detail');
   if (atemData.recording !== undefined) {
-    setStatusValue('val-recording', atemData.recording ? '● Recording' : 'Stopped', atemData.recording === true);
+    const isRec = atemData.recording === true;
+    setStatusValue('val-recording', isRec ? '● Recording' : 'Stopped', isRec);
+    if (recStartBtn) recStartBtn.style.display = atemConnected && !isRec ? '' : 'none';
+    if (recStopBtn) recStopBtn.style.display = atemConnected && isRec ? '' : 'none';
+    // Show duration and disk info if available
+    if (recDetail) {
+      const parts = [];
+      if (atemData.recordingDuration) {
+        const d = atemData.recordingDuration;
+        parts.push(`Duration: ${d.hours || 0}h ${d.minutes || 0}m ${d.seconds || 0}s`);
+      }
+      if (atemData.recordingTimeAvailable > 0) {
+        const mins = Math.floor(atemData.recordingTimeAvailable / 60);
+        const hrs = Math.floor(mins / 60);
+        parts.push(`${hrs}h ${mins % 60}m remaining`);
+      }
+      if (atemData.recordingError && atemData.recordingError !== 2) { // 2 = None
+        const errMap = { 0: 'No Media', 1: 'No Media', 4: 'Media Full', 8: 'Disk Error' };
+        parts.push(`Error: ${errMap[atemData.recordingError] || 'Unknown'}`);
+      }
+      recDetail.textContent = parts.join(' · ');
+      recDetail.style.display = parts.length > 0 ? 'block' : 'none';
+    }
   } else if (!atemConnected) {
     setStatusValue('val-recording', '—', false);
+    if (recStartBtn) recStartBtn.style.display = 'none';
+    if (recStopBtn) recStopBtn.style.display = 'none';
+    if (recDetail) recDetail.style.display = 'none';
   }
 
   if (typeof companionConnected === 'boolean') {
@@ -3153,6 +3198,7 @@ async function loadEquipment() {
     : eq.audioViaAtem ? 'atem-auto'
     : (eq.mixerType || '');
   deviceState.mixer = { type: mixerType, host: eq.mixerHost || '', port: eq.mixerPort ? String(eq.mixerPort) : '' };
+  deviceState['atem-recording'] = { autoRecord: !!eq.atemAutoRecord };
   deviceState.hyperdeck = (eq.hyperdecks || []).map(ip => ({ ip: typeof ip === 'string' ? ip : (ip.ip || '') }));
   deviceState.ptz = (eq.ptz || []).map((cam, i) => ({
     ip: cam.ip || '', name: cam.name || `PTZ ${i + 1}`,
@@ -3164,7 +3210,7 @@ async function loadEquipment() {
 
   // ── Auto-expand configured devices ──
   expandedDevices.clear();
-  if (deviceState.atem.ip) expandedDevices.add('atem');
+  if (deviceState.atem.ip) { expandedDevices.add('atem'); expandedDevices.add('atem-recording'); }
   if (deviceState.encoder.length > 0 && deviceState.encoder.some(e => e.encoderType)) expandedDevices.add('encoder');
   if (deviceState.companion.host) expandedDevices.add('companion');
   if (deviceState.hyperdeck.length > 0) expandedDevices.add('hyperdeck');
@@ -3535,6 +3581,7 @@ async function _doSaveEquipment() {
     // Don't overwrite the real password if user didn't change the masked placeholder
     obsPassword: encType === 'obs' && enc.password && enc.password !== '••••••••' ? enc.password : undefined,
     // Multi-instance
+    atemAutoRecord: !!deviceState['atem-recording']?.autoRecord,
     hyperdecks: deviceState.hyperdeck.map(h => (h.ip || '').trim()).filter(Boolean),
     videoHubs: deviceState.videohub.filter(h => (h.ip || '').trim()),
     ptz: deviceState.ptz.filter(c => (c.ip || '').trim()),

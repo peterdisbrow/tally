@@ -713,6 +713,7 @@ function startAgent() {
   ];
 
   if (config.atemIp) args.push('--atem', config.atemIp);
+  if (config.atemAutoRecord) args.push('--atem-auto-record');
   if (config.obsUrl)       args.push('--obs', config.obsUrl);
   if (config.name)         args.push('--name', config.name);
   if (config.companionUrl) args.push('--companion', config.companionUrl);
@@ -1754,6 +1755,7 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
   if (equipConfig.companionUrl !== undefined) config.companionUrl = sanitizeUrl(equipConfig.companionUrl);
   if (equipConfig.obsUrl !== undefined) config.obsUrl = sanitizeUrl(equipConfig.obsUrl);
   if (equipConfig.obsPassword !== undefined) config.obsPassword = typeof equipConfig.obsPassword === 'string' ? equipConfig.obsPassword.slice(0, 512) : '';
+  if (equipConfig.atemAutoRecord !== undefined) config.atemAutoRecord = !!equipConfig.atemAutoRecord;
   if (equipConfig.hyperdecks !== undefined) config.hyperdecks = equipConfig.hyperdecks;
   if (equipConfig.videoHubs !== undefined) config.videoHubs = equipConfig.videoHubs;
   if (equipConfig.ptz !== undefined) config.ptz = equipConfig.ptz;
@@ -1849,6 +1851,7 @@ ipcMain.handle('get-equipment', () => {
     obsUrl: config.obsUrl || '',
     obsPasswordSet: !!(config.obsPassword),
     obsPassword: config.obsPassword ? '••••••••' : '',
+    atemAutoRecord: !!config.atemAutoRecord,
     hyperdecks: config.hyperdecks || [],
     videoHubs: config.videoHubs || [],
     ptz: config.ptz || [],
