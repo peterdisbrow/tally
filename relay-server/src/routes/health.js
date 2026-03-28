@@ -32,7 +32,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
   // ─── Shared helpers ─────────────────────────────────────────────────────────
 
   function countConnected() {
-    return Array.from(churches.values()).filter(c => c.ws?.readyState === WebSocket.OPEN).length;
+    return Array.from(churches.values()).filter(c => !!(c.sockets?.size && [...c.sockets.values()].some(s => s.readyState === WebSocket.OPEN))).length;
   }
 
   /** Memory usage in human-readable MB, rounded to one decimal place. */
@@ -65,7 +65,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
   function churchSummary() {
     return Array.from(churches.values()).map(c => ({
       name:           c.name,
-      connected:      c.ws?.readyState === WebSocket.OPEN,
+      connected:      !!(c.sockets?.size && [...c.sockets.values()].some(s => s.readyState === WebSocket.OPEN)),
       lastSeen:       c.lastSeen       || null,
       disconnectedAt: c.disconnectedAt || null,
     }));
@@ -189,7 +189,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
   app.get('/api/status', healthRateLimit, (_req, res) => {
     const uptimeSeconds  = Math.floor(process.uptime());
     const connectedCount = Array.from(churches.values())
-      .filter(c => c.ws?.readyState === WebSocket.OPEN).length;
+      .filter(c => !!(c.sockets?.size && [...c.sockets.values()].some(s => s.readyState === WebSocket.OPEN))).length;
     const registeredCount = churches.size;
     const connectRatio    = registeredCount > 0 ? connectedCount / registeredCount : 1;
 

@@ -71,7 +71,7 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
       return {
         churchId:         c.churchId,
         name:             c.name,
-        connected:        c.ws?.readyState === WebSocket.OPEN,
+        connected:        !!(c.sockets?.size && [...c.sockets.values()].some(s => s.readyState === WebSocket.OPEN)),
         status:           c.status,
         lastSeen:         c.lastSeen,
         church_type:      c.church_type      || 'recurring',
@@ -149,8 +149,10 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
     const church = churches.get(churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
 
-    if (church.ws?.readyState === WebSocket.OPEN) {
-      church.ws.close(1000, 'church deleted');
+    if (church.sockets?.size) {
+      for (const sock of church.sockets.values()) {
+        if (sock.readyState === WebSocket.OPEN) sock.close(1000, 'church deleted');
+      }
     }
 
     try {

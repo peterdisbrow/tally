@@ -31,6 +31,7 @@ function makeChurchEntry(id, name, overrides = {}) {
     churchId:         id,
     name,
     ws:               null,
+    sockets:          new Map(),
     status:           { connected: false, atem: null, obs: null },
     lastSeen:         null,
     lastHeartbeat:    null,

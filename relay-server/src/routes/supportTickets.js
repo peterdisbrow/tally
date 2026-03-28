@@ -218,7 +218,13 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     }
 
     const runtime = churches.get(churchId);
-    if (!runtime?.ws || runtime.ws.readyState !== WebSocket.OPEN) {
+    const openSockets = [];
+    if (runtime?.sockets?.size) {
+      for (const sock of runtime.sockets.values()) {
+        if (sock.readyState === WebSocket.OPEN) openSockets.push(sock);
+      }
+    }
+    if (openSockets.length === 0) {
       return res.status(503).json({ error: 'Church client is not connected' });
     }
 
@@ -226,8 +232,14 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
     const commandId = uuidv4();
     try {
       const bundleData = await new Promise((resolve, reject) => {
+        const cleanup = () => {
+          for (const sock of openSockets) {
+            try { sock.removeListener('message', handler); } catch { /* ignore */ }
+          }
+        };
+
         const timeout = setTimeout(() => {
-          runtime.ws.removeListener('message', handler);
+          cleanup();
           reject(new Error('Diagnostic bundle timeout (10s)'));
         }, 10000);
 
@@ -236,21 +248,23 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
             const msg = JSON.parse(data.toString());
             if (msg.type === 'command_result' && msg.id === commandId) {
               clearTimeout(timeout);
-              runtime.ws.removeListener('message', handler);
+              cleanup();
               if (msg.error) reject(new Error(msg.error));
               else resolve(msg.result);
             }
           } catch { /* ignore parse errors */ }
         };
 
-        runtime.ws.on('message', handler);
         const payload = JSON.stringify({
           type: 'command',
           command: 'system.diagnosticBundle',
           params: {},
           id: commandId,
         });
-        runtime.ws.send(payload);
+        for (const sock of openSockets) {
+          sock.on('message', handler);
+          sock.send(payload);
+        }
       });
 
       // Store in database

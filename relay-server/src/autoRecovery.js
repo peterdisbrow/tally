@@ -224,15 +224,28 @@ class AutoRecovery {
   /** Dispatch a command to the church client via WebSocket. */
   async dispatchCommand(church, command, params) {
     const { WebSocket } = require('ws');
-    if (!church.ws || church.ws.readyState !== WebSocket.OPEN) {
+    // Gather all open sockets (multi-instance support)
+    const openSockets = [];
+    if (church.sockets?.size) {
+      for (const sock of church.sockets.values()) {
+        if (sock.readyState === WebSocket.OPEN) openSockets.push(sock);
+      }
+    }
+    if (openSockets.length === 0) {
       throw new Error('Church client not connected');
     }
     const { v4: uuidv4 } = require('uuid');
     const id = uuidv4();
 
     return new Promise((resolve, reject) => {
+      const cleanup = () => {
+        for (const sock of openSockets) {
+          try { sock.removeListener('message', handler); } catch { /* ignore */ }
+        }
+      };
+
       const timeout = setTimeout(() => {
-        church.ws.removeListener('message', handler);
+        cleanup();
         reject(new Error('Command timeout (15s)'));
       }, 15000);
 
@@ -241,15 +254,18 @@ class AutoRecovery {
           const msg = JSON.parse(data.toString());
           if (msg.type === 'command_result' && msg.id === id) {
             clearTimeout(timeout);
-            church.ws.removeListener('message', handler);
+            cleanup();
             if (msg.error) reject(new Error(msg.error));
             else resolve(msg.result);
           }
         } catch { /* ignore parse errors */ }
       };
 
-      church.ws.on('message', handler);
-      church.ws.send(JSON.stringify({ type: 'command', command, params, id }));
+      const payload = JSON.stringify({ type: 'command', command, params, id });
+      for (const sock of openSockets) {
+        sock.on('message', handler);
+        sock.send(payload);
+      }
     });
   }
 }

@@ -24,7 +24,7 @@ function addChurch(db, churchId, enabled = 1, opts = {}) {
 
 function makeChurch(churchId = 'church-1', wsConnected = false) {
   if (!wsConnected) {
-    return { churchId, name: 'Test Church', ws: null, status: {} };
+    return { churchId, name: 'Test Church', ws: null, sockets: new Map(), status: {} };
   }
   // Create a mock WebSocket that looks connected and captures sent messages
   const sent = [];
@@ -51,7 +51,8 @@ function makeChurch(churchId = 'church-1', wsConnected = false) {
       }
     },
   };
-  return { churchId, name: 'Test Church', ws, status: {} };
+  const sockets = new Map([['_default', ws]]);
+  return { churchId, name: 'Test Church', ws, sockets, status: {} };
 }
 
 // Mock ws module so dispatchCommand can check readyState

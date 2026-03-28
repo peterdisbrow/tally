@@ -129,11 +129,38 @@ function createWebSocketHandlers({
     }
   };
 
+  // ─── Multi-instance helpers ──────────────────────────────────────────────
+  // church.sockets is a Map<instanceName, ws> that tracks all connected Tally
+  // agents for this church (multi-room / multi-campus).  church.ws is kept as
+  // a backward-compat reference pointing to the most-recently-connected socket.
+
+  /** Ensure church.sockets exists (lazy-init for churches created before this feature). */
+  function ensureSockets(church) {
+    if (!church.sockets) church.sockets = new Map();
+  }
+
+  /** Send a message to ALL connected instances of a church. */
+  function sendToAllInstances(church, payload) {
+    ensureSockets(church);
+    for (const sock of church.sockets.values()) {
+      safeSend(sock, payload);
+    }
+  }
+
+  /** Return true if the church has at least one open WebSocket. */
+  function hasOpenSocket(church) {
+    ensureSockets(church);
+    for (const sock of church.sockets.values()) {
+      if (sock.readyState === wsOpen) return true;
+    }
+    return false;
+  }
+
   // ─── handleChurchConnection ───────────────────────────────────────────────
   /**
    * Called when a WebSocket at /church connects.
    * @param {WebSocket} ws
-   * @param {URL}       url  — already parsed, contains ?token=
+   * @param {URL}       url  — already parsed, contains ?token=&instance=
    * @param {string}    clientIp
    */
   function handleChurchConnection(ws, url, clientIp) {  // eslint-disable-line no-unused-vars
@@ -155,20 +182,50 @@ function createWebSocketHandlers({
       return ws.close(1008, `billing_${access.status}`);
     }
 
-    // Replace any existing WebSocket for this church
-    if (church.ws?.readyState === wsOpen) {
-      const oldRemote = church.ws._socket?.remoteAddress + ':' + church.ws._socket?.remotePort;
-      const newRemote = ws._socket?.remoteAddress + ':' + ws._socket?.remotePort;
-      console.log(`[WS] Replacing church ${church.churchId} connection: old=${oldRemote} new=${newRemote}`);
-      church.ws.close(1000, 'replaced by new connection');
+    // Instance name — allows multiple Tally agents per church (multi-room).
+    // Falls back to '_default' for legacy clients that don't send &instance=.
+    const instance = url.searchParams.get('instance') || '_default';
+    ws._tallyInstance = instance; // stash on the socket for disconnect lookup
+
+    ensureSockets(church);
+
+    // ── Room limit enforcement ───────────────────────────────────────────
+    // checkPaidAccess returns maxRooms (from TIER_LIMITS). Connect = 1 room.
+    const maxRooms = access.maxRooms ?? Infinity;
+    const existingWs = church.sockets.get(instance);
+    const isReplacement = existingWs?.readyState === wsOpen;
+
+    if (!isReplacement) {
+      // Count currently open sockets (different instances)
+      let openCount = 0;
+      for (const sock of church.sockets.values()) {
+        if (sock.readyState === wsOpen) openCount++;
+      }
+      if (openCount >= maxRooms) {
+        console.log(`[WS] Church ${church.churchId} instance="${instance}" rejected: ${openCount}/${maxRooms} rooms in use (tier: ${access.tier || 'connect'})`);
+        return ws.close(1008, `room_limit:${maxRooms}`);
+      }
     }
 
+    // Only replace the socket for the SAME instance name.
+    // Different instances coexist — this is the key multi-room fix.
+    if (isReplacement) {
+      const oldRemote = existingWs._socket?.remoteAddress + ':' + existingWs._socket?.remotePort;
+      const newRemote = ws._socket?.remoteAddress + ':' + ws._socket?.remotePort;
+      console.log(`[WS] Replacing church ${church.churchId} instance="${instance}": old=${oldRemote} new=${newRemote}`);
+      existingWs.close(1000, 'replaced by new connection');
+    }
+
+    // Track in instance map and keep backward-compat church.ws
+    church.sockets.set(instance, ws);
     church.ws = ws;
     church.lastSeen = new Date().toISOString();
     church.disconnectedAt = null;
 
+    console.log(`[WS] Church ${church.churchId} instance="${instance}" connected (${church.sockets.size} instance(s) total)`);
+
     // Acknowledge the connection to the church client
-    safeSend(ws, { type: 'connected', churchId: church.churchId, name: church.name });
+    safeSend(ws, { type: 'connected', churchId: church.churchId, name: church.name, instance });
 
     // Deliver queued messages from while the church was offline
     drainQueue(church.churchId, ws);
@@ -186,6 +243,7 @@ function createWebSocketHandlers({
       type:      'church_connected',
       churchId:  church.churchId,
       name:      church.name,
+      instance,
       timestamp: church.lastSeen,
       connected: true,
       status:    church.status,
@@ -197,7 +255,7 @@ function createWebSocketHandlers({
     ws.on('message', (data) => {
       try {
         const msg = JSON.parse(data.toString());
-        handleChurchMessage(church, msg);
+        handleChurchMessage(church, msg, ws);
       } catch {
         // Malformed JSON — drop silently (ws library already rate-limits payload size)
       }
@@ -206,26 +264,41 @@ function createWebSocketHandlers({
     // ── Disconnect handler ─────────────────────────────────────────────────
     ws.on('close', () => {
       if (wsPingInterval) clearInterval(wsPingInterval);
-      // Guard: if this socket was already replaced by a newer connection, skip state
-      // reset. Without this, the stale close fires after replacement and incorrectly
-      // broadcasts church_disconnected even though the church is still connected.
-      if (church.ws !== ws) return;
-      church.lastSeen = new Date().toISOString();
-      church.disconnectedAt = Date.now();
-      // Reset device status so the dashboard doesn't show stale connected states
-      church.status = { connected: false, atem: null, obs: null };
 
-      const disconnectEvent = {
-        type:      'church_disconnected',
-        churchId:  church.churchId,
-        name:      church.name,
-        connected: false,
-        status:    church.status,
-      };
-      broadcastToControllers(disconnectEvent);
-      broadcastToSSE(disconnectEvent);
-      broadcastToPortal(church.churchId, { type: 'disconnected', status: church.status });
-      onChurchDisconnected(church);
+      // Remove this instance from the sockets map
+      ensureSockets(church);
+      if (church.sockets.get(instance) === ws) {
+        church.sockets.delete(instance);
+      }
+
+      console.log(`[WS] Church ${church.churchId} instance="${instance}" disconnected (${church.sockets.size} instance(s) remaining)`);
+
+      // Update church.ws to another open socket (or null)
+      if (church.ws === ws) {
+        church.ws = null;
+        for (const sock of church.sockets.values()) {
+          if (sock.readyState === wsOpen) { church.ws = sock; break; }
+        }
+      }
+
+      // Only broadcast church_disconnected if ALL instances are gone
+      if (!hasOpenSocket(church)) {
+        church.lastSeen = new Date().toISOString();
+        church.disconnectedAt = Date.now();
+        church.status = { connected: false, atem: null, obs: null };
+
+        const disconnectEvent = {
+          type:      'church_disconnected',
+          churchId:  church.churchId,
+          name:      church.name,
+          connected: false,
+          status:    church.status,
+        };
+        broadcastToControllers(disconnectEvent);
+        broadcastToSSE(disconnectEvent);
+        broadcastToPortal(church.churchId, { type: 'disconnected', status: church.status });
+        onChurchDisconnected(church);
+      }
     });
 
     ws.on('error', () => {}); // errors surface as 'close' — no separate handling needed
@@ -237,7 +310,7 @@ function createWebSocketHandlers({
    * @param {object} church — the church runtime object from the churches Map
    * @param {object} msg    — parsed JSON from the church client
    */
-  function handleChurchMessage(church, msg) {
+  function handleChurchMessage(church, msg, senderWs) {
     church.lastSeen = new Date().toISOString();
 
     switch (msg.type) {
@@ -292,7 +365,7 @@ function createWebSocketHandlers({
       }
 
       case 'ping':
-        safeSend(church.ws, { type: 'pong', ts: msg.ts });
+        safeSend(senderWs || church.ws, { type: 'pong', ts: msg.ts });
         break;
 
       // The following types are handled entirely by hooks — the routing layer
@@ -341,8 +414,9 @@ function createWebSocketHandlers({
     const churchList = Array.from(churches.values()).map(c => ({
       churchId:  c.churchId,
       name:      c.name,
-      connected: c.ws?.readyState === wsOpen,
+      connected: hasOpenSocket(c),
       status:    c.status,
+      instances: c.sockets ? Array.from(c.sockets.keys()).filter(k => c.sockets.get(k)?.readyState === wsOpen) : [],
     }));
     safeSend(ws, { type: 'church_list', churches: churchList });
 
@@ -392,8 +466,14 @@ function createWebSocketHandlers({
         return;
       }
       const church = churches.get(msg.churchId);
-      if (church?.ws?.readyState === wsOpen) {
-        safeSend(church.ws, msg);
+      if (!church) {
+        safeSend(ws, { type: 'error', error: 'Church not connected', churchId: msg.churchId });
+      } else if (msg.instance && church.sockets?.get(msg.instance)?.readyState === wsOpen) {
+        // Target a specific instance if requested
+        safeSend(church.sockets.get(msg.instance), msg);
+      } else if (hasOpenSocket(church)) {
+        // Broadcast to ALL connected instances — each agent handles only its own devices
+        sendToAllInstances(church, msg);
       } else {
         safeSend(ws, { type: 'error', error: 'Church not connected', churchId: msg.churchId });
       }
@@ -404,6 +484,8 @@ function createWebSocketHandlers({
   return {
     safeSend,
     broadcastToControllers,
+    sendToAllInstances,
+    hasOpenSocket,
     handleChurchConnection,
     handleControllerConnection,
     handleChurchMessage,

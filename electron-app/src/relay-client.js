@@ -325,6 +325,42 @@ async function sendProblemFinderReport(report) {
   }
 }
 
+// ─── Room equipment sync ─────────────────────────────────────────────────────
+
+async function syncEquipmentToRelay(roomId, equipment) {
+  const config = _loadConfig();
+  if (!config.token || !roomId) return { success: false, error: 'No token or roomId' };
+  const base = relayHttpUrl(config.relay).replace(/\/+$/, '');
+  try {
+    const resp = await fetch(`${base}/api/church/app/rooms/${encodeURIComponent(roomId)}/equipment`, {
+      method: 'PUT',
+      headers: { 'Authorization': `Bearer ${config.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ equipment }),
+      signal: AbortSignal.timeout(10000),
+    });
+    return { success: resp.ok };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+async function fetchEquipmentFromRelay(roomId) {
+  const config = _loadConfig();
+  if (!config.token || !roomId) return null;
+  const base = relayHttpUrl(config.relay).replace(/\/+$/, '');
+  try {
+    const resp = await fetch(`${base}/api/church/app/rooms/${encodeURIComponent(roomId)}/equipment`, {
+      headers: { 'Authorization': `Bearer ${config.token}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return data.equipment && Object.keys(data.equipment).length > 0 ? data.equipment : null;
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
   init,
   DEFAULT_RELAY_URL,
@@ -339,4 +375,6 @@ module.exports = {
   testConnection,
   sendPreviewCommand,
   sendProblemFinderReport,
+  syncEquipmentToRelay,
+  fetchEquipmentFromRelay,
 };

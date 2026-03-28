@@ -58,7 +58,8 @@ module.exports = function setupOfflineDetection(ctx) {
       const offlineHours = offlineMs / (1000 * 60 * 60);
 
       // Already connected — reset flag
-      if (church.ws?.readyState === WebSocket.OPEN) {
+      const hasOpenSock = church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === WebSocket.OPEN);
+      if (hasOpenSock) {
         church._offlineAlertSent = false;
         church._criticalOfflineAlertSent = false;
         continue;

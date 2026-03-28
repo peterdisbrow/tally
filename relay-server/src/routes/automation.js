@@ -12,13 +12,27 @@ module.exports = function setupAutomationRoutes(app, ctx) {
   // ─── Helper: create a sendCommand function for a church WebSocket ─────────
   function makeCommandSender(church) {
     return (command, params) => new Promise((resolve, reject) => {
-      if (!church.ws || church.ws.readyState !== WebSocket.OPEN) {
+      // Gather all open sockets (multi-instance support)
+      const openSockets = [];
+      if (church.sockets?.size) {
+        for (const sock of church.sockets.values()) {
+          if (sock.readyState === WebSocket.OPEN) openSockets.push(sock);
+        }
+      }
+      if (openSockets.length === 0) {
         return reject(new Error('Church client not connected'));
       }
       const { v4: uuid } = require('uuid');
       const id = uuid();
+
+      const cleanup = () => {
+        for (const sock of openSockets) {
+          try { sock.removeListener('message', handler); } catch { /* ignore */ }
+        }
+      };
+
       const timeout = setTimeout(() => {
-        church.ws.removeListener('message', handler);
+        cleanup();
         reject(new Error('Command timeout (15s)'));
       }, 15000);
 
@@ -27,14 +41,18 @@ module.exports = function setupAutomationRoutes(app, ctx) {
           const msg = JSON.parse(data.toString());
           if (msg.type === 'command_result' && msg.id === id) {
             clearTimeout(timeout);
-            church.ws.removeListener('message', handler);
+            cleanup();
             if (msg.error) reject(new Error(msg.error));
             else resolve(msg.result);
           }
         } catch { /* ignore */ }
       };
-      church.ws.on('message', handler);
-      safeSend(church.ws, { type: 'command', command, params, id });
+
+      // Listen on all sockets and send to all
+      for (const sock of openSockets) {
+        sock.on('message', handler);
+        safeSend(sock, { type: 'command', command, params, id });
+      }
     });
   }
 
@@ -78,7 +96,8 @@ module.exports = function setupAutomationRoutes(app, ctx) {
   app.post('/api/churches/:churchId/presets/:name/recall', requireChurchOrAdmin, async (req, res) => {
     const church = churches.get(req.params.churchId);
     if (!church) return res.status(404).json({ error: 'Church not found' });
-    if (!church.ws || church.ws.readyState !== WebSocket.OPEN) {
+    const hasOpenSock = church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === WebSocket.OPEN);
+    if (!hasOpenSock) {
       return res.status(503).json({ error: 'Church client not connected' });
     }
     try {

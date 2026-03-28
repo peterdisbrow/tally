@@ -122,8 +122,10 @@ class EventMode {
       // Close any active WebSocket
       if (churchesMap) {
         const runtime = churchesMap.get(church.churchId);
-        if (runtime && runtime.ws && runtime.ws.readyState === 1 /* OPEN */) {
-          try { runtime.ws.close(1000, 'Event monitoring window ended'); } catch {}
+        if (runtime?.sockets?.size) {
+          for (const sock of runtime.sockets.values()) {
+            if (sock.readyState === 1) { try { sock.close(1000, 'Event monitoring window ended'); } catch {} }
+          }
         }
       }
 

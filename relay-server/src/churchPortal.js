@@ -767,7 +767,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       // Check 3: church client is connected (so the action could actually execute)
       const church = churches.get(churchId);
-      const clientConnected = church && church.ws && church.ws.readyState === 1;
+      const clientConnected = church?.sockets?.size && [...church.sockets.values()].some(s => s.readyState === 1);
       if (!clientConnected) issues.push('Tally desktop app is not connected — failover actions require an active client connection. This is OK for a planning drill.');
       checks.push({ name: 'Client app connected', passed: !!clientConnected, optional: true });
 
@@ -945,7 +945,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       const satellites = rows.map((row) => {
         const runtime = churches.get(row.churchId);
-        const connected = !!(runtime && runtime.ws && runtime.ws.readyState === 1);
+        const connected = !!(runtime?.sockets?.size && [...runtime.sockets.values()].some(s => s.readyState === 1));
         return { churchId: row.churchId, name: row.name, location: row.location || '', connected };
       });
 
@@ -1006,7 +1006,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       const campuses = rows.map((row) => {
         const runtime = churches.get(row.churchId);
-        const connected = !!(runtime && runtime.ws && runtime.ws.readyState === 1);
+        const connected = !!(runtime?.sockets?.size && [...runtime.sockets.values()].some(s => s.readyState === 1));
         const lastSeen = runtime?.lastSeen || runtime?.lastHeartbeat || null;
 
         // Recent alert count (last 7 days)
@@ -1181,8 +1181,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       if (!campus) return res.status(404).json({ error: 'Campus not found' });
 
       const runtime = churches.get(campusId);
-      if (runtime && runtime.ws) {
-        try { runtime.ws.close(1000, 'Campus removed'); } catch { /* ignore */ }
+      if (runtime?.sockets?.size) {
+        for (const sock of runtime.sockets.values()) {
+          try { sock.close(1000, 'Campus removed'); } catch { /* ignore */ }
+        }
       }
       churches.delete(campusId);
 
@@ -1623,20 +1625,27 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
     const churchId = req.church.churchId;
     const runtime = churches.get(churchId);
-    if (!runtime?.ws || runtime.ws.readyState !== 1) {
+    const openSockets = [];
+    if (runtime?.sockets?.size) {
+      for (const sock of runtime.sockets.values()) {
+        if (sock.readyState === 1) openSockets.push(sock);
+      }
+    }
+    if (openSockets.length === 0) {
       return res.status(409).json({ error: 'Church client is not connected' });
     }
 
     const crypto = require('crypto');
     const commandId = crypto.randomUUID();
+    const payload = JSON.stringify({
+      type: 'command',
+      id: commandId,
+      command,
+      params: params || {},
+      source: 'app',
+    });
     try {
-      runtime.ws.send(JSON.stringify({
-        type: 'command',
-        id: commandId,
-        command,
-        params: params || {},
-        source: 'app',
-      }));
+      for (const sock of openSockets) sock.send(payload);
       res.json({ sent: true, commandId });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e, 'Failed to send command') });
@@ -2521,8 +2530,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       // Remove from runtime
       const runtime = churches.get(churchId);
-      if (runtime?.ws?.readyState === 1) {
-        runtime.ws.close(1000, 'account_deleted');
+      if (runtime?.sockets?.size) {
+        for (const sock of runtime.sockets.values()) {
+          if (sock.readyState === 1) sock.close(1000, 'account_deleted');
+        }
       }
       churches.delete(churchId);
 

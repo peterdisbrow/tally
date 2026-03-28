@@ -356,7 +356,7 @@ describe('EventMode.expireEvent()', () => {
     const church = insertChurch();
     let closed = false;
     const ws = { readyState: 1, close: (code, reason) => { closed = true; } };
-    const churchesMap = new Map([[church.churchId, { ws }]]);
+    const churchesMap = new Map([[church.churchId, { ws, sockets: new Map([['_default', ws]]) }]]);
     await em.expireEvent(church, null, churchesMap);
     expect(closed).toBe(true);
   });
@@ -365,7 +365,7 @@ describe('EventMode.expireEvent()', () => {
     const church = insertChurch();
     let closed = false;
     const ws = { readyState: 3, close: () => { closed = true; } }; // CLOSED
-    const churchesMap = new Map([[church.churchId, { ws }]]);
+    const churchesMap = new Map([[church.churchId, { ws, sockets: new Map([['_default', ws]]) }]]);
     await em.expireEvent(church, null, churchesMap);
     expect(closed).toBe(false);
   });

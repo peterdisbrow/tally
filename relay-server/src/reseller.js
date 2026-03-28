@@ -281,7 +281,8 @@ class ResellerSystem {
     if (churchesMap) {
       const { WebSocket } = require('ws');
       for (const [, church] of churchesMap) {
-        if (church.reseller_id === resellerId && church.ws?.readyState === WebSocket.OPEN) {
+        const hasOpen = church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === WebSocket.OPEN);
+        if (church.reseller_id === resellerId && hasOpen) {
           onlineCount++;
         }
       }

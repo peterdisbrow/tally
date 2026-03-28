@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getNetworkInterfaces: () => ipcRenderer.invoke('get-network-interfaces'),
   saveEquipment: (config) => ipcRenderer.invoke('save-equipment', config),
   getEquipment: () => ipcRenderer.invoke('get-equipment'),
+  switchRoom: (fromRoom, toRoom, toRoomId) => ipcRenderer.invoke('switch-room', { fromRoom, toRoom, toRoomId }),
   validateToken: () => ipcRenderer.invoke('validate-token'),
   signOut: () => ipcRenderer.invoke('sign-out'),
   factoryReset: () => ipcRenderer.invoke('factory-reset'),

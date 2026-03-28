@@ -35,7 +35,8 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
     const msg = { type: 'command', command, params, id: uuidv4() };
     ctx.totalMessagesRelayed++;
 
-    if (!church.ws || church.ws.readyState !== WebSocket.OPEN) {
+    const hasOpen = church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === WebSocket.OPEN);
+    if (!hasOpen) {
       if (church.disconnectedAt && (Date.now() - church.disconnectedAt) < QUEUE_TTL_MS) {
         queueMessage(churchId, msg);
         log(`CMD → ${church.name}: ${command} (queued — church offline)`);
@@ -44,7 +45,8 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
       return res.status(503).json({ error: 'Church client not connected' });
     }
 
-    safeSend(church.ws, msg);
+    // Send to ALL connected instances — each agent handles only its own devices
+    for (const sock of church.sockets.values()) safeSend(sock, msg);
     log(`CMD → ${church.name}: ${command} ${JSON.stringify(params)}`);
     res.json({ sent: true, messageId: msg.id });
   });
@@ -53,8 +55,12 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
     const { command, params = {} } = req.body;
     let sent = 0;
     for (const church of churches.values()) {
-      if (church.ws?.readyState === WebSocket.OPEN) {
-        safeSend(church.ws, { type: 'command', command, params, id: uuidv4() });
+      if (church.sockets?.size) {
+        for (const sock of church.sockets.values()) {
+          if (sock.readyState === WebSocket.OPEN) {
+            safeSend(sock, { type: 'command', command, params, id: uuidv4() });
+          }
+        }
         sent++;
         ctx.totalMessagesRelayed++;
       }
@@ -69,7 +75,7 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
     if (!church) return res.status(404).json({ error: 'Church not found' });
     res.json({
       name: church.name,
-      connected: church.ws?.readyState === WebSocket.OPEN,
+      connected: !!(church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === WebSocket.OPEN)),
       status: church.status,
       lastSeen: church.lastSeen,
     });
@@ -81,7 +87,7 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
     const row = stmtGet.get(req.params.churchId);
     res.json({
       churchId: church.churchId, name: church.name,
-      connected: church.ws?.readyState === 1,
+      connected: !!(church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === 1)),
       status: church.status, lastSeen: church.lastSeen,
       registrationCode: row?.registration_code || null,
       token: row?.token,

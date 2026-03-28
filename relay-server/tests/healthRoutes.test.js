@@ -46,7 +46,8 @@ function callRoute(routes, path, reqOverrides = {}) {
 
 /** Build a church entry whose WebSocket readyState matches the given value. */
 function makeChurch(readyState) {
-  return { ws: { readyState } };
+  const ws = { readyState };
+  return { ws, sockets: new Map([['_default', ws]]) };
 }
 
 // ─── GET / — basic health ─────────────────────────────────────────────────────

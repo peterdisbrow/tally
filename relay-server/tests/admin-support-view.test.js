@@ -174,6 +174,11 @@ function seedChatMessages(db, churchId, count = 5) {
 function createMockWs(open = true) {
   return { readyState: open ? WebSocket.OPEN : WebSocket.CLOSED, send: vi.fn(), close: vi.fn() };
 }
+/** Build a mock church entry with both ws and sockets (multi-instance compat). */
+function mockChurchEntry(wsOrOpen, extra = {}) {
+  const ws = typeof wsOrOpen === 'object' ? wsOrOpen : createMockWs(wsOrOpen);
+  return { ws, sockets: new Map([['_default', ws]]), status: {}, ...extra };
+}
 
 // Minimal app mock that captures route registrations
 function createMockApp() {
@@ -357,12 +362,11 @@ describe('Admin Support View (Quick Actions)', () => {
 
     it('shows online status when church client is connected', () => {
       seedChurch(db, 'c1', 'Grace Church');
-      churches.set('c1', {
-        ws: createMockWs(true),
+      churches.set('c1', mockChurchEntry(true, {
         status: { atem: { connected: true }, obs: { connected: true } },
         lastSeen: new Date().toISOString(),
         lastHeartbeat: Date.now(),
-      });
+      }));
 
       const req = buildReq({ params: { churchId: 'c1' } });
       const res = callRoute('get', routePath, req);
@@ -390,7 +394,7 @@ describe('Admin Support View (Quick Actions)', () => {
     it('validates allowed commands and sends via WebSocket', () => {
       seedChurch(db, 'c1', 'Grace Church');
       const ws = createMockWs(true);
-      churches.set('c1', { ws, status: {}, lastSeen: null, lastHeartbeat: null });
+      churches.set('c1', { ws, sockets: new Map([['_default', ws]]), status: {}, lastSeen: null, lastHeartbeat: null });
 
       const req = buildReq({ params: { churchId: 'c1' }, body: { command: 'restart_stream' } });
       const res = callRoute('post', routePath, req);
@@ -407,7 +411,7 @@ describe('Admin Support View (Quick Actions)', () => {
 
     it('rejects unknown commands', () => {
       seedChurch(db, 'c1', 'Grace Church');
-      churches.set('c1', { ws: createMockWs(true), status: {} });
+      churches.set('c1', mockChurchEntry(true));
 
       const req = buildReq({ params: { churchId: 'c1' }, body: { command: 'delete_everything' } });
       const res = callRoute('post', routePath, req);
@@ -418,7 +422,7 @@ describe('Admin Support View (Quick Actions)', () => {
 
     it('rejects when no command provided', () => {
       seedChurch(db, 'c1', 'Grace Church');
-      churches.set('c1', { ws: createMockWs(true), status: {} });
+      churches.set('c1', mockChurchEntry(true));
 
       const req = buildReq({ params: { churchId: 'c1' }, body: {} });
       const res = callRoute('post', routePath, req);
@@ -447,7 +451,7 @@ describe('Admin Support View (Quick Actions)', () => {
     it('accepts all allowed command types', () => {
       seedChurch(db, 'c1', 'Grace Church');
       const ws = createMockWs(true);
-      churches.set('c1', { ws, status: {} });
+      churches.set('c1', { ws, sockets: new Map([['_default', ws]]), status: {} });
 
       const allowed = [
         'restart_stream', 'stop_stream', 'start_recording', 'stop_recording',
@@ -472,7 +476,7 @@ describe('Admin Support View (Quick Actions)', () => {
 
     it('sends a message and returns success', () => {
       seedChurch(db, 'c1', 'Grace Church');
-      churches.set('c1', { ws: createMockWs(true), status: {} });
+      churches.set('c1', mockChurchEntry(true));
 
       const req = buildReq({ params: { churchId: 'c1' }, body: { message: 'Try restarting OBS', targets: ['app'] } });
       const res = callRoute('post', routePath, req);
@@ -566,7 +570,7 @@ describe('Admin Support View (Quick Actions)', () => {
       seedChurch(db, 'c2', 'Offline Church');
 
       // c1 is online
-      churches.set('c1', { ws: createMockWs(true), status: {}, lastSeen: new Date().toISOString() });
+      churches.set('c1', mockChurchEntry(true, { lastSeen: new Date().toISOString() }));
       // c2 has no runtime (offline)
 
       const req = buildReq();
@@ -592,7 +596,7 @@ describe('Admin Support View (Quick Actions)', () => {
     it('marks needsAttention for churches with critical alerts', () => {
       seedChurch(db, 'c1', 'Alerting Church');
       seedAlerts(db, 'c1', 2, { severity: 'critical', resolved: false });
-      churches.set('c1', { ws: createMockWs(true), status: {}, lastSeen: new Date().toISOString() });
+      churches.set('c1', mockChurchEntry(true, { lastSeen: new Date().toISOString() }));
 
       const req = buildReq();
       const res = callRoute('get', routePath, req);
@@ -605,7 +609,7 @@ describe('Admin Support View (Quick Actions)', () => {
     it('marks needsAttention for churches with open tickets', () => {
       seedChurch(db, 'c1', 'Ticket Church');
       seedTickets(db, 'c1', 1);
-      churches.set('c1', { ws: createMockWs(true), status: {}, lastSeen: new Date().toISOString() });
+      churches.set('c1', mockChurchEntry(true, { lastSeen: new Date().toISOString() }));
 
       const req = buildReq();
       const res = callRoute('get', routePath, req);

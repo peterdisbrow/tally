@@ -2631,7 +2631,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   app.get('/api/admin/overview', requireAdminSession, (req, res) => {
     const totalChurches = db.prepare('SELECT COUNT(*) AS cnt FROM churches').get().cnt;
     const totalResellers = db.prepare('SELECT COUNT(*) AS cnt FROM resellers WHERE active=1').get().cnt;
-    const onlineNow = Array.from(churches.values()).filter(c => c.ws?.readyState === WebSocket.OPEN).length;
+    const onlineNow = Array.from(churches.values()).filter(c => c.sockets?.size && [...c.sockets.values()].some(s => s.readyState === WebSocket.OPEN)).length;
     let activeAlerts = 0;
     try {
       activeAlerts = db.prepare(
@@ -2756,7 +2756,11 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     const row = db.prepare('SELECT * FROM churches WHERE churchId=?').get(id);
     if (!row) return res.status(404).json({ error: 'Church not found' });
     const church = churches.get(id);
-    if (church?.ws?.readyState === WebSocket.OPEN) church.ws.close(1000, 'deleted by admin');
+    if (church?.sockets?.size) {
+      for (const sock of church.sockets.values()) {
+        if (sock.readyState === WebSocket.OPEN) sock.close(1000, 'deleted by admin');
+      }
+    }
 
     // Cascade-delete all related records via explicit allowlist (no dynamic SQL)
     const ALLOWED_CASCADE_DELETES = [
@@ -2998,7 +3002,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     if (!churchRow) return res.status(404).json({ error: 'Church not found' });
 
     const runtime = churches.get(churchId);
-    const online = runtime?.ws?.readyState === WebSocket.OPEN;
+    const online = !!(runtime?.sockets?.size && [...runtime.sockets.values()].some(s => s.readyState === WebSocket.OPEN));
 
     // ── Church info ──
     const church = {
@@ -3211,19 +3215,26 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     if (!churchRow) return res.status(404).json({ error: 'Church not found' });
 
     const runtime = churches.get(churchId);
-    if (!runtime?.ws || runtime.ws.readyState !== WebSocket.OPEN) {
+    const openSockets = [];
+    if (runtime?.sockets?.size) {
+      for (const sock of runtime.sockets.values()) {
+        if (sock.readyState === WebSocket.OPEN) openSockets.push(sock);
+      }
+    }
+    if (openSockets.length === 0) {
       return res.status(409).json({ error: 'Church client is not connected' });
     }
 
     const commandId = uuidv4();
+    const payload = JSON.stringify({
+      type: 'command',
+      id: commandId,
+      command,
+      params: params || {},
+      source: 'admin',
+    });
     try {
-      runtime.ws.send(JSON.stringify({
-        type: 'command',
-        id: commandId,
-        command,
-        params: params || {},
-        source: 'admin',
-      }));
+      for (const sock of openSockets) sock.send(payload);
       auditFromReq(req, 'admin_command_sent', 'church', churchId, { command, commandId });
       res.json({ sent: true, commandId });
     } catch (e) {
@@ -3259,15 +3270,18 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         // Broadcast to app & telegram via chatEngine broadcasters
         chatEngine.broadcastChat(savedMessage);
       } else {
-        // Fallback: send directly via WebSocket to the church
+        // Fallback: send directly via WebSocket to all church instances
         const runtime = churches.get(churchId);
-        if (targetList.includes('app') && runtime?.ws?.readyState === WebSocket.OPEN) {
-          runtime.ws.send(JSON.stringify({
+        if (targetList.includes('app') && runtime?.sockets?.size) {
+          const payload = JSON.stringify({
             type: 'admin_message',
             message: message.trim(),
             senderName: adminName,
             timestamp: new Date().toISOString(),
-          }));
+          });
+          for (const sock of runtime.sockets.values()) {
+            if (sock.readyState === WebSocket.OPEN) sock.send(payload);
+          }
         }
       }
     } catch (e) {
@@ -3287,7 +3301,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
     const churchList = rows.map(row => {
       const runtime = churches.get(row.churchId);
-      const online = runtime?.ws?.readyState === WebSocket.OPEN;
+      const online = !!(runtime?.sockets?.size && [...runtime.sockets.values()].some(s => s.readyState === WebSocket.OPEN));
 
       // Health score
       let score = null;

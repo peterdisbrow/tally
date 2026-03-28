@@ -150,7 +150,7 @@ describe('GET /api/churches', () => {
   it('church.connected is true when ws.readyState === 1 (WebSocket.OPEN)', async () => {
     db.prepare("INSERT INTO churches (churchId, name) VALUES (?, ?)").run('ch1', 'Connected Church');
     const churches = new Map([
-      ['ch1', { churchId: 'ch1', name: 'Connected Church', status: 'ok', lastSeen: null, ws: { readyState: 1 } }],
+      ['ch1', { churchId: 'ch1', name: 'Connected Church', status: 'ok', lastSeen: null, ws: { readyState: 1 }, sockets: new Map([['_default', { readyState: 1 }]]) }],
     ]);
     const ctx = makeCtx(db, churches);
     const { app, routes: r } = makeApp();

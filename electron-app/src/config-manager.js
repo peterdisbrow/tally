@@ -267,6 +267,74 @@ function importPortableConfig(portableBlob) {
   return { ok: true };
 }
 
+// ─── Per-room equipment config ───────────────────────────────────────────────
+// Equipment keys that are stored per-room. Everything else is global.
+const ROOM_EQUIPMENT_KEYS = [
+  'atemIp', 'companionUrl', 'obsUrl', 'obsPassword',
+  'hyperdecks', 'videoHubs', 'ptz',
+  'proPresenter', 'vmix', 'resolume', 'mixer',
+  'encoders', 'encoder',
+  'encoderType', 'encoderHost', 'encoderPort', 'encoderPassword',
+  'encoderLabel', 'encoderStatusUrl', 'encoderSource',
+  'rtmpUrl', 'audioViaAtem', 'audioViaAtemOverride',
+];
+
+/**
+ * Extract the equipment-only fields from a config object.
+ */
+function extractEquipment(config) {
+  const equip = {};
+  for (const key of ROOM_EQUIPMENT_KEYS) {
+    if (config[key] !== undefined) equip[key] = config[key];
+  }
+  return equip;
+}
+
+/**
+ * Save current equipment under the given room name, then load
+ * equipment for the target room (if it exists).
+ *
+ * @param {string} fromRoom — current room name ('' for default)
+ * @param {string} toRoom   — target room name ('' for default)
+ * @returns {{ loaded: boolean }} — true if target room had saved config
+ */
+function switchRoomConfig(fromRoom, toRoom) {
+  const config = loadConfig();
+  if (!config.roomConfigs) config.roomConfigs = {};
+
+  const fromKey = fromRoom || '_default';
+  const toKey   = toRoom   || '_default';
+
+  // Save current equipment to the room we're leaving
+  config.roomConfigs[fromKey] = extractEquipment(config);
+
+  // Load equipment for the room we're entering (if previously saved)
+  const targetEquip = config.roomConfigs[toKey];
+  let loaded = false;
+  if (targetEquip && typeof targetEquip === 'object') {
+    // Clear existing equipment, then apply saved room config
+    for (const key of ROOM_EQUIPMENT_KEYS) {
+      config[key] = targetEquip[key] !== undefined ? targetEquip[key] : undefined;
+    }
+    loaded = true;
+  }
+
+  saveConfig(config);
+  return { loaded };
+}
+
+/**
+ * Persist the current equipment fields under the active room name.
+ * Called automatically after save-equipment so per-room state stays in sync.
+ */
+function saveCurrentRoomEquipment() {
+  const config = loadConfig();
+  const roomKey = config.roomName || '_default';
+  if (!config.roomConfigs) config.roomConfigs = {};
+  config.roomConfigs[roomKey] = extractEquipment(config);
+  saveConfig(config);
+}
+
 /**
  * Atomically wipe the config file without merging.
  * Used by sign-out to guarantee no credential bleed.
@@ -297,6 +365,9 @@ module.exports = {
   getSanitizedConfigForExport,
   exportPortableConfig,
   importPortableConfig,
+  switchRoomConfig,
+  saveCurrentRoomEquipment,
+  ROOM_EQUIPMENT_KEYS,
   CONFIG_PATH,
   CONFIG_DIR,
 };

@@ -150,6 +150,7 @@ const INVOKE_CHANNELS = [
   ['onboardingState',         'onboarding-state'],
   ['sendCommand',             'send-command'],
   ['sendDiagnosticBundle',    'send-diagnostic-bundle'],
+  ['switchRoom',              'switch-room'],
 ];
 
 const EVENT_CHANNELS = [

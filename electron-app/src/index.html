@@ -197,37 +197,44 @@
     </div>
 
     <!-- ATEM Status -->
-    <div class="section">
-      <h2>ATEM Switcher</h2>
-      <div class="info-grid">
-        <div class="info-card" title="ATEM switcher model detected on the network">
-          <div class="label">Model</div>
-          <div class="value muted" id="val-atem-model">—</div>
-        </div>
-        <div class="info-card" title="Currently live program output source on the ATEM">
-          <div class="label">Program</div>
-          <div class="value muted" id="val-program">—</div>
-        </div>
-        <div class="info-card" title="Next source queued on preview bus">
-          <div class="label">Preview</div>
-          <div class="value muted" id="val-preview">—</div>
-        </div>
-        <div class="info-card" title="Whether the ATEM is currently recording to disk">
-          <div class="label">Recording</div>
-          <div class="value muted" id="val-recording">—</div>
-        </div>
-        <div class="info-card" title="Bitfocus Companion macro controller connection">
-          <div class="label">Companion</div>
-          <div class="value muted" id="val-companion">—</div>
-        </div>
+    <div class="section collapsible-section" id="section-atem">
+      <div class="section-toggle" onclick="toggleCollapsible('section-atem')">
+        <h2>ATEM Switcher</h2>
       </div>
-      <!-- Audio delay warning — only visible when program input has non-zero delay -->
-      <div id="val-audio-delay" style="display:none; margin-top:8px; padding:6px 10px; background:rgba(234,179,8,0.12); border:1px solid rgba(234,179,8,0.3); border-radius:6px; font-size:11px; color:#eab308; font-family:var(--mono);"></div>
+      <div class="section-body">
+        <div class="info-grid">
+          <div class="info-card" title="ATEM switcher model detected on the network">
+            <div class="label">Model</div>
+            <div class="value muted" id="val-atem-model">—</div>
+          </div>
+          <div class="info-card" title="Currently live program output source on the ATEM">
+            <div class="label">Program</div>
+            <div class="value muted" id="val-program">—</div>
+          </div>
+          <div class="info-card" title="Next source queued on preview bus">
+            <div class="label">Preview</div>
+            <div class="value muted" id="val-preview">—</div>
+          </div>
+          <div class="info-card" title="Whether the ATEM is currently recording to disk">
+            <div class="label">Recording</div>
+            <div class="value muted" id="val-recording">—</div>
+          </div>
+          <div class="info-card" title="Bitfocus Companion macro controller connection">
+            <div class="label">Companion</div>
+            <div class="value muted" id="val-companion">—</div>
+          </div>
+        </div>
+        <!-- Audio delay warning — only visible when program input has non-zero delay -->
+        <div id="val-audio-delay" style="display:none; margin-top:8px; padding:6px 10px; background:rgba(234,179,8,0.12); border:1px solid rgba(234,179,8,0.3); border-radius:6px; font-size:11px; color:#eab308; font-family:var(--mono);"></div>
+      </div>
     </div>
 
     <!-- Streaming Encoder Status -->
-    <div class="section" id="encoder-status-section">
-      <h2 id="encoder-section-title">Streaming Encoder</h2>
+    <div class="section collapsible-section" id="encoder-status-section">
+      <div class="section-toggle" onclick="toggleCollapsible('encoder-status-section')">
+        <h2 id="encoder-section-title">Streaming Encoder</h2>
+      </div>
+      <div class="section-body">
       <!-- Multi-encoder status bar (hidden when single encoder) -->
       <div class="multi-encoder-bar" id="multi-encoder-bar" style="display:none;"></div>
       <!-- Primary encoder info grid (always shown) -->
@@ -251,35 +258,38 @@
       </div>
       <!-- Per-encoder detail cards (only rendered when multiple encoders) -->
       <div id="multi-encoder-cards" style="display:none; margin-top:8px;"></div>
+      </div>
     </div>
 
     <!-- Signal Failover Status (hidden when failover not enabled) -->
-    <div class="section failover-section" id="failover-status-section" style="display:none;">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+    <div class="section collapsible-section failover-section" id="failover-status-section" style="display:none;">
+      <div class="section-toggle" onclick="toggleCollapsible('failover-status-section')" style="display:flex; align-items:center; justify-content:space-between;">
         <h2>Signal Failover</h2>
         <div class="failover-state-badge" id="failover-state-badge">HEALTHY</div>
       </div>
-      <div class="failover-diagnosis" id="failover-diagnosis" style="display:none;"></div>
-      <div class="failover-countdown" id="failover-countdown" style="display:none;"></div>
-      <div class="info-grid">
-        <div class="info-card">
-          <div class="label">State</div>
-          <div class="value muted" id="val-failover-state">—</div>
+      <div class="section-body">
+        <div class="failover-diagnosis" id="failover-diagnosis" style="display:none;"></div>
+        <div class="failover-countdown" id="failover-countdown" style="display:none;"></div>
+        <div class="info-grid">
+          <div class="info-card">
+            <div class="label">State</div>
+            <div class="value muted" id="val-failover-state">—</div>
+          </div>
+          <div class="info-card">
+            <div class="label">Safe Source</div>
+            <div class="value muted" id="val-failover-safe-source">—</div>
+          </div>
+          <div class="info-card">
+            <div class="label">Outage Duration</div>
+            <div class="value muted" id="val-failover-outage-duration">—</div>
+          </div>
+          <div class="info-card">
+            <div class="label">Auto-Recover</div>
+            <div class="value muted" id="val-failover-auto-recover">—</div>
+          </div>
         </div>
-        <div class="info-card">
-          <div class="label">Safe Source</div>
-          <div class="value muted" id="val-failover-safe-source">—</div>
-        </div>
-        <div class="info-card">
-          <div class="label">Outage Duration</div>
-          <div class="value muted" id="val-failover-outage-duration">—</div>
-        </div>
-        <div class="info-card">
-          <div class="label">Auto-Recover</div>
-          <div class="value muted" id="val-failover-auto-recover">—</div>
-        </div>
+        <div class="failover-timeline" id="failover-timeline" style="margin-top:8px;"></div>
       </div>
-      <div class="failover-timeline" id="failover-timeline" style="margin-top:8px;"></div>
     </div>
 
 
@@ -319,8 +329,11 @@
     </div>
 
     <!-- ProPresenter Detail -->
-    <div class="section" id="section-propresenter" style="display:none;">
-      <h2>ProPresenter</h2>
+    <div class="section collapsible-section" id="section-propresenter" style="display:none;">
+      <div class="section-toggle" onclick="toggleCollapsible('section-propresenter')">
+        <h2>ProPresenter</h2>
+      </div>
+      <div class="section-body">
       <div class="info-grid">
         <div class="info-card">
           <div class="label">Presentation</div>
@@ -347,11 +360,15 @@
           <div class="value muted" id="val-pp-notes" style="font-size:11px; white-space:pre-wrap; max-height:60px; overflow-y:auto;">—</div>
         </div>
       </div>
+      </div>
     </div>
 
     <!-- Rundown Panel -->
-    <div class="section rundown-panel" id="rundown-panel" style="display:none;">
-      <h2>Rundown</h2>
+    <div class="section collapsible-section rundown-panel" id="rundown-panel" style="display:none;">
+      <div class="section-toggle" onclick="toggleCollapsible('rundown-panel')">
+        <h2>Rundown</h2>
+      </div>
+      <div class="section-body">
       <div id="rundown-inactive" style="display:none;">
         <p style="color:var(--dim); font-size:12px; font-family:var(--mono);">No active rundown. Set one up in the <a href="#" class="ext-link" data-url="https://tallyconnect.app/church-portal" style="color:var(--green);">Church Portal</a>.</p>
       </div>
@@ -368,6 +385,7 @@
           <button class="btn-small btn-secondary" id="rundown-end-btn" onclick="endRundown()" style="margin-left:auto; color:var(--danger); border-color:var(--danger);">End</button>
         </div>
         <div class="rundown-steps-list" id="rundown-steps-list" style="margin-top:10px;"></div>
+      </div>
       </div>
     </div>
 

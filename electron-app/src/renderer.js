@@ -23,6 +23,11 @@ function restoreCollapsibleStates() {
     'section-device-identity': true,
     'section-activity': true,
     'section-raw-logs': true,
+    'section-atem': false,
+    'encoder-status-section': false,
+    'failover-status-section': false,
+    'section-propresenter': false,
+    'rundown-panel': false,
   };
   const merged = { ...defaults, ...states };
   for (const [id, collapsed] of Object.entries(merged)) {
@@ -2988,9 +2993,9 @@ async function assignRoomFromPicker(roomId) {
 
       // Switch per-room equipment config: save current room's gear, load target room's gear
       if (oldRoom !== newRoom) {
-        const result = await api.switchRoom(oldRoom, newRoom);
+        const result = await api.switchRoom(oldRoom, newRoom, roomId);
         if (result.loaded) {
-          console.log(`[Room] Loaded saved equipment config for "${newRoom}"`);
+          console.log(`[Room] Loaded equipment config for "${newRoom}" (source: ${result.source || 'local'})`);
         } else {
           console.log(`[Room] No saved equipment config for "${newRoom}" — keeping current gear`);
         }
