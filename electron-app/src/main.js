@@ -319,6 +319,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
     titleBarStyle: 'hiddenInset',
+    // Explicitly position traffic lights so Electron correctly calculates the
+    // drag region boundary on all macOS versions (critical for arm64/Apple Silicon)
+    trafficLightPosition: { x: 12, y: 14 },
     title: 'Tally',
     show: false,
   };

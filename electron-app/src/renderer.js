@@ -287,6 +287,7 @@ function asyncConfirm(message) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    overlay.dataset.asyncOverlay = '1'; // allow hideAllViews() to remove stuck overlays
     const box = document.createElement('div');
     box.style.cssText = 'background:var(--card,#1e293b);border:1px solid var(--border,#334155);border-radius:10px;padding:20px 24px;max-width:360px;color:var(--white,#f1f5f9);font-size:13px;line-height:1.5;text-align:center;';
     const msg = document.createElement('div');
@@ -333,6 +334,7 @@ function asyncStreamGuardConfirm(action, severity = 'critical') {
 
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    overlay.dataset.asyncOverlay = '1'; // allow hideAllViews() to remove stuck overlays
 
     const box = document.createElement('div');
     box.style.cssText = `background:var(--card,#1e293b);border:2px solid ${accentColor};border-radius:12px;padding:0;max-width:380px;width:90%;color:var(--white,#f1f5f9);font-size:13px;line-height:1.5;overflow:hidden;box-shadow:0 0 40px rgba(0,0,0,0.6);`;
@@ -398,7 +400,10 @@ async function init() {
   try {
     if (!api) throw new Error('Desktop bridge unavailable (window.electronAPI missing).');
 
-    if (/^mac/i.test(navigator.platform)) document.body.classList.add('is-mac');
+    // Use process.platform (via preload bridge) for reliable macOS detection on Apple Silicon.
+    // navigator.platform returns "" on arm64 in Electron 35+, breaking is-mac CSS.
+    const isMac = api.getPlatform ? api.getPlatform() === 'darwin' : /^mac/i.test(navigator.platform);
+    if (isMac) document.body.classList.add('is-mac');
     await hydrateNetworkInterfaceSelect();
     const wizNic = document.getElementById('wiz-scan-nic');
     if (wizNic) {
@@ -524,6 +529,8 @@ function hideAllViews() {
   document.getElementById('sign-in').classList.remove('active');
   document.getElementById('wizard').classList.remove('active');
   document.getElementById('dashboard').classList.remove('active');
+  // Remove any stuck confirm/prompt overlays that would block all clicks.
+  document.querySelectorAll('[data-async-overlay]').forEach(el => el.remove());
 }
 
 function showSignIn() {
@@ -1138,9 +1145,11 @@ async function completeOnboarding() {
 }
 
 function skipToManualSetup() {
-  api.saveConfig({ setupComplete: true }).then(() => {
+  api.saveConfig({ setupComplete: true }).then(async () => {
     showDashboard();
     switchTab('equipment');
+    try { await api.startAgent(); isRunning = true; } catch {}
+    updateToggleBtn();
   });
 }
 

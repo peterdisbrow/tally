@@ -224,6 +224,7 @@ body.is-mac .header .header-title {
 .collapsible-section.collapsed > .section-body {
   max-height: 0;
   opacity: 0;
+  pointer-events: none; /* prevent invisible collapsed content from intercepting clicks */
   margin: 0;
   padding: 0;
 }
@@ -1088,8 +1089,10 @@ button:focus-visible {
 .btn-save:disabled { opacity: 0.5; cursor: default; }
 
 /* ── Sign-In Screen ────────────────────────────────────────── */
-body { opacity: 0; transition: opacity 0.15s; }
-body.ready { opacity: 1; }
+/* Fade-in on init. Explicit pointer-events prevents GPU compositing layer from
+   leaving the body non-interactive on Apple Silicon during/after the transition. */
+body { opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+body.ready { opacity: 1; pointer-events: auto; }
 
 .sign-in { display: none; }
 .sign-in.active {
