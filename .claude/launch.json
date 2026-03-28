@@ -7,6 +7,12 @@
       "runtimeArgs": ["serve", "electron-app/src", "--no-clipboard"],
       "port": 5557,
       "autoPort": false
+    },
+    {
+      "name": "relay-server",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["relay-server/server.js"],
+      "port": 3000
     }
   ]
 }

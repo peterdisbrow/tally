@@ -141,6 +141,12 @@
   <!-- ══════════ STATUS TAB ══════════ -->
   <div class="content tab-content active" id="tab-status" style="flex:1; overflow-y:auto;">
 
+    <!-- System Check Quick Action -->
+    <div class="section" id="system-check-bar" style="display:flex; align-items:center; justify-content:space-between; padding:8px 12px;">
+      <button class="btn-small" id="btn-system-check" onclick="runQuickSystemCheck()" style="font-size:11px;">Run System Check</button>
+      <span id="system-check-result" style="font-size:11px; font-family:var(--mono); color:var(--muted);"></span>
+    </div>
+
     <!-- Pre-Service Readiness Widget -->
     <div class="section preservice-readiness" id="preservice-readiness" style="display:none;">
       <div class="readiness-bar" id="readiness-bar">
@@ -216,13 +222,9 @@
             <div class="label">Preview</div>
             <div class="value muted" id="val-preview">—</div>
           </div>
-          <div class="info-card" title="ATEM built-in recording status and controls" style="grid-column: 1 / -1;">
+          <div class="info-card" title="Whether the ATEM is currently recording to disk">
             <div class="label">Recording</div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <div class="value muted" id="val-recording">—</div>
-              <button class="btn-small" id="btn-atem-rec-start" onclick="atemRecordStart()" style="display:none; font-size:10px; padding:2px 8px;">Start</button>
-              <button class="btn-small btn-secondary" id="btn-atem-rec-stop" onclick="atemRecordStop()" style="display:none; font-size:10px; padding:2px 8px;">Stop</button>
-            </div>
+            <div class="value muted" id="val-recording">—</div>
             <div id="atem-rec-detail" style="display:none; font-size:10px; color:var(--dim); margin-top:4px; font-family:var(--mono);"></div>
           </div>
           <div class="info-card" title="Bitfocus Companion macro controller connection">
@@ -788,8 +790,6 @@
     <button class="btn-start" id="btn-toggle" onclick="toggleAgent()">Start Monitoring</button>
     <button class="btn-secondary btn-small" onclick="testConn()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M6 1.75A.75.75 0 0 1 6.75 1h2.5a.75.75 0 0 1 0 1.5h-.75v1.75h3A1.5 1.5 0 0 1 13 5.75v3.5A1.5 1.5 0 0 1 11.5 10.75H11V12a1 1 0 0 1-1 1H9v1.25a.75.75 0 0 1-1.5 0V13H6a1 1 0 0 1-1-1v-1.25H4.5A1.5 1.5 0 0 1 3 9.25v-3.5A1.5 1.5 0 0 1 4.5 4.25h3V2.5H6.75A.75.75 0 0 1 6 1.75Z" clip-rule="evenodd"/></svg> Test</button>
     <button class="btn-secondary btn-small" onclick="exportLogs()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3Zm3.5 2.25a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-5ZM5.75 9a.75.75 0 0 0 0 1.5h3a.75.75 0 0 0 0-1.5h-3Z" clip-rule="evenodd"/></svg> Logs</button>
-    <button class="btn-secondary btn-small" onclick="exportPortableConfig()">Export Config</button>
-    <button class="btn-secondary btn-small" onclick="importPortableConfig()">Import Config</button>
     <button class="btn-secondary btn-small" onclick="showEquipmentWizard()">⚙️ Setup</button>
     <button class="btn-secondary btn-small" onclick="doSignOut()">Sign Out</button>
   </div>

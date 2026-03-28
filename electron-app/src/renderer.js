@@ -1533,6 +1533,31 @@ async function endRundown() {
   }
 }
 
+// ─── QUICK SYSTEM CHECK ───────────────────────────────────────────────────
+async function runQuickSystemCheck() {
+  const btn = document.getElementById('btn-system-check');
+  const result = document.getElementById('system-check-result');
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking...'; }
+  if (result) result.textContent = '';
+  try {
+    const api = window.electronAPI;
+    if (!api?.pfAnalyze) { if (result) result.textContent = 'Not available'; return; }
+    const report = await api.pfAnalyze();
+    const issues = (report?.report?.diagnostics?.issues || []).filter(i => i.id !== 'no_issues_detected');
+    if (issues.length === 0) {
+      if (result) { result.textContent = 'All clear'; result.style.color = 'var(--green)'; }
+    } else {
+      if (result) {
+        result.innerHTML = `<span style="color:var(--warn);">${issues.length} issue${issues.length !== 1 ? 's' : ''} found</span> <a href="#" onclick="switchTab('engineer'); return false;" style="color:var(--green); margin-left:6px;">View in Tally Engineer</a>`;
+      }
+    }
+  } catch {
+    if (result) { result.textContent = 'Check failed'; result.style.color = 'var(--red, #f44)'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Run System Check'; }
+  }
+}
+
 // ─── ATEM RECORDING CONTROLS ──────────────────────────────────────────────
 async function atemRecordStart() {
   const btn = document.getElementById('btn-atem-rec-start');
@@ -1706,28 +1731,23 @@ function updateStatusUI(status) {
     setStatusValue('val-preview', atemConnected ? 'Detecting...' : '—', false);
   }
 
-  // ATEM recording status + controls
-  const recStartBtn = document.getElementById('btn-atem-rec-start');
-  const recStopBtn = document.getElementById('btn-atem-rec-stop');
+  // ATEM recording status
   const recDetail = document.getElementById('atem-rec-detail');
   if (atemData.recording !== undefined) {
     const isRec = atemData.recording === true;
     setStatusValue('val-recording', isRec ? '● Recording' : 'Stopped', isRec);
-    if (recStartBtn) recStartBtn.style.display = atemConnected && !isRec ? '' : 'none';
-    if (recStopBtn) recStopBtn.style.display = atemConnected && isRec ? '' : 'none';
-    // Show duration and disk info if available
     if (recDetail) {
       const parts = [];
-      if (atemData.recordingDuration) {
+      if (isRec && atemData.recordingDuration) {
         const d = atemData.recordingDuration;
-        parts.push(`Duration: ${d.hours || 0}h ${d.minutes || 0}m ${d.seconds || 0}s`);
+        parts.push(`${d.hours || 0}h ${d.minutes || 0}m ${d.seconds || 0}s`);
       }
       if (atemData.recordingTimeAvailable > 0) {
         const mins = Math.floor(atemData.recordingTimeAvailable / 60);
         const hrs = Math.floor(mins / 60);
         parts.push(`${hrs}h ${mins % 60}m remaining`);
       }
-      if (atemData.recordingError && atemData.recordingError !== 2) { // 2 = None
+      if (atemData.recordingError && atemData.recordingError !== 2) {
         const errMap = { 0: 'No Media', 1: 'No Media', 4: 'Media Full', 8: 'Disk Error' };
         parts.push(`Error: ${errMap[atemData.recordingError] || 'Unknown'}`);
       }
@@ -1736,8 +1756,6 @@ function updateStatusUI(status) {
     }
   } else if (!atemConnected) {
     setStatusValue('val-recording', '—', false);
-    if (recStartBtn) recStartBtn.style.display = 'none';
-    if (recStopBtn) recStopBtn.style.display = 'none';
     if (recDetail) recDetail.style.display = 'none';
   }
 
@@ -1764,9 +1782,9 @@ function updateStatusUI(status) {
       streamEl.classList.toggle('active', true);
       streamEl.classList.toggle('muted', false);
     }
-  } else if (typeof streaming === 'boolean') {
-    setStatusValue('val-stream', 'Off', false);
-  } else if (!encoderConnected) {
+  } else if (encoderConnected) {
+    setStatusValue('val-stream', 'Standby', null);
+  } else {
     setStatusValue('val-stream', '—', false);
   }
 
@@ -1774,7 +1792,9 @@ function updateStatusUI(status) {
     const fpsValue = Math.round(fps);
     const fpsHealthy = fpsValue >= 24;
     setStatusValue('val-fps', String(fpsValue), fpsHealthy);
-  } else if (!encoderConnected) {
+  } else if (encoderConnected) {
+    setStatusValue('val-fps', 'Idle', null);
+  } else {
     setStatusValue('val-fps', '—', false);
   }
 
@@ -1790,6 +1810,9 @@ function updateStatusUI(status) {
           : brText;
         brEl.classList.add('active');
         brEl.classList.remove('muted');
+      } else if (encoderConnected) {
+        brEl.textContent = 'Idle';
+        brEl.classList.remove('active', 'muted');
       } else {
         brEl.textContent = '—';
         brEl.classList.remove('active');
@@ -3118,17 +3141,21 @@ function renderSimpleDeviceList(eq) {
   const container = document.getElementById('simple-device-list');
   if (!container) return;
   const items = [];
-  if (eq.atemIp) items.push({ icon: '[sw]', name: 'ATEM Switcher', detail: eq.atemIp });
-  const encType = eq.encoderType || eq.encoder_type || '';
-  const encIp = eq.encoderIp || eq.encoder_ip || '';
-  if (encIp) {
-    const nameMap = { blackmagic: 'Blackmagic Encoder', obs: 'OBS Studio', vmix_encoder: 'vMix Encoder' };
-    items.push({ icon: '[enc]', name: nameMap[encType] || 'Encoder', detail: encIp });
+  if (eq.atemIp) items.push({ icon: '\uD83C\uDFAC', name: 'ATEM Switcher', detail: eq.atemIp });
+  // Encoder — check both single encoder and multi-encoder formats
+  const encType = eq.encoderType || '';
+  const encHost = eq.encoderHost || '';
+  if (encHost || encType) {
+    const nameMap = { blackmagic: 'Streaming Encoder', obs: 'OBS Studio', vmix: 'vMix Encoder', ecamm: 'Ecamm Live', teradek: 'Teradek', aja: 'AJA HELO', epiphan: 'Epiphan', birddog: 'BirdDog', tricaster: 'TriCaster', 'tally-encoder': 'Tally Encoder', 'atem-streaming': 'ATEM Mini' };
+    items.push({ icon: '\uD83D\uDCE1', name: nameMap[encType] || 'Encoder', detail: encHost || encType });
   }
-  if (eq.companionUrl) items.push({ icon: '[cmp]', name: 'Companion', detail: eq.companionUrl.replace(/^https?:\/\//, '') });
-  if (eq.proPresenterHost || eq.propresenterIp) items.push({ icon: '⛪', name: 'ProPresenter', detail: eq.proPresenterHost || eq.propresenterIp });
-  if (eq.vmixIp) items.push({ icon: '[vmx]', name: 'vMix', detail: eq.vmixIp });
-  if (eq.audioMixerIp) items.push({ icon: '[aud]', name: 'Audio Mixer', detail: eq.audioMixerIp });
+  if (eq.companionUrl) items.push({ icon: '\uD83C\uDFAE', name: 'Companion', detail: eq.companionUrl.replace(/^https?:\/\//, '') });
+  if (eq.proPresenterHost) items.push({ icon: '\u26EA', name: 'ProPresenter', detail: `${eq.proPresenterHost}:${eq.proPresenterPort || 1025}` });
+  if (eq.vmixHost) items.push({ icon: '\uD83C\uDFAC', name: 'vMix', detail: `${eq.vmixHost}:${eq.vmixPort || 8088}` });
+  if (eq.resolumeHost) items.push({ icon: '\uD83C\uDF1F', name: 'Resolume Arena', detail: `${eq.resolumeHost}:${eq.resolumePort || 8080}` });
+  if (eq.mixerHost) items.push({ icon: '\uD83C\uDFA4', name: `${(eq.mixerType || 'Mixer').toUpperCase()} Console`, detail: `${eq.mixerHost}:${eq.mixerPort || ''}` });
+  (eq.hyperdecks || []).forEach((h, i) => { const ip = typeof h === 'string' ? h : h.ip; if (ip) items.push({ icon: '\u23FA', name: `HyperDeck ${i + 1}`, detail: ip }); });
+  (eq.ptz || []).forEach((c, i) => { if (c.ip) items.push({ icon: '\uD83C\uDFA5', name: c.name || `PTZ ${i + 1}`, detail: c.ip }); });
   if (items.length === 0) {
     container.innerHTML = '<div style="color:var(--muted); font-size:12px; padding:12px;">No devices configured yet. Scan your network to get started.</div>';
     return;
@@ -3839,13 +3866,7 @@ async function loadPreServiceReadiness() {
     if (!widget) return;
 
     if (!data || data.error) {
-      // Show widget in dimmed state instead of hiding
-      widget.style.display = '';
-      widget.style.opacity = '0.5';
-      const text = document.getElementById('readiness-text');
-      const icon = document.getElementById('readiness-icon');
-      if (icon) icon.textContent = '\u2014';
-      if (text) text.textContent = 'Pre-service check unavailable';
+      widget.style.display = 'none';
       return;
     }
 
@@ -3899,14 +3920,7 @@ async function loadPreServiceReadiness() {
   } catch (e) {
     console.warn('Pre-service readiness load failed:', e);
     const widget = document.getElementById('preservice-readiness');
-    if (widget) {
-      widget.style.display = '';
-      widget.style.opacity = '0.5';
-      const text = document.getElementById('readiness-text');
-      const icon = document.getElementById('readiness-icon');
-      if (icon) icon.textContent = '\u2014';
-      if (text) text.textContent = 'Pre-service check unavailable';
-    }
+    if (widget) widget.style.display = 'none';
   }
 }
 

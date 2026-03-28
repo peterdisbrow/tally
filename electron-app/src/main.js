@@ -738,7 +738,7 @@ function startAgent() {
 
   // Set encoder type label from config so UI can adapt
   const encoderTypeNames = {
-    obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Blackmagic',
+    obs: 'OBS', vmix: 'vMix', ecamm: 'Ecamm', blackmagic: 'Streaming Encoder',
     aja: 'AJA HELO', epiphan: 'Epiphan', teradek: 'Teradek',
     yolobox: 'YoloBox', 'tally-encoder': 'Tally Encoder',
     custom: 'Custom', 'custom-rtmp': 'Custom RTMP', 'rtmp-generic': 'RTMP',
