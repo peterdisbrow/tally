@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   onStatus: (cb) => ipcRenderer.on('status', (_, data) => cb(data)),
   onAuthInvalid: (cb) => ipcRenderer.on('auth-invalid', () => cb()),
+  onSignedOut: (cb) => ipcRenderer.on('signed-out', () => cb()),
   onLog: (cb) => ipcRenderer.on('log', (_, data) => cb(data)),
   onPreviewFrame: (cb) => ipcRenderer.on('preview-frame', (_, data) => cb(data)),
   onUpdateReady: (cb) => ipcRenderer.on('update-ready', () => cb()),

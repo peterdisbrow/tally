@@ -432,30 +432,14 @@ function updateTray() {
     { label: t('tray.signOut'), click: async () => {
       const { response } = await dialog.showMessageBox({
         type: 'question',
-        buttons: ['Cancel', 'Sign Out'],
-        defaultId: 0,
-        cancelId: 0,
-        message: 'Sign out of Tally Connect?',
-        detail: 'This will stop monitoring and remove your credentials from this device.',
+        buttons: ['Sign Out', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        message: 'Sign out? This will stop all monitoring.',
       });
-      if (response === 1) {
-        stopAgent();
-        const config = loadConfig();
-        const SENSITIVE_KEYS = [
-          'token', 'churchToken', 'setupComplete',
-          'obsPassword', 'youtubeApiKey', 'facebookAccessToken',
-          'rtmpStreamKey', 'twitchStreamKey', 'adminApiKey',
-          'youtubeOAuthAccessToken', 'youtubeOAuthRefreshToken',
-          'facebookOAuthAccessToken', 'youtubeStreamKey', 'facebookStreamKey',
-          'youtubeStreamUrl', 'facebookStreamUrl', 'facebookPageName',
-        ];
-        for (const key of SENSITIVE_KEYS) { delete config[key]; }
-        saveConfig(config);
-        agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
-        mainWindow?.webContents.send('status', agentStatus);
-        mainWindow?.webContents.send('auth-invalid');
-        mainWindow?.show();
-      }
+      if (response !== 0) return;
+      performSignOut();
+      mainWindow?.show();
     }},
     { label: t('tray.quit'), click: () => { app.isQuitting = true; stopAgent(); app.exit(0); } },
   ]);
@@ -1080,25 +1064,30 @@ ipcMain.handle('validate-token', async () => {
   }
 });
 
+function performSignOut() {
+  stopAgent();
+  const config = loadConfig();
+  // Clear all sensitive credentials — not just the session token
+  const SENSITIVE_KEYS = [
+    'token', 'churchToken', 'setupComplete',
+    'obsPassword', 'youtubeApiKey', 'facebookAccessToken',
+    'rtmpStreamKey', 'twitchStreamKey', 'adminApiKey',
+    'youtubeOAuthAccessToken', 'youtubeOAuthRefreshToken',
+    'facebookOAuthAccessToken', 'youtubeStreamKey', 'facebookStreamKey',
+    'youtubeStreamUrl', 'facebookStreamUrl', 'facebookPageName',
+  ];
+  for (const key of SENSITIVE_KEYS) {
+    delete config[key];
+  }
+  saveConfig(config);
+  agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
+  mainWindow?.webContents.send('status', agentStatus);
+  mainWindow?.webContents.send('signed-out');
+}
+
 ipcMain.handle('sign-out', async () => {
   try {
-    stopAgent();
-    const config = loadConfig();
-    // Clear all sensitive credentials — not just the session token
-    const SENSITIVE_KEYS = [
-      'token', 'churchToken', 'setupComplete',
-      'obsPassword', 'youtubeApiKey', 'facebookAccessToken',
-      'rtmpStreamKey', 'twitchStreamKey', 'adminApiKey',
-      'youtubeOAuthAccessToken', 'youtubeOAuthRefreshToken',
-      'facebookOAuthAccessToken', 'youtubeStreamKey', 'facebookStreamKey',
-      'youtubeStreamUrl', 'facebookStreamUrl', 'facebookPageName',
-    ];
-    for (const key of SENSITIVE_KEYS) {
-      delete config[key];
-    }
-    saveConfig(config);
-    agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
-    mainWindow?.webContents.send('status', agentStatus);
+    performSignOut();
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
