@@ -92,19 +92,25 @@ function tryTcpConnect(ip, port, timeoutMs = 300) {
 
 /**
  * Fingerprint a Blackmagic Videohub by reading the TCP banner on port 9990.
- * Real Videohubs send "PROTOCOL PREAMBLE:\nVersion: ..." immediately on connect.
- * Returns true only if the banner matches, false for any other service on that port.
+ * Real Videohubs send a multi-block banner starting with "PROTOCOL PREAMBLE:"
+ * followed by a "VIDEOHUB DEVICE:" block identifying the model.
+ *
+ * Other Blackmagic products (SmartScope, MultiView, cameras) also speak this
+ * protocol on 9990 but identify as their own device type, so we specifically
+ * require the "VIDEOHUB DEVICE" block — "PROTOCOL PREAMBLE" alone is not enough.
+ *
+ * Returns { match: true, model } on success, or { match: false } otherwise.
  */
-function tryVideohubFingerprint(ip, port = 9990, timeoutMs = 1500) {
+function tryVideohubFingerprint(ip, port = 9990, timeoutMs = 2500) {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let resolved = false;
     let buf = '';
-    const done = (success) => {
+    const done = (result) => {
       if (resolved) return;
       resolved = true;
       socket.destroy();
-      resolve(success);
+      resolve(result);
     };
     socket.setTimeout(timeoutMs);
     socket.on('connect', () => {
@@ -112,17 +118,21 @@ function tryVideohubFingerprint(ip, port = 9990, timeoutMs = 1500) {
     });
     socket.on('data', (chunk) => {
       buf += chunk.toString('utf8');
-      // Check for Videohub protocol banner
-      if (buf.includes('PROTOCOL PREAMBLE') || buf.includes('VIDEOHUB DEVICE')) {
-        done(true);
-      } else if (buf.length > 512) {
-        // Got plenty of data but no Videohub banner — not a Videohub
-        done(false);
+
+      // Must contain the device-specific identification block, not just the
+      // generic protocol header that all Blackmagic devices share.
+      if (buf.includes('VIDEOHUB DEVICE')) {
+        const modelMatch = buf.match(/Model name:\s*(.+)/i);
+        done({ match: true, model: modelMatch ? modelMatch[1].trim() : null });
+      } else if (buf.length > 2048) {
+        // Received a large banner without "VIDEOHUB DEVICE" — not a Videohub
+        done({ match: false });
       }
+      // Otherwise keep accumulating — the device block may arrive in a later chunk
     });
-    socket.on('timeout', () => done(false));
-    socket.on('error', () => done(false));
-    socket.on('close', () => done(false));
+    socket.on('timeout', () => done({ match: false }));
+    socket.on('error', () => done({ match: false }));
+    socket.on('close', () => done({ match: false }));
     socket.connect(port, ip);
   });
 }
@@ -467,10 +477,10 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
         onProgress(5, 'Found possible Yamaha console on localhost (found)');
       } else if (check.type === 'videohub') {
         // Verify with protocol fingerprint — port 9990 alone is too common
-        const isReal = await tryVideohubFingerprint('127.0.0.1', check.port, 1500);
-        if (isReal) {
-          results.videohub.push({ ip: '127.0.0.1', port: check.port });
-          onProgress(5, 'Found Blackmagic Videohub on localhost (found)');
+        const fp = await tryVideohubFingerprint('127.0.0.1', check.port, 2500);
+        if (fp.match) {
+          results.videohub.push({ ip: '127.0.0.1', port: check.port, model: fp.model || null });
+          onProgress(5, `Found Blackmagic Videohub${fp.model ? ` (${fp.model})` : ''} on localhost (found)`);
         }
       } else if (check.type === 'tally-encoder') {
         const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/health`, 2000);
@@ -609,10 +619,10 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
               onProgress(null, `Found possible Yamaha console at ${ip}:${port} (found)`);
             } else if (type === 'videohub' && !results.videohub.find((d) => d.ip === ip)) {
               // Verify with protocol fingerprint — port 9990 alone is too common
-              const isReal = await tryVideohubFingerprint(ip, port, 1500);
-              if (isReal) {
-                results.videohub.push({ ip, port });
-                onProgress(null, `Found Blackmagic Videohub at ${ip} (found)`);
+              const fp = await tryVideohubFingerprint(ip, port, 2500);
+              if (fp.match) {
+                results.videohub.push({ ip, port, model: fp.model || null });
+                onProgress(null, `Found Blackmagic Videohub${fp.model ? ` (${fp.model})` : ''} at ${ip} (found)`);
               }
             } else if (type === 'tally-encoder' && !results.encoders.find((d) => d.ip === ip)) {
               const eResp = await tryHttpGet(`http://${ip}:${port}/health`, 2000);
