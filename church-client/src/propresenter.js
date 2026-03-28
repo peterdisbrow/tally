@@ -62,13 +62,13 @@ class ProPresenter extends EventEmitter {
 
   async isRunning() {
     try {
-      // Use GET (not HEAD) — ProPresenter 7's REST API may not support HEAD
-      // on /v1/version and could return 405, causing false negatives.
-      const resp = await fetch(`${this.baseUrl}/v1/version`, {
+      // Any HTTP response (even 404) proves PP is running.
+      // Only a network-level failure (ECONNREFUSED, timeout) means not running.
+      await fetch(`${this.baseUrl}/v1/version`, {
         signal: AbortSignal.timeout(3000),
       });
-      this.running = resp.ok;
-      return this.running;
+      this.running = true;
+      return true;
     } catch {
       this.running = false;
       return false;
