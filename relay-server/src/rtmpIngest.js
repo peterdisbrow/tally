@@ -104,8 +104,8 @@ function initRtmpIngest(db, broadcastToSSE) {
       '-c:v', 'copy',
       '-c:a', 'copy',
       '-f', 'hls',
-      '-hls_time', '2',
-      '-hls_list_size', '4',
+      '-hls_time', '3',
+      '-hls_list_size', '6',
       '-hls_flags', 'delete_segments',
       '-hls_segment_filename', path.join(hlsDir, 'seg%03d.ts'),
       path.join(hlsDir, 'live.m3u8'),
@@ -114,11 +114,30 @@ function initRtmpIngest(db, broadcastToSSE) {
     console.log(`[RTMP] Starting HLS transcoding for ${churchName} → ${hlsDir}`);
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
+    // Parse FFmpeg stderr for stream metadata (bitrate, fps, resolution)
+    const streamMeta = { bitrateKbps: 0, fps: 0, resolution: '', codec: '' };
+    let stderrBuf = '';
     ffmpeg.stderr.on('data', (data) => {
       const msg = data.toString();
+      stderrBuf += msg;
       if (msg.includes('error') || msg.includes('Error')) {
         console.error(`[RTMP/FFmpeg] ${churchName}: ${msg.trim()}`);
       }
+      // Parse stream info from FFmpeg output
+      // e.g. "Stream #0:0: Video: h264 (High), yuv420p, 1920x1080 [SAR 1:1 DAR 16:9], 59.94 fps"
+      const videoMatch = stderrBuf.match(/Stream #\d+:\d+.*Video:\s*(\w+).*?,\s*\w+,\s*(\d+x\d+).*?,\s*([\d.]+)\s*fps/);
+      if (videoMatch) {
+        streamMeta.codec = videoMatch[1];
+        streamMeta.resolution = videoMatch[2];
+        streamMeta.fps = parseFloat(videoMatch[3]);
+      }
+      // Parse bitrate from progress lines: "bitrate=4361.2kbits/s" or "bitrate= 4361.2kbits/s"
+      const brMatch = msg.match(/bitrate=\s*([\d.]+)kbits\/s/);
+      if (brMatch) {
+        streamMeta.bitrateKbps = Math.round(parseFloat(brMatch[1]));
+      }
+      // Keep buffer manageable
+      if (stderrBuf.length > 8000) stderrBuf = stderrBuf.slice(-4000);
     });
 
     ffmpeg.on('close', (code) => {
@@ -131,6 +150,7 @@ function initRtmpIngest(db, broadcastToSSE) {
       ffmpeg,
       startedAt: new Date().toISOString(),
       sessionId: session.id,
+      meta: streamMeta,
     });
 
     // Broadcast to admin SSE
@@ -238,9 +258,20 @@ function getActiveStreams() {
       churchId: info.churchId,
       churchName: info.churchName,
       startedAt: info.startedAt,
+      meta: info.meta || {},
     });
   }
   return result;
+}
+
+/**
+ * Get stream metadata for a specific church.
+ */
+function getStreamMeta(churchId) {
+  for (const info of activeStreams.values()) {
+    if (info.churchId === churchId) return info.meta || {};
+  }
+  return null;
 }
 
 /**
@@ -299,6 +330,7 @@ module.exports = {
   shutdownRtmpIngest,
   generateStreamKey,
   getActiveStreams,
+  getStreamMeta,
   isStreamActive,
   disconnectStream,
   getHlsDir,
