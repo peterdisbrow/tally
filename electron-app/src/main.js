@@ -663,6 +663,9 @@ function startAgent() {
   agentStatus.resolume = config.resolume?.host
     ? { connected: false, host: config.resolume.host, port: config.resolume.port || 8080, version: null }
     : null;
+  agentStatus.proPresenter = config.proPresenter?.host
+    ? { connected: false, running: false, host: config.proPresenter.host, port: config.proPresenter.port || 1025 }
+    : null;
 
   const nodeLabel = useElectronAsNode ? `${nodeBinary} (ELECTRON_RUN_AS_NODE)` : nodeBinary;
   appendAppLog('SYSTEM', `Starting agent (relay=${agentRelay}, name=${config.name || 'n/a'}, node=${nodeLabel}, script=${clientPaths.script})`);
@@ -704,6 +707,17 @@ function startAgent() {
     if (text.includes('Companion disconnected'))     { agentStatus.companion = false; statusChanged = true; }
     if (text.includes('Encoder connected'))          { agentStatus.encoder = true; statusChanged = true; }
     if (text.includes('Encoder disconnected'))       { agentStatus.encoder = false; statusChanged = true; }
+    if (text.includes('ProPresenter WebSocket connected')) {
+      if (!agentStatus.proPresenter || typeof agentStatus.proPresenter !== 'object') agentStatus.proPresenter = {};
+      agentStatus.proPresenter.connected = true;
+      agentStatus.proPresenter.running = true;
+      statusChanged = true;
+    }
+    if (text.includes('ProPresenter WebSocket disconnected') || text.includes('ProPresenter not reachable')) {
+      if (!agentStatus.proPresenter || typeof agentStatus.proPresenter !== 'object') agentStatus.proPresenter = {};
+      agentStatus.proPresenter.connected = false;
+      statusChanged = true;
+    }
     if (text.includes('Resolume Arena connected')) {
       if (!agentStatus.resolume || typeof agentStatus.resolume !== 'object') agentStatus.resolume = {};
       agentStatus.resolume.connected = true;
@@ -858,6 +872,9 @@ function startAgent() {
       failover: null,
       resolume: closedConfig.resolume?.host
         ? { connected: false, host: closedConfig.resolume.host, port: closedConfig.resolume.port || 8080, version: null }
+        : null,
+      proPresenter: closedConfig.proPresenter?.host
+        ? { connected: false, running: false, host: closedConfig.proPresenter.host, port: closedConfig.proPresenter.port || 1025 }
         : null,
     };
     mainWindow?.webContents.send('status', agentStatus);
