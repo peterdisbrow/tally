@@ -1294,6 +1294,8 @@ async function fixAllPreService() {
   const modalLog = document.getElementById('fix-all-modal-log');
   if (modal) {
     modal.style.display = 'flex';
+    modal.style.pointerEvents = '';
+    modal.setAttribute('aria-modal', 'true');
     if (modalLog) modalLog.innerHTML = '<div style="color:var(--muted)">Running fixes…</div>';
   }
 
@@ -1329,7 +1331,11 @@ async function fixAllPreService() {
 
 function closeFixAllModal() {
   const modal = document.getElementById('fix-all-modal');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.style.display = 'none';
+    modal.style.pointerEvents = 'none';
+    modal.removeAttribute('aria-modal');
+  }
 }
 
 // ─── RUNDOWN PANEL ─────────────────────────────────────────────────────────
