@@ -82,12 +82,16 @@ async function _relayDelete(path) {
  * @returns {Promise<{success, streamKey?, streamUrl?, channelName?, error?}>}
  */
 async function startYouTubeOAuth() {
-  const config = _loadConfig();
-  const clientId = process.env.YOUTUBE_CLIENT_ID || config.youtubeClientId;
+  // Client ID comes from relay server (it's public, not secret)
+  let clientId = process.env.YOUTUBE_CLIENT_ID || _loadConfig().youtubeClientId;
   if (!clientId) {
-    // Client ID can come from env or we let the relay handle it — just need it for the auth URL.
-    // If not available locally, ask relay for the client ID.
-    // For now, use a well-known approach: relay provides its own.
+    try {
+      const ids = await _relayGet('/api/church/app/oauth/client-ids');
+      clientId = ids.youtubeClientId;
+    } catch { /* ignore */ }
+  }
+  if (!clientId) {
+    return { success: false, error: 'YouTube OAuth not configured on relay server (missing client ID)' };
   }
 
   return new Promise((resolve, reject) => {
@@ -143,7 +147,7 @@ async function startYouTubeOAuth() {
       // Build Google OAuth URL
       // Client ID comes from relay server env — we fetch it or use a shared constant
       const authUrl = `${YOUTUBE_AUTH_URL}?` + new URLSearchParams({
-        client_id: process.env.YOUTUBE_CLIENT_ID || '',
+        client_id: clientId,
         redirect_uri: redirectUri,
         response_type: 'code',
         scope: YOUTUBE_SCOPES,
@@ -175,12 +179,24 @@ async function startYouTubeOAuth() {
  * @returns {Promise<{success, pages?: Array, error?}>}
  */
 async function startFacebookOAuth() {
+  // App ID comes from relay server (it's public, not secret)
+  let appId = process.env.FACEBOOK_APP_ID || _loadConfig().facebookAppId;
+  if (!appId) {
+    try {
+      const ids = await _relayGet('/api/church/app/oauth/client-ids');
+      appId = ids.facebookAppId;
+    } catch { /* ignore */ }
+  }
+  if (!appId) {
+    return { success: false, error: 'Facebook OAuth not configured on relay server (missing app ID)' };
+  }
+
   const state = crypto.randomBytes(16).toString('hex');
   const relayHttp = _getRelayHttp();
   const redirectUri = `${relayHttp}/api/oauth/facebook/callback`;
 
   const authUrl = `${FACEBOOK_AUTH_URL}?` + new URLSearchParams({
-    client_id: process.env.FACEBOOK_APP_ID || '',
+    client_id: appId,
     redirect_uri: redirectUri,
     response_type: 'code',
     scope: FACEBOOK_SCOPES,

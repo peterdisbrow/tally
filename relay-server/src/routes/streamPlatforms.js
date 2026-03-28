@@ -78,6 +78,14 @@ module.exports = function setupStreamPlatformRoutes(app, ctx) {
     res.json({ disconnected: true });
   });
 
+  // OAuth client IDs (public, non-secret — needed by Electron to build auth URLs)
+  app.get('/api/church/app/oauth/client-ids', requireChurchAppAuth, (req, res) => {
+    res.json({
+      youtubeClientId: process.env.YOUTUBE_CLIENT_ID || '',
+      facebookAppId: process.env.FACEBOOK_APP_ID || '',
+    });
+  });
+
   // Combined status (both platforms)
   app.get('/api/church/app/oauth/status', requireChurchAppAuth, (req, res) => {
     res.json(streamOAuth.getStatus(req.church.churchId));
