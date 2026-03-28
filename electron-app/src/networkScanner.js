@@ -525,11 +525,9 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     const promises = [];
 
     for (const ip of batch) {
-      // Skip our own IP for non-localhost services
       for (const { port, type } of ports) {
-        // Skip if already found on localhost
+        // 127.0.0.1 is already covered by the localhost checks above
         if (ip === '127.0.0.1') continue;
-        if (localIps.has(ip) && (type === 'obs' || type === 'companion')) continue;
 
         promises.push(
           probeDevice(ip, port, type, 500).then(async (open) => {
@@ -553,7 +551,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
               onProgress(null, `Found HyperDeck at ${ip} (found)`);
             } else if (type === 'propresenter' && !results.propresenter.find((d) => d.ip === ip)) {
               const vResp = await tryHttpGet(`http://${ip}:${port}/v1/version`, 2000);
-              if (vResp.success && vResp.data && vResp.data.version) {
+              if (vResp.success) {
                 results.propresenter.push({ ip, port });
                 onProgress(null, `Found ProPresenter at ${ip} (found)`);
               }
