@@ -787,26 +787,8 @@ function startAgent() {
 
     let statusChanged = false;
 
-    // Parse full structured status JSON from church-client (authoritative source for all device data)
-    const jsonIdx = text.indexOf('[STATUS_JSON] ');
-    if (jsonIdx !== -1) {
-      try {
-        const jsonStr = text.slice(jsonIdx + 14).split('\n')[0];
-        const parsed = JSON.parse(jsonStr);
-        // Deep merge: preserve local-only fields (relay, _relayDisconnectedAt, failover, etc.)
-        // but accept all device status from the agent
-        for (const key of Object.keys(parsed)) {
-          if (key.startsWith('_')) continue; // skip private fields
-          const val = parsed[key];
-          if (val && typeof val === 'object' && !Array.isArray(val) && agentStatus[key] && typeof agentStatus[key] === 'object') {
-            Object.assign(agentStatus[key], val);
-          } else {
-            agentStatus[key] = val;
-          }
-        }
-        statusChanged = true;
-      } catch { /* ignore parse errors */ }
-    }
+    // Skip [STATUS_JSON] lines — status now comes via relay SSE, not stdout
+    if (text.includes('[STATUS_JSON]')) { return; }
 
     if (text.includes('Connected to relay server'))  { agentStatus.relay = true; statusChanged = true; agentCrashCount = 0; _agentEscalatedAt = 0; }
     if (text.includes('ATEM connected'))             { agentStatus.atem = { connected: true, model: (agentStatus.atem && agentStatus.atem.model) || '' }; statusChanged = true; }

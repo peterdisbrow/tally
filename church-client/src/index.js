@@ -2061,8 +2061,6 @@ class ChurchAVAgent {
     // Send immediately on first call, then coalesce subsequent calls within 100ms
     const fullStatus = { ...this.status, health: this.health };
     this.sendToRelay({ type: 'status_update', status: fullStatus });
-    // Emit full status as structured JSON for Electron main process to parse
-    try { console.log('[STATUS_JSON] ' + JSON.stringify(fullStatus)); } catch { /* ignore */ }
     setTimeout(() => {
       this._statusDebounce = false;
     }, 100);
