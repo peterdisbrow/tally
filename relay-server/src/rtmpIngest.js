@@ -48,15 +48,15 @@ function initRtmpIngest(db, broadcastToSSE) {
   _nms = new NodeMediaServer(config);
 
   // ─── Auth: validate stream key on publish ────────────────────────────────
-  _nms.on('prePublish', (id, streamPath, args) => {
-    // streamPath = /live/STREAM_KEY
-    const parts = streamPath.split('/');
+  // NMS v4.x emits a single session object (not id, streamPath, args)
+  _nms.on('prePublish', (session) => {
+    const streamPath = session.streamPath; // e.g. /live/STREAM_KEY
+    const parts = (streamPath || '').split('/');
     const streamKey = parts[2];
 
     if (!streamKey) {
       console.log(`[RTMP] Rejected publish — no stream key in path: ${streamPath}`);
-      const session = _nms.getSession(id);
-      if (session) session.reject();
+      try { session.reject(); } catch {}
       return;
     }
 
@@ -66,8 +66,7 @@ function initRtmpIngest(db, broadcastToSSE) {
 
     if (!church) {
       console.log(`[RTMP] Rejected publish — invalid stream key: ${streamKey.slice(0, 8)}...`);
-      const session = _nms.getSession(id);
-      if (session) session.reject();
+      try { session.reject(); } catch {}
       return;
     }
 
@@ -75,31 +74,27 @@ function initRtmpIngest(db, broadcastToSSE) {
     for (const [key, info] of activeStreams) {
       if (info.churchId === church.churchId) {
         console.log(`[RTMP] Rejected duplicate stream for church ${church.name} (${church.churchId})`);
-        const session = _nms.getSession(id);
-        if (session) session.reject();
+        try { session.reject(); } catch {}
         return;
       }
     }
 
     // Tag the session so postPublish can read it
-    const session = _nms.getSession(id);
-    if (session) {
-      session._tallyChurchId = church.churchId;
-      session._tallyChurchName = church.name;
-      session._tallyStreamKey = streamKey;
-    }
+    session._tallyChurchId = church.churchId;
+    session._tallyChurchName = church.name;
+    session._tallyStreamKey = streamKey;
 
     console.log(`[RTMP] Authenticated stream for ${church.name} (${church.churchId})`);
   });
 
   // ─── Start FFmpeg HLS transcoding on successful publish ──────────────────
-  _nms.on('postPublish', (id, streamPath, args) => {
-    const session = _nms.getSession(id);
+  _nms.on('postPublish', (session) => {
     if (!session?._tallyChurchId) return;
 
     const churchId = session._tallyChurchId;
     const churchName = session._tallyChurchName;
     const streamKey = session._tallyStreamKey;
+    const streamPath = session.streamPath;
 
     const hlsDir = path.join(HLS_TEMP_DIR, churchId);
     fs.mkdirSync(hlsDir, { recursive: true });
@@ -120,7 +115,6 @@ function initRtmpIngest(db, broadcastToSSE) {
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     ffmpeg.stderr.on('data', (data) => {
-      // FFmpeg logs to stderr; only log errors
       const msg = data.toString();
       if (msg.includes('error') || msg.includes('Error')) {
         console.error(`[RTMP/FFmpeg] ${churchName}: ${msg.trim()}`);
@@ -136,7 +130,7 @@ function initRtmpIngest(db, broadcastToSSE) {
       churchName,
       ffmpeg,
       startedAt: new Date().toISOString(),
-      sessionId: id,
+      sessionId: session.id,
     });
 
     // Broadcast to admin SSE
@@ -151,8 +145,8 @@ function initRtmpIngest(db, broadcastToSSE) {
   });
 
   // ─── Clean up on stream end ──────────────────────────────────────────────
-  _nms.on('donePublish', (id, streamPath, args) => {
-    const parts = streamPath.split('/');
+  _nms.on('donePublish', (session) => {
+    const parts = (session.streamPath || '').split('/');
     const streamKey = parts[2];
     const info = activeStreams.get(streamKey);
 
