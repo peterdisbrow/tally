@@ -364,10 +364,13 @@ function renderPfIssues(issues) {
   // Filter out the "no issues" info entry for display
   const displayIssues = issues.filter((i) => i.id !== 'no_issues_detected');
 
+  const clearBtn = document.getElementById('btn-clear-issues');
   if (displayIssues.length === 0) {
     el.innerHTML = '<p style="color:var(--green); font-size:12px;">No issues detected — system looks healthy.</p>';
+    if (clearBtn) clearBtn.style.display = 'none';
     return;
   }
+  if (clearBtn) clearBtn.style.display = '';
 
   el.innerHTML = displayIssues.slice(0, 8).map((issue) => {
     const hasFlow = !!TROUBLESHOOT_FLOWS[issue.id];

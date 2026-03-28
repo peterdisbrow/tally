@@ -72,6 +72,30 @@ function getLocalSubnet(interfaceName) {
   return { subnet: '192.168.1', localIp: '127.0.0.1', interfaceName: null };
 }
 
+/**
+ * Validate a real HyperDeck by checking for its protocol banner.
+ * HyperDecks send "500 connection info:" on TCP connect. ATEMs don't.
+ */
+function _isRealHyperdeck(ip, port, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let resolved = false;
+    let data = '';
+    const done = (result) => { if (resolved) return; resolved = true; socket.destroy(); resolve(result); };
+    socket.setTimeout(timeoutMs);
+    socket.on('connect', () => { /* wait for data */ });
+    socket.on('data', (chunk) => {
+      data += chunk.toString();
+      if (data.includes('500 connection info')) done(true);
+      else if (data.length > 200) done(false); // too much data, not a HyperDeck
+    });
+    socket.on('timeout', () => done(false));
+    socket.on('error', () => done(false));
+    socket.on('close', () => done(false));
+    socket.connect(port, ip);
+  });
+}
+
 function tryTcpConnect(ip, port, timeoutMs = 300) {
   return new Promise((resolve) => {
     const socket = new net.Socket();
@@ -421,7 +445,9 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
           onProgress(4, 'Found Companion on localhost (found)');
         }
       } else if (check.type === 'propresenter') {
-        const resp = await tryHttpGet(`http://127.0.0.1:${check.port}/v1/version`, 2000);
+        // Try /v1/version first, fall back to /v1/status/slide (more reliable on PP 21)
+        let resp = await tryHttpGet(`http://127.0.0.1:${check.port}/v1/version`, 2000);
+        if (!resp.success) resp = await tryHttpGet(`http://127.0.0.1:${check.port}/v1/status/slide`, 2000);
         if (resp.success) {
           results.propresenter.push({ ip: '127.0.0.1', port: check.port });
           onProgress(4, 'Found ProPresenter on localhost (found)');
@@ -468,8 +494,12 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
           onProgress(6, 'Found BirdDog endpoint on localhost (found)');
         }
       } else if (check.type === 'hyperdeck') {
-        results.hyperdeck.push({ ip: '127.0.0.1' });
-        onProgress(5, 'Found HyperDeck on localhost (found)');
+        // Validate with HyperDeck protocol — real HyperDecks respond with "500 connection info"
+        const hdOk = await _isRealHyperdeck('127.0.0.1', check.port);
+        if (hdOk) {
+          results.hyperdeck.push({ ip: '127.0.0.1' });
+          onProgress(5, 'Found HyperDeck on localhost (found)');
+        }
       } else if (check.type === 'mixer-behringer') {
         results.mixers.push({ ip: '127.0.0.1', port: check.port, type: 'behringer/midas (X32/M32)' });
         onProgress(5, 'Found possible Behringer/Midas console on localhost (found)');
@@ -547,10 +577,15 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
               results.obs.push({ ip, port: 4455 });
               onProgress(null, `Found OBS at ${ip} (found)`);
             } else if (type === 'hyperdeck' && !results.hyperdeck.find((d) => d.ip === ip)) {
-              results.hyperdeck.push({ ip });
-              onProgress(null, `Found HyperDeck at ${ip} (found)`);
+              // Validate — port 9993 is shared by ATEM and HyperDeck
+              const hdOk = await _isRealHyperdeck(ip, port);
+              if (hdOk) {
+                results.hyperdeck.push({ ip });
+                onProgress(null, `Found HyperDeck at ${ip} (found)`);
+              }
             } else if (type === 'propresenter' && !results.propresenter.find((d) => d.ip === ip)) {
-              const vResp = await tryHttpGet(`http://${ip}:${port}/v1/version`, 2000);
+              let vResp = await tryHttpGet(`http://${ip}:${port}/v1/version`, 2000);
+              if (!vResp.success) vResp = await tryHttpGet(`http://${ip}:${port}/v1/status/slide`, 2000);
               if (vResp.success) {
                 results.propresenter.push({ ip, port });
                 onProgress(null, `Found ProPresenter at ${ip} (found)`);

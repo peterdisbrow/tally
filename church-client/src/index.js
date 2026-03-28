@@ -1416,7 +1416,8 @@ class ChurchAVAgent {
       console.log('✅ Encoder connected');
       const s = await this.encoderBridge.getStatus();
       Object.assign(this.status.encoder, s);
-      if (s?.details) this.logIdentity('encoder', 'Encoder identity:', s.details);
+      // Log identity with static part only (strip streaming duration which changes every poll)
+      if (s?.details) this.logIdentity('encoder', 'Encoder identity:', s.details.replace(/ — Streaming \d+m\d+s/, ''));
     } else {
       console.log('⚠️  Encoder not available (will retry)');
     }
@@ -1441,7 +1442,8 @@ class ChurchAVAgent {
       const wasLive = this.status.encoder.live || this.status.encoder.streaming;
       const s = await this.encoderBridge.getStatus();
       Object.assign(this.status.encoder, s);
-      if (s?.details) this.logIdentity('encoder', 'Encoder identity:', s.details);
+      // Log identity with static part only (strip streaming duration which changes every poll)
+      if (s?.details) this.logIdentity('encoder', 'Encoder identity:', s.details.replace(/ — Streaming \d+m\d+s/, ''));
 
       if (s.connected && !wasConnected) { this.health.encoder.reconnects++; console.log('✅ Encoder connected'); }
       if (!s.connected && wasConnected) console.log('⚠️  Encoder disconnected');

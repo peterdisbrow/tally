@@ -1558,6 +1558,17 @@ async function runQuickSystemCheck() {
   }
 }
 
+// ─── CLEAR ACTIVE ISSUES ──────────────────────────────────────────────────
+function clearActiveIssues() {
+  const el = document.getElementById('pf-issues-list');
+  if (el) el.innerHTML = '<p style="color:var(--green); font-size:12px;">No issues detected — system looks healthy.</p>';
+  const clearBtn = document.getElementById('btn-clear-issues');
+  if (clearBtn) clearBtn.style.display = 'none';
+  // Also clear the issue badge on the Status tab
+  if (typeof _pfAutoRunIssueCount !== 'undefined') _pfAutoRunIssueCount = 0;
+  if (typeof updatePfBadge === 'function') updatePfBadge();
+}
+
 // ─── ATEM RECORDING CONTROLS ──────────────────────────────────────────────
 async function atemRecordStart() {
   const btn = document.getElementById('btn-atem-rec-start');
@@ -1699,9 +1710,10 @@ function updateStatusUI(status) {
 
   const obsData = status.obs && typeof status.obs === 'object' ? status.obs : {};
   const atemData = status.atem && typeof status.atem === 'object' ? status.atem : {};
-  const streaming = status.streaming ?? obsData.streaming;
-  const fps = status.fps ?? obsData.fps;
-  const bitrate = status.bitrate ?? obsData.bitrate ?? null;
+  const encoderData = status.encoder && typeof status.encoder === 'object' ? status.encoder : {};
+  const streaming = status.streaming ?? encoderData.live ?? encoderData.streaming ?? obsData.streaming;
+  const fps = status.fps ?? encoderData.fps ?? obsData.fps;
+  const bitrate = status.bitrate ?? encoderData.bitrateKbps ?? obsData.bitrate ?? null;
 
   // Keep rolling history for the sparkline graph
   _pushBitrateHistory(bitrate, streaming);
