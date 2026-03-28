@@ -3926,6 +3926,9 @@ app.get('/api/admin/stream/:churchId/key', requireAdmin, (req, res) => {
   const rtmpUrl = `${rtmpHost}/live/${key}`;
   const active = isIngestActive(church.churchId);
   const meta = active ? getStreamMeta(church.churchId) : null;
+  const hlsToken = createHlsToken(church.churchId);
+  const relayBase = process.env.RELAY_PUBLIC_URL || `https://${req.hostname}`;
+  const hlsUrl = `${relayBase}/api/admin/stream/${church.churchId}/live.m3u8?token=${encodeURIComponent(hlsToken)}`;
   res.json({
     churchId: church.churchId,
     churchName: church.name,
@@ -3933,6 +3936,7 @@ app.get('/api/admin/stream/:churchId/key', requireAdmin, (req, res) => {
     rtmpUrl,
     active,
     meta,
+    hlsUrl,
   });
 });
 
@@ -3952,28 +3956,94 @@ app.post('/api/admin/stream/:churchId/key/regenerate', requireAdmin, (req, res) 
   res.json({ churchId: church.churchId, streamKey: key, rtmpUrl });
 });
 
-// Serve HLS playlist
-app.get('/api/admin/stream/:churchId/live.m3u8', requireAdmin, (req, res) => {
-  const hlsDir = getHlsDir(req.params.churchId);
+// ─── HLS Token Auth ──────────────────────────────────────────────────────────
+// Short-lived HMAC token for direct HLS access (bypasses Vercel proxy).
+// Admin gets a token via the key endpoint, browser fetches HLS directly from Railway.
+const HLS_TOKEN_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+function createHlsToken(churchId) {
+  const expires = Date.now() + HLS_TOKEN_TTL_MS;
+  const payload = `${churchId}:${expires}`;
+  const sig = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('hex').slice(0, 16);
+  return `${payload}:${sig}`;
+}
+
+function verifyHlsToken(token, churchId) {
+  if (!token) return false;
+  const parts = token.split(':');
+  if (parts.length !== 3) return false;
+  const [tokenChurch, expiresStr, sig] = parts;
+  if (tokenChurch !== churchId) return false;
+  if (Date.now() > parseInt(expiresStr)) return false;
+  const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(`${tokenChurch}:${expiresStr}`).digest('hex').slice(0, 16);
+  return sig === expectedSig;
+}
+
+// CORS helper for HLS endpoints
+function hlsCors(req, res) {
+  const origin = req.headers.origin || '';
+  const allowed = ['https://tallyconnect.app', 'https://www.tallyconnect.app', 'http://localhost:3000', 'http://localhost:3001'];
+  if (allowed.some(a => origin.startsWith(a)) || origin.includes('vercel.app')) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+// Serve HLS playlist (direct access with token — no Vercel proxy needed)
+app.get('/api/admin/stream/:churchId/live.m3u8', (req, res) => {
+  const { churchId } = req.params;
+  const token = req.query.token;
+
+  // Allow either admin session auth or HLS token
+  if (!verifyHlsToken(token, churchId)) {
+    // Fall back to admin auth
+    return requireAdmin(req, res, () => serveM3u8(req, res));
+  }
+  hlsCors(req, res);
+  serveM3u8(req, res);
+});
+
+function serveM3u8(req, res) {
+  const { churchId } = req.params;
+  const hlsDir = getHlsDir(churchId);
   const m3u8Path = _path.join(hlsDir, 'live.m3u8');
 
   if (!_fs.existsSync(m3u8Path)) {
     return res.status(404).json({ error: 'Stream not active' });
   }
 
+  // Rewrite segment URLs to include the token for direct access
+  let content = _fs.readFileSync(m3u8Path, 'utf8');
+  const token = req.query.token;
+  if (token) {
+    content = content.replace(/^(seg\d+\.ts)$/gm, (match) => {
+      return `/api/admin/stream/${churchId}/${match}?token=${encodeURIComponent(token)}`;
+    });
+  }
+
   res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
   res.setHeader('Cache-Control', 'no-cache, no-store');
-  res.sendFile(m3u8Path);
-});
+  res.send(content);
+}
 
-// Serve HLS segments
-app.get('/api/admin/stream/:churchId/:filename', requireAdmin, (req, res) => {
+// Serve HLS segments (direct access with token)
+app.get('/api/admin/stream/:churchId/:filename', (req, res) => {
   const { churchId, filename } = req.params;
-  // Only allow .ts files
   if (!filename.endsWith('.ts')) {
     return res.status(400).json({ error: 'Invalid segment file' });
   }
 
+  const token = req.query.token;
+  if (!verifyHlsToken(token, churchId)) {
+    return requireAdmin(req, res, () => serveSegment(req, res));
+  }
+  hlsCors(req, res);
+  serveSegment(req, res);
+});
+
+function serveSegment(req, res) {
+  const { churchId, filename } = req.params;
   const hlsDir = getHlsDir(churchId);
   const segPath = _path.join(hlsDir, filename);
 
@@ -3984,6 +4054,12 @@ app.get('/api/admin/stream/:churchId/:filename', requireAdmin, (req, res) => {
   res.setHeader('Content-Type', 'video/mp2t');
   res.setHeader('Cache-Control', 'public, max-age=60');
   res.sendFile(segPath);
+}
+
+// CORS preflight for HLS endpoints
+app.options('/api/admin/stream/:churchId/*', (req, res) => {
+  hlsCors(req, res);
+  res.sendStatus(204);
 });
 
 // ─── SENTRY ERROR HANDLER (must be after all routes) ─────────────────────────
