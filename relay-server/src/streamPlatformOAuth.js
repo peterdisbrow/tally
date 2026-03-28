@@ -290,11 +290,25 @@ class StreamPlatformOAuth {
         UPDATE churches SET fb_access_token = ?, fb_token_expires_at = ? WHERE churchId = ?
       `).run(longData.access_token, expiresAt, churchId);
 
-      // Fetch pages the user manages
+      // Fetch user name + pages the user manages
       const pages = await this._listFacebookPages(longData.access_token);
+      let userName = 'My Account';
+      try {
+        const meResp = await fetch(`${FB_GRAPH_URL}/me?fields=name`, {
+          headers: { Authorization: `Bearer ${longData.access_token}` },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (meResp.ok) { const me = await meResp.json(); userName = me.name || userName; }
+      } catch { /* ignore */ }
 
-      console.log(`[StreamOAuth] Facebook connected for church ${churchId} (${pages.length} pages)`);
-      return { success: true, pages };
+      // Include personal account as first option
+      const destinations = [
+        { id: 'me', name: `${userName} (Personal)`, access_token: longData.access_token },
+        ...pages,
+      ];
+
+      console.log(`[StreamOAuth] Facebook connected for church ${churchId} (${pages.length} pages + personal)`);
+      return { success: true, pages: destinations };
     } catch (e) {
       console.error('[StreamOAuth] Facebook exchange error:', e.message);
       return { success: false, error: process.env.NODE_ENV === 'production' ? 'OAuth exchange failed' : e.message };
@@ -331,22 +345,39 @@ class StreamPlatformOAuth {
     if (!church?.fb_access_token) return { success: false, error: 'Not connected to Facebook' };
 
     try {
-      // Get page token from the user token
-      const pages = await this._listFacebookPages(church.fb_access_token);
-      const page = pages.find(p => p.id === pageId);
-      if (!page) return { success: false, error: 'Page not found or no access' };
+      let token, pageName;
+
+      if (pageId === 'me') {
+        // Personal account — use the user's own access token
+        token = church.fb_access_token;
+        pageName = 'Personal Account';
+        try {
+          const meResp = await fetch(`${FB_GRAPH_URL}/me?fields=name`, {
+            headers: { Authorization: `Bearer ${token}` },
+            signal: AbortSignal.timeout(5000),
+          });
+          if (meResp.ok) { const me = await meResp.json(); pageName = me.name || pageName; }
+        } catch { /* ignore */ }
+      } else {
+        // Page — get page token from the user token
+        const pages = await this._listFacebookPages(church.fb_access_token);
+        const page = pages.find(p => p.id === pageId);
+        if (!page) return { success: false, error: 'Page not found or no access' };
+        token = page.access_token;
+        pageName = page.name;
+      }
 
       // Store page selection
       this.db.prepare('UPDATE churches SET fb_page_id = ?, fb_page_name = ? WHERE churchId = ?')
-        .run(pageId, page.name, churchId);
+        .run(pageId, pageName, churchId);
 
       // Create a live video to get the stream key
-      const streamResult = await this._createFacebookLiveVideo(churchId, page.access_token, pageId);
+      const streamResult = await this._createFacebookLiveVideo(churchId, token, pageId);
 
-      console.log(`[StreamOAuth] Facebook page selected: ${page.name} for church ${churchId}`);
+      console.log(`[StreamOAuth] Facebook destination selected: ${pageName} for church ${churchId}`);
       return {
         success: true,
-        pageName: page.name,
+        pageName,
         streamKey: streamResult.streamKey || null,
         streamUrl: streamResult.streamUrl || null,
       };
