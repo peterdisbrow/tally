@@ -112,33 +112,66 @@ function initRtmpIngest(db, broadcastToSSE) {
       path.join(hlsDir, 'live.m3u8'),
     ];
 
+    // Add -progress for real-time stats and -v info for stream detection
+    ffmpegArgs.unshift('-v', 'info', '-progress', 'pipe:2');
+
     console.log(`[RTMP] Starting HLS transcoding for ${churchName} → ${hlsDir}`);
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     // Parse FFmpeg stderr for stream metadata (bitrate, fps, resolution)
-    const streamMeta = { bitrateKbps: 0, fps: 0, resolution: '', codec: '' };
+    const streamMeta = { bitrateKbps: 0, fps: 0, resolution: '', codec: '', audioCodec: '' };
     let stderrBuf = '';
+    let metaParsed = false;
     ffmpeg.stderr.on('data', (data) => {
       const msg = data.toString();
       stderrBuf += msg;
+
       if (msg.includes('error') || msg.includes('Error')) {
         console.error(`[RTMP/FFmpeg] ${churchName}: ${msg.trim()}`);
       }
-      // Parse stream info from FFmpeg output
-      // e.g. "Stream #0:0: Video: h264 (High), yuv420p, 1920x1080 [SAR 1:1 DAR 16:9], 59.94 fps"
-      const videoMatch = stderrBuf.match(/Stream #\d+:\d+.*Video:\s*(\w+).*?,\s*\w+,\s*(\d+x\d+).*?,\s*([\d.]+)\s*fps/);
-      if (videoMatch) {
-        streamMeta.codec = videoMatch[1];
-        streamMeta.resolution = videoMatch[2];
-        streamMeta.fps = parseFloat(videoMatch[3]);
+
+      // Parse stream info (only need to do this once)
+      if (!metaParsed) {
+        // Video: "Stream #0:0: Video: h264 ..." with various formats
+        const videoMatch = stderrBuf.match(/Video:\s*(\w+)[^,]*,\s*\w+[^,]*,\s*(\d+x\d+)/);
+        if (videoMatch) {
+          streamMeta.codec = videoMatch[1];
+          streamMeta.resolution = videoMatch[2];
+        }
+        // FPS: look for "fps" or "tb(r)" patterns
+        const fpsMatch = stderrBuf.match(/(\d+(?:\.\d+)?)\s*fps/);
+        if (fpsMatch) {
+          streamMeta.fps = parseFloat(fpsMatch[1]);
+        }
+        // Audio: "Stream #0:1: Audio: aac ..."
+        const audioMatch = stderrBuf.match(/Audio:\s*(\w+)/);
+        if (audioMatch) {
+          streamMeta.audioCodec = audioMatch[1];
+        }
+        if (streamMeta.codec && streamMeta.fps) {
+          metaParsed = true;
+          console.log(`[RTMP] Stream info for ${churchName}: ${streamMeta.codec} ${streamMeta.resolution} ${streamMeta.fps}fps ${streamMeta.audioCodec}`);
+        }
       }
-      // Parse bitrate from progress lines: "bitrate=4361.2kbits/s" or "bitrate= 4361.2kbits/s"
+
+      // Parse bitrate from -progress output: "bitrate=4361.2kbits/s"
       const brMatch = msg.match(/bitrate=\s*([\d.]+)kbits\/s/);
       if (brMatch) {
         streamMeta.bitrateKbps = Math.round(parseFloat(brMatch[1]));
       }
+      // Also check for "total_size=" to estimate bitrate from progress
+      const sizeMatch = msg.match(/total_size=(\d+)/);
+      const timeMatch = msg.match(/out_time_us=(\d+)/);
+      if (sizeMatch && timeMatch && parseInt(timeMatch[1]) > 0) {
+        const bytes = parseInt(sizeMatch[1]);
+        const seconds = parseInt(timeMatch[1]) / 1000000;
+        if (seconds > 1) {
+          streamMeta.bitrateKbps = Math.round((bytes * 8) / seconds / 1000);
+        }
+      }
+
       // Keep buffer manageable
-      if (stderrBuf.length > 8000) stderrBuf = stderrBuf.slice(-4000);
+      if (stderrBuf.length > 16000) stderrBuf = stderrBuf.slice(-8000);
     });
 
     ffmpeg.on('close', (code) => {
