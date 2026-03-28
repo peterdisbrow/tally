@@ -338,6 +338,7 @@ const FALLBACK_COMMANDS = [
   'propresenter.getTimers',
   'propresenter.goToSlide',
   'propresenter.isRunning',
+  'propresenter.lastSlide',
   'propresenter.messages',
   'propresenter.next',
   'propresenter.playlist',
@@ -510,6 +511,7 @@ AVAILABLE COMMANDS (JSON schema):
 {"command":"propresenter.next","params":{}}
 {"command":"propresenter.previous","params":{}}
 {"command":"propresenter.goToSlide","params":{"index":N}}
+{"command":"propresenter.lastSlide","params":{}}
 {"command":"propresenter.status","params":{}}
 {"command":"propresenter.playlist","params":{}}
 {"command":"resolume.playClip","params":{"name":"X"}}
@@ -590,7 +592,7 @@ const CMD_SIGS = {
   companion: `companion: pressNamed(name:X), press(page:N,row:N,col:N), getGrid(), connections(), getVariable(connection:X,variable:X), getCustomVariable(name:X), setCustomVariable(name:X,value:X), getWatchedVariables(). Use getVariable to read device state through Companion (e.g. getVariable("atem","pgm1_input") for current program source, getVariable("obs","current_scene") for OBS scene).`,
   vmix: `vmix: startStream(), stopStream(), startRecording(), stopRecording(), cut(), fade(ms:N), setPreview(input:N), setProgram(input:N), setVolume(value:N), mute(), unmute(), function(function:X,input:X), status(), listInputs(), isRunning(), startPlaylist(), stopPlaylist(), audioLevels(), fadeToBlack(), setInputVolume(input:X,volume:0-100), muteInput(input:X), unmuteInput(input:X), overlayInput(overlay:1-4,input:X), overlayOff(overlay:1-4), setText(input:X,text:X), replay(action:X)`,
   videohub: `videohub: route(input:N,output:N), getRoutes(), setInputLabel(index:N,label:X), setOutputLabel(index:N,label:X), getInputLabels(), getOutputLabels()`,
-  propresenter: `propresenter: next(), previous(), goToSlide(index:N), status(), playlist(), clearAll(), clearSlide(), stageMessage(name:X), clearMessage(), getLooks(), setLook(name:X), getTimers(), startTimer(name:X), stopTimer(name:X), version(), messages()`,
+  propresenter: `propresenter: next(), previous(), goToSlide(index:N), lastSlide(), status(), playlist(), clearAll(), clearSlide(), stageMessage(name:X), clearMessage(), getLooks(), setLook(name:X), getTimers(), startTimer(name:X), stopTimer(name:X), version(), messages()`,
   resolume: `resolume: playClip(name:X), stopClip(), triggerColumn(column:N), clearAll(), setBpm(bpm:N), getBpm(), setLayerOpacity(layer:N,value:0-1), setMasterOpacity(value:0-1), getLayers(), getColumns(), isRunning(), version(), status(), playClipByName(name:X), triggerColumnByName(name:X)`,
   mixer: `mixer: status(), mute(channel:master|N), unmute(channel:master|N), recallScene(scene:N), saveScene(scene:N,name:X), setFader(channel:N,level:0-1), setChannelName(channel:N,name:X), setHpf(channel:N,enabled:bool,frequency:N), setEq(channel:N,enabled:bool,bands:[...]), setCompressor(channel:N,enabled:bool,threshold:N,ratio:N,attack:N,release:N,knee:N), setGate(channel:N,enabled:bool,threshold:N,range:N,attack:N,hold:N,release:N), setPreampGain(channel:N,gain:N), setPhantom(channel:N,enabled:bool), setPan(channel:N,pan:-1to1), setSendLevel(channel:N,bus:N,level:0-1), assignToBus(channel:N,bus:N,enabled:bool), assignToDca(channel:N,dca:N,enabled:bool), muteDca(dca:N), unmuteDca(dca:N), setDcaFader(dca:N,level:0-1), activateMuteGroup(group:N), deactivateMuteGroup(group:N), pressSoftKey(key:N), clearSolos(), channelStatus(channel:N), getMeters(), capabilities(), setChannelColor(channel:N,color:X), setChannelIcon(channel:N,icon:X)`,
   dante: `dante: scene(name:X)`,
@@ -764,7 +766,9 @@ ${atemDetailRules}
 PROPRESENTER:
 - "Next slide" / "put up the lyrics" / "advance slides" / "next" → propresenter.next()
 - "Previous slide" / "go back a slide" → propresenter.previous()
-- "Go to slide 5" / "jump to slide X" → propresenter.goToSlide(index:X). Index is 0-based.
+- "Go to slide 5" / "jump to slide X" → propresenter.goToSlide(index:X). Use the user-visible 1-based number ("slide 5" → index:5). The system converts to 0-based internally.
+- "Last slide" / "go to the end" / "end of the slideshow" / "end of presentation" → propresenter.lastSlide()
+- "First slide" / "go to the beginning" / "start of presentation" → propresenter.goToSlide(index:1)
 - "Clear slides" / "clear the screen" / "blank ProPresenter" → propresenter.clearAll()
 - "What slide are we on?" / "slide status" → propresenter.status()
 - "Start the countdown" / "start timer" → propresenter.startTimer(name:X). Ask for timer name if unknown.

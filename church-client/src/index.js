@@ -1797,6 +1797,10 @@ class ChurchAVAgent {
         ]);
         // Spread the full toStatus() so all fields flow through automatically
         Object.assign(this.status.proPresenter, this.proPresenter.toStatus());
+        // HTTP is reachable → commands work regardless of WebSocket state.
+        // Override the WS-based `connected` flag so the relay and AI parser
+        // correctly see PP as available and include its commands in context.
+        this.status.proPresenter.connected = true;
       } else {
         this.status.proPresenter.connected = this.proPresenter.connected;
       }

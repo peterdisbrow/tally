@@ -297,6 +297,7 @@ const patterns = [
   // ProPresenter
   { match: /^(?:next\s+slide|advance)$/i, command: 'propresenter.next', extract: () => ({}), desc: 'next slide / advance' },
   { match: /^(?:previous\s+slide|go\s+back|back\s+slide|prev\s+slide)$/i, command: 'propresenter.previous', extract: () => ({}), desc: 'previous slide / go back' },
+  { match: /(?:last\s+slide|go\s+to\s+(?:the\s+)?last|end\s+of\s+(?:the\s+)?(?:slide\s*show|presentation|slides)|go\s+to\s+(?:the\s+)?end)/i, command: 'propresenter.lastSlide', extract: () => ({}), desc: 'last slide / go to end' },
   { match: /(?:what'?s?\s+on\s+screen|current\s+slide|what\s+slide)/i, command: 'propresenter.status', extract: () => ({}), desc: 'current slide / what\'s on screen?' },
   { match: /(?:go|jump)\s+to\s+slide\s+(\d+)/i, command: 'propresenter.goToSlide', extract: m => ({ index: parseInt(m[1]) }), desc: 'go to slide N' },
   { match: /^(?:playlist|what'?s?\s+loaded)\s*\??$/i, command: 'propresenter.playlist', extract: () => ({}), desc: 'playlist / what\'s loaded?' },
@@ -2444,7 +2445,10 @@ class TallyBot {
         return `✅ Advanced to next slide`;
       case 'propresenter.previous':
         return `✅ Went to previous slide`;
+      case 'propresenter.lastSlide':
+        return `✅ ${result || 'Jumped to last slide'}`;
       case 'propresenter.goToSlide':
+        // params.index is the user-visible 1-based number passed from the parser.
         return `✅ Jumped to slide ${params.index}`;
       case 'propresenter.status':
         return `✅ ${result}`;

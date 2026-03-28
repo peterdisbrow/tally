@@ -16,9 +16,13 @@ async function propresenterPrevious(agent) {
 
 async function propresenterGoToSlide(agent, params) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
-  await agent.proPresenter.goToSlide(params.index);
-  if (agent.proPresenterBackup) agent.proPresenterBackup.goToSlide(params.index).catch(() => {});
-  return `Jumped to slide ${params.index}`;
+  // Users provide 1-based slide numbers ("slide 5" = the 5th slide shown in PP).
+  // The PP API uses 0-based indices, so subtract 1. Clamp to 0 to avoid negatives.
+  const userSlide = params.index || 0;
+  const apiIndex = Math.max(0, userSlide - 1);
+  await agent.proPresenter.goToSlide(apiIndex);
+  if (agent.proPresenterBackup) agent.proPresenterBackup.goToSlide(apiIndex).catch(() => {});
+  return `Jumped to slide ${userSlide}`;
 }
 
 async function propresenterStatus(agent) {
@@ -209,6 +213,16 @@ async function propresenterLibraries(agent) {
   return lines.join('\n');
 }
 
+async function propresenterLastSlide(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const slide = await agent.proPresenter.getCurrentSlide();
+  if (!slide || !slide.slideTotal) throw new Error('Could not determine slide count from ProPresenter');
+  const lastIndex = Math.max(0, slide.slideTotal - 1); // 0-based API index of last slide
+  await agent.proPresenter.goToSlide(lastIndex);
+  if (agent.proPresenterBackup) agent.proPresenterBackup.goToSlide(lastIndex).catch(() => {});
+  return `Jumped to last slide (slide ${slide.slideTotal})`;
+}
+
 async function propresenterAudienceScreens(agent, params) {
   if (!agent.proPresenter) throw new Error('ProPresenter not configured');
   if (params.on === undefined && params.state === undefined) {
@@ -238,6 +252,7 @@ module.exports = {
   'propresenter.version': propresenterVersion,
   'propresenter.messages': propresenterMessages,
   // New commands
+  'propresenter.lastSlide': propresenterLastSlide,
   'propresenter.activeLook': propresenterActiveLook,
   'propresenter.timerStatus': propresenterTimerStatus,
   'propresenter.screenStatus': propresenterScreenStatus,
