@@ -1,6 +1,6 @@
 {
   "name": "tally-connect",
-  "version": "1.1.9",
+  "version": "1.1.10",
   "description": "Tally — Remote monitoring for ATEM School customers",
   "main": "src/main.js",
   "scripts": {
