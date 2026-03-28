@@ -2139,11 +2139,12 @@ function getDotState(active) {
   if (active && typeof active === 'object') {
     const rawStatus = typeof active.status === 'string' ? active.status.toLowerCase() : '';
 
+    // If explicitly connected/online, that's green — don't let unrelated false flags override
+    if (active.connected === true || active.online === true) return 'green';
+
     if (
       active.connected === false ||
       active.online === false ||
-      active.active === false ||
-      active.streaming === false ||
       active.error ||
       rawStatus.includes('error') ||
       rawStatus.includes('fail') ||
@@ -2164,8 +2165,6 @@ function getDotState(active) {
     }
 
     if (
-      active.connected === true ||
-      active.online === true ||
       active.active === true ||
       active.streaming === true ||
       active.status === true
