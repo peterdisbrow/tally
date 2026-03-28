@@ -3,6 +3,8 @@
  * Each handler receives (agent, params) and returns a result string or object.
  */
 
+const { collectDiagnosticBundle } = require('./diagnosticBundle');
+
 function toInt(value, name) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) throw new Error(`${name} must be an integer`);
@@ -3659,6 +3661,10 @@ function systemGetServiceWindow(agent) {
   return { inWindow: agent.watchdogActive || false, watchdogActive: agent.watchdogActive || false };
 }
 
+async function systemDiagnosticBundle(agent) {
+  return await collectDiagnosticBundle(agent);
+}
+
 // ─── COMMAND REGISTRY ───────────────────────────────────────────────────────
 
 const commandHandlers = {
@@ -3913,6 +3919,7 @@ const commandHandlers = {
   'obs.reduceBitrate': obsReduceBitrate,
   'system.setWatchdogMode': systemSetWatchdogMode,
   'system.getServiceWindow': systemGetServiceWindow,
+  'system.diagnosticBundle': systemDiagnosticBundle,
 
   'videohub.route': videohubRoute,
   'videohub.getRoutes': videohubGetRoutes,

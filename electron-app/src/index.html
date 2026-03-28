@@ -442,12 +442,24 @@
     <!-- ── SIMPLE MODE ── -->
     <div id="equip-simple-mode">
       <!-- Room Assignment -->
-      <div id="room-assignment-section" style="display:none; margin:12px 0 16px;">
+      <div id="room-assignment-section" style="margin:12px 0 16px;">
         <div class="section-label" style="margin:0 0 8px;">ASSIGNED ROOM</div>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <select id="room-select" style="flex:1; padding:8px 10px; background:var(--card); border:1px solid var(--border); border-radius:var(--r-input); color:var(--white); font-size:13px; font-family:var(--font);" onchange="assignRoom(this.value)">
-            <option value="">None (unassigned)</option>
-          </select>
+        <!-- shown when no rooms are configured -->
+        <div id="room-no-rooms-msg" style="display:none; font-size:12px; color:var(--muted); background:var(--card); border:1px solid var(--border); border-radius:var(--r-input); padding:10px 12px; line-height:1.5;">
+          No rooms configured.
+          <a href="#" class="ext-link" id="room-portal-link" style="color:var(--accent); text-decoration:underline; cursor:pointer;">Create rooms in the portal</a>
+          to assign this desktop.
+        </div>
+        <!-- shown when rooms exist -->
+        <div id="room-selector-wrap" style="display:none;">
+          <div style="display:flex; gap:8px; align-items:center;">
+            <select id="room-select" style="flex:1; padding:8px 10px; background:var(--card); border:1px solid var(--border); border-radius:var(--r-input); color:var(--white); font-size:13px; font-family:var(--font);" onchange="assignRoom(this.value)">
+              <option value="">None (unassigned)</option>
+            </select>
+          </div>
+          <div id="room-nudge" style="display:none; margin-top:6px; font-size:11px; color:var(--accent); opacity:0.85;">
+            Assign this desktop to a room to organize your equipment on the portal.
+          </div>
         </div>
       </div>
 

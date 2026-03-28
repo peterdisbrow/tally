@@ -2967,6 +2967,11 @@ async function sendQuickChat() {
 
 // ─── ROOM ASSIGNMENT ─────────────────────────────────────────────────────────
 async function loadRoomSelector() {
+  const noRoomsMsg = document.getElementById('room-no-rooms-msg');
+  const selectorWrap = document.getElementById('room-selector-wrap');
+  const select = document.getElementById('room-select');
+  const nudge = document.getElementById('room-nudge');
+
   try {
     const config = await api.getConfig();
     const relayUrl = (config.relay || DEFAULT_RELAY_URL).replace('wss://', 'https://').replace('ws://', 'http://');
@@ -2976,13 +2981,23 @@ async function loadRoomSelector() {
     });
     if (!resp.ok) return;
     const data = await resp.json();
-    const section = document.getElementById('room-assignment-section');
-    const select = document.getElementById('room-select');
+
     if (!data.rooms || data.rooms.length === 0) {
-      if (section) section.style.display = 'none';
+      // No rooms — show "create rooms in portal" message
+      const portalLink = document.getElementById('room-portal-link');
+      if (portalLink) {
+        const portalUrl = relayUrl.replace(/\/+$/, '');
+        portalLink.onclick = (e) => { e.preventDefault(); api.openExternal?.(portalUrl); };
+      }
+      if (noRoomsMsg) noRoomsMsg.style.display = '';
+      if (selectorWrap) selectorWrap.style.display = 'none';
       return;
     }
-    if (section) section.style.display = '';
+
+    // Rooms exist — show dropdown
+    if (noRoomsMsg) noRoomsMsg.style.display = 'none';
+    if (selectorWrap) selectorWrap.style.display = '';
+
     if (select) {
       select.innerHTML = '<option value="">None (unassigned)</option>';
       for (const room of data.rooms) {
@@ -2992,6 +3007,8 @@ async function loadRoomSelector() {
         if (room.id === data.currentRoomId) opt.selected = true;
         select.appendChild(opt);
       }
+      // Show nudge if no room is assigned
+      if (nudge) nudge.style.display = data.currentRoomId ? 'none' : '';
     }
   } catch (e) {
     console.warn('[Room] Failed to load rooms:', e.message);
