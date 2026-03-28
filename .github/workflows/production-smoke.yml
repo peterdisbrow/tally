@@ -16,7 +16,8 @@ jobs:
     timeout-minutes: 10
     env:
       RELAY_BASE_URL: ${{ vars.RELAY_BASE_URL }}
-      RELAY_ADMIN_API_KEY: ${{ secrets.RELAY_ADMIN_API_KEY }}
+      RELAY_ADMIN_EMAIL: ${{ secrets.RELAY_ADMIN_EMAIL }}
+      RELAY_ADMIN_PASSWORD: ${{ secrets.RELAY_ADMIN_PASSWORD }}
     steps:
       - name: Resolve target URL
         run: |
@@ -47,28 +48,34 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Authenticated endpoint checks
-        if: ${{ env.RELAY_ADMIN_API_KEY != '' }}
+        if: ${{ env.RELAY_ADMIN_EMAIL != '' && env.RELAY_ADMIN_PASSWORD != '' }}
         run: |
           set -euo pipefail
 
+          TOKEN=$(curl -fsS "$BASE_URL/api/admin/login" \
+            -H "Content-Type: application/json" \
+            -d "{\"email\": \"$RELAY_ADMIN_EMAIL\", \"password\": \"$RELAY_ADMIN_PASSWORD\"}" \
+            | jq -re '.token')
+
           curl -fsS "$BASE_URL/api/churches" \
-            -H "x-api-key: $RELAY_ADMIN_API_KEY" \
+            -H "Authorization: Bearer $TOKEN" \
             -o churches.json
           jq -e 'type == "array"' churches.json >/dev/null
 
           curl -fsS "$BASE_URL/api/billing" \
-            -H "x-api-key: $RELAY_ADMIN_API_KEY" \
+            -H "Authorization: Bearer $TOKEN" \
             -o billing.json
           jq -e 'type == "array"' billing.json >/dev/null
 
           {
             echo "## Authenticated checks"
+            echo "- PASS: \`POST /api/admin/login\`"
             echo "- PASS: \`GET /api/churches\`"
             echo "- PASS: \`GET /api/billing\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Missing secret notice
-        if: ${{ env.RELAY_ADMIN_API_KEY == '' }}
+        if: ${{ env.RELAY_ADMIN_EMAIL == '' || env.RELAY_ADMIN_PASSWORD == '' }}
         run: |
           echo "## Authenticated checks" >> "$GITHUB_STEP_SUMMARY"
-          echo "- SKIPPED: set repository secret \`RELAY_ADMIN_API_KEY\` to enable authenticated smoke checks." >> "$GITHUB_STEP_SUMMARY"
+          echo "- SKIPPED: set repository secrets \`RELAY_ADMIN_EMAIL\` and \`RELAY_ADMIN_PASSWORD\` to enable authenticated smoke checks." >> "$GITHUB_STEP_SUMMARY"
