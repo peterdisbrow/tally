@@ -13,9 +13,10 @@ const crypto = require('crypto');
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 
-const YT_TOKEN_URL   = 'https://oauth2.googleapis.com/token';
-const YT_STREAMS_URL = 'https://www.googleapis.com/youtube/v3/liveStreams';
-const YT_CHANNELS_URL = 'https://www.googleapis.com/youtube/v3/channels';
+const YT_TOKEN_URL       = 'https://oauth2.googleapis.com/token';
+const YT_STREAMS_URL     = 'https://www.googleapis.com/youtube/v3/liveStreams';
+const YT_BROADCASTS_URL  = 'https://www.googleapis.com/youtube/v3/liveBroadcasts';
+const YT_CHANNELS_URL    = 'https://www.googleapis.com/youtube/v3/channels';
 
 const FB_GRAPH_URL   = 'https://graph.facebook.com/v19.0';
 
@@ -598,6 +599,84 @@ class StreamPlatformOAuth {
       youtube: church.yt_stream_key ? { url: church.yt_stream_url, key: church.yt_stream_key } : null,
       facebook: church.fb_stream_key ? { url: church.fb_stream_url, key: church.fb_stream_key } : null,
     };
+  }
+
+  // ─── CDN STREAM VERIFICATION ─────────────────────────────────────────────────
+
+  /**
+   * Check connected platforms to verify they're actually receiving the stream.
+   * Only checks platforms with valid OAuth tokens.
+   * @param {string} churchId
+   * @returns {Promise<{youtube?: {checked, live, viewerCount, title}, facebook?: {checked, live, viewerCount}}>}
+   */
+  async verifyStreamOnPlatforms(churchId) {
+    const church = this.db.prepare(`
+      SELECT yt_access_token, yt_refresh_token, yt_token_expires_at,
+             fb_access_token, fb_page_id
+      FROM churches WHERE churchId = ?
+    `).get(churchId);
+    if (!church) return {};
+
+    const result = {};
+
+    // ── YouTube: check liveBroadcasts for active broadcasts ──
+    if (church.yt_access_token) {
+      try {
+        // Refresh token if needed
+        const expiresAt = church.yt_token_expires_at ? new Date(church.yt_token_expires_at) : null;
+        if (expiresAt && expiresAt <= new Date()) {
+          await this.refreshYouTubeToken(churchId);
+          const refreshed = this.db.prepare('SELECT yt_access_token FROM churches WHERE churchId = ?').get(churchId);
+          if (refreshed) church.yt_access_token = refreshed.yt_access_token;
+        }
+
+        const resp = await fetch(`${YT_BROADCASTS_URL}?part=status,snippet,statistics&broadcastStatus=active&mine=true`, {
+          headers: { Authorization: `Bearer ${church.yt_access_token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const broadcast = data.items?.[0];
+          result.youtube = {
+            checked: true,
+            live: broadcast?.status?.lifeCycleStatus === 'live',
+            viewerCount: parseInt(broadcast?.statistics?.concurrentViewers || '0') || 0,
+            title: broadcast?.snippet?.title || '',
+          };
+        } else {
+          result.youtube = { checked: true, live: false, error: `API returned ${resp.status}` };
+        }
+      } catch (e) {
+        result.youtube = { checked: true, live: false, error: e.message };
+      }
+    }
+
+    // ── Facebook: check live_videos for active broadcasts ──
+    if (church.fb_access_token) {
+      try {
+        const target = church.fb_page_id || 'me';
+        const resp = await fetch(`${FB_GRAPH_URL}/${target}/live_videos?fields=status,title,live_views&limit=1`, {
+          headers: { Authorization: `Bearer ${church.fb_access_token}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const video = data.data?.[0];
+          result.facebook = {
+            checked: true,
+            live: video?.status === 'LIVE',
+            viewerCount: video?.live_views || 0,
+            title: video?.title || '',
+          };
+        } else {
+          result.facebook = { checked: true, live: false, error: `API returned ${resp.status}` };
+        }
+      } catch (e) {
+        result.facebook = { checked: true, live: false, error: e.message };
+      }
+    }
+
+    return result;
   }
 
   // ─── BACKGROUND REFRESH ──────────────────────────────────────────────────────

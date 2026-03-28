@@ -909,6 +909,16 @@ class ChurchAVAgent {
           if (msg.fps > 0 && a.setFps) a.setFps(msg.fps);
         }
         break;
+      case 'stream_verification_result': {
+        const v = msg.verification || {};
+        const parts = [];
+        if (v.youtube?.checked) parts.push(v.youtube.live ? `YouTube: LIVE (${v.youtube.viewerCount || 0} viewers)` : 'YouTube: NOT receiving');
+        if (v.facebook?.checked) parts.push(v.facebook.live ? `Facebook: LIVE (${v.facebook.viewerCount || 0} viewers)` : 'Facebook: NOT receiving');
+        if (parts.length) console.log(`[CDN Verify] ${parts.join(' · ')}`);
+        this.status.streamVerification = v;
+        this.sendStatus();
+        break;
+      }
       default:
         console.log('Relay msg:', msg.type);
     }
@@ -1483,6 +1493,8 @@ class ChurchAVAgent {
           this._startEncoderPoll(3_000);
           console.log('[SignalFailover] Fast encoder poll enabled (3s)');
         }
+        // Request CDN verification from relay (checks YouTube/Facebook if connected)
+        this.sendToRelay({ type: 'stream_verification_request' });
         // Auto-record: start ATEM recording when stream starts
         if (this.config.atemAutoRecord && this.atem && this.status.atem?.connected && !this.status.atem?.recording) {
           try {

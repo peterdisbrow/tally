@@ -1833,6 +1833,36 @@ function updateStatusUI(status) {
     }
   }
 
+  // CDN verification status
+  const cdnEl = document.getElementById('cdn-verify-status');
+  if (cdnEl) {
+    const sv = status.streamVerification;
+    if (sv && (sv.youtube || sv.facebook)) {
+      const parts = [];
+      if (sv.youtube?.checked) {
+        parts.push(sv.youtube.live
+          ? `<span style="color:var(--green);">YouTube: LIVE${sv.youtube.viewerCount ? ` (${sv.youtube.viewerCount} viewers)` : ''}</span>`
+          : '<span style="color:var(--red, #f44);">YouTube: NOT receiving</span>');
+      }
+      if (sv.facebook?.checked) {
+        parts.push(sv.facebook.live
+          ? `<span style="color:var(--green);">Facebook: LIVE${sv.facebook.viewerCount ? ` (${sv.facebook.viewerCount} viewers)` : ''}</span>`
+          : '<span style="color:var(--red, #f44);">Facebook: NOT receiving</span>');
+      }
+      if (parts.length) {
+        const allLive = (!sv.youtube?.checked || sv.youtube.live) && (!sv.facebook?.checked || sv.facebook.live);
+        cdnEl.innerHTML = parts.join(' &middot; ');
+        cdnEl.style.display = '';
+        cdnEl.style.background = allLive ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)';
+        cdnEl.style.border = `1px solid ${allLive ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`;
+      } else {
+        cdnEl.style.display = 'none';
+      }
+    } else if (!streaming) {
+      cdnEl.style.display = 'none';
+    }
+  }
+
   // Audio status card
   const audio = status.audio || {};
   const mixerData = status.mixer && typeof status.mixer === 'object' ? status.mixer : {};

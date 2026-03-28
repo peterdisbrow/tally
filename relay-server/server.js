@@ -3292,6 +3292,7 @@ const _wsHandlers = createWebSocketHandlers({
   checkCommandRateLimit,
   broadcastToSSE,
   broadcastToPortal,
+  streamOAuth,
   onChurchConnected(church, ws) {
     // Onboarding milestone: first app connection
     try {
