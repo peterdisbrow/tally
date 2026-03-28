@@ -1739,7 +1739,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '</div>';
         });
         if (!hasAny) {
-          body.innerHTML = '<span style="color:#475569">No service windows configured. <a href="#" style="color:#22c55e;text-decoration:none" onclick="event.preventDefault();showPage(\'schedule\', document.querySelector(\'[data-page=schedule]\'))">Set up your schedule \\u2192</a></span>';
+          body.innerHTML = '<span style="color:#475569">No service windows configured. <a href="#" style="color:#22c55e;text-decoration:none" onclick="event.preventDefault();showPage(\'schedule\', document.querySelector(\'[data-page=schedule]\'))">Set up your schedule →</a></span>';
         } else {
           body.innerHTML = html;
         }
@@ -2006,7 +2006,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;font-size:12px;color:#64748B">';
       html += '<span>Last scan: ' + (data.created_at ? new Date(data.created_at).toLocaleString() : '—') + '</span>';
       if (data.coverage_score !== undefined) {
-        html += '<span>Coverage: ' + Math.round(data.coverage_score * 100) + '%</span>';
+        html += '<span>Coverage: ' + Math.min(100, Math.round(data.coverage_score * 100)) + '%</span>';
       }
       html += '</div>';
 
@@ -4381,12 +4381,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<span style="color:#F8FAFC;font-size:14px;font-weight:700">Unlock with Plus</span>';
           html += '</div>';
           html += '<div class="grid-2col" style="gap:6px;font-size:13px;margin-bottom:16px">';
-          html += '<div style="color:#94A3B8">\\u2726 ProPresenter control (looks, timers, stage)</div>';
-          html += '<div style="color:#94A3B8">\\u2726 Live video preview stream</div>';
-          html += '<div style="color:#94A3B8">\\u2726 On-call TD rotation</div>';
-          html += '<div style="color:#94A3B8">\\u2726 Up to 3 rooms / campuses</div>';
+          html += '<div style="color:#94A3B8">✦ ProPresenter control (looks, timers, stage)</div>';
+          html += '<div style="color:#94A3B8">✦ Live video preview stream</div>';
+          html += '<div style="color:#94A3B8">✦ On-call TD rotation</div>';
+          html += '<div style="color:#94A3B8">✦ Up to 3 rooms / campuses</div>';
           html += '</div>';
-          html += '<button onclick="upgradePlan(\'plus\')" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Plus \\u2014 $99/mo \\u2192</button>';
+          html += '<button onclick="upgradePlan(\'plus\')" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Plus — $99/mo →</button>';
           html += '</div>';
 
           // Pro upgrade card
@@ -4396,13 +4396,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<span style="color:#F8FAFC;font-size:14px;font-weight:700">Unlock with Pro</span>';
           html += '</div>';
           html += '<div class="grid-2col" style="gap:6px;font-size:13px;margin-bottom:16px">';
-          html += '<div style="color:#94A3B8">\\u2726 Everything in Plus</div>';
-          html += '<div style="color:#94A3B8">\\u2726 AI Autopilot automation rules</div>';
-          html += '<div style="color:#94A3B8">\\u2726 Planning Center sync + write-back</div>';
-          html += '<div style="color:#94A3B8">\\u2726 Monthly leadership reports</div>';
-          html += '<div style="color:#94A3B8">\\u2726 Up to 10 rooms / campuses</div>';
+          html += '<div style="color:#94A3B8">✦ Everything in Plus</div>';
+          html += '<div style="color:#94A3B8">✦ AI Autopilot automation rules</div>';
+          html += '<div style="color:#94A3B8">✦ Planning Center sync + write-back</div>';
+          html += '<div style="color:#94A3B8">✦ Monthly leadership reports</div>';
+          html += '<div style="color:#94A3B8">✦ Up to 10 rooms / campuses</div>';
           html += '</div>';
-          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#22c55e;border:1px solid rgba(34,197,94,0.3);cursor:pointer">Upgrade to Pro \\u2014 $149/mo \\u2192</button>';
+          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#22c55e;border:1px solid rgba(34,197,94,0.3);cursor:pointer">Upgrade to Pro — $149/mo →</button>';
           html += '</div>';
         } else if (currentTier === 'plus') {
           // Pro upgrade card only
@@ -4412,18 +4412,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<span style="color:#F8FAFC;font-size:14px;font-weight:700">Unlock with Pro</span>';
           html += '</div>';
           html += '<div class="grid-2col" style="gap:6px;font-size:13px;margin-bottom:16px">';
-          html += '<div style="color:#94A3B8">\\u2726 AI Autopilot automation rules</div>';
-          html += '<div style="color:#94A3B8">\\u2726 Planning Center sync + write-back</div>';
-          html += '<div style="color:#94A3B8">\\u2726 Monthly leadership reports</div>';
-          html += '<div style="color:#94A3B8">\\u2726 Up to 10 rooms / campuses</div>';
+          html += '<div style="color:#94A3B8">✦ AI Autopilot automation rules</div>';
+          html += '<div style="color:#94A3B8">✦ Planning Center sync + write-back</div>';
+          html += '<div style="color:#94A3B8">✦ Monthly leadership reports</div>';
+          html += '<div style="color:#94A3B8">✦ Up to 10 rooms / campuses</div>';
           html += '</div>';
-          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Pro \\u2014 $149/mo \\u2192</button>';
+          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Pro — $149/mo →</button>';
           html += '</div>';
         }
 
         if (b.portalUrl) {
           html += '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">';
-          html += '<a href="' + b.portalUrl + '" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none">Manage Subscription \\u2192</a>';
+          html += '<a href="' + b.portalUrl + '" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none">Manage Subscription →</a>';
           if (['active','trialing'].includes(b.status) && !b.cancelAtPeriodEnd) {
             html += '<button onclick="cancelSubscription()" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:13px;padding:8px 16px;border-radius:8px;cursor:pointer;font-weight:600">Cancel Subscription</button>';
           }
@@ -4440,7 +4440,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="margin-top:16px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:20px 24px">';
           html += '<div style="font-size:15px;font-weight:700;color:#22c55e;margin-bottom:8px">Reactivate Your Subscription</div>';
           html += '<div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:14px">Your settings and data are still here. Reactivate to resume monitoring immediately.</div>';
-          html += '<button onclick="reactivateSubscription()" id="btn-reactivate" class="btn-primary" style="cursor:pointer">Reactivate Now \\u2192</button>';
+          html += '<button onclick="reactivateSubscription()" id="btn-reactivate" class="btn-primary" style="cursor:pointer">Reactivate Now →</button>';
           html += '</div>';
         }
 
@@ -4937,7 +4937,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (!_refData) return;
       var subject = encodeURIComponent('Check out Tally for your church production team');
       var body = encodeURIComponent(
-        'Hey!\\n\\nI wanted to share Tally with you \\u2014 it monitors our church production gear and auto-recovers issues during services. ' +
+        'Hey!\\n\\nI wanted to share Tally with you — it monitors our church production gear and auto-recovers issues during services. ' +
         'It\\x27s been a game changer for our team.\\n\\n' +
         'If you sign up with my link, we both get a free month:\\n' +
         (_refData.shareUrl || '') + '\\n\\n' +
@@ -5149,9 +5149,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       upEl.style.color = d.uptime_pct >= 99 ? '#22c55e' : d.uptime_pct >= 95 ? '#eab308' : '#ef4444';
       document.getElementById('a-sessions-count').textContent = d.total_sessions;
       document.getElementById('a-avg-viewers').textContent =
-        d.avg_peak_viewers !== null ? Math.round(d.avg_peak_viewers) : '\\u2014';
+        d.avg_peak_viewers !== null ? Math.round(d.avg_peak_viewers) : '—';
       document.getElementById('a-recovery-rate').textContent =
-        d.auto_recovery_rate !== null ? d.auto_recovery_rate.toFixed(0) + '%' : '\\u2014';
+        d.auto_recovery_rate !== null ? d.auto_recovery_rate.toFixed(0) + '%' : '—';
       document.getElementById('a-recovery-rate').style.color =
         d.auto_recovery_rate === null ? '#94A3B8' : d.auto_recovery_rate >= 80 ? '#22c55e' : d.auto_recovery_rate >= 50 ? '#eab308' : '#ef4444';
     }
@@ -5222,10 +5222,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function renderAudienceKPI(d) {
       var s = d.platform_summary || {};
-      document.getElementById('aud-yt-peak').textContent = s.peak_youtube != null ? s.peak_youtube : '\\u2014';
-      document.getElementById('aud-fb-peak').textContent = s.peak_facebook != null ? s.peak_facebook : '\\u2014';
-      document.getElementById('aud-vim-peak').textContent = s.peak_vimeo != null ? s.peak_vimeo : '\\u2014';
-      document.getElementById('aud-total-avg').textContent = s.avg_total != null ? Math.round(s.avg_total) : '\\u2014';
+      document.getElementById('aud-yt-peak').textContent = s.peak_youtube != null ? s.peak_youtube : '—';
+      document.getElementById('aud-fb-peak').textContent = s.peak_facebook != null ? s.peak_facebook : '—';
+      document.getElementById('aud-vim-peak').textContent = s.peak_vimeo != null ? s.peak_vimeo : '—';
+      document.getElementById('aud-total-avg').textContent = s.avg_total != null ? Math.round(s.avg_total) : '—';
     }
 
     function renderPlatformChart(d) {
@@ -5309,9 +5309,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
       var html = '<div class="a-metric-grid">';
       html += aMetricBox(aFmtHours(d.total_stream_hours), 'Total Stream Hours');
-      html += aMetricBox(d.avg_session_minutes !== null ? d.avg_session_minutes + 'm' : '\\u2014', 'Avg Session Length');
-      html += aMetricBox(d.sessions_per_week !== null ? d.sessions_per_week.toFixed(1) : '\\u2014', 'Sessions / Week');
-      html += aMetricBox(d.stream_ran_pct !== null ? d.stream_ran_pct.toFixed(0) + '%' : '\\u2014', 'Sessions With Stream');
+      html += aMetricBox(d.avg_session_minutes !== null ? d.avg_session_minutes + 'm' : '—', 'Avg Session Length');
+      html += aMetricBox(d.sessions_per_week !== null ? d.sessions_per_week.toFixed(1) : '—', 'Sessions / Week');
+      html += aMetricBox(d.stream_ran_pct !== null ? d.stream_ran_pct.toFixed(0) + '%' : '—', 'Sessions With Stream');
       html += '</div>';
 
       if (d.weekly_sessions && d.weekly_sessions.length) {
@@ -5370,7 +5370,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       return '<div class="a-metric-item"><div class="a-metric-val">' + val + '</div><div class="a-metric-lbl">' + label + '</div></div>';
     }
     function aFmtHours(h) {
-      if (h === null || h === undefined) return '\\u2014';
+      if (h === null || h === undefined) return '—';
       return h < 1 ? Math.round(h * 60) + 'm' : h.toFixed(1) + 'h';
     }
 
@@ -5489,7 +5489,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           return;
         }
         wrap.innerHTML = items.map(function(c) {
-          var latency = c.latency_ms == null ? '\\u2014' : (c.latency_ms + ' ms');
+          var latency = c.latency_ms == null ? '—' : (c.latency_ms + ' ms');
           return '<div style=\"display:flex;justify-content:space-between;gap:10px;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:8px 10px\">' +
             '<div><div style=\"color:#F8FAFC;font-size:13px;font-weight:600\">' + escapeHtml(c.name) + '</div><div style=\"color:#64748B;font-size:12px\">' + escapeHtml(c.detail || '') + '</div></div>' +
             '<div style=\"text-align:right;font-size:12px\">' + supportStateChip(c.state) + '<div style=\"color:#64748B;margin-top:3px\">' + latency + '</div></div>' +
