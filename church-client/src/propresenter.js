@@ -1,6 +1,6 @@
 /**
  * ProPresenter 7 Integration
- * REST API (port 1025) + WebSocket (port 1026) for real-time events.
+ * REST API + WebSocket on same port (default 1025).
  * Supports presentation & playlist trigger modes, library browsing,
  * slide thumbnails, and optional backup PP mirroring.
  */
@@ -13,7 +13,7 @@ class ProPresenter extends EventEmitter {
     super();
     this.host = host;
     this.port = port;
-    this.wsPort = port + 1; // 1026 by default
+    this.wsPort = port; // PP 21.x serves WebSocket on the same port as REST API
     this.triggerMode = triggerMode; // 'presentation' or 'playlist'
     this.connected = false;
     this.running = false;
