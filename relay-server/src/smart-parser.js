@@ -162,14 +162,12 @@ function smartParse(text, status = {}) {
 
   // ─── C. Generic streaming start/stop ────────────────────────────────────
   if (START_STREAM_RE.test(trimmed)) {
-    const device = pickStreamDevice(status);
-    if (!device) return null; // no streaming device → let AI explain
+    const device = pickStreamDevice(status) || 'encoder'; // fallback to encoder if status unavailable
     return { type: 'command', command: startStreamCmd(device), params: {} };
   }
 
   if (STOP_STREAM_RE.test(trimmed)) {
-    const device = pickStreamDevice(status);
-    if (!device) return null;
+    const device = pickStreamDevice(status) || 'encoder'; // fallback to encoder if status unavailable
     return { type: 'command', command: stopStreamCmd(device), params: {} };
   }
 

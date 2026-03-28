@@ -147,8 +147,10 @@ describe('Generic streaming start/stop', () => {
       expect(result.command).toBe('encoder.startStream');
     });
 
-    it(`"${phrase}" with no devices → null (fall through to AI)`, () => {
-      expect(smartParse(phrase, NO_DEVICES)).toBeNull();
+    it(`"${phrase}" with no devices → encoder.startStream (fallback)`, () => {
+      const result = smartParse(phrase, NO_DEVICES);
+      expect(result).not.toBeNull();
+      expect(result.command).toBe('encoder.startStream');
     });
   }
 
