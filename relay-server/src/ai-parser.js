@@ -1026,7 +1026,7 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   // ProPresenter
   if (ctx.status?.proPresenter?.connected) {
     const pp = ctx.status.proPresenter;
-    contextHint += `ProPresenter: slide ${pp.slideIndex || '?'}/${pp.slideTotal || '?'}. `;
+    contextHint += `ProPresenter: slide ${pp.slideIndex != null ? pp.slideIndex + 1 : '?'}/${pp.slideTotal || '?'}. `;
   }
 
   // Audio mixer

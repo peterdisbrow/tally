@@ -86,7 +86,7 @@ function buildDiagnosticContext(churchId, db, churches, signalFailover) {
     if (s.proPresenter?.connected != null) {
       let ppLine = `  ProPresenter: ${s.proPresenter.connected ? 'connected' : 'DISCONNECTED'}`;
       if (s.proPresenter.connected && s.proPresenter.presentationName) {
-        ppLine += ` — "${s.proPresenter.presentationName}" slide ${s.proPresenter.slideIndex || '?'}`;
+        ppLine += ` — "${s.proPresenter.presentationName}" slide ${s.proPresenter.slideIndex != null ? s.proPresenter.slideIndex + 1 : '?'}`;
       }
       lines.push(ppLine);
     }
