@@ -104,9 +104,10 @@ function initRtmpIngest(db, broadcastToSSE) {
       '-c:v', 'copy',
       '-c:a', 'copy',
       '-f', 'hls',
-      '-hls_time', '3',
-      '-hls_list_size', '6',
-      '-hls_flags', 'delete_segments',
+      '-hls_time', '4',
+      '-hls_list_size', '10',
+      '-hls_delete_threshold', '5',
+      '-hls_flags', 'delete_segments+temp_file',
       '-hls_segment_filename', path.join(hlsDir, 'seg%03d.ts'),
       path.join(hlsDir, 'live.m3u8'),
     ];
