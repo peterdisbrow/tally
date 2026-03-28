@@ -157,6 +157,9 @@ function createWebSocketHandlers({
 
     // Replace any existing WebSocket for this church
     if (church.ws?.readyState === wsOpen) {
+      const oldRemote = church.ws._socket?.remoteAddress + ':' + church.ws._socket?.remotePort;
+      const newRemote = ws._socket?.remoteAddress + ':' + ws._socket?.remotePort;
+      console.log(`[WS] Replacing church ${church.churchId} connection: old=${oldRemote} new=${newRemote}`);
       church.ws.close(1000, 'replaced by new connection');
     }
 
