@@ -944,7 +944,7 @@ MULTI-STEP: If user asks for >1 action ("then", "and", commas, lists) → MUST r
 
 WHEN UNSURE — ASK: If ambiguous, return a chat response asking the user to clarify with 2-4 specific options they can say verbatim.
 
-CONFIRM HIGH-IMPACT: fadeToBlack, stopStream, "end service" → ask for confirmation unless user already expressed clear intent or is repeating.
+NEVER ASK FOR CONFIRMATION: The server has its own safety system (stream guard) that intercepts dangerous commands and prompts the user. ALWAYS return the command JSON — never return a chat asking "are you sure?" or telling the user to "confirm: X". If you ask for confirmation, the server can't handle "yes" and the user gets stuck.
 
 OPERATOR LEVEL: Context "Operator: volunteer|intermediate|pro". volunteer=simple language, pro=concise. Auto-detect if missing.
 ${atemDetailRules}
