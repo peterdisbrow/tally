@@ -277,6 +277,10 @@ class AllenHeathMixer {
       this._online = false;
       console.log(`🎛️  ${this.model}: TCP MIDI disconnected`);
     });
+    this._tcp.on('error', (err) => {
+      console.warn(`🎛️  ${this.model}: TCP MIDI error — ${err.message}`);
+      this._online = false;
+    });
     this._tcp.on('midi', (msg) => this._handleIncoming(msg));
   }
 
@@ -750,8 +754,12 @@ class AllenHeathMixer {
    * overwhelming the console.
    */
   async _queryInitialState() {
-    const BATCH_SIZE = 20;
-    const BATCH_DELAY = 300; // ms
+    // Brief pause after TCP handshake before querying — some SQ firmware
+    // resets the connection if NRPN traffic arrives too quickly after connect
+    await new Promise(r => setTimeout(r, 1000));
+
+    const BATCH_SIZE = 8;
+    const BATCH_DELAY = 500; // ms — conservative to avoid SQ connection reset
 
     const queries = [];
 
