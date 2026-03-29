@@ -534,9 +534,8 @@ const _schemaMigrations = [
   // Onboarding checklist steps 3 & 4 (steps 1-2 use existing app/telegram columns)
   "ALTER TABLE churches ADD COLUMN onboarding_failover_tested_at TEXT",
   "ALTER TABLE churches ADD COLUMN onboarding_team_invited_at TEXT",
-  // Campus Mode (Pro/Enterprise self-service campus linking — separate from reseller-created campuses)
-  // campus_id: points to the main campus churchId when this church is a satellite
-  // campus_link_code: 6-char code the main campus shares so satellites can join
+  // Legacy campus columns — kept for migration compatibility, no longer used.
+  // The rooms-only model replaces campus linking: rooms belong directly to a church.
   "ALTER TABLE churches ADD COLUMN campus_id TEXT",
   "ALTER TABLE churches ADD COLUMN campus_link_code TEXT",
   // Room assignment — which room this desktop/agent monitors
@@ -565,8 +564,8 @@ try {
 } catch { /* tables may not exist yet — indexes will be created when they are */ }
 
 // ─── ROOMS TABLE ─────────────────────────────────────────────────────────────
-// Rooms are physical spaces within a campus (e.g. Main Sanctuary, Youth Room).
-// Each room belongs to a campus (identified by churchId in churches table).
+// Rooms are physical spaces within a church (e.g. Main Sanctuary, Youth Room).
+// campus_id stores the owning churchId (column name kept for migration compat).
 db.exec(`
   CREATE TABLE IF NOT EXISTS rooms (
     id          TEXT PRIMARY KEY,

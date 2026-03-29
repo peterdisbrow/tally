@@ -11,23 +11,9 @@ module.exports = function setupRoomEquipmentRoutes(app, ctx) {
 
   // ── helpers ──────────────────────────────────────────────────────────────
 
-  /** Return the set of campus IDs this church is allowed to access rooms from. */
-  function getAllowedCampusIds(churchId) {
-    const campusIds = [churchId];
-    const row = db.prepare('SELECT campus_id, campus_link_code FROM churches WHERE churchId = ?').get(churchId);
-    if (row?.campus_id) campusIds.push(row.campus_id);
-    if (row?.campus_link_code) {
-      const sats = db.prepare('SELECT churchId FROM churches WHERE campus_id = ?').all(churchId);
-      for (const s of sats) campusIds.push(s.churchId);
-    }
-    return campusIds;
-  }
-
-  /** Check that a room belongs to the church's campus group. */
+  /** Check that a room belongs to this church. (rooms.campus_id stores the owning churchId) */
   function verifyRoomAccess(roomId, churchId) {
-    const allowed = getAllowedCampusIds(churchId);
-    const placeholders = allowed.map(() => '?').join(',');
-    return db.prepare(`SELECT id FROM rooms WHERE id = ? AND campus_id IN (${placeholders})`).get(roomId, ...allowed);
+    return db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ?').get(roomId, churchId);
   }
 
   // ── GET /api/church/app/rooms/:roomId/equipment ──────────────────────────

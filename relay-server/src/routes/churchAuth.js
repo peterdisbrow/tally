@@ -287,23 +287,13 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   });
 
   // GET /api/church/app/rooms — list available rooms for the desktop app
+  // rooms.campus_id stores the owning churchId (legacy column name kept to avoid migration)
   app.get('/api/church/app/rooms', requireChurchAppAuth, (req, res) => {
     try {
       const churchId = req.church.churchId;
-      const church = db.prepare('SELECT campus_id, campus_link_code FROM churches WHERE churchId = ?').get(churchId);
-      const campusIds = [churchId];
-      if (church?.campus_id) campusIds.push(church.campus_id);
-      if (church?.campus_link_code) {
-        const satellites = db.prepare('SELECT churchId FROM churches WHERE campus_id = ?').all(churchId);
-        for (const s of satellites) campusIds.push(s.churchId);
-      }
-      const placeholders = campusIds.map(() => '?').join(',');
-      const rooms = db.prepare(`SELECT id, campus_id, name, description FROM rooms WHERE campus_id IN (${placeholders}) ORDER BY name ASC`).all(...campusIds);
+      const rooms = db.prepare('SELECT id, campus_id, name, description FROM rooms WHERE campus_id = ? ORDER BY name ASC').all(churchId);
       const currentRoomId = db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId)?.room_id || null;
-      // Include campus names so the app can group rooms by campus
-      const campusRows = db.prepare(`SELECT churchId, name FROM churches WHERE churchId IN (${placeholders})`).all(...campusIds);
-      const campuses = campusRows.map(c => ({ id: c.churchId, name: c.name }));
-      res.json({ rooms, currentRoomId, campuses });
+      res.json({ rooms, currentRoomId });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }
@@ -315,16 +305,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       const churchId = req.church.churchId;
       const roomId = req.body?.roomId || null;
       if (roomId) {
-        // Build the set of campus IDs this church is allowed to assign rooms from
-        const campusRow = db.prepare('SELECT campus_id, campus_link_code FROM churches WHERE churchId = ?').get(churchId);
-        const allowedCampusIds = [churchId];
-        if (campusRow?.campus_id) allowedCampusIds.push(campusRow.campus_id);
-        if (campusRow?.campus_link_code) {
-          const sats = db.prepare('SELECT churchId FROM churches WHERE campus_id = ?').all(churchId);
-          for (const s of sats) allowedCampusIds.push(s.churchId);
-        }
-        const placeholders = allowedCampusIds.map(() => '?').join(',');
-        const room = db.prepare(`SELECT id, name FROM rooms WHERE id = ? AND campus_id IN (${placeholders})`).get(roomId, ...allowedCampusIds);
+        const room = db.prepare('SELECT id, name FROM rooms WHERE id = ? AND campus_id = ?').get(roomId, churchId);
         if (!room) return res.status(404).json({ error: 'Room not found or not accessible by this church' });
         db.prepare('UPDATE churches SET room_id = ?, room_name = ? WHERE churchId = ?').run(roomId, room.name, churchId);
         res.json({ ok: true, roomId, roomName: room.name });
@@ -332,85 +313,6 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
         db.prepare('UPDATE churches SET room_id = NULL, room_name = NULL WHERE churchId = ?').run(churchId);
         res.json({ ok: true, roomId: null, roomName: null });
       }
-    } catch (e) {
-      res.status(500).json({ error: safeErrorMessage(e) });
-    }
-  });
-
-  // ─── CAMPUS MODE ─────────────────────────────────────────────────────────────
-
-  // POST /api/church/app/campus/generate-link
-  // Main campus calls this to get a campus_link_code that satellites can use to join.
-  app.post('/api/church/app/campus/generate-link', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
-    try {
-      const churchId = req.church.churchId;
-      // Generate a fresh unique link code (reuse generateRegistrationCode for same uniqueness guarantees)
-      const linkCode = generateRegistrationCode();
-      db.prepare('UPDATE churches SET campus_link_code = ? WHERE churchId = ?').run(linkCode, churchId);
-      log(`[Campus] Link code generated for ${req.church.name} (${churchId}): ${linkCode}`);
-      res.json({ ok: true, campusLinkCode: linkCode });
-    } catch (e) {
-      res.status(500).json({ error: safeErrorMessage(e) });
-    }
-  });
-
-  // POST /api/church/app/campus/join
-  // A satellite church calls this with the main campus's link code to join.
-  app.post('/api/church/app/campus/join', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
-    try {
-      const churchId = req.church.churchId;
-      const linkCode = String(req.body?.campusLinkCode || '').trim().toUpperCase();
-      if (!linkCode) return res.status(400).json({ error: 'campusLinkCode required' });
-
-      const mainCampus = db.prepare('SELECT churchId, name FROM churches WHERE campus_link_code = ?').get(linkCode);
-      if (!mainCampus) return res.status(404).json({ error: 'Invalid campus link code' });
-      if (mainCampus.churchId === churchId) {
-        return res.status(400).json({ error: 'A church cannot join itself as a satellite' });
-      }
-
-      // Check this church is not already linked elsewhere
-      const self = db.prepare('SELECT campus_id FROM churches WHERE churchId = ?').get(churchId);
-      if (self?.campus_id && self.campus_id !== mainCampus.churchId) {
-        return res.status(409).json({ error: 'Already linked to a different campus. Leave current campus first.' });
-      }
-
-      db.prepare('UPDATE churches SET campus_id = ? WHERE churchId = ?').run(mainCampus.churchId, churchId);
-      log(`[Campus] ${req.church.name} (${churchId}) joined campus of ${mainCampus.name} (${mainCampus.churchId})`);
-      res.json({ ok: true, campusId: mainCampus.churchId, campusName: mainCampus.name });
-    } catch (e) {
-      res.status(500).json({ error: safeErrorMessage(e) });
-    }
-  });
-
-  // DELETE /api/church/app/campus/leave
-  // A satellite church calls this to unlink from its main campus.
-  app.delete('/api/church/app/campus/leave', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
-    try {
-      const churchId = req.church.churchId;
-      db.prepare('UPDATE churches SET campus_id = NULL WHERE churchId = ?').run(churchId);
-      log(`[Campus] ${req.church.name} (${churchId}) left campus`);
-      res.json({ ok: true });
-    } catch (e) {
-      res.status(500).json({ error: safeErrorMessage(e) });
-    }
-  });
-
-  // GET /api/church/app/campus/status — returns campus membership info
-  app.get('/api/church/app/campus/status', requireChurchAppAuth, (req, res) => {
-    try {
-      const churchId = req.church.churchId;
-      const church = db.prepare('SELECT campus_id, campus_link_code FROM churches WHERE churchId = ?').get(churchId);
-      const satellites = db.prepare('SELECT churchId, name FROM churches WHERE campus_id = ?').all(churchId);
-      const mainCampus = church?.campus_id
-        ? db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(church.campus_id)
-        : null;
-      res.json({
-        isSatellite: !!church?.campus_id,
-        isMainCampus: satellites.length > 0,
-        mainCampus: mainCampus ? { churchId: mainCampus.churchId, name: mainCampus.name } : null,
-        satellites: satellites.map(s => ({ churchId: s.churchId, name: s.name })),
-        campusLinkCode: church?.campus_link_code || null,
-      });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }

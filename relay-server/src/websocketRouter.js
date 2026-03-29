@@ -132,7 +132,7 @@ function createWebSocketHandlers({
 
   // ─── Multi-instance helpers ──────────────────────────────────────────────
   // church.sockets is a Map<instanceName, ws> that tracks all connected Tally
-  // agents for this church (multi-room / multi-campus).  church.ws is kept as
+  // agents for this church (multi-room).  church.ws is kept as
   // a backward-compat reference pointing to the most-recently-connected socket.
 
   /** Ensure church.sockets exists (lazy-init for churches created before this feature). */
