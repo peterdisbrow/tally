@@ -62,12 +62,6 @@
           <div id="theme-toggle-knob" style="width:16px;height:16px;border-radius:50%;background:#475569;position:absolute;top:2px;left:2px;transition:all 0.2s"></div>
         </div>
       </div>
-      <div id="volunteer-mode-toggle" style="display:flex;align-items:center;justify-content:space-between;padding:8px 4px;margin-bottom:8px;border:1px solid #1a2e1f;border-radius:8px;cursor:pointer" data-action="toggleVolunteerMode" title="Show only essentials for service">
-        <span style="font-size:12px;color:#94A3B8;font-weight:600">Volunteer Mode</span>
-        <div id="lite-toggle-switch" style="width:36px;height:20px;border-radius:10px;background:#1e293b;position:relative;transition:background 0.2s">
-          <div id="lite-toggle-knob" style="width:16px;height:16px;border-radius:50%;background:#475569;position:absolute;top:2px;left:2px;transition:all 0.2s"></div>
-        </div>
-      </div>
       <button id="btn-lang-toggle" class="btn-secondary" data-action="toggleLanguage" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
       <button id="btn-logout" class="btn-logout" data-action="logout" data-i18n="btn.signout">Sign out</button>
     </div>
@@ -80,10 +74,6 @@
 
     <!-- OVERVIEW -->
     <div class="page active" id="page-overview">
-      <div class="volunteer-banner" id="volunteer-banner">
-        <span>&#9889; <strong>Volunteer Mode</strong> &mdash; showing only what you need for service. <a href="#" onclick="toggleVolunteerMode();return false" style="color:#22c55e">Switch to full view</a></span>
-        <button class="volunteer-banner-dismiss" onclick="document.getElementById('volunteer-banner').style.display='none'">&times;</button>
-      </div>
       <div class="page-header">
         <div class="page-header-text">
           <div class="page-title" id="overview-church-name">{{CHURCH_NAME}}</div>

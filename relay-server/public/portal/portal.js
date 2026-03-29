@@ -746,37 +746,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     /** Toggle between EN and ES, persist to localStorage, re-translate the page. */
-    // ── Volunteer Mode ──────────────────────────────────────────────────────────
-    function toggleVolunteerMode() {
-      var isVolunteer = document.body.classList.toggle('volunteer-mode');
-      localStorage.setItem('portal_volunteer_mode', isVolunteer ? '1' : '');
-      updateVolunteerToggleUI(isVolunteer);
-      // If currently on a hidden page, switch to overview
-      if (isVolunteer) {
-        var activePage = document.querySelector('.page.active');
-        if (activePage && activePage.style.display === 'none') {
-          var overviewBtn = document.querySelector('.nav-item[data-page="overview"]');
-          if (overviewBtn) showPage('overview', overviewBtn);
-        }
-      }
-    }
-    function updateVolunteerToggleUI(isVolunteer) {
-      var sw = document.getElementById('lite-toggle-switch');
-      var knob = document.getElementById('lite-toggle-knob');
-      if (sw && knob) {
-        sw.style.background = isVolunteer ? '#22c55e' : '#1e293b';
-        knob.style.left = isVolunteer ? '18px' : '2px';
-        knob.style.background = isVolunteer ? '#fff' : '#475569';
-      }
-    }
-    // Restore lite mode on load
-    if (localStorage.getItem('portal_volunteer_mode') === '1') {
-      document.body.classList.add('volunteer-mode');
-      updateVolunteerToggleUI(true);
-    }
-    // Expose globally for inline onclick in banner
-    window.toggleVolunteerMode = toggleVolunteerMode;
-
     // ── Theme Toggle ────────────────────────────────────────────────────────
     function toggleTheme() {
       var isLight = document.body.classList.toggle('light-theme');
@@ -5762,11 +5731,6 @@ document.addEventListener('DOMContentLoaded', function() {
       // Auth
       case 'logout':
         if (typeof logout === 'function') logout();
-        break;
-
-      // Volunteer mode
-      case 'toggleVolunteerMode':
-        if (typeof toggleVolunteerMode === 'function') toggleVolunteerMode();
         break;
 
       // Theme
