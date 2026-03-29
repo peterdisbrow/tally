@@ -319,6 +319,11 @@ function createWebSocketHandlers({
       case 'status_update': {
         church.status = { ...church.status, ...msg.status };
         church.lastHeartbeat = Date.now();
+        // Track per-instance status for room-based filtering
+        if (!church.instanceStatus) church.instanceStatus = {};
+        for (const [inst, sock] of church.sockets.entries()) {
+          if (sock === senderWs) { church.instanceStatus[inst] = { ...msg.status, _updatedAt: Date.now() }; break; }
+        }
         church._offlineAlertSent = false;
 
         const statusEvent = {

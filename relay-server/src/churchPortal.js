@@ -578,12 +578,20 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     let notifications = {};
     try { notifications = JSON.parse(c.notifications || '{}'); } catch {}
 
+    // If ?instance= is provided, return that instance's status
+    const requestedInstance = req.query.instance;
+    let statusObj = runtime?.status || {};
+    if (requestedInstance && runtime?.instanceStatus?.[requestedInstance]) {
+      statusObj = runtime.instanceStatus[requestedInstance];
+    }
+
     res.json({
       ...safe,
       notifications,
       tds,
       connected: runtime?.ws?.readyState === 1,
-      status: runtime?.status || {},
+      status: statusObj,
+      instances: runtime?.sockets ? Array.from(runtime.sockets.keys()) : [],
       lastSeen: runtime?.lastSeen || null,
       autoRecoveryEnabled: c.auto_recovery_enabled !== 0,
     });

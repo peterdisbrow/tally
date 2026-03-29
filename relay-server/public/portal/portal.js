@@ -941,13 +941,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (btn) switchTab(btn.dataset.tab);
     });
 
-    // Room selector change handler
+    // Room selector change handlers
     document.addEventListener('change', function(e) {
       if (e.target.id === 'eq-room-selector') {
         var roomId = e.target.value;
         if (roomId && roomId !== _equipmentRoomId) {
           loadEquipmentForRoom(roomId);
         }
+      }
+      if (e.target.id === 'overview-room-selector') {
+        _overviewInstance = e.target.value;
+        loadOverview();
       }
     });
 
@@ -980,9 +984,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     // ── Overview ───────────────────────────────────────────────────────────────
+    var _overviewInstance = ''; // selected room/instance filter
+
     async function loadOverview() {
       try {
-        const d = await api('GET', '/api/church/me');
+        var instanceParam = _overviewInstance ? '?instance=' + encodeURIComponent(_overviewInstance) : '';
+        const d = await api('GET', '/api/church/me' + instanceParam);
         profileData = d;
         document.getElementById('stat-tds').textContent = (d.tds || []).length;
         document.getElementById('registered-date').textContent = d.registeredAt ? new Date(d.registeredAt).toLocaleDateString() : '—';
@@ -1294,23 +1301,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         populatePfCampusPicker();
         loadProblems('');
 
-        // ── Room selector for overview ────────────────────────────────────
-        try {
-          var roomsData = await api('GET', '/api/church/rooms');
-          var rSel = document.getElementById('overview-room-selector');
-          var rWrap = document.getElementById('overview-room-selector-wrap');
-          if (rSel && rWrap && roomsData.rooms && roomsData.rooms.length > 1) {
+        // ── Room/instance selector for overview ─────────────────────────
+        var instances = d.instances || [];
+        var rSel = document.getElementById('overview-room-selector');
+        var rWrap = document.getElementById('overview-room-selector-wrap');
+        if (rSel && rWrap && instances.length > 1) {
+          // Only rebuild if not already populated
+          if (rSel.options.length <= 1) {
             rSel.innerHTML = '<option value="">All Rooms</option>';
-            roomsData.rooms.forEach(function(r) {
+            instances.forEach(function(inst) {
               var opt = document.createElement('option');
-              opt.value = r.id;
-              opt.textContent = r.name;
+              opt.value = inst;
+              opt.textContent = inst === '_default' ? 'Default' : inst;
               rSel.appendChild(opt);
             });
-            if (roomsData.currentRoomId) rSel.value = roomsData.currentRoomId;
-            rWrap.style.display = '';
           }
-        } catch(re) { /* rooms not available — single room, skip */ }
+          rWrap.style.display = '';
+        }
       } catch(e) { console.error(e); }
     }
 
