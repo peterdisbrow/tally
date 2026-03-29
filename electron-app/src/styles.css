@@ -111,10 +111,6 @@ body.is-mac .header .header-title {
   background: var(--bg);
   color: var(--text);
 }
-.room-picker select optgroup {
-  font-weight: 600;
-  color: var(--muted);
-}
 
 /* ── Live Badge ─────────────────────────────────────────────── */
 .live-badge {
@@ -2169,9 +2165,6 @@ body.light-theme .room-picker select {
   background: #F1F5F9;
   border-color: #E2E8F0;
   color: #0F172A;
-}
-body.light-theme .room-picker select optgroup {
-  color: #64748B;
 }
 body.light-theme .status-bar {
   background: #FFFFFF;

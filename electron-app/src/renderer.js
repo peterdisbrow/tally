@@ -3044,7 +3044,7 @@ async function sendChatMessage() {
 
 // Equipment state is managed by deviceState in equipment-ui.js
 
-// ─── ROOM / CAMPUS PICKER (header) ──────────────────────────────────────────
+// ─── ROOM PICKER (header) ──────────────────────────────────────────
 async function loadRoomPicker() {
   const picker = document.getElementById('room-picker');
   const select = document.getElementById('room-picker-select');
@@ -3066,46 +3066,13 @@ async function loadRoomPicker() {
       return;
     }
 
-    // Build campus name lookup
-    const campusNames = {};
-    if (data.campuses) {
-      for (const c of data.campuses) campusNames[c.id] = c.name;
-    }
-
-    // Group rooms by campus
-    const grouped = {};
-    for (const room of data.rooms) {
-      const cid = room.campus_id;
-      if (!grouped[cid]) grouped[cid] = [];
-      grouped[cid].push(room);
-    }
-
     select.innerHTML = '<option value="">Select a room\u2026</option>';
-    const campusIds = Object.keys(grouped);
-
-    if (campusIds.length === 1) {
-      // Single campus — flat list, no optgroups
-      for (const room of grouped[campusIds[0]]) {
-        const opt = document.createElement('option');
-        opt.value = room.id;
-        opt.textContent = room.name;
-        if (room.id === data.currentRoomId) opt.selected = true;
-        select.appendChild(opt);
-      }
-    } else {
-      // Multiple campuses — group with optgroups
-      for (const cid of campusIds) {
-        const grp = document.createElement('optgroup');
-        grp.label = campusNames[cid] || 'Campus';
-        for (const room of grouped[cid]) {
-          const opt = document.createElement('option');
-          opt.value = room.id;
-          opt.textContent = room.name;
-          if (room.id === data.currentRoomId) opt.selected = true;
-          grp.appendChild(opt);
-        }
-        select.appendChild(grp);
-      }
+    for (const room of data.rooms) {
+      const opt = document.createElement('option');
+      opt.value = room.id;
+      opt.textContent = room.name;
+      if (room.id === data.currentRoomId) opt.selected = true;
+      select.appendChild(opt);
     }
 
     picker.style.display = '';
