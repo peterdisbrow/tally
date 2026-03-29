@@ -589,7 +589,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
 
     let statusObj = runtime?.status || {};
-    let isConnected = runtime?.ws?.readyState === 1;
+    let isConnected = runtime?.sockets?.size
+      ? [...runtime.sockets.values()].some(s => s.readyState === 1)
+      : false;
 
     if (roomOffline) {
       // Return an offline placeholder status for the disconnected room
@@ -597,6 +599,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       isConnected = false;
     } else if (resolvedInstance && runtime?.instanceStatus?.[resolvedInstance]) {
       statusObj = runtime.instanceStatus[resolvedInstance];
+      const instSocket = runtime.sockets?.get(resolvedInstance);
+      isConnected = !!(instSocket && instSocket.readyState === 1);
     }
 
     res.json({
@@ -605,6 +609,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       tds,
       connected: isConnected,
       status: statusObj,
+      instanceStatus: runtime?.instanceStatus || {},
       instances: runtime?.sockets ? Array.from(runtime.sockets.keys()) : [],
       roomInstanceMap: runtime?.roomInstanceMap || {},
       lastSeen: runtime?.lastSeen || null,

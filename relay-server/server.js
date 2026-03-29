@@ -670,6 +670,8 @@ for (const row of stmtAll.all()) {
     ws: null,
     sockets: new Map(),  // Map<instanceName, ws> — multi-instance support
     status: { connected: false, atem: null, obs: null },
+    instanceStatus: {},   // { instanceName → status object } — per-room status
+    roomInstanceMap: {},  // { roomId → instanceName }
     lastSeen: null,
     lastHeartbeat: null, // updated on status_update messages
     registeredAt: row.registeredAt,
@@ -1588,6 +1590,8 @@ app.get('/api/church/stream', (req, res) => {
     type: 'status_snapshot',
     connected: church ? !!(church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === 1)) : false,
     status: church ? church.status : {},
+    instanceStatus: church?.instanceStatus || {},
+    roomInstanceMap: church?.roomInstanceMap || {},
     lastSeen: church ? church.lastSeen : null,
   };
   res.write(`data: ${JSON.stringify(initialPayload)}\n\n`);

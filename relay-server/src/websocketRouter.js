@@ -272,11 +272,14 @@ function createWebSocketHandlers({
         church.sockets.delete(instance);
       }
 
-      // Clean up roomInstanceMap entries that pointed to this instance
+      // Clean up roomInstanceMap and instanceStatus entries for this instance
       if (church.roomInstanceMap) {
         for (const [rid, inst] of Object.entries(church.roomInstanceMap)) {
           if (inst === instance) delete church.roomInstanceMap[rid];
         }
+      }
+      if (church.instanceStatus) {
+        delete church.instanceStatus[instance];
       }
 
       console.log(`[WS] Church ${church.churchId} instance="${instance}" disconnected (${church.sockets.size} instance(s) remaining)`);
@@ -294,6 +297,8 @@ function createWebSocketHandlers({
         church.lastSeen = new Date().toISOString();
         church.disconnectedAt = Date.now();
         church.status = { connected: false, atem: null, obs: null };
+        church.instanceStatus = {};
+        church.roomInstanceMap = {};
 
         const disconnectEvent = {
           type:      'church_disconnected',
@@ -324,13 +329,15 @@ function createWebSocketHandlers({
     switch (msg.type) {
 
       case 'status_update': {
-        church.status = { ...church.status, ...msg.status };
         church.lastHeartbeat = Date.now();
-        // Track per-instance status for room-based filtering
         if (!church.instanceStatus) church.instanceStatus = {};
         if (!church.roomInstanceMap) church.roomInstanceMap = {};
+
+        // Store status per-instance so multi-room churches don't clobber each other
+        let senderInstance = null;
         for (const [inst, sock] of church.sockets.entries()) {
           if (sock === senderWs) {
+            senderInstance = inst;
             church.instanceStatus[inst] = { ...msg.status, _updatedAt: Date.now() };
             // Build roomId → instance mapping from the system.roomId the Electron app reports
             const roomId = msg.status?.system?.roomId;
@@ -340,6 +347,16 @@ function createWebSocketHandlers({
             break;
           }
         }
+
+        // Rebuild church.status from per-instance data (backward compat for
+        // single-instance churches & controller SSE consumers).  For single-
+        // instance this is identical to the old behaviour; for multi-instance
+        // it reflects only the sender so downstream consumers see a coherent
+        // snapshot rather than a cross-room frankenstatus.
+        church.status = senderInstance
+          ? { ...church.instanceStatus[senderInstance] }
+          : { ...msg.status };
+
         church._offlineAlertSent = false;
 
         const statusEvent = {
@@ -347,12 +364,20 @@ function createWebSocketHandlers({
           churchId:      church.churchId,
           name:          church.name,
           status:        church.status,
+          instance:      senderInstance,
           timestamp:     church.lastSeen,
           lastHeartbeat: church.lastHeartbeat,
         };
         broadcastToControllers(statusEvent);
         broadcastToSSE(statusEvent);
-        broadcastToPortal(church.churchId, { type: 'status_update', status: church.status, lastSeen: church.lastSeen });
+        broadcastToPortal(church.churchId, {
+          type: 'status_update',
+          status: church.status,
+          instance: senderInstance,
+          instanceStatus: church.instanceStatus,
+          roomInstanceMap: church.roomInstanceMap,
+          lastSeen: church.lastSeen,
+        });
         onStatusUpdate(church, msg, statusEvent);
         break;
       }
