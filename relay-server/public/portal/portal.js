@@ -2,7 +2,6 @@
 const CHURCH_ID = document.body.dataset.churchId || '';
     let profileData = {};
     let notifData = {};
-    let campusData = []; // legacy, kept for compat
     let supportTriage = null;
     const SCHEDULE_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const SCHEDULE_DAY_LABELS = {
@@ -23,7 +22,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Navigation
         'nav.overview': 'Overview',
         'nav.profile': 'Profile',
-        'nav.campuses': 'Campuses',
+        'nav.rooms': 'Rooms',
         'nav.team': 'Team',
         'nav.alerts': 'Alerts',
         'nav.engineer': 'Tally Engineer',
@@ -57,7 +56,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Page titles
         'page.overview': 'Overview',
         'page.profile': 'Church Profile',
-        'page.campuses': 'Campuses & Equipment',
+        'page.rooms': 'Rooms & Equipment',
         'page.team': 'Team',
         'page.schedule': 'Service Schedule',
         'page.alerts': 'Alerts',
@@ -84,8 +83,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.preservice.title': '\ud83d\udd27 Pre-Service Check',
         'overview.preservice.fix_all': 'Fix All Safe Issues',
         'overview.preservice.run_now': 'Run Check Now',
-        'overview.campus.title': '\u229a All Campuses',
-        'overview.campus.manage': 'Manage Campuses',
+        'overview.quickinfo.rooms': 'Rooms',
         'overview.equip.title': 'Equipment Status',
         'overview.equip.refresh': '\u21bb Refresh',
         'overview.stream.title': 'Live Stream',
@@ -108,11 +106,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.quickinfo.church_id': 'Church ID',
         'overview.quickinfo.registered': 'Registered',
         'overview.quickinfo.plan': 'Plan',
-        'overview.quickinfo.campuses': 'Campuses / Rooms',
-        'overview.viewing': 'Viewing:',
-        'overview.main_campus': 'Main Campus',
+        'rooms.page_sub': 'Manage rooms, equipment configuration, and service schedule',
+        'rooms.title': 'Rooms',
+        'rooms.desc': 'Rooms are physical spaces (Main Sanctuary, Youth Room, etc). Assign each Tally desktop to a room from the app\'s Equipment tab.',
         // Shared table headers
-        'table.campus': 'Campus',
         'table.status': 'Status',
         'table.devices': 'Devices',
         'table.health': 'Health',
@@ -172,17 +169,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'profile.new_password': 'New Password',
         'profile.confirm_password': 'Confirm Password',
         'profile.update_password': 'Update Password',
-        // Campuses
-        'campus.page_sub': 'Manage additional campuses under this account',
-        'campus.stat.total': 'Total Rooms',
-        'campus.stat.online': 'Online',
-        'campus.stat.offline': 'Offline',
-        'campus.stat.alerts': 'Alerts (7d)',
-        'campus.add.title': 'Add Campus',
-        'campus.add.name': 'Campus Name',
-        'campus.add.location': 'City / State (optional)',
-        'campus.add.btn': 'Create Campus',
-        'campus.linked.title': 'Linked Campuses',
         // Tech Directors
         'tds.page_sub': 'People who receive alerts and have TD access',
         'tds.invite_link': '\ud83d\udd17 Copy Invite Link',
@@ -392,7 +378,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Navigation
         'nav.overview': 'Resumen',
         'nav.profile': 'Perfil',
-        'nav.campuses': 'Sedes',
+        'nav.rooms': 'Salas',
         'nav.team': 'Equipo',
         'nav.alerts': 'Alertas',
         'nav.engineer': 'Tally Engineer',
@@ -426,10 +412,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Page titles
         'page.overview': 'Resumen',
         'page.profile': 'Perfil de la Iglesia',
-        'page.campuses': 'Multi-Sede',
+        'page.rooms': 'Salas y Equipos',
         'page.overview': 'Resumen',
         'page.profile': 'Perfil de la Iglesia',
-        'page.campuses': 'Sedes y Equipos',
         'page.team': 'Equipo',
         'page.schedule': 'Horario de Servicios',
         'page.alerts': 'Alertas',
@@ -456,8 +441,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.preservice.title': '\ud83d\udd27 Chequeo Pre-Servicio',
         'overview.preservice.fix_all': 'Corregir lo que sea seguro',
         'overview.preservice.run_now': 'Checar ahora',
-        'overview.campus.title': '\u229a Todas las Sedes',
-        'overview.campus.manage': 'Administrar Sedes',
+        'overview.quickinfo.rooms': 'Salas',
         'overview.equip.title': 'Estado del Equipo',
         'overview.equip.refresh': '\u21bb Actualizar',
         'overview.stream.title': 'Transmisi\u00f3n en Vivo',
@@ -480,11 +464,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.quickinfo.church_id': 'ID de Iglesia',
         'overview.quickinfo.registered': 'Registrado',
         'overview.quickinfo.plan': 'Plan',
-        'overview.quickinfo.campuses': 'Sedes / Salas',
-        'overview.viewing': 'Viendo:',
-        'overview.main_campus': 'Sede Principal',
+        'rooms.page_sub': 'Administra salas, equipos y horario de servicio',
+        'rooms.title': 'Salas',
+        'rooms.desc': 'Las salas son espacios f\u00edsicos (Santuario Principal, Sal\u00f3n Juvenil, etc). Asigna cada escritorio Tally a una sala desde la pesta\u00f1a de Equipos.',
         // Shared table headers
-        'table.campus': 'Sede',
         'table.status': 'Estado',
         'table.devices': 'Dispositivos',
         'table.health': 'Estado',
@@ -544,17 +527,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'profile.new_password': 'Nueva Contrase\u00f1a',
         'profile.confirm_password': 'Confirmar Contrase\u00f1a',
         'profile.update_password': 'Actualizar Contrase\u00f1a',
-        // Campuses
-        'campus.page_sub': 'Administra sedes adicionales en esta cuenta',
-        'campus.stat.total': 'Total de Salas',
-        'campus.stat.online': 'En L\u00ednea',
-        'campus.stat.offline': 'Sin Conexi\u00f3n',
-        'campus.stat.alerts': 'Alertas (7d)',
-        'campus.add.title': 'Agregar Sede',
-        'campus.add.name': 'Nombre de la Sede',
-        'campus.add.location': 'Ciudad / Estado (opcional)',
-        'campus.add.btn': 'Crear Sede',
-        'campus.linked.title': 'Sedes Vinculadas',
         // Tech Directors
         'tds.page_sub': 'Personas que reciben alertas y tienen acceso de DT',
         'tds.invite_link': '\ud83d\udd17 Copiar Enlace de Invitaci\u00f3n',
@@ -899,7 +871,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (overlay) overlay.classList.remove('open');
       if (id === 'overview') { loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
       if (id === 'profile') loadNotifications();
-      if (id === 'campuses') { loadRooms(); }
+      if (id === 'rooms') { loadRooms(); }
       if (id === 'team') loadTds();
       if (id === 'alerts') { loadAlerts(); loadFailoverSettings(); }
       if (id === 'automation') loadMacros();
@@ -996,17 +968,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise', event: 'Event' };
         document.getElementById('plan-name').textContent = tierNames[d.billing_tier] || d.billing_tier || 'Connect';
         try {
-          const roomsPayload = await api('GET', '/api/church/rooms');
-          const roomCount = (roomsPayload && roomsPayload.rooms) ? roomsPayload.rooms.length : 0;
-          const limitEl = document.getElementById('plan-campus-limit');
-          if (limitEl) {
-            limitEl.textContent = roomCount;
+          var roomsPayload = await api('GET', '/api/church/rooms');
+          var roomLimitEl = document.getElementById('plan-room-limit');
+          if (roomLimitEl) {
+            var limits = roomsPayload && roomsPayload.limits ? roomsPayload.limits : null;
+            if (limits) {
+              roomLimitEl.textContent = limits.usedTotal + ' / ' + limits.maxTotal;
+            } else {
+              var rooms = roomsPayload && roomsPayload.rooms ? roomsPayload.rooms : [];
+              roomLimitEl.textContent = rooms.length || '0';
+            }
           }
-          const campusCard = document.getElementById('campus-overview-card');
-          if (campusCard) campusCard.style.display = 'none';
         } catch {
-          const limitEl = document.getElementById('plan-campus-limit');
-          if (limitEl) limitEl.textContent = '—';
+          var roomLimitEl = document.getElementById('plan-room-limit');
+          if (roomLimitEl) roomLimitEl.textContent = '—';
         }
 
         const tbody = document.getElementById('equipment-tbody');
@@ -1251,8 +1226,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         loadActivityFeed();
 
         // ── Tally Engineer diagnostics ──────────────────────────────────────
-        populatePfCampusPicker();
-        loadProblems('');
+        loadProblems();
 
         // ── Room/instance selector for overview ─────────────────────────
         var instances = d.instances || [];
@@ -1950,12 +1924,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
-    // ── Tally Engineer: campus picker + card rendering ──────────────────────
-
-    async function populatePfCampusPicker() {
-      var picker = document.getElementById('pf-campus-picker');
-      if (picker) picker.style.display = 'none';
-    }
+    // ── Tally Engineer: card rendering ────────────────────────────────────────
 
     async function loadProblems() {
       var body = document.getElementById('pf-body');
@@ -2732,9 +2701,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
-    // ── Campuses (legacy — campus management removed, rooms are flat) ─────────
-    function getCampusById() { return null; }
-
     async function loadCoaching() {
       var card = document.getElementById('coaching-card');
       var body = document.getElementById('coaching-body');
@@ -2796,12 +2762,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
-    // Legacy campus functions — removed, kept as no-ops for HTML onclick safety
-    function loadCampuses() {}
-    function addCampus() {}
-    function copyCampusCode() {}
-    function copyCampusToken() {}
-
     // ── Room Management ──────────────────────────────────────────────────────
     async function loadRooms() {
       var container = document.getElementById('rooms-list');
@@ -2839,7 +2799,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try {
         var name = await modalPrompt('Room name (e.g., Main Sanctuary, Youth Room)', '', { title: 'Add Room' });
         if (!name) { _addingRoom = false; return; }
-        await api('POST', '/api/church/rooms', { name: name.trim() });
+        await api('POST', '/api/church/campuses/' + encodeURIComponent(CHURCH_ID) + '/rooms', { name: name.trim() });
         toast('Room "' + name.trim() + '" created');
         loadRooms();
       } catch (e) {
@@ -2853,7 +2813,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var newName = await modalPrompt('Rename room', currentName, { title: 'Edit Room' });
       if (!newName || newName === currentName) return;
       try {
-        await api('PATCH', '/api/church/rooms/' + encodeURIComponent(roomId), { name: newName.trim() });
+        await api('PATCH', '/api/church/campuses/' + encodeURIComponent(campusId) + '/rooms/' + encodeURIComponent(roomId), { name: newName.trim() });
         toast('Room renamed');
         loadRooms();
       } catch (e) {
@@ -2864,25 +2824,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     async function deleteRoom(roomId, campusId, roomName) {
       if (!await modalConfirm('Delete room "' + roomName + '"? Any desktops assigned to this room will be unassigned.', { title: 'Delete Room', okLabel: 'Delete', dangerOk: true })) return;
       try {
-        await api('DELETE', '/api/church/rooms/' + encodeURIComponent(roomId));
+        await api('DELETE', '/api/church/campuses/' + encodeURIComponent(campusId) + '/rooms/' + encodeURIComponent(roomId));
         toast('Room deleted');
         loadRooms();
       } catch (e) {
         toast(e.message || 'Failed to delete room', true);
       }
     }
-
-    // Legacy campus functions — removed, kept as no-ops for HTML onclick safety
-    function removeCampus() {}
-    function editCampus() {}
-    function toggleCampusRooms() {}
-    function loadRoomsForCampus() {}
-    function loadCampusMode() {}
-    function generateCampusLinkCode() {}
-    function copyCampusLinkCode() {}
-    function joinCampusGroup() {}
-    function selfUnlinkFromCampusGroup() {}
-    function unlinkSatelliteCampus() {}
 
     function timeAgo(iso) {
       if (!iso) return '';
@@ -3216,8 +3164,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     async function loadSchedule() {
       try {
-        var picker = document.getElementById('schedule-campus-picker');
-        if (picker) picker.style.display = 'none';
         const raw = await api('GET', '/api/church/schedule');
         const normalized = normalizeSchedulePayload(raw);
         renderScheduleRows(normalized);
@@ -4150,7 +4096,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#94A3B8">✦ ProPresenter control (looks, timers, stage)</div>';
           html += '<div style="color:#94A3B8">✦ Live video preview stream</div>';
           html += '<div style="color:#94A3B8">✦ On-call TD rotation</div>';
-          html += '<div style="color:#94A3B8">✦ Up to 3 rooms / campuses</div>';
+          html += '<div style="color:#94A3B8">✦ Up to 3 rooms</div>';
           html += '</div>';
           html += '<button onclick="upgradePlan(\'plus\')" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Plus — $99/mo →</button>';
           html += '</div>';
@@ -4166,7 +4112,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#94A3B8">✦ AI Autopilot automation rules</div>';
           html += '<div style="color:#94A3B8">✦ Planning Center sync + write-back</div>';
           html += '<div style="color:#94A3B8">✦ Monthly leadership reports</div>';
-          html += '<div style="color:#94A3B8">✦ Up to 10 rooms / campuses</div>';
+          html += '<div style="color:#94A3B8">✦ Up to 10 rooms</div>';
           html += '</div>';
           html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#22c55e;border:1px solid rgba(34,197,94,0.3);cursor:pointer">Upgrade to Pro — $149/mo →</button>';
           html += '</div>';
@@ -4181,7 +4127,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#94A3B8">✦ AI Autopilot automation rules</div>';
           html += '<div style="color:#94A3B8">✦ Planning Center sync + write-back</div>';
           html += '<div style="color:#94A3B8">✦ Monthly leadership reports</div>';
-          html += '<div style="color:#94A3B8">✦ Up to 10 rooms / campuses</div>';
+          html += '<div style="color:#94A3B8">✦ Up to 10 rooms</div>';
           html += '</div>';
           html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Pro — $149/mo →</button>';
           html += '</div>';
@@ -5429,7 +5375,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         body: `
           <p>This is where you set up your church's basic information and connect Tally to your notification channels.</p>
           <h3>Church Name & Contact</h3>
-          <p>Keep this accurate — it shows up in alerts sent to your tech team so they know which church it's for (important if your TD supports multiple campuses).</p>
+          <p>Keep this accurate — it shows up in alerts sent to your tech team so they know which church it's for (important if your TD supports multiple rooms).</p>
           <h3>Notifications</h3>
           <p>Choose how you want to receive alerts. <strong>Telegram is required</strong> — it's how Tally reaches your tech director during service. Email and SMS are for non-urgent notifications like weekly summaries.</p>
           <div class="tip-box"><strong>Tip:</strong> Telegram is a free messaging app. Your TD downloads it once, clicks a setup link, and they're connected. Most TDs prefer it over text messages during service.</div>
@@ -5437,22 +5383,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           <p>When enabled, Tally will try to fix common problems automatically (restart a dropped stream, reconnect a disconnected device) before alerting anyone. This handles the "5-second blip" situations automatically.</p>
         `,
       },
-      campuses: {
-        title: 'Multi-Campus — Managing Multiple Locations',
+      rooms: {
+        title: 'Rooms — Managing Physical Spaces',
         body: `
-          <p>If your church has multiple campuses (main, north, south, satellite) you can manage them all from one login.</p>
+          <p>Rooms represent physical spaces where your production equipment lives — Main Sanctuary, Youth Room, Chapel, etc.</p>
           <h3>How it works</h3>
-          <p>Each campus gets its own Tally installation. They all show up here in one view. You can see which campuses are online, which have issues, and manage tech directors for each one.</p>
-          <h3>Adding a Campus</h3>
+          <p>Create a room for each physical space, then assign a Tally desktop app to that room from the app's Equipment tab. Each room tracks its own equipment status, alerts, and sessions independently.</p>
+          <h3>Adding a Room</h3>
           <ol style="padding-left:18px">
-            <li>Enter the campus name and city/state</li>
-            <li>Click "Create Campus" — Tally generates a unique connection token</li>
-            <li>Copy the registration code and send it to that campus's tech director</li>
-            <li>They enter it in the Tally desktop app when setting up</li>
+            <li>Click "+ Add Room" on the Rooms tab</li>
+            <li>Enter the room name (e.g., Main Sanctuary)</li>
+            <li>In the Tally desktop app, go to Equipment and select the room</li>
           </ol>
-          <div class="tip-box"><strong>Tip:</strong> Think of each campus as its own "church account" that you can see from your main login. They don't share devices or alerts — each campus is independent.</div>
+          <div class="tip-box"><strong>Tip:</strong> Use room names that your team recognizes. When alerts fire, they'll reference the room name so your TD knows exactly where to go.</div>
           <h3>Plan Limits</h3>
-          <p>The number of campuses you can add depends on your plan. The Connect plan is single-campus. Plus and Pro support multiple campuses.</p>
+          <p>The number of rooms you can create depends on your plan: Connect (1), Plus (3), Pro (10), Enterprise (unlimited).</p>
         `,
       },
       tds: {
@@ -5789,22 +5734,6 @@ document.addEventListener('DOMContentLoaded', function() {
         })();
         break;
 
-      // Campus mode
-      case 'generateCampusLinkCode':
-        if (typeof generateCampusLinkCode === 'function') generateCampusLinkCode();
-        break;
-      case 'copyCampusLinkCode':
-        if (typeof copyCampusLinkCode === 'function') copyCampusLinkCode();
-        break;
-      case 'selfUnlinkFromCampusGroup':
-        if (typeof selfUnlinkFromCampusGroup === 'function') selfUnlinkFromCampusGroup();
-        break;
-      case 'joinCampusGroup':
-        if (typeof joinCampusGroup === 'function') joinCampusGroup();
-        break;
-      case 'addCampus':
-        if (typeof addCampus === 'function') addCampus();
-        break;
       case 'addRoom':
         if (typeof addRoom === 'function') addRoom();
         break;
@@ -5955,7 +5884,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var action = el.dataset.actionChange;
     switch (action) {
       case 'loadProblems':
-        if (typeof loadProblems === 'function') loadProblems(el.value);
+        if (typeof loadProblems === 'function') loadProblems();
         break;
       case 'toggleFailoverAction':
         if (typeof toggleFailoverAction === 'function') toggleFailoverAction();
