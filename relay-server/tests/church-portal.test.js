@@ -112,6 +112,7 @@ function createTestDb() {
       church_id TEXT NOT NULL,
       status TEXT,
       message TEXT,
+      instance_name TEXT,
       created_at TEXT
     )
   `);
@@ -121,6 +122,7 @@ function createTestDb() {
       church_id TEXT NOT NULL,
       status TEXT,
       checks TEXT,
+      instance_name TEXT,
       created_at TEXT
     )
   `);
@@ -220,11 +222,38 @@ function createTestDb() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS service_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      church_id TEXT,
       session_id TEXT,
       event_type TEXT,
       timestamp TEXT,
+      instance_name TEXT,
       resolved INTEGER DEFAULT 0,
       auto_resolved INTEGER DEFAULT 0
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS alerts (
+      id TEXT PRIMARY KEY,
+      church_id TEXT NOT NULL,
+      alert_type TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      context TEXT DEFAULT '{}',
+      session_id TEXT,
+      instance_name TEXT,
+      created_at TEXT NOT NULL,
+      acknowledged_at TEXT,
+      acknowledged_by TEXT,
+      escalated INTEGER DEFAULT 0,
+      resolved INTEGER DEFAULT 0
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS room_equipment (
+      room_id TEXT PRIMARY KEY,
+      church_id TEXT NOT NULL,
+      equipment TEXT DEFAULT '{}',
+      updated_at TEXT,
+      updated_by TEXT
     )
   `);
   return db;
