@@ -18,6 +18,10 @@
  *   GET  /api/church/tds                 tech directors list
  *   POST /api/church/tds                 add TD
  *   DELETE /api/church/tds/:tdId         remove TD
+ *   PUT  /api/church/tds/:tdId/access-level   set access level
+ *   PUT  /api/church/tds/:tdId/portal-access  toggle portal login
+ *   POST /api/church/tds/:tdId/set-password   admin sets TD password
+ *   POST /api/td/change-password              TD changes own password
  *   GET  /api/church/sessions            recent sessions
  *   GET  /api/church/guest-tokens        list guest tokens
  *   POST /api/church/guest-tokens        generate token
@@ -59,10 +63,18 @@ function issueChurchToken(churchId, jwtSecret) {
   return jwt.sign({ type: 'church_portal', churchId }, jwtSecret, { expiresIn: '7d' });
 }
 
+function issueTdToken(tdId, churchId, accessLevel, jwtSecret) {
+  return jwt.sign({ type: 'td_portal', tdId, churchId, accessLevel }, jwtSecret, { expiresIn: '7d' });
+}
+
 function generateRegistrationCode(db) {
   return _genRegCode(db);
 }
 
+/**
+ * Original church-admin-only middleware. Still used internally; most routes
+ * now use requirePortalAuth (admin OR TD) or requireAdminAuth (admin only).
+ */
 function requireChurchPortalAuth(db, jwtSecret) {
   return (req, res, next) => {
     const token = req.cookies?.tally_church_session;
@@ -85,8 +97,72 @@ function requireChurchPortalAuth(db, jwtSecret) {
   };
 }
 
+/**
+ * Accepts EITHER a church admin JWT OR a TD JWT (cookie-based).
+ * Sets req.church always; sets req.td + req.tdAccessLevel for TD sessions.
+ */
+function requirePortalAuth(db, jwtSecret) {
+  return (req, res, next) => {
+    const token = req.cookies?.tally_church_session;
+    if (!token) {
+      if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Not authenticated' });
+      return res.redirect('/church-login');
+    }
+    try {
+      const payload = jwt.verify(token, jwtSecret);
+      if (payload.type === 'church_portal') {
+        const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
+        if (!church) throw new Error('church not found');
+        req.church = church;
+        return next();
+      }
+      if (payload.type === 'td_portal') {
+        const td = db.prepare('SELECT * FROM church_tds WHERE id = ? AND church_id = ?').get(payload.tdId, payload.churchId);
+        if (!td || !td.portal_enabled) throw new Error('td not found or disabled');
+        const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
+        if (!church) throw new Error('church not found');
+        req.church = church;
+        req.td = td;
+        req.tdAccessLevel = td.access_level || 'operator';
+        return next();
+      }
+      throw new Error('wrong type');
+    } catch {
+      res.clearCookie('tally_church_session');
+      if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Session expired' });
+      return res.redirect('/church-login');
+    }
+  };
+}
+
+/**
+ * Admin-only middleware — rejects TD sessions.
+ * Used for billing, team management, profile changes, account deletion, etc.
+ */
+function requireAdminAuth(db, jwtSecret) {
+  return (req, res, next) => {
+    const token = req.cookies?.tally_church_session;
+    if (!token) {
+      if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Not authenticated' });
+      return res.redirect('/church-login');
+    }
+    try {
+      const payload = jwt.verify(token, jwtSecret);
+      if (payload.type !== 'church_portal') throw new Error('admin only');
+      const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
+      if (!church) throw new Error('church not found');
+      req.church = church;
+      next();
+    } catch {
+      res.clearCookie('tally_church_session');
+      if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'Admin access required' });
+      return res.redirect('/church-login');
+    }
+  };
+}
+
 function requireChurchPortalOrAppAuth(db, jwtSecret) {
-  const cookieAuth = requireChurchPortalAuth(db, jwtSecret);
+  const portalAuth = requirePortalAuth(db, jwtSecret);
   return (req, res, next) => {
     const auth = req.headers?.authorization || '';
     if (auth.startsWith('Bearer ')) {
@@ -103,7 +179,7 @@ function requireChurchPortalOrAppAuth(db, jwtSecret) {
         return res.status(401).json({ error: 'Invalid or expired token' });
       }
     }
-    return cookieAuth(req, res, next);
+    return portalAuth(req, res, next);
   };
 }
 
@@ -392,6 +468,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     "ALTER TABLE churches ADD COLUMN referral_code TEXT",
     "ALTER TABLE churches ADD COLUMN referred_by TEXT",
     "ALTER TABLE churches ADD COLUMN locale TEXT DEFAULT 'en'",
+    "ALTER TABLE church_tds ADD COLUMN password_hash TEXT",
+    "ALTER TABLE church_tds ADD COLUMN portal_enabled INTEGER DEFAULT 0",
+    "ALTER TABLE church_tds ADD COLUMN last_portal_login TEXT",
   ];
   for (const m of _portalMigrations) {
     try { db.exec(m); } catch { /* column already exists */ }
@@ -512,7 +591,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     db.prepare('UPDATE churches SET referral_code = ? WHERE churchId = ?').run(code, c.churchId);
   }
 
-  const authMiddleware = requireChurchPortalAuth(db, jwtSecret);
+  const authMiddleware = requirePortalAuth(db, jwtSecret);         // admin OR TD
+  const adminMiddleware = requireAdminAuth(db, jwtSecret);         // admin only
   const supportAuthMiddleware = requireChurchPortalOrAppAuth(db, jwtSecret);
 
   // ── Room tier limits ──────────────────────────────────────────────────────
@@ -541,20 +621,39 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       return res.status(400).send(buildChurchLoginHtml('Email and password are required.'));
     }
-    const church = db.prepare('SELECT * FROM churches WHERE portal_email = ?').get(email.trim().toLowerCase());
-    if (!church || !church.portal_password_hash || !verifyPassword(password, church.portal_password_hash)) {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      return res.status(401).send(buildChurchLoginHtml('Invalid email or password.'));
+    const normalEmail = email.trim().toLowerCase();
+
+    // Try church admin first
+    const church = db.prepare('SELECT * FROM churches WHERE portal_email = ?').get(normalEmail);
+    if (church && church.portal_password_hash && verifyPassword(password, church.portal_password_hash)) {
+      const token = issueChurchToken(church.churchId, jwtSecret);
+      res.cookie('tally_church_session', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'Strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+      setCsrfCookie(res, generateCsrfToken());
+      return res.redirect('/church-portal');
     }
-    const token = issueChurchToken(church.churchId, jwtSecret);
-    res.cookie('tally_church_session', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'Strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-    setCsrfCookie(res, generateCsrfToken());
-    res.redirect('/church-portal');
+
+    // Try TD login
+    const td = db.prepare('SELECT * FROM church_tds WHERE email = ? AND portal_enabled = 1').get(normalEmail);
+    if (td && td.password_hash && verifyPassword(password, td.password_hash)) {
+      const token = issueTdToken(td.id, td.church_id, td.access_level || 'operator', jwtSecret);
+      res.cookie('tally_church_session', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'Strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+      db.prepare('UPDATE church_tds SET last_portal_login = ? WHERE id = ?').run(new Date().toISOString(), td.id);
+      setCsrfCookie(res, generateCsrfToken());
+      return res.redirect('/church-portal');
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(401).send(buildChurchLoginHtml('Invalid email or password.'));
   });
 
   // ── Logout ────────────────────────────────────────────────────────────────────
@@ -579,7 +678,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     const c = req.church;
     const runtime = churches.get(c.churchId);
     let tds = [];
-    try { tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC').all(c.churchId); } catch {}
+    try {
+      tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC').all(c.churchId)
+        .map(td => { const { password_hash, ...s } = td; s.has_password = !!password_hash; return s; });
+    } catch {}
     const { portal_password_hash, token, ...safe } = c;
 
     let notifications = {};
@@ -613,7 +715,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       isConnected = !!(instSocket && instSocket.readyState === 1);
     }
 
-    res.json({
+    const response = {
       ...safe,
       notifications,
       tds,
@@ -624,11 +726,20 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       roomInstanceMap: runtime?.roomInstanceMap || {},
       lastSeen: runtime?.lastSeen || null,
       autoRecoveryEnabled: c.auto_recovery_enabled !== 0,
-    });
+    };
+
+    // Attach TD session metadata so the frontend can scope the UI
+    if (req.td) {
+      response.isTd = true;
+      response.tdName = req.td.name;
+      response.tdAccessLevel = req.tdAccessLevel;
+    }
+
+    res.json(response);
   });
 
   // ── POST /api/church/onboarding/dismiss ──────────────────────────────────
-  app.post('/api/church/onboarding/dismiss', authMiddleware, (req, res) => {
+  app.post('/api/church/onboarding/dismiss', adminMiddleware, (req, res) => {
     try {
       db.prepare('UPDATE churches SET onboarding_dismissed = 1 WHERE churchId = ?').run(req.church.churchId);
       res.json({ ok: true });
@@ -638,7 +749,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── POST /api/church/onboarding/undismiss ──────────────────────────────────
-  app.post('/api/church/onboarding/undismiss', authMiddleware, (req, res) => {
+  app.post('/api/church/onboarding/undismiss', adminMiddleware, (req, res) => {
     try {
       db.prepare('UPDATE churches SET onboarding_dismissed = 0 WHERE churchId = ?').run(req.church.churchId);
       res.json({ ok: true });
@@ -650,7 +761,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // ── POST /api/church/onboarding/failover-tested ──────────────────────────────
   // Marks the "Run a test failover" onboarding step complete. Called when the
   // user clicks the "Mark done" button on the onboarding checklist.
-  app.post('/api/church/onboarding/failover-tested', authMiddleware, (req, res) => {
+  app.post('/api/church/onboarding/failover-tested', adminMiddleware, (req, res) => {
     try {
       db.prepare('UPDATE churches SET onboarding_failover_tested_at = ? WHERE churchId = ?')
         .run(new Date().toISOString(), req.church.churchId);
@@ -661,7 +772,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── POST /api/church/onboarding/team-invited ─────────────────────────────────
-  app.post('/api/church/onboarding/team-invited', authMiddleware, (req, res) => {
+  app.post('/api/church/onboarding/team-invited', adminMiddleware, (req, res) => {
     try {
       db.prepare('UPDATE churches SET onboarding_team_invited_at = ? WHERE churchId = ?')
         .run(new Date().toISOString(), req.church.churchId);
@@ -905,7 +1016,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // Saves equipment config from the portal. Writes to the room_id provided in
   // the request body (from the GET response), or falls back to the church's most
   // recent room, or {churchId}_default for brand-new churches.
-  app.put('/api/church/config/equipment', authMiddleware, (req, res) => {
+  app.put('/api/church/config/equipment', adminMiddleware, (req, res) => {
     try {
       const churchId = req.church.churchId;
       const equipment = req.body?.equipment;
@@ -951,7 +1062,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── POST /api/church/config/ingest-key/regenerate ─────────────────────────────
-  app.post('/api/church/config/ingest-key/regenerate', authMiddleware, (req, res) => {
+  app.post('/api/church/config/ingest-key/regenerate', adminMiddleware, (req, res) => {
     try {
       const churchId = req.church.churchId;
       const newKey = require('crypto').randomBytes(16).toString('hex');
@@ -963,7 +1074,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── PUT /api/church/me ────────────────────────────────────────────────────────
-  app.put('/api/church/me', authMiddleware, (req, res) => {
+  app.put('/api/church/me', adminMiddleware, (req, res) => {
     const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, autoRecoveryEnabled, currentPassword, newPassword, leadershipEmails, locale, timezone, churchType, eventLabel, eventExpiresAt } = req.body;
     const churchId = req.church.churchId;
 
@@ -1061,7 +1172,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
   });
 
-  app.post('/api/church/rooms', authMiddleware, express.json(), (req, res) => {
+  app.post('/api/church/rooms', adminMiddleware, express.json(), (req, res) => {
     try {
       const churchId = req.church.churchId;
       const tier = String(req.church.billing_tier || 'connect').toLowerCase();
@@ -1086,7 +1197,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
   });
 
-  app.patch('/api/church/rooms/:roomId', authMiddleware, express.json(), (req, res) => {
+  app.patch('/api/church/rooms/:roomId', adminMiddleware, express.json(), (req, res) => {
     try {
       const churchId = req.church.churchId;
       const roomId = String(req.params.roomId || '').trim();
@@ -1115,7 +1226,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
   });
 
-  app.delete('/api/church/rooms/:roomId', authMiddleware, (req, res) => {
+  app.delete('/api/church/rooms/:roomId', adminMiddleware, (req, res) => {
     try {
       const churchId = req.church.churchId;
       const roomId = String(req.params.roomId || '').trim();
@@ -1154,7 +1265,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // POST /api/church/room-assign — assign this church/desktop to a room
-  app.post('/api/church/room-assign', authMiddleware, express.json(), (req, res) => {
+  app.post('/api/church/room-assign', adminMiddleware, express.json(), (req, res) => {
     try {
       const churchId = req.church.churchId;
       const roomId = req.body?.roomId || null;
@@ -1647,7 +1758,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── PUT /api/church/schedule ──────────────────────────────────────────────────
-  app.put('/api/church/schedule', authMiddleware, (req, res) => {
+  app.put('/api/church/schedule', adminMiddleware, (req, res) => {
     try {
       const churchId = req.church.churchId;
       db.prepare('UPDATE churches SET schedule = ? WHERE churchId = ?')
@@ -1662,11 +1773,16 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.get('/api/church/tds', authMiddleware, (req, res) => {
     let tds = [];
     try { tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC').all(req.church.churchId); } catch {}
-    res.json(tds);
+    // Strip actual password hash — send boolean flag instead
+    res.json(tds.map(td => {
+      const { password_hash, ...safe } = td;
+      safe.has_password = !!password_hash;
+      return safe;
+    }));
   });
 
   // ── POST /api/church/tds ──────────────────────────────────────────────────────
-  app.post('/api/church/tds', authMiddleware, (req, res) => {
+  app.post('/api/church/tds', adminMiddleware, (req, res) => {
     const { name, role, email, phone, accessLevel } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
     const validAccessLevels = ['viewer', 'operator', 'admin'];
@@ -1685,7 +1801,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── DELETE /api/church/tds/:tdId ──────────────────────────────────────────────
-  app.delete('/api/church/tds/:tdId', authMiddleware, (req, res) => {
+  app.delete('/api/church/tds/:tdId', adminMiddleware, (req, res) => {
     db.prepare('DELETE FROM church_tds WHERE id = ? AND church_id = ?').run(req.params.tdId, req.church.churchId);
     res.json({ ok: true });
   });
@@ -1709,7 +1825,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     res.json({ ...m, steps: (() => { try { return JSON.parse(m.steps || '[]'); } catch { return []; } })() });
   });
 
-  app.post('/api/church/macros', authMiddleware, (req, res) => {
+  app.post('/api/church/macros', adminMiddleware, (req, res) => {
     const { name, description, steps } = req.body;
     if (!name || !/^[a-z0-9_]+$/.test(name)) return res.status(400).json({ error: 'Invalid macro name (lowercase, numbers, underscores only)' });
     if (!Array.isArray(steps) || !steps.length) return res.status(400).json({ error: 'steps array required' });
@@ -1727,7 +1843,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
   });
 
-  app.put('/api/church/macros/:id', authMiddleware, (req, res) => {
+  app.put('/api/church/macros/:id', adminMiddleware, (req, res) => {
     const { name, description, steps } = req.body;
     if (!name || !/^[a-z0-9_]+$/.test(name)) return res.status(400).json({ error: 'Invalid macro name' });
     if (!Array.isArray(steps) || !steps.length) return res.status(400).json({ error: 'steps array required' });
@@ -1742,14 +1858,14 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
   });
 
-  app.delete('/api/church/macros/:id', authMiddleware, (req, res) => {
+  app.delete('/api/church/macros/:id', adminMiddleware, (req, res) => {
     db.prepare('DELETE FROM church_macros WHERE id = ? AND church_id = ?').run(req.params.id, req.church.churchId);
     res.json({ ok: true });
   });
 
   // ── GET /api/church/td-invite-link ────────────────────────────────────────────
   // Returns a Telegram deep link that auto-registers the TD when clicked.
-  app.get('/api/church/td-invite-link', authMiddleware, (req, res) => {
+  app.get('/api/church/td-invite-link', adminMiddleware, (req, res) => {
     const church = req.church;
     const code = church.registration_code;
     if (!code) return res.status(404).json({ error: 'No registration code found' });
@@ -1815,7 +1931,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── POST /api/church/guest-tokens ─────────────────────────────────────────────
-  app.post('/api/church/guest-tokens', authMiddleware, (req, res) => {
+  app.post('/api/church/guest-tokens', adminMiddleware, (req, res) => {
     if (!guestTdMode) return res.status(503).json({ error: 'Guest tokens not configured' });
     const { label, expiresInDays } = req.body;
     const expiresInHours = expiresInDays ? expiresInDays * 24 : 24;
@@ -1825,7 +1941,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── DELETE /api/church/guest-tokens/:token ────────────────────────────────────
-  app.delete('/api/church/guest-tokens/:tok', authMiddleware, async (req, res) => {
+  app.delete('/api/church/guest-tokens/:tok', adminMiddleware, async (req, res) => {
     if (!guestTdMode) return res.status(503).json({ error: 'Guest tokens not configured' });
     const existing = db.prepare('SELECT churchId FROM guest_tokens WHERE token = ?').get(req.params.tok);
     if (!existing || existing.churchId !== req.church.churchId) return res.status(404).json({ error: 'Token not found' });
@@ -1834,7 +1950,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── PUT /api/church/tds/:tdId/access-level ────────────────────────────────────
-  app.put('/api/church/tds/:tdId/access-level', authMiddleware, (req, res) => {
+  app.put('/api/church/tds/:tdId/access-level', adminMiddleware, (req, res) => {
     const { accessLevel } = req.body;
     if (!['viewer', 'operator', 'admin'].includes(accessLevel)) {
       return res.status(400).json({ error: 'accessLevel must be viewer, operator, or admin' });
@@ -1846,8 +1962,47 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     res.json({ ok: true, accessLevel });
   });
 
+  // ── PUT /api/church/tds/:tdId/portal-access ──────────────────────────────────
+  // Admin toggles portal access on/off for a TD
+  app.put('/api/church/tds/:tdId/portal-access', adminMiddleware, (req, res) => {
+    const { enabled } = req.body;
+    const result = db.prepare(
+      'UPDATE church_tds SET portal_enabled = ? WHERE id = ? AND church_id = ?'
+    ).run(enabled ? 1 : 0, req.params.tdId, req.church.churchId);
+    if (!result.changes) return res.status(404).json({ error: 'TD not found' });
+    res.json({ ok: true, portalEnabled: !!enabled });
+  });
+
+  // ── POST /api/church/tds/:tdId/set-password ──────────────────────────────────
+  // Admin sets/resets a TD's portal password
+  app.post('/api/church/tds/:tdId/set-password', adminMiddleware, (req, res) => {
+    const { password } = req.body;
+    if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    const td = db.prepare('SELECT id, email FROM church_tds WHERE id = ? AND church_id = ?').get(req.params.tdId, req.church.churchId);
+    if (!td) return res.status(404).json({ error: 'TD not found' });
+    if (!td.email) return res.status(400).json({ error: 'TD must have an email address before enabling portal login' });
+    db.prepare('UPDATE church_tds SET password_hash = ?, portal_enabled = 1 WHERE id = ?')
+      .run(hashPassword(password), td.id);
+    res.json({ ok: true });
+  });
+
+  // ── POST /api/td/change-password ─────────────────────────────────────────────
+  // TD changes their own password (requires TD session)
+  app.post('/api/td/change-password', authMiddleware, (req, res) => {
+    if (!req.td) return res.status(403).json({ error: 'Only TD accounts can change TD passwords' });
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword) return res.status(400).json({ error: 'Current password is required' });
+    if (!newPassword || newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    if (!req.td.password_hash || !verifyPassword(currentPassword, req.td.password_hash)) {
+      return res.status(403).json({ error: 'Current password is incorrect' });
+    }
+    db.prepare('UPDATE church_tds SET password_hash = ? WHERE id = ?')
+      .run(hashPassword(newPassword), req.td.id);
+    res.json({ ok: true });
+  });
+
   // ── GET /api/church/billing ───────────────────────────────────────────────────
-  app.get('/api/church/billing', authMiddleware, async (req, res) => {
+  app.get('/api/church/billing', adminMiddleware, async (req, res) => {
     try {
       const church = req.church;
       const tier = church.billing_tier || 'connect';
@@ -1911,7 +2066,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── POST /api/church/billing/upgrade ──────────────────────────────────────────
   // Upgrades the church's Stripe subscription to a new tier.
-  app.post('/api/church/billing/upgrade', authMiddleware, billingRateLimit, async (req, res) => {
+  app.post('/api/church/billing/upgrade', adminMiddleware, billingRateLimit, async (req, res) => {
     try {
       const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
       if (!STRIPE_KEY) return res.status(503).json({ error: 'Stripe not configured' });
@@ -1995,7 +2150,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── POST /api/church/billing/reactivate ─────────────────────────────────────
   // Reactivation path for cancelled/expired/inactive churches.
-  app.post('/api/church/billing/reactivate', authMiddleware, billingRateLimit, async (req, res) => {
+  app.post('/api/church/billing/reactivate', adminMiddleware, billingRateLimit, async (req, res) => {
     try {
       const church = req.church;
       const { tier, billingInterval } = req.body || {};
@@ -2017,7 +2172,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── POST /api/church/billing/downgrade ─────────────────────────────────────
   // Downgrade to a lower tier (same billing interval).
-  app.post('/api/church/billing/downgrade', authMiddleware, billingRateLimit, async (req, res) => {
+  app.post('/api/church/billing/downgrade', adminMiddleware, billingRateLimit, async (req, res) => {
     try {
       const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
       if (!STRIPE_KEY) return res.status(503).json({ error: 'Stripe not configured' });
@@ -2097,7 +2252,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── POST /api/church/billing/cancel ─────────────────────────────────────────
   // Schedule cancellation at period end. No immediate cut-off — transparent.
-  app.post('/api/church/billing/cancel', authMiddleware, billingRateLimit, async (req, res) => {
+  app.post('/api/church/billing/cancel', adminMiddleware, billingRateLimit, async (req, res) => {
     try {
       const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
       if (!STRIPE_KEY) return res.status(503).json({ error: 'Stripe not configured' });
@@ -2176,7 +2331,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── POST /api/church/billing/retention ──────────────────────────────────────
   // Apply 50% off for 3 months (retention offer) to the church's subscription.
-  app.post('/api/church/billing/retention', authMiddleware, billingRateLimit, async (req, res) => {
+  app.post('/api/church/billing/retention', adminMiddleware, billingRateLimit, async (req, res) => {
     try {
       const STRIPE_KEY = process.env.STRIPE_SECRET_KEY;
       if (!STRIPE_KEY) return res.status(503).json({ error: 'Stripe not configured' });
@@ -2221,7 +2376,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── GET /api/church/data-export ────────────────────────────────────────────
   // GDPR: Export all data associated with this church account.
-  app.get('/api/church/data-export', authMiddleware, (req, res) => {
+  app.get('/api/church/data-export', adminMiddleware, (req, res) => {
     try {
       const church = req.church;
       const churchId = church.churchId;
@@ -2312,7 +2467,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── DELETE /api/church/account ─────────────────────────────────────────────
   // GDPR: Delete church account and all associated data.
-  app.delete('/api/church/account', authMiddleware, async (req, res) => {
+  app.delete('/api/church/account', adminMiddleware, async (req, res) => {
     try {
       const church = req.church;
       const churchId = church.churchId;
@@ -2432,7 +2587,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── POST /api/church/review ───────────────────────────────────────────────
-  app.post('/api/church/review', authMiddleware, (req, res) => {
+  app.post('/api/church/review', adminMiddleware, (req, res) => {
     try {
       const { rating, body, reviewerName, reviewerRole } = req.body;
 
@@ -2581,7 +2736,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── PUT /api/church/email-preferences ──────────────────────────────────────
-  app.put('/api/church/email-preferences', authMiddleware, (req, res) => {
+  app.put('/api/church/email-preferences', adminMiddleware, (req, res) => {
     try {
       const { category, enabled } = req.body || {};
       if (!category || typeof enabled !== 'boolean') {
