@@ -1163,7 +1163,8 @@ const { normalizeRelayUrl, isLocalRelayUrl, enforceRelayPolicy, relayHttpUrl,
 
 const { checkTokenWithRelay, postJson, loginChurchWithCredentials,
         testConnection, sendPreviewCommand,
-        syncEquipmentToRelay, fetchEquipmentFromRelay } = relayClient;
+        syncEquipmentToRelay, fetchEquipmentFromRelay,
+        fetchRooms, createRoom, assignRoom } = relayClient;
 
 
 // ─── CONFIG (delegated to config-manager module) ─────────────────────────────
@@ -1717,6 +1718,27 @@ ipcMain.handle('test-equipment-connection', async (_, params) => {
   return equipmentTester.testEquipmentConnection(params);
 });
 
+
+// ─── Room management (list / create / assign) ──────────────────────────────
+
+ipcMain.handle('get-rooms', async () => {
+  return fetchRooms();
+});
+
+ipcMain.handle('create-room', async (_, { name, description }) => {
+  return createRoom(name, description);
+});
+
+ipcMain.handle('assign-room', async (_, { roomId }) => {
+  const result = await assignRoom(roomId);
+  if (result.success) {
+    const config = loadConfig();
+    config.roomId = result.roomId;
+    config.roomName = result.roomName;
+    saveConfig(config);
+  }
+  return result;
+});
 
 // ─── Per-room equipment switching ────────────────────────────────────────────
 // Called from renderer before saving roomId/roomName. Persists current equipment

@@ -1202,6 +1202,98 @@ body.ready { opacity: 1; pointer-events: auto; }
   margin-bottom: 10px;
 }
 
+/* ── Room Selector ──────────────────────────────────────────── */
+.room-selector { display: none; }
+.room-selector.active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.room-selector .content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 30px 20px;
+}
+.rs-box {
+  width: 100%;
+  max-width: 380px;
+}
+.rs-subtitle {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.rs-loading {
+  text-align: center;
+  padding: 20px 0;
+}
+.rs-room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.rs-room-btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 14px 16px;
+  background: rgba(43, 59, 66, 0.35);
+  border: 1px solid rgba(43, 59, 66, 0.6);
+  border-radius: 8px;
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: left;
+}
+.rs-room-btn:hover {
+  background: rgba(43, 59, 66, 0.55);
+  border-color: var(--green);
+}
+.rs-room-btn .rs-room-name {
+  font-weight: 600;
+}
+.rs-room-btn .rs-room-desc {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.rs-room-btn .rs-room-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: rgba(0, 255, 136, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  flex-shrink: 0;
+  font-size: 16px;
+}
+.rs-message {
+  font-size: 11px;
+  font-family: var(--mono);
+  min-height: 18px;
+  margin-top: 10px;
+  text-align: center;
+}
+.rs-add-link {
+  text-align: center;
+  margin-top: 8px;
+}
+.rs-add-link a {
+  color: var(--green);
+  font-size: 12px;
+  text-decoration: none;
+}
+.rs-add-link a:hover { text-decoration: underline; }
+.rs-create-form .form-group { margin-bottom: 0; }
+
 /* ── Problem Finder ──────────────────────────────────────────── */
 
 .pf-issue-card {

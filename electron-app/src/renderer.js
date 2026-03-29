@@ -439,6 +439,14 @@ async function init() {
       });
     }
 
+    // Enter key on room name field triggers create
+    const rsRoomName = document.getElementById('rs-room-name');
+    if (rsRoomName) {
+      rsRoomName.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doCreateRoom();
+      });
+    }
+
     // Listen for mid-session auth invalidation
     api.onAuthInvalid(() => {
       showSignIn();
@@ -467,24 +475,29 @@ async function init() {
 
       const result = await api.validateToken();
       // Re-read config after validation — validateToken may sync profile flags from relay
-      try { const freshConfig = await api.getConfig(); _audioViaAtem = !!(freshConfig.audioViaAtem); } catch {}
+      const freshConfig = await api.getConfig();
+      try { _audioViaAtem = !!(freshConfig.audioViaAtem); } catch {}
       if (result.valid) {
-        // Token is good — go to dashboard
-        if (config.name) {
-          const roomSuffix = config.roomName ? ' · ' + config.roomName : '';
-          document.getElementById('church-name').textContent = config.name + roomSuffix;
-        }
-        if (config.setupComplete) {
-          showDashboard();
-          // Auto-start agent if config says so (default: true for backwards compat)
-          const autoStartResult = await api.getAutoStart();
-          const shouldAutoStart = autoStartResult.enabled !== false; // default true if not set
-          if (shouldAutoStart) {
-            try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`Agent start failed: ${e.message}`); }
+        if (freshConfig.roomId) {
+          // Room already selected — proceed normally
+          if (freshConfig.name) {
+            const roomSuffix = freshConfig.roomName ? ' \u00b7 ' + freshConfig.roomName : '';
+            document.getElementById('church-name').textContent = freshConfig.name + roomSuffix;
           }
-          updateToggleBtn();
+          if (freshConfig.setupComplete) {
+            showDashboard();
+            const autoStartResult = await api.getAutoStart();
+            const shouldAutoStart = autoStartResult.enabled !== false;
+            if (shouldAutoStart) {
+              try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`Agent start failed: ${e.message}`); }
+            }
+            updateToggleBtn();
+          } else {
+            showEquipmentWizard();
+          }
         } else {
-          showEquipmentWizard();
+          // No room assigned — show room selector before anything else
+          await showRoomSelector(config.name);
         }
       } else {
         // Token invalid or expired
@@ -533,6 +546,7 @@ async function init() {
 
 function hideAllViews() {
   document.getElementById('sign-in').classList.remove('active');
+  document.getElementById('room-selector').classList.remove('active');
   document.getElementById('wizard').classList.remove('active');
   document.getElementById('dashboard').classList.remove('active');
   // Remove any stuck confirm/prompt overlays that would block all clicks.
@@ -597,6 +611,161 @@ async function showDashboard() {
   restoreCollapsibleStates();
   restoreTheme();
   loadRoomPicker();
+}
+
+// ─── ROOM SELECTOR ─────────────��────────────────────────────────────────────
+
+// Show the room selector screen and fetch rooms from relay.
+// After user selects (or creates) a room, calls proceedAfterRoomSelection().
+async function showRoomSelector(churchName) {
+  hideAllViews();
+  document.getElementById('room-selector').classList.add('active');
+  document.body.classList.add('ready');
+
+  const nameEl = document.getElementById('rs-church-name');
+  if (nameEl && churchName) nameEl.textContent = churchName;
+
+  const loading = document.getElementById('rs-loading');
+  const roomList = document.getElementById('rs-room-list');
+  const createForm = document.getElementById('rs-create-form');
+  const addLink = document.getElementById('rs-add-link');
+  const headline = document.getElementById('rs-headline');
+  const subtitle = document.getElementById('rs-subtitle');
+  const msg = document.getElementById('rs-message');
+
+  loading.style.display = '';
+  roomList.style.display = 'none';
+  createForm.style.display = 'none';
+  addLink.style.display = 'none';
+  if (msg) msg.textContent = '';
+
+  try {
+    const result = await api.getRooms();
+    loading.style.display = 'none';
+
+    if (!result.success) {
+      if (msg) { msg.textContent = result.error || 'Failed to load rooms.'; msg.style.color = 'var(--warn)'; }
+      return;
+    }
+
+    const rooms = result.rooms || [];
+
+    if (rooms.length === 0) {
+      // No rooms — force creation
+      headline.textContent = 'Create Your First Room';
+      subtitle.textContent = 'Every Tally instance monitors a room. Create one to get started.';
+      createForm.style.display = '';
+      document.getElementById('rs-room-name').focus();
+    } else {
+      // Show room buttons
+      headline.textContent = 'Select a Room';
+      subtitle.textContent = 'Choose which room this computer will monitor.';
+      roomList.innerHTML = '';
+      for (const room of rooms) {
+        const btn = document.createElement('button');
+        btn.className = 'rs-room-btn';
+        btn.innerHTML = `<div class="rs-room-icon">${roomIconForName(room.name)}</div><div><div class="rs-room-name">${escapeHtml(room.name)}</div>${room.description ? '<div class="rs-room-desc">' + escapeHtml(room.description) + '</div>' : ''}</div>`;
+        btn.addEventListener('click', () => selectRoom(room.id, room.name));
+        roomList.appendChild(btn);
+      }
+      roomList.style.display = '';
+      addLink.style.display = '';
+    }
+  } catch (e) {
+    loading.style.display = 'none';
+    if (msg) { msg.textContent = 'Network error loading rooms.'; msg.style.color = 'var(--danger)'; }
+  }
+}
+
+function roomIconForName(name) {
+  const lower = (name || '').toLowerCase();
+  if (lower.includes('sanctuary') || lower.includes('worship') || lower.includes('chapel')) return '\u26EA';
+  if (lower.includes('gym') || lower.includes('hall') || lower.includes('multi')) return '\uD83C\uDFDB';
+  if (lower.includes('youth') || lower.includes('kids') || lower.includes('children')) return '\u2B50';
+  if (lower.includes('outdoor') || lower.includes('tent')) return '\u26FA';
+  return '\uD83C\uDFA5';
+}
+
+function showRoomCreateForm() {
+  document.getElementById('rs-room-list').style.display = 'none';
+  document.getElementById('rs-add-link').style.display = 'none';
+  document.getElementById('rs-create-form').style.display = '';
+  document.getElementById('rs-room-name').focus();
+  document.getElementById('rs-headline').textContent = 'Add a New Room';
+  document.getElementById('rs-subtitle').textContent = 'Give this room a name.';
+}
+
+async function doCreateRoom() {
+  const nameInput = document.getElementById('rs-room-name');
+  const name = nameInput.value.trim();
+  const msg = document.getElementById('rs-message');
+  const btn = document.getElementById('rs-create-btn');
+
+  if (!name) {
+    if (msg) { msg.textContent = 'Enter a room name.'; msg.style.color = 'var(--warn)'; }
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+  if (msg) msg.textContent = '';
+
+  try {
+    const result = await api.createRoom(name);
+    if (result.success && result.room) {
+      // Auto-select the newly created room
+      await selectRoom(result.room.id, result.room.name);
+    } else {
+      if (msg) { msg.textContent = result.error || 'Failed to create room.'; msg.style.color = 'var(--warn)'; }
+    }
+  } catch (e) {
+    if (msg) { msg.textContent = 'Network error creating room.'; msg.style.color = 'var(--danger)'; }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create Room';
+  }
+}
+
+async function selectRoom(roomId, roomName) {
+  const msg = document.getElementById('rs-message');
+  if (msg) { msg.textContent = 'Assigning room...'; msg.style.color = 'var(--muted)'; }
+
+  // Disable all room buttons to prevent double-click
+  document.querySelectorAll('.rs-room-btn').forEach(b => { b.disabled = true; });
+
+  try {
+    const result = await api.assignRoom(roomId);
+    if (result.success) {
+      await api.saveConfig({ roomId: result.roomId, roomName: result.roomName });
+      await proceedAfterRoomSelection(result.roomName);
+    } else {
+      if (msg) { msg.textContent = result.error || 'Failed to assign room.'; msg.style.color = 'var(--warn)'; }
+      document.querySelectorAll('.rs-room-btn').forEach(b => { b.disabled = false; });
+    }
+  } catch (e) {
+    if (msg) { msg.textContent = 'Network error.'; msg.style.color = 'var(--danger)'; }
+    document.querySelectorAll('.rs-room-btn').forEach(b => { b.disabled = false; });
+  }
+}
+
+// After a room is chosen, proceed to dashboard or equipment wizard
+async function proceedAfterRoomSelection(roomName) {
+  const config = await api.getConfig();
+  const roomSuffix = roomName ? ' \u00b7 ' + roomName : '';
+  const nameEl = document.getElementById('church-name');
+  if (nameEl && config.name) nameEl.textContent = config.name + roomSuffix;
+
+  if (config.setupComplete) {
+    showDashboard();
+    const autoStartResult = await api.getAutoStart();
+    const shouldAutoStart = autoStartResult.enabled !== false;
+    if (shouldAutoStart) {
+      try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`Agent start failed: ${e.message}`); }
+    }
+    updateToggleBtn();
+  } else {
+    showEquipmentWizard();
+  }
 }
 
 function shouldRetryLoginOnDefaultRelay(result) {
@@ -685,17 +854,8 @@ async function doSignIn() {
       const churchName = result.data?.church?.name || '';
       await api.saveConfig({ token, relay, name: churchName });
 
-      // Check if setup is already complete
-      const config = await api.getConfig();
-      if (config.name) document.getElementById('church-name').textContent = config.name;
-
-      if (config.setupComplete) {
-        showDashboard();
-        try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`Agent start failed: ${e.message}`); }
-        updateToggleBtn();
-      } else {
-        showEquipmentWizard();
-      }
+      // Always go to room selector after fresh login
+      await showRoomSelector(churchName);
     } else {
       showSignInMessage(classifySignInError(result), 'var(--warn)');
     }
