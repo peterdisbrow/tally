@@ -1561,12 +1561,21 @@ async function runQuickSystemCheck() {
 // ─── CLEAR ACTIVE ISSUES ──────────────────────────────────────────────────
 function clearActiveIssues() {
   const el = document.getElementById('pf-issues-list');
-  if (el) el.innerHTML = '<p style="color:var(--green); font-size:12px;">No issues detected — system looks healthy.</p>';
+  if (el) el.innerHTML = '<p style="color:var(--green); font-size:12px;">All systems go — issues marked as fixed.</p>';
   const clearBtn = document.getElementById('btn-clear-issues');
   if (clearBtn) clearBtn.style.display = 'none';
-  // Also clear the issue badge on the Status tab
+  // Clear the issue badge on the Status tab
   if (typeof _pfAutoRunIssueCount !== 'undefined') _pfAutoRunIssueCount = 0;
   if (typeof updatePfBadge === 'function') updatePfBadge();
+  // Update Go/No-Go badge to GO
+  if (typeof renderPfGoStatus === 'function') {
+    renderPfGoStatus({ status: 'GO', triggerType: 'manual', decisionAt: new Date().toISOString(), notes: 'Issues marked as fixed by operator' });
+  }
+  // Update KPIs to zero
+  const critEl = document.getElementById('pf-critical-count');
+  if (critEl) { critEl.textContent = '0'; critEl.style.color = 'var(--green)'; }
+  const issueEl = document.getElementById('pf-issue-count');
+  if (issueEl) issueEl.textContent = '0';
 }
 
 // ─── ATEM RECORDING CONTROLS ──────────────────────────────────────────────
@@ -3660,7 +3669,7 @@ async function _doSaveEquipment() {
     proPresenterTriggerMode: deviceState.propresenter.triggerMode || 'presentation',
     proPresenterBackupHost: (deviceState.propresenter.backupHost || '').trim(),
     proPresenterBackupPort: parseInt(deviceState.propresenter.backupPort) || 1025,
-    vmixHost: deviceState.vmix.configured ? (deviceState.vmix.host || '').trim() : '',
+    vmixHost: (deviceState.vmix.configured || deviceState.vmix.host) ? (deviceState.vmix.host || '').trim() : '',
     vmixPort: parseInt(deviceState.vmix.port) || 8088,
     resolumeHost: deviceState.resolume.configured ? (deviceState.resolume.host || '').trim() : '',
     resolumePort: parseInt(deviceState.resolume.port) || 8080,

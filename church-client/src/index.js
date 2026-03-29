@@ -199,7 +199,8 @@ function loadConfig() {
   if (!config.videoHubs) config.videoHubs = [];
   if (!config.proPresenter) config.proPresenter = null;
   if (!config.resolume) config.resolume = null; // null = not configured
-  if (!config.vmix) config.vmix = null; // null = not configured (Windows only)
+  if (!config.vmix) config.vmix = null; // null = not configured
+  if (config.vmix) console.log(`🎬 vMix config: ${config.vmix.host}:${config.vmix.port || 8088}`);
   if (!config.mixer) config.mixer = null; // null = not configured
 
   // Backward compatibility: older Electron setup flows may persist flat

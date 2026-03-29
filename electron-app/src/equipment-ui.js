@@ -157,6 +157,11 @@ function renderDeviceCard(deviceId, instanceIndex) {
         ).join('');
         const onchangeAttr = (deviceId === 'mixer' && field.key === 'type') ? ' onchange="onMixerTypeChanged()"' : '';
         fieldsHtml += `<select ${dataAttrs}${onchangeAttr} style="${field.style || 'flex:1'}">${opts}</select>`;
+      } else if (field.type === 'checkbox') {
+        fieldsHtml += `<label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--white); cursor:pointer; flex:1;">
+          <input type="checkbox" ${dataAttrs}${val ? ' checked' : ''} style="margin:0;">
+          ${escapeHtml(field.label)}
+        </label>`;
       } else {
         // Hide mixer IP/port fields when type is an ATEM audio option
         const hideMixerField = deviceId === 'mixer' && (field.key === 'host' || field.key === 'port') && isAtemAudioType;
