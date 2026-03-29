@@ -18,12 +18,17 @@ const DEFAULT_MIN_VERSIONS = {
 
 /**
  * Compare two dot-separated version strings.
+ * Strips leading non-numeric text (e.g. "ProPresenter 21.3" → "21.3", "v7.14" → "7.14").
  * @returns -1 if a < b, 0 if equal, 1 if a > b, or null if either is invalid.
  */
 function compareVersions(a, b) {
   if (!a || !b) return null;
-  const pa = String(a).split('.').map(Number);
-  const pb = String(b).split('.').map(Number);
+  // Strip everything before the first digit (handles "ProPresenter 21.3", "v7.14", etc.)
+  const cleanA = String(a).replace(/^[^\d]*/, '');
+  const cleanB = String(b).replace(/^[^\d]*/, '');
+  if (!cleanA || !cleanB) return null;
+  const pa = cleanA.split('.').map(Number);
+  const pb = cleanB.split('.').map(Number);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
     const va = pa[i] || 0;
     const vb = pb[i] || 0;
