@@ -2782,7 +2782,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<td style="font-weight:600">' + escapeHtml(r.name) + (r.description ? '<br><span style="font-size:11px;color:#64748B">' + escapeHtml(r.description) + '</span>' : '') + '</td>';
           html += '<td>' + assigned + '</td>';
           html += '<td>' + (r.assignedDesktops && r.assignedDesktops.length > 0 ? '<span style="color:#22c55e">●</span>' : '<span style="color:#475569">—</span>') + '</td>';
-          html += '<td style="text-align:right"><button class="btn-small btn-secondary" onclick="editRoom(\'' + r.id + '\',\'' + escapeHtml(r.name) + '\')">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" onclick="deleteRoom(\'' + r.id + '\',\'' + escapeHtml(r.name) + '\')">Delete</button></td>';
+          html += '<td style="text-align:right"><button class="btn-small btn-secondary" data-action="editRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" data-action="deleteRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '">Delete</button></td>';
           html += '</tr>';
         }
         html += '</tbody></table></div>';
@@ -5736,6 +5736,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
       case 'addRoom':
         if (typeof addRoom === 'function') addRoom();
+        break;
+      case 'editRoom':
+        if (typeof editRoom === 'function') editRoom(btn.dataset.roomId, btn.dataset.roomName);
+        break;
+      case 'deleteRoom':
+        if (typeof deleteRoom === 'function') deleteRoom(btn.dataset.roomId, btn.dataset.roomName);
         break;
 
       // Tech directors
