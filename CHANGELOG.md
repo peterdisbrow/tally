@@ -6,15 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/) and this proj
 
 ## [Unreleased]
 
+## [1.1.37] - 2026-03-29
+
 ### Added
 - Portal room selector wired to filter overview dashboard by instance.
 - Room selector added to Equipment tab in portal.
+- Room-based filtering replaces instance-based filtering on overview page.
+- Room description field restored in portal UI.
+- Per-instance status storage replaces shallow-merge status.
 
 ### Changed
 - Portal sidebar consolidated from 18 to 11 nav items (tabbed sub-navigation).
 - Schedule/Preferences moved under consolidated sidebar items; Analytics tabs reordered.
+- Rooms-first refactor: removed campus-mode endpoints and all campus references across codebase.
+- Pricing, tier names, and room limits aligned across codebase.
+- Volunteer mode UI toggle removed from portal.
 
 ### Fixed
+- Encoder metrics (CPU, congestion, details) now display in portal equipment card.
+- vMix and VideoHub card rendering added; HyperDeck naming corrected.
+- Room ID gap on reconnect eliminated by sending room_id at connect time.
+- Exponential backoff with jitter added to relay reconnection.
+- Cascade cleanup of related data when a room is deleted.
+- CSP-safe event delegation for room edit/delete buttons.
+- npm audit vulnerabilities resolved across all packages.
 - i18n translations added for consolidated nav items.
 - Stale page references fixed after sidebar consolidation.
 
