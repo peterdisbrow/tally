@@ -1135,12 +1135,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           streamDetail = sdParts.join(' · ') || '';
         }
 
+        // Encoder detail — CPU, congestion, and extra info
+        var encoderDetail = '';
+        if (encoderConnected) {
+          var edParts = [];
+          if (enc.cpuUsage != null) edParts.push('CPU: ' + Math.round(enc.cpuUsage) + '%');
+          if (enc.congestion != null) edParts.push('Congestion: ' + Math.round(enc.congestion * 100) + '%');
+          if (enc.recording) edParts.push('Recording');
+          if (enc.details) edParts.push(enc.details);
+          encoderDetail = edParts.join(' · ');
+        }
+
         // Recording detail
         var isRecording = !!(status.atem && status.atem.recording) || !!(status.obs && status.obs.recording) || !!(status.vmix && status.vmix.recording);
 
         const rows = [
           ['ATEM Switcher', atemConnected ? 'connected' : 'unknown', verInfo(atemVer, 'atem_protocol'), atemDetail || null],
-          [encoderLabel, encoderStatus, verInfo(encVer, encVerType), null],
+          [encoderLabel, encoderStatus, verInfo(encVer, encVerType), encoderDetail || null],
           ['Stream', (encoderLive || obsStreaming) ? 'live' : 'offline', null, streamDetail || null],
           ['Recording', isRecording ? 'recording' : 'offline', null, null],
           [audioLabel, audioStatus, null, null],
@@ -1371,8 +1382,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         uptimeEl.textContent = h > 0 ? h + 'h ' + m + 'm' : m + 'm ' + s + 's';
       }
 
-      // Detail row — extra info
+      // Detail row — extra info (encoder metrics + stream health)
       var details = [];
+      if (enc.cpuUsage != null) {
+        var cpuColor = enc.cpuUsage > 80 ? '#ef4444' : enc.cpuUsage > 60 ? '#f59e0b' : '#94A3B8';
+        details.push('<span style="color:' + cpuColor + '">CPU: ' + Math.round(enc.cpuUsage) + '%</span>');
+      }
+      if (enc.congestion != null) {
+        var congPct = Math.round(enc.congestion * 100);
+        var congColor = congPct > 50 ? '#ef4444' : congPct > 20 ? '#f59e0b' : '#94A3B8';
+        details.push('<span style="color:' + congColor + '">Congestion: ' + congPct + '%</span>');
+      }
       if (atemStreaming && status.atem.streamingCacheUsed !== null && status.atem.streamingCacheUsed !== undefined) {
         details.push('ATEM cache: ' + status.atem.streamingCacheUsed + '%');
       }
