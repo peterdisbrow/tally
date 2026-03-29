@@ -4578,7 +4578,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
 
       // CTA
-      html += '<div style="text-align:center;padding:8px 0 16px"><button class="btn-primary" onclick="showPage(\'tds\', document.querySelector(\'[data-page=tds]\'))" style="margin-right:8px">Set Up Tech Directors →</button><button class="btn-secondary" onclick="showPage(\'engineer\', document.querySelector(\'[data-page=engineer]\'))">Open Tally Engineer</button></div>';
+      html += '<div style="text-align:center;padding:8px 0 16px"><button class="btn-primary" onclick="showPage(\'team\', document.querySelector(\'[data-page=team]\'))" style="margin-right:8px">Set Up Tech Directors →</button><button class="btn-secondary" onclick="showPage(\'engineer\', document.querySelector(\'[data-page=engineer]\'))">Open Tally Engineer</button></div>';
 
       step2.innerHTML = html;
       step2.scrollIntoView({ behavior: 'smooth', block: 'start' });

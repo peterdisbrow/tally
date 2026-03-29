@@ -471,18 +471,14 @@
     /* ─── Volunteer Mode ─────────────────────────────────────────────────── */
     body.volunteer-mode [data-page="profile"],
     body.volunteer-mode [data-page="campuses"],
-    body.volunteer-mode [data-page="tds"],
+    body.volunteer-mode [data-page="team"],
     body.volunteer-mode [data-page="schedule"],
-    body.volunteer-mode [data-page="notifications"],
+    body.volunteer-mode [data-page="alerts"],
     body.volunteer-mode [data-page="engineer"],
-    body.volunteer-mode [data-page="guests"],
-    body.volunteer-mode [data-page="macros"],
-    body.volunteer-mode [data-page="autopilot"],
-    body.volunteer-mode [data-page="sessions"],
+    body.volunteer-mode [data-page="automation"],
     body.volunteer-mode [data-page="analytics"],
-    body.volunteer-mode [data-page="migrate"],
-    body.volunteer-mode [data-page="referrals"],
-    body.volunteer-mode [data-page="billing"] { display: none !important; }
+    body.volunteer-mode [data-page="billing"],
+    body.volunteer-mode [data-page="support"] { display: none !important; }
 
     /* Hide non-essential overview sections in volunteer mode */
     body.volunteer-mode #referral-card,
