@@ -942,6 +942,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (btn) switchTab(btn.dataset.tab);
     });
 
+    // Room selector change handler
+    document.addEventListener('change', function(e) {
+      if (e.target.id === 'eq-room-selector') {
+        var roomId = e.target.value;
+        if (roomId && roomId !== _equipmentRoomId) {
+          loadEquipmentForRoom(roomId);
+        }
+      }
+    });
+
     // ── toast ──────────────────────────────────────────────────────────────────
     function toast(msg, isError = false) {
       const t = document.getElementById('toast');
@@ -2253,51 +2263,87 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _equipmentLoaded = false;
     var _equipmentRoomId = null; // tracks which room_id the equipment belongs to
 
+    function _populateEquipmentForm(eq, updatedAt) {
+      document.getElementById('eq-atem-ip').value = eq.atemIp || '';
+      document.getElementById('eq-obs-url').value = eq.obsUrl || '';
+      document.getElementById('eq-obs-password').value = eq.obsPassword || '';
+      var mixer = eq.mixer || {};
+      document.getElementById('eq-mixer-type').value = mixer.type || '';
+      document.getElementById('eq-mixer-host').value = mixer.host || '';
+      document.getElementById('eq-mixer-port').value = mixer.port || '';
+      document.getElementById('eq-audio-via-atem').checked = !!eq.audioViaAtem;
+      document.getElementById('eq-encoder-type').value = eq.encoderType || '';
+      document.getElementById('eq-encoder-host').value = eq.encoderHost || '';
+      document.getElementById('eq-encoder-port').value = eq.encoderPort || '';
+      document.getElementById('eq-rtmp-url').value = eq.rtmpUrl || '';
+      document.getElementById('eq-companion-url').value = eq.companionUrl || '';
+      var pp = eq.proPresenter || {};
+      document.getElementById('eq-propresenter-host').value = pp.host || '';
+      document.getElementById('eq-propresenter-port').value = pp.port || '';
+      var vmix = eq.vmix || {};
+      document.getElementById('eq-vmix-host').value = vmix.host || '';
+      document.getElementById('eq-vmix-port').value = vmix.port || '';
+      var res = eq.resolume || {};
+      document.getElementById('eq-resolume-host').value = res.host || '';
+      document.getElementById('eq-resolume-port').value = res.port || '';
+      renderEquipmentList('ptz', eq.ptz || []);
+      renderEquipmentList('hyperdeck', eq.hyperdecks || []);
+      renderEquipmentList('videohub', eq.videoHubs || []);
+      var status = document.getElementById('equipment-save-status');
+      if (status) status.textContent = updatedAt ? 'Last saved: ' + new Date(updatedAt).toLocaleString() : '';
+    }
+
     async function loadEquipment() {
       if (_equipmentLoaded) return;
       try {
         var d = await api('GET', '/api/church/config/equipment');
         _equipmentRoomId = d.roomId || null;
-        var eq = d.equipment || {};
-        document.getElementById('eq-atem-ip').value = eq.atemIp || '';
-        document.getElementById('eq-obs-url').value = eq.obsUrl || '';
-        document.getElementById('eq-obs-password').value = eq.obsPassword || '';
-        // Mixer
-        var mixer = eq.mixer || {};
-        document.getElementById('eq-mixer-type').value = mixer.type || '';
-        document.getElementById('eq-mixer-host').value = mixer.host || '';
-        document.getElementById('eq-mixer-port').value = mixer.port || '';
-        document.getElementById('eq-audio-via-atem').checked = !!eq.audioViaAtem;
-        // Encoder
-        document.getElementById('eq-encoder-type').value = eq.encoderType || '';
-        document.getElementById('eq-encoder-host').value = eq.encoderHost || '';
-        document.getElementById('eq-encoder-port').value = eq.encoderPort || '';
-        document.getElementById('eq-rtmp-url').value = eq.rtmpUrl || '';
-        // Companion
-        document.getElementById('eq-companion-url').value = eq.companionUrl || '';
-        // Presentation
-        var pp = eq.proPresenter || {};
-        document.getElementById('eq-propresenter-host').value = pp.host || '';
-        document.getElementById('eq-propresenter-port').value = pp.port || '';
-        var vmix = eq.vmix || {};
-        document.getElementById('eq-vmix-host').value = vmix.host || '';
-        document.getElementById('eq-vmix-port').value = vmix.port || '';
-        var res = eq.resolume || {};
-        document.getElementById('eq-resolume-host').value = res.host || '';
-        document.getElementById('eq-resolume-port').value = res.port || '';
-        // PTZ
-        renderEquipmentList('ptz', eq.ptz || []);
-        renderEquipmentList('hyperdeck', eq.hyperdecks || []);
-        renderEquipmentList('videohub', eq.videoHubs || []);
 
+        // Populate room selector if rooms exist
+        var sel = document.getElementById('eq-room-selector');
+        var wrap = document.getElementById('eq-room-selector-wrap');
+        var rooms = d.rooms || [];
+        if (rooms.length > 0) {
+          sel.innerHTML = '';
+          // Add default option for churches that saved config without a room
+          if (_equipmentRoomId && !rooms.some(function(r) { return r.id === _equipmentRoomId; })) {
+            var defOpt = document.createElement('option');
+            defOpt.value = _equipmentRoomId;
+            defOpt.textContent = 'Default';
+            sel.appendChild(defOpt);
+          }
+          rooms.forEach(function(r) {
+            var opt = document.createElement('option');
+            opt.value = r.id;
+            opt.textContent = r.name + (r.hasConfig ? '' : ' (no config)');
+            sel.appendChild(opt);
+          });
+          if (_equipmentRoomId) sel.value = _equipmentRoomId;
+          wrap.style.display = '';
+        }
+
+        _populateEquipmentForm(d.equipment || {}, d.updatedAt);
         document.getElementById('equipment-loading').style.display = 'none';
         document.getElementById('equipment-form').style.display = '';
         _equipmentLoaded = true;
-        if (d.updatedAt) {
-          document.getElementById('equipment-save-status').textContent = 'Last saved: ' + new Date(d.updatedAt).toLocaleString();
-        }
       } catch (e) {
         document.getElementById('equipment-loading').textContent = 'Failed to load equipment config.';
+        toast('Failed to load equipment: ' + e.message, true);
+      }
+    }
+
+    async function loadEquipmentForRoom(roomId) {
+      try {
+        document.getElementById('equipment-form').style.display = 'none';
+        document.getElementById('equipment-loading').style.display = '';
+        document.getElementById('equipment-loading').textContent = 'Loading equipment…';
+        var d = await api('GET', '/api/church/config/equipment?roomId=' + encodeURIComponent(roomId));
+        _equipmentRoomId = roomId;
+        _populateEquipmentForm(d.equipment || {}, d.updatedAt);
+        document.getElementById('equipment-loading').style.display = 'none';
+        document.getElementById('equipment-form').style.display = '';
+      } catch (e) {
+        document.getElementById('equipment-loading').textContent = 'Failed to load equipment.';
         toast('Failed to load equipment: ' + e.message, true);
       }
     }

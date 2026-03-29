@@ -819,21 +819,49 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── GET /api/church/config/equipment ───────────────────────────────────────────
-  // Returns equipment config for the church. Checks for the most recently updated
-  // room_equipment row for this church, falling back to {churchId}_default.
-  // This ensures config set from the desktop app (which uses actual roomIds) is
-  // visible in the portal.
+  // Returns equipment config + available rooms for the room selector dropdown.
+  // Accepts optional ?roomId= to load a specific room's equipment.
   app.get('/api/church/config/equipment', authMiddleware, (req, res) => {
     try {
       const churchId = req.church.churchId;
-      // Find the most recently updated equipment for this church
-      const row = db.prepare(
-        'SELECT room_id, equipment, updated_at FROM room_equipment WHERE church_id = ? ORDER BY updated_at DESC LIMIT 1'
-      ).get(churchId);
-      if (!row) return res.json({ equipment: {}, updatedAt: null, roomId: null });
+      const requestedRoomId = req.query.roomId;
+
+      // Get all rooms for this church (for the dropdown)
+      const campusIds = [churchId];
+      const campusRow = db.prepare('SELECT campus_id FROM churches WHERE churchId = ?').get(churchId);
+      if (campusRow?.campus_id) campusIds.push(campusRow.campus_id);
+      const ph = campusIds.map(() => '?').join(',');
+      const rooms = db.prepare(`SELECT id, name, campus_id FROM rooms WHERE campus_id IN (${ph}) ORDER BY name`).all(...campusIds);
+
+      // Also get room_equipment entries to show which rooms have config
+      const equipRows = db.prepare('SELECT room_id, updated_at FROM room_equipment WHERE church_id = ?').all(churchId);
+      const equipByRoom = {};
+      for (const er of equipRows) equipByRoom[er.room_id] = er.updated_at;
+
+      // Load equipment for the requested room, or most recent, or default
+      let row;
+      if (requestedRoomId) {
+        row = db.prepare('SELECT room_id, equipment, updated_at FROM room_equipment WHERE room_id = ? AND church_id = ?').get(requestedRoomId, churchId);
+      }
+      if (!row) {
+        row = db.prepare('SELECT room_id, equipment, updated_at FROM room_equipment WHERE church_id = ? ORDER BY updated_at DESC LIMIT 1').get(churchId);
+      }
+
       let equipment = {};
-      try { equipment = JSON.parse(row.equipment); } catch { /* corrupt — return empty */ }
-      res.json({ equipment, updatedAt: row.updated_at, roomId: row.room_id });
+      let roomId = null;
+      let updatedAt = null;
+      if (row) {
+        try { equipment = JSON.parse(row.equipment); } catch { /* corrupt */ }
+        roomId = row.room_id;
+        updatedAt = row.updated_at;
+      }
+
+      res.json({
+        equipment,
+        updatedAt,
+        roomId,
+        rooms: rooms.map(r => ({ id: r.id, name: r.name, campusId: r.campus_id, hasConfig: !!equipByRoom[r.id], lastUpdated: equipByRoom[r.id] || null })),
+      });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }
