@@ -1183,6 +1183,22 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           const mxName = status.mixer.name || 'Audio Mixer';
           rows.push([mxName, mxSt, verInfo(mixerVer, mixerVerType), status.mixer.lastSeen || null]);
         }
+        // vMix — show as its own row when not already shown as the encoder
+        if (status.vmix && status.vmix.connected && enc.type !== 'vmix') {
+          const vmSt = status.vmix.streaming ? 'streaming' : (status.vmix.recording ? 'recording' : 'connected');
+          const vmDetail = status.vmix.edition || null;
+          rows.push(['vMix', vmSt, verInfo(status.vmix.version || null, 'vmix'), vmDetail]);
+        }
+        // VideoHub(s) — one row per connected hub
+        if (Array.isArray(status.videoHubs)) {
+          status.videoHubs.forEach(function(hub, i) {
+            if (!hub) return;
+            const vhSt = hub.connected ? 'connected' : 'unknown';
+            const vhLabel = hub.name || ('VideoHub' + (status.videoHubs.length > 1 ? ' ' + (i + 1) : ''));
+            const vhDetail = hub.inputCount ? hub.inputCount + '×' + hub.outputCount : null;
+            rows.push([vhLabel, vhSt, null, vhDetail]);
+          });
+        }
         if (status.resolume && typeof status.resolume === 'object') {
           const rs = status.resolume;
           const rsSt = rs.connected ? 'connected' : 'unknown';

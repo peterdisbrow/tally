@@ -1212,7 +1212,8 @@ async function openDetail(id) {
   if (devs.encoders?.length) devs.encoders.forEach(function(e) { html += chip(e.name || 'Encoder', true); });
   if (devs.mixers?.length) devs.mixers.forEach(function(m) { html += chip(m.name || 'Mixer', true); });
   if (devs.ptz?.length) devs.ptz.forEach(function(p) { html += chip(p.name || 'PTZ', true); });
-  if (devs.hyperdeck?.length) devs.hyperdeck.forEach(function(h) { html += chip(h.name || 'HyperDeck', true); });
+  if (devs.hyperdecks?.length) devs.hyperdecks.forEach(function(h) { html += chip(h.name || 'HyperDeck', true); });
+  if (devs.videoHubs?.length) devs.videoHubs.forEach(function(h) { html += chip(h.name || 'VideoHub', h.connected); });
   html += '</div>';
   if (ch.audio_via_atem) html += '<div style="font-size:11px;color:var(--dim);margin-top:6px">Audio via ATEM</div>';
   html += '</div>';
@@ -2366,9 +2367,13 @@ async function renderStreamEquipmentStatus(churchId) {
       const cams = Array.isArray(devices.ptz) ? devices.ptz : [];
       items.push(dot(cams.length > 0) + 'PTZ Cameras (' + cams.length + ')');
     }
-    if (devices.hyperdeck) {
-      const hds = Array.isArray(devices.hyperdeck) ? devices.hyperdeck : [];
+    if (devices.hyperdecks) {
+      const hds = Array.isArray(devices.hyperdecks) ? devices.hyperdecks : [];
       hds.forEach(h => items.push(dot(h.connected) + 'HyperDeck' + (h.name ? ' (' + h.name + ')' : '')));
+    }
+    if (devices.videoHubs) {
+      const vhs = Array.isArray(devices.videoHubs) ? devices.videoHubs : [];
+      vhs.forEach(h => items.push(dot(h.connected) + 'VideoHub' + (h.name ? ' (' + h.name + ')' : '')));
     }
 
     eqEl.innerHTML = items.length ? items.map(i => '<div style="padding:4px 0">' + i + '</div>').join('') : '<div style="color:var(--muted);padding:8px 0;text-align:center">No equipment detected</div>';
@@ -3415,7 +3420,8 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       encoders: Array.isArray(deviceStatus.encoders) ? deviceStatus.encoders : [],
       mixers: Array.isArray(deviceStatus.mixers) ? deviceStatus.mixers : [],
       ptz: Array.isArray(deviceStatus.ptz) ? deviceStatus.ptz : [],
-      hyperdeck: Array.isArray(deviceStatus.hyperdeck) ? deviceStatus.hyperdeck : [],
+      hyperdecks: Array.isArray(deviceStatus.hyperdecks) ? deviceStatus.hyperdecks : [],
+      videoHubs: Array.isArray(deviceStatus.videoHubs) ? deviceStatus.videoHubs : [],
     };
 
     let currentSession = null;

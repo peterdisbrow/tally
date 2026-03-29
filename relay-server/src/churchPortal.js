@@ -204,6 +204,10 @@ function getDashboardStats(db, churchId, churches, now) {
       const connected = !!(st.mixer && st.mixer.connected);
       devices.push(connected ? 'healthy' : 'offline');
     }
+    // vMix
+    if (st.vmix && st.vmix.connected != null) {
+      devices.push(st.vmix.connected ? 'healthy' : 'offline');
+    }
     // HyperDecks
     if (st.hyperdecks && Array.isArray(st.hyperdecks)) {
       for (const hd of st.hyperdecks) {
@@ -212,6 +216,12 @@ function getDashboardStats(db, churchId, churches, now) {
     }
     if (st.hyperdeck) {
       devices.push(st.hyperdeck.connected ? 'healthy' : 'offline');
+    }
+    // VideoHubs
+    if (st.videoHubs && Array.isArray(st.videoHubs)) {
+      for (const hub of st.videoHubs) {
+        devices.push(hub.connected ? 'healthy' : 'offline');
+      }
     }
     // PTZ cameras
     if (st.ptzCameras && Array.isArray(st.ptzCameras)) {
