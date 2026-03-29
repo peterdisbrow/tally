@@ -23,6 +23,7 @@
       <div>
         <div class="sidebar-brand">Tally</div>
         <div class="sidebar-church" id="sidebar-church-name">{{CHURCH_NAME}}</div>
+        <div id="td-session-indicator" style="display:none;font-size:11px;color:#22c55e;margin-top:2px;font-weight:500"></div>
       </div>
     </div>
     <button class="nav-item active" data-page="overview" data-action="showPage">
@@ -63,6 +64,7 @@
         </div>
       </div>
       <button id="btn-lang-toggle" class="btn-secondary" data-action="toggleLanguage" style="width:100%;margin-bottom:6px;font-size:11px;opacity:0.85" title="Switch language / Cambiar idioma" data-i18n="lang.toggle">Español</button>
+      <button id="btn-td-change-pw" class="btn-secondary" data-action="tdChangePassword" style="width:100%;margin-bottom:6px;font-size:11px;display:none">Change Password</button>
       <button id="btn-logout" class="btn-logout" data-action="logout" data-i18n="btn.signout">Sign out</button>
     </div>
   </nav>
@@ -736,7 +738,7 @@
         </div>
         <div class="table-wrap">
         <table>
-          <thead><tr><th data-i18n="table.name">Name</th><th><span class="tip" data-tip="Job title or role in the tech team" data-i18n="table.role">Role</span></th><th><span class="tip" data-tip="Controls what this person can do in Tally via Telegram: viewer=status only, operator=control switcher, admin=full access">Access</span></th><th data-i18n="table.email">Email</th><th></th></tr></thead>
+          <thead><tr><th data-i18n="table.name">Name</th><th><span class="tip" data-tip="Job title or role in the tech team" data-i18n="table.role">Role</span></th><th><span class="tip" data-tip="Controls what this person can do in Tally via Telegram and Portal: viewer=status only, operator=control switcher, admin=full access">Access</span></th><th data-i18n="table.email">Email</th><th><span class="tip" data-tip="Enable portal login for this TD — they sign in with their email and a password you set">Portal Login</span></th><th></th></tr></thead>
           <tbody id="tds-tbody">
             <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
           </tbody>

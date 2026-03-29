@@ -2486,9 +2486,52 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Ingest key for equipment page
         var ikEl = document.getElementById('eq-ingest-key');
         if (ikEl && d.ingest_stream_key) ikEl.textContent = d.ingest_stream_key;
+
+        // TD session — scope sidebar & show indicator
+        if (d.isTd) {
+          window._tdSession = { name: d.tdName, accessLevel: d.tdAccessLevel };
+          applyTdAccessRestrictions(d.tdAccessLevel, d.tdName);
+        }
       } catch(e) { toast('Failed to load profile', true); }
     }
     loadProfile();
+
+    /**
+     * Hide sidebar pages a TD cannot access and show the TD indicator.
+     * viewer  → overview only (read-only)
+     * operator → overview + can trigger actions
+     * admin   → everything except billing
+     */
+    function applyTdAccessRestrictions(level, name) {
+      // Pages hidden per access level
+      var hiddenPages = { viewer: ['engineer','profile','rooms','team','automation','billing','support'], operator: ['profile','rooms','team','billing','support'], admin: ['billing'] };
+      var hidden = hiddenPages[level] || hiddenPages.viewer;
+      document.querySelectorAll('.nav-item[data-page]').forEach(function(btn) {
+        if (hidden.indexOf(btn.dataset.page) !== -1) btn.style.display = 'none';
+      });
+      // TD indicator in sidebar
+      var indicator = document.getElementById('td-session-indicator');
+      if (indicator) {
+        var labels = { viewer: 'Viewer', operator: 'Operator', admin: 'Admin' };
+        indicator.textContent = escapeHtml(name) + ' (' + (labels[level] || level) + ')';
+        indicator.style.display = '';
+      }
+      // Show change-password button for TD sessions
+      var cpBtn = document.getElementById('btn-td-change-pw');
+      if (cpBtn) cpBtn.style.display = '';
+    }
+
+    async function tdChangePassword() {
+      var current = window.prompt('Enter your current password:');
+      if (!current) return;
+      var newPw = window.prompt('Enter new password (min 8 characters):');
+      if (!newPw) return;
+      if (newPw.length < 8) return toast('Password must be at least 8 characters', true);
+      try {
+        await api('POST', '/api/td/change-password', { currentPassword: current, newPassword: newPw });
+        toast('Password changed successfully');
+      } catch(e) { toast(e.message, true); }
+    }
 
     async function saveProfile() {
       btnLoading('btn-save-profile', 'Saving…');
@@ -2906,23 +2949,39 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const tds = await api('GET', '/api/church/tds');
         const tbody = document.getElementById('tds-tbody');
         if (!tds.length) {
-          tbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">No tech directors yet.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7" style="color:#475569;text-align:center;padding:20px">No tech directors yet.</td></tr>';
           return;
         }
-        tbody.innerHTML = tds.map(td => `
+        tbody.innerHTML = tds.map(td => {
+          const tdId = escapeHtml(String(td.id || ''));
+          const portalOn = !!td.portal_enabled;
+          const hasPassword = !!td.has_password;
+          const lastLogin = td.last_portal_login ? new Date(td.last_portal_login).toLocaleDateString() : '—';
+          return `
           <tr>
             <td>${escapeHtml(td.name || '')}</td>
             <td><span class="badge badge-gray">${escapeHtml(td.role || 'td')}</span></td>
             <td>
-              <select style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer" onchange="setTdAccessLevel('${escapeHtml(String(td.id || ''))}', this.value)">
+              <select style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer" onchange="setTdAccessLevel('${tdId}', this.value)">
                 <option value="viewer" ${(td.access_level||'operator')==='viewer'?'selected':''}>Viewer</option>
                 <option value="operator" ${(!td.access_level||td.access_level==='operator')?'selected':''}>Operator</option>
                 <option value="admin" ${(td.access_level||'')==='admin'?'selected':''}>Admin</option>
               </select>
             </td>
             <td style="color:#94A3B8">${escapeHtml(td.email || '—')}</td>
-            <td><button class="btn-danger" onclick="removeTd('${escapeHtml(String(td.id || ''))}')">Remove</button></td>
-          </tr>`).join('');
+            <td>
+              <div style="display:flex;align-items:center;gap:6px">
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;color:${portalOn ? '#22c55e' : '#64748b'}">
+                  <input type="checkbox" ${portalOn ? 'checked' : ''} onchange="toggleTdPortalAccess('${tdId}', this.checked)" style="accent-color:#22c55e">
+                  ${portalOn ? 'On' : 'Off'}
+                </label>
+                <button class="btn-secondary" style="font-size:11px;padding:2px 8px" onclick="promptSetTdPassword('${tdId}', '${escapeHtml(td.name || '')}')">${hasPassword ? 'Reset PW' : 'Set PW'}</button>
+              </div>
+              ${portalOn ? '<div style="font-size:10px;color:#64748b;margin-top:2px">Last login: ' + lastLogin + '</div>' : ''}
+            </td>
+            <td><button class="btn-danger" onclick="removeTd('${tdId}')">Remove</button></td>
+          </tr>`;
+        }).join('');
         document.getElementById('stat-tds').textContent = tds.length;
       } catch(e) { toast('Failed to load TDs', true); }
     }
@@ -2978,6 +3037,25 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const labels = { viewer: 'Viewer (read-only)', operator: 'Operator', admin: 'Admin' };
         toast('Access level set to ' + (labels[accessLevel] || accessLevel));
       } catch(e) { toast(e.message, true); loadTds(); }
+    }
+
+    async function toggleTdPortalAccess(id, enabled) {
+      try {
+        await api('PUT', '/api/church/tds/' + id + '/portal-access', { enabled });
+        toast(enabled ? 'Portal access enabled' : 'Portal access disabled');
+        loadTds();
+      } catch(e) { toast(e.message, true); loadTds(); }
+    }
+
+    async function promptSetTdPassword(id, name) {
+      var pw = window.prompt('Set portal password for ' + name + ' (min 8 characters):');
+      if (!pw) return;
+      if (pw.length < 8) return toast('Password must be at least 8 characters', true);
+      try {
+        await api('POST', '/api/church/tds/' + id + '/set-password', { password: pw });
+        toast('Password set — ' + name + ' can now log in to the portal');
+        loadTds();
+      } catch(e) { toast(e.message, true); }
     }
 
     // ── Schedule ─────────────────────────────────────────────────────────────
@@ -5731,6 +5809,9 @@ document.addEventListener('DOMContentLoaded', function() {
       // Auth
       case 'logout':
         if (typeof logout === 'function') logout();
+        break;
+      case 'tdChangePassword':
+        if (typeof tdChangePassword === 'function') tdChangePassword();
         break;
 
       // Theme
