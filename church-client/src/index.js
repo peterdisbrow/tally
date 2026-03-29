@@ -28,6 +28,7 @@ const { StreamHealthMonitor } = require('./streamHealthMonitor');
 const { encryptConfig, decryptConfig, findUnencryptedFields } = require('./secureStorage');
 const { MixerBridge } = require('./mixerBridge');
 const { PTZManager, normalizeProtocol } = require('./ptz');
+const { ShellyManager } = require('./shellyManager');
 const { getSystemHealth } = require('./systemHealth');
 const { collectDiagnosticBundle } = require('./diagnosticBundle');
 
@@ -304,6 +305,7 @@ class ChurchAVAgent {
     this.vmix = null;
     this.mixer = null;
     this.ptzManager = null;
+    this.shellyManager = null;
     this.encoderBridge = null;
     this._encoderManaged = false;  // true when EncoderBridge owns status.encoder
     this._stopping = false;
@@ -371,6 +373,7 @@ class ChurchAVAgent {
       vmix: { connected: false, streaming: false, recording: false, edition: null, version: null },
       mixer: { connected: false, type: null, model: null, firmware: null, mainMuted: false },
       ptz: [],
+      smartPlugs: [],
       audio: { monitoring: false, lastLevelDb: null, silenceDetected: false, source: null },
       system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null, roomId: config.roomId || null, roomName: config.roomName || null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '' },
     };
@@ -389,6 +392,7 @@ class ChurchAVAgent {
       hyperdeck:    { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
       encoder:      { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
       camera:       { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
+      shelly:       { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
       _startedAt: Date.now(),
     };
 
@@ -581,6 +585,7 @@ class ChurchAVAgent {
     await this.connectMixer();
     await this.connectPTZ();
     await this.connectEncoder();
+    await this.connectSmartPlugs();
 
     this._track(setInterval(() => this.sendStatus(), 10_000));
     this._track(setInterval(() => { this.status.system.uptime = Math.floor(process.uptime()); }, 10_000));
@@ -935,6 +940,25 @@ class ChurchAVAgent {
         if (parts.length) console.log(`[CDN Verify] ${parts.join(' · ')}`);
         this.status.streamVerification = v;
         this.sendStatus();
+        break;
+      }
+      case 'smart_plug_command': {
+        // Direct smart plug commands from the portal (bypasses generic command flow)
+        const { action, plugId, delayMs } = msg;
+        if (!this.shellyManager) break;
+        (async () => {
+          try {
+            if (action === 'power_cycle') await this.shellyManager.powerCycle(plugId, delayMs || 5000);
+            else if (action === 'turn_on') await this.shellyManager.turnOn(plugId);
+            else if (action === 'turn_off') await this.shellyManager.turnOff(plugId);
+            else if (action === 'toggle') await this.shellyManager.togglePlug(plugId);
+            this.status.smartPlugs = this.shellyManager.toStatus();
+            this.sendStatus();
+            this.sendToRelay({ type: 'smart_plug_result', plugId, action, success: true });
+          } catch (e) {
+            this.sendToRelay({ type: 'smart_plug_result', plugId, action, success: false, error: e.message });
+          }
+        })();
         break;
       }
       case 'config_update': {
@@ -2109,6 +2133,48 @@ class ChurchAVAgent {
         this.sendStatus();
       } catch { /* ignore */ }
     }, 30_000));
+  }
+
+  // ─── SMART PLUGS (Shelly) ─────────────────────────────────────────────────
+
+  async connectSmartPlugs() {
+    // Smart plugs config: array of { ip, name } or standalone { ip, name }
+    const entries = Array.isArray(this.config.smartPlugs) ? this.config.smartPlugs : [];
+    // Also support single plug config
+    if (!entries.length && this.config.smartPlug?.ip) {
+      entries.push(this.config.smartPlug);
+    }
+
+    this.shellyManager = new ShellyManager();
+
+    // Add configured plugs
+    for (const entry of entries) {
+      const ip = String(entry?.ip || '').trim();
+      if (!ip) continue;
+      await this.shellyManager.addPlug(ip, entry.name || `Shelly ${ip}`);
+    }
+
+    // Start mDNS discovery + polling (discovers unconfigured plugs too)
+    this.shellyManager.start();
+    this.status.smartPlugs = this.shellyManager.toStatus();
+
+    this.shellyManager.on('change', () => {
+      this.status.smartPlugs = this.shellyManager.toStatus();
+      this.sendStatus();
+    });
+
+    this.shellyManager.on('plugDiscovered', (plug) => {
+      console.log(`🔌 Smart plug online: ${plug.name} (${plug.ip})`);
+    });
+
+    const plugCount = this.shellyManager.plugs.size;
+    if (plugCount > 0) {
+      console.log(`🔌 ${plugCount} smart plug(s) configured`);
+    } else {
+      console.log('🔌 Smart plugs: mDNS discovery active (none configured)');
+    }
+
+    this.sendStatus();
   }
 
   // ─── HELPERS ──────────────────────────────────────────────────────────────

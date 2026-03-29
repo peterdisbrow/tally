@@ -187,6 +187,15 @@
         </div>
       </div>
 
+      <!-- Smart Plugs Card (shown when plugs are discovered) -->
+      <div class="card" id="smart-plugs-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin:0">&#128268; Smart Plugs</div>
+          <button class="btn-secondary" id="btn-refresh-plugs" data-action="refreshSmartPlugs" style="padding:4px 10px;font-size:11px" title="Refresh">&#x21bb; Refresh</button>
+        </div>
+        <div id="smart-plugs-list" style="display:flex;flex-direction:column;gap:10px"></div>
+      </div>
+
       <!-- Live Stream Stats (shown when any source is streaming) -->
       <div class="card" id="stream-stats-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">

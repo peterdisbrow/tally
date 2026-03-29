@@ -746,6 +746,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     /** Toggle between EN and ES, persist to localStorage, re-translate the page. */
+    // ── Smart Plug global handlers (called from onclick in rendered HTML) ────
+    window.smartPlugToggle = async function(plugIp) {
+      try {
+        await api('POST', '/api/church/smart-plugs/' + encodeURIComponent(plugIp) + '/toggle');
+        toast('Toggling plug…');
+        setTimeout(loadOverview, 2000);
+      } catch (e) { toast(e.message || 'Toggle failed', true); }
+    };
+    window.smartPlugPowerCycle = async function(plugIp) {
+      if (!confirm('Power cycle this plug? The device will be turned off for 5 seconds.')) return;
+      try {
+        await api('POST', '/api/church/smart-plugs/' + encodeURIComponent(plugIp) + '/power-cycle', { delayMs: 5000 });
+        toast('Power cycling… device will restart in ~5s');
+        setTimeout(loadOverview, 7000);
+      } catch (e) { toast(e.message || 'Power cycle failed', true); }
+    };
+
     // ── Theme Toggle ────────────────────────────────────────────────────────
     function toggleTheme() {
       var isLight = document.body.classList.toggle('light-theme');
@@ -1204,6 +1221,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           }
         }
 
+        // Smart Plugs
+        if (Array.isArray(status.smartPlugs)) {
+          status.smartPlugs.forEach(function(plug) {
+            if (!plug) return;
+            var spSt = plug.connected ? (plug.powerOn ? 'connected' : 'offline') : 'unknown';
+            var spLabel = plug.name || ('Smart Plug ' + plug.ip);
+            var spDetail = [];
+            if (plug.powerOn) spDetail.push('ON');
+            else if (plug.connected) spDetail.push('OFF');
+            if (plug.powerWatts != null) spDetail.push(plug.powerWatts + 'W');
+            if (plug.voltage != null) spDetail.push(plug.voltage + 'V');
+            rows.push(['\u{1F50C} ' + spLabel, spSt, verInfo(plug.firmware || null, null), spDetail.join(' · ') || null]);
+          });
+        }
+
         // Room label
         var roomLabel = document.getElementById('equip-room-label');
         if (roomLabel) roomLabel.textContent = d.room_name ? '· ' + d.room_name : '';
@@ -1271,6 +1303,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // ── ATEM detail card ──────────────────────────────────────────────────
         updateAtemDetailCard(status);
 
+        // ── Smart plugs card ──────────────────────────────────────────────
+        updateSmartPlugsCard(status);
+
         // ── Audio health card ────────────────────────────────────────────────
         updateAudioHealthCard(status, audioViaAtem);
 
@@ -1296,6 +1331,50 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try {
         await loadOverview();
         toast('Equipment status refreshed');
+      } catch { toast('Refresh failed', true); }
+      finally { if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; } }
+    }
+
+    // ── Smart Plugs Card ──────────────────────────────────────────────────────
+    function updateSmartPlugsCard(status) {
+      var card = document.getElementById('smart-plugs-card');
+      var list = document.getElementById('smart-plugs-list');
+      if (!card || !list) return;
+
+      var plugs = Array.isArray(status.smartPlugs) ? status.smartPlugs : [];
+      if (plugs.length === 0) { card.style.display = 'none'; return; }
+      card.style.display = '';
+
+      list.innerHTML = plugs.map(function(plug) {
+        var stateColor = !plug.connected ? '#64748B' : (plug.powerOn ? '#22c55e' : '#ef4444');
+        var stateLabel = !plug.connected ? 'Offline' : (plug.powerOn ? 'ON' : 'OFF');
+        var watts = plug.powerWatts != null ? '<span style="color:#94A3B8;font-size:12px;margin-left:8px">' + plug.powerWatts + 'W</span>' : '';
+        var voltage = plug.voltage != null ? '<span style="color:#94A3B8;font-size:12px;margin-left:4px">' + plug.voltage + 'V</span>' : '';
+        var toggleLabel = plug.powerOn ? 'Turn Off' : 'Turn On';
+        var disabled = !plug.connected ? ' disabled' : '';
+
+        return '<div style="display:flex;align-items:center;justify-content:space-between;background:#0F1613;border:1px solid #1a2e1f;border-radius:8px;padding:12px 16px">'
+          + '<div style="display:flex;align-items:center;gap:10px">'
+          + '<span style="width:8px;height:8px;border-radius:50%;background:' + stateColor + ';display:inline-block"></span>'
+          + '<div>'
+          + '<div style="font-weight:600;color:#F8FAFC;font-size:14px">' + escapeHtml(plug.name || plug.ip) + '</div>'
+          + '<div style="font-size:12px;color:#64748B">' + escapeHtml(plug.ip) + ' &middot; ' + stateLabel + watts + voltage + '</div>'
+          + '</div>'
+          + '</div>'
+          + '<div style="display:flex;gap:8px">'
+          + '<button class="btn-secondary" onclick="smartPlugToggle(\'' + escapeHtml(plug.ip) + '\')" style="font-size:12px;padding:5px 12px"' + disabled + '>' + toggleLabel + '</button>'
+          + '<button class="btn-secondary" onclick="smartPlugPowerCycle(\'' + escapeHtml(plug.ip) + '\')" style="font-size:12px;padding:5px 12px;color:#f59e0b;border-color:#f59e0b"' + disabled + '>Power Cycle</button>'
+          + '</div>'
+          + '</div>';
+      }).join('');
+    }
+
+    async function refreshSmartPlugs() {
+      var btn = document.getElementById('btn-refresh-plugs');
+      if (btn) { btn.disabled = true; btn.textContent = '↻ Refreshing…'; }
+      try {
+        await loadOverview();
+        toast('Smart plugs refreshed');
       } catch { toast('Refresh failed', true); }
       finally { if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; } }
     }
@@ -5848,6 +5927,9 @@ document.addEventListener('DOMContentLoaded', function() {
       // Equipment
       case 'refreshEquipmentStatus':
         if (typeof refreshEquipmentStatus === 'function') refreshEquipmentStatus();
+        break;
+      case 'refreshSmartPlugs':
+        if (typeof refreshSmartPlugs === 'function') refreshSmartPlugs();
         break;
 
       // Profile

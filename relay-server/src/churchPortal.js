@@ -305,6 +305,12 @@ function getDashboardStats(db, churchId, churches, now) {
         devices.push(cam.connected ? 'healthy' : 'offline');
       }
     }
+    // Smart plugs
+    if (Array.isArray(st.smartPlugs)) {
+      for (const plug of st.smartPlugs) {
+        devices.push(plug.connected ? 'healthy' : 'offline');
+      }
+    }
 
     equipmentStatus.total = devices.length;
     equipmentStatus.healthy = devices.filter(d => d === 'healthy').length;
@@ -583,6 +589,20 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   `);
   db.exec('CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_referrals_referred ON referrals(referred_id)');
+
+  // Smart plugs — Shelly devices assigned to rooms/equipment
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS smart_plugs (
+      id              TEXT PRIMARY KEY,
+      church_id       TEXT NOT NULL,
+      plug_ip         TEXT NOT NULL,
+      plug_name       TEXT NOT NULL DEFAULT '',
+      room_id         TEXT,
+      assigned_device TEXT DEFAULT '',
+      created_at      TEXT NOT NULL
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_smart_plugs_church ON smart_plugs(church_id)');
 
   // Backfill referral codes for existing churches that don't have one
   const churchesMissingCode = db.prepare('SELECT churchId FROM churches WHERE referral_code IS NULL OR referral_code = ?').all('');
@@ -1264,6 +1284,138 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
   });
 
+  // ── Smart Plugs CRUD + Power Control ─────────────────────────────────────────
+
+  // GET /api/church/smart-plugs — list saved + live-discovered plugs
+  app.get('/api/church/smart-plugs', authMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const saved = db.prepare('SELECT * FROM smart_plugs WHERE church_id = ? ORDER BY created_at').all(churchId);
+
+      // Merge with live status from the church client
+      const runtime = churches.get(churchId);
+      const livePlugs = [];
+      if (runtime?.instanceStatus) {
+        for (const inst of Object.values(runtime.instanceStatus)) {
+          if (Array.isArray(inst.smartPlugs)) {
+            for (const p of inst.smartPlugs) livePlugs.push(p);
+          }
+        }
+      }
+      // Also check the flattened status
+      if (runtime?.status?.smartPlugs && Array.isArray(runtime.status.smartPlugs)) {
+        for (const p of runtime.status.smartPlugs) {
+          if (!livePlugs.some(lp => lp.ip === p.ip)) livePlugs.push(p);
+        }
+      }
+
+      // Merge: saved plugs get live status overlaid, live-only plugs appended
+      const merged = saved.map(s => {
+        const live = livePlugs.find(lp => lp.ip === s.plug_ip);
+        return { ...s, live: live || null };
+      });
+      // Append any live plugs not in DB (auto-discovered)
+      for (const lp of livePlugs) {
+        if (!saved.some(s => s.plug_ip === lp.ip)) {
+          merged.push({ id: null, church_id: churchId, plug_ip: lp.ip, plug_name: lp.name, room_id: null, assigned_device: '', created_at: null, live: lp });
+        }
+      }
+
+      res.json({ plugs: merged });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/church/smart-plugs — save/assign a plug
+  app.post('/api/church/smart-plugs', authMiddleware, express.json(), (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const { plugIp, plugName, roomId, assignedDevice } = req.body;
+      if (!plugIp) return res.status(400).json({ error: 'plugIp required' });
+
+      const id = crypto.randomUUID();
+      db.prepare(`
+        INSERT INTO smart_plugs (id, church_id, plug_ip, plug_name, room_id, assigned_device, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(id, churchId, plugIp.trim(), (plugName || '').trim(), roomId || null, (assignedDevice || '').trim(), new Date().toISOString());
+
+      res.json({ ok: true, id });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // PATCH /api/church/smart-plugs/:plugId — update plug assignment
+  app.patch('/api/church/smart-plugs/:plugId', authMiddleware, express.json(), (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const plugId = req.params.plugId;
+      const existing = db.prepare('SELECT * FROM smart_plugs WHERE id = ? AND church_id = ?').get(plugId, churchId);
+      if (!existing) return res.status(404).json({ error: 'Plug not found' });
+
+      const { plugName, roomId, assignedDevice } = req.body;
+      if (plugName !== undefined) db.prepare('UPDATE smart_plugs SET plug_name = ? WHERE id = ?').run(plugName.trim(), plugId);
+      if (roomId !== undefined) db.prepare('UPDATE smart_plugs SET room_id = ? WHERE id = ?').run(roomId || null, plugId);
+      if (assignedDevice !== undefined) db.prepare('UPDATE smart_plugs SET assigned_device = ? WHERE id = ?').run(assignedDevice.trim(), plugId);
+
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // DELETE /api/church/smart-plugs/:plugId
+  app.delete('/api/church/smart-plugs/:plugId', authMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const plugId = req.params.plugId;
+      const result = db.prepare('DELETE FROM smart_plugs WHERE id = ? AND church_id = ?').run(plugId, churchId);
+      if (result.changes === 0) return res.status(404).json({ error: 'Plug not found' });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/church/smart-plugs/:plugIp/power-cycle — power cycle via WebSocket
+  app.post('/api/church/smart-plugs/:plugIp/power-cycle', authMiddleware, express.json(), (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const plugIp = req.params.plugIp;
+      const delayMs = Number(req.body?.delayMs) || 5000;
+      const runtime = churches.get(churchId);
+      if (!runtime?.sockets?.size) return res.status(409).json({ error: 'Church client not connected' });
+
+      const payload = JSON.stringify({ type: 'smart_plug_command', action: 'power_cycle', plugId: plugIp, delayMs });
+      for (const sock of runtime.sockets.values()) {
+        if (sock.readyState === 1) sock.send(payload);
+      }
+      res.json({ sent: true, action: 'power_cycle', plugIp, delayMs });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/church/smart-plugs/:plugIp/toggle — toggle via WebSocket
+  app.post('/api/church/smart-plugs/:plugIp/toggle', authMiddleware, express.json(), (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const plugIp = req.params.plugIp;
+      const action = req.body?.on === true ? 'turn_on' : req.body?.on === false ? 'turn_off' : 'toggle';
+      const runtime = churches.get(churchId);
+      if (!runtime?.sockets?.size) return res.status(409).json({ error: 'Church client not connected' });
+
+      const payload = JSON.stringify({ type: 'smart_plug_command', action, plugId: plugIp });
+      for (const sock of runtime.sockets.values()) {
+        if (sock.readyState === 1) sock.send(payload);
+      }
+      res.json({ sent: true, action, plugIp });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
   // POST /api/church/room-assign — assign this church/desktop to a room
   app.post('/api/church/room-assign', adminMiddleware, express.json(), (req, res) => {
     try {
@@ -1570,6 +1722,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       'system.diagnosticBundle', 'system.preServiceCheck',
       'mixer.unmute', 'mixer.mute', 'mixer.recallScene',
       'atem.runMacro', 'obs.setScene', 'vmix.function', 'vmix.setProgram',
+      'shelly.turnOn', 'shelly.turnOff', 'shelly.toggle', 'shelly.powerCycle', 'shelly.status',
     ]);
 
     if (!ALLOWED_APP_COMMANDS.has(command)) {
