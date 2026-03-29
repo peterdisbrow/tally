@@ -307,9 +307,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'modal.dialog.cancel': 'Cancel',
         'modal.dialog.ok': 'OK',
         'modal.review.title': 'Share Your Experience',
-        // Demo mode
-        'demo.try': '\ud83c\udfad Try Demo Mode',
-        'demo.exit': 'Exit Demo',
         // Days of week (for schedule editor)
         'day.sunday': 'Sunday',
         'day.monday': 'Monday',
@@ -684,9 +681,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'modal.dialog.cancel': 'Cancelar',
         'modal.dialog.ok': 'Aceptar',
         'modal.review.title': 'Comparte tu Experiencia',
-        // Demo mode
-        'demo.try': '\ud83c\udfad Probar Modo Demo',
-        'demo.exit': 'Salir del Demo',
         // Days of week (for schedule editor)
         'day.sunday': 'Domingo',
         'day.monday': 'Lunes',
@@ -912,21 +906,46 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (overlay) overlay.classList.remove('open');
       if (id === 'overview') { loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
       if (id === 'campuses') { loadCampuses(); loadCampusMode(); loadRooms(); }
-      if (id === 'tds') loadTds();
+      if (id === 'team') loadTds();
       if (id === 'schedule') loadSchedule();
-      if (id === 'guests') loadGuests();
-      if (id === 'macros') loadMacros();
-      if (id === 'autopilot') loadAutopilot();
-      if (id === 'sessions') loadSessions();
-      if (id === 'alerts') loadAlerts();
-      if (id === 'billing') loadBilling();
-      if (id === 'migrate') initMigrationWizard();
-      if (id === 'notifications') loadNotifications();
-      if (id === 'support') loadSupportInfo();
-      if (id === 'analytics') loadAnalytics();
-      if (id === 'referrals') loadReferralsPage();
+      if (id === 'alerts') loadNotifications();
+      if (id === 'automation') loadMacros();
+      if (id === 'analytics') loadSessions();
+      if (id === 'billing') { loadBilling(); loadReferralsPage(); }
+      if (id === 'support') { loadSupportInfo(); initMigrationWizard(); }
       if (id === 'engineer') startEngineerChatPoll(); else stopEngineerChatPoll();
     }
+
+    // ── Tab switching ────────────────────────────────────────────────────────────
+    var _tabLoaded = {};
+    function switchTab(tabId) {
+      var tabEl = document.getElementById(tabId);
+      if (!tabEl) return;
+      var page = tabEl.closest('.page');
+      if (!page) return;
+      // Toggle active tab content
+      page.querySelectorAll('.tab-content').forEach(function(tc) { tc.classList.remove('active'); });
+      tabEl.classList.add('active');
+      // Toggle active tab button
+      page.querySelectorAll('.tab-bar button').forEach(function(b) { b.classList.remove('active'); });
+      var btn = page.querySelector('.tab-bar button[data-tab="' + tabId + '"]');
+      if (btn) btn.classList.add('active');
+      // Load data for the tab if not already loaded
+      if (!_tabLoaded[tabId]) {
+        _tabLoaded[tabId] = true;
+        if (tabId === 'tab-equipment') loadEquipment();
+        if (tabId === 'tab-guests') loadGuests();
+        if (tabId === 'tab-alert-history') loadAlerts();
+        if (tabId === 'tab-autopilot') loadAutopilot();
+        if (tabId === 'tab-analytics-data') loadAnalytics();
+      }
+    }
+
+    // Delegated click handler for tab buttons
+    document.addEventListener('click', function(e) {
+      var btn = e.target.closest('.tab-bar button[data-tab]');
+      if (btn) switchTab(btn.dataset.tab);
+    });
 
     // ── toast ──────────────────────────────────────────────────────────────────
     function toast(msg, isError = false) {
@@ -2235,6 +2254,181 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       } catch(e) { toast('Failed to restore setup guide', true); }
     }
 
+    // ── Equipment ──────────────────────────────────────────────────────────────
+    var _equipmentLoaded = false;
+    var _equipmentRoomId = null; // tracks which room_id the equipment belongs to
+
+    async function loadEquipment() {
+      if (_equipmentLoaded) return;
+      try {
+        var d = await api('GET', '/api/church/config/equipment');
+        _equipmentRoomId = d.roomId || null;
+        var eq = d.equipment || {};
+        document.getElementById('eq-atem-ip').value = eq.atemIp || '';
+        document.getElementById('eq-obs-url').value = eq.obsUrl || '';
+        document.getElementById('eq-obs-password').value = eq.obsPassword || '';
+        // Mixer
+        var mixer = eq.mixer || {};
+        document.getElementById('eq-mixer-type').value = mixer.type || '';
+        document.getElementById('eq-mixer-host').value = mixer.host || '';
+        document.getElementById('eq-mixer-port').value = mixer.port || '';
+        document.getElementById('eq-audio-via-atem').checked = !!eq.audioViaAtem;
+        // Encoder
+        document.getElementById('eq-encoder-type').value = eq.encoderType || '';
+        document.getElementById('eq-encoder-host').value = eq.encoderHost || '';
+        document.getElementById('eq-encoder-port').value = eq.encoderPort || '';
+        document.getElementById('eq-rtmp-url').value = eq.rtmpUrl || '';
+        // Companion
+        document.getElementById('eq-companion-url').value = eq.companionUrl || '';
+        // Presentation
+        var pp = eq.proPresenter || {};
+        document.getElementById('eq-propresenter-host').value = pp.host || '';
+        document.getElementById('eq-propresenter-port').value = pp.port || '';
+        var vmix = eq.vmix || {};
+        document.getElementById('eq-vmix-host').value = vmix.host || '';
+        document.getElementById('eq-vmix-port').value = vmix.port || '';
+        var res = eq.resolume || {};
+        document.getElementById('eq-resolume-host').value = res.host || '';
+        document.getElementById('eq-resolume-port').value = res.port || '';
+        // PTZ
+        renderEquipmentList('ptz', eq.ptz || []);
+        renderEquipmentList('hyperdeck', eq.hyperdecks || []);
+        renderEquipmentList('videohub', eq.videoHubs || []);
+
+        document.getElementById('equipment-loading').style.display = 'none';
+        document.getElementById('equipment-form').style.display = '';
+        _equipmentLoaded = true;
+        if (d.updatedAt) {
+          document.getElementById('equipment-save-status').textContent = 'Last saved: ' + new Date(d.updatedAt).toLocaleString();
+        }
+      } catch (e) {
+        document.getElementById('equipment-loading').textContent = 'Failed to load equipment config.';
+        toast('Failed to load equipment: ' + e.message, true);
+      }
+    }
+
+    function renderEquipmentList(type, items) {
+      var container = document.getElementById('eq-' + type + '-list');
+      container.innerHTML = '';
+      if (!items || !items.length) return;
+      items.forEach(function(item, i) {
+        addEquipmentRowHtml(type, item);
+      });
+    }
+
+    function addEquipmentRow(type) {
+      addEquipmentRowHtml(type, {});
+    }
+
+    function addEquipmentRowHtml(type, item) {
+      var container = document.getElementById('eq-' + type + '-list');
+      var row = document.createElement('div');
+      row.className = 'eq-device-row';
+      row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px';
+      if (type === 'ptz') {
+        row.innerHTML =
+          '<input type="text" class="eq-ptz-name" placeholder="Camera name" value="' + _escAttr(item.name || '') + '" style="flex:1">' +
+          '<input type="text" class="eq-ptz-ip" placeholder="IP address" value="' + _escAttr(item.ip || item.host || '') + '" style="flex:1">' +
+          '<select class="eq-ptz-protocol" style="flex:0 0 120px">' +
+            '<option value="visca"' + (item.protocol === 'visca' ? ' selected' : '') + '>VISCA</option>' +
+            '<option value="visca-over-ip"' + (item.protocol === 'visca-over-ip' ? ' selected' : '') + '>VISCA/IP</option>' +
+            '<option value="onvif"' + (item.protocol === 'onvif' ? ' selected' : '') + '>ONVIF</option>' +
+          '</select>' +
+          '<input type="number" class="eq-ptz-port" placeholder="Port" value="' + (item.port || '') + '" style="flex:0 0 80px" min="1" max="65535">' +
+          '<button class="btn-secondary" style="flex:0 0 auto;padding:4px 8px;font-size:11px" onclick="this.parentElement.remove()">✕</button>';
+      } else {
+        // HyperDeck or VideoHub — just name + IP
+        row.innerHTML =
+          '<input type="text" class="eq-' + type + '-name" placeholder="Name" value="' + _escAttr(item.name || item.label || '') + '" style="flex:1">' +
+          '<input type="text" class="eq-' + type + '-ip" placeholder="IP address" value="' + _escAttr(item.ip || item.host || '') + '" style="flex:1">' +
+          '<button class="btn-secondary" style="flex:0 0 auto;padding:4px 8px;font-size:11px" onclick="this.parentElement.remove()">✕</button>';
+      }
+      container.appendChild(row);
+    }
+
+    function _escAttr(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+    function collectEquipmentList(type) {
+      var container = document.getElementById('eq-' + type + '-list');
+      var rows = container.querySelectorAll('.eq-device-row');
+      var result = [];
+      rows.forEach(function(row) {
+        if (type === 'ptz') {
+          var name = row.querySelector('.eq-ptz-name').value.trim();
+          var ip = row.querySelector('.eq-ptz-ip').value.trim();
+          var protocol = row.querySelector('.eq-ptz-protocol').value;
+          var port = parseInt(row.querySelector('.eq-ptz-port').value, 10) || 0;
+          if (ip) result.push({ name: name, ip: ip, protocol: protocol, port: port || undefined });
+        } else {
+          var n = row.querySelector('.eq-' + type + '-name').value.trim();
+          var addr = row.querySelector('.eq-' + type + '-ip').value.trim();
+          if (addr) result.push({ name: n, ip: addr });
+        }
+      });
+      return result;
+    }
+
+    async function saveEquipment() {
+      var btn = document.getElementById('btn-save-equipment');
+      var status = document.getElementById('equipment-save-status');
+      btn.disabled = true;
+      status.textContent = 'Saving…';
+      status.style.color = '#475569';
+      try {
+        var equipment = {
+          atemIp: document.getElementById('eq-atem-ip').value.trim(),
+          obsUrl: document.getElementById('eq-obs-url').value.trim(),
+          obsPassword: document.getElementById('eq-obs-password').value.trim(),
+          companionUrl: document.getElementById('eq-companion-url').value.trim(),
+          audioViaAtem: document.getElementById('eq-audio-via-atem').checked,
+          rtmpUrl: document.getElementById('eq-rtmp-url').value.trim(),
+          encoderType: document.getElementById('eq-encoder-type').value,
+          encoderHost: document.getElementById('eq-encoder-host').value.trim(),
+          encoderPort: parseInt(document.getElementById('eq-encoder-port').value, 10) || undefined,
+          mixer: {
+            type: document.getElementById('eq-mixer-type').value,
+            host: document.getElementById('eq-mixer-host').value.trim(),
+            port: parseInt(document.getElementById('eq-mixer-port').value, 10) || undefined,
+          },
+          proPresenter: {
+            host: document.getElementById('eq-propresenter-host').value.trim(),
+            port: parseInt(document.getElementById('eq-propresenter-port').value, 10) || undefined,
+          },
+          vmix: {
+            host: document.getElementById('eq-vmix-host').value.trim(),
+            port: parseInt(document.getElementById('eq-vmix-port').value, 10) || undefined,
+          },
+          resolume: {
+            host: document.getElementById('eq-resolume-host').value.trim(),
+            port: parseInt(document.getElementById('eq-resolume-port').value, 10) || undefined,
+          },
+          ptz: collectEquipmentList('ptz'),
+          hyperdecks: collectEquipmentList('hyperdeck'),
+          videoHubs: collectEquipmentList('videohub'),
+        };
+
+        // Clean up empty nested objects
+        if (!equipment.mixer.type && !equipment.mixer.host) equipment.mixer = undefined;
+        if (!equipment.proPresenter.host) equipment.proPresenter = undefined;
+        if (!equipment.vmix.host) equipment.vmix = undefined;
+        if (!equipment.resolume.host) equipment.resolume = undefined;
+        if (!equipment.ptz.length) equipment.ptz = undefined;
+        if (!equipment.hyperdecks.length) equipment.hyperdecks = undefined;
+        if (!equipment.videoHubs.length) equipment.videoHubs = undefined;
+
+        var d = await api('PUT', '/api/church/config/equipment', { equipment: equipment, roomId: _equipmentRoomId });
+        status.textContent = 'Saved! ' + new Date(d.updatedAt).toLocaleString();
+        status.style.color = '#22c55e';
+        toast('Equipment config saved');
+      } catch (e) {
+        status.textContent = 'Save failed';
+        status.style.color = '#ef4444';
+        toast('Failed to save: ' + e.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     // ── Profile ─────────────────────────────────────────────────────────────────
     async function loadProfile() {
       try {
@@ -2248,6 +2442,25 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         document.getElementById('profile-leadership-emails').value = d.leadership_emails || '';
         const localeEl = document.getElementById('profile-locale');
         if (localeEl) localeEl.value = d.locale || 'en';
+        // Timezone
+        var tzEl = document.getElementById('profile-timezone');
+        if (tzEl) tzEl.value = d.timezone || '';
+        // Church type
+        var ct = d.church_type || 'recurring';
+        var recurringRadio = document.getElementById('church-type-recurring');
+        var eventRadio = document.getElementById('church-type-event');
+        if (recurringRadio) recurringRadio.checked = ct !== 'event';
+        if (eventRadio) eventRadio.checked = ct === 'event';
+        var eventFields = document.getElementById('event-fields');
+        if (eventFields) eventFields.style.display = ct === 'event' ? '' : 'none';
+        document.getElementById('profile-event-label').value = d.event_label || '';
+        document.getElementById('profile-event-expires').value = d.event_expires_at ? d.event_expires_at.split('T')[0] : '';
+        // Memory summary for engineer page
+        var memEl = document.getElementById('engineer-memory-summary');
+        if (memEl) memEl.value = d.memory_summary || '';
+        // Ingest key for equipment page
+        var ikEl = document.getElementById('eq-ingest-key');
+        if (ikEl && d.ingest_stream_key) ikEl.textContent = d.ingest_stream_key;
       } catch(e) { toast('Failed to load profile', true); }
     }
     loadProfile();
@@ -2262,11 +2475,34 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           notes: document.getElementById('profile-notes').value,
           leadershipEmails: document.getElementById('profile-leadership-emails').value,
           locale: (document.getElementById('profile-locale') || {}).value || 'en',
+          timezone: (document.getElementById('profile-timezone') || {}).value || '',
         });
         toast('Profile saved');
       } catch(e) { toast(e.message, true); }
       finally { btnReset('btn-save-profile'); }
     }
+
+    async function saveChurchType() {
+      btnLoading('btn-save-church-type', 'Saving…');
+      try {
+        var ct = document.getElementById('church-type-event').checked ? 'event' : 'recurring';
+        await api('PUT', '/api/church/me', {
+          churchType: ct,
+          eventLabel: document.getElementById('profile-event-label').value,
+          eventExpiresAt: document.getElementById('profile-event-expires').value || null,
+        });
+        toast('Church type saved');
+      } catch(e) { toast(e.message, true); }
+      finally { btnReset('btn-save-church-type'); }
+    }
+
+    // Toggle event fields visibility
+    document.addEventListener('change', function(e) {
+      if (e.target.name === 'church-type') {
+        var ef = document.getElementById('event-fields');
+        if (ef) ef.style.display = e.target.value === 'event' ? '' : 'none';
+      }
+    });
 
     async function changePassword() {
       const cur = document.getElementById('current-password').value;
@@ -3574,6 +3810,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             }, 500);
           }
         }
+        var recovEl = document.getElementById('failover-recovery-outside');
+        if (recovEl) recovEl.checked = !!f.recoveryOutsideServiceHours;
       } catch(e) { /* failover not configured yet — use defaults */ }
     }
 
@@ -3661,6 +3899,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           blackThresholdS: Number(document.getElementById('failover-black-threshold').value) || 5,
           ackTimeoutS: Number(document.getElementById('failover-ack-timeout').value) || 30,
           action: action,
+          recoveryOutsideServiceHours: document.getElementById('failover-recovery-outside').checked,
         });
         toast('Failover settings saved');
       } catch(e) { toast(e.message, true); }
@@ -5819,171 +6058,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       window.location.href = '/church-login';
     }
 
-    // ── Demo / Simulation Mode ────────────────────────────────────────────────
-    // A scripted playback that shows fake devices, triggers, and auto-recoveries
-    // so prospects can evaluate the system without real hardware.
-    var _demoInterval = null;
-    var _demoStep = 0;
-
-    var DEMO_SCRIPT = [
-      // step 0: devices connect
-      {
-        delay: 0,
-        fn: function() {
-          // Inject fake connected state into UI elements
-          var dot = document.getElementById('stat-status-dot');
-          var txt = document.getElementById('stat-status-text');
-          if (dot) dot.style.background = '#22c55e';
-          if (txt) txt.textContent = 'Connected';
-          var stale = document.getElementById('equip-staleness');
-          if (stale) { stale.textContent = 'Live'; stale.style.color = '#22c55e'; }
-          _demoInjectEquipment([
-            { sys: 'ATEM Mini Pro', status: '● connected', version: '8.6', detail: 'Program: 1 (Camera 1), Preview: 2' },
-            { sys: 'OBS Studio', status: '● connected', version: '30.2.2', detail: 'Ready — not streaming' },
-            { sys: 'Streaming Encoder', status: '● connected', version: '—', detail: 'Bitrate: — kbps' },
-            { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'No slide active' },
-          ]);
-          _demoAddActivity('ATEM Mini Pro connected (192.168.10.240)');
-          _demoAddActivity('OBS Studio connected (v30.2.2)');
-        }
-      },
-      // step 1: stream starts
-      {
-        delay: 3000,
-        fn: function() {
-          _demoInjectEquipment([
-            { sys: 'ATEM Mini Pro', status: '● live', version: '8.6', detail: 'Program: 1 (Camera 1) ● STREAMING' },
-            { sys: 'OBS Studio', status: '● streaming', version: '30.2.2', detail: 'Bitrate: 4800 kbps · 29.97 fps' },
-            { sys: 'Streaming Encoder', status: '● live', version: '—', detail: 'Bitrate: 4800 kbps · Health: Good' },
-            { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'Worship — Slide 3/8' },
-          ]);
-          _demoAddActivity('Stream started — 4800 kbps · YouTube');
-          _demoAddActivity('AutoPilot: "Auto-Start Recording" rule triggered → OBS recording started');
-        }
-      },
-      // step 2: autopilot slide rule fires
-      {
-        delay: 6000,
-        fn: function() {
-          _demoInjectEquipment([
-            { sys: 'ATEM Mini Pro', status: '● live', version: '8.6', detail: 'Program: 3 (Wide) ● STREAMING — AutoPilot switched' },
-            { sys: 'OBS Studio', status: '● streaming', version: '30.2.2', detail: 'Bitrate: 4850 kbps · 29.97 fps · Recording' },
-            { sys: 'Streaming Encoder', status: '● live', version: '—', detail: 'Bitrate: 4850 kbps · Health: Good' },
-            { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'Message — "God is Good" Slide 1/4' },
-          ]);
-          _demoAddActivity('AutoPilot: Sermon slide detected → Switched ATEM to Cam 3 (Wide)');
-        }
-      },
-      // step 3: fake bitrate warning
-      {
-        delay: 9000,
-        fn: function() {
-          _demoInjectEquipment([
-            { sys: 'ATEM Mini Pro', status: '● live', version: '8.6', detail: 'Program: 3 (Wide) ● STREAMING' },
-            { sys: 'OBS Studio', status: 'warning', version: '30.2.2', detail: 'Bitrate: 1200 kbps (LOW) · 29.97 fps · Recording' },
-            { sys: 'Streaming Encoder', status: 'warning', version: '—', detail: 'Bitrate: 1200 kbps · Health: Poor' },
-            { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'Message — Slide 3/4' },
-          ]);
-          _demoAddActivity('Stream health degraded — bitrate dropped to 1200 kbps');
-          _demoAddActivity('Alert sent to TD via Telegram: "Stream health dropped — check your internet connection"');
-        }
-      },
-      // step 4: auto-recovery
-      {
-        delay: 13000,
-        fn: function() {
-          _demoInjectEquipment([
-            { sys: 'ATEM Mini Pro', status: '● live', version: '8.6', detail: 'Program: 3 (Wide) ● STREAMING' },
-            { sys: 'OBS Studio', status: '● streaming', version: '30.2.2', detail: 'Bitrate: 4820 kbps · 29.97 fps · Recording — Auto-recovered' },
-            { sys: 'Streaming Encoder', status: '● live', version: '—', detail: 'Bitrate: 4820 kbps · Health: Good' },
-            { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'Closing — Slide 1/2' },
-          ]);
-          _demoAddActivity('Stream recovered — bitrate restored to 4820 kbps');
-          _demoAddActivity('Tally Engineer: Auto-recovery resolved bitrate issue (reconnected encoder)');
-        }
-      },
-      // step 5: stream ends, recording stops
-      {
-        delay: 17000,
-        fn: function() {
-          _demoInjectEquipment([
-            { sys: 'ATEM Mini Pro', status: '● connected', version: '8.6', detail: 'Program: 1 (Camera 1) — stream ended' },
-            { sys: 'OBS Studio', status: '● connected', version: '30.2.2', detail: 'Idle — Recording saved' },
-            { sys: 'Streaming Encoder', status: '● connected', version: '—', detail: 'Idle' },
-            { sys: 'ProPresenter', status: '● connected', version: '7.15.1', detail: 'No presentation active' },
-          ]);
-          _demoAddActivity('■ Stream ended — total uptime: 47 min');
-          _demoAddActivity('AutoPilot: "Auto-Stop Recording" rule triggered → OBS recording stopped (30s delay)');
-          _demoAddActivity('Session recap generated and sent to pastor@demo.church');
-          // Loop back
-          setTimeout(function() { if (_demoInterval !== null) { _demoStep = 0; _runDemoStep(); } }, 4000);
-        }
-      },
-    ];
-
-    function _demoInjectEquipment(rows) {
-      var tbody = document.getElementById('equipment-tbody');
-      if (!tbody) return;
-      tbody.innerHTML = rows.map(function(r) {
-        var color = r.status.startsWith('●') ? (r.status.includes('live') || r.status.includes('streaming') ? '#22c55e' : '#22c55e') : '#eab308';
-        return '<tr>' +
-          '<td>' + r.sys + '</td>' +
-          '<td style="color:' + color + '">' + r.status + '</td>' +
-          '<td>' + r.version + '</td>' +
-          '<td style="color:#94A3B8;font-size:12px">' + r.detail + '</td>' +
-        '</tr>';
-      }).join('');
-    }
-
-    function _demoAddActivity(msg) {
-      var feed = document.getElementById('activity-feed-body');
-      if (!feed) return;
-      if (feed.querySelector('[data-demo-loading]')) feed.innerHTML = '';
-      var ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      var el = document.createElement('div');
-      el.style.cssText = 'padding:8px 0;border-bottom:1px solid #1a2e1f;font-size:13px;color:#CBD5E1';
-      el.innerHTML = '<span style="color:#475569;font-size:11px;margin-right:8px">' + ts + '</span>' + msg;
-      feed.insertBefore(el, feed.firstChild);
-    }
-
-    function _runDemoStep() {
-      if (_demoInterval === null) return; // demo stopped
-      if (_demoStep >= DEMO_SCRIPT.length) return;
-      var step = DEMO_SCRIPT[_demoStep];
-      setTimeout(function() {
-        if (_demoInterval === null) return;
-        step.fn();
-        _demoStep++;
-        if (_demoStep < DEMO_SCRIPT.length) _runDemoStep();
-      }, step.delay);
-    }
-
-    function startDemoMode() {
-      if (_demoInterval === 'running') return;
-      _demoInterval = 'running';
-      _demoStep = 0;
-      document.getElementById('demo-mode-banner').style.display = 'block';
-      document.body.style.paddingTop = '38px';
-
-      // Navigate to overview and show the activity feed
-      var overviewBtn = document.querySelector('[data-page="overview"]');
-      if (overviewBtn) showPage('overview', overviewBtn);
-      var feedCard = document.getElementById('activity-feed-body');
-      if (feedCard) feedCard.innerHTML = '<div data-demo-loading style="color:#7c3aed;text-align:center;padding:16px;font-size:13px">Demo starting — simulated service beginning…</div>';
-
-      toast('Demo Mode started — watch the dashboard come alive!');
-      _runDemoStep();
-    }
-
-    function stopDemoMode() {
-      _demoInterval = null;
-      _demoStep = 0;
-      document.getElementById('demo-mode-banner').style.display = 'none';
-      document.body.style.paddingTop = '';
-      toast('Demo Mode ended — reloading real data…');
-      loadOverview();
-    }
-
     // Apply i18n translations to all data-i18n elements based on navigator.language
     translatePage();
 
@@ -6128,13 +6202,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof toggleTheme === 'function') toggleTheme();
         break;
 
-      // Demo mode
-      case 'startDemoMode':
-        if (typeof startDemoMode === 'function') startDemoMode();
-        break;
-      case 'stopDemoMode':
-        if (typeof stopDemoMode === 'function') stopDemoMode();
-        break;
+
 
       // Contextual help
       case 'openHelp':
@@ -6169,8 +6237,29 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'saveProfile':
         if (typeof saveProfile === 'function') saveProfile();
         break;
+      case 'saveChurchType':
+        if (typeof saveChurchType === 'function') saveChurchType();
+        break;
       case 'changePassword':
         if (typeof changePassword === 'function') changePassword();
+        break;
+      case 'copyIngestKey':
+        (function() {
+          var el = document.getElementById('eq-ingest-key');
+          if (el && el.textContent && el.textContent !== '—') {
+            navigator.clipboard.writeText(el.textContent).then(function() { toast('Copied to clipboard'); });
+          }
+        })();
+        break;
+      case 'regenIngestKey':
+        (async function() {
+          if (!confirm('Regenerate ingest key? The old key will stop working.')) return;
+          try {
+            var d = await api('POST', '/api/church/config/ingest-key/regenerate');
+            document.getElementById('eq-ingest-key').textContent = d.ingestStreamKey;
+            toast('Ingest key regenerated');
+          } catch(e) { toast(e.message, true); }
+        })();
         break;
 
       // Campus mode
@@ -6218,6 +6307,20 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'runFailoverDrill':
         if (typeof runFailoverDrill === 'function') runFailoverDrill();
+        break;
+
+      // Equipment
+      case 'saveEquipment':
+        if (typeof saveEquipment === 'function') saveEquipment();
+        break;
+      case 'addPtzRow':
+        if (typeof addEquipmentRow === 'function') addEquipmentRow('ptz');
+        break;
+      case 'addHyperdeckRow':
+        if (typeof addEquipmentRow === 'function') addEquipmentRow('hyperdeck');
+        break;
+      case 'addVideohubRow':
+        if (typeof addEquipmentRow === 'function') addEquipmentRow('videohub');
         break;
 
       // Tally Engineer

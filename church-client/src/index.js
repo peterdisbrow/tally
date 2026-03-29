@@ -922,6 +922,12 @@ class ChurchAVAgent {
         this.sendStatus();
         break;
       }
+      case 'config_update': {
+        this.log(`Config update from portal: ${msg.section} (room: ${msg.roomId || 'global'})`);
+        // Forward to electron app — it decides whether to apply based on current room
+        console.log(`[CONFIG_UPDATE] ${JSON.stringify({ section: msg.section, data: msg.data, roomId: msg.roomId || null })}`);
+        break;
+      }
       default:
         console.log('Relay msg:', msg.type);
     }

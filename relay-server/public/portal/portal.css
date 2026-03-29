@@ -140,6 +140,17 @@
     .field input:focus, .field textarea:focus, .field select:focus { border-color: #22c55e; }
     .field textarea { resize: vertical; min-height: 100px; font-family: 'Courier New', monospace; font-size: 12px; }
     .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    /* TAB BAR */
+    .tab-bar { display: flex; gap: 0; border-bottom: 1px solid #1a2e1f; margin-bottom: 20px; }
+    .tab-bar button {
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: #64748B; font-size: 13px; font-weight: 600; padding: 10px 18px;
+      cursor: pointer; transition: color 0.15s, border-color 0.15s; white-space: nowrap;
+    }
+    .tab-bar button:hover { color: #94A3B8; }
+    .tab-bar button.active { color: #22c55e; border-bottom-color: #22c55e; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
     /* SCHEDULE EDITOR */
     .schedule-empty {
       border: 1px dashed #1a2e1f;

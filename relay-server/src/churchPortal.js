@@ -323,6 +323,16 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   const express = require('express');
   log.info('Setup started');
 
+  // ── Push config changes to connected desktop clients ───────────────────────
+  function pushConfigToClients(churchId, section, data, roomId) {
+    const church = churches.get(churchId);
+    if (!church?.sockets?.size) return;
+    const msg = JSON.stringify({ type: 'config_update', section, data, roomId: roomId || null });
+    for (const sock of church.sockets.values()) {
+      if (sock.readyState === 1) sock.send(msg);
+    }
+  }
+
   // ── Rate limiting for login endpoint ───────────────────────────────────────
   const loginRateLimit = createRateLimit({
     scope: 'church_portal_login',
@@ -628,7 +638,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       const row = db.prepare(
         `SELECT failover_enabled, failover_black_threshold_s, failover_ack_timeout_s,
-                failover_action, failover_auto_recover, failover_audio_trigger
+                failover_action, failover_auto_recover, failover_audio_trigger, recovery_outside_service_hours
          FROM churches WHERE churchId = ?`
       ).get(req.church.churchId);
       if (!row) return res.status(404).json({ error: 'Church not found' });
@@ -641,6 +651,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         action,
         autoRecover: !!row.failover_auto_recover,
         audioTrigger: !!row.failover_audio_trigger,
+        recoveryOutsideServiceHours: !!row.recovery_outside_service_hours,
       });
     } catch (e) {
       res.status(500).json({ error: 'Failed to load failover settings' });
@@ -705,7 +716,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // ── PUT /api/church/failover ─────────────────────────────────────────────────
   app.put('/api/church/failover', supportAuthMiddleware, (req, res) => {
     try {
-      const { enabled, blackThresholdS, ackTimeoutS, action, autoRecover, audioTrigger } = req.body;
+      const { enabled, blackThresholdS, ackTimeoutS, action, autoRecover, audioTrigger, recoveryOutsideServiceHours } = req.body;
       const churchId = req.church.churchId;
 
       // Validate thresholds
@@ -729,10 +740,12 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       db.prepare(
         `UPDATE churches SET failover_enabled = ?, failover_black_threshold_s = ?, failover_ack_timeout_s = ?,
-                failover_action = ?, failover_auto_recover = ?, failover_audio_trigger = ?
+                failover_action = ?, failover_auto_recover = ?, failover_audio_trigger = ?,
+                recovery_outside_service_hours = ?
          WHERE churchId = ?`
-      ).run(enabled ? 1 : 0, blackS, ackS, actionJson, autoRecover ? 1 : 0, audioTrigger ? 1 : 0, churchId);
+      ).run(enabled ? 1 : 0, blackS, ackS, actionJson, autoRecover ? 1 : 0, audioTrigger ? 1 : 0, recoveryOutsideServiceHours ? 1 : 0, churchId);
 
+      pushConfigToClients(churchId, 'failover', { enabled, blackThresholdS: blackS, ackTimeoutS: ackS, action, autoRecover, audioTrigger, recoveryOutsideServiceHours });
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: 'Failed to save failover settings' });
@@ -805,9 +818,91 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
   });
 
+  // ── GET /api/church/config/equipment ───────────────────────────────────────────
+  // Returns equipment config for the church. Checks for the most recently updated
+  // room_equipment row for this church, falling back to {churchId}_default.
+  // This ensures config set from the desktop app (which uses actual roomIds) is
+  // visible in the portal.
+  app.get('/api/church/config/equipment', authMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      // Find the most recently updated equipment for this church
+      const row = db.prepare(
+        'SELECT room_id, equipment, updated_at FROM room_equipment WHERE church_id = ? ORDER BY updated_at DESC LIMIT 1'
+      ).get(churchId);
+      if (!row) return res.json({ equipment: {}, updatedAt: null, roomId: null });
+      let equipment = {};
+      try { equipment = JSON.parse(row.equipment); } catch { /* corrupt — return empty */ }
+      res.json({ equipment, updatedAt: row.updated_at, roomId: row.room_id });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── PUT /api/church/config/equipment ───────────────────────────────────────────
+  // Saves equipment config from the portal. Writes to the room_id provided in
+  // the request body (from the GET response), or falls back to the church's most
+  // recent room, or {churchId}_default for brand-new churches.
+  app.put('/api/church/config/equipment', authMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const equipment = req.body?.equipment;
+      if (!equipment || typeof equipment !== 'object') {
+        return res.status(400).json({ error: 'Missing or invalid equipment object' });
+      }
+
+      // Basic validation
+      if (equipment.atemIp && !/^[\d.]+$/.test(equipment.atemIp)) {
+        return res.status(400).json({ error: 'Invalid ATEM IP format' });
+      }
+      if (equipment.mixer?.port && (equipment.mixer.port < 1 || equipment.mixer.port > 65535)) {
+        return res.status(400).json({ error: 'Mixer port must be between 1 and 65535' });
+      }
+      if (equipment.encoderPort && (equipment.encoderPort < 1 || equipment.encoderPort > 65535)) {
+        return res.status(400).json({ error: 'Encoder port must be between 1 and 65535' });
+      }
+
+      // Use the room_id from the request (passed from the GET), or find the most
+      // recent room for this church, or default to {churchId}_default
+      let roomId = req.body?.roomId;
+      if (!roomId) {
+        const existing = db.prepare(
+          'SELECT room_id FROM room_equipment WHERE church_id = ? ORDER BY updated_at DESC LIMIT 1'
+        ).get(churchId);
+        roomId = existing?.room_id || (churchId + '_default');
+      }
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO room_equipment (room_id, church_id, equipment, updated_at, updated_by)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(room_id) DO UPDATE SET
+          equipment = excluded.equipment,
+          updated_at = excluded.updated_at,
+          updated_by = excluded.updated_by
+      `).run(roomId, churchId, JSON.stringify(equipment), now, churchId);
+
+      pushConfigToClients(churchId, 'equipment', equipment, roomId);
+      res.json({ ok: true, updatedAt: now });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── POST /api/church/config/ingest-key/regenerate ─────────────────────────────
+  app.post('/api/church/config/ingest-key/regenerate', authMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const newKey = require('crypto').randomBytes(16).toString('hex');
+      db.prepare('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?').run(newKey, churchId);
+      res.json({ ok: true, ingestStreamKey: newKey });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
   // ── PUT /api/church/me ────────────────────────────────────────────────────────
   app.put('/api/church/me', authMiddleware, (req, res) => {
-    const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, autoRecoveryEnabled, currentPassword, newPassword, leadershipEmails, locale } = req.body;
+    const { email, phone, location, notes, notifications, telegramChatId, engineerProfile, autoRecoveryEnabled, currentPassword, newPassword, leadershipEmails, locale, timezone, churchType, eventLabel, eventExpiresAt } = req.body;
     const churchId = req.church.churchId;
 
     if (newPassword) {
@@ -823,7 +918,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
 
     const { audioViaAtem } = req.body;
-    const allowedColumns = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'auto_recovery_enabled', 'audio_via_atem', 'leadership_emails', 'locale'];
+    const allowedColumns = ['portal_email', 'phone', 'location', 'notes', 'telegram_chat_id', 'notifications', 'engineer_profile', 'auto_recovery_enabled', 'audio_via_atem', 'leadership_emails', 'locale', 'timezone', 'church_type', 'event_label', 'event_expires_at'];
     const patch = {};
     if (email          !== undefined) patch.portal_email     = email.trim().toLowerCase();
     if (phone          !== undefined) patch.phone            = phone;
@@ -836,6 +931,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     if (audioViaAtem   !== undefined) patch.audio_via_atem   = audioViaAtem ? 1 : 0;
     if (leadershipEmails !== undefined) patch.leadership_emails = String(leadershipEmails || '').trim();
     if (locale !== undefined) patch.locale = ['en', 'es'].includes(locale) ? locale : 'en';
+    if (timezone !== undefined) patch.timezone = String(timezone || '').trim();
+    if (churchType !== undefined) patch.church_type = ['recurring', 'event'].includes(churchType) ? churchType : 'recurring';
+    if (eventLabel !== undefined) patch.event_label = String(eventLabel || '').trim().slice(0, 200);
+    if (eventExpiresAt !== undefined) patch.event_expires_at = eventExpiresAt || null;
 
     const safePatch = Object.fromEntries(Object.entries(patch).filter(([k]) => allowedColumns.includes(k)));
     const oldEmail = req.church.portal_email;
@@ -854,6 +953,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       if (safePatch.portal_email && safePatch.portal_email !== oldEmail && lifecycleEmails) {
         lifecycleEmails.sendEmailChangeConfirmation(req.church, { oldEmail, newEmail: safePatch.portal_email }).catch(e => console.error('[Profile] Email change confirmation failed:', e.message));
       }
+    }
+    // Push profile changes relevant to the desktop app
+    if (safePatch.audio_via_atem !== undefined || safePatch.timezone || safePatch.auto_recovery_enabled !== undefined) {
+      pushConfigToClients(churchId, 'profile', safePatch);
     }
     res.json({ ok: true });
   });

@@ -1002,6 +1002,27 @@ function startAgent() {
       } catch (e) { console.warn('Chat line parse error:', e?.message); }
     }
 
+    // Detect config updates pushed from portal
+    const configUpdateMatch = text.match(/\[CONFIG_UPDATE\]\s*(\{.+\})/);
+    if (configUpdateMatch) {
+      try {
+        const update = JSON.parse(configUpdateMatch[1]);
+        const config = configManager.loadConfig();
+        const currentRoom = config.roomId || config.roomName || (config.churchId + '_default');
+        // Equipment updates are per-room — only apply if it matches current room
+        if (update.section === 'equipment' && update.roomId && update.roomId !== currentRoom) {
+          console.log(`[ConfigSync] Ignoring equipment update for room ${update.roomId} (current: ${currentRoom})`);
+        } else if (update.section === 'equipment' && update.data) {
+          configManager.mergeEquipmentFromServer(update.data);
+          console.log('[ConfigSync] Equipment config updated from portal');
+          mainWindow?.webContents.send('config-updated', { section: 'equipment' });
+        } else if (update.section === 'failover' || update.section === 'profile') {
+          console.log(`[ConfigSync] ${update.section} config updated from portal`);
+          mainWindow?.webContents.send('config-updated', { section: update.section, data: update.data });
+        }
+      } catch (e) { console.warn('Config update parse error:', e?.message); }
+    }
+
     // Only run expensive notification/UI updates when status actually changed
     if (statusChanged) {
       checkAndNotify();

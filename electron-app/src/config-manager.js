@@ -336,6 +336,26 @@ function saveCurrentRoomEquipment() {
 }
 
 /**
+ * Merge equipment config from the server (portal) into local config.
+ * Server equipment keys overwrite local values (last-write-wins from portal).
+ * Only ROOM_EQUIPMENT_KEYS are affected — other config is untouched.
+ */
+function mergeEquipmentFromServer(serverEquipment) {
+  if (!serverEquipment || typeof serverEquipment !== 'object') return;
+  const config = loadConfig();
+  for (const key of ROOM_EQUIPMENT_KEYS) {
+    if (serverEquipment[key] !== undefined) {
+      config[key] = serverEquipment[key];
+    }
+  }
+  // Also update the current room's cached equipment
+  const roomKey = config.roomName || '_default';
+  if (!config.roomConfigs) config.roomConfigs = {};
+  config.roomConfigs[roomKey] = extractEquipment(config);
+  saveConfig(config);
+}
+
+/**
  * Atomically wipe the config file without merging.
  * Used by sign-out to guarantee no credential bleed.
  */
@@ -367,6 +387,7 @@ module.exports = {
   importPortableConfig,
   switchRoomConfig,
   saveCurrentRoomEquipment,
+  mergeEquipmentFromServer,
   ROOM_EQUIPMENT_KEYS,
   CONFIG_PATH,
   CONFIG_DIR,
