@@ -468,45 +468,6 @@
       .grid-4col > div { padding: 10px 6px !important; }
     }
 
-    /* ─── Volunteer Mode ─────────────────────────────────────────────────── */
-    body.volunteer-mode [data-page="profile"],
-    body.volunteer-mode [data-page="rooms"],
-    body.volunteer-mode [data-page="team"],
-    body.volunteer-mode [data-page="alerts"],
-    body.volunteer-mode [data-page="engineer"],
-    body.volunteer-mode [data-page="automation"],
-    body.volunteer-mode [data-page="analytics"],
-    body.volunteer-mode [data-page="billing"],
-    body.volunteer-mode [data-page="support"] { display: none !important; }
-
-    /* Hide non-essential overview sections in volunteer mode */
-    body.volunteer-mode #referral-card,
-    body.volunteer-mode #setup-guide-resume,
-    body.volunteer-mode .service-rundown-card { display: none !important; }
-
-    /* Lite mode banner */
-    .volunteer-banner {
-      display: none;
-      background: #0c1f17;
-      border: 1px solid #1a2e1f;
-      border-radius: 8px;
-      padding: 10px 16px;
-      margin-bottom: 16px;
-      font-size: 13px;
-      color: #94A3B8;
-      align-items: center;
-      justify-content: space-between;
-    }
-    body.volunteer-mode .volunteer-banner { display: flex; }
-    .volunteer-banner-dismiss {
-      background: none;
-      border: none;
-      color: #475569;
-      cursor: pointer;
-      font-size: 16px;
-      padding: 0 4px;
-    }
-
     /* ─── Light Theme ──────────────────────────────────────────────────── */
     body.light-theme { background: #f8fafc; color: #0f172a; }
     body.light-theme .sidebar { background: #ffffff; border-right-color: #e2e8f0; }
@@ -538,8 +499,7 @@
     body.light-theme .error { background: #fee2e2; border-color: #fecaca; color: #991b1b; }
     body.light-theme .sidebar-brand { color: #0f172a; }
     body.light-theme .sidebar-brand-sub { color: #64748b; }
-    body.light-theme #lite-mode-toggle, body.light-theme #theme-toggle { border-color: #e2e8f0; }
-    body.light-theme .volunteer-banner { background: #f0fdf4; border-color: #bbf7d0; color: #334155; }
+    body.light-theme #theme-toggle { border-color: #e2e8f0; }
     /* Referral card */
     body.light-theme #referral-card { background: #f0fdf4 !important; border-color: #bbf7d0 !important; }
     body.light-theme #referral-card * { color: #0f172a !important; }
@@ -567,7 +527,7 @@
     /* Border overrides */
     body.light-theme [style*="border-color:#1a2e1f"], body.light-theme [style*="border:1px solid #1a2e1f"] { border-color: #e2e8f0 !important; }
     /* Sidebar toggles in light theme */
-    body.light-theme #volunteer-mode-toggle, body.light-theme #theme-toggle { border-color: #e2e8f0 !important; }
+    body.light-theme #theme-toggle { border-color: #e2e8f0 !important; }
     body.light-theme #theme-label { color: #334155 !important; }
     /* ATEM switcher / stream cards */
     body.light-theme .grid-4col > div { background: #f8fafc !important; border-color: #e2e8f0 !important; }
