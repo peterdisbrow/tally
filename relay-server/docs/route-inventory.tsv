@@ -66,9 +66,10 @@ GET	/api/church/billing	src/churchPortal.js:4812
 POST	/api/church/billing/downgrade	src/churchPortal.js:4968
 POST	/api/church/billing/reactivate	src/churchPortal.js:4946
 POST	/api/church/billing/upgrade	src/churchPortal.js:4867
-GET	/api/church/campuses	src/churchPortal.js:4297
-POST	/api/church/campuses	src/churchPortal.js:4335
-DELETE	/api/church/campuses/:campusId	src/churchPortal.js:4415
+GET	/api/church/rooms	src/churchPortal.js
+POST	/api/church/rooms	src/churchPortal.js
+PATCH	/api/church/rooms/:roomId	src/churchPortal.js
+DELETE	/api/church/rooms/:roomId	src/churchPortal.js
 GET	/api/church/chat	src/routes/chat.js:38
 POST	/api/church/chat	src/routes/chat.js:13
 GET	/api/church/coaching	src/churchPortal.js:4675
