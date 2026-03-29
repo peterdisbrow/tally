@@ -470,7 +470,7 @@
 
     /* ─── Volunteer Mode ─────────────────────────────────────────────────── */
     body.volunteer-mode [data-page="profile"],
-    body.volunteer-mode [data-page="campuses"],
+    body.volunteer-mode [data-page="rooms"],
     body.volunteer-mode [data-page="team"],
     body.volunteer-mode [data-page="alerts"],
     body.volunteer-mode [data-page="engineer"],
@@ -482,7 +482,6 @@
     /* Hide non-essential overview sections in volunteer mode */
     body.volunteer-mode #referral-card,
     body.volunteer-mode #setup-guide-resume,
-    body.volunteer-mode #campus-summary,
     body.volunteer-mode .service-rundown-card { display: none !important; }
 
     /* Lite mode banner */

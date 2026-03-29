@@ -2,7 +2,6 @@
 const CHURCH_ID = document.body.dataset.churchId || '';
     let profileData = {};
     let notifData = {};
-    let campusData = [];
     let supportTriage = null;
     const SCHEDULE_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const SCHEDULE_DAY_LABELS = {
@@ -23,7 +22,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Navigation
         'nav.overview': 'Overview',
         'nav.profile': 'Profile',
-        'nav.campuses': 'Campuses',
+        'nav.rooms': 'Rooms',
         'nav.team': 'Team',
         'nav.alerts': 'Alerts',
         'nav.engineer': 'Tally Engineer',
@@ -57,7 +56,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Page titles
         'page.overview': 'Overview',
         'page.profile': 'Church Profile',
-        'page.campuses': 'Campuses & Equipment',
+        'page.rooms': 'Rooms & Equipment',
         'page.team': 'Team',
         'page.schedule': 'Service Schedule',
         'page.alerts': 'Alerts',
@@ -84,8 +83,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.preservice.title': '\ud83d\udd27 Pre-Service Check',
         'overview.preservice.fix_all': 'Fix All Safe Issues',
         'overview.preservice.run_now': 'Run Check Now',
-        'overview.campus.title': '\u229a All Campuses',
-        'overview.campus.manage': 'Manage Campuses',
+        'overview.quickinfo.rooms': 'Rooms',
         'overview.equip.title': 'Equipment Status',
         'overview.equip.refresh': '\u21bb Refresh',
         'overview.stream.title': 'Live Stream',
@@ -108,11 +106,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.quickinfo.church_id': 'Church ID',
         'overview.quickinfo.registered': 'Registered',
         'overview.quickinfo.plan': 'Plan',
-        'overview.quickinfo.campuses': 'Campuses / Rooms',
-        'overview.viewing': 'Viewing:',
-        'overview.main_campus': 'Main Campus',
+        'rooms.page_sub': 'Manage rooms, equipment configuration, and service schedule',
+        'rooms.title': 'Rooms',
+        'rooms.desc': 'Rooms are physical spaces (Main Sanctuary, Youth Room, etc). Assign each Tally desktop to a room from the app\'s Equipment tab.',
         // Shared table headers
-        'table.campus': 'Campus',
         'table.status': 'Status',
         'table.devices': 'Devices',
         'table.health': 'Health',
@@ -172,17 +169,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'profile.new_password': 'New Password',
         'profile.confirm_password': 'Confirm Password',
         'profile.update_password': 'Update Password',
-        // Campuses
-        'campus.page_sub': 'Manage additional campuses under this account',
-        'campus.stat.total': 'Total Rooms',
-        'campus.stat.online': 'Online',
-        'campus.stat.offline': 'Offline',
-        'campus.stat.alerts': 'Alerts (7d)',
-        'campus.add.title': 'Add Campus',
-        'campus.add.name': 'Campus Name',
-        'campus.add.location': 'City / State (optional)',
-        'campus.add.btn': 'Create Campus',
-        'campus.linked.title': 'Linked Campuses',
         // Tech Directors
         'tds.page_sub': 'People who receive alerts and have TD access',
         'tds.invite_link': '\ud83d\udd17 Copy Invite Link',
@@ -392,7 +378,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Navigation
         'nav.overview': 'Resumen',
         'nav.profile': 'Perfil',
-        'nav.campuses': 'Sedes',
+        'nav.rooms': 'Salas',
         'nav.team': 'Equipo',
         'nav.alerts': 'Alertas',
         'nav.engineer': 'Tally Engineer',
@@ -426,10 +412,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Page titles
         'page.overview': 'Resumen',
         'page.profile': 'Perfil de la Iglesia',
-        'page.campuses': 'Multi-Sede',
+        'page.rooms': 'Salas y Equipos',
         'page.overview': 'Resumen',
         'page.profile': 'Perfil de la Iglesia',
-        'page.campuses': 'Sedes y Equipos',
         'page.team': 'Equipo',
         'page.schedule': 'Horario de Servicios',
         'page.alerts': 'Alertas',
@@ -456,8 +441,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.preservice.title': '\ud83d\udd27 Chequeo Pre-Servicio',
         'overview.preservice.fix_all': 'Corregir lo que sea seguro',
         'overview.preservice.run_now': 'Checar ahora',
-        'overview.campus.title': '\u229a Todas las Sedes',
-        'overview.campus.manage': 'Administrar Sedes',
+        'overview.quickinfo.rooms': 'Salas',
         'overview.equip.title': 'Estado del Equipo',
         'overview.equip.refresh': '\u21bb Actualizar',
         'overview.stream.title': 'Transmisi\u00f3n en Vivo',
@@ -480,11 +464,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.quickinfo.church_id': 'ID de Iglesia',
         'overview.quickinfo.registered': 'Registrado',
         'overview.quickinfo.plan': 'Plan',
-        'overview.quickinfo.campuses': 'Sedes / Salas',
-        'overview.viewing': 'Viendo:',
-        'overview.main_campus': 'Sede Principal',
+        'rooms.page_sub': 'Administra salas, equipos y horario de servicio',
+        'rooms.title': 'Salas',
+        'rooms.desc': 'Las salas son espacios f\u00edsicos (Santuario Principal, Sal\u00f3n Juvenil, etc). Asigna cada escritorio Tally a una sala desde la pesta\u00f1a de Equipos.',
         // Shared table headers
-        'table.campus': 'Sede',
         'table.status': 'Estado',
         'table.devices': 'Dispositivos',
         'table.health': 'Estado',
@@ -544,17 +527,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'profile.new_password': 'Nueva Contrase\u00f1a',
         'profile.confirm_password': 'Confirmar Contrase\u00f1a',
         'profile.update_password': 'Actualizar Contrase\u00f1a',
-        // Campuses
-        'campus.page_sub': 'Administra sedes adicionales en esta cuenta',
-        'campus.stat.total': 'Total de Salas',
-        'campus.stat.online': 'En L\u00ednea',
-        'campus.stat.offline': 'Sin Conexi\u00f3n',
-        'campus.stat.alerts': 'Alertas (7d)',
-        'campus.add.title': 'Agregar Sede',
-        'campus.add.name': 'Nombre de la Sede',
-        'campus.add.location': 'Ciudad / Estado (opcional)',
-        'campus.add.btn': 'Crear Sede',
-        'campus.linked.title': 'Sedes Vinculadas',
         // Tech Directors
         'tds.page_sub': 'Personas que reciben alertas y tienen acceso de DT',
         'tds.invite_link': '\ud83d\udd17 Copiar Enlace de Invitaci\u00f3n',
@@ -899,7 +871,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (overlay) overlay.classList.remove('open');
       if (id === 'overview') { loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
       if (id === 'profile') loadNotifications();
-      if (id === 'campuses') { loadCampuses(); loadCampusMode(); loadRooms(); }
+      if (id === 'rooms') { loadRooms(); }
       if (id === 'team') loadTds();
       if (id === 'alerts') { loadAlerts(); loadFailoverSettings(); }
       if (id === 'automation') loadMacros();
@@ -996,64 +968,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise', event: 'Event' };
         document.getElementById('plan-name').textContent = tierNames[d.billing_tier] || d.billing_tier || 'Connect';
         try {
-          const campusPayload = await api('GET', '/api/church/campuses');
-          const limits = campusPayload && campusPayload.limits ? campusPayload.limits : null;
-          const limitEl = document.getElementById('plan-campus-limit');
-          if (limitEl) {
+          var roomsPayload = await api('GET', '/api/church/rooms');
+          var roomLimitEl = document.getElementById('plan-room-limit');
+          if (roomLimitEl) {
+            var limits = roomsPayload && roomsPayload.limits ? roomsPayload.limits : null;
             if (limits) {
-              limitEl.textContent = limits.usedTotal + ' / ' + limits.maxTotal;
+              roomLimitEl.textContent = limits.usedTotal + ' / ' + limits.maxTotal;
             } else {
-              limitEl.textContent = '1 / 1';
+              var rooms = roomsPayload && roomsPayload.rooms ? roomsPayload.rooms : [];
+              roomLimitEl.textContent = rooms.length || '0';
             }
           }
-
-          // ── Multi-Campus Overview card ────────────────────────────────────
-          const campuses = Array.isArray(campusPayload)
-            ? campusPayload
-            : (Array.isArray(campusPayload.campuses) ? campusPayload.campuses : []);
-          const campusCard = document.getElementById('campus-overview-card');
-          const campusTbody = document.getElementById('campus-overview-tbody');
-          if (campuses.length > 0 && campusCard && campusTbody) {
-            campusCard.style.display = '';
-            campusTbody.innerHTML = campuses.map(function(c) {
-              var statusDot = c.connected
-                ? '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#22c55e;margin-right:6px;vertical-align:middle"></span><span style="color:#22c55e">Online</span>'
-                : '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#475569;margin-right:6px;vertical-align:middle"></span><span style="color:#64748B">Offline</span>';
-              var st = c.status || {};
-              var devices = [];
-              if (st.atem && st.atem.connected) devices.push('ATEM');
-              if (st.obs && st.obs.connected) devices.push('OBS');
-              if (st.vmix && st.vmix.connected) devices.push('vMix');
-              if (st.encoder && st.encoder.connected) devices.push('Encoder');
-              var devicesHtml = devices.length
-                ? devices.map(function(d){ return '<span class="badge badge-green" style="font-size:10px;padding:2px 6px;margin-right:2px">'+d+'</span>'; }).join('')
-                : '<span style="color:#475569;font-size:12px">—</span>';
-              var grade = c.lastSession && c.lastSession.grade ? c.lastSession.grade : null;
-              var gradeColor = grade ? (grade.startsWith('A') ? '#22c55e' : grade.startsWith('B') ? '#eab308' : '#ef4444') : '#475569';
-              var healthHtml = grade
-                ? '<span style="color:'+gradeColor+';font-weight:700">'+grade+'</span>'
-                : '<span style="color:#475569">—</span>';
-              if (c.recentAlerts > 0) {
-                healthHtml += ' <span style="color:#eab308;font-size:11px">('+c.recentAlerts+' alert'+(c.recentAlerts>1?'s':'')+')</span>';
-              }
-              var lastSeen = c.lastSeen ? timeAgo(c.lastSeen) : '—';
-              var location = c.location ? ' <span style="color:#64748B;font-size:11px">('+escapeHtml(c.location)+')</span>' : '';
-              return '<tr>' +
-                '<td style="cursor:pointer;color:#22c55e" onclick="showPage(\'campuses\', document.querySelector(\'[data-page=campuses]\'))">' +
-                  escapeHtml(c.name) + location +
-                '</td>' +
-                '<td>' + statusDot + '</td>' +
-                '<td>' + devicesHtml + '</td>' +
-                '<td>' + healthHtml + '</td>' +
-                '<td style="color:#64748B;font-size:12px">' + lastSeen + '</td>' +
-              '</tr>';
-            }).join('');
-          } else if (campusCard) {
-            campusCard.style.display = 'none';
-          }
         } catch {
-          const limitEl = document.getElementById('plan-campus-limit');
-          if (limitEl) limitEl.textContent = '—';
+          var roomLimitEl = document.getElementById('plan-room-limit');
+          if (roomLimitEl) roomLimitEl.textContent = '—';
         }
 
         const tbody = document.getElementById('equipment-tbody');
@@ -1298,8 +1226,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         loadActivityFeed();
 
         // ── Tally Engineer diagnostics ──────────────────────────────────────
-        populatePfCampusPicker();
-        loadProblems('');
+        loadProblems();
 
         // ── Room/instance selector for overview ─────────────────────────
         var instances = d.instances || [];
@@ -1997,32 +1924,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
-    // ── Tally Engineer: campus picker + card rendering ──────────────────────
+    // ── Tally Engineer: card rendering ────────────────────────────────────────
 
-    async function populatePfCampusPicker() {
-      var picker = document.getElementById('pf-campus-picker');
-      var sel = document.getElementById('pf-campus-select');
-      if (!picker || !sel) return;
-      try {
-        var payload = await api('GET', '/api/church/campuses');
-        var list = Array.isArray(payload) ? payload : (Array.isArray(payload.campuses) ? payload.campuses : []);
-        if (!list.length) { picker.style.display = 'none'; return; }
-        var mainName = (document.getElementById('sidebar-church-name') || {}).textContent || 'Main Campus';
-        sel.innerHTML = '<option value="">' + escapeHtml(mainName) + '</option>' + list.map(function(c) {
-          return '<option value="' + c.churchId + '">' + escapeHtml(c.name || c.churchId) + '</option>';
-        }).join('');
-        picker.style.display = '';
-      } catch { picker.style.display = 'none'; }
-    }
-
-    async function loadProblems(campusId) {
+    async function loadProblems() {
       var body = document.getElementById('pf-body');
       var badge = document.getElementById('pf-badge');
       if (!body) return;
       try {
-        var url = '/api/church/problems';
-        if (campusId) url += '?campusId=' + encodeURIComponent(campusId);
-        var data = await api('GET', url);
+        var data = await api('GET', '/api/church/problems');
         renderProblems(data, body, badge);
       } catch(e) {
         body.innerHTML = '<div style="color:#475569;text-align:center;padding:20px;font-size:13px">No diagnostics data yet — connect the Tally desktop app to see results.</div>';
@@ -2792,11 +2701,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
-    // ── Campuses ───────────────────────────────────────────────────────────────
-    function getCampusById(churchId) {
-      return campusData.find(function(c) { return c.churchId === churchId; }) || null;
-    }
-
     async function loadCoaching() {
       var card = document.getElementById('coaching-card');
       var body = document.getElementById('coaching-body');
@@ -2858,183 +2762,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
-    async function copyCampusValue(value, okMessage) {
-      if (!value) return;
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(value);
-          toast(okMessage || 'Copied');
-          return;
-        }
-      } catch { /* fallback below */ }
-      modalCopyValue('Copy value', value);
-    }
-
-    async function loadCampuses() {
-      try {
-        const payload = await api('GET', '/api/church/campuses');
-        campusData = Array.isArray(payload) ? payload : (Array.isArray(payload.campuses) ? payload.campuses : []);
-        const limits = (!Array.isArray(payload) && payload && payload.limits) ? payload.limits : null;
-
-        const noteEl = document.getElementById('campus-plan-note');
-        const createBtn = document.getElementById('btn-create-campus');
-        const nameEl = document.getElementById('campus-name');
-        const locEl = document.getElementById('campus-location');
-        if (noteEl) {
-          if (limits) {
-            const tierLabel = String(limits.tier || 'connect').toUpperCase();
-            noteEl.innerHTML = '<strong>Room Limit:</strong> ' + tierLabel + ' plan: ' + (limits.maxTotal >= 999 ? 'unlimited' : 'up to ' + limits.maxTotal) + ' room' + (limits.maxTotal === 1 ? '' : 's') + '. You are using ' + limits.usedTotal + '.';
-            noteEl.style.display = 'block';
-          } else {
-            noteEl.style.display = 'none';
-            noteEl.textContent = '';
-          }
-        }
-        if (createBtn) {
-          const canAdd = !limits || limits.canAdd;
-          createBtn.disabled = !canAdd;
-          createBtn.style.opacity = canAdd ? '1' : '0.55';
-          if (nameEl) nameEl.disabled = !canAdd;
-          if (locEl) locEl.disabled = !canAdd;
-        }
-
-        const tbody = document.getElementById('campuses-tbody');
-
-        // Cross-campus summary card
-        var summaryEl = document.getElementById('campus-summary');
-        if (campusData.length > 0) {
-          summaryEl.style.display = '';
-          var onlineCount = campusData.filter(function(c) { return c.connected; }).length;
-          var totalAlerts = campusData.reduce(function(s, c) { return s + (c.recentAlerts || 0); }, 0);
-          document.getElementById('cs-total').textContent = campusData.length + 1;
-          document.getElementById('cs-online').textContent = onlineCount;
-          document.getElementById('cs-offline').textContent = campusData.length - onlineCount;
-          document.getElementById('cs-alerts').textContent = totalAlerts;
-          document.getElementById('cs-alerts').style.color = totalAlerts > 0 ? '#eab308' : '#22c55e';
-        } else {
-          summaryEl.style.display = 'none';
-        }
-
-        // Always render the main church as the first (non-removable) row
-        var mainChurchName = (profileData && profileData.name) || (document.getElementById('sidebar-church-name') || {}).textContent || 'Main Church';
-        var mainChurchRow =
-          '<tr>' +
-            '<td>' +
-              '<span style="font-weight:600">' + escapeHtml(mainChurchName) + '</span>' +
-              '<div style="color:#64748B;font-size:12px">Main Church</div>' +
-            '</td>' +
-            '<td>—</td>' +
-            '<td>—</td>' +
-            '<td>—</td>' +
-            '<td>' +
-              '<button class="btn-sm campus-rooms-btn" data-campus-id="' + CHURCH_ID + '">Rooms ▾</button>' +
-            '</td>' +
-          '</tr>' +
-          '<tr class="campus-rooms-row" id="campus-rooms-row-' + CHURCH_ID + '" style="display:none">' +
-            '<td colspan="5" style="padding:0">' +
-              '<div id="campus-rooms-panel-' + CHURCH_ID + '" style="padding:14px 16px;background:#080e18;border-top:1px solid #1e3045"></div>' +
-            '</td>' +
-          '</tr>';
-
-        var satelliteRows = campusData.map(function(c) {
-          var status = c.connected ? 'Online' : 'Offline';
-          var statusClass = c.connected ? 'badge-green' : 'badge-gray';
-          var code = c.registrationCode || '\u2014';
-          var location = c.location ? ('<div style="color:#64748B;font-size:12px">' + escapeHtml(c.location) + '</div>') : '';
-
-          // Health column
-          var healthHtml = '';
-          if (c.lastSession) {
-            var grade = c.lastSession.grade || '\u2014';
-            var gradeColor = grade.startsWith('A') ? '#22c55e' : grade.startsWith('B') ? '#eab308' : '#ef4444';
-            healthHtml += '<span style="color:' + gradeColor + ';font-weight:700">' + grade + '</span> ';
-          }
-          if (c.recentAlerts > 0) {
-            healthHtml += '<span style="color:#eab308;font-size:11px">' + c.recentAlerts + ' alert' + (c.recentAlerts !== 1 ? 's' : '') + '</span>';
-          } else {
-            healthHtml += '<span style="color:#22c55e;font-size:11px">Clean</span>';
-          }
-          if (c.lastSeen) {
-            var ago = timeAgo(c.lastSeen);
-            healthHtml += '<div style="color:#475569;font-size:10px">Seen ' + ago + '</div>';
-          }
-
-          return '<tr>' +
-            '<td>' +
-              '<span class="campus-name-display" data-campus-id="' + c.churchId + '" style="cursor:pointer" title="Click to rename">' + escapeHtml(c.name) + '</span>' +
-              location +
-            '</td>' +
-            '<td><span class="badge ' + statusClass + '">' + status + '</span></td>' +
-            '<td>' + healthHtml + '</td>' +
-            '<td><code style="font-size:12px;color:#22c55e">' + code + '</code><div><button class="btn-sm campus-copy-code-btn" data-campus-id="' + c.churchId + '">Copy</button></div></td>' +
-            '<td>' +
-              '<button class="btn-sm campus-edit-btn" data-campus-id="' + c.churchId + '" style="margin-bottom:4px">Edit</button> ' +
-              '<button class="btn-danger campus-remove-btn" data-campus-id="' + c.churchId + '" style="margin-bottom:4px">Remove</button><br>' +
-              '<button class="btn-sm campus-rooms-btn" data-campus-id="' + c.churchId + '">Rooms ▾</button>' +
-            '</td>' +
-          '</tr>' +
-          '<tr class="campus-rooms-row" id="campus-rooms-row-' + c.churchId + '" style="display:none">' +
-            '<td colspan="5" style="padding:0">' +
-              '<div id="campus-rooms-panel-' + c.churchId + '" style="padding:14px 16px;background:#080e18;border-top:1px solid #1e3045"></div>' +
-            '</td>' +
-          '</tr>';
-        }).join('');
-
-        tbody.innerHTML = mainChurchRow + satelliteRows;
-
-        // Wire event listeners
-        tbody.querySelectorAll('.campus-copy-code-btn').forEach(function(btn) {
-          btn.addEventListener('click', function() { copyCampusCode(btn.getAttribute('data-campus-id')); });
-        });
-        tbody.querySelectorAll('.campus-edit-btn').forEach(function(btn) {
-          btn.addEventListener('click', function() { editCampus(btn.getAttribute('data-campus-id')); });
-        });
-        tbody.querySelectorAll('.campus-remove-btn').forEach(function(btn) {
-          btn.addEventListener('click', function() { removeCampus(btn.getAttribute('data-campus-id')); });
-        });
-        tbody.querySelectorAll('.campus-rooms-btn').forEach(function(btn) {
-          btn.addEventListener('click', function() { toggleCampusRooms(btn.getAttribute('data-campus-id'), btn); });
-        });
-      } catch (e) {
-        document.getElementById('campuses-tbody').innerHTML = '<tr><td colspan="5" style="color:#ef4444;text-align:center;padding:20px">Failed to load campuses.</td></tr>';
-      }
-    }
-
-    function copyCampusCode(churchId) {
-      const c = getCampusById(churchId);
-      copyCampusValue(c && c.registrationCode, 'Registration code copied');
-    }
-
-    function copyCampusToken(churchId) {
-      const c = getCampusById(churchId);
-      copyCampusValue(c && c.token, 'Connection token copied');
-    }
-
-    async function addCampus() {
-      const createBtn = document.getElementById('btn-create-campus');
-      if (createBtn && createBtn.disabled) {
-        return toast('Your current plan has reached its campus limit', true);
-      }
-      const nameEl = document.getElementById('campus-name');
-      const locEl = document.getElementById('campus-location');
-      const name = String(nameEl.value || '').trim();
-      const location = String(locEl.value || '').trim();
-      if (!name) return toast('Campus name is required', true);
-
-      try {
-        const created = await api('POST', '/api/church/campuses', { name, location });
-        nameEl.value = '';
-        locEl.value = '';
-        toast('Campus created');
-        loadCampuses();
-        if (created && created.registrationCode) {
-          modalCopyValue('Registration Code', created.registrationCode);
-        }
-      } catch (e) {
-        toast(e.message || 'Failed to create campus', true);
-      }
-    }
-
     // ── Room Management ──────────────────────────────────────────────────────
     async function loadRooms() {
       var container = document.getElementById('rooms-list');
@@ -3072,13 +2799,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try {
         var name = await modalPrompt('Room name (e.g., Main Sanctuary, Youth Room)', '', { title: 'Add Room' });
         if (!name) { _addingRoom = false; return; }
-        var campuses = await api('GET', '/api/church/campuses');
-        var campusId = (campuses.campuses && campuses.campuses.length > 0) ? campuses.campuses[0].churchId : null;
-        if (!campusId) {
-          var me = await api('GET', '/api/church/profile');
-          campusId = me.churchId;
-        }
-        await api('POST', '/api/church/campuses/' + encodeURIComponent(campusId) + '/rooms', { name: name.trim() });
+        await api('POST', '/api/church/campuses/' + encodeURIComponent(CHURCH_ID) + '/rooms', { name: name.trim() });
         toast('Room "' + name.trim() + '" created');
         loadRooms();
       } catch (e) {
@@ -3111,36 +2832,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
-    async function removeCampus(churchId) {
-      const campus = getCampusById(churchId);
-      const label = campus ? campus.name : 'this campus';
-      if (!await modalConfirm('Remove ' + label + '? This will disconnect it and delete its campus record.', { title: 'Remove Campus', okLabel: 'Remove', dangerOk: true })) return;
-      try {
-        await api('DELETE', '/api/church/campuses/' + churchId);
-        toast('Campus removed');
-        loadCampuses();
-      } catch (e) {
-        toast(e.message || 'Failed to remove campus', true);
-      }
-    }
-
-    async function editCampus(churchId) {
-      var campus = getCampusById(churchId);
-      if (!campus) return;
-      var newName = await modalPrompt('Rename campus', campus.name, { title: 'Edit Campus' });
-      if (newName === null) return;
-      newName = String(newName).trim();
-      if (!newName) return toast('Campus name cannot be empty', true);
-      if (newName === campus.name) return;
-      try {
-        await api('PATCH', '/api/church/campuses/' + churchId, { name: newName });
-        toast('Campus renamed');
-        loadCampuses();
-      } catch (e) {
-        toast(e.message || 'Failed to rename campus', true);
-      }
-    }
-
     function timeAgo(iso) {
       if (!iso) return '';
       var ms = Date.now() - new Date(iso).getTime();
@@ -3148,261 +2839,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (ms < 3600000) return Math.floor(ms / 60000) + 'm ago';
       if (ms < 86400000) return Math.floor(ms / 3600000) + 'h ago';
       return Math.floor(ms / 86400000) + 'd ago';
-    }
-
-    // ── Rooms (spaces within a campus) ───────────────────────────────────────
-
-    function toggleCampusRooms(campusId, btn) {
-      var row = document.getElementById('campus-rooms-row-' + campusId);
-      if (!row) return;
-      var isHidden = row.style.display === 'none' || !row.style.display;
-      row.style.display = isHidden ? '' : 'none';
-      if (btn) btn.textContent = isHidden ? 'Rooms ▴' : 'Rooms ▾';
-      if (isHidden) loadRoomsForCampus(campusId);
-    }
-
-    async function loadRoomsForCampus(campusId) {
-      var panel = document.getElementById('campus-rooms-panel-' + campusId);
-      if (!panel) return;
-      panel.innerHTML = '<span style="color:#475569;font-size:13px">Loading rooms…</span>';
-      try {
-        var data = await api('GET', '/api/church/campuses/' + campusId + '/rooms');
-        var rooms = data.rooms || [];
-
-        var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
-          '<span style="font-size:13px;color:#94A3B8;font-weight:600">Rooms</span>' +
-          '<button class="btn-sm add-room-toggle-btn">+ Add Room</button>' +
-          '</div>' +
-          '<div class="add-room-form" style="display:none;margin-bottom:12px;padding:10px;background:#111827;border-radius:6px">' +
-            '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">' +
-              '<div class="field" style="margin-bottom:0;flex:1;min-width:140px"><label style="font-size:12px">Room Name</label><input type="text" class="new-room-name" placeholder="Main Sanctuary"></div>' +
-              '<div class="field" style="margin-bottom:0;flex:1;min-width:180px"><label style="font-size:12px">Description (optional)</label><input type="text" class="new-room-desc" placeholder="e.g. ATEM Mini Extreme"></div>' +
-              '<button class="btn-primary save-room-btn" style="white-space:nowrap">Save Room</button>' +
-            '</div>' +
-          '</div>';
-
-        if (rooms.length === 0) {
-          html += '<div style="color:#475569;font-size:13px;text-align:center;padding:10px 0">No rooms yet. Click <em>+ Add Room</em> to create one.</div>';
-        } else {
-          html += '<table style="width:100%;border-collapse:collapse">' +
-            '<thead><tr>' +
-              '<th style="font-size:12px;color:#64748B;padding:4px 8px;text-align:left;font-weight:500">Name</th>' +
-              '<th style="font-size:12px;color:#64748B;padding:4px 8px;text-align:left;font-weight:500">Description</th>' +
-              '<th></th>' +
-            '</tr></thead><tbody>' +
-            rooms.map(function(r) {
-              return '<tr>' +
-                '<td style="padding:6px 8px;font-size:13px;color:#F8FAFC">' + escapeHtml(r.name) + '</td>' +
-                '<td style="padding:6px 8px;font-size:12px;color:#64748B">' + escapeHtml(r.description || '') + '</td>' +
-                '<td style="padding:6px 8px;text-align:right;white-space:nowrap">' +
-                  '<button class="btn-sm room-edit-btn" data-room-id="' + r.id + '" data-room-name="' + escapeHtml(r.name) + '" style="margin-right:4px">Edit</button>' +
-                  '<button class="btn-danger room-remove-btn" data-room-id="' + r.id + '">Remove</button>' +
-                '</td>' +
-              '</tr>';
-            }).join('') +
-            '</tbody></table>';
-        }
-
-        panel.innerHTML = html;
-
-        // Wire toggle for Add Room form
-        var toggleBtn = panel.querySelector('.add-room-toggle-btn');
-        var form = panel.querySelector('.add-room-form');
-        if (toggleBtn && form) {
-          toggleBtn.addEventListener('click', function() {
-            form.style.display = form.style.display === 'none' ? '' : 'none';
-          });
-        }
-
-        // Wire Save Room
-        var saveBtn = panel.querySelector('.save-room-btn');
-        if (saveBtn) {
-          saveBtn.addEventListener('click', function() {
-            var nameInput = panel.querySelector('.new-room-name');
-            var descInput = panel.querySelector('.new-room-desc');
-            var name = String(nameInput ? nameInput.value : '').trim();
-            var desc = String(descInput ? descInput.value : '').trim();
-            if (!name) return toast('Room name is required', true);
-            api('POST', '/api/church/campuses/' + campusId + '/rooms', { name: name, description: desc })
-              .then(function() { toast('Room added'); loadRoomsForCampus(campusId); })
-              .catch(function(e) { toast(e.message || 'Failed to add room', true); });
-          });
-        }
-
-        // Wire Edit buttons
-        panel.querySelectorAll('.room-edit-btn').forEach(function(btn) {
-          btn.addEventListener('click', function() {
-            var roomId = btn.getAttribute('data-room-id');
-            var currentName = btn.getAttribute('data-room-name');
-            modalPrompt('Rename room', currentName, { title: 'Edit Room' }).then(function(newName) {
-              if (newName === null) return;
-              newName = String(newName).trim();
-              if (!newName) return toast('Room name cannot be empty', true);
-              api('PATCH', '/api/church/campuses/' + campusId + '/rooms/' + roomId, { name: newName })
-                .then(function() { toast('Room renamed'); loadRoomsForCampus(campusId); })
-                .catch(function(e) { toast(e.message || 'Failed to rename room', true); });
-            });
-          });
-        });
-
-        // Wire Remove buttons
-        panel.querySelectorAll('.room-remove-btn').forEach(function(btn) {
-          btn.addEventListener('click', function() {
-            var roomId = btn.getAttribute('data-room-id');
-            modalConfirm('Remove this room?', { title: 'Remove Room', okLabel: 'Remove', dangerOk: true }).then(function(ok) {
-              if (!ok) return;
-              api('DELETE', '/api/church/campuses/' + campusId + '/rooms/' + roomId)
-                .then(function() { toast('Room removed'); loadRoomsForCampus(campusId); })
-                .catch(function(e) { toast(e.message || 'Failed to remove room', true); });
-            });
-          });
-        });
-      } catch (e) {
-        panel.innerHTML = '<span style="color:#ef4444;font-size:13px">Failed to load rooms.</span>';
-      }
-    }
-
-    // ── Campus Mode (Pro/Enterprise self-service campus linking) ─────────────
-    var campusModeData = null; // cached result from /api/church/campus/list
-
-    async function loadCampusMode() {
-      var loadingEl = document.getElementById('campus-mode-loading');
-      var upgradeEl = document.getElementById('campus-mode-upgrade');
-      var mainEl    = document.getElementById('campus-mode-main');
-      var satEl     = document.getElementById('campus-mode-satellite');
-      var joinEl    = document.getElementById('campus-mode-join');
-      var badgeEl   = document.getElementById('campus-mode-role-badge');
-
-      // Reset
-      if (loadingEl) loadingEl.style.display = '';
-      [upgradeEl, mainEl, satEl, joinEl].forEach(function(el) { if (el) el.style.display = 'none'; });
-
-      try {
-        var data = await api('GET', '/api/church/campus/list');
-        campusModeData = data;
-        if (loadingEl) loadingEl.style.display = 'none';
-
-        if (data.role === 'satellite') {
-          // This church is a satellite
-          if (badgeEl) badgeEl.innerHTML = '<span class="badge badge-gray" style="font-size:11px">Satellite</span>';
-          var nameEl = document.getElementById('campus-mode-main-name');
-          if (nameEl) nameEl.textContent = (data.mainCampus && data.mainCampus.name) ? data.mainCampus.name : '(unknown)';
-          if (satEl) satEl.style.display = '';
-
-        } else {
-          // This church is (or can be) the main campus
-          if (badgeEl) badgeEl.innerHTML = '<span class="badge badge-green" style="font-size:11px">Main Campus</span>';
-          var codeDisplay = document.getElementById('campus-link-code-display');
-          var copyBtn     = document.getElementById('btn-copy-link-code');
-          if (data.linkCode) {
-            if (codeDisplay) codeDisplay.textContent = data.linkCode;
-            if (copyBtn) copyBtn.style.display = '';
-          } else {
-            if (codeDisplay) codeDisplay.textContent = '—';
-            if (copyBtn) copyBtn.style.display = 'none';
-          }
-          if (mainEl) mainEl.style.display = '';
-
-          // Show satellites list
-          var satSection = document.getElementById('campus-mode-satellites-section');
-          var satTbody   = document.getElementById('campus-mode-satellites-tbody');
-          var sats = Array.isArray(data.satellites) ? data.satellites : [];
-          if (sats.length > 0) {
-            if (satSection) satSection.style.display = '';
-            if (satTbody) {
-              satTbody.innerHTML = sats.map(function(s) {
-                var dot = s.connected
-                  ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:5px"></span><span style="color:#22c55e">Online</span>'
-                  : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#475569;margin-right:5px"></span><span style="color:#64748B">Offline</span>';
-                var loc = s.location ? '<div style="font-size:11px;color:#64748B">' + escapeHtml(s.location) + '</div>' : '';
-                return '<tr>' +
-                  '<td>' + escapeHtml(s.name) + loc + '</td>' +
-                  '<td>' + dot + '</td>' +
-                  '<td><button class="btn-danger" style="font-size:11px;padding:3px 8px" onclick="unlinkSatelliteCampus(\'' + escapeHtml(String(s.churchId)) + '\',\'' + escapeHtml(s.name) + '\')">Unlink</button></td>' +
-                  '</tr>';
-              }).join('');
-            }
-          } else {
-            if (satSection) satSection.style.display = 'none';
-          }
-
-          // Show join form so a Pro/Enterprise church can also join another group
-          if (!data.linkCode || sats.length === 0) {
-            if (joinEl) joinEl.style.display = '';
-          }
-        }
-      } catch (e) {
-        if (loadingEl) loadingEl.style.display = 'none';
-        // If 403 (upgrade required), show the upgrade prompt
-        if (e && (e.upgradeRequired || (e.message && e.message.includes('Pro or Enterprise')))) {
-          if (upgradeEl) upgradeEl.style.display = '';
-          if (badgeEl) badgeEl.innerHTML = '<span class="badge badge-gray" style="font-size:11px">Pro Required</span>';
-        } else {
-          // For non-Pro users (API throws before checking) the error indicates upgrade needed
-          if (upgradeEl) upgradeEl.style.display = '';
-        }
-      }
-    }
-
-    async function generateCampusLinkCode() {
-      var btn = document.getElementById('btn-generate-link-code');
-      if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
-      try {
-        var result = await api('POST', '/api/church/campus/link', { action: 'generate' });
-        var codeDisplay = document.getElementById('campus-link-code-display');
-        var copyBtn     = document.getElementById('btn-copy-link-code');
-        if (codeDisplay) codeDisplay.textContent = result.code;
-        if (copyBtn) copyBtn.style.display = '';
-        if (campusModeData) campusModeData.linkCode = result.code;
-        toast('Link code generated');
-      } catch (e) {
-        toast(e.message || 'Failed to generate link code', true);
-      } finally {
-        if (btn) { btn.disabled = false; btn.textContent = 'Generate New Code'; }
-      }
-    }
-
-    function copyCampusLinkCode() {
-      var code = campusModeData && campusModeData.linkCode;
-      if (!code) return toast('No code to copy', true);
-      copyCampusValue(code, 'Link code copied');
-    }
-
-    async function joinCampusGroup() {
-      var input = document.getElementById('campus-join-code');
-      var code  = String(input ? input.value : '').trim().toUpperCase();
-      if (!code || code.length !== 6) return toast('Enter the 6-character link code', true);
-      if (!await modalConfirm('Link this campus to the group with code ' + code + '? You can unlink at any time.', { title: 'Join Campus Group', okLabel: 'Join' })) return;
-      try {
-        var result = await api('POST', '/api/church/campus/link', { action: 'join', code });
-        toast('Joined campus group of ' + (result.mainCampus && result.mainCampus.name ? result.mainCampus.name : 'main campus'));
-        if (input) input.value = '';
-        loadCampusMode();
-      } catch (e) {
-        toast(e.message || 'Failed to join campus group', true);
-      }
-    }
-
-    async function selfUnlinkFromCampusGroup() {
-      if (!await modalConfirm('Unlink this campus from its campus group? Your data will not be deleted.', { title: 'Unlink Campus', okLabel: 'Unlink', dangerOk: true })) return;
-      try {
-        await api('DELETE', '/api/church/campus/self/unlink');
-        toast('Unlinked from campus group');
-        loadCampusMode();
-      } catch (e) {
-        toast(e.message || 'Failed to unlink', true);
-      }
-    }
-
-    async function unlinkSatelliteCampus(churchId, name) {
-      if (!await modalConfirm('Remove ' + (name || 'this campus') + ' from your campus group? They can re-join with a new code.', { title: 'Unlink Satellite', okLabel: 'Unlink', dangerOk: true })) return;
-      try {
-        await api('DELETE', '/api/church/campus/' + churchId + '/unlink');
-        toast('Satellite unlinked');
-        loadCampusMode();
-      } catch (e) {
-        toast(e.message || 'Failed to unlink satellite', true);
-      }
     }
 
     // ── TDs ──────────────────────────────────────────────────────────────────
@@ -3726,35 +3162,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       return compactSchedule(out);
     }
 
-    function getSelectedScheduleCampusId() {
-      var sel = document.getElementById('schedule-campus-select');
-      return (sel && sel.value) ? sel.value : '';
-    }
-
-    async function populateScheduleCampusPicker() {
-      var picker = document.getElementById('schedule-campus-picker');
-      var sel = document.getElementById('schedule-campus-select');
-      if (!picker || !sel) return;
-      try {
-        var payload = await api('GET', '/api/church/campuses');
-        var list = Array.isArray(payload) ? payload : (Array.isArray(payload.campuses) ? payload.campuses : []);
-        if (!list.length) { picker.style.display = 'none'; return; }
-        var prev = sel.value;
-        var mainName = (document.getElementById('sidebar-church-name') || {}).textContent || 'Main Campus';
-        sel.innerHTML = '<option value="">' + escapeHtml(mainName) + '</option>' + list.map(function(c) {
-          return '<option value="' + c.churchId + '">' + escapeHtml(c.name || c.churchId) + '</option>';
-        }).join('');
-        if (prev) sel.value = prev;
-        picker.style.display = '';
-      } catch { picker.style.display = 'none'; }
-    }
-
     async function loadSchedule() {
       try {
-        await populateScheduleCampusPicker();
-        var campusId = getSelectedScheduleCampusId();
-        var url = '/api/church/schedule' + (campusId ? '?campusId=' + encodeURIComponent(campusId) : '');
-        const raw = await api('GET', url);
+        const raw = await api('GET', '/api/church/schedule');
         const normalized = normalizeSchedulePayload(raw);
         renderScheduleRows(normalized);
       } catch(e) { toast('Failed to load schedule', true); }
@@ -3764,9 +3174,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       btnLoading('btn-save-schedule', 'Saving…');
       try {
         const schedule = collectScheduleFromRows();
-        var campusId = getSelectedScheduleCampusId();
-        var url = '/api/church/schedule' + (campusId ? '?campusId=' + encodeURIComponent(campusId) : '');
-        await api('PUT', url, schedule);
+        await api('PUT', '/api/church/schedule', schedule);
         toast('Schedule saved');
       } catch(e) { toast(e.message || 'Unable to save schedule', true); }
       finally { btnReset('btn-save-schedule'); }
@@ -4688,7 +4096,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#94A3B8">✦ ProPresenter control (looks, timers, stage)</div>';
           html += '<div style="color:#94A3B8">✦ Live video preview stream</div>';
           html += '<div style="color:#94A3B8">✦ On-call TD rotation</div>';
-          html += '<div style="color:#94A3B8">✦ Up to 3 rooms / campuses</div>';
+          html += '<div style="color:#94A3B8">✦ Up to 3 rooms</div>';
           html += '</div>';
           html += '<button onclick="upgradePlan(\'plus\')" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Plus — $99/mo →</button>';
           html += '</div>';
@@ -4704,7 +4112,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#94A3B8">✦ AI Autopilot automation rules</div>';
           html += '<div style="color:#94A3B8">✦ Planning Center sync + write-back</div>';
           html += '<div style="color:#94A3B8">✦ Monthly leadership reports</div>';
-          html += '<div style="color:#94A3B8">✦ Up to 10 rooms / campuses</div>';
+          html += '<div style="color:#94A3B8">✦ Up to 10 rooms</div>';
           html += '</div>';
           html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#22c55e;border:1px solid rgba(34,197,94,0.3);cursor:pointer">Upgrade to Pro — $149/mo →</button>';
           html += '</div>';
@@ -4719,7 +4127,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#94A3B8">✦ AI Autopilot automation rules</div>';
           html += '<div style="color:#94A3B8">✦ Planning Center sync + write-back</div>';
           html += '<div style="color:#94A3B8">✦ Monthly leadership reports</div>';
-          html += '<div style="color:#94A3B8">✦ Up to 10 rooms / campuses</div>';
+          html += '<div style="color:#94A3B8">✦ Up to 10 rooms</div>';
           html += '</div>';
           html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Pro — $149/mo →</button>';
           html += '</div>';
@@ -5967,7 +5375,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         body: `
           <p>This is where you set up your church's basic information and connect Tally to your notification channels.</p>
           <h3>Church Name & Contact</h3>
-          <p>Keep this accurate — it shows up in alerts sent to your tech team so they know which church it's for (important if your TD supports multiple campuses).</p>
+          <p>Keep this accurate — it shows up in alerts sent to your tech team so they know which church it's for (important if your TD supports multiple rooms).</p>
           <h3>Notifications</h3>
           <p>Choose how you want to receive alerts. <strong>Telegram is required</strong> — it's how Tally reaches your tech director during service. Email and SMS are for non-urgent notifications like weekly summaries.</p>
           <div class="tip-box"><strong>Tip:</strong> Telegram is a free messaging app. Your TD downloads it once, clicks a setup link, and they're connected. Most TDs prefer it over text messages during service.</div>
@@ -5975,22 +5383,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           <p>When enabled, Tally will try to fix common problems automatically (restart a dropped stream, reconnect a disconnected device) before alerting anyone. This handles the "5-second blip" situations automatically.</p>
         `,
       },
-      campuses: {
-        title: 'Multi-Campus — Managing Multiple Locations',
+      rooms: {
+        title: 'Rooms — Managing Physical Spaces',
         body: `
-          <p>If your church has multiple campuses (main, north, south, satellite) you can manage them all from one login.</p>
+          <p>Rooms represent physical spaces where your production equipment lives — Main Sanctuary, Youth Room, Chapel, etc.</p>
           <h3>How it works</h3>
-          <p>Each campus gets its own Tally installation. They all show up here in one view. You can see which campuses are online, which have issues, and manage tech directors for each one.</p>
-          <h3>Adding a Campus</h3>
+          <p>Create a room for each physical space, then assign a Tally desktop app to that room from the app's Equipment tab. Each room tracks its own equipment status, alerts, and sessions independently.</p>
+          <h3>Adding a Room</h3>
           <ol style="padding-left:18px">
-            <li>Enter the campus name and city/state</li>
-            <li>Click "Create Campus" — Tally generates a unique connection token</li>
-            <li>Copy the registration code and send it to that campus's tech director</li>
-            <li>They enter it in the Tally desktop app when setting up</li>
+            <li>Click "+ Add Room" on the Rooms tab</li>
+            <li>Enter the room name (e.g., Main Sanctuary)</li>
+            <li>In the Tally desktop app, go to Equipment and select the room</li>
           </ol>
-          <div class="tip-box"><strong>Tip:</strong> Think of each campus as its own "church account" that you can see from your main login. They don't share devices or alerts — each campus is independent.</div>
+          <div class="tip-box"><strong>Tip:</strong> Use room names that your team recognizes. When alerts fire, they'll reference the room name so your TD knows exactly where to go.</div>
           <h3>Plan Limits</h3>
-          <p>The number of campuses you can add depends on your plan. The Connect plan is single-campus. Plus and Pro support multiple campuses.</p>
+          <p>The number of rooms you can create depends on your plan: Connect (1), Plus (3), Pro (10), Enterprise (unlimited).</p>
         `,
       },
       tds: {
@@ -6327,22 +5734,6 @@ document.addEventListener('DOMContentLoaded', function() {
         })();
         break;
 
-      // Campus mode
-      case 'generateCampusLinkCode':
-        if (typeof generateCampusLinkCode === 'function') generateCampusLinkCode();
-        break;
-      case 'copyCampusLinkCode':
-        if (typeof copyCampusLinkCode === 'function') copyCampusLinkCode();
-        break;
-      case 'selfUnlinkFromCampusGroup':
-        if (typeof selfUnlinkFromCampusGroup === 'function') selfUnlinkFromCampusGroup();
-        break;
-      case 'joinCampusGroup':
-        if (typeof joinCampusGroup === 'function') joinCampusGroup();
-        break;
-      case 'addCampus':
-        if (typeof addCampus === 'function') addCampus();
-        break;
       case 'addRoom':
         if (typeof addRoom === 'function') addRoom();
         break;
@@ -6493,7 +5884,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var action = el.dataset.actionChange;
     switch (action) {
       case 'loadProblems':
-        if (typeof loadProblems === 'function') loadProblems(el.value);
+        if (typeof loadProblems === 'function') loadProblems();
         break;
       case 'toggleFailoverAction':
         if (typeof toggleFailoverAction === 'function') toggleFailoverAction();

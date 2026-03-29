@@ -34,8 +34,8 @@
     <button class="nav-item" data-page="profile" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"/></svg></span> <span data-i18n="nav.profile">Profile</span>
     </button>
-    <button class="nav-item" data-page="campuses" data-action="showPage">
-      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z"/></svg></span> <span data-i18n="nav.campuses">Campuses</span>
+    <button class="nav-item" data-page="rooms" data-action="showPage">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z"/></svg></span> <span data-i18n="nav.rooms">Rooms</span>
     </button>
     <button class="nav-item" data-page="team" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg></span> <span data-i18n="nav.team">Team</span>
@@ -167,22 +167,6 @@
         <div id="psc-dash-time" style="font-size:11px;color:#64748b;margin-top:8px;text-align:right"></div>
       </div>
 
-      <!-- Multi-Campus Overview (shown only when campuses are linked) -->
-      <div class="card" id="campus-overview-card" style="display:none">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-          <div class="card-title" style="margin:0">
-            <span class="tip" data-tip="Live status of all campuses linked to this account. Click a campus name to manage it." data-i18n="overview.campus.title">⊚ All Campuses</span>
-          </div>
-          <button class="btn-secondary" data-action="showPage" data-page="campuses" style="padding:4px 10px;font-size:11px" data-i18n="overview.campus.manage">Manage Campuses</button>
-        </div>
-        <div class="table-wrap">
-        <table>
-          <thead><tr><th data-i18n="table.campus">Campus</th><th data-i18n="table.status">Status</th><th data-i18n="table.devices">Devices</th><th data-i18n="table.health">Health</th><th data-i18n="table.last_seen">Last Seen</th></tr></thead>
-          <tbody id="campus-overview-tbody"></tbody>
-        </table>
-        </div>
-      </div>
-
       <!-- Live Incident Commander (shown only during active sessions) -->
       <div class="card" id="incident-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -306,14 +290,6 @@
         </div>
       </div>
 
-      <!-- Campus Selector (multi-campus only) -->
-      <div id="pf-campus-picker" style="display:none; margin-bottom:16px;">
-        <label style="font-size:12px;color:#94A3B8;margin-right:8px;" data-i18n="overview.viewing">Viewing:</label>
-        <select id="pf-campus-select" data-action-change="loadProblems" style="background:#0F1613;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;">
-          <option value="" data-i18n="overview.main_campus">Main Campus</option>
-        </select>
-      </div>
-
       <!-- Tally Engineer Card -->
       <div class="card" id="pf-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -339,7 +315,7 @@
             <tr><td style="color:#94A3B8;width:160px" data-i18n="overview.quickinfo.church_id">Church ID</td><td><code style="font-size:12px;color:#475569" id="church-id-display">{{CHURCH_ID}}</code></td></tr>
             <tr><td style="color:#94A3B8" data-i18n="overview.quickinfo.registered">Registered</td><td id="registered-date" style="color:#F8FAFC">—</td></tr>
             <tr><td style="color:#94A3B8" data-i18n="overview.quickinfo.plan">Plan</td><td id="plan-name" style="color:#F8FAFC">—</td></tr>
-            <tr><td style="color:#94A3B8" data-i18n="overview.quickinfo.campuses">Campuses / Rooms</td><td id="plan-campus-limit" style="color:#F8FAFC">—</td></tr>
+            <tr><td style="color:#94A3B8" data-i18n="overview.quickinfo.rooms">Rooms</td><td id="plan-room-limit" style="color:#F8FAFC">—</td></tr>
           </tbody>
         </table>
       </div>
@@ -522,131 +498,31 @@
       </div>
     </div>
 
-    <!-- CAMPUSES -->
-    <div class="page" id="page-campuses">
+    <!-- ROOMS & EQUIPMENT -->
+    <div class="page" id="page-rooms">
       <div class="page-header">
         <div class="page-header-text">
-          <div class="page-title" data-i18n="page.campuses">Campuses &amp; Equipment</div>
-          <div class="page-sub" data-i18n="campus.page_sub">Manage campuses, rooms, and equipment configuration</div>
+          <div class="page-title" data-i18n="page.rooms">Rooms &amp; Equipment</div>
+          <div class="page-sub" data-i18n="rooms.page_sub">Manage rooms, equipment configuration, and service schedule</div>
         </div>
-        <button class="help-icon-btn" data-action="openHelp" data-help-page="campuses" title="Help with Campuses">?</button>
+        <button class="help-icon-btn" data-action="openHelp" data-help-page="rooms" title="Help with Rooms">?</button>
       </div>
       <div class="tab-bar">
-        <button class="active" data-tab="tab-campuses">Campuses</button>
+        <button class="active" data-tab="tab-rooms">Rooms</button>
         <button data-tab="tab-equipment">Equipment</button>
         <button data-tab="tab-schedule">Schedule</button>
       </div>
-      <div class="tab-content active" id="tab-campuses">
-
-      <!-- ── Campus Mode (Pro/Enterprise self-service campus linking) ─────── -->
-      <div class="card" id="campus-mode-card" style="margin-bottom:16px">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-          <div class="card-title" style="margin:0">Campus Mode <span style="font-size:12px;color:#64748B;font-weight:normal;margin-left:8px">Pro &amp; Enterprise</span></div>
-          <span id="campus-mode-role-badge"></span>
-        </div>
-
-        <!-- Upgrade prompt (shown for Connect / Plus users) -->
-        <div id="campus-mode-upgrade" style="display:none;margin-top:16px">
-          <p style="color:#94A3B8;margin:0 0 12px;font-size:14px">Campus Mode lets existing churches link together without creating separate accounts or going through a reseller. Requires a <strong style="color:#F8FAFC">Pro or Enterprise</strong> plan.</p>
-          <button class="btn-primary" data-action="showPage" data-page="billing">Upgrade to Pro &rarr;</button>
-        </div>
-
-        <!-- Main campus view -->
-        <div id="campus-mode-main" style="display:none;margin-top:16px">
-          <p style="color:#94A3B8;margin:0 0 16px;font-size:14px">Share your link code with another church. They enter it on their own Campuses page to join your campus group. Each linked church keeps its own login and data.</p>
-          <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-            <div>
-              <label style="font-size:12px;color:#64748B;display:block;margin-bottom:6px">Campus Link Code</label>
-              <code id="campus-link-code-display" style="font-size:22px;color:#22c55e;letter-spacing:4px;padding:10px 18px;background:#0F1613;border:1px solid #1a2e1f;border-radius:6px;display:inline-block;min-width:120px;text-align:center">—</code>
-            </div>
-            <div style="display:flex;flex-direction:column;gap:8px">
-              <button class="btn-primary" id="btn-generate-link-code" data-action="generateCampusLinkCode">Generate New Code</button>
-              <button class="btn-secondary" id="btn-copy-link-code" data-action="copyCampusLinkCode" style="display:none">Copy Code</button>
-            </div>
-          </div>
-          <div id="campus-mode-satellites-section" style="margin-top:24px;display:none">
-            <div style="font-weight:600;color:#F8FAFC;margin-bottom:10px;font-size:14px">Linked Satellite Campuses</div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Campus</th><th>Status</th><th></th></tr></thead>
-                <tbody id="campus-mode-satellites-tbody">
-                  <tr><td colspan="3" style="color:#475569;text-align:center;padding:16px">No satellites linked yet.</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <!-- Satellite view (this church joined another church's group) -->
-        <div id="campus-mode-satellite" style="display:none;margin-top:16px">
-          <div style="padding:14px 16px;background:#0F1613;border:1px solid #1a2e1f;border-radius:6px;margin-bottom:16px">
-            <div style="font-size:12px;color:#64748B;margin-bottom:4px">Linked to Main Campus</div>
-            <div id="campus-mode-main-name" style="color:#22c55e;font-weight:600;font-size:16px">—</div>
-          </div>
-          <button class="btn-danger" id="btn-campus-self-unlink" data-action="selfUnlinkFromCampusGroup">Unlink from Campus Group</button>
-        </div>
-
-        <!-- Join form (Pro/Enterprise, not yet in a group) -->
-        <div id="campus-mode-join" style="display:none;margin-top:16px">
-          <p style="color:#94A3B8;margin:0 0 12px;font-size:14px">Already have a link code from your main campus? Enter it below to join their campus group.</p>
-          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-            <div class="field" style="flex:1;min-width:160px;margin-bottom:0">
-              <label>Link Code</label>
-              <input type="text" id="campus-join-code" placeholder="A1B2C3" maxlength="6" style="text-transform:uppercase;letter-spacing:3px;font-family:monospace;font-size:16px">
-            </div>
-            <button class="btn-primary" id="btn-join-campus-group" data-action="joinCampusGroup" style="margin-bottom:0;white-space:nowrap">Join Campus Group</button>
-          </div>
-        </div>
-
-        <!-- Loading state -->
-        <div id="campus-mode-loading" style="margin-top:16px;color:#475569;font-size:13px">Loading…</div>
-      </div>
-      <!-- ── End Campus Mode ──────────────────────────────────────────────── -->
-
-      <p class="help-box"><strong>Add Campus (admin flow):</strong> Each campus created here gets its own Church ID, connection token, and Telegram registration code. Install the Tally app at each campus and connect using that campus token.</p>
-      <div id="campus-plan-note" class="help-box" style="display:none"></div>
-      <div id="campus-summary" class="stats-row grid-4col" style="display:none;margin-bottom:20px">
-        <div class="stat-card"><div class="stat-value" id="cs-total">0</div><div class="stat-label" data-i18n="campus.stat.total">Total Rooms</div></div>
-        <div class="stat-card"><div class="stat-value" id="cs-online" style="color:#22c55e">0</div><div class="stat-label" data-i18n="campus.stat.online">Online</div></div>
-        <div class="stat-card"><div class="stat-value" id="cs-offline">0</div><div class="stat-label" data-i18n="campus.stat.offline">Offline</div></div>
-        <div class="stat-card"><div class="stat-value" id="cs-alerts">0</div><div class="stat-label" data-i18n="campus.stat.alerts">Alerts (7d)</div></div>
-      </div>
-      <div class="card">
-        <div class="card-title" data-i18n="campus.add.title">Add Campus</div>
-        <div class="field-row">
-          <div class="field">
-            <label data-i18n="campus.add.name">Campus Name</label>
-            <input type="text" id="campus-name" placeholder="North Campus">
-          </div>
-          <div class="field">
-            <label data-i18n="campus.add.location">City / State (optional)</label>
-            <input type="text" id="campus-location" placeholder="Franklin, TN">
-          </div>
-        </div>
-        <button class="btn-primary" id="btn-create-campus" data-action="addCampus" data-i18n="campus.add.btn">Create Campus</button>
-      </div>
-      <div class="card">
-        <div class="card-title" data-i18n="campus.linked.title">Linked Campuses</div>
-        <div class="table-wrap">
-        <table>
-          <thead><tr><th data-i18n="table.campus">Campus</th><th data-i18n="table.status">Status</th><th data-i18n="table.health">Health</th><th data-i18n="table.code">Registration Code</th><th></th></tr></thead>
-          <tbody id="campuses-tbody">
-            <tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">Loading…</td></tr>
-          </tbody>
-        </table>
-        </div>
-      </div>
-
-      <!-- Room Management -->
+      <div class="tab-content active" id="tab-rooms">
+      <div id="room-plan-note" class="help-box" style="display:none"></div>
       <div class="card" id="rooms-card">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-          <div class="card-title" style="margin:0">Rooms</div>
+          <div class="card-title" style="margin:0" data-i18n="rooms.title">Rooms</div>
           <button class="btn-primary" id="btn-add-room" data-action="addRoom" style="font-size:12px;padding:6px 14px">+ Add Room</button>
         </div>
-        <p style="color:#94A3B8;font-size:13px;margin-bottom:12px">Rooms are physical spaces (Main Sanctuary, Youth Room, etc). Assign each Tally desktop to a room from the app's Equipment tab.</p>
+        <p style="color:#94A3B8;font-size:13px;margin-bottom:12px" data-i18n="rooms.desc">Rooms are physical spaces (Main Sanctuary, Youth Room, etc). Assign each Tally desktop to a room from the app's Equipment tab.</p>
         <div id="rooms-list" style="color:#475569;font-size:13px">Loading…</div>
       </div>
-      </div><!-- /tab-campuses -->
+      </div><!-- /tab-rooms -->
       <div class="tab-content" id="tab-equipment">
       <div id="equipment-loading" style="text-align:center;padding:40px;color:#475569">Loading equipment config…</div>
       <div id="equipment-form" style="display:none">
@@ -833,10 +709,6 @@
         <div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
             <div class="card-title" style="margin:0" data-i18n="schedule.card.title">Weekly Service Windows</div>
-            <div id="schedule-campus-picker" style="display:none">
-              <label style="font-size:12px;color:#94A3B8;margin-right:6px">Campus:</label>
-              <select id="schedule-campus-select" data-action-change="loadSchedule" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:5px 8px;font-size:13px;cursor:pointer"></select>
-            </div>
           </div>
           <p style="font-size:12px;color:#94A3B8;margin-bottom:14px" data-i18n="schedule.desc">Add each recurring service window below. Alerts and automation use these time windows.</p>
           <div id="schedule-empty" class="schedule-empty" data-i18n="schedule.empty">No service windows yet. Add your first one.</div>
