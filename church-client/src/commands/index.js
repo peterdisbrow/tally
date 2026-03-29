@@ -23,6 +23,7 @@ const commandHandlers = {
   ...require('./videohub'),
   ...require('./system'),
   ...require('./recovery'),
+  ...require('./shelly'),
 };
 
 module.exports = { commandHandlers };

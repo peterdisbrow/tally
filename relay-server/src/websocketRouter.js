@@ -484,6 +484,7 @@ function createWebSocketHandlers({
       case 'propresenter_slide_change':
       case 'chat':
       case 'preview_frame':
+      case 'smart_plug_result':
         onChurchMessage(church, msg);
         break;
 
