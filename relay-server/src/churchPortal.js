@@ -1109,9 +1109,34 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       const churchId = req.church.churchId;
       const roomId = String(req.params.roomId || '').trim();
-      const room = db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ?').get(roomId, churchId);
+      const room = db.prepare('SELECT id, name FROM rooms WHERE id = ? AND campus_id = ?').get(roomId, churchId);
       if (!room) return res.status(404).json({ error: 'Room not found' });
-      db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId);
+
+      // CASCADE cleanup: remove all data referencing this room
+      const deleteRelated = db.transaction(() => {
+        db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId);
+        db.prepare('DELETE FROM problem_finder_reports WHERE church_id = ? AND instance_name = ?').run(churchId, roomId);
+        db.prepare('DELETE FROM preservice_check_results WHERE church_id = ? AND instance_name = ?').run(churchId, roomId);
+        db.prepare('DELETE FROM alerts WHERE church_id = ? AND instance_name = ?').run(churchId, roomId);
+        db.prepare('DELETE FROM service_events WHERE church_id = ? AND instance_name = ?').run(churchId, roomId);
+        db.prepare('DELETE FROM room_equipment WHERE room_id = ? AND church_id = ?').run(roomId, churchId);
+        // Unassign any desktop clients that were assigned to this room
+        db.prepare('UPDATE churches SET room_id = NULL, room_name = NULL WHERE room_id = ? AND churchId = ?').run(roomId, churchId);
+      });
+      deleteRelated();
+
+      // Notify connected Electron client assigned to this room via WebSocket
+      const runtime = churches.get(churchId);
+      if (runtime?.roomInstanceMap?.[roomId]) {
+        const instanceName = runtime.roomInstanceMap[roomId];
+        const sock = runtime.sockets?.get(instanceName);
+        if (sock && sock.readyState === 1) {
+          sock.send(JSON.stringify({ type: 'room_deleted', roomId, roomName: room.name }));
+        }
+        // Clean up the mapping
+        delete runtime.roomInstanceMap[roomId];
+      }
+
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
