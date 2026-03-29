@@ -311,7 +311,8 @@ class ChurchAVAgent {
     this.audioMonitor = new AudioMonitor();
     this.streamHealthMonitor = new StreamHealthMonitor();
     this._identityCache = new Map();
-    this.reconnectDelay = 3000;
+    this.reconnectDelay = 5000;
+    this._consecutiveRelayFailures = 0;
     this.atemReconnectDelay = 2000;
     this.atemReconnecting = false;
     this._previewTimer = null;
@@ -797,7 +798,8 @@ class ChurchAVAgent {
       this.relay.on('open', () => {
         console.log('✅ Connected to relay server');
         this._relayConnecting = false;
-        this.reconnectDelay = 3000;
+        this.reconnectDelay = 5000;
+        this._consecutiveRelayFailures = 0;
         this.sendStatus();
         doResolve();
 
@@ -852,14 +854,25 @@ class ChurchAVAgent {
           }
           return;
         }
-        console.warn(`⚠️  Relay disconnected (${code}: ${reasonStr}). Reconnecting in ${this.reconnectDelay / 1000}s...`);
+
+        this._consecutiveRelayFailures++;
+
+        // Apply jitter (±20%) to prevent thundering herd when many clients reconnect
+        const jitter = 1 + (Math.random() * 0.4 - 0.2); // 0.8 – 1.2
+        const delay = Math.round(this.reconnectDelay * jitter);
+        console.warn(`⚠️  Relay disconnected (${code}: ${reasonStr}). Reconnecting in ${(delay / 1000).toFixed(1)}s... (attempt ${this._consecutiveRelayFailures})`);
         if (this._relayPingTimer) clearInterval(this._relayPingTimer);
         this.health.relay.reconnects++;
         doResolve(); // Don't block startup if relay is down
+
+        if (this._consecutiveRelayFailures === 10) {
+          console.error('🚫 Relay connection persistent failure — 10 consecutive attempts failed');
+        }
+
         if (!this._stopping && !this._reconnectScheduled) {
           this._reconnectScheduled = true;
-          setTimeout(() => { this._reconnectScheduled = false; this.connectRelay(); }, this.reconnectDelay);
-          this.reconnectDelay = Math.min(this.reconnectDelay * 2, 60_000);
+          setTimeout(() => { this._reconnectScheduled = false; this.connectRelay(); }, delay);
+          this.reconnectDelay = Math.min(this.reconnectDelay * 2, 300_000); // max 5 minutes
         }
       });
 

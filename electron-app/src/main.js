@@ -795,6 +795,7 @@ function startAgent() {
     if (text.includes('[STATUS_JSON]')) { return; }
 
     if (text.includes('Connected to relay server'))  { agentStatus.relay = true; statusChanged = true; agentCrashCount = 0; _agentEscalatedAt = 0; }
+    if (text.includes('Relay connection persistent failure')) { sendNotification('Relay Connection Issue', 'Unable to reach the relay server after 10 attempts. Will keep retrying with longer intervals.'); }
     if (text.includes('ATEM connected'))             { agentStatus.atem = { connected: true, model: (agentStatus.atem && agentStatus.atem.model) || '' }; statusChanged = true; }
     if (text.includes('OBS connected'))              { agentStatus.obs = true; statusChanged = true; }
     if (text.includes('Companion connected'))        { if (!agentStatus.companion || typeof agentStatus.companion !== 'object') agentStatus.companion = {}; agentStatus.companion.connected = true; statusChanged = true; }
