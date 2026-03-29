@@ -61,6 +61,7 @@ function createTestDb() {
       failover_action TEXT,
       failover_auto_recover INTEGER DEFAULT 0,
       failover_audio_trigger INTEGER DEFAULT 0,
+      recovery_outside_service_hours INTEGER DEFAULT 0,
       onboarding_dismissed INTEGER DEFAULT 0,
       registration_code TEXT,
       audio_via_atem INTEGER DEFAULT 0,

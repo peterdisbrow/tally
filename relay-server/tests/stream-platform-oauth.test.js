@@ -404,22 +404,27 @@ describe('StreamPlatformOAuth', () => {
         } else if (callCount === 2) {
           // Long-lived token exchange
           return mockFetchResponse(200, { access_token: 'fb-long-lived', expires_in: 5184000 });
-        } else {
-          // List pages
+        } else if (callCount === 3) {
+          // List pages (/me/accounts)
           return mockFetchResponse(200, {
             data: [{ id: 'page-1', name: 'Church Page', access_token: 'page-token' }],
           });
+        } else {
+          // User name (/me?fields=name)
+          return mockFetchResponse(200, { name: 'Test User' });
         }
       });
 
       const result = await oauth.exchangeFacebookCode('church-1', 'fb-auth-code', 'http://localhost/cb');
 
       expect(result.success).toBe(true);
-      expect(result.pages).toHaveLength(1);
-      expect(result.pages[0].name).toBe('Church Page');
+      // Result includes personal account + managed pages
+      expect(result.pages).toHaveLength(2);
+      expect(result.pages[0].name).toBe('Test User (Personal)');
+      expect(result.pages[1].name).toBe('Church Page');
 
-      // Verify the token exchange calls
-      expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+      // Verify the token exchange calls (short + long + pages + /me)
+      expect(globalThis.fetch).toHaveBeenCalledTimes(4);
 
       // First call should be short-lived token exchange
       const firstCallUrl = globalThis.fetch.mock.calls[0][0];

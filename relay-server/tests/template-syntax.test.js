@@ -70,28 +70,27 @@ function extractAndValidateClientJs(html, label) {
 
 describe('Church Portal template', () => {
   it('generates valid client-side JavaScript', () => {
-    const { _buildChurchPortalHtml } = require('../src/churchPortal');
-    expect(_buildChurchPortalHtml, 'buildChurchPortalHtml should be exported').toBeDefined();
+    // Portal JS is now an external static file (portal.js), not inline <script> blocks.
+    // Validate the static file directly for syntax errors.
+    const fs = require('fs');
+    const path = require('path');
+    const portalJs = fs.readFileSync(path.join(__dirname, '../public/portal/portal.js'), 'utf8');
+    expect(portalJs.length).toBeGreaterThan(0);
 
-    const church = {
-      churchId: 'test-church-id',
-      name: 'Test Church',
-      email: 'td@test.com',
-      billing_tier: 'connect',
-      registeredAt: new Date().toISOString(),
-    };
-
-    const html = _buildChurchPortalHtml(church);
-    expect(html).toContain('<script>');
-    expect(html).toContain('</script>');
-
-    extractAndValidateClientJs(html, 'churchPortal');
+    let syntaxError = null;
+    try {
+      new vm.Script(portalJs, { filename: 'portal.js' });
+    } catch (e) {
+      syntaxError = e;
+    }
+    expect(syntaxError, `portal.js has a syntax error: ${syntaxError?.message}`).toBeNull();
   });
 
   it('generates valid JS with various billing tiers', () => {
+    // Portal JS no longer uses server-side template interpolation per tier —
+    // it's a static file. Verify the HTML template renders for each tier.
     const { _buildChurchPortalHtml } = require('../src/churchPortal');
 
-    // Test each tier to make sure no conditional branches break the template
     for (const tier of ['connect', 'plus', 'pro', 'managed', 'event']) {
       const church = {
         churchId: `test-church-${tier}`,
@@ -101,7 +100,8 @@ describe('Church Portal template', () => {
       };
 
       const html = _buildChurchPortalHtml(church);
-      extractAndValidateClientJs(html, `churchPortal-tier-${tier}`);
+      expect(html, `churchPortal-tier-${tier}: should generate HTML`).toBeDefined();
+      expect(html.length).toBeGreaterThan(0);
     }
   });
 });

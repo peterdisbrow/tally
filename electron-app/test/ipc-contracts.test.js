@@ -4,7 +4,7 @@
  * Tests the IPC bridge between renderer and main process without running Electron.
  * Mocks contextBridge and ipcRenderer to capture registrations and verify:
  *
- *   - Complete electronAPI surface (all 70+ methods present)
+ *   - Complete electronAPI surface (all methods present)
  *   - Invoke method → channel name mapping (request/response)
  *   - Event listener → channel name mapping (subscriptions)
  *   - Payload forwarding (args passed through to ipcRenderer.invoke)
@@ -96,18 +96,16 @@ const INVOKE_CHANNELS = [
   ['churchAuthLogin',         'church-auth-login'],
   ['exportTestLogs',          'export-test-logs'],
   ['testEquipmentConnection', 'test-equipment-connection'],
-  ['requestPreview',          'request-preview'],
-  ['requestPreviewFrame',     'request-preview-frame'],
   ['scanNetwork',             'scan-network'],
   ['getNetworkInterfaces',    'get-network-interfaces'],
   ['saveEquipment',           'save-equipment'],
   ['getEquipment',            'get-equipment'],
+  ['switchRoom',              'switch-room'],
   ['validateToken',           'validate-token'],
   ['signOut',                 'sign-out'],
+  ['factoryReset',            'factory-reset'],
   ['copyToClipboard',         'copy-to-clipboard'],
   ['openExternal',            'open-external'],
-  ['probeNdi',                'probe-ndi'],
-  ['captureNdiFrame',         'capture-ndi-frame'],
   ['sendChat',                'send-chat'],
   ['getChat',                 'get-chat'],
   ['pickFile',                'pick-file'],
@@ -116,6 +114,7 @@ const INVOKE_CHANNELS = [
   ['oauthYouTubeConnect',     'oauth-youtube-connect'],
   ['oauthFacebookConnect',    'oauth-facebook-connect'],
   ['oauthFacebookSelectPage', 'oauth-facebook-select-page'],
+  ['oauthFacebookListPages',  'oauth-facebook-list-pages'],
   ['oauthYouTubeDisconnect',  'oauth-youtube-disconnect'],
   ['oauthFacebookDisconnect', 'oauth-facebook-disconnect'],
   ['oauthStatus',             'oauth-status'],
@@ -150,14 +149,17 @@ const INVOKE_CHANNELS = [
   ['onboardingState',         'onboarding-state'],
   ['sendCommand',             'send-command'],
   ['sendDiagnosticBundle',    'send-diagnostic-bundle'],
-  ['switchRoom',              'switch-room'],
+  ['exportPortableConfig',    'export-portable-config'],
+  ['importPortableConfig',    'import-portable-config'],
+  ['getLocaleData',           'get-locale-data'],
+  ['setLocale',               'set-locale'],
 ];
 
 const EVENT_CHANNELS = [
   ['onStatus',              'status'],
   ['onAuthInvalid',         'auth-invalid'],
+  ['onSignedOut',           'signed-out'],
   ['onLog',                 'log'],
-  ['onPreviewFrame',        'preview-frame'],
   ['onUpdateReady',         'update-ready'],
   ['onScanProgress',        'scan-progress'],
   ['onChatMessage',         'chat-message'],
@@ -165,6 +167,12 @@ const EVENT_CHANNELS = [
   ['onPfUpdate',            'pf-update'],
   ['onFailoverStateChange', 'failover-state'],
   ['onWindowVisibility',    'window-visibility'],
+  ['onUpdateNotAvailable',  'update-not-available'],
+  ['onUpdateError',         'update-error'],
+  ['onUpdateProgress',      'update-progress'],
+  ['onWhatsNew',            'whats-new'],
+  ['onConnectionQuality',   'connection-quality'],
+  ['onConfigUpdated',       'config-updated'],
 ];
 
 // ─── API surface completeness ─────────────────────────────────────────────────
@@ -354,14 +362,6 @@ test('testEquipmentConnection forwards params', async () => {
   assert.deepEqual(call.args[0], params);
 });
 
-test('requestPreview forwards action string', async () => {
-  const { api, ipcRenderer } = loadPreload();
-  ipcRenderer.invoked = [];
-  await api.requestPreview('start');
-  const call = ipcRenderer.invoked.find((c) => c.channel === 'request-preview');
-  assert.equal(call.args[0], 'start');
-});
-
 test('copyToClipboard forwards text string', async () => {
   const { api, ipcRenderer } = loadPreload();
   ipcRenderer.invoked = [];
@@ -419,17 +419,6 @@ test('onLog wraps callback passing log data payload', () => {
   const reg = ipcRenderer.registered.find((r) => r.channel === 'log');
   reg.listener(null, 'Agent started');
   assert.equal(received, 'Agent started');
-});
-
-test('onPreviewFrame wraps callback passing full frame object', () => {
-  const { api, ipcRenderer } = loadPreload();
-  ipcRenderer.registered = [];
-  let received;
-  api.onPreviewFrame((data) => { received = data; });
-  const reg = ipcRenderer.registered.find((r) => r.channel === 'preview-frame');
-  const frame = { timestamp: 123, width: 1280, height: 720, format: 'jpeg', data: 'base64' };
-  reg.listener(null, frame);
-  assert.deepEqual(received, frame);
 });
 
 test('onUpdateReady calls callback with no arguments', () => {

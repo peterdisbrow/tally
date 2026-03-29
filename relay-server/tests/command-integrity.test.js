@@ -895,9 +895,9 @@ describe('Companion command integrity', () => {
     });
   }
 
-  it('Companion handler count is 4', () => {
+  it('Companion handler count is 9', () => {
     const compHandlers = HANDLER_NAMES.filter(n => n.startsWith('companion.'));
-    expect(compHandlers).toHaveLength(4);
+    expect(compHandlers).toHaveLength(9);
   });
 });
 

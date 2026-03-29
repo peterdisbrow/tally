@@ -213,128 +213,122 @@ test('decodeChurchIdFromToken handles URL-safe base64 without padding', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// checkTokenWithRelay — WebSocket auth state machine
+// checkTokenWithRelay — HTTP-based token validation
 // ═══════════════════════════════════════════════════════════════════════════════
 
-test('checkTokenWithRelay resolves success after socket opens and stays open 1200ms', async () => {
-  const { client, instances } = loadRelayClient();
-  const promise = client.checkTokenWithRelay('valid-token', 'wss://relay.example.com', 5000);
-
-  await new Promise((r) => setImmediate(r));
-
-  const ws = instances[0];
-  assert.ok(ws, 'WebSocket created');
-  ws.simulateOpen();
-
-  // AUTH_STABILITY_MS = 1200 — wait 1350ms to be safe
-  await new Promise((r) => setTimeout(r, 1350));
-
-  const result = await promise;
-  assert.equal(result.success, true, `Expected success, got: ${JSON.stringify(result)}`);
-  assert.ok(result.message && result.message.includes('handshake'), `Expected handshake in message, got: ${result.message}`);
-}, { timeout: 5000 });
-
-test('checkTokenWithRelay resolves failure on error event', async () => {
-  const { client, instances } = loadRelayClient();
-  const promise = client.checkTokenWithRelay('bad-token', 'wss://relay.example.com', 5000);
-
-  await new Promise((r) => setImmediate(r));
-  instances[0].simulateError('ECONNREFUSED');
-
-  const result = await promise;
-  assert.equal(result.success, false);
-  assert.ok(result.error.includes('ECONNREFUSED'), `Expected ECONNREFUSED, got: ${result.error}`);
+test('checkTokenWithRelay resolves success when HTTP returns 200', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ churchId: 'ch1' }),
+  });
+  try {
+    const { client } = loadRelayClient();
+    const result = await client.checkTokenWithRelay('valid-token', 'wss://relay.example.com', 5000);
+    assert.equal(result.success, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
-test('checkTokenWithRelay resolves failure on close code 1008 (policy violation / invalid token)', async () => {
-  const { client, instances } = loadRelayClient();
-  const promise = client.checkTokenWithRelay('bad-token', 'wss://relay.example.com', 5000);
-
-  await new Promise((r) => setImmediate(r));
-  instances[0].simulateClose(1008);
-
-  const result = await promise;
-  assert.equal(result.success, false);
-  assert.ok(result.error.includes('Invalid token'), `Expected 'Invalid token', got: ${result.error}`);
+test('checkTokenWithRelay resolves failure on 401 response', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 401 });
+  try {
+    const { client } = loadRelayClient();
+    const result = await client.checkTokenWithRelay('bad-token', 'wss://relay.example.com', 5000);
+    assert.equal(result.success, false);
+    assert.ok(result.error.includes('Invalid token'), `Expected 'Invalid token', got: ${result.error}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
-test('checkTokenWithRelay resolves failure on close before open', async () => {
-  const { client, instances } = loadRelayClient();
-  const promise = client.checkTokenWithRelay('tok', 'wss://relay.example.com', 5000);
-
-  await new Promise((r) => setImmediate(r));
-  // Close without ever opening (e.g. TCP refused)
-  instances[0].simulateClose(1006);
-
-  const result = await promise;
-  assert.equal(result.success, false);
-  assert.ok(
-    result.error.includes('before auth') || result.error.includes('1006'),
-    `Expected 'before auth' or '1006' in error, got: ${result.error}`,
-  );
+test('checkTokenWithRelay resolves failure on 403 response', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 403 });
+  try {
+    const { client } = loadRelayClient();
+    const result = await client.checkTokenWithRelay('bad-token', 'wss://relay.example.com', 5000);
+    assert.equal(result.success, false);
+    assert.ok(result.error.includes('Invalid token'), `Expected 'Invalid token', got: ${result.error}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
-test('checkTokenWithRelay resolves failure on close after open (non-1008)', async () => {
-  const { client, instances } = loadRelayClient();
-  const promise = client.checkTokenWithRelay('tok', 'wss://relay.example.com', 5000);
-
-  await new Promise((r) => setImmediate(r));
-  const ws = instances[0];
-  ws.simulateOpen();
-  // Immediately close after open — before 1200ms auth timer fires
-  ws.simulateClose(1001); // Going Away
-
-  const result = await promise;
-  assert.equal(result.success, false);
-  assert.ok(
-    result.error.includes('Relay closed') || result.error.includes('1001'),
-    `Expected relay-closed error, got: ${result.error}`,
-  );
+test('checkTokenWithRelay resolves failure on 500 response', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 500 });
+  try {
+    const { client } = loadRelayClient();
+    const result = await client.checkTokenWithRelay('tok', 'wss://relay.example.com', 5000);
+    assert.equal(result.success, false);
+    assert.ok(result.error.includes('500'), `Expected status in error, got: ${result.error}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
-test('checkTokenWithRelay times out and resolves failure after ms', async () => {
-  const { client, instances } = loadRelayClient();
-  // Very short timeout — do NOT simulate any events
-  const promise = client.checkTokenWithRelay('tok', 'wss://relay.example.com', 60);
+test('checkTokenWithRelay resolves failure on network error', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('ECONNREFUSED'); };
+  try {
+    const { client } = loadRelayClient();
+    const result = await client.checkTokenWithRelay('tok', 'wss://relay.example.com', 5000);
+    assert.equal(result.success, false);
+    assert.ok(result.error.includes('ECONNREFUSED'), `Expected ECONNREFUSED, got: ${result.error}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
-  const result = await promise;
-  assert.equal(result.success, false);
-  assert.ok(result.error.includes('timed out'), `Expected 'timed out', got: ${result.error}`);
-}, { timeout: 3000 });
+test('checkTokenWithRelay resolves failure on timeout / abort', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error('The operation was aborted'); };
+  try {
+    const { client } = loadRelayClient();
+    const result = await client.checkTokenWithRelay('tok', 'wss://relay.example.com', 60);
+    assert.equal(result.success, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
-test('checkTokenWithRelay constructs WebSocket URL with /church endpoint and token query param', async () => {
-  const { client, instances } = loadRelayClient();
-  // Use short timeout so promise resolves quickly
-  const promise = client.checkTokenWithRelay('my-secret-token', 'wss://relay.example.com', 50);
+test('checkTokenWithRelay calls /api/church/app/me with Bearer token', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedUrl, capturedOpts;
+  globalThis.fetch = async (url, opts) => {
+    capturedUrl = url;
+    capturedOpts = opts;
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+  try {
+    const { client } = loadRelayClient();
+    await client.checkTokenWithRelay('my-secret-token', 'wss://relay.example.com', 5000);
+    assert.ok(capturedUrl.includes('/api/church/app/me'), `URL must include /api/church/app/me, got: ${capturedUrl}`);
+    assert.ok(capturedUrl.startsWith('https://'), `URL must use HTTPS, got: ${capturedUrl}`);
+    assert.equal(capturedOpts.headers.Authorization, 'Bearer my-secret-token');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
-  await new Promise((r) => setImmediate(r));
-  const ws = instances[0];
-
-  assert.ok(ws.url.includes('/church'), `URL must include /church, got: ${ws.url}`);
-  assert.ok(ws.url.includes('token='), `URL must include token= param, got: ${ws.url}`);
-  assert.ok(
-    ws.url.includes(encodeURIComponent('my-secret-token')),
-    `token must be URI-encoded in URL, got: ${ws.url}`,
-  );
-
-  await promise; // consume
-}, { timeout: 3000 });
-
-test('checkTokenWithRelay finish() is idempotent — only resolves once', async () => {
-  const { client, instances } = loadRelayClient();
-  const promise = client.checkTokenWithRelay('tok', 'wss://relay.example.com', 5000);
-
-  await new Promise((r) => setImmediate(r));
-  const ws = instances[0];
-
-  // Trigger finish() via error — this also calls socket.removeAllListeners()
-  ws.simulateError('first');
-  // After removeAllListeners(), emitting 'error' would throw (no listener).
-  // Instead verify idempotency by confirming the promise resolved with the first result.
-
-  const result = await promise;
-  assert.equal(result.success, false);
-  assert.ok(result.error.includes('first'), `Expected first error, got: ${result.error}`);
+test('checkTokenWithRelay converts wss relay URL to https for HTTP call', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedUrl;
+  globalThis.fetch = async (url) => {
+    capturedUrl = url;
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+  try {
+    const { client } = loadRelayClient();
+    await client.checkTokenWithRelay('tok', 'wss://api.tallyconnect.app', 5000);
+    assert.ok(capturedUrl.startsWith('https://api.tallyconnect.app'), `Expected https URL, got: ${capturedUrl}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

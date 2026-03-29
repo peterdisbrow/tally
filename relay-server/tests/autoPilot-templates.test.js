@@ -37,7 +37,7 @@ function createAutoPilot(db, opts = {}) {
 describe('RULE_TEMPLATES constant', () => {
   it('exports RULE_TEMPLATES as an array', () => {
     expect(Array.isArray(RULE_TEMPLATES)).toBe(true);
-    expect(RULE_TEMPLATES.length).toBe(8);
+    expect(RULE_TEMPLATES.length).toBe(12);
   });
 
   it('every template has required fields', () => {

@@ -6,7 +6,7 @@
  * getAudienceScreenStatus, getPlaylistFocused, clearAll, clearSlide,
  * getMessages, triggerMessage, clearMessages, getLooks, setLook,
  * getTimers, startTimer, stopTimer, setAudienceScreens,
- * _handleWSMessage, _scheduleReconnect, isRunning.
+ * _scheduleReconnect, isRunning.
  */
 const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -34,7 +34,7 @@ function mockFetchNull() {
 }
 
 function mockFetchHead(ok = true) {
-  global.fetch = async () => ({ ok });
+  global.fetch = async () => ({ ok, text: async () => '' });
 }
 
 // ─── isRunning ────────────────────────────────────────────────────────────────
@@ -48,12 +48,12 @@ describe('ProPresenter.isRunning()', () => {
     assert.equal(pp.running, true);
   });
 
-  it('returns false when HEAD request fails with non-ok response', async () => {
+  it('returns true even when response is non-ok (any HTTP response means PP is running)', async () => {
     const pp = new ProPresenter();
     mockFetchHead(false);
     const result = await pp.isRunning();
-    assert.equal(result, false);
-    assert.equal(pp.running, false);
+    assert.equal(result, true);
+    assert.equal(pp.running, true);
   });
 
   it('returns false on network error', async () => {
@@ -208,7 +208,7 @@ describe('ProPresenter.goToSlide()', () => {
     const fetched = [];
     global.fetch = async (url) => { fetched.push(url); return { ok: true, text: async () => '{}' }; };
     await pp.goToSlide(5);
-    assert.ok(fetched.some(u => u.includes('/presentation/active/5/trigger')));
+    assert.ok(fetched.some(u => u.includes('/v1/presentation/focused/5/trigger')));
   });
 });
 
@@ -636,45 +636,6 @@ describe('ProPresenter.setAudienceScreens()', () => {
   });
 });
 
-// ─── _handleWSMessage ─────────────────────────────────────────────────────────
-
-describe('ProPresenter._handleWSMessage()', () => {
-  it('emits slideChanged for action=slideChanged', () => {
-    const pp = new ProPresenter();
-    let emitted = null;
-    pp.on('slideChanged', (m) => { emitted = m; });
-    pp._handleWSMessage({ action: 'slideChanged', slide: 3 });
-    assert.ok(emitted !== null);
-    assert.equal(emitted.slide, 3);
-  });
-
-  it('emits slideChanged for acn=fv (stage display format)', () => {
-    const pp = new ProPresenter();
-    let emitted = null;
-    pp.on('slideChanged', (m) => { emitted = m; });
-    pp._handleWSMessage({ acn: 'fv', data: {} });
-    assert.ok(emitted !== null);
-  });
-
-  it('emits presentationChanged for action=presentationChanged', () => {
-    const pp = new ProPresenter();
-    let emitted = null;
-    pp.on('presentationChanged', (m) => { emitted = m; });
-    pp._handleWSMessage({ action: 'presentationChanged', name: 'Song 2' });
-    assert.ok(emitted !== null);
-    assert.equal(emitted.name, 'Song 2');
-  });
-
-  it('does not emit for unrecognized messages', () => {
-    const pp = new ProPresenter();
-    let emitted = false;
-    pp.on('slideChanged', () => { emitted = true; });
-    pp.on('presentationChanged', () => { emitted = true; });
-    pp._handleWSMessage({ action: 'someOtherEvent' });
-    assert.equal(emitted, false);
-  });
-});
-
 // ─── _scheduleReconnect ────────────────────────────────────────────────────────
 
 describe('ProPresenter._scheduleReconnect()', () => {
@@ -741,16 +702,16 @@ describe('ProPresenter backup mirroring', () => {
   });
 
   it('nextSlide mirrors to backup in playlist mode', async () => {
-    const backupFetched = [];
+    const backupFired = [];
     const pp = new ProPresenter({ backupHost: '10.0.0.99' });
-    // Mock backup fetch
-    pp._backup._fetch = async (path) => { backupFetched.push(path); return null; };
+    // Mock backup _fire (used by _mirror)
+    pp._backup._fire = async (path) => { backupFired.push(path); return true; };
 
     global.fetch = async () => ({ ok: true, text: async () => '{}' });
     await pp.nextSlide();
     // _mirror fires fire-and-forget — give microtask queue a chance to run
     await new Promise(r => setImmediate(r));
-    // The path is mirrored via _backup._fetch
-    assert.ok(backupFetched.some(p => p.includes('trigger')));
+    // The path is mirrored via _backup._fire
+    assert.ok(backupFired.some(p => p.includes('trigger')));
   });
 });
