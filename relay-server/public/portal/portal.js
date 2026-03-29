@@ -2782,7 +2782,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<td style="font-weight:600">' + escapeHtml(r.name) + (r.description ? '<br><span style="font-size:11px;color:#64748B">' + escapeHtml(r.description) + '</span>' : '') + '</td>';
           html += '<td>' + assigned + '</td>';
           html += '<td>' + (r.assignedDesktops && r.assignedDesktops.length > 0 ? '<span style="color:#22c55e">●</span>' : '<span style="color:#475569">—</span>') + '</td>';
-          html += '<td style="text-align:right"><button class="btn-small btn-secondary" data-action="editRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" data-action="deleteRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '">Delete</button></td>';
+          html += '<td style="text-align:right"><button class="btn-small btn-secondary" data-action="editRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '" data-room-desc="' + escapeHtml(r.description || '') + '">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" data-action="deleteRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '">Delete</button></td>';
           html += '</tr>';
         }
         html += '</tbody></table></div>';
@@ -2797,10 +2797,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (_addingRoom) return;
       _addingRoom = true;
       try {
-        var name = await modalPrompt('Room name (e.g., Main Sanctuary, Youth Room)', '', { title: 'Add Room' });
-        if (!name) { _addingRoom = false; return; }
-        await api('POST', '/api/church/rooms', { name: name.trim() });
-        toast('Room "' + name.trim() + '" created');
+        var result = await _showDialog('Add Room', 'Room name (e.g., Main Sanctuary, Youth Room)', {
+          input: true, textarea: true, textareaLabel: 'Description (optional)', cancelable: true
+        });
+        if (!result || !result.input) { _addingRoom = false; return; }
+        await api('POST', '/api/church/rooms', { name: result.input.trim(), description: result.textarea.trim() });
+        toast('Room "' + result.input.trim() + '" created');
         loadRooms();
       } catch (e) {
         toast(e.message || 'Failed to create room', true);
@@ -2809,15 +2811,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
-    async function editRoom(roomId, currentName) {
-      var newName = await modalPrompt('Rename room', currentName, { title: 'Edit Room' });
-      if (!newName || newName === currentName) return;
+    async function editRoom(roomId, currentName, currentDesc) {
+      var result = await _showDialog('Edit Room', 'Room name', {
+        input: true, defaultVal: currentName, textarea: true, textareaLabel: 'Description (optional)', textareaVal: currentDesc || '', cancelable: true
+      });
+      if (!result) return;
+      var newName = result.input.trim();
+      var newDesc = result.textarea.trim();
+      if (!newName) { toast('Room name cannot be empty', true); return; }
+      if (newName === currentName && newDesc === (currentDesc || '')) return;
       try {
-        await api('PATCH', '/api/church/rooms/' + encodeURIComponent(roomId), { name: newName.trim() });
-        toast('Room renamed');
+        await api('PATCH', '/api/church/rooms/' + encodeURIComponent(roomId), { name: newName, description: newDesc });
+        toast('Room updated');
         loadRooms();
       } catch (e) {
-        toast(e.message || 'Failed to rename room', true);
+        toast(e.message || 'Failed to update room', true);
       }
     }
 
@@ -5115,12 +5123,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     // ── Async modal dialogs (replaces confirm/prompt/alert) ─────────────
-    function _showDialog(title, message, { input = false, defaultVal = '', cancelable = true, okLabel = 'OK', dangerOk = false } = {}) {
+    function _showDialog(title, message, { input = false, defaultVal = '', textarea = false, textareaLabel = '', textareaVal = '', cancelable = true, okLabel = 'OK', dangerOk = false } = {}) {
       return new Promise(resolve => {
         const backdrop = document.getElementById('modal-dialog');
         const bodyEl = document.getElementById('dialog-body');
         const inputWrap = document.getElementById('dialog-input-wrap');
         const inputEl = document.getElementById('dialog-input');
+        const textareaWrap = document.getElementById('dialog-textarea-wrap');
+        const textareaEl = document.getElementById('dialog-textarea');
+        const textareaLabelEl = document.getElementById('dialog-textarea-label');
         const cancelBtn = document.getElementById('dialog-cancel');
         const okBtn = document.getElementById('dialog-ok');
         const closeX = document.getElementById('dialog-close-x');
@@ -5128,6 +5139,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         bodyEl.textContent = message;
         inputWrap.style.display = input ? '' : 'none';
         inputEl.value = defaultVal;
+        textareaWrap.style.display = textarea ? '' : 'none';
+        textareaEl.value = textareaVal;
+        if (textareaLabel) textareaLabelEl.textContent = textareaLabel;
         cancelBtn.style.display = cancelable ? '' : 'none';
         okBtn.textContent = okLabel;
         if (dangerOk) { okBtn.className = 'btn-danger'; } else { okBtn.className = 'btn-primary'; }
@@ -5140,7 +5154,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           backdrop.removeEventListener('click', onBackdrop);
           resolve(val);
         }
-        function onOk() { cleanup(input ? inputEl.value : true); }
+        function onOk() {
+          if (input && textarea) cleanup({ input: inputEl.value, textarea: textareaEl.value });
+          else if (input) cleanup(inputEl.value);
+          else cleanup(true);
+        }
         function onCancel() { cleanup(input ? null : false); }
         function onBackdrop(e) { if (e.target === backdrop) onCancel(); }
 
@@ -5738,7 +5756,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof addRoom === 'function') addRoom();
         break;
       case 'editRoom':
-        if (typeof editRoom === 'function') editRoom(btn.dataset.roomId, btn.dataset.roomName);
+        if (typeof editRoom === 'function') editRoom(btn.dataset.roomId, btn.dataset.roomName, btn.dataset.roomDesc);
         break;
       case 'deleteRoom':
         if (typeof deleteRoom === 'function') deleteRoom(btn.dataset.roomId, btn.dataset.roomName);
