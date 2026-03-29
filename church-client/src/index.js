@@ -775,7 +775,9 @@ class ChurchAVAgent {
       // Include instance name so the relay can track multiple Tally agents per church
       // (e.g. multi-room). Without this, each agent replaces the previous one.
       const instanceName = this.config.name || os.hostname();
-      const url = `${this.config.relay}/church?token=${this.config.token}&instance=${encodeURIComponent(instanceName)}`;
+      const params = new URLSearchParams({ token: this.config.token, instance: instanceName });
+      if (this.config.roomId) params.set('room_id', this.config.roomId);
+      const url = `${this.config.relay}/church?${params}`;
       console.log(`\n📡 Connecting to relay...`);
 
       // Kill any stale socket before creating a new one.

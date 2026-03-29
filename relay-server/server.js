@@ -3335,7 +3335,7 @@ const _wsHandlers = createWebSocketHandlers({
     } catch (e) {
       console.error('[branding] lookup error:', e.message);
     }
-    broadcastToPortal(church.churchId, { type: 'connected', status: church.status, lastSeen: church.lastSeen });
+    broadcastToPortal(church.churchId, { type: 'connected', status: church.status, lastSeen: church.lastSeen, instanceStatus: church.instanceStatus, roomInstanceMap: church.roomInstanceMap });
     log(`Church "${church.name}" connected`, { event: 'church_connect', churchId: church.churchId, church: church.name });
     // (WS-level ping interval is managed by the factory via wsPingIntervalMs)
   },

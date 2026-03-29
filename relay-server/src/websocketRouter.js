@@ -186,6 +186,7 @@ function createWebSocketHandlers({
     // Instance name — allows multiple Tally agents per church (multi-room).
     // Falls back to '_default' for legacy clients that don't send &instance=.
     const instance = url.searchParams.get('instance') || '_default';
+    const roomIdFromConnect = url.searchParams.get('room_id') || null;
     ws._tallyInstance = instance; // stash on the socket for disconnect lookup
 
     ensureSockets(church);
@@ -223,7 +224,14 @@ function createWebSocketHandlers({
     church.lastSeen = new Date().toISOString();
     church.disconnectedAt = null;
 
-    console.log(`[WS] Church ${church.churchId} instance="${instance}" connected (${church.sockets.size} instance(s) total)`);
+    // Immediately restore room mapping so the portal never loses track of which
+    // room this instance belongs to (no gap between connect and first status_update)
+    if (roomIdFromConnect) {
+      if (!church.roomInstanceMap) church.roomInstanceMap = {};
+      church.roomInstanceMap[roomIdFromConnect] = instance;
+    }
+
+    console.log(`[WS] Church ${church.churchId} instance="${instance}" connected (${church.sockets.size} instance(s) total${roomIdFromConnect ? `, room=${roomIdFromConnect}` : ''})`);
 
     // Acknowledge the connection to the church client
     safeSend(ws, { type: 'connected', churchId: church.churchId, name: church.name, instance });
@@ -245,9 +253,11 @@ function createWebSocketHandlers({
       churchId:  church.churchId,
       name:      church.name,
       instance,
+      roomId:    roomIdFromConnect || null,
       timestamp: church.lastSeen,
       connected: true,
       status:    church.status,
+      roomInstanceMap: church.roomInstanceMap || {},
     };
     broadcastToControllers(connectedEvent);
     broadcastToSSE(connectedEvent);
