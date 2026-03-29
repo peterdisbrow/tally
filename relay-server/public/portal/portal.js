@@ -25,7 +25,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'nav.profile': 'Profile',
         'nav.campuses': 'Campuses',
         'nav.team': 'Team',
-        'nav.schedule': 'Schedule',
         'nav.alerts': 'Alerts',
         'nav.engineer': 'Tally Engineer',
         'nav.automation': 'Automation',
@@ -395,7 +394,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'nav.profile': 'Perfil',
         'nav.campuses': 'Sedes',
         'nav.team': 'Equipo',
-        'nav.schedule': 'Horario',
         'nav.alerts': 'Alertas',
         'nav.engineer': 'Tally Engineer',
         'nav.automation': 'Automatizaci\u00f3n',
@@ -900,12 +898,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (sidebar) sidebar.classList.remove('open');
       if (overlay) overlay.classList.remove('open');
       if (id === 'overview') { loadOverview(); startOverviewPoll(); } else { stopOverviewPoll(); }
+      if (id === 'profile') loadNotifications();
       if (id === 'campuses') { loadCampuses(); loadCampusMode(); loadRooms(); }
       if (id === 'team') loadTds();
-      if (id === 'schedule') loadSchedule();
-      if (id === 'alerts') loadNotifications();
+      if (id === 'alerts') { loadAlerts(); loadFailoverSettings(); }
       if (id === 'automation') loadMacros();
-      if (id === 'analytics') loadSessions();
+      if (id === 'analytics') loadAnalytics();
       if (id === 'billing') { loadBilling(); loadReferralsPage(); }
       if (id === 'support') { loadSupportInfo(); initMigrationWizard(); }
       if (id === 'engineer') startEngineerChatPoll(); else stopEngineerChatPoll();
@@ -929,9 +927,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (!_tabLoaded[tabId]) {
         _tabLoaded[tabId] = true;
         if (tabId === 'tab-equipment') loadEquipment();
+        if (tabId === 'tab-schedule') loadSchedule();
         if (tabId === 'tab-guests') loadGuests();
-        if (tabId === 'tab-alert-history') loadAlerts();
         if (tabId === 'tab-autopilot') loadAutopilot();
+        if (tabId === 'tab-sessions') loadSessions();
         if (tabId === 'tab-analytics-data') loadAnalytics();
       }
     }
@@ -1294,6 +1293,24 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // ── Tally Engineer diagnostics ──────────────────────────────────────
         populatePfCampusPicker();
         loadProblems('');
+
+        // ── Room selector for overview ────────────────────────────────────
+        try {
+          var roomsData = await api('GET', '/api/church/rooms');
+          var rSel = document.getElementById('overview-room-selector');
+          var rWrap = document.getElementById('overview-room-selector-wrap');
+          if (rSel && rWrap && roomsData.rooms && roomsData.rooms.length > 1) {
+            rSel.innerHTML = '<option value="">All Rooms</option>';
+            roomsData.rooms.forEach(function(r) {
+              var opt = document.createElement('option');
+              opt.value = r.id;
+              opt.textContent = r.name;
+              rSel.appendChild(opt);
+            });
+            if (roomsData.currentRoomId) rSel.value = roomsData.currentRoomId;
+            rWrap.style.display = '';
+          }
+        } catch(re) { /* rooms not available — single room, skip */ }
       } catch(e) { console.error(e); }
     }
 
