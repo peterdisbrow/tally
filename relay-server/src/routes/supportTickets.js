@@ -78,7 +78,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
 
     return {
       churchId,
-      campusId: options.campusId || null,
+      roomId: options.roomId || null,
       room: options.room || null,
       timezone: options.timezone || null,
       issueCategory: normalizeSupportCategory(options.issueCategory),
@@ -343,7 +343,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
       timezone: req.body?.timezone,
       appVersion: req.body?.appVersion,
       autoFixAttempts: req.body?.autoFixAttempts,
-      campusId: req.body?.campusId,
+      roomId: req.body?.roomId,
       room: req.body?.room,
     });
     const triage = computeTriageResult(diagnostics);

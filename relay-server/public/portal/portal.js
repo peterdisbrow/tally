@@ -2782,7 +2782,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<td style="font-weight:600">' + escapeHtml(r.name) + (r.description ? '<br><span style="font-size:11px;color:#64748B">' + escapeHtml(r.description) + '</span>' : '') + '</td>';
           html += '<td>' + assigned + '</td>';
           html += '<td>' + (r.assignedDesktops && r.assignedDesktops.length > 0 ? '<span style="color:#22c55e">●</span>' : '<span style="color:#475569">—</span>') + '</td>';
-          html += '<td style="text-align:right"><button class="btn-small btn-secondary" onclick="editRoom(\'' + r.id + '\',\'' + escapeHtml(r.campusId) + '\',\'' + escapeHtml(r.name) + '\')">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" onclick="deleteRoom(\'' + r.id + '\',\'' + escapeHtml(r.campusId) + '\',\'' + escapeHtml(r.name) + '\')">Delete</button></td>';
+          html += '<td style="text-align:right"><button class="btn-small btn-secondary" onclick="editRoom(\'' + r.id + '\',\'' + escapeHtml(r.name) + '\')">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" onclick="deleteRoom(\'' + r.id + '\',\'' + escapeHtml(r.name) + '\')">Delete</button></td>';
           html += '</tr>';
         }
         html += '</tbody></table></div>';
@@ -2799,7 +2799,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try {
         var name = await modalPrompt('Room name (e.g., Main Sanctuary, Youth Room)', '', { title: 'Add Room' });
         if (!name) { _addingRoom = false; return; }
-        await api('POST', '/api/church/campuses/' + encodeURIComponent(CHURCH_ID) + '/rooms', { name: name.trim() });
+        await api('POST', '/api/church/rooms', { name: name.trim() });
         toast('Room "' + name.trim() + '" created');
         loadRooms();
       } catch (e) {
@@ -2809,11 +2809,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
-    async function editRoom(roomId, campusId, currentName) {
+    async function editRoom(roomId, currentName) {
       var newName = await modalPrompt('Rename room', currentName, { title: 'Edit Room' });
       if (!newName || newName === currentName) return;
       try {
-        await api('PATCH', '/api/church/campuses/' + encodeURIComponent(campusId) + '/rooms/' + encodeURIComponent(roomId), { name: newName.trim() });
+        await api('PATCH', '/api/church/rooms/' + encodeURIComponent(roomId), { name: newName.trim() });
         toast('Room renamed');
         loadRooms();
       } catch (e) {
@@ -2821,10 +2821,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
-    async function deleteRoom(roomId, campusId, roomName) {
+    async function deleteRoom(roomId, roomName) {
       if (!await modalConfirm('Delete room "' + roomName + '"? Any desktops assigned to this room will be unassigned.', { title: 'Delete Room', okLabel: 'Delete', dangerOk: true })) return;
       try {
-        await api('DELETE', '/api/church/campuses/' + encodeURIComponent(campusId) + '/rooms/' + encodeURIComponent(roomId));
+        await api('DELETE', '/api/church/rooms/' + encodeURIComponent(roomId));
         toast('Room deleted');
         loadRooms();
       } catch (e) {

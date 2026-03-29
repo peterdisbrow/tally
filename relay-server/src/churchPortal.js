@@ -981,7 +981,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
 
   // ── Room CRUD (flat routes) ──────────────────────────────────────────────────
-  // Rooms belong directly to the authenticated church (campus_id = churchId).
+  // Rooms belong directly to the authenticated church (rooms.campus_id = churchId).
 
   app.get('/api/church/rooms', authMiddleware, (req, res) => {
     try {
@@ -1080,7 +1080,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const roomId = req.body?.roomId || null;
       const roomName = req.body?.roomName || '';
       if (roomId) {
-        // Verify the room exists and belongs to this church's campus group
+        // Verify the room exists and belongs to this church
         const room = db.prepare('SELECT r.id, r.name FROM rooms r WHERE r.id = ?').get(roomId);
         if (!room) return res.status(404).json({ error: 'Room not found' });
         db.prepare('UPDATE churches SET room_id = ?, room_name = ? WHERE churchId = ?').run(roomId, room.name, churchId);

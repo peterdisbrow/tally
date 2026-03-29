@@ -1348,9 +1348,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     const TIER_NAMES = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise' };
     const TIER_UNLOCKED = {
-      plus: ['Multi-campus monitoring', 'Weekly production digests', 'Extended 90-day session history'],
+      plus: ['Multi-room monitoring', 'Weekly production digests', 'Extended 90-day session history'],
       pro: ['AutoPilot automation rules', 'Analytics dashboard &amp; trends', 'Priority support &amp; onboarding call'],
-      managed: ['Dedicated success manager', 'Custom integrations &amp; SLA', 'Multi-campus fleet management'],
+      managed: ['Dedicated success manager', 'Custom integrations &amp; SLA', 'Multi-location fleet management'],
     };
     const portalUrl = `${this.appUrl}/portal`;
     const newTierName = TIER_NAMES[newTier] || newTier;
@@ -2455,9 +2455,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     // Tier-specific feature highlights
     const TIER_FEATURES = {
       connect: ['24/7 real-time monitoring &amp; auto-recovery', 'Pre-service health checks', 'Telegram alerts &amp; remote control', 'Session timelines &amp; reports'],
-      plus: ['Everything in Connect', 'Multi-campus monitoring', 'Weekly production digests', 'Extended session history'],
+      plus: ['Everything in Connect', 'Multi-room monitoring', 'Weekly production digests', 'Extended session history'],
       pro: ['Everything in Plus', 'AutoPilot automation rules', 'Analytics dashboard', 'Priority support &amp; onboarding'],
-      managed: ['Everything in Pro', 'Dedicated success manager', 'Custom integrations &amp; SLA', 'Multi-campus fleet management'],
+      managed: ['Everything in Pro', 'Dedicated success manager', 'Custom integrations &amp; SLA', 'Multi-location fleet management'],
       event: ['Single-event monitoring pass', 'Real-time alerts &amp; auto-recovery', 'Post-event recap report'],
     };
     const tierFeatures = TIER_FEATURES[tier] || TIER_FEATURES.connect;
@@ -2810,9 +2810,9 @@ Tally — ${this.appUrl.replace('https://', '')}`;
         ['Invite leadership to receive reports', 'Send weekly digests to your pastor or executive team automatically.', portalUrl + '#tds'],
       ],
       plus: [
-        ['Add your other campuses', 'Plus supports multi-campus — add each location so Tally monitors them all.', portalUrl + '#campuses'],
-        ['Set your service schedule for each campus', 'Each campus can have its own service times and alert recipients.', portalUrl + '#schedule'],
-        ['Set up Telegram for each campus TD', 'Each campus TD should have their own Telegram alert channel.', portalUrl + '#notifications'],
+        ['Add your other rooms', 'Plus supports multi-room — add each location so Tally monitors them all.', portalUrl + '#rooms'],
+        ['Set your service schedule for each room', 'Each room can have its own service times and alert recipients.', portalUrl + '#schedule'],
+        ['Set up Telegram for each room\'s TD', 'Each room TD should have their own Telegram alert channel.', portalUrl + '#notifications'],
       ],
       pro: [
         ['Set up your first AutoPilot rule', 'Pro includes automation — try "auto-start recording when service begins."', portalUrl + '#autopilot'],
@@ -2821,7 +2821,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ],
       managed: [
         ['Reach out to your success manager', 'Your dedicated success manager will contact you within 24 hours to schedule setup.', 'mailto:support@tallyconnect.app'],
-        ['Add all campus locations', 'Enterprise supports unlimited campuses — add them all and assign TDs.', portalUrl + '#campuses'],
+        ['Add all rooms &amp; locations', 'Enterprise supports unlimited rooms — add them all and assign TDs.', portalUrl + '#rooms'],
         ['Review your SLA and support channels', 'Your Enterprise SLA includes priority escalation. Review it in your portal.', portalUrl + '#billing'],
       ],
     };

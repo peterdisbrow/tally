@@ -50,7 +50,7 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
 
   function deleteChurchCascade(churchId) {
     const tx = db.transaction((id) => {
-      // Delete any child churches (legacy campus records) first
+      // Delete any child churches first
       try {
         const children = db.prepare('SELECT churchId FROM churches WHERE parent_church_id = ?').all(id);
         for (const child of children) {

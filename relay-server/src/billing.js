@@ -762,7 +762,7 @@ class BillingSystem {
     // Tier-based feature gating is always enforced (even without Stripe)
     const limits = TIER_LIMITS[tier] || TIER_LIMITS.connect;
 
-    // Room/campus limits
+    // Room limits
     if (feature === 'multi_church' && limits.rooms <= 1) {
       return { allowed: false, reason: 'Multi-room support requires Plus or higher plan.' };
     }
