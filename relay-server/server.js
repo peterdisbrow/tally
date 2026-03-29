@@ -810,6 +810,9 @@ db.exec(`
   )
 `);
 db.exec('CREATE INDEX IF NOT EXISTS idx_pf_reports_church ON problem_finder_reports(church_id, created_at DESC)');
+// Migration: add instance_name for room-based filtering
+try { db.prepare('SELECT instance_name FROM problem_finder_reports LIMIT 1').get(); }
+catch { try { db.exec('ALTER TABLE problem_finder_reports ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
 
 // ─── AI Usage tracking table ────────────────────────────────────────────────
 db.exec(`

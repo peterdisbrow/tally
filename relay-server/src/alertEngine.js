@@ -273,6 +273,9 @@ class AlertEngine {
     // Migration: add session_id column for timeline linking
     try { this.db.prepare('SELECT session_id FROM alerts LIMIT 1').get(); }
     catch { this.db.exec('ALTER TABLE alerts ADD COLUMN session_id TEXT'); }
+    // Migration: add instance_name for room-based filtering
+    try { this.db.prepare('SELECT instance_name FROM alerts LIMIT 1').get(); }
+    catch { try { this.db.exec('ALTER TABLE alerts ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
   }
 
   classifyAlert(alertType, context) {

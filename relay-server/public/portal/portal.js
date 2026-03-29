@@ -922,7 +922,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
       }
       if (e.target.id === 'overview-room-selector') {
-        _overviewInstance = e.target.value;
+        _overviewRoomId = e.target.value;
+        // Persist selection to URL
+        var url = new URL(window.location);
+        if (_overviewRoomId) { url.searchParams.set('room', _overviewRoomId); }
+        else { url.searchParams.delete('room'); }
+        window.history.replaceState({}, '', url);
         loadOverview();
       }
     });
@@ -956,12 +961,51 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     // ── Overview ───────────────────────────────────────────────────────────────
-    var _overviewInstance = ''; // selected room/instance filter
+    var _overviewRoomId = ''; // selected DB room ID for overview filtering
+    var _overviewRoomsLoaded = false; // whether room selector has been populated from DB
+
+    /** Build the query string suffix for room-filtered API calls. */
+    function roomParam() {
+      return _overviewRoomId ? '?roomId=' + encodeURIComponent(_overviewRoomId) : '';
+    }
+    function roomParamAmp() {
+      return _overviewRoomId ? '&roomId=' + encodeURIComponent(_overviewRoomId) : '';
+    }
+
+    /** Populate overview room selector from DB rooms (once). */
+    async function loadOverviewRoomSelector() {
+      if (_overviewRoomsLoaded) return;
+      var rSel = document.getElementById('overview-room-selector');
+      var rWrap = document.getElementById('overview-room-selector-wrap');
+      if (!rSel || !rWrap) return;
+      try {
+        var payload = await api('GET', '/api/church/rooms');
+        var rooms = (payload && payload.rooms) || [];
+        if (rooms.length <= 1) { rWrap.style.display = 'none'; return; }
+        rSel.innerHTML = '<option value="">All Rooms</option>';
+        rooms.forEach(function(room) {
+          var opt = document.createElement('option');
+          opt.value = room.id;
+          var label = room.name || room.id;
+          if (!room.connected) label += ' (offline)';
+          opt.textContent = label;
+          rSel.appendChild(opt);
+        });
+        // Restore selection from URL param
+        var urlRoom = new URLSearchParams(window.location.search).get('room');
+        if (urlRoom) {
+          rSel.value = urlRoom;
+          _overviewRoomId = urlRoom;
+        }
+        rWrap.style.display = '';
+        _overviewRoomsLoaded = true;
+      } catch { /* rooms endpoint failed — hide selector */ }
+    }
 
     async function loadOverview() {
       try {
-        var instanceParam = _overviewInstance ? '?instance=' + encodeURIComponent(_overviewInstance) : '';
-        const d = await api('GET', '/api/church/me' + instanceParam);
+        await loadOverviewRoomSelector();
+        const d = await api('GET', '/api/church/me' + roomParam());
         profileData = d;
         document.getElementById('stat-tds').textContent = (d.tds || []).length;
         document.getElementById('registered-date').textContent = d.registeredAt ? new Date(d.registeredAt).toLocaleDateString() : '—';
@@ -986,6 +1030,24 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         const tbody = document.getElementById('equipment-tbody');
         const status = d.status || {};
+
+        // Handle offline room — show placeholder instead of equipment details
+        if (status._offline) {
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:#64748B">This room is <strong>offline</strong> — no Tally desktop app is connected.</td></tr>';
+          var statusText = document.getElementById('stat-status-text');
+          var statusDot = document.getElementById('stat-status-dot');
+          if (statusText) { statusText.textContent = 'Offline'; statusText.style.color = '#94A3B8'; }
+          if (statusDot) { statusDot.style.background = '#ef4444'; }
+          // Still load sub-cards (they may have historical data)
+          loadScheduleOverview();
+          loadIncidents();
+          loadPreServiceCheck();
+          loadRundown();
+          loadActivityFeed();
+          loadProblems();
+          return;
+        }
+
         const enc = (status.encoder && typeof status.encoder === 'object') ? status.encoder : {};
         const atemConnected = status.atem === true || !!(status.atem && status.atem.connected);
         const obsConnected = status.obs === true || !!(status.obs && status.obs.connected);
@@ -1228,23 +1290,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // ── Tally Engineer diagnostics ──────────────────────────────────────
         loadProblems();
 
-        // ── Room/instance selector for overview ─────────────────────────
-        var instances = d.instances || [];
-        var rSel = document.getElementById('overview-room-selector');
-        var rWrap = document.getElementById('overview-room-selector-wrap');
-        if (rSel && rWrap && instances.length > 1) {
-          // Only rebuild if not already populated
-          if (rSel.options.length <= 1) {
-            rSel.innerHTML = '<option value="">All Rooms</option>';
-            instances.forEach(function(inst) {
-              var opt = document.createElement('option');
-              opt.value = inst;
-              opt.textContent = inst === '_default' ? 'Default' : inst;
-              rSel.appendChild(opt);
-            });
-          }
-          rWrap.style.display = '';
-        }
+        // Room selector is now populated from DB in loadOverviewRoomSelector()
       } catch(e) { console.error(e); }
     }
 
@@ -1565,8 +1611,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (!body) return;
       try {
         var sessionData, alerts;
-        try { sessionData = await api('GET', '/api/church/session/active'); } catch { sessionData = { active: false }; }
-        try { alerts = await api('GET', '/api/church/alerts'); } catch { alerts = []; }
+        try { sessionData = await api('GET', '/api/church/session/active' + roomParam()); } catch { sessionData = { active: false }; }
+        try { alerts = await api('GET', '/api/church/alerts' + roomParam()); } catch { alerts = []; }
 
         var items = [];
         if (sessionData && sessionData.active && sessionData.events) {
@@ -1734,7 +1780,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (!card) return;
 
       try {
-        var data = await api('GET', '/api/church/session/active');
+        var data = await api('GET', '/api/church/session/active' + roomParam());
         if (!data || !data.active) {
           card.style.display = 'none';
           return;
@@ -1826,7 +1872,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (!body) return;
 
       try {
-        var data = await api('GET', '/api/church/preservice-check');
+        var data = await api('GET', '/api/church/preservice-check' + roomParam());
         if (!data || !data.checks_json) {
           body.innerHTML = '<div style="color:#475569;text-align:center;padding:14px;font-size:13px">No check data yet — click <strong>Run Check Now</strong> or wait for the automatic check 30 min before your next service.</div>';
           if (badge) { badge.textContent = 'Not Run'; badge.className = 'badge badge-gray'; }
@@ -1889,7 +1935,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (body) body.innerHTML = '<div style="color:#94A3B8;text-align:center;padding:14px;font-size:13px">Running system check…</div>';
 
       try {
-        var data = await api('POST', '/api/church/preservice-check/run');
+        var data = await api('POST', '/api/church/preservice-check/run' + roomParam());
         if (data && data.result) {
           await loadPreServiceCheck();
         } else {
@@ -1906,7 +1952,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var btn = document.getElementById('psc-dash-fix-btn');
       if (btn) { btn.disabled = true; btn.textContent = 'Fixing…'; }
       try {
-        var data = await api('POST', '/api/church/preservice-check/fix-all');
+        var data = await api('POST', '/api/church/preservice-check/fix-all' + roomParam());
         if (data && data.results) {
           var fixed = data.results.filter(function(r) { return r.success; }).length;
           var failed = data.results.length - fixed;
@@ -1931,7 +1977,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var badge = document.getElementById('pf-badge');
       if (!body) return;
       try {
-        var data = await api('GET', '/api/church/problems');
+        var data = await api('GET', '/api/church/problems' + roomParam());
         renderProblems(data, body, badge);
       } catch(e) {
         body.innerHTML = '<div style="color:#475569;text-align:center;padding:20px;font-size:13px">No diagnostics data yet — connect the Tally desktop app to see results.</div>';

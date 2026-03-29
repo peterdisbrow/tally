@@ -272,6 +272,13 @@ function createWebSocketHandlers({
         church.sockets.delete(instance);
       }
 
+      // Clean up roomInstanceMap entries that pointed to this instance
+      if (church.roomInstanceMap) {
+        for (const [rid, inst] of Object.entries(church.roomInstanceMap)) {
+          if (inst === instance) delete church.roomInstanceMap[rid];
+        }
+      }
+
       console.log(`[WS] Church ${church.churchId} instance="${instance}" disconnected (${church.sockets.size} instance(s) remaining)`);
 
       // Update church.ws to another open socket (or null)
@@ -321,8 +328,17 @@ function createWebSocketHandlers({
         church.lastHeartbeat = Date.now();
         // Track per-instance status for room-based filtering
         if (!church.instanceStatus) church.instanceStatus = {};
+        if (!church.roomInstanceMap) church.roomInstanceMap = {};
         for (const [inst, sock] of church.sockets.entries()) {
-          if (sock === senderWs) { church.instanceStatus[inst] = { ...msg.status, _updatedAt: Date.now() }; break; }
+          if (sock === senderWs) {
+            church.instanceStatus[inst] = { ...msg.status, _updatedAt: Date.now() };
+            // Build roomId → instance mapping from the system.roomId the Electron app reports
+            const roomId = msg.status?.system?.roomId;
+            if (roomId) {
+              church.roomInstanceMap[roomId] = inst;
+            }
+            break;
+          }
         }
         church._offlineAlertSent = false;
 

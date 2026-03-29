@@ -42,6 +42,17 @@ function safeErrorMessage(err, fallback = 'Internal server error') {
   return err?.message || fallback;
 }
 
+/**
+ * Resolve a ?roomId= query param to the instance name connected for that room.
+ * Returns null if no roomId was provided, or the instance name (or undefined if offline).
+ */
+function resolveRoomInstance(req, churches) {
+  const roomId = req.query.roomId;
+  if (!roomId) return null; // no room filter — return all
+  const runtime = churches.get(req.church.churchId);
+  return runtime?.roomInstanceMap?.[roomId] || undefined; // undefined = room offline
+}
+
 // ─── JWT helpers ───────────────────────────────────────────────────────────────
 
 function issueChurchToken(churchId, jwtSecret) {
@@ -564,20 +575,38 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     let notifications = {};
     try { notifications = JSON.parse(c.notifications || '{}'); } catch {}
 
-    // If ?instance= is provided, return that instance's status
+    // Resolve room/instance filtering:
+    //   ?roomId=  → look up instance via roomInstanceMap
+    //   ?instance= → legacy direct instance filter
+    const requestedRoomId = req.query.roomId;
     const requestedInstance = req.query.instance;
+    let resolvedInstance = requestedInstance || null;
+    let roomOffline = false;
+
+    if (requestedRoomId && runtime?.roomInstanceMap) {
+      resolvedInstance = runtime.roomInstanceMap[requestedRoomId] || null;
+      if (!resolvedInstance) roomOffline = true; // room exists in DB but no Electron app connected
+    }
+
     let statusObj = runtime?.status || {};
-    if (requestedInstance && runtime?.instanceStatus?.[requestedInstance]) {
-      statusObj = runtime.instanceStatus[requestedInstance];
+    let isConnected = runtime?.ws?.readyState === 1;
+
+    if (roomOffline) {
+      // Return an offline placeholder status for the disconnected room
+      statusObj = { _offline: true };
+      isConnected = false;
+    } else if (resolvedInstance && runtime?.instanceStatus?.[resolvedInstance]) {
+      statusObj = runtime.instanceStatus[resolvedInstance];
     }
 
     res.json({
       ...safe,
       notifications,
       tds,
-      connected: runtime?.ws?.readyState === 1,
+      connected: isConnected,
       status: statusObj,
       instances: runtime?.sockets ? Array.from(runtime.sockets.keys()) : [],
+      roomInstanceMap: runtime?.roomInstanceMap || {},
       lastSeen: runtime?.lastSeen || null,
       autoRecoveryEnabled: c.auto_recovery_enabled !== 0,
     });
@@ -986,21 +1015,32 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.get('/api/church/rooms', authMiddleware, (req, res) => {
     try {
       const churchId = req.church.churchId;
+      const runtime = churches.get(churchId);
+      const roomInstanceMap = runtime?.roomInstanceMap || {};
       const rooms = db.prepare(`SELECT r.id, r.campus_id, r.name, r.description, r.created_at
         FROM rooms r
         WHERE r.campus_id = ?
         ORDER BY r.name ASC`).all(churchId);
       const result = rooms.map(r => {
         const assigned = db.prepare('SELECT churchId, name, room_name FROM churches WHERE room_id = ?').all(r.id);
+        const instanceName = roomInstanceMap[r.id] || null;
+        const instanceWs = instanceName && runtime?.sockets?.get(instanceName);
         return {
           id: r.id,
           campusId: r.campus_id,
           name: r.name,
           description: r.description || '',
           assignedDesktops: assigned.map(a => ({ churchId: a.churchId, name: a.name })),
+          connected: !!(instanceWs && instanceWs.readyState === 1),
+          instanceName,
         };
       });
-      res.json({ rooms: result, currentRoomId: db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId)?.room_id || null });
+      const maxRooms = maxRoomsForTier(req.church.billing_tier);
+      res.json({
+        rooms: result,
+        currentRoomId: db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId)?.room_id || null,
+        limits: { usedTotal: rooms.length, maxTotal: maxRooms },
+      });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }
@@ -1100,9 +1140,20 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.get('/api/church/problems', authMiddleware, (req, res) => {
     try {
       const targetId = req.church.churchId;
-      const row = db.prepare(
-        'SELECT * FROM problem_finder_reports WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
-      ).get(targetId);
+      const instanceName = resolveRoomInstance(req, churches);
+      let row;
+      if (instanceName) {
+        // Room-specific: prefer report with matching instance_name
+        row = db.prepare(
+          'SELECT * FROM problem_finder_reports WHERE church_id = ? AND instance_name = ? ORDER BY created_at DESC LIMIT 1'
+        ).get(targetId, instanceName);
+      }
+      if (!row) {
+        // Fall back to latest church-level report
+        row = db.prepare(
+          'SELECT * FROM problem_finder_reports WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
+        ).get(targetId);
+      }
       if (!row) return res.json({ status: null, message: 'No reports yet' });
       res.json(row);
     } catch (e) {
@@ -1114,9 +1165,18 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // Returns the latest pre-service check result for the authenticated church.
   app.get('/api/church/preservice-check', supportAuthMiddleware, (req, res) => {
     try {
-      const row = db.prepare(
-        'SELECT * FROM preservice_check_results WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
-      ).get(req.church.churchId);
+      const instanceName = resolveRoomInstance(req, churches);
+      let row;
+      if (instanceName) {
+        row = db.prepare(
+          'SELECT * FROM preservice_check_results WHERE church_id = ? AND instance_name = ? ORDER BY created_at DESC LIMIT 1'
+        ).get(req.church.churchId, instanceName);
+      }
+      if (!row) {
+        row = db.prepare(
+          'SELECT * FROM preservice_check_results WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
+        ).get(req.church.churchId);
+      }
       if (!row) return res.json(null);
       res.json(row);
     } catch (e) {
@@ -1129,7 +1189,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.post('/api/church/preservice-check/run', supportAuthMiddleware, async (req, res) => {
     try {
       if (!preServiceCheck) return res.status(503).json({ error: 'Pre-service check not available' });
-      const result = await preServiceCheck.runManualCheck(req.church.churchId);
+      const instanceName = resolveRoomInstance(req, churches) || null;
+      const result = await preServiceCheck.runManualCheck(req.church.churchId, instanceName);
       if (!result) return res.json({ result: null, message: 'Client offline or no response' });
       res.json({ result });
     } catch (e) {
@@ -1143,7 +1204,13 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       const churchId = req.church.churchId;
       const churchRuntime = churches.get(churchId);
-      if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
+      const instanceName = resolveRoomInstance(req, churches) || null;
+      // Pick the specific instance socket if requested, else fall back to default
+      let targetWs = churchRuntime?.ws;
+      if (instanceName && churchRuntime?.sockets) {
+        targetWs = churchRuntime.sockets.get(instanceName) || targetWs;
+      }
+      if (!targetWs || targetWs.readyState !== 1) {
         return res.json({ results: [], message: 'Client offline' });
       }
 
@@ -1189,7 +1256,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             if (preServiceCheck) preServiceCheck._resultListeners.push(handler);
           });
 
-          churchRuntime.ws.send(JSON.stringify({ type: 'command', command: fix.command, params: fix.params || {}, id: msgId }));
+          targetWs.send(JSON.stringify({ type: 'command', command: fix.command, params: fix.params || {}, id: msgId }));
           const result = await resultPromise;
           results.push({ check: check.name, command: fix.command, ...result });
         } catch (e) {
@@ -1483,13 +1550,29 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const session = sessionRecap.getActiveSession(req.church.churchId);
       if (!session) return res.json({ active: false });
 
+      const instanceName = resolveRoomInstance(req, churches);
+
       // Get events for this session with diagnosis info
       let events = [];
       try {
         const { DIAGNOSIS_TEMPLATES } = require('./alertEngine');
-        events = db.prepare(
-          'SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp DESC LIMIT 20'
-        ).all(session.sessionId).map(e => ({
+        let eventRows;
+        if (instanceName) {
+          eventRows = db.prepare(
+            'SELECT * FROM service_events WHERE session_id = ? AND instance_name = ? ORDER BY timestamp DESC LIMIT 20'
+          ).all(session.sessionId, instanceName);
+          // Fall back to all events if no room-specific ones
+          if (!eventRows.length) {
+            eventRows = db.prepare(
+              'SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp DESC LIMIT 20'
+            ).all(session.sessionId);
+          }
+        } else {
+          eventRows = db.prepare(
+            'SELECT * FROM service_events WHERE session_id = ? ORDER BY timestamp DESC LIMIT 20'
+          ).all(session.sessionId);
+        }
+        events = eventRows.map(e => ({
           ...e,
           resolved: !!e.resolved,
           auto_resolved: !!e.auto_resolved,
@@ -2476,10 +2559,26 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // ── GET /api/church/alerts ──────────────────────────────────────────────────
   app.get('/api/church/alerts', authMiddleware, (req, res) => {
     try {
-      const alerts = db.prepare(`
-        SELECT id, alert_type, severity, context, created_at, acknowledged_at, acknowledged_by, escalated, resolved
-        FROM alerts WHERE church_id = ? ORDER BY datetime(created_at) DESC LIMIT 50
-      `).all(req.church.churchId);
+      const instanceName = resolveRoomInstance(req, churches);
+      let alerts;
+      if (instanceName) {
+        alerts = db.prepare(`
+          SELECT id, alert_type, severity, context, created_at, acknowledged_at, acknowledged_by, escalated, resolved
+          FROM alerts WHERE church_id = ? AND instance_name = ? ORDER BY datetime(created_at) DESC LIMIT 50
+        `).all(req.church.churchId, instanceName);
+        // Fall back to all alerts if no room-specific ones
+        if (!alerts.length) {
+          alerts = db.prepare(`
+            SELECT id, alert_type, severity, context, created_at, acknowledged_at, acknowledged_by, escalated, resolved
+            FROM alerts WHERE church_id = ? ORDER BY datetime(created_at) DESC LIMIT 50
+          `).all(req.church.churchId);
+        }
+      } else {
+        alerts = db.prepare(`
+          SELECT id, alert_type, severity, context, created_at, acknowledged_at, acknowledged_by, escalated, resolved
+          FROM alerts WHERE church_id = ? ORDER BY datetime(created_at) DESC LIMIT 50
+        `).all(req.church.churchId);
+      }
 
       const parsed = alerts.map(a => ({
         ...a,

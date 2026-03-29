@@ -77,6 +77,9 @@ class PreServiceCheck {
     try {
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_preservice_church ON preservice_check_results(church_id, created_at DESC)');
     } catch { /* already exists */ }
+    // Migration: add instance_name for room-based filtering
+    try { this.db.prepare('SELECT instance_name FROM preservice_check_results LIMIT 1').get(); }
+    catch { try { this.db.exec('ALTER TABLE preservice_check_results ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
   }
 
   /**
@@ -270,19 +273,20 @@ class PreServiceCheck {
    * @param {string} churchId
    * @param {object|null} result - { pass, checks } from client
    * @param {string} triggerType - 'auto' or 'manual'
+   * @param {string} [instanceName] - instance name for room-based filtering
    */
-  _persistResult(churchId, result, triggerType = 'auto') {
+  _persistResult(churchId, result, triggerType = 'auto', instanceName = null) {
     if (!this.db || !result) return;
     try {
       const crypto = require('crypto');
       const sessionId = this.sessionRecap?.getActiveSessionId(churchId) || null;
       this.db.prepare(`
-        INSERT INTO preservice_check_results (id, church_id, session_id, pass, checks_json, trigger_type, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO preservice_check_results (id, church_id, session_id, pass, checks_json, trigger_type, created_at, instance_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         crypto.randomUUID(), churchId, sessionId,
         result.pass ? 1 : 0, JSON.stringify(result.checks || []),
-        triggerType, new Date().toISOString()
+        triggerType, new Date().toISOString(), instanceName
       );
     } catch (e) {
       console.error('[PreServiceCheck] DB persist error:', e.message);
@@ -292,11 +296,17 @@ class PreServiceCheck {
   /**
    * Run a manual pre-service check for a church (triggered from portal).
    * @param {string} churchId
+   * @param {string} [instanceName] - optional instance to target (for room-based checks)
    * @returns {Promise<object|null>} Check result
    */
-  async runManualCheck(churchId) {
+  async runManualCheck(churchId, instanceName = null) {
     const churchRuntime = this.churches?.get(churchId);
-    if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
+    // Pick the specific instance socket if requested, else fall back to default
+    let targetWs = churchRuntime?.ws;
+    if (instanceName && churchRuntime?.sockets) {
+      targetWs = churchRuntime.sockets.get(instanceName) || targetWs;
+    }
+    if (!targetWs || targetWs.readyState !== 1) {
       return null;
     }
 
@@ -321,7 +331,7 @@ class PreServiceCheck {
     });
 
     // Send command to client
-    churchRuntime.ws.send(JSON.stringify({
+    targetWs.send(JSON.stringify({
       type: 'command', command: 'system.preServiceCheck', params: {}, id: msgId,
     }));
 
@@ -330,7 +340,7 @@ class PreServiceCheck {
       result.checks = this._enrichWithVersionChecks(result.checks || [], churchRuntime.status);
       result.pass = result.pass && !result.checks.some(c => !c.pass);
     }
-    this._persistResult(churchId, result, 'manual');
+    this._persistResult(churchId, result, 'manual', instanceName);
     return result;
   }
 
