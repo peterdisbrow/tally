@@ -493,7 +493,7 @@ function updateTray() {
   } else if (billingStatus === 'past_due') {
     billingLine = '\u26A0\uFE0F Payment issue \u2014 update card';
   } else if (billingStatus === 'active' && billingTier) {
-    const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Managed', event: 'Event' };
+    const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise', event: 'Event' };
     billingLine = `\u2705 Plan: ${tierNames[billingTier] || billingTier}`;
   }
 

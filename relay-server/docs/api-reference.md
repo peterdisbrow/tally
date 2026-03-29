@@ -81,7 +81,7 @@ All error responses share the same shape:
 | Basic | `connect` | Relay, chat, presets, Problem Finder |
 | Plus | `plus` | AutoPilot, on-call rotation, command log, monthly reports |
 | Pro | `pro` | Planning Center, advanced sessions |
-| Managed | `managed` | Full-service, all features |
+| Enterprise | `managed` | Full-service, all features |
 | Event | `event` | Time-limited, single-event access |
 
 Endpoints that require a specific tier return **HTTP 402** with an upgrade suggestion when the church is on a lower tier.

@@ -500,7 +500,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     const limits = {
       connect: 1,   // single room
       plus: 3,      // up to 3 rooms
-      pro: 10,      // up to 10 rooms
+      pro: 5,       // up to 5 rooms
       managed: 999, // unlimited rooms (Enterprise)
       event: 1,
     };

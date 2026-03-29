@@ -269,7 +269,7 @@ for i, h in enumerate(price_headers, 1):
     ws4.cell(row=4, column=i, value=h)
 style_header(ws4, 4, 2)
 
-prices = [("Connect", 0), ("Plus", 29), ("Pro", 79), ("Enterprise", 199)]
+prices = [("Connect", 49), ("Plus", 99), ("Pro", 149), ("Enterprise", 499)]
 for i, (tier, price) in enumerate(prices):
     r = 5 + i
     ws4.cell(row=r, column=1, value=tier).font = BLACK_FONT
@@ -334,11 +334,11 @@ for scenario_name, _, tiers in scenarios:
     ws4.cell(row=current_row, column=2, value="MRR").font = BOLD_FONT
     ws4.cell(row=current_row, column=2).border = THIN_BORDER
 
-    # Price refs: B5=Connect($0), B6=Plus($29), B7=Pro($79), B8=Enterprise($199)
+    # Price refs: B5=Connect($49), B6=Plus($99), B7=Pro($149), B8=Enterprise($499)
     for j in range(6):
         col = get_column_letter(3+j)
         tier_rows = [tier_start + k for k in range(4)]
-        # MRR = Connect*$0 + Plus*$29 + Pro*$79 + Enterprise*$199
+        # MRR = Connect*$49 + Plus*$99 + Pro*$149 + Enterprise*$499
         formula = f'={col}{tier_rows[0]}*$B$5+{col}{tier_rows[1]}*$B$6+{col}{tier_rows[2]}*$B$7+{col}{tier_rows[3]}*$B$8'
         cell = ws4.cell(row=current_row, column=3+j, value=formula)
         cell.font = BOLD_FONT

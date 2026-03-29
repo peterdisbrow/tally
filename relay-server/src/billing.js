@@ -914,7 +914,7 @@ class BillingSystem {
 
     // Tier-based referral credit — one free month of each party's current plan
     const TIER_MONTHLY_CENTS = {
-      connect: 7900,   // $79
+      connect: 4900,   // $49
       plus:    9900,   // $99
       pro:     14900,  // $149
       managed: 49900,  // $499
@@ -932,8 +932,8 @@ class BillingSystem {
     }
 
     // Credit amounts: one free month for each party based on their own plan
-    const referrerCreditCents = TIER_MONTHLY_CENTS[referrerBilling.tier] || 7900;
-    const refereeCreditCents  = TIER_MONTHLY_CENTS[tier] || 7900;
+    const referrerCreditCents = TIER_MONTHLY_CENTS[referrerBilling.tier] || 4900;
+    const refereeCreditCents  = TIER_MONTHLY_CENTS[tier] || 4900;
     const now = new Date().toISOString();
 
     try {

@@ -17,8 +17,8 @@ const TIERS = [
     tier: 'connect',
     name: 'Tally Connect',
     description: 'Single-room church production monitoring with basic alerts and remote control.',
-    monthly: 7900,   // $79/mo
-    annual: 71100,   // $711/yr (3 months free)
+    monthly: 4900,   // $49/mo
+    annual: 44100,   // $441/yr (3 months free)
   },
   {
     tier: 'plus',

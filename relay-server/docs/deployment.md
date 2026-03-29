@@ -68,7 +68,7 @@ Create a `.env` file (or configure secrets in your hosting provider). Every vari
 | `STRIPE_PRICE_CONNECT` | Price ID for Connect tier (monthly) |
 | `STRIPE_PRICE_PLUS` | Price ID for Plus tier (monthly) |
 | `STRIPE_PRICE_PRO` | Price ID for Pro tier (monthly) |
-| `STRIPE_PRICE_MANAGED` | Price ID for Managed tier (monthly) |
+| `STRIPE_PRICE_MANAGED` | Price ID for Enterprise tier (monthly) |
 | `STRIPE_PRICE_EVENT` | Price ID for Event tier (one-time) |
 | `STRIPE_PRICE_CONNECT_ANNUAL` | Annual variant |
 | `STRIPE_PRICE_PLUS_ANNUAL` | Annual variant |

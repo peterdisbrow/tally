@@ -4112,7 +4112,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#94A3B8">✦ AI Autopilot automation rules</div>';
           html += '<div style="color:#94A3B8">✦ Planning Center sync + write-back</div>';
           html += '<div style="color:#94A3B8">✦ Monthly leadership reports</div>';
-          html += '<div style="color:#94A3B8">✦ Up to 10 rooms</div>';
+          html += '<div style="color:#94A3B8">✦ Up to 5 rooms</div>';
           html += '</div>';
           html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#22c55e;border:1px solid rgba(34,197,94,0.3);cursor:pointer">Upgrade to Pro — $149/mo →</button>';
           html += '</div>';
@@ -4127,7 +4127,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="color:#94A3B8">✦ AI Autopilot automation rules</div>';
           html += '<div style="color:#94A3B8">✦ Planning Center sync + write-back</div>';
           html += '<div style="color:#94A3B8">✦ Monthly leadership reports</div>';
-          html += '<div style="color:#94A3B8">✦ Up to 10 rooms</div>';
+          html += '<div style="color:#94A3B8">✦ Up to 5 rooms</div>';
           html += '</div>';
           html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Pro — $149/mo →</button>';
           html += '</div>';
@@ -4162,9 +4162,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="font-size:13px;color:#94A3B8;margin-bottom:8px">Need fewer features?</div>';
           if (currentTier === 'managed' || currentTier === 'pro') {
             html += '<button onclick="downgradePlan(\'plus\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:8px">Downgrade to Plus ($99/mo)</button>';
-            html += '<button onclick="downgradePlan(\'connect\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($79/mo)</button>';
+            html += '<button onclick="downgradePlan(\'connect\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
           } else if (currentTier === 'plus') {
-            html += '<button onclick="downgradePlan(\'connect\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($79/mo)</button>';
+            html += '<button onclick="downgradePlan(\'connect\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
           }
           html += '</div>';
         }
