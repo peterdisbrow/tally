@@ -1,8 +1,13 @@
 /**
  * Audio Monitor — Silence / Dropout Detection
  *
- * Monitors ATEM master output audio during active OBS streaming.
- * Alerts if master output level stays below -40 dBFS for 15+ consecutive seconds.
+ * Monitors audio levels from ATEM or vMix during active streaming (OBS, vMix,
+ * or any encoder). Alerts if audio stays below -40 dBFS for 15+ consecutive seconds.
+ *
+ * Audio sources (checked in priority order):
+ *   1. ATEM master output (reads hardware audio meters)
+ *   2. vMix master meters (meterF1/meterF2 from API)
+ *   3. No source available → status reports "no audio monitoring source"
  *
  * Also monitors OBS stream congestion as a secondary audio health signal.
  *
@@ -26,6 +31,8 @@ class AudioMonitor {
     this._silenceStartTime = null;     // when silence was first detected
     this._lastAlertTimes  = new Map(); // alertKey → timestamp
     this._failoverSignalSent = false;  // prevent re-sending signal_event
+    this._lastLevelDb = null;          // most recent audio level reading (dBFS)
+    this._audioSource = null;          // which source is providing audio: 'atem', 'vmix', or null
   }
 
   /** Start monitoring. Must be called with the ChurchAVAgent instance. */
@@ -55,35 +62,53 @@ class AudioMonitor {
     if (!this.agent) return;
     const { status } = this.agent;
 
-    // Only monitor while OBS is streaming
-    if (!status.obs?.streaming) {
+    // Monitor while ANY encoder is streaming (OBS, vMix, Blackmagic, etc.)
+    const isStreaming = status.obs?.streaming || status.vmix?.streaming || status.encoder?.live;
+    if (!isStreaming) {
       this._silenceStartTime = null; // reset silence timer when not streaming
+      this._lastLevelDb = null;
+      this._audioSource = null;
       return;
     }
 
-    // Check ATEM master audio
-    this._checkATEMAudio();
+    // Check audio sources in priority order: ATEM → vMix → no source
+    let levelRead = false;
 
-    // Check OBS congestion (secondary signal)
-    await this._checkOBSAudio().catch(() => {});
+    // 1. ATEM master audio (most reliable — hardware meters)
+    if (this.agent.atem && status.atem?.connected) {
+      levelRead = this._checkATEMAudio();
+    }
+
+    // 2. vMix master meters (if no ATEM level was read)
+    if (!levelRead && status.vmix?.connected) {
+      levelRead = this._checkVMixAudio();
+    }
+
+    // 3. No audio source available
+    if (!levelRead) {
+      this._audioSource = null;
+    }
+
+    // Check OBS congestion (secondary signal, independent of audio source)
+    if (status.obs?.connected) {
+      await this._checkOBSAudio().catch(() => {});
+    }
   }
 
   // ─── ATEM Audio Check ──────────────────────────────────────────────────────
 
+  /** @returns {boolean} true if a level was successfully read */
   _checkATEMAudio() {
     const { agent } = this;
-    if (!agent.atem || !agent.status.atem?.connected) return;
+    if (!agent.atem || !agent.status.atem?.connected) return false;
 
     try {
       const state = agent.atem.state;
-      if (!state?.audio) return;
+      if (!state?.audio) return false;
 
       const master = state.audio.master;
-      if (!master) return;
+      if (!master) return false;
 
-      // ATEM exposes audio levels in two formats depending on firmware:
-      //   Format A: dBFS * 1000 (e.g. -40000 = -40dB, range -10000 to 0)
-      //   Format B: normalized linear 0–32768 (classic ATEM)
       let levelDb = null;
 
       if (master.inputLevel !== undefined) {
@@ -91,57 +116,89 @@ class AudioMonitor {
       } else if (master.outputLevel !== undefined) {
         levelDb = this._atemLevelToDb(master.outputLevel);
       } else if (master.left !== undefined) {
-        // Some firmware exposes left/right channels separately
         const leftDb  = this._atemLevelToDb(master.left);
         const rightDb = this._atemLevelToDb(master.right ?? master.left);
-        levelDb = Math.max(leftDb, rightDb); // use louder channel
+        levelDb = Math.max(leftDb, rightDb);
       }
 
-      if (levelDb === null) return;
+      if (levelDb === null) return false;
 
-      if (levelDb < SILENCE_THRESHOLD_DB) {
-        // Audio below threshold — start or continue silence timer
-        if (!this._silenceStartTime) {
-          this._silenceStartTime = Date.now();
-        } else {
-          const silenceDuration = Date.now() - this._silenceStartTime;
+      this._lastLevelDb = levelDb;
+      this._audioSource = 'atem';
+      this._processSilenceDetection(levelDb, 'ATEM master output');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
 
-          // 15s: send alert
-          if (silenceDuration >= SILENCE_DURATION_MS) {
-            this._sendAlert(
-              'atem_audio_silence',
-              `Audio silence detected on ATEM master output (${levelDb.toFixed(1)} dBFS for 15+ seconds). Check microphone and mixer.`
-            );
-          }
+  // ─── vMix Audio Check ───────────────────────────────────────────────────────
 
-          // 30s: send signal_event for failover correlation
-          if (silenceDuration >= SILENCE_FAILOVER_MS && !this._failoverSignalSent) {
-            this._failoverSignalSent = true;
-            if (this.agent) {
-              this.agent.sendToRelay({
-                type: 'signal_event',
-                signal: 'audio_silence_sustained',
-                durationSec: Math.floor(silenceDuration / 1000),
-              });
-            }
-          }
-        }
+  /** @returns {boolean} true if a level was successfully read */
+  _checkVMixAudio() {
+    const { agent } = this;
+    if (!agent.vmix || !agent.status.vmix?.connected) return false;
+
+    try {
+      // vMix caches state from getState() / getStatus() — audio is in _stateCache.audio
+      const audio = agent.vmix._stateCache?.audio;
+      if (!audio) return false;
+
+      // vMix meterF1/meterF2 are linear 0.0–1.0 values
+      const meterL = audio.meterL || 0;
+      const meterR = audio.meterR || 0;
+      const peak = Math.max(meterL, meterR);
+
+      // Convert linear to dBFS: 20 * log10(value)
+      const levelDb = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
+
+      this._lastLevelDb = levelDb;
+      this._audioSource = 'vmix';
+      this._processSilenceDetection(levelDb, 'vMix master output');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ─── Shared silence detection logic ─────────────────────────────────────────
+
+  _processSilenceDetection(levelDb, sourceName) {
+    if (levelDb < SILENCE_THRESHOLD_DB) {
+      if (!this._silenceStartTime) {
+        this._silenceStartTime = Date.now();
       } else {
-        // Audio present — reset silence timer
-        if (this._silenceStartTime && this._failoverSignalSent) {
-          // Audio came back after we sent a failover signal — notify relay
+        const silenceDuration = Date.now() - this._silenceStartTime;
+
+        if (silenceDuration >= SILENCE_DURATION_MS) {
+          this._sendAlert(
+            'audio_silence',
+            `Audio silence detected on ${sourceName} (${levelDb === -Infinity ? '-∞' : levelDb.toFixed(1)} dBFS for 15+ seconds). Check microphone and mixer.`
+          );
+        }
+
+        if (silenceDuration >= SILENCE_FAILOVER_MS && !this._failoverSignalSent) {
+          this._failoverSignalSent = true;
           if (this.agent) {
             this.agent.sendToRelay({
               type: 'signal_event',
-              signal: 'audio_silence_cleared',
+              signal: 'audio_silence_sustained',
+              durationSec: Math.floor(silenceDuration / 1000),
             });
           }
         }
-        this._silenceStartTime = null;
-        this._failoverSignalSent = false;
       }
-    } catch (e) {
-      // ATEM state is not always available; safe to ignore
+    } else {
+      if (this._silenceStartTime && this._failoverSignalSent) {
+        if (this.agent) {
+          this.agent.sendToRelay({
+            type: 'signal_event',
+            signal: 'audio_silence_cleared',
+          });
+        }
+      }
+      this._silenceStartTime = null;
+      this._failoverSignalSent = false;
     }
   }
 
@@ -213,6 +270,8 @@ class AudioMonitor {
       monitoring: !!this._tickInterval,
       silenceDetected: this._silenceStartTime !== null,
       silenceDurationSec: silenceDuration,
+      lastLevelDb: this._lastLevelDb,       // current audio level in dBFS (null if no source)
+      source: this._audioSource,             // 'atem', 'vmix', or null
       lastAlerts: Object.fromEntries(
         [...this._lastAlertTimes.entries()].map(([k, v]) => [k, new Date(v).toISOString()])
       ),

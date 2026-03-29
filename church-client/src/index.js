@@ -369,7 +369,7 @@ class ChurchAVAgent {
       vmix: { connected: false, streaming: false, recording: false, edition: null, version: null },
       mixer: { connected: false, type: null, model: null, firmware: null, mainMuted: false },
       ptz: [],
-      audio: { monitoring: false, lastLevel: null, silenceDetected: false },
+      audio: { monitoring: false, lastLevelDb: null, silenceDetected: false, source: null },
       system: { hostname: os.hostname(), platform: os.platform(), uptime: 0, name: config.name || null, roomId: config.roomId || null, roomName: config.roomName || null, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '' },
     };
 
@@ -710,6 +710,8 @@ class ChurchAVAgent {
         monitoring: audioStatus.monitoring,
         silenceDetected: audioStatus.silenceDetected,
         silenceDurationSec: audioStatus.silenceDurationSec,
+        lastLevelDb: audioStatus.lastLevelDb,
+        source: audioStatus.source,
       };
     }
 
