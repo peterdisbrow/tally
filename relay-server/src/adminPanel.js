@@ -3127,6 +3127,13 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       { table: 'church_documents', column: 'church_id' },
       { table: 'church_macros', column: 'church_id' },
       { table: 'rooms', column: 'campus_id' },
+      { table: 'billing_customers', column: 'church_id' },
+      { table: 'billing_disputes', column: 'church_id' },
+      { table: 'service_sessions', column: 'church_id' },
+      { table: 'service_events', column: 'church_id' },
+      { table: 'diagnostic_bundles', column: 'church_id' },
+      { table: 'rundowns', column: 'church_id' },
+      { table: 'rundown_items', column: 'church_id' },
     ];
     try {
       const tx = db.transaction((churchId) => {
