@@ -151,6 +151,7 @@ const PostServiceReport = require('./src/postServiceReport');
 
 const { BillingSystem, BILLING_INTERVALS, TRIAL_PERIOD_DAYS, TIER_LIMITS } = require('./src/billing');
 const { setupSyncMonitor } = require('./src/syncMonitor');
+const { setupBroadcastMonitor } = require('./src/broadcastMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
 const { RundownEngine } = require('./src/rundownEngine');
 const { RundownScheduler } = require('./src/scheduler');
@@ -1495,6 +1496,12 @@ chatEngine.setBroadcasters({
 
 setupSyncMonitor(db, { churches }, tallyBot, (churchId) => {
   broadcastToSSE({ type: 'sync_update', churchId });
+});
+
+// ─── BROADCAST PLATFORM MONITOR ──────────────────────────────────────────────
+
+setupBroadcastMonitor(db, { churches }, alertEngine, (churchId) => {
+  broadcastToSSE({ type: 'broadcast_update', churchId });
 });
 
 // ─── EVENT MODE & RESELLER SYSTEM ────────────────────────────────────────────

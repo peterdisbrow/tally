@@ -746,6 +746,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       roomInstanceMap: runtime?.roomInstanceMap || {},
       lastSeen: runtime?.lastSeen || null,
       autoRecoveryEnabled: c.auto_recovery_enabled !== 0,
+      broadcastHealth: runtime?.broadcastHealth || null,
     };
 
     // Attach TD session metadata so the frontend can scope the UI
