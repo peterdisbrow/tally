@@ -544,6 +544,11 @@ function updateTray() {
       });
       if (response !== 0) return;
       stopAgent();
+      // Clear relay-side equipment before wiping local config (prevents stale IPs re-appearing on next login)
+      const preResetConfig = loadConfig();
+      if (preResetConfig.roomId && preResetConfig.token) {
+        await syncEquipmentToRelay(preResetConfig.roomId, {}).catch(() => {});
+      }
       resetConfig();
       agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
       mainWindow?.webContents.send('status', agentStatus);
@@ -1375,6 +1380,11 @@ ipcMain.handle('sign-out', async () => {
 ipcMain.handle('factory-reset', async () => {
   try {
     stopAgent();
+    // Clear relay-side equipment before wiping local config (prevents stale IPs re-appearing on next login)
+    const preResetConfig = loadConfig();
+    if (preResetConfig.roomId && preResetConfig.token) {
+      await syncEquipmentToRelay(preResetConfig.roomId, {}).catch(() => {});
+    }
     resetConfig();
     agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
     mainWindow?.webContents.send('status', agentStatus);
