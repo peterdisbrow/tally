@@ -1785,30 +1785,41 @@ ipcMain.handle('full-room-switch', async (_, { fromRoom, toRoom, toRoomId }) => 
   // 1. Stop agent and SSE
   stopAgent();
 
-  // 2. Switch per-room equipment config (save old, load new)
-  const switchResult = switchRoomConfig(fromRoom || '', toRoom || '');
-
-  // 3. Push current room equipment to relay, fetch new room equipment
-  const config = loadConfig();
-  const fromRoomId = config.roomId;
-  if (fromRoomId && config.token) {
+  // 2. Push OLD room equipment to relay BEFORE switching local config
+  const beforeConfig = loadConfig();
+  const fromRoomId = beforeConfig.roomId;
+  if (fromRoomId && beforeConfig.token) {
     const { extractEquipment } = configManager;
-    syncEquipmentToRelay(fromRoomId, extractEquipment(config)).catch(() => {});
+    syncEquipmentToRelay(fromRoomId, extractEquipment(beforeConfig)).catch(() => {});
   }
-  if (toRoomId && config.token) {
+
+  // 3. Save old room equipment locally, clear equipment for new room
+  switchRoomConfig(fromRoom || '', toRoom || '');
+
+  // 4. Fetch new room equipment from relay (server-authoritative)
+  let source = 'none';
+  if (toRoomId && beforeConfig.token) {
     const remoteEquip = await fetchEquipmentFromRelay(toRoomId);
+    const fresh = loadConfig();
     if (remoteEquip) {
-      const fresh = loadConfig();
+      // Apply server equipment
       for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
         fresh[key] = remoteEquip[key] !== undefined ? remoteEquip[key] : undefined;
       }
       if (!fresh.roomConfigs) fresh.roomConfigs = {};
       fresh.roomConfigs[toRoom || '_default'] = remoteEquip;
-      saveConfig(fresh);
+      source = 'relay';
+    } else {
+      // Server has no config for this room — clear equipment so we don't use stale data
+      for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
+        fresh[key] = undefined;
+      }
+      source = 'none';
     }
+    saveConfig(fresh);
   }
 
-  // 4. Assign room on relay
+  // 5. Assign room on relay
   const assignResult = await assignRoom(toRoomId);
   if (assignResult.success) {
     const cfg = loadConfig();
@@ -1817,38 +1828,37 @@ ipcMain.handle('full-room-switch', async (_, { fromRoom, toRoom, toRoomId }) => 
     saveConfig(cfg);
   }
 
-  // 5. Clear all device status
+  // 6. Clear all device status
   agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {}, failover: null };
   mainWindow?.webContents.send('status', agentStatus);
 
-  // 6. Restart agent
+  // 7. Restart agent
   agentCrashCount = 0;
   startAgent();
 
-  return { ok: true, roomName: assignResult.roomName || toRoom };
+  return { ok: true, roomName: assignResult.roomName || toRoom, source };
 });
 
 // ─── Per-room equipment switching ────────────────────────────────────────────
 // Called from renderer before saving roomId/roomName. Persists current equipment
 // under the old room name, then loads saved equipment for the new room.
 ipcMain.handle('switch-room', async (_, { fromRoom, toRoom, toRoomId }) => {
-  // 1. Save current equipment locally under fromRoom (existing behavior)
-  const result = switchRoomConfig(fromRoom || '', toRoom || '');
-
-  // 2. Push current room equipment to relay (fire-and-forget)
-  const config = loadConfig();
-  const fromRoomId = config.roomId;
-  if (fromRoomId && config.token) {
+  // 1. Push OLD room equipment to relay BEFORE switching local config
+  const beforeConfig = loadConfig();
+  const fromRoomId = beforeConfig.roomId;
+  if (fromRoomId && beforeConfig.token) {
     const { extractEquipment } = configManager;
-    syncEquipmentToRelay(fromRoomId, extractEquipment(config)).catch(() => {});
+    syncEquipmentToRelay(fromRoomId, extractEquipment(beforeConfig)).catch(() => {});
   }
 
-  // 3. Try to fetch equipment from relay for the target room
-  if (toRoomId && config.token) {
+  // 2. Save old room equipment locally, clear equipment for new room
+  switchRoomConfig(fromRoom || '', toRoom || '');
+
+  // 3. Fetch equipment from relay (server-authoritative)
+  if (toRoomId && beforeConfig.token) {
     const remoteEquip = await fetchEquipmentFromRelay(toRoomId);
+    const fresh = loadConfig();
     if (remoteEquip) {
-      // Apply remote equipment to config and update local cache
-      const fresh = loadConfig();
       for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
         fresh[key] = remoteEquip[key] !== undefined ? remoteEquip[key] : undefined;
       }
@@ -1856,11 +1866,38 @@ ipcMain.handle('switch-room', async (_, { fromRoom, toRoom, toRoomId }) => {
       fresh.roomConfigs[toRoom || '_default'] = remoteEquip;
       saveConfig(fresh);
       return { loaded: true, source: 'relay' };
+    } else {
+      // Server has no config — clear equipment so we don't use stale data
+      for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
+        fresh[key] = undefined;
+      }
+      saveConfig(fresh);
+      return { loaded: false, source: 'none' };
     }
   }
 
-  // 4. Fallback: local cache (already applied by switchRoomConfig above)
-  return { ...result, source: result.loaded ? 'local' : 'none' };
+  return { loaded: false, source: 'none' };
+});
+
+// ─── Fetch room equipment from relay (server-authoritative) ─────────────────
+// Used on initial room selection and any time we need to pull fresh config.
+ipcMain.handle('fetch-room-equipment', async (_, { roomId }) => {
+  const config = loadConfig();
+  if (!roomId || !config.token) return { loaded: false, source: 'none' };
+
+  const remoteEquip = await fetchEquipmentFromRelay(roomId);
+  if (remoteEquip) {
+    const fresh = loadConfig();
+    for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
+      fresh[key] = remoteEquip[key] !== undefined ? remoteEquip[key] : undefined;
+    }
+    const roomName = fresh.roomName || '_default';
+    if (!fresh.roomConfigs) fresh.roomConfigs = {};
+    fresh.roomConfigs[roomName] = remoteEquip;
+    saveConfig(fresh);
+    return { loaded: true, source: 'relay' };
+  }
+  return { loaded: false, source: 'none' };
 });
 
 ipcMain.handle('save-equipment', (_, equipConfig) => {
