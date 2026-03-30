@@ -1,6 +1,6 @@
 {
   "name": "tally-relay",
-  "version": "1.1.42",
+  "version": "1.1.43",
   "description": "Relay server bridging ATEM School OpenClaw skill to church client apps",
   "main": "server.js",
   "scripts": {
