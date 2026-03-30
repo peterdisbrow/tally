@@ -22,6 +22,13 @@ class VideoHub extends EventEmitter {
     this._reconnecting = false;
     this._destroyed = false;
     this._pendingCallbacks = [];     // { blockType, resolve }
+
+    // Select/Take workflow state
+    this._selectedDestination = null;
+    this._pendingSource = null;
+
+    // Route history for revert (output → array of previous inputs, max 20)
+    this._routeHistory = new Map();
   }
 
   async connect() {
@@ -164,6 +171,24 @@ class VideoHub extends EventEmitter {
         this._resolvePending('VIDEO OUTPUT LOCKS');
         break;
 
+      case 'SERIAL PORT LABELS':
+        if (!this._serialLabels) this._serialLabels = new Map();
+        for (const line of dataLines) {
+          const m = line.match(/^(\d+)\s+(.+)$/);
+          if (m) this._serialLabels.set(parseInt(m[1]), m[2]);
+        }
+        this._resolvePending('SERIAL PORT LABELS');
+        break;
+
+      case 'SERIAL PORT LOCKS':
+        if (!this._serialLocks) this._serialLocks = new Map();
+        for (const line of dataLines) {
+          const m = line.match(/^(\d+)\s+([OLU])$/);
+          if (m) this._serialLocks.set(parseInt(m[1]), m[2]);
+        }
+        this._resolvePending('SERIAL PORT LOCKS');
+        break;
+
       case 'SERIAL PORT ROUTING':
       case 'PROCESSING UNIT ROUTING':
       case 'VIDEO MONITORING OUTPUT ROUTING':
@@ -259,6 +284,14 @@ class VideoHub extends EventEmitter {
   async setRoute(output, input) {
     if (!this.connected) throw new Error(`Video Hub "${this.name}" not connected`);
     try {
+      // Push current route to history before changing
+      const currentInput = this._routes.get(output);
+      if (currentInput !== undefined) {
+        if (!this._routeHistory.has(output)) this._routeHistory.set(output, []);
+        const history = this._routeHistory.get(output);
+        history.push(currentInput);
+        if (history.length > 20) history.shift();
+      }
       await this._sendAndWait(`VIDEO OUTPUT ROUTING:\n${output} ${input}\n\n`, 'ACK');
       this._routes.set(output, input);
       return true;
@@ -375,6 +408,87 @@ class VideoHub extends EventEmitter {
     } catch {
       return false;
     }
+  }
+
+  // ─── COMPANION PARITY: Select/Take Workflow ────────────────────────────
+
+  selectDestination(index) {
+    this._selectedDestination = index;
+    this._pendingSource = null;
+    return true;
+  }
+
+  queueSource(source) {
+    this._pendingSource = source;
+    return true;
+  }
+
+  async take() {
+    if (this._selectedDestination === null || this._pendingSource === null) {
+      throw new Error('No destination selected or no source queued');
+    }
+    const ok = await this.setRoute(this._selectedDestination, this._pendingSource);
+    if (ok) {
+      this._pendingSource = null;
+    }
+    return ok;
+  }
+
+  clearSelection() {
+    this._selectedDestination = null;
+    this._pendingSource = null;
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Route Intelligence ─────────────────────────────
+
+  async routeRouted(fromOutput, toOutput) {
+    const sourceInput = this._routes.get(fromOutput);
+    if (sourceInput === undefined) {
+      throw new Error(`No route found on output ${fromOutput}`);
+    }
+    return this.setRoute(toOutput, sourceInput);
+  }
+
+  async routeToPrevious(output) {
+    const history = this._routeHistory.get(output);
+    if (!history || history.length === 0) {
+      throw new Error(`No route history for output ${output}`);
+    }
+    const previousInput = history.pop();
+    // setRoute will push the current route to history, but we already popped,
+    // so the history stays consistent for further reverts
+    return this.setRoute(output, previousInput);
+  }
+
+  // ─── COMPANION PARITY: Serial Port Management ─────────────────────────
+
+  async setSerialLabel(index, label) {
+    if (!this.connected) throw new Error(`Video Hub "${this.name}" not connected`);
+    try {
+      await this._sendAndWait(`SERIAL PORT LABELS:\n${index} ${label}\n\n`, 'ACK');
+      if (!this._serialLabels) this._serialLabels = new Map();
+      this._serialLabels.set(index, label);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async lockSerial(output, state = 'O') {
+    if (!this.connected) throw new Error(`Video Hub "${this.name}" not connected`);
+    try {
+      await this._sendAndWait(`SERIAL PORT LOCKS:\n${output} ${state}\n\n`, 'ACK');
+      if (!this._serialLocks) this._serialLocks = new Map();
+      this._serialLocks.set(output, state);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async unlockSerial(output) {
+    return this.lockSerial(output, 'U');
   }
 
   /** Summary for status reporting */

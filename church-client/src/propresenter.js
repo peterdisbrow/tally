@@ -643,6 +643,287 @@ class ProPresenter extends EventEmitter {
     return true;
   }
 
+  // ─── COMPANION PARITY: Audio Playlists ─────────────────────────────
+
+  async getAudioPlaylists() {
+    const data = await this._fetch('/v1/audio/playlists');
+    if (!data) return [];
+    return (data.playlists || data || []).map(p => ({
+      id: p.id?.uuid || p.id || p.uuid,
+      name: p.id?.name || p.name || 'Untitled',
+    }));
+  }
+
+  async activeAudioPlaylistTrigger(action = 'next') {
+    const path = `/v1/audio/playlists/active/${encodeURIComponent(action)}/trigger`;
+    await this._fire(path, { method: 'POST' });
+    this._mirror(path, { method: 'POST' });
+    return true;
+  }
+
+  async focusedAudioPlaylistTrigger(action = 'next') {
+    const path = `/v1/audio/playlists/focused/${encodeURIComponent(action)}/trigger`;
+    await this._fire(path, { method: 'POST' });
+    this._mirror(path, { method: 'POST' });
+    return true;
+  }
+
+  async audioPlaylistFocus(nameOrId) {
+    const playlists = await this.getAudioPlaylists();
+    const found = playlists.find(p =>
+      (p.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
+      p.id === nameOrId
+    );
+    const id = found ? found.id : nameOrId;
+    await this._fire(`/v1/audio/playlists/${encodeURIComponent(id)}/focus`, { method: 'PUT' });
+    return found ? found.name : nameOrId;
+  }
+
+  async audioPlaylistTrigger(nameOrId) {
+    const playlists = await this.getAudioPlaylists();
+    const found = playlists.find(p =>
+      (p.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
+      p.id === nameOrId
+    );
+    const id = found ? found.id : nameOrId;
+    const path = `/v1/audio/playlists/${encodeURIComponent(id)}/trigger`;
+    await this._fire(path, { method: 'POST' });
+    this._mirror(path, { method: 'POST' });
+    return found ? found.name : nameOrId;
+  }
+
+  // ─── COMPANION PARITY: Media Playlists ────────────────────────────
+
+  async getMediaPlaylists() {
+    const data = await this._fetch('/v1/media/playlists');
+    if (!data) return [];
+    return (data.playlists || data || []).map(p => ({
+      id: p.id?.uuid || p.id || p.uuid,
+      name: p.id?.name || p.name || 'Untitled',
+    }));
+  }
+
+  async activeMediaPlaylistTrigger(action = 'next') {
+    const path = `/v1/media/playlists/active/${encodeURIComponent(action)}/trigger`;
+    await this._fire(path, { method: 'POST' });
+    this._mirror(path, { method: 'POST' });
+    return true;
+  }
+
+  async focusedMediaPlaylistTrigger(action = 'next') {
+    const path = `/v1/media/playlists/focused/${encodeURIComponent(action)}/trigger`;
+    await this._fire(path, { method: 'POST' });
+    this._mirror(path, { method: 'POST' });
+    return true;
+  }
+
+  async mediaPlaylistFocus(nameOrId) {
+    const playlists = await this.getMediaPlaylists();
+    const found = playlists.find(p =>
+      (p.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
+      p.id === nameOrId
+    );
+    const id = found ? found.id : nameOrId;
+    await this._fire(`/v1/media/playlists/${encodeURIComponent(id)}/focus`, { method: 'PUT' });
+    return found ? found.name : nameOrId;
+  }
+
+  async mediaPlaylistTrigger(nameOrId) {
+    const playlists = await this.getMediaPlaylists();
+    const found = playlists.find(p =>
+      (p.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
+      p.id === nameOrId
+    );
+    const id = found ? found.id : nameOrId;
+    const path = `/v1/media/playlists/${encodeURIComponent(id)}/trigger`;
+    await this._fire(path, { method: 'POST' });
+    this._mirror(path, { method: 'POST' });
+    return found ? found.name : nameOrId;
+  }
+
+  // ─── COMPANION PARITY: Transport Layer Control ────────────────────
+
+  async transportPlay(layer = 'presentation') {
+    const path = `/v1/transport/${encodeURIComponent(layer)}/play`;
+    await this._fire(path, { method: 'PUT' });
+    this._mirror(path, { method: 'PUT' });
+    return true;
+  }
+
+  async transportPause(layer = 'presentation') {
+    const path = `/v1/transport/${encodeURIComponent(layer)}/pause`;
+    await this._fire(path, { method: 'PUT' });
+    this._mirror(path, { method: 'PUT' });
+    return true;
+  }
+
+  async transportSkipForward(layer = 'presentation', seconds = 10) {
+    const path = `/v1/transport/${encodeURIComponent(layer)}/skip_forward/${seconds}`;
+    await this._fire(path, { method: 'PUT' });
+    this._mirror(path, { method: 'PUT' });
+    return true;
+  }
+
+  async transportSkipBackward(layer = 'presentation', seconds = 10) {
+    const path = `/v1/transport/${encodeURIComponent(layer)}/skip_backward/${seconds}`;
+    await this._fire(path, { method: 'PUT' });
+    this._mirror(path, { method: 'PUT' });
+    return true;
+  }
+
+  async transportGoToTime(layer = 'presentation', time = 0) {
+    const path = `/v1/transport/${encodeURIComponent(layer)}/go_to_time/${time}`;
+    await this._fire(path, { method: 'PUT' });
+    this._mirror(path, { method: 'PUT' });
+    return true;
+  }
+
+  async transportGoToEnd(layer = 'presentation') {
+    const path = `/v1/transport/${encodeURIComponent(layer)}/go_to_end`;
+    await this._fire(path, { method: 'PUT' });
+    this._mirror(path, { method: 'PUT' });
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Timeline ───────────────────────────────────
+
+  async timelinePlay() {
+    const path = '/v1/presentation/active/timeline/play';
+    await this._fire(path, { method: 'PUT' });
+    this._mirror(path, { method: 'PUT' });
+    return true;
+  }
+
+  async timelinePause() {
+    const path = '/v1/presentation/active/timeline/pause';
+    await this._fire(path, { method: 'PUT' });
+    this._mirror(path, { method: 'PUT' });
+    return true;
+  }
+
+  async timelineRewind() {
+    const path = '/v1/presentation/active/timeline/rewind';
+    await this._fire(path, { method: 'PUT' });
+    this._mirror(path, { method: 'PUT' });
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Capture ────────────────────────────────────
+
+  async captureStart() {
+    await this._fire('/v1/capture/start', { method: 'POST' });
+    this._mirror('/v1/capture/start', { method: 'POST' });
+    return true;
+  }
+
+  async captureStop() {
+    await this._fire('/v1/capture/stop', { method: 'POST' });
+    this._mirror('/v1/capture/stop', { method: 'POST' });
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Timer Enhancements ─────────────────────────
+
+  async incrementTimer(nameOrId, seconds = 30) {
+    const timers = await this.getTimers();
+    const found = timers.find(t =>
+      (t.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
+      t.id === nameOrId
+    );
+    if (!found) throw new Error(`Timer "${nameOrId}" not found`);
+    const body = JSON.stringify({ seconds });
+    const headers = { 'Content-Type': 'application/json' };
+    await this._fire(`/v1/timers/${encodeURIComponent(found.id)}/increment`, { method: 'PUT', body, headers });
+    this._mirror(`/v1/timers/${encodeURIComponent(found.id)}/increment`, { method: 'PUT', body, headers });
+    return found.name;
+  }
+
+  async setTimerValue(nameOrId, settings = {}) {
+    const timers = await this.getTimers();
+    const found = timers.find(t =>
+      (t.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
+      t.id === nameOrId
+    );
+    if (!found) throw new Error(`Timer "${nameOrId}" not found`);
+    const body = {};
+    if (settings.type) body.type = settings.type;
+    if (settings.duration) body.duration = settings.duration;
+    if (settings.overrun !== undefined) body.allows_overrun = settings.overrun;
+    if (settings.name) body.id = { name: settings.name, uuid: found.id };
+    const headers = { 'Content-Type': 'application/json' };
+    await this._fire(`/v1/timers/${encodeURIComponent(found.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+      headers,
+    });
+    return found.name;
+  }
+
+  // ─── COMPANION PARITY: Toggles ────────────────────────────────────
+
+  async toggleProp(nameOrId) {
+    // Check if the prop is currently active by checking the clear state
+    // If triggering, it shows; if clearing, it hides
+    const props = await this.getProps();
+    const found = props.find(p =>
+      (p.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
+      p.id === nameOrId
+    );
+    if (!found) throw new Error(`Prop "${nameOrId}" not found. Available: ${props.map(p => p.name).join(', ')}`);
+    // PP doesn't expose an "is prop active" endpoint, so we trigger it (toggle behavior)
+    await this._fire(`/v1/prop/${encodeURIComponent(found.id)}/trigger`);
+    this._mirror(`/v1/prop/${encodeURIComponent(found.id)}/trigger`);
+    return found.name;
+  }
+
+  async toggleStageMessage(nameOrId) {
+    // Similar toggle: trigger the message (PP handles toggle internally)
+    await this.triggerMessage(nameOrId);
+    return nameOrId;
+  }
+
+  async toggleAudienceScreens() {
+    const status = await this.getAudienceScreenStatus();
+    const newState = !(status?.audience ?? true);
+    await this.setAudienceScreens(newState);
+    return newState ? 'Audience screens ON' : 'Audience screens OFF';
+  }
+
+  async toggleStageScreens() {
+    // Try dedicated toggle endpoint first
+    const ok = await this._fire('/v1/screens/stage/toggle', { method: 'PUT' });
+    if (ok) {
+      this._mirror('/v1/screens/stage/toggle', { method: 'PUT' });
+      return 'Stage screens toggled';
+    }
+    // Fallback: read current state and flip
+    const status = await this.getAudienceScreenStatus();
+    const newState = !(status?.stage ?? true);
+    await this._fire('/v1/status/stage_screens', {
+      method: 'PUT',
+      body: JSON.stringify(!!newState),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return newState ? 'Stage screens ON' : 'Stage screens OFF';
+  }
+
+  // ─── COMPANION PARITY: Library Cue Trigger ────────────────────────
+
+  async triggerLibraryCue(libraryId, presentationId, cueIndex = 0) {
+    const path = `/v1/libraries/${encodeURIComponent(libraryId)}/presentations/${encodeURIComponent(presentationId)}/${cueIndex}/trigger`;
+    await this._fire(path, { method: 'POST' });
+    this._mirror(path, { method: 'POST' });
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Clear Announcements ────────────────────────
+
+  async clearAnnouncements() {
+    await this._fire('/v1/clear/announcements', { method: 'POST' });
+    this._mirror('/v1/clear/announcements', { method: 'POST' });
+    return true;
+  }
+
   // ─── AUDIENCE SCREENS ───────────────────────────────────────────────
 
   async setAudienceScreens(on) {
