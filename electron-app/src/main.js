@@ -88,13 +88,17 @@ let _sseAbort = null;
 let _sseRetryTimer = null;
 let _sseRetryDelay = 3000;
 
-function startRelayStatusSSE(relayUrl, token) {
+function startRelayStatusSSE(relayUrl, token, instanceName) {
   stopRelayStatusSSE();
   if (!relayUrl || !token) return;
   const httpUrl = relayUrl.replace(/^ws(s)?:/, 'http$1:').replace(/\/+$/, '');
   const url = `${httpUrl}/api/church/app/status/stream`;
   _sseAbort = new AbortController();
   _sseRetryDelay = 3000;
+
+  // Instance name filters out status from other instances (different rooms).
+  // The church-client builds this as `name::roomId` (see church-client/src/index.js).
+  const myInstance = instanceName || '';
 
   (async function connect() {
     try {
@@ -126,6 +130,10 @@ function startRelayStatusSSE(relayUrl, token) {
             if (!line.startsWith('data: ')) continue;
             try {
               const msg = JSON.parse(line.slice(6));
+              // Only merge status from our own instance. Other instances
+              // (different rooms) have different equipment — merging their
+              // status overwrites ours and causes false disconnect flapping.
+              if (msg.instance && msg.instance !== myInstance) continue;
               const status = msg.status;
               if (status && typeof status === 'object') {
                 _mergeRelayStatus(status);
@@ -788,7 +796,10 @@ function startAgent() {
   });
 
   // Connect to relay SSE for real-time device status (replaces stdout parsing for rich data)
-  startRelayStatusSSE(agentRelay, config.token);
+  // Pass our instance name so SSE can filter out status from other instances (multi-room).
+  const baseName = config.name || os.hostname();
+  const instanceName = config.roomId ? `${baseName}::${config.roomId}` : baseName;
+  startRelayStatusSSE(agentRelay, config.token, instanceName);
 
   agentProcess.on('error', (err) => {
     const msg = `Failed to start agent process (${nodeBinary}): ${err.message}`;
