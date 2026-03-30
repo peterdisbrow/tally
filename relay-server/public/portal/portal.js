@@ -1766,7 +1766,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         (alerts || []).slice(0, 15).forEach(function(a) {
           items.push({
             time: new Date(a.created_at),
-            type: (a.alert_type || '').replace(/_/g, ' '),
+            type: _portalFriendlyAlertType(a.alert_type),
             detail: a.context && a.context.diagnosis ? (a.context.diagnosis.likely_cause || '').slice(0, 100) : '',
             severity: a.resolved ? 'resolved' : (a.severity || 'INFO'),
             source: 'alert'
@@ -4967,7 +4967,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         alerts.forEach(function(a) {
           var color = sevColors[a.severity] || '#94A3B8';
           var time = new Date(a.created_at).toLocaleString();
-          var type = (a.alert_type || '').replace(/_/g, ' ');
+          var type = _portalFriendlyAlertType(a.alert_type);
           var acked = a.acknowledged_at ? '<span style="color:#22c55e;font-size:11px">\\u2713 Acknowledged' + (a.acknowledged_by ? ' by ' + escapeHtml(a.acknowledged_by) : '') + '</span>' : '<span style="color:#475569;font-size:11px">Not acknowledged</span>';
           var ctx = a.context || {};
           var diag = ctx.diagnosis || ctx;
@@ -6309,6 +6309,38 @@ document.addEventListener('DOMContentLoaded', function() {
   var _aiTriageEventsOffset = 0;
   var _aiTriageSettings = null;
 
+  // Human-readable labels for triage data
+  function _portalFriendlyAlertType(alertType) {
+    var map = {
+      'stream_stopped': 'Stream stopped',
+      'atem_disconnected': 'ATEM switcher disconnected',
+      'multiple_systems_down': 'Multiple systems went down',
+      'recording_failed': 'Recording failed to start',
+      'recording_not_started': 'Recording not started',
+      'audio_muted': 'Audio is muted',
+      'audio_silence': 'No audio signal detected',
+      'failover_executed': 'Backup system activated',
+      'failover_command_failed': 'Backup system failed to activate',
+      'no_td_response': 'No response from tech director',
+      'encoder_stream_stopped': 'Encoder stream stopped',
+      'atem_stream_stopped': 'ATEM stream stopped',
+      'vmix_stream_stopped': 'vMix stream stopped',
+      'obs_disconnected': 'OBS disconnected',
+      'encoder_disconnected': 'Encoder disconnected',
+      'vmix_disconnected': 'vMix disconnected',
+      'connection_lost': 'Device connection lost'
+    };
+    return map[alertType] || (alertType || '').replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+  }
+  function _portalFriendlySeverity(severity) {
+    var map = { 'critical': 'Critical', 'high': 'High', 'medium': 'Moderate', 'low': 'Low', 'info': 'Info' };
+    return map[severity] || severity;
+  }
+  function _portalFriendlyTimeContext(context) {
+    var map = { 'pre_service': 'Before service', 'in_service': 'During service', 'off_hours': 'Off hours' };
+    return map[context] || (context || '').replace(/_/g, ' ');
+  }
+
   async function loadAiTriagePage() {
     _aiTriageEventsOffset = 0;
     try {
@@ -6454,14 +6486,16 @@ document.addEventListener('DOMContentLoaded', function() {
     dist.forEach(function(d) {
       var pct = maxCount > 0 ? Math.max(4, Math.round((d.count / maxCount) * 100)) : 4;
       var color = colors[d.triage_severity] || '#6b7280';
-      html += '<div class="triage-bar" style="height:' + pct + '%;background:' + color + '" title="' + d.triage_severity + ': ' + d.count + '"></div>';
+      var sevLabel = _portalFriendlySeverity(d.triage_severity);
+      html += '<div class="triage-bar" style="height:' + pct + '%;background:' + color + '" title="' + sevLabel + ': ' + d.count + '"></div>';
     });
     container.innerHTML = html;
 
     var legendHtml = '';
     dist.forEach(function(d) {
       var color = colors[d.triage_severity] || '#6b7280';
-      legendHtml += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + color + ';margin-right:4px"></span>' + d.triage_severity + ': ' + d.count + '</span>';
+      var sevLabel = _portalFriendlySeverity(d.triage_severity);
+      legendHtml += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + color + ';margin-right:4px"></span>' + sevLabel + ': ' + d.count + '</span>';
     });
     legend.innerHTML = legendHtml;
   }
@@ -6560,7 +6594,7 @@ document.addEventListener('DOMContentLoaded', function() {
       loadMoreBtn.style.display = (res.events || []).length >= 25 ? '' : 'none';
     } catch (err) {
       document.getElementById('ai-triage-events-tbody').innerHTML =
-        '<tr><td colspan="6" style="color:#ef4444;text-align:center;padding:20px">Failed to load events</td></tr>';
+        '<tr><td colspan="5" style="color:#ef4444;text-align:center;padding:20px">Failed to load events</td></tr>';
     }
   }
 
@@ -6582,7 +6616,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!append) tbody.innerHTML = '';
 
     if (!events.length && !append) {
-      tbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No triage events yet. Events appear as alerts are processed.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">No triage events yet. Events will appear here as your system is monitored.</td></tr>';
       return;
     }
 
@@ -6592,19 +6626,18 @@ document.addEventListener('DOMContentLoaded', function() {
       var timeStr = time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
         time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-      var alertLabel = (ev.alert_type || '').replace(/_/g, ' ');
+      var alertLabel = _portalFriendlyAlertType(ev.alert_type);
 
-      var scoreColor = ev.triage_score >= 100 ? '#ef4444' : ev.triage_score >= 70 ? '#f97316' : ev.triage_score >= 40 ? '#eab308' : '#3b82f6';
+      var severityLabel = _portalFriendlySeverity(ev.triage_severity);
 
-      var contextLabel = (ev.time_context || '').replace(/_/g, ' ');
+      var contextLabel = _portalFriendlyTimeContext(ev.time_context);
 
-      var actionText = ev.resolution_id ? 'Auto-fixed' : '--';
+      var actionText = ev.resolution_id ? '✅ Auto-fixed' : '—';
 
       tr.innerHTML =
         '<td style="font-size:12px;white-space:nowrap;color:#94A3B8">' + timeStr + '</td>' +
         '<td style="font-size:12px;font-weight:500">' + alertLabel + '</td>' +
-        '<td style="font-size:13px;font-weight:700;color:' + scoreColor + '">' + ev.triage_score + '</td>' +
-        '<td><span class="severity-badge ' + ev.triage_severity + '">' + ev.triage_severity + '</span></td>' +
+        '<td><span class="severity-badge ' + ev.triage_severity + '">' + severityLabel + '</span></td>' +
         '<td><span class="context-badge ' + ev.time_context + '">' + contextLabel + '</span></td>' +
         '<td style="font-size:12px;color:' + (ev.resolution_id ? '#22c55e' : '#475569') + '">' + actionText + '</td>';
 
