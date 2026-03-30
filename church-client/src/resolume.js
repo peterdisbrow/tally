@@ -392,6 +392,204 @@ class Resolume {
     }
   }
 
+  // ─── COMPANION PARITY: Clip Opacity & Volume ──────────────────────────────
+
+  async _getValueAtPath(path) {
+    const data = await this._fetch(path);
+    return data?.value ?? null;
+  }
+
+  async _setWithMode(path, value, mode = 'set') {
+    let finalValue = parseFloat(value);
+    if (mode === 'add' || mode === 'subtract') {
+      const current = await this._getValueAtPath(path);
+      if (current == null) throw new Error(`Could not read current value at ${path}`);
+      finalValue = mode === 'add' ? current + finalValue : current - finalValue;
+    }
+    const result = await this._put(path, { value: finalValue });
+    if (result === null) throw new Error(`Could not set value at ${path}`);
+    return finalValue;
+  }
+
+  async setClipOpacity(layerIndex, clipIndex, value, mode = 'set') {
+    return this._setWithMode(`/composition/layers/${layerIndex}/clips/${clipIndex}/video/opacity`, value, mode);
+  }
+
+  async setClipVolume(layerIndex, clipIndex, value, mode = 'set') {
+    return this._setWithMode(`/composition/layers/${layerIndex}/clips/${clipIndex}/audio/volume`, value, mode);
+  }
+
+  // ─── COMPANION PARITY: Composition Master/Opacity/Volume ─────────────────
+
+  async setCompositionMaster(value, mode = 'set') {
+    return this._setWithMode('/composition/master', value, mode);
+  }
+
+  async setCompositionOpacity(value, mode = 'set') {
+    return this._setWithMode('/composition/video/opacity', value, mode);
+  }
+
+  async setCompositionVolume(value, mode = 'set') {
+    return this._setWithMode('/composition/audio/volume', value, mode);
+  }
+
+  // ─── COMPANION PARITY: Tempo Tap & Resync ────────────────────────────────
+
+  async tempoTap() {
+    const result = await this._post('/composition/tempocontroller/tempo/tap');
+    if (result === null) throw new Error('Could not trigger tempo tap');
+    return true;
+  }
+
+  async tempoResync() {
+    const result = await this._put('/composition/tempocontroller/tempo/resync', {});
+    if (result === null) throw new Error('Could not trigger tempo resync');
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Extended Layer Controls ───────────────────────────
+
+  async setLayerVolume(layerIndex, value, mode = 'set') {
+    return this._setWithMode(`/composition/layers/${layerIndex}/audio/volume`, value, mode);
+  }
+
+  async setLayerMaster(layerIndex, value, mode = 'set') {
+    return this._setWithMode(`/composition/layers/${layerIndex}/master`, value, mode);
+  }
+
+  async setLayerTransitionDuration(layerIndex, value, mode = 'set') {
+    return this._setWithMode(`/composition/layers/${layerIndex}/transition/duration`, value, mode);
+  }
+
+  async layerNextColumn(layerIndex) {
+    const result = await this._post(`/composition/layers/${layerIndex}/columns/next`);
+    if (result === null) throw new Error(`Could not advance to next column on layer ${layerIndex}`);
+    this._compositionCache = null;
+    return true;
+  }
+
+  async layerPreviousColumn(layerIndex) {
+    const result = await this._post(`/composition/layers/${layerIndex}/columns/previous`);
+    if (result === null) throw new Error(`Could not go to previous column on layer ${layerIndex}`);
+    this._compositionCache = null;
+    return true;
+  }
+
+  async clearLayer(layerIndex) {
+    const result = await this._post(`/composition/layers/${layerIndex}/clear`);
+    if (result === null) throw new Error(`Could not clear layer ${layerIndex}`);
+    this._compositionCache = null;
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Layer Groups ──────────────────────────────────────
+
+  async setLayerGroupBypass(groupIndex, bypassed) {
+    const result = await this._put(`/composition/layergroups/${groupIndex}/bypassed`, { value: !!bypassed });
+    if (result === null) throw new Error(`Could not set bypass on layer group ${groupIndex}`);
+    return !!bypassed;
+  }
+
+  async clearLayerGroup(groupIndex) {
+    const result = await this._post(`/composition/layergroups/${groupIndex}/clear`);
+    if (result === null) throw new Error(`Could not clear layer group ${groupIndex}`);
+    this._compositionCache = null;
+    return true;
+  }
+
+  async setLayerGroupSolo(groupIndex, solo) {
+    const result = await this._put(`/composition/layergroups/${groupIndex}/solo`, { value: !!solo });
+    if (result === null) throw new Error(`Could not set solo on layer group ${groupIndex}`);
+    return !!solo;
+  }
+
+  async selectLayerGroup(groupIndex) {
+    const result = await this._post(`/composition/layergroups/${groupIndex}/select`);
+    if (result === null) throw new Error(`Could not select layer group ${groupIndex}`);
+    return true;
+  }
+
+  async layerGroupNextColumn(groupIndex) {
+    const result = await this._post(`/composition/layergroups/${groupIndex}/columns/next`);
+    if (result === null) throw new Error(`Could not advance to next column on layer group ${groupIndex}`);
+    this._compositionCache = null;
+    return true;
+  }
+
+  async layerGroupPreviousColumn(groupIndex) {
+    const result = await this._post(`/composition/layergroups/${groupIndex}/columns/previous`);
+    if (result === null) throw new Error(`Could not go to previous column on layer group ${groupIndex}`);
+    this._compositionCache = null;
+    return true;
+  }
+
+  async triggerLayerGroupColumn(groupIndex, columnIndex) {
+    const result = await this._post(`/composition/layergroups/${groupIndex}/columns/${columnIndex}/connect`);
+    if (result === null) throw new Error(`Could not trigger column ${columnIndex} on layer group ${groupIndex}`);
+    this._compositionCache = null;
+    return true;
+  }
+
+  async selectLayerGroupColumn(groupIndex, columnIndex) {
+    const result = await this._post(`/composition/layergroups/${groupIndex}/columns/${columnIndex}/select`);
+    if (result === null) throw new Error(`Could not select column ${columnIndex} on layer group ${groupIndex}`);
+    return true;
+  }
+
+  async setLayerGroupMaster(groupIndex, value, mode = 'set') {
+    return this._setWithMode(`/composition/layergroups/${groupIndex}/master`, value, mode);
+  }
+
+  async setLayerGroupOpacity(groupIndex, value, mode = 'set') {
+    return this._setWithMode(`/composition/layergroups/${groupIndex}/video/opacity`, value, mode);
+  }
+
+  async setLayerGroupVolume(groupIndex, value, mode = 'set') {
+    return this._setWithMode(`/composition/layergroups/${groupIndex}/audio/volume`, value, mode);
+  }
+
+  async setLayerGroupSpeed(groupIndex, value, mode = 'set') {
+    return this._setWithMode(`/composition/layergroups/${groupIndex}/speed`, value, mode);
+  }
+
+  // ─── COMPANION PARITY: Deck Navigation ───────────────────────────────────
+
+  async selectNextDeck() {
+    const result = await this._post('/composition/decks/next');
+    if (result === null) throw new Error('Could not select next deck');
+    this._compositionCache = null;
+    return true;
+  }
+
+  async selectPreviousDeck() {
+    const result = await this._post('/composition/decks/previous');
+    if (result === null) throw new Error('Could not select previous deck');
+    this._compositionCache = null;
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Column Control ────────────────────────────────────
+
+  async selectColumn(columnIndex) {
+    const result = await this._post(`/composition/columns/${columnIndex}/select`);
+    if (result === null) throw new Error(`Could not select column ${columnIndex}`);
+    return true;
+  }
+
+  async nextColumn() {
+    const result = await this._post('/composition/columns/next');
+    if (result === null) throw new Error('Could not advance to next column');
+    this._compositionCache = null;
+    return true;
+  }
+
+  async previousColumn() {
+    const result = await this._post('/composition/columns/previous');
+    if (result === null) throw new Error('Could not go to previous column');
+    this._compositionCache = null;
+    return true;
+  }
+
   // ─── STATUS SUMMARY ──────────────────────────────────────────────────────────
 
   toStatus() {

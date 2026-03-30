@@ -475,6 +475,208 @@ async function obsSetInputSettings(agent, params) {
   return `Input "${name}" settings updated`;
 }
 
+// ─── COMPANION PARITY: Hotkeys ───────────────────────────────────────────
+
+async function obsTriggerHotkey(agent, params) {
+  const obs = ensureObs(agent);
+  const name = String(params.name || '').trim();
+  if (!name) throw new Error('hotkey name required');
+  await obs.call('TriggerHotkeyByName', { hotkeyName: name });
+  return `Hotkey triggered: ${name}`;
+}
+
+async function obsTriggerHotkeySequence(agent, params) {
+  const obs = ensureObs(agent);
+  const keyId = String(params.keyId || '').trim();
+  if (!keyId) throw new Error('keyId required');
+  const keyModifiers = {
+    shift: params.shift === true || params.shift === 'true',
+    alt: params.alt === true || params.alt === 'true',
+    control: params.control === true || params.control === 'true',
+    command: params.command === true || params.command === 'true',
+  };
+  await obs.call('TriggerHotkeyByKeySequence', { keyId, keyModifiers });
+  return `Hotkey sequence triggered: ${keyId}`;
+}
+
+// ─── COMPANION PARITY: Audio (extended) ──────────────────────────────────
+
+async function obsToggleInputMute(agent, params) {
+  const obs = ensureObs(agent);
+  const inputName = String(params.input || params.name || '').trim();
+  if (!inputName) throw new Error('input name required');
+  await obs.call('ToggleInputMute', { inputName });
+  return `Mute toggled for "${inputName}"`;
+}
+
+async function obsAdjustVolume(agent, params) {
+  const obs = ensureObs(agent);
+  const inputName = String(params.input || params.name || '').trim();
+  if (!inputName) throw new Error('input name required');
+  const adjustDb = Number(params.adjustDb);
+  if (isNaN(adjustDb)) throw new Error('adjustDb (number) required');
+  const current = await obs.call('GetInputVolume', { inputName });
+  const newDb = Math.max(-100, Math.min(26, current.inputVolumeDb + adjustDb));
+  await obs.call('SetInputVolume', { inputName, inputVolumeDb: newDb });
+  return `Volume for "${inputName}": ${current.inputVolumeDb.toFixed(1)} → ${newDb.toFixed(1)} dB`;
+}
+
+async function obsFadeVolume(agent, params) {
+  const obs = ensureObs(agent);
+  const inputName = String(params.input || params.name || '').trim();
+  if (!inputName) throw new Error('input name required');
+  const targetDb = Number(params.targetDb);
+  if (isNaN(targetDb)) throw new Error('targetDb (number) required');
+  const duration = toInt(params.duration || 1000, 'duration');
+  const steps = 25;
+  const stepTime = duration / steps;
+  const current = await obs.call('GetInputVolume', { inputName });
+  const startDb = current.inputVolumeDb;
+  const delta = targetDb - startDb;
+  for (let i = 1; i <= steps; i++) {
+    const db = Math.max(-100, Math.min(26, startDb + (delta * i / steps)));
+    await obs.call('SetInputVolume', { inputName, inputVolumeDb: db });
+    if (i < steps) await new Promise(r => setTimeout(r, stepTime));
+  }
+  return `Volume for "${inputName}" faded: ${startDb.toFixed(1)} → ${targetDb.toFixed(1)} dB over ${duration}ms`;
+}
+
+async function obsSetInputAudioSyncOffset(agent, params) {
+  const obs = ensureObs(agent);
+  const inputName = String(params.input || params.name || '').trim();
+  if (!inputName) throw new Error('input name required');
+  const ms = toInt(params.ms || params.offset, 'ms');
+  await obs.call('SetInputAudioSyncOffset', { inputName, inputAudioSyncOffset: ms });
+  return `Audio sync offset for "${inputName}" set to ${ms}ms`;
+}
+
+async function obsSetInputAudioBalance(agent, params) {
+  const obs = ensureObs(agent);
+  const inputName = String(params.input || params.name || '').trim();
+  if (!inputName) throw new Error('input name required');
+  const value = Number(params.balance != null ? params.balance : params.value);
+  if (isNaN(value) || value < 0 || value > 1) throw new Error('balance must be 0.0–1.0');
+  await obs.call('SetInputAudioBalance', { inputName, inputAudioBalance: value });
+  return `Audio balance for "${inputName}" set to ${value}`;
+}
+
+// ─── COMPANION PARITY: Recording (extended) ──────────────────────────────
+
+async function obsToggleRecordPause(agent) {
+  const obs = ensureObs(agent);
+  await obs.call('ToggleRecordPause');
+  return 'Record pause toggled';
+}
+
+async function obsSplitRecordFile(agent) {
+  const obs = ensureObs(agent);
+  await obs.call('SplitRecordFile');
+  return 'Record file split';
+}
+
+async function obsCreateRecordChapter(agent, params) {
+  const obs = ensureObs(agent);
+  const reqParams = {};
+  if (params.chapterName) reqParams.chapterName = String(params.chapterName);
+  await obs.call('CreateRecordChapter', reqParams);
+  return params.chapterName ? `Record chapter created: ${params.chapterName}` : 'Record chapter created';
+}
+
+// ─── COMPANION PARITY: Streaming (extended) ──────────────────────────────
+
+async function obsToggleStream(agent) {
+  const obs = ensureObs(agent);
+  await obs.call('ToggleStream');
+  return 'Stream toggled';
+}
+
+async function obsSendStreamCaption(agent, params) {
+  const obs = ensureObs(agent);
+  const captionText = String(params.captionText || params.text || '').trim();
+  if (!captionText) throw new Error('captionText required');
+  await obs.call('SendStreamCaption', { captionText });
+  return 'Stream caption sent';
+}
+
+// ─── COMPANION PARITY: Sources (extended) ────────────────────────────────
+
+async function obsRefreshBrowserSource(agent, params) {
+  const obs = ensureObs(agent);
+  const inputName = String(params.input || params.name || '').trim();
+  if (!inputName) throw new Error('input name required');
+  await obs.call('PressInputPropertiesButton', { inputName, propertyName: 'refreshnocache' });
+  return `Browser source "${inputName}" refreshed`;
+}
+
+async function obsSetText(agent, params) {
+  const obs = ensureObs(agent);
+  const inputName = String(params.input || params.name || '').trim();
+  if (!inputName) throw new Error('input name required');
+  const text = String(params.text != null ? params.text : '');
+  await obs.call('SetInputSettings', { inputName, inputSettings: { text }, overlay: true });
+  return `Text set for "${inputName}"`;
+}
+
+async function obsSetTextProperties(agent, params) {
+  const obs = ensureObs(agent);
+  const inputName = String(params.input || params.name || '').trim();
+  if (!inputName) throw new Error('input name required');
+  const inputSettings = {};
+  if (params.font || params.face || params.size || params.style || params.flags) {
+    const font = {};
+    if (params.face) font.face = params.face;
+    if (params.size != null) font.size = Number(params.size);
+    if (params.style) font.style = params.style;
+    if (params.flags != null) font.flags = toInt(params.flags, 'flags');
+    inputSettings.font = font;
+  }
+  if (params.color != null) inputSettings.color = Number(params.color);
+  if (params.text != null) inputSettings.text = String(params.text);
+  await obs.call('SetInputSettings', { inputName, inputSettings, overlay: true });
+  return `Text properties updated for "${inputName}"`;
+}
+
+async function obsResetCaptureDevice(agent, params) {
+  const obs = ensureObs(agent);
+  const inputName = String(params.input || params.name || '').trim();
+  if (!inputName) throw new Error('input name required');
+  await obs.call('SetInputSettings', { inputName, inputSettings: { activate: false } });
+  await obs.call('SetInputSettings', { inputName, inputSettings: { activate: true } });
+  return `Capture device "${inputName}" reset`;
+}
+
+// ─── COMPANION PARITY: Replay Buffer (extended) ─────────────────────────
+
+async function obsToggleReplayBuffer(agent) {
+  const obs = ensureObs(agent);
+  await obs.call('ToggleReplayBuffer');
+  return 'Replay buffer toggled';
+}
+
+// ─── COMPANION PARITY: Generic ───────────────────────────────────────────
+
+async function obsCustomCommand(agent, params) {
+  const obs = ensureObs(agent);
+  const requestType = String(params.requestType || '').trim();
+  if (!requestType) throw new Error('requestType required');
+  const data = await obs.call(requestType, params.requestData || {});
+  return data || 'Command executed';
+}
+
+// ─── COMPANION PARITY: Output (virtual cam) ─────────────────────────────
+
+async function obsStartVirtualCam(agent) {
+  const obs = ensureObs(agent);
+  await obs.call('StartVirtualCam');
+  return 'Virtual camera started';
+}
+
+async function obsStopVirtualCam(agent) {
+  const obs = ensureObs(agent);
+  await obs.call('StopVirtualCam');
+  return 'Virtual camera stopped';
+}
+
 module.exports = {
   'obs.startStream': obsStartStream,
   'obs.stopStream': obsStopStream,
@@ -540,4 +742,40 @@ module.exports = {
 
   // Companion parity: input settings (text source, etc.)
   'obs.setInputSettings': obsSetInputSettings,
+
+  // Companion parity: hotkeys
+  'obs.triggerHotkey': obsTriggerHotkey,
+  'obs.triggerHotkeySequence': obsTriggerHotkeySequence,
+
+  // Companion parity: audio (extended)
+  'obs.toggleInputMute': obsToggleInputMute,
+  'obs.adjustVolume': obsAdjustVolume,
+  'obs.fadeVolume': obsFadeVolume,
+  'obs.setInputAudioSyncOffset': obsSetInputAudioSyncOffset,
+  'obs.setInputAudioBalance': obsSetInputAudioBalance,
+
+  // Companion parity: recording (extended)
+  'obs.toggleRecordPause': obsToggleRecordPause,
+  'obs.splitRecordFile': obsSplitRecordFile,
+  'obs.createRecordChapter': obsCreateRecordChapter,
+
+  // Companion parity: streaming (extended)
+  'obs.toggleStream': obsToggleStream,
+  'obs.sendStreamCaption': obsSendStreamCaption,
+
+  // Companion parity: sources (extended)
+  'obs.refreshBrowserSource': obsRefreshBrowserSource,
+  'obs.setText': obsSetText,
+  'obs.setTextProperties': obsSetTextProperties,
+  'obs.resetCaptureDevice': obsResetCaptureDevice,
+
+  // Companion parity: replay buffer (extended)
+  'obs.toggleReplayBuffer': obsToggleReplayBuffer,
+
+  // Companion parity: generic
+  'obs.customCommand': obsCustomCommand,
+
+  // Companion parity: output (virtual cam)
+  'obs.startVirtualCam': obsStartVirtualCam,
+  'obs.stopVirtualCam': obsStopVirtualCam,
 };

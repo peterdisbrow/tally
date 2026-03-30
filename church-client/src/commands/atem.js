@@ -1271,6 +1271,81 @@ async function atemGetInputProperties(agent) {
   return result.sort((a, b) => a.id - b.id);
 }
 
+// ─── COMPANION PARITY: Transition Selection ────────────────────────────────
+
+async function atemSetTransitionSelection(agent, params) {
+  const me = toInt(params.me ?? 0, 'me');
+  const selection = toInt(params.selection, 'selection');
+  await agent.atemCommand(() => agent.atem?.setTransitionStyle({ nextSelection: selection }, me));
+  return `Transition selection set to bitmask ${selection} on ME ${me}`;
+}
+
+// ─── COMPANION PARITY: USK Keyframes ───────────────────────────────────────
+
+async function atemStoreUskKeyframe(agent, params) {
+  const me = toInt(params.me ?? 0, 'me');
+  const keyer = toInt(params.keyer ?? params.key ?? 0, 'keyer');
+  const keyFrameId = toInt(params.keyFrame ?? params.keyFrameId, 'keyFrame');
+  await agent.atemCommand(() => agent.atem?.storeUpstreamKeyerFlyKeyKeyframe(me, keyer, keyFrameId));
+  return `USK ${keyer} keyframe ${keyFrameId} stored on ME ${me}`;
+}
+
+// ─── COMPANION PARITY: Media Player Cycle ──────────────────────────────────
+
+async function atemMediaPlayerCycle(agent, params) {
+  if (!agent.atem) throw new Error('ATEM not configured');
+  const playerIdx = toInt(params.player ?? 0, 'player');
+
+  // Read current state
+  const state = agent.atem.state;
+  const mpState = state?.media?.players?.[playerIdx];
+  const poolStills = state?.media?.stillPool || [];
+
+  // Count available stills
+  const validStills = [];
+  for (let i = 0; i < poolStills.length; i++) {
+    if (poolStills[i]?.isUsed) validStills.push(i);
+  }
+  if (validStills.length === 0) throw new Error('No stills in media pool to cycle through');
+
+  // Find current index and advance
+  const currentIndex = mpState?.stillIndex ?? 0;
+  const currentPos = validStills.indexOf(currentIndex);
+  const nextPos = (currentPos + 1) % validStills.length;
+  const nextIndex = validStills[nextPos];
+
+  await agent.atem.setMediaPlayerSource({ sourceType: 0, stillIndex: nextIndex }, playerIdx);
+  return `Media player ${playerIdx + 1} cycled to still ${nextIndex + 1}`;
+}
+
+// ─── COMPANION PARITY: Fairlight Audio Routing ─────────────────────────────
+
+async function atemSetFairlightAudioRouting(agent, params) {
+  const outputId = toInt(params.outputId, 'outputId');
+  const sourceId = toInt(params.sourceId, 'sourceId');
+  await agent.atemCommand(async () => {
+    if (typeof agent.atem?.setFairlightAudioRoutingOutput !== 'function') {
+      throw new Error('setFairlightAudioRoutingOutput not supported on this switcher');
+    }
+    return agent.atem.setFairlightAudioRoutingOutput(outputId, { sourceId });
+  });
+  return `Fairlight audio routing output ${outputId} set to source ${sourceId}`;
+}
+
+// ─── COMPANION PARITY: Timecode Mode ───────────────────────────────────────
+
+async function atemSetTimecodeMode(agent, params) {
+  const mode = toInt(params.mode, 'mode');
+  await agent.atemCommand(async () => {
+    if (typeof agent.atem?.setTimecodeMode !== 'function') {
+      throw new Error('setTimecodeMode not supported on this switcher');
+    }
+    return agent.atem.setTimecodeMode(mode);
+  });
+  const modeName = mode === 0 ? 'free run' : mode === 1 ? 'time of day' : `mode ${mode}`;
+  return `Timecode mode set to ${modeName}`;
+}
+
 // ─── COMMAND REGISTRY ───────────────────────────────────────────────────────
 
 module.exports = {
@@ -1410,4 +1485,12 @@ module.exports = {
   'atem.getCameraControl': atemGetCameraControl,
   'atem.getTallyByIndex': atemGetTallyByIndex,
   'atem.getInputProperties': atemGetInputProperties,
+
+  // Companion parity: transition selection, USK keyframes, media cycle, routing, timecode
+  'atem.setTransitionSelection': atemSetTransitionSelection,
+  'atem.storeUskKeyframe': atemStoreUskKeyframe,
+  'atem.setUskKeyframe': atemStoreUskKeyframe,
+  'atem.mediaPlayerCycle': atemMediaPlayerCycle,
+  'atem.setFairlightAudioRouting': atemSetFairlightAudioRouting,
+  'atem.setTimecodeMode': atemSetTimecodeMode,
 };
