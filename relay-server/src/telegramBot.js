@@ -671,6 +671,11 @@ class TallyBot {
       this.db.exec(`ALTER TABLE church_tds ADD COLUMN access_level TEXT DEFAULT 'operator'`);
     } catch { /* column already exists */ }
 
+    // Add default_room_id column for multi-room targeting
+    try {
+      this.db.exec(`ALTER TABLE church_tds ADD COLUMN default_room_id TEXT DEFAULT NULL`);
+    } catch { /* column already exists */ }
+
     this._stmtFindTD = this.db.prepare('SELECT * FROM church_tds WHERE telegram_user_id = ? AND active = 1');
     this._stmtFindChurchByCode = this.db.prepare('SELECT * FROM churches WHERE registration_code = ?');
     this._stmtRegisterTD = this.db.prepare('INSERT OR REPLACE INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active) VALUES (?, ?, ?, ?, ?, 1)');
@@ -887,6 +892,7 @@ class TallyBot {
       if (/^(yes|y|yep|yup|confirm|confirmed|do it|proceed|go|go ahead|execute|ok|okay|sure)$/i.test(lower)) {
         this._pendingConfirmations.delete(chatId);
         if (pending.steps) {
+          const pendingOpts = pending.roomId ? { roomId: pending.roomId } : undefined;
           const replies = [];
           for (const step of pending.steps) {
             if (step.command === 'system.wait') {
@@ -895,12 +901,13 @@ class TallyBot {
               await new Promise((r) => setTimeout(r, seconds * 1000));
               continue;
             }
-            const reply = await this._dispatchCommandSilent(pending.church, chatId, step.command, step.params);
+            const reply = await this._dispatchCommandSilent(pending.church, chatId, step.command, step.params, pendingOpts);
             if (reply) replies.push(reply);
           }
           return this.sendMessage(chatId, replies.join('\n') || '✅ Done', { parse_mode: 'Markdown' });
         }
-        return this._dispatchCommand(pending.church, chatId, pending.command, pending.params);
+        const pendingOpts = pending.roomId ? { roomId: pending.roomId } : undefined;
+        return this._dispatchCommand(pending.church, chatId, pending.command, pending.params, pendingOpts);
       }
 
       // Cancelled
@@ -1133,6 +1140,12 @@ class TallyBot {
       } catch (e) {
         return this.sendMessage(chatId, `❌ Couldn't switch back automatically.\n${e.message}\nYou'll need to do it manually at the booth.`);
       }
+    }
+
+    // ── /room — list rooms and set default room for multi-room targeting ──
+    const roomMatch = text.match(/^\/room(?:\s+(.+))?$/i);
+    if (roomMatch || ltext === 'rooms' || ltext === 'list rooms') {
+      return this._handleRoomCommand(church, chatId, roomMatch?.[1]?.trim());
     }
 
     // ── Chat message ─────────────────────────────────────────────────────
@@ -1654,23 +1667,45 @@ class TallyBot {
       }
     }
 
-    // Admin can prefix with "at ChurchName:" to target a church
+    // Admin can prefix with "at ChurchName:" or "at ChurchName/RoomName:" to target
     const atMatch = text.match(/^(?:at|@)\s+(.+?):\s*(.+)$/i);
     let targetChurch = null;
+    let adminRoomId = null;
     let commandText = text;
 
     if (atMatch) {
-      const churchName = atMatch[1].trim();
+      let churchPart = atMatch[1].trim();
       commandText = atMatch[2].trim();
+
+      // Check for "Church/Room" syntax
+      const slashIdx = churchPart.indexOf('/');
+      let roomPart = null;
+      if (slashIdx !== -1) {
+        roomPart = churchPart.slice(slashIdx + 1).trim();
+        churchPart = churchPart.slice(0, slashIdx).trim();
+      }
+
       const churches = this.db.prepare('SELECT * FROM churches').all();
       for (const c of churches) {
-        if (c.name.toLowerCase().includes(churchName.toLowerCase())) {
+        if (c.name.toLowerCase().includes(churchPart.toLowerCase())) {
           targetChurch = c;
           break;
         }
       }
       if (!targetChurch) {
-        return this.sendMessage(chatId, `❌ Church "${churchName}" not found.`);
+        return this.sendMessage(chatId, `❌ Church "${churchPart}" not found.`);
+      }
+
+      // Resolve room if specified
+      if (roomPart) {
+        const rooms = this.db.prepare('SELECT id, name FROM rooms WHERE campus_id = ?').all(targetChurch.churchId);
+        const matchedRoom = rooms.find(r => r.name.toLowerCase() === roomPart.toLowerCase())
+          || rooms.find(r => r.name.toLowerCase().includes(roomPart.toLowerCase()));
+        if (!matchedRoom) {
+          const names = rooms.map(r => r.name).join(', ');
+          return this.sendMessage(chatId, `❌ Room "${roomPart}" not found for ${targetChurch.name}.\nAvailable: ${names || 'none'}`);
+        }
+        adminRoomId = matchedRoom.id;
       }
     }
 
@@ -1697,13 +1732,14 @@ class TallyBot {
           if (!adminForceBypassed) {
             const wfSafety = checkWorkflowSafety(smartResult.steps, adminLiveStatus);
             if (wfSafety) {
-              this._pendingConfirmations.set(chatId, { steps: smartResult.steps, church: targetChurch, expiresAt: Date.now() + 60_000 });
+              this._pendingConfirmations.set(chatId, { steps: smartResult.steps, church: targetChurch, roomId: adminRoomId || null, expiresAt: Date.now() + 60_000 });
               return this.sendMessage(chatId, wfSafety.warning);
             }
           }
+          const adminOpts = adminRoomId ? { roomId: adminRoomId } : undefined;
           const replies = [];
           for (const step of smartResult.steps) {
-            const r = await this._dispatchCommandSilent(targetChurch, chatId, step.command, step.params);
+            const r = await this._dispatchCommandSilent(targetChurch, chatId, step.command, step.params, adminOpts);
             if (r) replies.push(r);
           }
           return this.sendMessage(chatId, replies.join('\n') || '✅ Done', { parse_mode: 'Markdown' });
@@ -1728,13 +1764,14 @@ class TallyBot {
             const adminRuntime = this.relay.churches.get(targetChurch.churchId);
             const wfSafety = checkWorkflowSafety(aiResult.steps, adminRuntime?.status || {});
             if (wfSafety) {
-              this._pendingConfirmations.set(chatId, { steps: aiResult.steps, church: targetChurch, expiresAt: Date.now() + 60_000 });
+              this._pendingConfirmations.set(chatId, { steps: aiResult.steps, church: targetChurch, roomId: adminRoomId || null, expiresAt: Date.now() + 60_000 });
               return this.sendMessage(chatId, wfSafety.warning);
             }
           }
+          const adminOpts = adminRoomId ? { roomId: adminRoomId } : undefined;
           const replies = [];
           for (const step of aiResult.steps) {
-            const r = await this._dispatchCommandSilent(targetChurch, chatId, step.command, step.params);
+            const r = await this._dispatchCommandSilent(targetChurch, chatId, step.command, step.params, adminOpts);
             if (r) replies.push(r);
           }
           return this.sendMessage(chatId, replies.join('\n') || '✅ Done', { parse_mode: 'Markdown' });
@@ -1761,7 +1798,12 @@ class TallyBot {
     if (!targetChurch) {
       const churches = this.db.prepare('SELECT * FROM churches').all();
       const names = churches.map(c => `• ${c.name}`).join('\n');
-      return this.sendMessage(chatId, `Which church? Use:\n\`at ChurchName: ${commandText}\`\n\n${names}`, { parse_mode: 'Markdown' });
+      return this.sendMessage(chatId, `Which church? Use:\n\`at ChurchName: ${commandText}\`\n\nor \`at ChurchName/RoomName: ${commandText}\`\n\n${names}`, { parse_mode: 'Markdown' });
+    }
+
+    // If admin specified a room and we have a parsed command, dispatch directly with room override
+    if (adminRoomId && parsed) {
+      return this._dispatchCommand(targetChurch, chatId, parsed.command, parsed.params, { roomId: adminRoomId });
     }
 
     // Route through same handlers as TD
@@ -2030,23 +2072,14 @@ class TallyBot {
   }
 
   async _handleSavePreset(church, chatId, presetName) {
-    const churchRuntime = this.relay.churches.get(church.churchId);
-    if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
-      return this.sendMessage(chatId, `❌ *${church.name}* is offline — cannot capture current state.`, { parse_mode: 'Markdown' });
-    }
-
     await this.sendMessage(chatId, `⏳ Capturing current equipment state…`);
 
-    const msgId = crypto.randomUUID();
-    const resultPromise = this._waitForResult(church.churchId, msgId, 15000);
-    churchRuntime.ws.send(JSON.stringify({ type: 'command', command: 'preset.save', params: { name: presetName }, id: msgId }));
-
-    const result = await resultPromise;
-    if (result.error) {
-      return this.sendMessage(chatId, `❌ Failed to capture state: ${result.error}`);
+    const { roomId } = this._resolveRoomForChat(church, chatId);
+    const { result: saveResult, error } = await this._sendRoomCommand(church, roomId, 'preset.save', { name: presetName });
+    if (error) {
+      return this.sendMessage(chatId, `❌ *${church.name}* — ${error}`, { parse_mode: 'Markdown' });
     }
-
-    const { steps = [], presetType } = result.result || {};
+    const { steps = [], presetType } = saveResult || {};
     if (!steps.length) {
       return this.sendMessage(chatId, `⚠️ No connected devices found to save state from.`);
     }
@@ -2064,7 +2097,7 @@ class TallyBot {
 
   async _handleRecallPreset(church, chatId, presetName) {
     const churchRuntime = this.relay.churches.get(church.churchId);
-    if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
+    if (!churchRuntime) {
       return this.sendMessage(chatId, `❌ *${church.name}* is offline.`, { parse_mode: 'Markdown' });
     }
 
@@ -2079,29 +2112,8 @@ class TallyBot {
     }
 
     try {
-      const sendCommand = (command, params) => {
-        return new Promise((resolve, reject) => {
-          const msgId = crypto.randomUUID();
-          const handler = (msg) => {
-            if (msg.type === 'command_result' && msg.churchId === church.churchId && msg.messageId === msgId) {
-              clearTimeout(timer);
-              const idx = (this._resultListeners || []).indexOf(handler);
-              if (idx !== -1) this._resultListeners.splice(idx, 1);
-              if (msg.error) reject(new Error(msg.error));
-              else resolve(msg.result);
-            }
-          };
-          const timer = setTimeout(() => {
-            const idx = (this._resultListeners || []).indexOf(handler);
-            if (idx !== -1) this._resultListeners.splice(idx, 1);
-            reject(new Error('Command timed out (10s)'));
-          }, 10000);
-          handler._presetMsgId = msgId;
-          if (!this._resultListeners) this._resultListeners = [];
-          this._resultListeners.push(handler);
-          churchRuntime.ws.send(JSON.stringify({ type: 'command', command, params, id: msgId }));
-        });
-      };
+      const { roomId } = this._resolveRoomForChat(church, chatId);
+      const sendCommand = this.relay.makeCommandSender(churchRuntime, roomId);
 
       await this.presetLibrary.recall(church.churchId, presetName, sendCommand);
       return this.sendMessage(chatId, `✅ Preset *${presetName}* recalled!`, { parse_mode: 'Markdown' });
@@ -2355,55 +2367,160 @@ class TallyBot {
     );
   }
 
+  // ─── ROOM RESOLUTION ─────────────────────────────────────────────────
+
+  /**
+   * Resolve the target room_id for a TD's command.
+   * Priority: TD's default_room_id → auto if church has exactly one room → null (broadcast).
+   * Returns { roomId, roomName } or { roomId: null, roomName: null }.
+   */
+  _resolveTDRoom(church, td) {
+    const churchRuntime = this.relay.churches.get(church.churchId);
+    if (!churchRuntime) return { roomId: null, roomName: null };
+
+    // If TD has a saved default room, use it (if that room is still connected)
+    if (td?.default_room_id) {
+      const instanceName = churchRuntime.roomInstanceMap?.[td.default_room_id];
+      if (instanceName) {
+        const room = this.db.prepare('SELECT name FROM rooms WHERE id = ?').get(td.default_room_id);
+        return { roomId: td.default_room_id, roomName: room?.name || td.default_room_id };
+      }
+      // Room not connected — fall through to auto-resolve
+    }
+
+    // Auto-resolve: if only one room is in the roomInstanceMap, use it
+    const roomEntries = Object.entries(churchRuntime.roomInstanceMap || {});
+    if (roomEntries.length === 1) {
+      const [roomId] = roomEntries[0];
+      const room = this.db.prepare('SELECT name FROM rooms WHERE id = ?').get(roomId);
+      return { roomId, roomName: room?.name || roomId };
+    }
+
+    // Multiple rooms or no rooms mapped — broadcast (legacy behavior)
+    return { roomId: null, roomName: null };
+  }
+
+  /**
+   * Resolve room for a chatId + church combo (looks up TD's default_room_id then auto-resolves).
+   */
+  _resolveRoomForChat(church, chatId) {
+    const td = this.db.prepare('SELECT default_room_id FROM church_tds WHERE telegram_chat_id = ? AND active = 1').get(String(chatId));
+    return this._resolveTDRoom(church, td);
+  }
+
+  /**
+   * Send a command to a specific room (or broadcast) using makeCommandSender.
+   * Returns { result, error } similar to _waitForResult.
+   */
+  async _sendRoomCommand(church, roomId, command, params) {
+    const churchRuntime = this.relay.churches.get(church.churchId);
+    if (!churchRuntime) return { error: `${church.name} not found` };
+
+    try {
+      const sendCommand = this.relay.makeCommandSender(churchRuntime, roomId);
+      const result = await sendCommand(command, params);
+      return { result };
+    } catch (e) {
+      return { error: e.message };
+    }
+  }
+
+  // ─── ROOM SELECTION COMMAND ───────────────────────────────────────────
+
+  async _handleRoomCommand(church, chatId, arg) {
+    const rooms = this.db.prepare('SELECT id, name FROM rooms WHERE campus_id = ?').all(church.churchId);
+    const churchRuntime = this.relay.churches.get(church.churchId);
+    const roomMap = churchRuntime?.roomInstanceMap || {};
+
+    if (rooms.length === 0) {
+      return this.sendMessage(chatId, `ℹ️ *${church.name}* has no rooms configured. Commands go to all connected instances.`, { parse_mode: 'Markdown' });
+    }
+
+    // /room (no arg) — list rooms and show current selection
+    if (!arg) {
+      const td = this.db.prepare('SELECT default_room_id FROM church_tds WHERE telegram_chat_id = ? AND active = 1').get(String(chatId));
+      const currentRoomId = td?.default_room_id;
+
+      let text = `🏠 *Rooms — ${church.name}*\n\n`;
+      for (const room of rooms) {
+        const online = roomMap[room.id] ? '🟢' : '⚫';
+        const selected = room.id === currentRoomId ? ' ✅ _(selected)_' : '';
+        text += `${online} *${room.name}*${selected}\n`;
+      }
+      text += `\nUse \`/room <name>\` to set your default room.`;
+      if (rooms.length === 1) {
+        text += `\n_Only one room — commands auto-route to it._`;
+      }
+      return this.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+    }
+
+    // /room <name> — set default room
+    const target = arg.toLowerCase();
+    const match = rooms.find(r => r.name.toLowerCase() === target)
+      || rooms.find(r => r.name.toLowerCase().includes(target));
+
+    if (!match) {
+      const names = rooms.map(r => `• ${r.name}`).join('\n');
+      return this.sendMessage(chatId, `❌ No room matching "${arg}".\n\nAvailable rooms:\n${names}`);
+    }
+
+    this.db.prepare('UPDATE church_tds SET default_room_id = ? WHERE telegram_chat_id = ? AND active = 1').run(match.id, String(chatId));
+    const online = roomMap[match.id] ? '🟢 online' : '⚫ offline';
+    return this.sendMessage(chatId, `✅ Default room set to *${match.name}* (${online}).\n\nAll your commands will now target this room.`, { parse_mode: 'Markdown' });
+  }
+
   // ─── DISPATCH HELPERS ────────────────────────────────────────────────
 
-  /** Route a parsed command to the right handler and reply to chatId. */
-  async _dispatchCommand(church, chatId, command, params) {
-    if (command === 'status') return this._sendStatus(church, chatId);
-    if (command === 'preview.snap') return this._sendPreviewSnap(church, chatId);
-    if (command === 'videohub.getRoutes') return this._sendRouteQuery(church, chatId, params);
-    return this._executeAndReply(church, chatId, command, params);
+  /**
+   * Route a parsed command to the right handler and reply to chatId.
+   * @param {object} [opts] - Optional overrides
+   * @param {string} [opts.roomId] - Explicit room ID (admin "at Church/Room:" syntax)
+   */
+  async _dispatchCommand(church, chatId, command, params, opts) {
+    if (command === 'status') return this._sendStatus(church, chatId, opts);
+    if (command === 'preview.snap') return this._sendPreviewSnap(church, chatId, opts);
+    if (command === 'videohub.getRoutes') return this._sendRouteQuery(church, chatId, params, opts);
+    return this._executeAndReply(church, chatId, command, params, opts);
   }
 
   /** Execute a command and return the reply string (for multi-step batching). */
-  async _dispatchCommandSilent(church, chatId, command, params) {
-    if (command === 'status') { await this._sendStatus(church, chatId); return null; }
-    if (command === 'preview.snap') { await this._sendPreviewSnap(church, chatId); return null; }
-    if (command === 'videohub.getRoutes') { await this._sendRouteQuery(church, chatId, params); return null; }
+  async _dispatchCommandSilent(church, chatId, command, params, opts) {
+    if (command === 'status') { await this._sendStatus(church, chatId, opts); return null; }
+    if (command === 'preview.snap') { await this._sendPreviewSnap(church, chatId, opts); return null; }
+    if (command === 'videohub.getRoutes') { await this._sendRouteQuery(church, chatId, params, opts); return null; }
 
-    const churchRuntime = this.relay.churches.get(church.churchId);
-    if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
-      return `❌ *${church.name}* is offline.`;
+    const { roomId, roomName } = this._resolveRoom(church, chatId, opts);
+    const { result, error } = await this._sendRoomCommand(church, roomId, command, params);
+    if (error) return `❌ ${error}`;
+    const reply = this._formatResult(command, params, result);
+    return roomName ? `_[${roomName}]_ ${reply}` : reply;
+  }
+
+  /**
+   * Resolve room: explicit override → TD default → auto-resolve.
+   */
+  _resolveRoom(church, chatId, opts) {
+    if (opts?.roomId) {
+      const room = this.db.prepare('SELECT name FROM rooms WHERE id = ?').get(opts.roomId);
+      return { roomId: opts.roomId, roomName: room?.name || opts.roomId };
     }
-    const msgId = crypto.randomUUID();
-    const resultPromise = this._waitForResult(church.churchId, msgId, 10000);
-    churchRuntime.ws.send(JSON.stringify({ type: 'command', command, params, id: msgId }));
-    const result = await resultPromise;
-    if (result.error) return `❌ ${result.error}`;
-    return this._formatResult(command, params, result.result);
+    return this._resolveRoomForChat(church, chatId);
   }
 
   // ─── COMMAND EXECUTION ────────────────────────────────────────────────
 
-  async _executeAndReply(church, chatId, command, params) {
-    const churchRuntime = this.relay.churches.get(church.churchId);
-    if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
-      return this.sendMessage(chatId, `❌ *${church.name}* is offline — equipment not connected.`, { parse_mode: 'Markdown' });
-    }
+  async _executeAndReply(church, chatId, command, params, opts) {
+    const { roomId, roomName } = this._resolveRoom(church, chatId, opts);
+    const { result, error } = await this._sendRoomCommand(church, roomId, command, params);
 
-    // Send command and wait for result
-    const msgId = crypto.randomUUID();
-    const resultPromise = this._waitForResult(church.churchId, msgId, 10000);
-
-    churchRuntime.ws.send(JSON.stringify({ type: 'command', command, params, id: msgId }));
-
-    const result = await resultPromise;
-    if (result.error) {
-      return this.sendMessage(chatId, `❌ ${result.error}`);
+    if (error) {
+      const label = roomName ? ` (${roomName})` : '';
+      return this.sendMessage(chatId, `❌ *${church.name}*${label} — ${error}`, { parse_mode: 'Markdown' });
     }
 
     // Format response based on command
-    const reply = this._formatResult(command, params, result.result);
+    let reply = this._formatResult(command, params, result);
+    if (roomName) reply = `_[${roomName}]_ ${reply}`;
     return this.sendMessage(chatId, reply, { parse_mode: 'Markdown' });
   }
 
@@ -2510,16 +2627,35 @@ class TallyBot {
 
   // ─── STATUS ───────────────────────────────────────────────────────────
 
-  async _sendStatus(church, chatId) {
+  async _sendStatus(church, chatId, opts) {
     const churchRuntime = this.relay.churches.get(church.churchId);
     if (!churchRuntime) {
       return this.sendMessage(chatId, `❌ *${church.name}* not found.`, { parse_mode: 'Markdown' });
     }
 
-    const connected = churchRuntime.ws?.readyState === 1;
-    const s = churchRuntime.status || {};
+    // Resolve target room for this TD
+    const { roomId, roomName } = this._resolveRoom(church, chatId, opts);
 
-    let text = `*${church.name}* — ${connected ? '🟢 Online' : '⚫ Offline'}\n`;
+    // If a specific room is targeted, use that room's instance status
+    let s;
+    let connected;
+    if (roomId && churchRuntime.instanceStatus) {
+      const instanceName = churchRuntime.roomInstanceMap?.[roomId];
+      if (instanceName) {
+        s = churchRuntime.instanceStatus[instanceName] || {};
+        const sock = churchRuntime.sockets?.get(instanceName);
+        connected = sock?.readyState === 1;
+      } else {
+        s = {};
+        connected = false;
+      }
+    } else {
+      connected = churchRuntime.ws?.readyState === 1;
+      s = churchRuntime.status || {};
+    }
+
+    const roomLabel = roomName ? ` — ${roomName}` : '';
+    let text = `*${church.name}*${roomLabel} — ${connected ? '🟢 Online' : '⚫ Offline'}\n`;
 
     if (s.atem) {
       text += `\n📹 *ATEM*: ${s.atem.connected ? '✅' : '❌'}`;
@@ -2563,15 +2699,29 @@ class TallyBot {
 
   // ─── PREVIEW SNAP ─────────────────────────────────────────────────────
 
-  async _sendPreviewSnap(church, chatId) {
+  async _sendPreviewSnap(church, chatId, opts) {
     const churchRuntime = this.relay.churches.get(church.churchId);
-    if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
+    if (!churchRuntime) {
+      return this.sendMessage(chatId, `❌ *${church.name}* is offline.`, { parse_mode: 'Markdown' });
+    }
+
+    // Resolve target room and find the right socket
+    const { roomId } = this._resolveRoom(church, chatId, opts);
+    let targetSock;
+    if (roomId && churchRuntime.roomInstanceMap?.[roomId]) {
+      const instanceName = churchRuntime.roomInstanceMap[roomId];
+      targetSock = churchRuntime.sockets?.get(instanceName);
+    } else {
+      targetSock = churchRuntime.ws;
+    }
+
+    if (!targetSock || targetSock.readyState !== 1) {
       return this.sendMessage(chatId, `❌ *${church.name}* is offline.`, { parse_mode: 'Markdown' });
     }
 
     // Request a preview snap
     const msgId = crypto.randomUUID();
-    churchRuntime.ws.send(JSON.stringify({ type: 'command', command: 'preview.snap', params: {}, id: msgId }));
+    targetSock.send(JSON.stringify({ type: 'command', command: 'preview.snap', params: {}, id: msgId }));
 
     // Wait for preview_frame message (up to 10s)
     const frame = await new Promise((resolve) => {
@@ -2610,22 +2760,14 @@ class TallyBot {
 
   // ─── ROUTE QUERY ──────────────────────────────────────────────────────
 
-  async _sendRouteQuery(church, chatId, params) {
-    const churchRuntime = this.relay.churches.get(church.churchId);
-    if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
-      return this.sendMessage(chatId, `❌ *${church.name}* is offline.`, { parse_mode: 'Markdown' });
+  async _sendRouteQuery(church, chatId, params, opts) {
+    const { roomId } = opts?.roomId ? { roomId: opts.roomId } : this._resolveRoomForChat(church, chatId);
+    const { result: routeResult, error } = await this._sendRoomCommand(church, roomId, 'videohub.getRoutes', params || {});
+    if (error) {
+      return this.sendMessage(chatId, `❌ *${church.name}* — ${error}`, { parse_mode: 'Markdown' });
     }
 
-    const msgId = crypto.randomUUID();
-    const resultPromise = this._waitForResult(church.churchId, msgId, 10000);
-    churchRuntime.ws.send(JSON.stringify({ type: 'command', command: 'videohub.getRoutes', params: params || {}, id: msgId }));
-
-    const result = await resultPromise;
-    if (result.error) {
-      return this.sendMessage(chatId, `❌ ${result.error}`);
-    }
-
-    const routes = result.result;
+    const routes = routeResult;
     if (!Array.isArray(routes) || routes.length === 0) {
       return this.sendMessage(chatId, 'No routing data available.');
     }

@@ -1374,7 +1374,7 @@ if (TALLY_BOT_TOKEN) {
     botToken: TALLY_BOT_TOKEN,
     adminChatId: ANDREW_TELEGRAM_CHAT_ID,
     db,
-    relay: { churches, callDiagnosticAI },
+    relay: { churches, callDiagnosticAI, makeCommandSender },
     onCallRotation,
     guestTdMode,
     presetLibrary,
