@@ -21,6 +21,7 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const CSRF_EXEMPT = new Set([
   '/api/church/login',
   '/api/church/logout',
+  '/api/admin/login',
   '/api/reseller-portal/login',
   '/api/reseller-portal/logout',
   '/api/reseller-portal/signup',
