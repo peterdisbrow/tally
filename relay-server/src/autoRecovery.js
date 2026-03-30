@@ -165,6 +165,16 @@ class AutoRecovery {
       return { attempted: false, reason: 'handled_by_failover', command: null, event };
     }
 
+    // When SignalFailover is actively handling an outage (not HEALTHY), skip
+    // encoder_disconnected recovery — failover to backup is the right action,
+    // not restarting the same dead encoder.
+    if (failureType === 'encoder_disconnected' && this.signalFailover) {
+      const fState = this.signalFailover.getState(church.churchId);
+      if (fState.state && fState.state !== 'HEALTHY') {
+        return { attempted: false, reason: 'deferred_to_signal_failover', command: null, event };
+      }
+    }
+
     const key = this._key(church.churchId, failureType);
 
     // Max attempts per failure type per session — after that, always escalate

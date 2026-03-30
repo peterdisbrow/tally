@@ -1047,6 +1047,7 @@ const aiTriageEngine = new AITriageEngine(db, scheduleEngine, {
   },
 });
 const signalFailover = new SignalFailover(churches, alertEngine, autoRecovery, db);
+autoRecovery.signalFailover = signalFailover; // allow autoRecovery to defer to failover
 const weeklyDigest = new WeeklyDigest(db);
 weeklyDigest.setNotificationConfig(process.env.ALERT_BOT_TOKEN);
 const rundownEngine = new RundownEngine(db);
@@ -3559,6 +3560,11 @@ const _wsHandlers = createWebSocketHandlers({
   onAlert(church, msg) {
     if (msg.alertType) {
       if (msg.alertType === 'audio_silence') sessionRecap.recordAudioSilence(church.churchId);
+      // Forward encoder disconnect to SignalFailover so it can evaluate failover
+      // (watchdog alerts bypass signal_event path — bridge the gap here)
+      if (msg.alertType === 'encoder_disconnected') {
+        signalFailover.onSignalEvent(church.churchId, 'encoder_disconnected', { church });
+      }
       recordAlertForChaining(church.churchId, msg.alertType);
       (async () => {
         try {

@@ -242,6 +242,9 @@ class SignalFailover {
       case 'encoder_bitrate_recovered':
         this._onEncoderRecovered(churchId, s, config, church, data);
         break;
+      case 'encoder_disconnected':
+        this._onEncoderDisconnected(churchId, s, config, church, data);
+        break;
       case 'atem_lost':
         this._onAtemLost(churchId, s, config, church, data);
         break;
@@ -342,6 +345,41 @@ class SignalFailover {
         break;
       }
       // In other states (SUSPECTED_BLACK, CONFIRMED, FAILOVER) — no change needed
+    }
+  }
+
+  /**
+   * Encoder fully disconnected (hardware gone, not just bitrate drop).
+   * This is more severe than bitrate loss — skip the SUSPECTED_BLACK timer
+   * and go straight to CONFIRMED_OUTAGE since the device is unreachable.
+   */
+  _onEncoderDisconnected(churchId, s, config, church, data) {
+    switch (s.state) {
+      case STATES.HEALTHY:
+      case STATES.ATEM_LOST: {
+        const atemLost = s.state === STATES.ATEM_LOST;
+        // Cancel any pending black timer from a prior bitrate loss
+        if (s.blackTimer) { clearTimeout(s.blackTimer); s.blackTimer = null; }
+
+        const diagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true, atemLost });
+        s.diagnosis = diagnosis;
+        s.outageStartedAt = s.outageStartedAt || Date.now();
+
+        const fromState = s.state;
+        this._logTransition(churchId, fromState, STATES.CONFIRMED_OUTAGE, 'encoder_disconnected');
+        this._escalateToConfirmed(churchId, s, config, church, 'encoder_disconnected');
+        break;
+      }
+
+      case STATES.SUSPECTED_BLACK: {
+        // Already suspected — encoder disconnect confirms it, skip remaining timer
+        if (s.blackTimer) { clearTimeout(s.blackTimer); s.blackTimer = null; }
+        s.diagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true });
+        this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.CONFIRMED_OUTAGE, 'encoder_disconnected_during_black');
+        this._escalateToConfirmed(churchId, s, config, church, 'encoder_disconnected_confirmed');
+        break;
+      }
+      // In CONFIRMED_OUTAGE or FAILOVER_ACTIVE — already handling, no change needed
     }
   }
 
