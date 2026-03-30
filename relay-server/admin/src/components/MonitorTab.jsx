@@ -13,9 +13,11 @@ export default function MonitorTab({ token, api }) {
   const [equipment, setEquipment] = useState(null);
   const [rooms, setRooms] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState('');
+  const [copyFeedback, setCopyFeedback] = useState(null);
   const esRef = useRef(null);
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
+  const statsIntervalRef = useRef(null);
 
   // SSE connection for live status
   useEffect(() => {
@@ -85,6 +87,22 @@ export default function MonitorTab({ token, api }) {
   useEffect(() => {
     loadActiveStreams();
   }, [loadActiveStreams]);
+
+  // Poll stream stats while expanded and active
+  useEffect(() => {
+    if (!expandedId || !api || !streamKey?.active) {
+      clearInterval(statsIntervalRef.current);
+      return;
+    }
+    const poll = async () => {
+      try {
+        const data = await api(`/api/admin/stream/${expandedId}/key`);
+        setStreamKey(prev => ({ ...prev, meta: data.meta, active: data.active, startedAt: data.startedAt }));
+      } catch { /* ignore */ }
+    };
+    statsIntervalRef.current = setInterval(poll, 5000);
+    return () => clearInterval(statsIntervalRef.current);
+  }, [expandedId, api, streamKey?.active]);
 
   // HLS player helpers
   function destroyPlayer() {
@@ -192,8 +210,24 @@ export default function MonitorTab({ token, api }) {
     }
   }
 
-  function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).catch(() => {});
+  function copyToClipboard(e, text) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text).then(() => {
+      setCopyFeedback(text);
+      setTimeout(() => setCopyFeedback(null), 1500);
+    }).catch(() => {
+      // Fallback for older browsers / insecure contexts
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopyFeedback(text);
+      setTimeout(() => setCopyFeedback(null), 1500);
+    });
   }
 
   function handleRefresh() {
@@ -484,31 +518,70 @@ export default function MonitorTab({ token, api }) {
                                   </div>
                                 )}
 
-                                {/* Stream key info — compact row */}
+                                {/* Encoder stats */}
+                                {streamKey?.active && streamKey.meta && (
+                                  <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                    {[
+                                      streamKey.meta.bitrateKbps > 0 && ['Bitrate', `${streamKey.meta.bitrateKbps} kbps`, streamKey.meta.bitrateKbps < 1000 ? C.yellow : C.green],
+                                      streamKey.meta.fps > 0 && ['FPS', `${streamKey.meta.fps}`, streamKey.meta.fps < 25 ? C.yellow : C.green],
+                                      streamKey.meta.resolution && ['Resolution', streamKey.meta.resolution, C.white],
+                                      streamKey.meta.codec && ['Codec', `${streamKey.meta.codec}${streamKey.meta.audioCodec ? ' / ' + streamKey.meta.audioCodec : ''}`, C.white],
+                                      streamKey.startedAt && ['Uptime', (() => {
+                                        const sec = Math.floor((Date.now() - new Date(streamKey.startedAt).getTime()) / 1000);
+                                        const h = Math.floor(sec / 3600);
+                                        const m = Math.floor((sec % 3600) / 60);
+                                        const s2 = sec % 60;
+                                        return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s2}s` : `${s2}s`;
+                                      })(), C.white],
+                                    ].filter(Boolean).map(([label, value, color]) => (
+                                      <div key={label} style={{
+                                        background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.border}`,
+                                        borderRadius: 8, padding: '8px 14px', minWidth: 80,
+                                      }}>
+                                        <div style={{ fontSize: 10, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>{label}</div>
+                                        <div style={{ fontSize: 15, fontWeight: 700, color }}>{value}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Stream key info */}
                                 {streamKey && (
-                                  <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+                                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                                       <span style={{ color: C.muted, flexShrink: 0 }}>RTMP:</span>
-                                      <code style={{ color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>
+                                      <code style={{ color: C.muted, wordBreak: 'break-all', whiteSpace: 'normal' }}>
                                         {streamKey.rtmpUrl ? streamKey.rtmpUrl.replace(streamKey.streamKey, '{KEY}') : '\u2014'}
                                       </code>
                                       {streamKey.rtmpUrl && (
-                                        <button style={{ ...s.btn('secondary'), padding: '2px 6px', fontSize: 10 }} onClick={() => copyToClipboard(streamKey.rtmpUrl)}>Copy</button>
+                                        <button
+                                          style={{ ...s.btn('secondary'), padding: '2px 6px', fontSize: 10, flexShrink: 0 }}
+                                          onClick={(e) => copyToClipboard(e, streamKey.rtmpUrl)}
+                                        >
+                                          {copyFeedback === streamKey.rtmpUrl ? '\u2713 Copied' : 'Copy'}
+                                        </button>
                                       )}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                                       <span style={{ color: C.muted, flexShrink: 0 }}>Key:</span>
-                                      <code style={{ color: C.white }}>{streamKey.streamKey || '\u2014'}</code>
+                                      <code style={{ color: C.white, wordBreak: 'break-all' }}>{streamKey.streamKey || '\u2014'}</code>
                                       {streamKey.streamKey && (
-                                        <button style={{ ...s.btn('secondary'), padding: '2px 6px', fontSize: 10 }} onClick={() => copyToClipboard(streamKey.streamKey)}>Copy</button>
+                                        <button
+                                          style={{ ...s.btn('secondary'), padding: '2px 6px', fontSize: 10, flexShrink: 0 }}
+                                          onClick={(e) => copyToClipboard(e, streamKey.streamKey)}
+                                        >
+                                          {copyFeedback === streamKey.streamKey ? '\u2713 Copied' : 'Copy'}
+                                        </button>
                                       )}
                                     </div>
-                                    <button
-                                      style={{ ...s.btn('danger'), padding: '4px 10px', fontSize: 11 }}
-                                      onClick={handleRegenerate}
-                                    >
-                                      Regenerate
-                                    </button>
+                                    <div>
+                                      <button
+                                        style={{ ...s.btn('danger'), padding: '4px 10px', fontSize: 11 }}
+                                        onClick={(e) => { e.stopPropagation(); handleRegenerate(); }}
+                                      >
+                                        Regenerate
+                                      </button>
+                                    </div>
                                   </div>
                                 )}
                               </div>
