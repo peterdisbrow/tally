@@ -51,6 +51,9 @@ class PostServiceReport {
         report_html TEXT
       )
     `);
+    // Migration: add instance_name for room-based filtering
+    try { this.db.prepare('SELECT instance_name FROM post_service_reports LIMIT 1').get(); }
+    catch { try { this.db.exec('ALTER TABLE post_service_reports ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
   }
 
   // ─── MAIN ENTRY POINT ──────────────────────────────────────────────────────
@@ -96,6 +99,7 @@ class PostServiceReport {
       id: uuidv4(),
       church_id: churchId,
       session_id: sessionId,
+      instance_name: session.instanceName || null,
       created_at: new Date().toISOString(),
       duration_minutes: duration,
       uptime_pct: uptimePct,
@@ -115,13 +119,13 @@ class PostServiceReport {
 
     this.db.prepare(`
       INSERT INTO post_service_reports
-        (id, church_id, session_id, created_at, duration_minutes, uptime_pct, grade,
+        (id, church_id, session_id, instance_name, created_at, duration_minutes, uptime_pct, grade,
          alert_count, auto_recovered_count, escalated_count, failover_count,
          peak_viewers, stream_runtime_minutes, device_health, failover_events,
          recommendations, ai_summary, report_html)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      report.id, report.church_id, report.session_id, report.created_at,
+      report.id, report.church_id, report.session_id, report.instance_name, report.created_at,
       report.duration_minutes, report.uptime_pct, report.grade,
       report.alert_count, report.auto_recovered_count, report.escalated_count,
       report.failover_count, report.peak_viewers, report.stream_runtime_minutes,

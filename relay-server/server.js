@@ -1023,7 +1023,12 @@ sessionRecap.recoverActiveSessions(); // Re-hydrate sessions that survived a res
 scheduleEngine.addWindowOpenCallback((churchId) => {
   try {
     const onCallTd = onCallRotation.getOnCallTD(churchId);
-    sessionRecap.startSession(churchId, onCallTd?.name || null);
+    // Resolve the connected instance name for room-based session tracking
+    const church = churches.get(churchId);
+    const instanceName = church?.sockets?.size === 1
+      ? church.sockets.keys().next().value
+      : null; // multi-instance: leave null (church-wide session)
+    sessionRecap.startSession(churchId, onCallTd?.name || null, instanceName);
   } catch (e) {
     console.error(`[SessionRecap] onWindowOpen error for ${churchId}:`, e.message);
   }

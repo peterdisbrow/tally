@@ -60,7 +60,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       else { url.searchParams.delete('room'); }
       window.history.replaceState({}, '', url);
       // Sync all room selectors
-      ['overview-room-selector'].forEach(function(id) {
+      ['overview-room-selector', 'alerts-room-selector', 'analytics-room-selector'].forEach(function(id) {
         var sel = document.getElementById(id);
         if (sel && sel.value !== _selectedRoomId) sel.value = _selectedRoomId;
       });
@@ -977,6 +977,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           clearEngineerChat();
           loadEngineerChat();
         }
+      }
+      if (e.target.id === 'alerts-room-selector') {
+        setSelectedRoom(e.target.value);
+        loadAlerts();
+        loadFailoverSettings();
+      }
+      if (e.target.id === 'analytics-room-selector') {
+        setSelectedRoom(e.target.value);
+        _tabLoaded['tab-sessions'] = false; // force reload on next tab switch
+        _tabLoaded['tab-analytics-data'] = false;
+        loadAnalytics();
       }
     });
 
@@ -3988,7 +3999,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     // ── Sessions ──────────────────────────────────────────────────────────────
     async function loadSessions() {
       try {
-        const sessions = await api('GET', '/api/church/sessions');
+        const sessions = await api('GET', '/api/church/sessions' + roomParam());
         const tbody = document.getElementById('sessions-tbody');
         if (!sessions.length) {
           tbody.innerHTML = '<tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">No sessions recorded yet.</td></tr>';
@@ -4015,7 +4026,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var el = document.getElementById('service-reports-body');
       if (!el) return;
       try {
-        var reports = await api('GET', '/api/church/service-reports?limit=5');
+        var reports = await api('GET', '/api/church/service-reports?limit=5' + roomParamAmp());
         if (!reports.length) {
           el.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">No reports yet — reports are generated automatically after each service session ends.</div>';
           return;
@@ -4929,9 +4940,22 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     // ── Alerts ────────────────────────────────────────────────────────────────
+    var _alertsRoomsLoaded = false;
+    async function loadAlertsRoomSelector() {
+      if (_alertsRoomsLoaded) return;
+      await fetchRoomList();
+      populateRoomSelector(
+        document.getElementById('alerts-room-selector'),
+        document.getElementById('alerts-room-selector-wrap'),
+        { allowAll: true }
+      );
+      _alertsRoomsLoaded = true;
+    }
+
     async function loadAlerts() {
       try {
-        const alerts = await api('GET', '/api/church/alerts');
+        await loadAlertsRoomSelector();
+        const alerts = await api('GET', '/api/church/alerts' + roomParam());
         var container = document.getElementById('alerts-content');
         if (!alerts.length) {
           container.innerHTML = '<p style="color:#475569;text-align:center;padding:20px">No alerts yet. Alerts will appear here during and after your services.</p>';
@@ -5073,7 +5097,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     async function exportAnalyticsCSV() {
       try {
-        var blob = await fetch('/api/church/analytics/export?days=' + analyticsRange, {
+        var blob = await fetch('/api/church/analytics/export?days=' + analyticsRange + roomParamAmp(), {
           headers: { 'Authorization': 'Bearer ' + token }
         }).then(function(r) {
           if (!r.ok) throw new Error('Export failed');
@@ -5093,6 +5117,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
     }
 
+    var _analyticsRoomsLoaded = false;
+    async function loadAnalyticsRoomSelector() {
+      if (_analyticsRoomsLoaded) return;
+      await fetchRoomList();
+      populateRoomSelector(
+        document.getElementById('analytics-room-selector'),
+        document.getElementById('analytics-room-selector-wrap'),
+        { allowAll: true }
+      );
+      _analyticsRoomsLoaded = true;
+    }
+
     function setAnalyticsRange(days, el) {
       analyticsRange = days;
       document.querySelectorAll('.analytics-range').forEach(function(b) { b.classList.remove('active'); });
@@ -5102,7 +5138,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     async function loadAnalytics() {
       try {
-        var data = await api('GET', '/api/church/analytics?days=' + analyticsRange);
+        await loadAnalyticsRoomSelector();
+        var data = await api('GET', '/api/church/analytics?days=' + analyticsRange + roomParamAmp());
         renderAnalyticsKPI(data);
         renderStreamHealth(data);
         renderViewerChart(data);
@@ -5183,7 +5220,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     // ── Audience (platform) analytics ────────────────────────────────
     async function loadAudienceAnalytics() {
       try {
-        var d = await api('GET', '/api/church/analytics/audience?days=' + analyticsRange);
+        var d = await api('GET', '/api/church/analytics/audience?days=' + analyticsRange + roomParamAmp());
         renderAudienceKPI(d);
         renderPlatformChart(d);
         renderLiveChart(d);

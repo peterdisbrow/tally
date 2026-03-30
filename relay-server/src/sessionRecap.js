@@ -59,6 +59,9 @@ class SessionRecap {
         notes TEXT
       )
     `);
+    // Migration: add instance_name for room-based filtering
+    try { this.db.prepare('SELECT instance_name FROM service_sessions LIMIT 1').get(); }
+    catch { try { this.db.exec('ALTER TABLE service_sessions ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
   }
 
   /**
@@ -96,6 +99,7 @@ class SessionRecap {
           churchId: row.church_id,
           startedAt,
           tdName: row.td_name,
+          instanceName: row.instance_name || null,
           alertTypes: {},
           alertCount: row.alert_count || 0,
           autoRecovered: row.auto_recovered_count || 0,
@@ -123,7 +127,7 @@ class SessionRecap {
    * @param {string} churchId
    * @param {string|null} tdName  Name of the on-call TD
    */
-  startSession(churchId, tdName) {
+  startSession(churchId, tdName, instanceName) {
     if (this.activeSessions.has(churchId)) {
       console.warn(`[SessionRecap] Session already active for ${churchId} — ending it first`);
       this.endSession(churchId).catch(e => console.error('[SessionRecap] endSession on start error:', e.message));
@@ -133,14 +137,15 @@ class SessionRecap {
     const startedAt = new Date();
 
     this.db.prepare(
-      'INSERT INTO service_sessions (id, church_id, started_at, td_name) VALUES (?, ?, ?, ?)'
-    ).run(sessionId, churchId, startedAt.toISOString(), tdName || null);
+      'INSERT INTO service_sessions (id, church_id, started_at, td_name, instance_name) VALUES (?, ?, ?, ?, ?)'
+    ).run(sessionId, churchId, startedAt.toISOString(), tdName || null, instanceName || null);
 
     this.activeSessions.set(churchId, {
       sessionId,
       churchId,
       startedAt,
       tdName: tdName || null,
+      instanceName: instanceName || null,
       alertTypes: {},         // alertType → count
       alertCount: 0,
       autoRecovered: 0,

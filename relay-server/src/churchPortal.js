@@ -2030,9 +2030,23 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // ── GET /api/church/sessions ──────────────────────────────────────────────────
   app.get('/api/church/sessions', authMiddleware, (req, res) => {
     try {
-      const sessions = db.prepare(
-        'SELECT * FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 20'
-      ).all(req.church.churchId);
+      const instanceName = resolveRoomInstance(req, churches);
+      let sessions;
+      if (instanceName) {
+        sessions = db.prepare(
+          'SELECT * FROM service_sessions WHERE church_id = ? AND instance_name = ? ORDER BY started_at DESC LIMIT 20'
+        ).all(req.church.churchId, instanceName);
+        // Fall back to all if no room-specific sessions
+        if (!sessions.length) {
+          sessions = db.prepare(
+            'SELECT * FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 20'
+          ).all(req.church.churchId);
+        }
+      } else {
+        sessions = db.prepare(
+          'SELECT * FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 20'
+        ).all(req.church.churchId);
+      }
       res.json(sessions);
     } catch { res.json([]); }
   });
@@ -2042,12 +2056,32 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.get('/api/church/service-reports', authMiddleware, (req, res) => {
     try {
       const limit = Math.min(parseInt(req.query.limit) || 10, 50);
-      const reports = db.prepare(
-        `SELECT id, church_id, session_id, created_at, duration_minutes, uptime_pct,
-                grade, alert_count, auto_recovered_count, failover_count, peak_viewers,
-                stream_runtime_minutes, recommendations, ai_summary
-         FROM post_service_reports WHERE church_id = ? ORDER BY created_at DESC LIMIT ?`
-      ).all(req.church.churchId, limit);
+      const instanceName = resolveRoomInstance(req, churches);
+      let reports;
+      if (instanceName) {
+        reports = db.prepare(
+          `SELECT id, church_id, session_id, created_at, duration_minutes, uptime_pct,
+                  grade, alert_count, auto_recovered_count, failover_count, peak_viewers,
+                  stream_runtime_minutes, recommendations, ai_summary
+           FROM post_service_reports WHERE church_id = ? AND instance_name = ? ORDER BY created_at DESC LIMIT ?`
+        ).all(req.church.churchId, instanceName, limit);
+        // Fall back to all if no room-specific reports
+        if (!reports.length) {
+          reports = db.prepare(
+            `SELECT id, church_id, session_id, created_at, duration_minutes, uptime_pct,
+                    grade, alert_count, auto_recovered_count, failover_count, peak_viewers,
+                    stream_runtime_minutes, recommendations, ai_summary
+             FROM post_service_reports WHERE church_id = ? ORDER BY created_at DESC LIMIT ?`
+          ).all(req.church.churchId, limit);
+        }
+      } else {
+        reports = db.prepare(
+          `SELECT id, church_id, session_id, created_at, duration_minutes, uptime_pct,
+                  grade, alert_count, auto_recovered_count, failover_count, peak_viewers,
+                  stream_runtime_minutes, recommendations, ai_summary
+           FROM post_service_reports WHERE church_id = ? ORDER BY created_at DESC LIMIT ?`
+        ).all(req.church.churchId, limit);
+      }
       res.json(reports.map(r => ({
         ...r,
         recommendations: (() => { try { return JSON.parse(r.recommendations || '[]'); } catch { return []; } })(),
@@ -2945,6 +2979,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const churchId = req.church.churchId;
       const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 365);
       const since = new Date(Date.now() - days * 86400000).toISOString();
+      const instanceName = resolveRoomInstance(req, churches);
+      // Build optional room filter for session queries
+      const roomFilter = instanceName ? ' AND instance_name = ?' : '';
+      const sessParams = instanceName ? [churchId, since, instanceName] : [churchId, since];
 
       // ── Sessions aggregate ──────────────────────────────────────────
       let sessAgg = {};
@@ -2962,8 +3000,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             SUM(CASE WHEN stream_ran = 1 THEN 1 ELSE 0 END) AS stream_ran_count,
             COALESCE(SUM(stream_runtime_minutes), 0) AS total_stream_minutes
           FROM service_sessions
-          WHERE church_id = ? AND started_at >= ?
-        `).get(churchId, since) || {};
+          WHERE church_id = ? AND started_at >= ?${roomFilter}
+        `).get(...sessParams) || {};
       } catch { /* table may not exist yet */ }
 
       const totalSessions = sessAgg.total_sessions || 0;
@@ -2995,10 +3033,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             strftime('%Y-W%W', started_at) AS week_key,
             MAX(peak_viewers)              AS peak
           FROM service_sessions
-          WHERE church_id = ? AND started_at >= ? AND peak_viewers IS NOT NULL
+          WHERE church_id = ? AND started_at >= ?${roomFilter} AND peak_viewers IS NOT NULL
           GROUP BY week_key
           ORDER BY week_key ASC
-        `).all(churchId, since).map(r => ({
+        `).all(...sessParams).map(r => ({
           label: r.week_key,
           peak: r.peak || 0
         }));
@@ -3012,10 +3050,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             strftime('%Y-W%W', started_at) AS week_key,
             COUNT(*)                        AS count
           FROM service_sessions
-          WHERE church_id = ? AND started_at >= ?
+          WHERE church_id = ? AND started_at >= ?${roomFilter}
           GROUP BY week_key
           ORDER BY week_key ASC
-        `).all(churchId, since).map(r => ({
+        `).all(...sessParams).map(r => ({
           label: r.week_key,
           count: r.count
         }));
@@ -3100,6 +3138,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const churchId = req.church.churchId;
       const days = Math.min(Math.max(parseInt(req.query.days) || 90, 1), 365);
       const since = new Date(Date.now() - days * 86400000).toISOString();
+      const instanceName = resolveRoomInstance(req, churches);
+      const roomFilter = instanceName ? ' AND instance_name = ?' : '';
+      const params = instanceName ? [churchId, since, instanceName] : [churchId, since];
 
       let sessions = [];
       try {
@@ -3108,9 +3149,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
                  alert_count, auto_recovered_count, escalated_count, audio_silence_count,
                  peak_viewers, td_name, grade
           FROM service_sessions
-          WHERE church_id = ? AND started_at >= ?
+          WHERE church_id = ? AND started_at >= ?${roomFilter}
           ORDER BY started_at DESC
-        `).all(churchId, since);
+        `).all(...params);
       } catch { /* table may not exist */ }
 
       const header = 'Date,End,Duration (min),Stream Ran,Stream Minutes,Alerts,Auto-Recovered,Escalated,Audio Silence,Peak Viewers,TD,Grade';
@@ -3145,6 +3186,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const churchId = req.church.churchId;
       const days = Math.min(Math.max(parseInt(req.query.days) || 90, 1), 365);
       const since = new Date(Date.now() - days * 86400000).toISOString();
+      const instanceName = resolveRoomInstance(req, churches);
+      const roomFilter = instanceName ? ' AND ss.instance_name = ?' : '';
+      const audParams = instanceName ? [churchId, since, instanceName] : [churchId, since];
 
       // Per-session viewer peaks with platform breakdown
       let sessionViewers = [];
@@ -3162,11 +3206,11 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           FROM viewer_snapshots vs
           LEFT JOIN service_sessions ss ON ss.id = vs.session_id
           WHERE vs.church_id = ? AND vs.captured_at >= ?
-            AND vs.session_id IS NOT NULL
+            AND vs.session_id IS NOT NULL${roomFilter}
           GROUP BY vs.session_id
           ORDER BY ss.started_at DESC
           LIMIT 100
-        `).all(churchId, since);
+        `).all(...audParams);
       } catch { /* table may not exist yet */ }
 
       // Weekly platform trends

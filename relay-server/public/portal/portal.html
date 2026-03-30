@@ -796,7 +796,12 @@
           <div class="page-title" data-i18n="page.alerts">Alerts</div>
           <div class="page-sub" data-i18n="alerts.sub">Alert history and failover protection</div>
         </div>
-        <button class="help-icon-btn" data-action="openHelp" data-help-page="alerts" title="Help with Alerts">?</button>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div id="alerts-room-selector-wrap" style="display:none">
+            <select id="alerts-room-selector" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:6px 10px;font-size:13px;min-width:140px"></select>
+          </div>
+          <button class="help-icon-btn" data-action="openHelp" data-help-page="alerts" title="Help with Alerts">?</button>
+        </div>
       </div>
       <p class="help-box">Alerts are classified by severity: <span style="color:#22c55e">INFO</span> (logged only), <span style="color:#eab308">WARNING</span> (sent to on-call TD), <span style="color:#ef4444">CRITICAL</span> (sent + escalated after 90s), <span style="color:#ef4444;font-weight:700">EMERGENCY</span> (immediate escalation). Acknowledge alerts via Telegram with <code style="color:#22c55e">/ack_[code]</code>.</p>
       <div id="alerts-content"><p style="color:#475569;text-align:center;padding:20px">Loading alerts...</p></div>
@@ -1150,6 +1155,11 @@
         <div class="page-header-text">
           <div class="page-title" data-i18n="page.analytics">Analytics</div>
           <div class="page-sub" data-i18n="analytics.sub">Sessions, stream health, and performance data</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div id="analytics-room-selector-wrap" style="display:none">
+            <select id="analytics-room-selector" style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:6px 10px;font-size:13px;min-width:140px"></select>
+          </div>
         </div>
       </div>
       <div class="tab-bar">
