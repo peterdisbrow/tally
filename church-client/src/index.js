@@ -1045,8 +1045,18 @@ class ChurchAVAgent {
       this.updateAtemIdentity(this.atem?.state);
       try { this.status.atem.atemAudioSources = this.detectAtemAudioSources(this.atem?.state); } catch { /* non-critical */ }
       this._resolveAudioViaAtem();
-      this.atemReconnectDelay = 2000;
       this.atemReconnecting = false;
+
+      // Don't reset backoff immediately — only after connection is stable for 30s.
+      // This prevents a connect→disconnect loop from resetting the delay every cycle.
+      this._atemConnectedAt = Date.now();
+      if (this._atemStabilityTimer) clearTimeout(this._atemStabilityTimer);
+      this._atemStabilityTimer = setTimeout(() => {
+        if (this.status.atem.connected) {
+          this.atemReconnectDelay = 2000;
+        }
+      }, 30_000);
+
       this.sendStatus();
       this.sendAlert('ATEM connected', 'info');
       this.sendToRelay({ type: 'signal_event', signal: 'atem_restored' });
@@ -1072,7 +1082,10 @@ class ChurchAVAgent {
 
     this.atem.on('disconnected', () => {
       if (this._stopping) return;
-      console.warn('⚠️  ATEM disconnected');
+      // Cancel stability timer — connection didn't hold
+      if (this._atemStabilityTimer) { clearTimeout(this._atemStabilityTimer); this._atemStabilityTimer = null; }
+      const uptime = this._atemConnectedAt ? Math.round((Date.now() - this._atemConnectedAt) / 1000) : 0;
+      console.warn(`⚠️  ATEM disconnected${uptime ? ` (was connected ${uptime}s)` : ''}`);
       this.status.atem.connected = false;
       this.sendStatus();
       this.sendAlert('ATEM disconnected', 'warning');
@@ -1258,18 +1271,24 @@ class ChurchAVAgent {
     if (this._stopping || this.atemReconnecting || !this.config.atemIp) return;
     this.health.atem.reconnects++;
     this.atemReconnecting = true;
-    console.log(`   Reconnecting ATEM in ${this.atemReconnectDelay / 1000}s...`);
+
+    // Apply backoff BEFORE the attempt — if the connection succeeds but drops
+    // quickly, the 'connected' handler won't reset the delay (stability timer).
+    const delay = this.atemReconnectDelay;
+    this.atemReconnectDelay = Math.min(this.atemReconnectDelay * 2, 60_000);
+
+    console.log(`   Reconnecting ATEM in ${delay / 1000}s...`);
     setTimeout(async () => {
       try {
-        await this.atem.connect(this.config.atemIp);
-        this.atemReconnecting = false;
+        // Create a fresh Atem instance — reusing an instance after disconnect
+        // can leave stale UDP socket state that causes immediate re-disconnects.
+        await this.connectATEM();
       } catch (e) {
         this.atemReconnecting = false;
         console.warn(`⚠️  ATEM reconnect failed: ${e.message}`);
-        this.atemReconnectDelay = Math.min(this.atemReconnectDelay * 2, 60_000);
         this.reconnectATEM();
       }
-    }, this.atemReconnectDelay);
+    }, delay);
   }
 
   async atemCommand(fn, timeoutMs = 10000) {
@@ -1287,6 +1306,7 @@ class ChurchAVAgent {
     // 1. Clear ALL tracked intervals (prevents timer fires after connections close)
     for (const id of this._intervals) clearInterval(id);
     this._intervals.length = 0;
+    if (this._atemStabilityTimer) { clearTimeout(this._atemStabilityTimer); this._atemStabilityTimer = null; }
 
     // 2. Clear named timers (belt + suspenders for any created before _track)
     if (this._relayPingTimer) { clearInterval(this._relayPingTimer); this._relayPingTimer = null; }
