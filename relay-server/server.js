@@ -3027,6 +3027,11 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
   }
 
   const church = churches.get(churchId);
+  // Auto-detect roomId from connected instances if not provided (e.g. chat POST without roomId)
+  if (!roomId && church?.roomInstanceMap) {
+    const roomEntries = Object.entries(church.roomInstanceMap);
+    if (roomEntries.length === 1) roomId = roomEntries[0][0];
+  }
   // Resolve room-specific status: if roomId is provided and we have per-room status, use it
   const roomStatus = (roomId && church?.instanceStatus)
     ? (church.instanceStatus[church.roomInstanceMap?.[roomId]] || church?.status)
