@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('crypto');
+
 /**
  * WebSocket routing factory for the Tally relay server.
  *
@@ -195,7 +197,23 @@ function createWebSocketHandlers({
       : rawInstance;
     ws._tallyInstance = instance; // stash on the socket for disconnect lookup
 
+    // Assign a unique connection ID so replaced clients can identify themselves
+    const connectionId = crypto.randomUUID();
+    ws._tallyConnectionId = connectionId;
+
     ensureSockets(church);
+
+    // ── Rapid-reconnection loop detection ───────────────────────────────
+    if (!church._instanceConnectTimes) church._instanceConnectTimes = {};
+    const now = Date.now();
+    const times = church._instanceConnectTimes[instance] || [];
+    // Keep only timestamps within the last 30 seconds
+    const recent = times.filter(t => now - t < 30_000);
+    recent.push(now);
+    church._instanceConnectTimes[instance] = recent;
+    if (recent.length > 3) {
+      console.warn(`[WS] ⚠️  Reconnection loop detected: church ${church.churchId} instance="${instance}" connected ${recent.length} times in 30s. Two machines may share the same instance name.`);
+    }
 
     // ── Room limit enforcement ───────────────────────────────────────────
     // checkPaidAccess returns maxRooms (from TIER_LIMITS). Connect = 1 room.
@@ -220,8 +238,9 @@ function createWebSocketHandlers({
     if (isReplacement) {
       const oldRemote = existingWs._socket?.remoteAddress + ':' + existingWs._socket?.remotePort;
       const newRemote = ws._socket?.remoteAddress + ':' + ws._socket?.remotePort;
-      console.log(`[WS] Replacing church ${church.churchId} instance="${instance}": old=${oldRemote} new=${newRemote}`);
-      existingWs.close(1000, 'replaced by new connection');
+      const oldConnectionId = existingWs._tallyConnectionId || 'unknown';
+      console.log(`[WS] Replacing church ${church.churchId} instance="${instance}": old=${oldRemote}(${oldConnectionId}) new=${newRemote}(${connectionId})`);
+      existingWs.close(1000, `replaced by new connection|${oldConnectionId}`);
     }
 
     // Track in instance map and keep backward-compat church.ws
@@ -240,7 +259,7 @@ function createWebSocketHandlers({
     console.log(`[WS] Church ${church.churchId} instance="${instance}" connected (${church.sockets.size} instance(s) total${roomIdFromConnect ? `, room=${roomIdFromConnect}` : ''})`);
 
     // Acknowledge the connection to the church client
-    safeSend(ws, { type: 'connected', churchId: church.churchId, name: church.name, instance });
+    safeSend(ws, { type: 'connected', churchId: church.churchId, name: church.name, instance, connectionId });
 
     // Deliver queued messages from while the church was offline
     drainQueue(church.churchId, ws);
