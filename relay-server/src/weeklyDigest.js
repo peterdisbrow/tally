@@ -31,6 +31,10 @@ class WeeklyDigest {
     // Migration: add session_id column for timeline linking
     try { this.db.prepare('SELECT session_id FROM service_events LIMIT 1').get(); }
     catch { this.db.exec('ALTER TABLE service_events ADD COLUMN session_id TEXT'); }
+
+    // Migration: add instance_name column for per-room event tracking
+    try { this.db.prepare('SELECT instance_name FROM service_events LIMIT 1').get(); }
+    catch { this.db.exec('ALTER TABLE service_events ADD COLUMN instance_name TEXT'); }
   }
 
   addEvent(churchId, eventType, details = '', sessionId = null) {
