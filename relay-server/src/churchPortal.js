@@ -3703,6 +3703,421 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
       }
     });
 
+    // ── REPORTS TAB ENDPOINTS ──────────────────────────────────────────────────
+
+    // GET /api/church/reports/weekly-summary — same data as weekly digest, interactive
+    app.get('/api/church/reports/weekly-summary', authMiddleware, (req, res) => {
+      try {
+        const churchId = req.church.churchId;
+        const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 90);
+        const since = new Date(Date.now() - days * 86400000).toISOString();
+
+        // Sessions aggregate
+        let sessAgg = {};
+        try {
+          sessAgg = db.prepare(`
+            SELECT
+              COUNT(*)                                 AS total_sessions,
+              COALESCE(SUM(duration_minutes), 0)       AS total_duration_min,
+              COALESCE(SUM(alert_count), 0)            AS total_alerts,
+              COALESCE(SUM(auto_recovered_count), 0)   AS auto_recovered,
+              COALESCE(SUM(escalated_count), 0)        AS escalated,
+              SUM(CASE WHEN stream_ran = 1 THEN 1 ELSE 0 END) AS stream_ran_count,
+              COALESCE(SUM(stream_runtime_minutes), 0) AS total_stream_minutes
+            FROM service_sessions
+            WHERE church_id = ? AND started_at >= ?
+          `).get(churchId, since) || {};
+        } catch {}
+
+        // Events detected/resolved
+        let eventAgg = {};
+        try {
+          eventAgg = db.prepare(`
+            SELECT
+              COUNT(*) AS total_events,
+              SUM(CASE WHEN resolved = 1 THEN 1 ELSE 0 END) AS resolved_events,
+              SUM(CASE WHEN auto_resolved = 1 THEN 1 ELSE 0 END) AS auto_resolved_events
+            FROM service_events
+            WHERE church_id = ? AND timestamp >= ?
+          `).get(churchId, since) || {};
+        } catch {}
+
+        // Device uptime from post_service_reports
+        let deviceUptime = [];
+        try {
+          const reports = db.prepare(`
+            SELECT instance_name, uptime_pct, device_health, created_at
+            FROM post_service_reports
+            WHERE church_id = ? AND created_at >= ?
+            ORDER BY created_at DESC
+          `).all(churchId, since);
+
+          // Group by instance and average uptime
+          const byDevice = {};
+          for (const r of reports) {
+            const key = r.instance_name || 'Default';
+            if (!byDevice[key]) byDevice[key] = { uptimes: [], healthData: [] };
+            byDevice[key].uptimes.push(r.uptime_pct || 0);
+            try { byDevice[key].healthData.push(JSON.parse(r.device_health || '{}')); } catch {}
+          }
+          deviceUptime = Object.entries(byDevice).map(([name, data]) => ({
+            device: name,
+            avgUptime: data.uptimes.length ? (data.uptimes.reduce((a, b) => a + b, 0) / data.uptimes.length).toFixed(1) : null,
+            sessions: data.uptimes.length
+          }));
+        } catch {}
+
+        const totalSessions = sessAgg.total_sessions || 0;
+        const totalAlerts = sessAgg.total_alerts || 0;
+        const autoRecovered = sessAgg.auto_recovered || 0;
+        const totalStreamMin = sessAgg.total_stream_minutes || 0;
+        const totalDurMin = sessAgg.total_duration_min || 0;
+
+        res.json({
+          period: { days, since },
+          sessions: totalSessions,
+          totalAlerts,
+          eventsDetected: eventAgg.total_events || 0,
+          eventsResolved: eventAgg.resolved_events || 0,
+          autoRecoveryCount: autoRecovered,
+          autoRecoveryRate: totalAlerts > 0 ? ((autoRecovered / totalAlerts) * 100).toFixed(1) : null,
+          uptimePct: totalDurMin > 0 ? Math.min(100, (totalStreamMin / totalDurMin) * 100).toFixed(1) : (totalSessions > 0 ? '100.0' : null),
+          escalated: sessAgg.escalated || 0,
+          deviceUptime
+        });
+      } catch (err) {
+        log.error('Reports weekly-summary error:', err);
+        res.status(500).json({ error: 'Failed to generate weekly summary' });
+      }
+    });
+
+    // GET /api/church/reports/event-history — searchable/filterable event history
+    app.get('/api/church/reports/event-history', authMiddleware, (req, res) => {
+      try {
+        const churchId = req.church.churchId;
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(100, Math.max(10, parseInt(req.query.limit) || 25));
+        const offset = (page - 1) * limit;
+        const severity = req.query.severity || null;
+        const room = req.query.room || null;
+        const deviceType = req.query.deviceType || null;
+        const since = req.query.since || null;
+        const until = req.query.until || null;
+        const search = req.query.search || null;
+
+        let where = 'WHERE t.church_id = ?';
+        const params = [churchId];
+
+        if (severity) { where += ' AND t.triage_severity = ?'; params.push(severity); }
+        if (room) { where += ' AND t.room_id = ?'; params.push(room); }
+        if (since) { where += ' AND t.created_at >= ?'; params.push(since); }
+        if (until) { where += ' AND t.created_at <= ?'; params.push(until); }
+        if (search) { where += ' AND (t.alert_type LIKE ? OR t.details LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
+        if (deviceType) { where += ' AND t.alert_type LIKE ?'; params.push(`%${deviceType}%`); }
+
+        // Count total
+        let total = 0;
+        try {
+          const countRow = db.prepare(`SELECT COUNT(*) AS cnt FROM ai_triage_events t ${where}`).get(...params);
+          total = countRow?.cnt || 0;
+        } catch {}
+
+        // Fetch page
+        let events = [];
+        try {
+          events = db.prepare(`
+            SELECT t.*, r.action_taken, r.success AS resolution_success, r.duration_ms AS resolution_duration
+            FROM ai_triage_events t
+            LEFT JOIN ai_resolutions r ON r.event_id = t.id
+            ${where}
+            ORDER BY t.created_at DESC
+            LIMIT ? OFFSET ?
+          `).all(...params, limit, offset);
+        } catch {}
+
+        res.json({
+          events: events.map(e => ({
+            id: e.id,
+            timestamp: e.created_at,
+            severity: e.triage_severity,
+            score: e.triage_score,
+            alertType: (e.alert_type || '').replace(/_/g, ' '),
+            roomId: e.room_id,
+            timeContext: e.time_context,
+            details: (() => { try { return JSON.parse(e.details || '{}'); } catch { return {}; } })(),
+            resolution: e.action_taken ? { action: e.action_taken, success: !!e.resolution_success, durationMs: e.resolution_duration } : null
+          })),
+          pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+        });
+      } catch (err) {
+        log.error('Reports event-history error:', err);
+        res.status(500).json({ error: 'Failed to fetch event history' });
+      }
+    });
+
+    // GET /api/church/reports/service-windows — service window activity data
+    app.get('/api/church/reports/service-windows', authMiddleware, (req, res) => {
+      try {
+        const churchId = req.church.churchId;
+        const days = Math.min(Math.max(parseInt(req.query.days) || 14, 1), 90);
+        const since = new Date(Date.now() - days * 86400000).toISOString();
+
+        // Get church schedule
+        let serviceTimes = [];
+        try {
+          const church = db.prepare('SELECT service_times, timezone FROM churches WHERE churchId = ?').get(churchId);
+          if (church?.service_times) serviceTimes = JSON.parse(church.service_times);
+        } catch {}
+
+        // Get sessions in range
+        let sessions = [];
+        try {
+          sessions = db.prepare(`
+            SELECT id, started_at, ended_at, duration_minutes, alert_count, auto_recovered_count, instance_name, grade
+            FROM service_sessions
+            WHERE church_id = ? AND started_at >= ?
+            ORDER BY started_at DESC
+          `).all(churchId, since);
+        } catch {}
+
+        // Get events in range with time context
+        let eventsByContext = { pre_service: 0, in_service: 0, off_hours: 0 };
+        try {
+          const contextRows = db.prepare(`
+            SELECT time_context, COUNT(*) AS cnt
+            FROM ai_triage_events
+            WHERE church_id = ? AND created_at >= ?
+            GROUP BY time_context
+          `).all(churchId, since);
+          for (const r of contextRows) {
+            if (r.time_context && eventsByContext.hasOwnProperty(r.time_context)) {
+              eventsByContext[r.time_context] = r.cnt;
+            }
+          }
+        } catch {}
+
+        res.json({
+          serviceWindows: serviceTimes,
+          sessions: sessions.map(s => ({
+            id: s.id,
+            startedAt: s.started_at,
+            endedAt: s.ended_at,
+            durationMin: s.duration_minutes,
+            alerts: s.alert_count || 0,
+            autoRecovered: s.auto_recovered_count || 0,
+            room: s.instance_name,
+            grade: s.grade
+          })),
+          eventsByContext,
+          period: { days, since }
+        });
+      } catch (err) {
+        log.error('Reports service-windows error:', err);
+        res.status(500).json({ error: 'Failed to fetch service window data' });
+      }
+    });
+
+    // GET /api/church/reports/device-health — per-device reliability stats
+    app.get('/api/church/reports/device-health', authMiddleware, (req, res) => {
+      try {
+        const churchId = req.church.churchId;
+        const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 90);
+        const since = new Date(Date.now() - days * 86400000).toISOString();
+        const compareSince = new Date(Date.now() - days * 2 * 86400000).toISOString();
+
+        // Alerts by device type (current period)
+        let currentAlerts = [];
+        try {
+          currentAlerts = db.prepare(`
+            SELECT alert_type, COUNT(*) AS cnt,
+              SUM(CASE WHEN resolution_id IS NOT NULL THEN 1 ELSE 0 END) AS resolved_cnt
+            FROM ai_triage_events
+            WHERE church_id = ? AND created_at >= ?
+            GROUP BY alert_type
+            ORDER BY cnt DESC
+          `).all(churchId, since);
+        } catch {}
+
+        // Previous period for trend comparison
+        let previousAlerts = [];
+        try {
+          previousAlerts = db.prepare(`
+            SELECT alert_type, COUNT(*) AS cnt
+            FROM ai_triage_events
+            WHERE church_id = ? AND created_at >= ? AND created_at < ?
+            GROUP BY alert_type
+          `).all(churchId, compareSince, since);
+        } catch {}
+        const prevMap = {};
+        for (const p of previousAlerts) prevMap[p.alert_type] = p.cnt;
+
+        // Reconnection stats from resolutions
+        let reconnStats = [];
+        try {
+          reconnStats = db.prepare(`
+            SELECT
+              t.alert_type,
+              COUNT(*) AS attempts,
+              SUM(CASE WHEN r.success = 1 THEN 1 ELSE 0 END) AS successes,
+              ROUND(AVG(r.duration_ms)) AS avg_duration_ms
+            FROM ai_resolutions r
+            JOIN ai_triage_events t ON t.id = r.event_id
+            WHERE r.church_id = ? AND r.created_at >= ?
+            GROUP BY t.alert_type
+          `).all(churchId, since);
+        } catch {}
+        const reconnMap = {};
+        for (const r of reconnStats) reconnMap[r.alert_type] = r;
+
+        // Per-device uptime from post_service_reports
+        let deviceUptimes = [];
+        try {
+          deviceUptimes = db.prepare(`
+            SELECT instance_name, uptime_pct
+            FROM post_service_reports
+            WHERE church_id = ? AND created_at >= ?
+          `).all(churchId, since);
+        } catch {}
+        const uptimeByDevice = {};
+        for (const d of deviceUptimes) {
+          const key = d.instance_name || 'Default';
+          if (!uptimeByDevice[key]) uptimeByDevice[key] = [];
+          uptimeByDevice[key].push(d.uptime_pct || 0);
+        }
+
+        const devices = currentAlerts.map(a => {
+          const prevCount = prevMap[a.alert_type] || 0;
+          const reconn = reconnMap[a.alert_type] || {};
+          const trend = prevCount === 0 ? (a.cnt > 0 ? 'declining' : 'stable') :
+            a.cnt < prevCount ? 'improving' : a.cnt > prevCount ? 'declining' : 'stable';
+          return {
+            alertType: a.alert_type,
+            label: (a.alert_type || '').replace(/_/g, ' '),
+            incidents: a.cnt,
+            resolved: a.resolved_cnt || 0,
+            trend,
+            prevIncidents: prevCount,
+            reconnAttempts: reconn.attempts || 0,
+            reconnSuccesses: reconn.successes || 0,
+            avgReconnMs: reconn.avg_duration_ms || null
+          };
+        });
+
+        const uptimeSummary = Object.entries(uptimeByDevice).map(([name, vals]) => ({
+          device: name,
+          avgUptime: (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1),
+          sessions: vals.length
+        }));
+
+        res.json({ devices, uptimeSummary, period: { days, since } });
+      } catch (err) {
+        log.error('Reports device-health error:', err);
+        res.status(500).json({ error: 'Failed to fetch device health data' });
+      }
+    });
+
+    // GET /api/church/reports/ai-activity — AI action log
+    app.get('/api/church/reports/ai-activity', authMiddleware, (req, res) => {
+      try {
+        const churchId = req.church.churchId;
+        const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 90);
+        const since = new Date(Date.now() - days * 86400000).toISOString();
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(50, Math.max(10, parseInt(req.query.limit) || 20));
+        const offset = (page - 1) * limit;
+
+        // Check AI mode
+        let aiSettings = {};
+        try {
+          aiSettings = db.prepare('SELECT * FROM church_ai_settings WHERE church_id = ?').get(churchId) || {};
+        } catch {}
+
+        // Auto-fix actions
+        let actions = [];
+        try {
+          actions = db.prepare(`
+            SELECT r.*, t.alert_type, t.triage_severity, t.time_context, t.room_id
+            FROM ai_resolutions r
+            JOIN ai_triage_events t ON t.id = r.event_id
+            WHERE r.church_id = ? AND r.created_at >= ?
+            ORDER BY r.created_at DESC
+            LIMIT ? OFFSET ?
+          `).all(churchId, since, limit, offset);
+        } catch {}
+
+        let totalActions = 0;
+        try {
+          const cnt = db.prepare(`SELECT COUNT(*) AS cnt FROM ai_resolutions WHERE church_id = ? AND created_at >= ?`).get(churchId, since);
+          totalActions = cnt?.cnt || 0;
+        } catch {}
+
+        // Summary stats
+        let summary = {};
+        try {
+          summary = db.prepare(`
+            SELECT
+              COUNT(*) AS total_actions,
+              SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful,
+              SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed,
+              ROUND(AVG(duration_ms)) AS avg_duration_ms
+            FROM ai_resolutions
+            WHERE church_id = ? AND created_at >= ?
+          `).get(churchId, since) || {};
+        } catch {}
+
+        // Pending issues (triage events with no resolution)
+        let pending = [];
+        try {
+          pending = db.prepare(`
+            SELECT t.id, t.alert_type, t.triage_severity, t.time_context, t.room_id, t.created_at
+            FROM ai_triage_events t
+            LEFT JOIN ai_resolutions r ON r.event_id = t.id
+            WHERE t.church_id = ? AND t.created_at >= ? AND r.id IS NULL
+            ORDER BY t.triage_score DESC
+            LIMIT 10
+          `).all(churchId, since);
+        } catch {}
+
+        res.json({
+          aiEnabled: !!(aiSettings.ai_mode && aiSettings.ai_mode !== 'disabled'),
+          aiMode: aiSettings.ai_mode || 'disabled',
+          summary: {
+            totalActions: summary.total_actions || 0,
+            successful: summary.successful || 0,
+            failed: summary.failed || 0,
+            avgDurationMs: summary.avg_duration_ms || null,
+            successRate: (summary.total_actions || 0) > 0 ? (((summary.successful || 0) / summary.total_actions) * 100).toFixed(1) : null
+          },
+          actions: actions.map(a => ({
+            id: a.id,
+            timestamp: a.created_at,
+            alertType: (a.alert_type || '').replace(/_/g, ' '),
+            severity: a.triage_severity,
+            action: a.action_taken,
+            command: a.action_command,
+            success: !!a.success,
+            durationMs: a.duration_ms,
+            notes: a.notes,
+            roomId: a.room_id,
+            timeContext: a.time_context
+          })),
+          pendingIssues: pending.map(p => ({
+            id: p.id,
+            alertType: (p.alert_type || '').replace(/_/g, ' '),
+            severity: p.triage_severity,
+            roomId: p.room_id,
+            timestamp: p.created_at,
+            timeContext: p.time_context
+          })),
+          pagination: { page, limit, total: totalActions, totalPages: Math.ceil(totalActions / limit) },
+          period: { days, since }
+        });
+      } catch (err) {
+        log.error('Reports ai-activity error:', err);
+        res.status(500).json({ error: 'Failed to fetch AI activity data' });
+      }
+    });
+
     // GET /api/church/ai-triage/windows — service window visualization
     app.get('/api/church/ai-triage/windows', authMiddleware, (req, res) => {
       try {
