@@ -39,6 +39,7 @@ class ChatEngine {
         id TEXT PRIMARY KEY,
         church_id TEXT NOT NULL,
         session_id TEXT,
+        room_id TEXT,
         timestamp TEXT NOT NULL,
         sender_name TEXT NOT NULL,
         sender_role TEXT NOT NULL,
@@ -51,7 +52,13 @@ class ChatEngine {
     try {
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_chat_church_ts ON chat_messages (church_id, timestamp)');
       this.db.exec('CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages (session_id)');
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_chat_room ON chat_messages (church_id, room_id, timestamp)');
     } catch { /* indexes may already exist */ }
+
+    // Migration: add room_id column if missing (existing installs)
+    try {
+      this.db.exec('ALTER TABLE chat_messages ADD COLUMN room_id TEXT');
+    } catch { /* column already exists */ }
   }
 
   // ─── SAVE & RETRIEVE ────────────────────────────────────────────────────────
@@ -66,17 +73,17 @@ class ChatEngine {
    * @param {string} opts.message
    * @returns {object} The saved message with id, timestamp, session_id
    */
-  saveMessage({ churchId, senderName, senderRole, source, message }) {
+  saveMessage({ churchId, senderName, senderRole, source, message, roomId }) {
     const id = uuidv4();
     const timestamp = new Date().toISOString();
     const sessionId = this.sessionRecap?.getActiveSessionId(churchId) || null;
 
     this.db.prepare(`
-      INSERT INTO chat_messages (id, church_id, session_id, timestamp, sender_name, sender_role, source, message)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, churchId, sessionId, timestamp, senderName, senderRole, source, message);
+      INSERT INTO chat_messages (id, church_id, session_id, room_id, timestamp, sender_name, sender_role, source, message)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, churchId, sessionId, roomId || null, timestamp, senderName, senderRole, source, message);
 
-    return { id, church_id: churchId, session_id: sessionId, timestamp, sender_name: senderName, sender_role: senderRole, source, message };
+    return { id, church_id: churchId, session_id: sessionId, room_id: roomId || null, timestamp, sender_name: senderName, sender_role: senderRole, source, message };
   }
 
   /**
@@ -88,9 +95,14 @@ class ChatEngine {
    * @param {string} [opts.sessionId] - Filter by session ID
    * @returns {Array} Messages ordered by timestamp ASC
    */
-  getMessages(churchId, { since, limit, sessionId, latest } = {}) {
+  getMessages(churchId, { since, limit, sessionId, roomId, latest } = {}) {
     const conditions = ['church_id = ?'];
     const params = [churchId];
+
+    if (roomId) {
+      conditions.push('(room_id = ? OR room_id IS NULL)');
+      params.push(roomId);
+    }
 
     if (since) {
       conditions.push('timestamp > ?');
@@ -132,15 +144,23 @@ class ChatEngine {
    * @param {number} [opts.maxAgeMinutes=30]  - Only include messages this recent
    * @returns {Array<{role: string, content: string}>}
    */
-  getRecentConversation(churchId, { limit = 10, maxAgeMinutes = 30 } = {}) {
+  getRecentConversation(churchId, { limit = 10, maxAgeMinutes = 30, roomId } = {}) {
     const cutoff = new Date(Date.now() - maxAgeMinutes * 60 * 1000).toISOString();
+
+    const conditions = ['church_id = ?', 'timestamp > ?'];
+    const queryParams = [churchId, cutoff];
+    if (roomId) {
+      conditions.push('(room_id = ? OR room_id IS NULL)');
+      queryParams.push(roomId);
+    }
+    queryParams.push(limit);
 
     const rows = this.db.prepare(`
       SELECT sender_role, message FROM chat_messages
-      WHERE church_id = ? AND timestamp > ?
+      WHERE ${conditions.join(' AND ')}
       ORDER BY timestamp DESC
       LIMIT ?
-    `).all(churchId, cutoff, limit);
+    `).all(...queryParams);
 
     if (!rows.length) return [];
 

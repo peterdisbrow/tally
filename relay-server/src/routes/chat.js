@@ -15,7 +15,7 @@ module.exports = function setupChatRoutes(app, ctx) {
   // Supports optional `attachment` field: { data: "base64...", mimeType: "image/jpeg", fileName: "patch.jpg" }
   app.post('/api/church/chat', requireChurchAppAuth, rateLimit(20, 60_000), (req, res) => {
     try {
-      const { message, senderName, attachment } = req.body;
+      const { message, senderName, attachment, roomId } = req.body;
       // Allow empty message if there's an attachment
       if ((!message || !message.trim()) && !attachment?.data) {
         return res.status(400).json({ error: 'Message or attachment required' });
@@ -30,9 +30,10 @@ module.exports = function setupChatRoutes(app, ctx) {
         senderRole: 'td',
         source: 'app',
         message: displayMessage || '📎 File attached',
+        roomId: roomId || null,
       });
       chatEngine.broadcastChat(saved);
-      handleChatCommandMessage(req.church.churchId, trimmedMessage, attachment || null).catch((err) => {
+      handleChatCommandMessage(req.church.churchId, trimmedMessage, attachment || null, roomId || null).catch((err) => {
         log(`Chat command handler error (${req.church.churchId}): ${err.message}`);
       });
       res.json(saved);
@@ -49,6 +50,7 @@ module.exports = function setupChatRoutes(app, ctx) {
         since: req.query.since || null,
         limit: parseInt(req.query.limit) || 50,
         latest: req.query.latest === 'true',
+        roomId: req.query.roomId || null,
       });
       res.json({ messages });
     } catch (err) {

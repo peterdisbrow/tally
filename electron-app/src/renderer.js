@@ -3294,6 +3294,14 @@ async function assignRoomFromPicker(roomId) {
         try { loadEquipmentConfig(); } catch { /* ignore */ }
       }
 
+      // Reset chat for new room context
+      chatMessages = [];
+      chatLastTimestamp = null;
+      _chatRenderedCount = 0;
+      _chatIdSet.clear();
+      renderChat();
+      loadChatHistory(); // reload room-scoped history
+
       addAlert(`Now monitoring room: ${result.roomName || newRoom}`);
     }
   } catch (e) {
