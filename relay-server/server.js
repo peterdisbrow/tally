@@ -3028,10 +3028,18 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
   }
 
   const church = churches.get(churchId);
-  // Auto-detect roomId from connected instances if not provided (e.g. chat POST without roomId)
+  // Auto-detect roomId if not provided:
+  // 1. Try roomInstanceMap (church client connected with room_id in WS URL)
   if (!roomId && church?.roomInstanceMap) {
     const roomEntries = Object.entries(church.roomInstanceMap);
     if (roomEntries.length === 1) roomId = roomEntries[0][0];
+  }
+  // 2. Fall back to DB — if church has exactly one room, use it
+  if (!roomId) {
+    try {
+      const singleRoom = db.prepare('SELECT id FROM rooms WHERE campus_id = ? AND deleted_at IS NULL LIMIT 2').all(churchId);
+      if (singleRoom.length === 1) roomId = singleRoom[0].id;
+    } catch { /* non-fatal */ }
   }
   // Resolve room-specific status: if roomId is provided and we have per-room status, use it
   const roomStatus = (roomId && church?.instanceStatus)
