@@ -448,6 +448,55 @@ test('tricaster: connect tries multiple version endpoints until one succeeds', a
   );
 });
 
+// ── parseVersionText XML fallback ─────────────────────────────────────────
+
+test('tricaster: version parsed from XML <version> tag when JSON fails', async () => {
+  await withFetch(
+    [
+      ['/v1/version', mockResp('<info><version>4.2.1</version></info>')],
+      [/shortcut/, mockResp('{"value":"0"}')],
+    ],
+    async () => {
+      const enc = new TriCasterEncoder({ host: '192.168.1.50', port: 5951 });
+      await enc.connect();
+      assert.equal(enc._version, '4.2.1');
+    }
+  );
+});
+
+test('tricaster: version parsed from flat key=value text when JSON and XML fail', async () => {
+  await withFetch(
+    [
+      ['/v1/version', mockResp('version: 5.0.0-beta')],
+      [/shortcut/, mockResp('{"value":"0"}')],
+    ],
+    async () => {
+      const enc = new TriCasterEncoder({ host: '192.168.1.50', port: 5951 });
+      await enc.connect();
+      assert.equal(enc._version, '5.0.0-beta');
+    }
+  );
+});
+
+test('tricaster: toBool returns null for unrecognized string values', async () => {
+  await withFetch(
+    [
+      ['/v1/version', mockResp({ version: '3.0.0' })],
+      [/streaming_toggle/, mockResp('maybe')],
+      [/record_toggle/, mockResp('perhaps')],
+    ],
+    async () => {
+      const enc = new TriCasterEncoder({ host: '192.168.1.50', port: 5951 });
+      // Force refresh so it queries shortcuts
+      enc._lastPollAt = 0;
+      const status = await enc.getStatus();
+      // Unrecognized values leave state unchanged (default false)
+      assert.equal(status.live, false);
+      assert.equal(status.recording, false);
+    }
+  );
+});
+
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 
 test('tricaster: disconnect sets _connected=false', async () => {

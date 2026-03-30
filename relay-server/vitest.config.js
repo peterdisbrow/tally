@@ -5,6 +5,7 @@ export default defineConfig({
     globals: false,
     coverage: {
       provider: 'v8',
+      reportsDirectory: './coverage',
       reporter: ['text', 'html', 'lcov'],
       include: ['src/**'],
       // Thresholds ratcheted from P2 baselines after P3-P9 test additions.
