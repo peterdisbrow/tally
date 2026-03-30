@@ -261,6 +261,23 @@ test('rtmppush: isOnline uses configured statusPath', async () => {
   }
 });
 
+// ── Constructor edge cases ────────────────────────────────────────────────
+
+test('rtmppush: port defaults to 80 when given 0', () => {
+  const enc = new RtmpPushEncoder({ port: 0 });
+  assert.equal(enc.port, 80);
+});
+
+test('rtmppush: statusPath without leading slash gets one prepended', () => {
+  const enc = new RtmpPushEncoder({ statusPath: 'healthz' });
+  assert.equal(enc.statusPath, '/healthz');
+});
+
+test('rtmppush: unknown type falls back to "RTMP Device" label', () => {
+  const enc = new RtmpPushEncoder({ type: 'unknown-device' });
+  assert.equal(enc.label, 'RTMP Device');
+});
+
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 
 test('rtmppush: disconnect returns true', async () => {

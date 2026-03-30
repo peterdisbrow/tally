@@ -16,6 +16,13 @@
       "env": {
         "NODE_ENV": "development"
       }
+    },
+    {
+      "name": "admin-dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--host"],
+      "port": 5173,
+      "cwd": "relay-server/admin"
     }
   ]
 }

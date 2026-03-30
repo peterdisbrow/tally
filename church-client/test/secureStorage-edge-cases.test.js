@@ -150,6 +150,14 @@ test('decryptConfig round-trips all SENSITIVE_FIELDS correctly', () => {
   }
 });
 
+test('decryptConfig blanks a field when decrypt returns null (wrong machine / corruption)', () => {
+  // Simulate an encrypted value that cannot be decrypted on this machine:
+  // enc: prefix followed by garbage base64 that will fail GCM auth
+  const config = { token: 'enc:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' };
+  const result = decryptConfig(config);
+  assert.equal(result.token, '', 'corrupted encrypted field should be blanked');
+});
+
 // ─── findUnencryptedFields edge cases ────────────────────────────────────────
 
 test('findUnencryptedFields returns empty array for an empty config', () => {
