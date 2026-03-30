@@ -829,7 +829,6 @@ describe('Resolume command integrity', () => {
     });
   }
 
-<<<<<<< Updated upstream
   it('Resolume handler count >= 15', () => {
     const resHandlers = HANDLER_NAMES.filter(n => n.startsWith('resolume.'));
     expect(resHandlers.length).toBeGreaterThanOrEqual(15);

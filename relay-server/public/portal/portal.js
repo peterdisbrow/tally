@@ -1341,6 +1341,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // ── Live Stream Stats card ──────────────────────────────────────────
         updateStreamStats(status, enc);
 
+        // ── Broadcast platform health (YouTube / Facebook) ──────────────
+        updateBroadcastHealthCard(d.broadcastHealth);
+
         var statusText = document.getElementById('stat-status-text');
         var statusDot = document.getElementById('stat-status-dot');
         if (statusText) { statusText.textContent = d.connected ? 'Online' : 'Offline'; statusText.style.color = d.connected ? '#22c55e' : '#94A3B8'; }
@@ -1527,6 +1530,68 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
       var detailEl = document.getElementById('ss-detail-row');
       if (detailEl) detailEl.innerHTML = details.map(function(d) { return '<span>' + d + '</span>'; }).join('');
+    }
+
+    // ── Broadcast Platform Health Card (YouTube / Facebook) ────────────────
+    function updateBroadcastHealthCard(bh) {
+      var card = document.getElementById('broadcast-health-card');
+      if (!card) return;
+
+      // Cache for SSE updates
+      window._lastBroadcastHealth = bh;
+
+      var yt = bh && bh.youtube;
+      var fb = bh && bh.facebook;
+      var hasYt = yt && yt.status && yt.status !== 'no_broadcast';
+      var hasFb = fb && fb.status && fb.status !== 'no_broadcast';
+
+      if (!hasYt && !hasFb) { card.style.display = 'none'; return; }
+      card.style.display = '';
+
+      var rows = document.getElementById('broadcast-health-rows');
+      var html = '';
+
+      if (hasYt) {
+        var ytColor = yt.status === 'good' ? '#22c55e' : yt.status === 'warning' ? '#f59e0b' : yt.status === 'error' ? '#ef4444' : '#94A3B8';
+        var ytBadge = yt.status === 'good' ? 'badge-green' : yt.status === 'warning' ? 'badge-yellow' : yt.status === 'error' ? 'badge-red' : 'badge-gray';
+        var ytLabel = yt.live ? 'LIVE' : yt.lifecycleStatus || yt.status;
+        var ytDetails = [];
+        if (yt.concurrentViewers > 0) ytDetails.push(yt.concurrentViewers.toLocaleString() + ' viewers');
+        if (yt.resolution) ytDetails.push(yt.resolution);
+        if (yt.framerate) ytDetails.push(yt.framerate);
+        if (yt.streamStatus) ytDetails.push('Stream: ' + yt.streamStatus);
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#09090B;border-radius:8px;border-left:3px solid ' + ytColor + '">';
+        html += '<div style="display:flex;align-items:center;gap:10px">';
+        html += '<span style="color:#ff0000;font-weight:700;font-size:14px">YT</span>';
+        html += '<div><div style="font-size:13px;color:#F8FAFC">' + escapeHtml(yt.channelName || yt.title || 'YouTube Live') + '</div>';
+        if (ytDetails.length) html += '<div style="font-size:11px;color:#64748B;margin-top:2px">' + ytDetails.map(escapeHtml).join(' · ') + '</div>';
+        html += '</div></div>';
+        html += '<span class="badge ' + ytBadge + '">' + escapeHtml(ytLabel) + '</span>';
+        html += '</div>';
+      }
+
+      if (hasFb) {
+        var fbColor = fb.status === 'good' ? '#22c55e' : fb.status === 'warning' ? '#f59e0b' : fb.status === 'error' ? '#ef4444' : '#94A3B8';
+        var fbBadge = fb.status === 'good' ? 'badge-green' : fb.status === 'warning' ? 'badge-yellow' : fb.status === 'error' ? 'badge-red' : 'badge-gray';
+        var fbLabel = fb.live ? 'LIVE' : fb.broadcastStatus || fb.status;
+        var fbDetails = [];
+        if (fb.liveViews > 0) fbDetails.push(fb.liveViews.toLocaleString() + ' viewers');
+        if (fb.ingestHealth) {
+          if (fb.ingestHealth.width && fb.ingestHealth.height) fbDetails.push(fb.ingestHealth.width + 'x' + fb.ingestHealth.height);
+          if (fb.ingestHealth.bitrate) fbDetails.push(Math.round(fb.ingestHealth.bitrate / 1000) + ' kbps');
+          if (fb.ingestHealth.streamHealth) fbDetails.push('Health: ' + fb.ingestHealth.streamHealth);
+        }
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#09090B;border-radius:8px;border-left:3px solid ' + fbColor + '">';
+        html += '<div style="display:flex;align-items:center;gap:10px">';
+        html += '<span style="color:#1877f2;font-weight:700;font-size:14px">FB</span>';
+        html += '<div><div style="font-size:13px;color:#F8FAFC">' + escapeHtml(fb.pageName || fb.title || 'Facebook Live') + '</div>';
+        if (fbDetails.length) html += '<div style="font-size:11px;color:#64748B;margin-top:2px">' + fbDetails.map(escapeHtml).join(' · ') + '</div>';
+        html += '</div></div>';
+        html += '<span class="badge ' + fbBadge + '">' + escapeHtml(fbLabel) + '</span>';
+        html += '</div>';
+      }
+
+      rows.innerHTML = html;
     }
 
     // ── ATEM Detail Card ─────────────────────────────────────────────────────
@@ -1854,6 +1919,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         // Cards
         updateStreamStats(status, enc);
+        updateBroadcastHealthCard(window._lastBroadcastHealth || null);
         updateAtemDetailCard(status);
         updateAudioHealthCard(status, audioViaAtem);
         loadRundown();

@@ -40,6 +40,11 @@ const ALERT_CLASSIFICATIONS = {
   'firmware_outdated': 'WARNING',
   'multiple_systems_down': 'EMERGENCY',
   'no_td_response': 'EMERGENCY',
+  // Broadcast platform monitoring
+  'yt_broadcast_unhealthy': 'WARNING',
+  'yt_broadcast_offline': 'CRITICAL',
+  'fb_broadcast_unhealthy': 'WARNING',
+  'fb_broadcast_offline': 'CRITICAL',
   // Signal failover classifications
   'failover_suspected_black': 'WARNING',
   'failover_atem_lost': 'WARNING',
@@ -182,6 +187,30 @@ const DIAGNOSIS_TEMPLATES = {
     likely_cause: 'Device firmware or software version is below recommended minimum',
     confidence: 95,
     steps: ['Check the version shown in your church portal equipment table', 'Visit the manufacturer website for the latest update', 'Schedule a maintenance window to update — never update during a service'],
+    canAutoFix: false,
+  },
+  'yt_broadcast_unhealthy': {
+    likely_cause: 'YouTube Live stream health is degraded — resolution, framerate, or ingestion issue',
+    confidence: 80,
+    steps: ['Check YouTube Studio Live dashboard for stream health details', 'Verify encoder output resolution and bitrate match YouTube settings', 'Check internet upload speed and stability'],
+    canAutoFix: false,
+  },
+  'yt_broadcast_offline': {
+    likely_cause: 'YouTube Live broadcast has gone offline — stream may have disconnected from YouTube',
+    confidence: 85,
+    steps: ['Check if encoder is still sending to YouTube RTMP endpoint', 'Verify YouTube stream key is still valid', 'Restart the stream from your encoder or streaming software'],
+    canAutoFix: false,
+  },
+  'fb_broadcast_unhealthy': {
+    likely_cause: 'Facebook Live stream health is degraded — stream may be experiencing issues',
+    confidence: 75,
+    steps: ['Check Facebook Live Producer for stream health details', 'Verify encoder output settings match Facebook requirements', 'Check internet upload speed and stability'],
+    canAutoFix: false,
+  },
+  'fb_broadcast_offline': {
+    likely_cause: 'Facebook Live broadcast has gone offline — stream may have disconnected',
+    confidence: 85,
+    steps: ['Check if encoder is still sending to Facebook RTMP endpoint', 'Facebook stream keys are per-video — you may need to refresh the key', 'Restart the stream and verify in Facebook Live Producer'],
     canAutoFix: false,
   },
   'failover_confirmed_outage': {
