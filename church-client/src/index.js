@@ -797,6 +797,8 @@ class ChurchAVAgent {
       }
 
       this.relay = new WebSocket(url);
+      this._relayConnectionId = null; // will be set by 'connected' ack from relay
+      this._replacedByDuplicate = false;
       let resolved = false;
       const doResolve = () => {
         this._relayConnecting = false;
@@ -849,18 +851,22 @@ class ChurchAVAgent {
 
         const isReplaced = code === 1000 && reasonStr.includes('replaced by new connection');
         if (isReplaced) {
-          // The relay replaced this connection with a newer one from the same church.
-          // Wait 5s then reconnect — the replacing connection may have been a stale
-          // duplicate from a stop/start race, not a genuinely newer agent.
-          console.warn(`⚠️  Relay disconnected (${code}: ${reasonStr}). Will reconnect in 5s...`);
-          if (this._relayPingTimer) clearInterval(this._relayPingTimer);
-          this.health.relay.reconnects++;
-          doResolve();
-          if (!this._stopping && !this._reconnectScheduled) {
-            this._reconnectScheduled = true;
-            setTimeout(() => { this._reconnectScheduled = false; this.connectRelay(); }, 5000);
+          // Another machine connected with the same instance name and replaced us.
+          // Do NOT auto-reconnect — that causes an infinite kick loop between the
+          // two machines. Instead, warn the user and stop.
+          const parts = reasonStr.split('|');
+          const replacedId = parts[1] || '';
+          // Confirm this close was meant for us (the replaced connection ID matches ours)
+          const weWereReplaced = !this._relayConnectionId || replacedId === this._relayConnectionId || replacedId === 'unknown';
+          if (weWereReplaced) {
+            console.error(`🚫 Another machine connected with the same instance name "${this.instanceName || '_default'}". This connection was replaced.`);
+            console.error(`   To fix: give each machine a unique instance name in config, or stop the other machine.`);
+            console.error(`   This agent will NOT auto-reconnect to avoid a reconnection loop.`);
+            if (this._relayPingTimer) clearInterval(this._relayPingTimer);
+            this._replacedByDuplicate = true;
+            doResolve();
+            return; // Do NOT reconnect
           }
-          return;
         }
 
         this._consecutiveRelayFailures++;
@@ -899,6 +905,7 @@ class ChurchAVAgent {
     switch (msg.type) {
       case 'connected':
         console.log(`🟢 Relay confirmed: ${msg.name}`);
+        if (msg.connectionId) this._relayConnectionId = msg.connectionId;
         break;
       case 'command':
         console.log(`📨 Command received: ${msg.command}`, msg.params || '');
