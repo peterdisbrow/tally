@@ -76,6 +76,7 @@ let _cachedStatusTime = null;     // Date when status was last received
 let _relayDisconnectedAt = null;  // Date when relay went offline
 let _reconnectAttempt = 0;        // exponential backoff counter
 let _reconnectCountdownTimer = null;
+let _monitoringStoppedByUser = false; // true when user intentionally stopped monitoring
 
 // ─── OFFLINE ACTION QUEUE ──────────────────────────────────────────────────
 // Queue actions attempted while offline; replay when relay reconnects.
@@ -929,6 +930,7 @@ async function doSignOut() {
   try {
     await api.signOut();
     isRunning = false;
+    _monitoringStoppedByUser = true;
     updateToggleBtn();
     showSignIn();
     showSignInMessage('Signed out.', 'var(--muted)');
@@ -1833,8 +1835,8 @@ function updateStatusUI(status) {
     document.getElementById('dashboard')?.classList.remove('dashboard-stale');
     // Flush any queued offline actions on reconnect
     if (wasOffline) flushOfflineQueue();
-  } else if (!relayOk && _cachedStatus && !_relayDisconnectedAt) {
-    // Relay just went offline — start tracking
+  } else if (!relayOk && _cachedStatus && !_relayDisconnectedAt && !_monitoringStoppedByUser) {
+    // Relay just went offline — start tracking (skip if user intentionally stopped)
     _relayDisconnectedAt = new Date();
     _reconnectAttempt++;
     startReconnectCountdown();
@@ -1890,11 +1892,15 @@ function updateStatusUI(status) {
   }
 
   // ── Offline / disconnection banner ──────────────────────────────────────
+  // Don't show connection-loss banner when user intentionally stopped monitoring
   const offlineBanner = document.getElementById('offline-banner');
   const offlineBannerText = document.getElementById('offline-banner-text');
   const offlineBannerStale = document.getElementById('offline-banner-stale');
   if (offlineBanner) {
-    if (!relayOk && !navigator.onLine) {
+    if (_monitoringStoppedByUser) {
+      offlineBanner.style.display = 'none';
+      if (offlineBannerStale) offlineBannerStale.style.display = 'none';
+    } else if (!relayOk && !navigator.onLine) {
       if (offlineBannerText) offlineBannerText.textContent = 'No internet -- check your Wi-Fi or network cable';
       offlineBanner.style.display = '';
       if (offlineBannerStale && _cachedStatusTime) {
@@ -2518,11 +2524,30 @@ function getDotState(active) {
   return '';
 }
 
+// Track consecutive failed status updates per equipment dot.
+// Equipment stays yellow (connecting) until 3 consecutive failures before turning red.
+const _dotFailCount = {};
+const DOT_FAIL_THRESHOLD = 3;
+// Equipment dot names that use graceful retry (not relay — relay has its own handling)
+const _equipmentDots = new Set(['atem', 'companion', 'resolume', 'propresenter', 'encoder']);
+
 function setDot(name, active) {
   const dot = document.getElementById('dot-' + name);
   if (!dot) return;
   const chip = dot.closest('.status-chip');
-  const state = getDotState(active);
+  let state = getDotState(active);
+
+  // For equipment dots, stay yellow during initial connection attempts
+  if (_equipmentDots.has(name)) {
+    if (state === 'red') {
+      _dotFailCount[name] = (_dotFailCount[name] || 0) + 1;
+      if (_dotFailCount[name] < DOT_FAIL_THRESHOLD) {
+        state = 'yellow'; // still trying — show connecting
+      }
+    } else if (state === 'green') {
+      _dotFailCount[name] = 0; // connected — reset counter
+    }
+  }
 
   dot.className = `dot${state ? ' ' + state : ''}`;
 
@@ -2535,6 +2560,8 @@ function setDot(name, active) {
 
 function setAllDotsConnecting() {
   _hasReceivedRelayStatus = false;
+  // Reset equipment failure counters so dots start fresh at yellow
+  for (const key of Object.keys(_dotFailCount)) delete _dotFailCount[key];
   const dotNames = ['relay', 'atem', 'companion', 'resolume', 'propresenter', 'encoder'];
   for (const name of dotNames) {
     const dot = document.getElementById('dot-' + name);
@@ -2561,9 +2588,20 @@ async function toggleAgent() {
   btn.textContent = isRunning ? 'Stopping…' : 'Starting…';
   try {
     if (isRunning) {
+      _monitoringStoppedByUser = true;
       await api.stopAgent();
       isRunning = false;
+      // Clear offline state so the "Lost connection" banner doesn't appear
+      _relayDisconnectedAt = null;
+      _reconnectAttempt = 0;
+      clearReconnectCountdown();
+      document.getElementById('dashboard')?.classList.remove('dashboard-stale');
+      const offlineBanner = document.getElementById('offline-banner');
+      if (offlineBanner) offlineBanner.style.display = 'none';
+      const offlineBannerStale = document.getElementById('offline-banner-stale');
+      if (offlineBannerStale) offlineBannerStale.style.display = 'none';
     } else {
+      _monitoringStoppedByUser = false;
       setAllDotsConnecting();
       await api.startAgent();
       isRunning = true;
@@ -3190,6 +3228,11 @@ function renderChat() {
     for (const m of chatMessages) if (m.id) _chatIdSet.add(m.id);
     _chatRenderedCount = 0; // array was sliced, need full rebuild
   }
+  // Check if user is already scrolled near the bottom before adding content
+  const scrollArea = document.getElementById('chat-scroll-area');
+  const wasNearBottom = scrollArea
+    ? (scrollArea.scrollHeight - scrollArea.scrollTop - scrollArea.clientHeight < 80)
+    : false;
   // Full rebuild when reset or first render
   if (_chatRenderedCount === 0) {
     container.innerHTML = '';
@@ -3200,9 +3243,11 @@ function renderChat() {
     for (const m of newMessages) container.appendChild(_buildChatEl(m));
   }
   _chatRenderedCount = chatMessages.length;
-  // Scroll the parent overflow container, not #chat-messages itself
-  const scrollArea = document.getElementById('chat-scroll-area');
-  if (scrollArea) scrollArea.scrollTop = scrollArea.scrollHeight;
+  // Only auto-scroll if user was already near the bottom (actively chatting).
+  // Prevents diagnostics view from jumping to the bottom on tab open.
+  if (wasNearBottom && scrollArea) {
+    scrollArea.scrollTop = scrollArea.scrollHeight;
+  }
 }
 
 // ─── CHAT FILE ATTACHMENT ──────────────────────────────────────────────────
