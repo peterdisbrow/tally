@@ -946,7 +946,7 @@ class ProPresenter extends EventEmitter {
   // (same proven pattern as Tally Clicker).
 
   async connect() {
-    if (this._pollInterval) return;
+    if (this._pollAbort) return;
 
     const running = await this.isRunning();
     if (!running) {
