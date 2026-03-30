@@ -1306,6 +1306,120 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     res.json({ rooms, roomInstanceMap });
   });
 
+  // ── Admin Room CRUD ──────────────────────────────────────────────────────
+
+  app.get('/api/admin/rooms', requireAdminSession, (req, res) => {
+    try {
+      const churchId = req.query.churchId || null;
+      const page = Math.max(1, parseInt(req.query.page) || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+      const offset = (page - 1) * limit;
+
+      let where = 'WHERE r.deleted_at IS NULL';
+      const params = [];
+      if (churchId) {
+        where += ' AND r.campus_id = ?';
+        params.push(churchId);
+      }
+
+      const total = db.prepare(`SELECT COUNT(*) AS cnt FROM rooms r ${where}`).get(...params).cnt;
+      const rows = db.prepare(
+        `SELECT r.id, r.campus_id, r.name, r.description, r.created_at,
+                c.name AS church_name
+         FROM rooms r
+         LEFT JOIN churches c ON c.churchId = r.campus_id
+         ${where}
+         ORDER BY r.created_at DESC
+         LIMIT ? OFFSET ?`
+      ).all(...params, limit, offset);
+
+      res.json({ rooms: rows, total, page, limit, pages: Math.ceil(total / limit) });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  app.post('/api/admin/rooms', requireAdminSession, (req, res) => {
+    const { churchId, name, description } = req.body || {};
+    if (!churchId) return res.status(400).json({ error: 'churchId is required' });
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'name is required' });
+
+    const church = db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(churchId);
+    if (!church) return res.status(404).json({ error: 'Church not found' });
+
+    try {
+      const id = uuidv4();
+      const cleanName = String(name).trim();
+      const cleanDesc = String(description || '').trim();
+      const created_at = new Date().toISOString();
+      db.prepare('INSERT INTO rooms (id, campus_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(id, churchId, cleanName, cleanDesc, created_at);
+      auditFromReq(req, 'room_created', 'room', id, { churchId, name: cleanName });
+      res.status(201).json({ id, campus_id: churchId, name: cleanName, description: cleanDesc, created_at, church_name: church.name });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  app.patch('/api/admin/rooms/:roomId', requireAdminSession, (req, res) => {
+    const { roomId } = req.params;
+    const room = db.prepare('SELECT id, campus_id FROM rooms WHERE id = ? AND deleted_at IS NULL').get(roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    const updates = [];
+    const params = [];
+    const { name, description } = req.body || {};
+    if (name !== undefined) {
+      const cleanName = String(name).trim();
+      if (!cleanName) return res.status(400).json({ error: 'Room name cannot be empty' });
+      updates.push('name = ?');
+      params.push(cleanName);
+    }
+    if (description !== undefined) {
+      updates.push('description = ?');
+      params.push(String(description).trim());
+    }
+    if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
+
+    try {
+      params.push(roomId);
+      db.prepare(`UPDATE rooms SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+      auditFromReq(req, 'room_updated', 'room', roomId, { name, description });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  app.delete('/api/admin/rooms/:roomId', requireAdminSession, (req, res) => {
+    const { roomId } = req.params;
+    const room = db.prepare('SELECT id, name, campus_id FROM rooms WHERE id = ? AND deleted_at IS NULL').get(roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    try {
+      const deleteRelated = db.transaction(() => {
+        db.prepare('UPDATE rooms SET deleted_at = ? WHERE id = ?').run(new Date().toISOString(), roomId);
+        try { db.prepare('DELETE FROM room_equipment WHERE room_id = ?').run(roomId); } catch {}
+        try { db.prepare('DELETE FROM alerts WHERE church_id = ? AND instance_name = ?').run(room.campus_id, roomId); } catch {}
+        try { db.prepare('UPDATE churches SET room_id = NULL, room_name = NULL WHERE room_id = ?').run(roomId); } catch {}
+      });
+      deleteRelated();
+
+      // Clean up runtime state
+      const runtime = churches.get(room.campus_id);
+      if (runtime?.roomInstanceMap?.[roomId]) {
+        const instanceName = runtime.roomInstanceMap[roomId];
+        if (runtime.instanceStatus?.[instanceName]) delete runtime.instanceStatus[instanceName];
+        delete runtime.roomInstanceMap[roomId];
+      }
+
+      auditFromReq(req, 'room_deleted', 'room', roomId, { name: room.name, churchId: room.campus_id });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
   // ── Church Delete Summary ────────────────────────────────────────────────
 
   app.get('/api/admin/churches/:id/delete-summary', requireAdminSession, (req, res) => {

@@ -13,7 +13,7 @@ import EmailsTab from './components/EmailsTab';
 import MonitorTab from './components/MonitorTab';
 import StatusTab from './components/StatusTab';
 import OutreachTab from './components/OutreachTab';
-
+import RoomsTab from './components/RoomsTab';
 import AIChatDrawer from './components/AIChatDrawer';
 
 export default function AdminPage() {
@@ -226,6 +226,7 @@ export default function AdminPage() {
         {tab === 'churches'  && <ChurchesTab  api={api} role={role} />}
         {tab === 'resellers' && <ResellersTab api={api} role={role} />}
         {tab === 'users'     && <UsersTab api={api} />}
+        {tab === 'rooms'     && <RoomsTab api={api} role={role} />}
         {tab === 'aiusage'   && <AIUsageTab api={api} />}
         {tab === 'alerts'    && <AlertsTab api={api} role={role} />}
         {tab === 'tickets'   && <TicketsTab api={api} role={role} />}
