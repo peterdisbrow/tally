@@ -2,9 +2,9 @@
  * Validates that generated client-side JS inside HTML templates is syntactically valid.
  *
  * WHY THIS EXISTS:
- * The church portal and admin panel generate full HTML pages with embedded <script>
- * blocks via Node.js template literals. A single misescaped quote (e.g. \' vs \\')
- * can silently produce broken client JS that crashes the entire page at runtime.
+ * The church portal generates full HTML pages with embedded <script> blocks via
+ * Node.js template literals. A single misescaped quote (e.g. \' vs \\') can
+ * silently produce broken client JS that crashes the entire page at runtime.
  * Node's syntax checker (node -c) only validates the server-side code, NOT the
  * generated client-side output. This test renders each template and parses the
  * resulting <script> content to catch these errors at test time.
@@ -111,29 +111,3 @@ describe('Church Portal template', () => {
   });
 });
 
-// ─── Admin Panel ──────────────────────────────────────────────────────────────
-
-describe('Admin Panel template', () => {
-  it('generates valid client-side JavaScript for the dashboard', () => {
-    const { _buildAdminDashboardHtml } = require('../src/adminPanel');
-    expect(_buildAdminDashboardHtml, 'buildAdminDashboardHtml should be exported').toBeDefined();
-
-    const html = _buildAdminDashboardHtml();
-    expect(html).toContain('<script>');
-    expect(html).toContain('</script>');
-
-    extractAndValidateClientJs(html, 'adminDashboard');
-  });
-
-  it('generates valid HTML for the login page', () => {
-    const { _buildAdminLoginHtml } = require('../src/adminPanel');
-
-    // Without error
-    const htmlOk = _buildAdminLoginHtml();
-    expect(htmlOk).toContain('Sign In');
-
-    // With error
-    const htmlErr = _buildAdminLoginHtml('1');
-    expect(htmlErr).toContain('Invalid email or password');
-  });
-});
