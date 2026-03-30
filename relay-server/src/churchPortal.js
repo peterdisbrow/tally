@@ -847,7 +847,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       if (!church) return res.json({ atem: [], videohub: [], obs: [] });
 
       const status = church.status || {};
-      const sources = { atem: [], videohub: [], obs: [] };
+      const sources = { atem: [], videohub: [], videohubOutputs: [], obs: [] };
 
       // ATEM inputs from labels
       const labels = status.atem?.inputLabels || {};
@@ -866,6 +866,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         const hubInputLabels = hub.inputLabels || {};
         for (const [idx, label] of Object.entries(hubInputLabels)) {
           sources.videohub.push({ id: Number(idx), name: label, hub: hub.name || hub.ip });
+        }
+        const hubOutputLabels = hub.outputLabels || {};
+        for (const [idx, label] of Object.entries(hubOutputLabels)) {
+          sources.videohubOutputs.push({ id: Number(idx), name: label || `Output ${idx}`, hub: hub.name || hub.ip });
         }
       }
 

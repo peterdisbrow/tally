@@ -657,6 +657,12 @@
               <option value="backup_encoder">Backup Encoder</option>
             </select>
 
+            <div id="failover-vh-output-wrap" style="display:none;">
+              <label>VideoHub Output (Destination)</label>
+              <select id="failover-vh-output" style="width:100%; margin-bottom:10px;">
+                <option value="">Loading outputs...</option>
+              </select>
+            </div>
             <div id="failover-safe-input-wrap">
               <label>Safe Source</label>
               <select id="failover-safe-input" style="width:100%; margin-bottom:10px;">
@@ -695,6 +701,27 @@
               </label>
             </div>
             <div class="equip-detail">Include sustained audio silence (30s+) as a failover signal. Audio silence alone alerts your TD; combined with video loss it escalates faster.</div>
+
+            <div class="equip-row" style="margin-bottom:10px; margin-top:10px;">
+              <label style="flex:1;">Recovery Outside Service Hours</label>
+              <label class="toggle-switch" title="Allow auto-recovery to run even outside your scheduled service windows">
+                <input type="checkbox" id="failover-recovery-outside" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="equip-detail">Allow auto-recovery to switch back to primary even outside your scheduled service windows.</div>
+          </div>
+
+          <!-- Failover Drill -->
+          <div style="margin-top:16px; padding-top:14px; border-top:1px solid var(--border);">
+            <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14" style="color:var(--muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5"/></svg>
+              <label style="font-weight:600;">Failover Drill</label>
+            </div>
+            <div class="equip-detail" style="margin-bottom:10px;">Run a drill to simulate a device failure and walk through the entire failover flow — alerts, ack window, and recovery — without touching real equipment.</div>
+            <div id="failover-drill-status" style="display:none; margin-bottom:10px; padding:10px 12px; border-radius:6px; font-size:12px; line-height:1.6;"></div>
+            <button class="btn-secondary" id="btn-run-drill" onclick="runFailoverDrill()" style="font-size:12px; padding:6px 14px;">Run Failover Drill</button>
+            <span id="drill-spinner" style="display:none; margin-left:8px; font-size:11px; color:var(--muted);">Running drill…</span>
           </div>
 
         </div>

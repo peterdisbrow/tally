@@ -2324,17 +2324,17 @@ function updateFailoverUI(fo) {
 let _failoverConfigLoaded = false;
 let _failoverSources = { atem: [], videohub: [], obs: [] };
 
-async function loadFailoverSources(selectedValue) {
+async function loadFailoverSources(selectedValue, selectedVhOutput) {
   if (!api.getFailoverSources) return;
   try {
     _failoverSources = await api.getFailoverSources();
   } catch {
     _failoverSources = { atem: [], videohub: [], obs: [] };
   }
-  populateFailoverSourceDropdown(selectedValue);
+  populateFailoverSourceDropdown(selectedValue, selectedVhOutput);
 }
 
-function populateFailoverSourceDropdown(selectedValue) {
+function populateFailoverSourceDropdown(selectedValue, selectedVhOutput) {
   const select = document.getElementById('failover-safe-input');
   if (!select) return;
   const actionType = document.getElementById('failover-action-type')?.value || 'atem_switch';
@@ -2364,6 +2364,23 @@ function populateFailoverSourceDropdown(selectedValue) {
         select.appendChild(opt);
       }
     }
+    // Populate VideoHub output dropdown
+    const vhOutputSel = document.getElementById('failover-vh-output');
+    if (vhOutputSel) {
+      vhOutputSel.innerHTML = '';
+      const outputs = _failoverSources.videohubOutputs || [];
+      if (outputs.length === 0) {
+        vhOutputSel.innerHTML = '<option value="">No VideoHub outputs found</option>';
+      } else {
+        for (const src of outputs) {
+          const opt = document.createElement('option');
+          opt.value = src.id;
+          opt.textContent = `${src.id}: ${src.name}${src.hub ? ` (${src.hub})` : ''}`;
+          vhOutputSel.appendChild(opt);
+        }
+      }
+      if (selectedVhOutput != null) vhOutputSel.value = String(selectedVhOutput);
+    }
   } else if (actionType === 'obs_scene') {
     const sources = _failoverSources.obs || [];
     if (sources.length === 0) {
@@ -2378,15 +2395,22 @@ function populateFailoverSourceDropdown(selectedValue) {
     }
   }
 
-  // Show/hide source dropdown vs backup encoder note
+  // Show/hide source dropdown vs backup encoder note vs videohub output
   const safeInputWrap = document.getElementById('failover-safe-input-wrap');
   const backupNote = document.getElementById('failover-backup-encoder-note');
+  const vhOutputWrap = document.getElementById('failover-vh-output-wrap');
   if (actionType === 'backup_encoder') {
     if (safeInputWrap) safeInputWrap.style.display = 'none';
     if (backupNote) backupNote.style.display = '';
+    if (vhOutputWrap) vhOutputWrap.style.display = 'none';
+  } else if (actionType === 'videohub_route') {
+    if (safeInputWrap) safeInputWrap.style.display = '';
+    if (backupNote) backupNote.style.display = 'none';
+    if (vhOutputWrap) vhOutputWrap.style.display = '';
   } else {
     if (safeInputWrap) safeInputWrap.style.display = '';
     if (backupNote) backupNote.style.display = 'none';
+    if (vhOutputWrap) vhOutputWrap.style.display = 'none';
   }
 
   if (selectedValue != null) select.value = String(selectedValue);
@@ -2405,8 +2429,9 @@ async function loadFailoverConfig() {
     const actionType = document.getElementById('failover-action-type');
     if (actionType && config.action?.type) actionType.value = config.action.type;
 
-    // Load sources then select the saved value
-    await loadFailoverSources(config.action?.input);
+    // Load sources then select the saved value (include videohub output if applicable)
+    const vhOutput = config.action?.type === 'videohub_route' ? config.action.output : null;
+    await loadFailoverSources(config.action?.input, vhOutput);
 
     const threshold = document.getElementById('failover-black-threshold');
     if (threshold && config.blackThresholdS) {
@@ -2428,6 +2453,9 @@ async function loadFailoverConfig() {
     const audioTrigger = document.getElementById('failover-audio-trigger');
     if (audioTrigger) audioTrigger.checked = !!config.audioTrigger;
 
+    const recoveryOutside = document.getElementById('failover-recovery-outside');
+    if (recoveryOutside) recoveryOutside.checked = config.recoveryOutsideServiceHours !== false;
+
     _failoverConfigLoaded = true;
   } catch { /* ignore — failover may not be available */ }
 }
@@ -2441,10 +2469,19 @@ function getFailoverConfigFromUI() {
   const ackTimeoutS = parseInt(document.getElementById('failover-ack-timeout')?.value) || 30;
   const autoRecover = document.getElementById('failover-auto-recover')?.checked || false;
   const audioTrigger = document.getElementById('failover-audio-trigger')?.checked || false;
-  const action = actionType === 'backup_encoder'
-    ? { type: 'backup_encoder' }
-    : { type: actionType, input: safeInput };
-  return { enabled, action, blackThresholdS, ackTimeoutS, autoRecover, audioTrigger };
+  const recoveryOutsideServiceHours = document.getElementById('failover-recovery-outside')?.checked ?? true;
+
+  let action;
+  if (actionType === 'backup_encoder') {
+    action = { type: 'backup_encoder' };
+  } else if (actionType === 'videohub_route') {
+    const vhOutput = parseInt(document.getElementById('failover-vh-output')?.value) || 0;
+    action = { type: 'videohub_route', output: vhOutput, input: safeInput, hubIndex: 0 };
+  } else {
+    action = { type: actionType, input: safeInput };
+  }
+
+  return { enabled, action, blackThresholdS, ackTimeoutS, autoRecover, audioTrigger, recoveryOutsideServiceHours };
 }
 
 function initFailoverConfigUI() {
@@ -2462,6 +2499,64 @@ function initFailoverConfigUI() {
       populateFailoverSourceDropdown(null);
     });
   }
+}
+
+// ─── FAILOVER DRILL ─────────────────────────────────────────────────────────
+
+async function runFailoverDrill() {
+  const btn = document.getElementById('btn-run-drill');
+  const spinner = document.getElementById('drill-spinner');
+  const statusEl = document.getElementById('failover-drill-status');
+  if (btn) btn.disabled = true;
+  if (spinner) spinner.style.display = 'inline';
+
+  const steps = [
+    { delay: 800,  text: '<strong>DRILL IN PROGRESS</strong><br>Step 1/5 — Encoder bitrate dropped to 0 kbps (simulated)', color: 'var(--warn, #eab308)' },
+    { delay: 2000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 2/5 — Black screen detected. Waiting for confirmation…', color: 'var(--warn, #eab308)' },
+    { delay: 3500, text: '<strong>DRILL IN PROGRESS</strong><br>Step 3/5 — Outage confirmed. TD Telegram alert would fire now. Ack window open…', color: 'var(--err, #ef4444)' },
+    { delay: 5000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 4/5 — No TD ack received (simulated). Executing failover action…', color: 'var(--err, #ef4444)' },
+  ];
+
+  if (statusEl) {
+    statusEl.style.display = '';
+    statusEl.style.background = 'rgba(234,179,8,0.08)';
+    statusEl.style.border = '1px solid rgba(234,179,8,0.25)';
+    statusEl.style.color = 'var(--warn, #eab308)';
+    statusEl.innerHTML = '<strong>DRILL IN PROGRESS</strong> — Simulating encoder signal loss…';
+  }
+
+  for (const step of steps) {
+    await new Promise(r => setTimeout(r, step.delay));
+    if (statusEl) {
+      statusEl.style.color = step.color;
+      statusEl.innerHTML = step.text;
+    }
+  }
+
+  try {
+    const result = await api.runFailoverDrill();
+    if (statusEl) {
+      const passed = result && result.passed;
+      statusEl.style.background = passed ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)';
+      statusEl.style.border = '1px solid ' + (passed ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)');
+      statusEl.style.color = passed ? 'var(--ok, #22c55e)' : 'var(--err, #ef4444)';
+      statusEl.innerHTML = (passed ? '&#10003;' : '&#10007;') + ' <strong>DRILL COMPLETE</strong><br>' +
+        (result.report || (passed
+          ? 'All failover steps completed successfully. Your setup is ready.'
+          : 'Drill found issues — review your failover configuration.')) +
+        '<br><span style="font-size:10px;color:var(--muted);margin-top:4px;display:block">This was a drill. No real equipment was changed.</span>';
+    }
+  } catch (e) {
+    if (statusEl) {
+      statusEl.style.background = 'rgba(239,68,68,0.08)';
+      statusEl.style.border = '1px solid rgba(239,68,68,0.3)';
+      statusEl.style.color = 'var(--err, #ef4444)';
+      statusEl.innerHTML = '&#10007; <strong>DRILL FAILED</strong><br>' + escapeHtml(e.message || 'Could not complete drill.');
+    }
+  }
+
+  if (btn) btn.disabled = false;
+  if (spinner) spinner.style.display = 'none';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

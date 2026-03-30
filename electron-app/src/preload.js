@@ -90,6 +90,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Signal Failover
   getFailoverConfig: () => ipcRenderer.invoke('get-failover-config'),
   saveFailoverConfig: (config) => ipcRenderer.invoke('save-failover-config', config),
+  runFailoverDrill: () => ipcRenderer.invoke('run-failover-drill'),
   getFailoverState: () => ipcRenderer.invoke('get-failover-state'),
   getFailoverSources: () => ipcRenderer.invoke('get-failover-sources'),
   onFailoverStateChange: (cb) => ipcRenderer.on('failover-state', (_, data) => cb(data)),

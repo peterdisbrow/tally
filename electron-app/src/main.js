@@ -2141,6 +2141,22 @@ ipcMain.handle('save-failover-config', async (_, failoverConfig) => {
   }
 });
 
+ipcMain.handle('run-failover-drill', async () => {
+  const config = loadConfig();
+  if (!config.token) return { passed: false, report: 'Not authenticated' };
+  const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
+  try {
+    const res = await fetch(`${relayHttp}/api/church/failover/drill`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${config.token}`, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) return { passed: false, report: 'Drill request failed (' + res.status + ')' };
+    return await res.json();
+  } catch (e) {
+    return { passed: false, report: e.message || 'Could not reach relay server' };
+  }
+});
+
 ipcMain.handle('get-failover-state', () => {
   return agentStatus.failover || { state: 'HEALTHY', transitions: [] };
 });

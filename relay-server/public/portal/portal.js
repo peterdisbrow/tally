@@ -5974,6 +5974,30 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
     })();
 
+// Human-readable label for alert types (used across scopes)
+function _portalFriendlyAlertType(alertType) {
+  var map = {
+    'stream_stopped': 'Stream stopped',
+    'atem_disconnected': 'ATEM switcher disconnected',
+    'multiple_systems_down': 'Multiple systems went down',
+    'recording_failed': 'Recording failed to start',
+    'recording_not_started': 'Recording not started',
+    'audio_muted': 'Audio is muted',
+    'audio_silence': 'No audio signal detected',
+    'failover_executed': 'Backup system activated',
+    'failover_command_failed': 'Backup system failed to activate',
+    'no_td_response': 'No response from tech director',
+    'encoder_stream_stopped': 'Encoder stream stopped',
+    'atem_stream_stopped': 'ATEM stream stopped',
+    'vmix_stream_stopped': 'vMix stream stopped',
+    'obs_disconnected': 'OBS disconnected',
+    'encoder_disconnected': 'Encoder disconnected',
+    'vmix_disconnected': 'vMix disconnected',
+    'connection_lost': 'Device connection lost'
+  };
+  return map[alertType] || (alertType || '').replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+}
+
 // ── CSP-safe event delegation ─────────────────────────────────────────────────
 // Replaces all inline onclick/onchange/onkeydown/oninput handlers that were
 // removed from portal.html so that 'unsafe-inline' can be dropped from CSP.
@@ -6332,29 +6356,8 @@ document.addEventListener('DOMContentLoaded', function() {
   var _aiTriageEventsOffset = 0;
   var _aiTriageSettings = null;
 
-  // Human-readable labels for triage data
-  function _portalFriendlyAlertType(alertType) {
-    var map = {
-      'stream_stopped': 'Stream stopped',
-      'atem_disconnected': 'ATEM switcher disconnected',
-      'multiple_systems_down': 'Multiple systems went down',
-      'recording_failed': 'Recording failed to start',
-      'recording_not_started': 'Recording not started',
-      'audio_muted': 'Audio is muted',
-      'audio_silence': 'No audio signal detected',
-      'failover_executed': 'Backup system activated',
-      'failover_command_failed': 'Backup system failed to activate',
-      'no_td_response': 'No response from tech director',
-      'encoder_stream_stopped': 'Encoder stream stopped',
-      'atem_stream_stopped': 'ATEM stream stopped',
-      'vmix_stream_stopped': 'vMix stream stopped',
-      'obs_disconnected': 'OBS disconnected',
-      'encoder_disconnected': 'Encoder disconnected',
-      'vmix_disconnected': 'vMix disconnected',
-      'connection_lost': 'Device connection lost'
-    };
-    return map[alertType] || (alertType || '').replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
-  }
+  // Human-readable labels for triage data (_portalFriendlySeverity stays here,
+  // _portalFriendlyAlertType moved to top-level scope — used outside DOMContentLoaded)
   function _portalFriendlySeverity(severity) {
     var map = { 'critical': 'Critical', 'high': 'High', 'medium': 'Moderate', 'low': 'Low', 'info': 'Info' };
     return map[severity] || severity;
