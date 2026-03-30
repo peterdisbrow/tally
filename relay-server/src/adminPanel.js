@@ -1559,6 +1559,15 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
     const roomInstanceMap = runtime?.roomInstanceMap || {};
 
+    // ── Room Equipment ──
+    const roomEquipment = {};
+    try {
+      const eqRows = db.prepare('SELECT room_id, equipment FROM room_equipment WHERE church_id = ?').all(churchId);
+      for (const row of eqRows) {
+        try { roomEquipment[row.room_id] = JSON.parse(row.equipment); } catch { roomEquipment[row.room_id] = {}; }
+      }
+    } catch { /* table may not exist */ }
+
     res.json({
       church,
       status,
@@ -1576,6 +1585,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       rooms,
       instanceStatusMap,
       roomInstanceMap,
+      roomEquipment,
     });
   });
 
