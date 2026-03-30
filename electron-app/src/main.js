@@ -1334,6 +1334,36 @@ function performSignOut() {
   mainWindow?.webContents.send('signed-out');
 }
 
+// Wipe all local data when a different church/user logs in.
+// Compares the churchId in the old token (if any) with the new token.
+// Returns { wiped: true } if config was reset, { wiped: false } otherwise.
+ipcMain.handle('prepare-for-login', async (_, { newToken }) => {
+  try {
+    const oldConfig = loadConfig();
+    const oldChurchId = oldConfig.token ? decodeChurchIdFromToken(oldConfig.token) : null;
+    const newChurchId = newToken ? decodeChurchIdFromToken(newToken) : null;
+
+    if (oldChurchId && newChurchId && oldChurchId !== newChurchId) {
+      // Different user/church — clean slate
+      stopAgent();
+      resetConfig();
+      agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {}, failover: null };
+      mainWindow?.webContents.send('status', agentStatus);
+      return { wiped: true };
+    }
+
+    // Same user or no previous session — still stop agent if running
+    if (agentProcess) {
+      stopAgent();
+      agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {}, failover: null };
+      mainWindow?.webContents.send('status', agentStatus);
+    }
+    return { wiped: false };
+  } catch (e) {
+    return { wiped: false, error: e.message };
+  }
+});
+
 ipcMain.handle('sign-out', async () => {
   try {
     performSignOut();

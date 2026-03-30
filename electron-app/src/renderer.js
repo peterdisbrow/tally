@@ -852,6 +852,10 @@ async function doSignIn() {
     if (result.success && result.data?.token) {
       const token = result.data.token;
       const churchName = result.data?.church?.name || '';
+
+      // Wipe local data if a different user/church is logging in
+      await api.prepareForLogin(token);
+
       await api.saveConfig({ token, relay, name: churchName });
 
       // Always go to room selector after fresh login
