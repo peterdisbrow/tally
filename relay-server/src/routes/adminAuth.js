@@ -181,7 +181,8 @@ module.exports = function setupAdminAuthRoutes(app, ctx) {
   // GET /api/admin/ai-usage
   app.get('/api/admin/ai-usage', requireAdminJwt(), (req, res) => {
     try {
-      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const from = req.query.from || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const to   = req.query.to   || new Date().toISOString();
 
       const totals = db.prepare(`
         SELECT
@@ -190,8 +191,8 @@ module.exports = function setupAdminAuthRoutes(app, ctx) {
           COALESCE(SUM(output_tokens), 0) as total_output_tokens,
           COALESCE(SUM(cost_usd), 0) as total_cost,
           COALESCE(SUM(CASE WHEN cached = 1 THEN 1 ELSE 0 END), 0) as cache_hits
-        FROM ai_usage_log WHERE created_at >= ?
-      `).get(since);
+        FROM ai_usage_log WHERE created_at >= ? AND created_at <= ?
+      `).get(from, to);
 
       const byChurch = db.prepare(`
         SELECT
@@ -203,10 +204,10 @@ module.exports = function setupAdminAuthRoutes(app, ctx) {
           SUM(u.cost_usd) as cost
         FROM ai_usage_log u
         LEFT JOIN churches c ON c.churchId = u.church_id
-        WHERE u.created_at >= ?
+        WHERE u.created_at >= ? AND u.created_at <= ?
         GROUP BY u.church_id
         ORDER BY cost DESC
-      `).all(since);
+      `).all(from, to);
 
       const byFeature = db.prepare(`
         SELECT
@@ -215,10 +216,10 @@ module.exports = function setupAdminAuthRoutes(app, ctx) {
           SUM(input_tokens) as input_tokens,
           SUM(output_tokens) as output_tokens,
           SUM(cost_usd) as cost
-        FROM ai_usage_log WHERE created_at >= ?
+        FROM ai_usage_log WHERE created_at >= ? AND created_at <= ?
         GROUP BY feature
         ORDER BY cost DESC
-      `).all(since);
+      `).all(from, to);
 
       res.json({ totals, byChurch, byFeature });
     } catch (err) {
