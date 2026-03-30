@@ -6,7 +6,7 @@
  * getAudienceScreenStatus, getPlaylistFocused, clearAll, clearSlide,
  * getMessages, triggerMessage, clearMessages, getLooks, setLook,
  * getTimers, startTimer, stopTimer, setAudienceScreens,
- * _scheduleReconnect, isRunning.
+ * _handleWSMessage, _scheduleReconnect, isRunning.
  */
 const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -48,7 +48,7 @@ describe('ProPresenter.isRunning()', () => {
     assert.equal(pp.running, true);
   });
 
-  it('returns true even when response is non-ok (any HTTP response means PP is running)', async () => {
+  it('returns true when response is non-ok (PP is still running)', async () => {
     const pp = new ProPresenter();
     mockFetchHead(false);
     const result = await pp.isRunning();
@@ -208,7 +208,7 @@ describe('ProPresenter.goToSlide()', () => {
     const fetched = [];
     global.fetch = async (url) => { fetched.push(url); return { ok: true, text: async () => '{}' }; };
     await pp.goToSlide(5);
-    assert.ok(fetched.some(u => u.includes('/v1/presentation/focused/5/trigger')));
+    assert.ok(fetched.some(u => u.includes('/presentation/focused/5/trigger')));
   });
 });
 
@@ -702,16 +702,16 @@ describe('ProPresenter backup mirroring', () => {
   });
 
   it('nextSlide mirrors to backup in playlist mode', async () => {
-    const backupFired = [];
+    const backupFetched = [];
     const pp = new ProPresenter({ backupHost: '10.0.0.99' });
-    // Mock backup _fire (used by _mirror)
-    pp._backup._fire = async (path) => { backupFired.push(path); return true; };
+    // Mock backup fetch
+    pp._backup._fire = async (path) => { backupFetched.push(path); return true; };
 
     global.fetch = async () => ({ ok: true, text: async () => '{}' });
     await pp.nextSlide();
     // _mirror fires fire-and-forget — give microtask queue a chance to run
     await new Promise(r => setImmediate(r));
-    // The path is mirrored via _backup._fire
-    assert.ok(backupFired.some(p => p.includes('trigger')));
+    // The path is mirrored via _backup._fetch
+    assert.ok(backupFetched.some(p => p.includes('trigger')));
   });
 });

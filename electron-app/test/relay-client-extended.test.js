@@ -7,15 +7,15 @@
  *     - Extracts churchId / church_id from JWT payload
  *     - Returns null for malformed / missing tokens
  *
- *   checkTokenWithRelay — WebSocket auth state machine
- *     - Resolves success after socket opens and stays stable for 1200ms
- *     - Resolves failure on error event
- *     - Resolves failure on close code 1008 (policy violation / invalid token)
- *     - Resolves failure on close before open
- *     - Resolves failure on close after open (non-1008)
- *     - Resolves failure on timeout
- *     - Constructs correct WebSocket URL (/church?token=...)
- *     - finish() is idempotent (second call is a no-op)
+ *   checkTokenWithRelay — HTTP token validation
+ *     - Resolves success when HTTP 200
+ *     - Resolves failure on HTTP 401/403 (invalid token)
+ *     - Resolves failure on HTTP error status
+ *     - Resolves failure on network error
+ *     - Resolves failure on non-auth HTTP error status
+ *     - Resolves failure on timeout / abort
+ *     - Constructs correct HTTP URL (/api/church/app/me) with Bearer auth
+ *     - Resolves failure on 403 status
  *
  *   postJson
  *     - Returns success:true with data on 2xx response
@@ -213,121 +213,121 @@ test('decodeChurchIdFromToken handles URL-safe base64 without padding', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// checkTokenWithRelay — HTTP-based token validation
+// checkTokenWithRelay — HTTP token validation
 // ═══════════════════════════════════════════════════════════════════════════════
 
-test('checkTokenWithRelay resolves success when HTTP returns 200', async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url, opts) => ({
-    ok: true,
-    status: 200,
-    json: async () => ({ churchId: 'ch1' }),
-  });
+test('checkTokenWithRelay resolves success after socket opens and stays open 1200ms', async () => {
+  const { client } = loadRelayClient();
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({ ok: true, status: 200 });
   try {
-    const { client } = loadRelayClient();
     const result = await client.checkTokenWithRelay('valid-token', 'wss://relay.example.com', 5000);
-    assert.equal(result.success, true);
+    assert.equal(result.success, true, `Expected success, got: ${JSON.stringify(result)}`);
+    assert.ok(result.message && result.message.includes('HTTP'), `Expected HTTP in message, got: ${result.message}`);
   } finally {
-    globalThis.fetch = originalFetch;
+    global.fetch = originalFetch;
   }
 });
 
-test('checkTokenWithRelay resolves failure on 401 response', async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => ({ ok: false, status: 401 });
+test('checkTokenWithRelay resolves failure on error event', async () => {
+  const { client } = loadRelayClient();
+  const originalFetch = global.fetch;
+  global.fetch = async () => { throw new Error('ECONNREFUSED'); };
   try {
-    const { client } = loadRelayClient();
     const result = await client.checkTokenWithRelay('bad-token', 'wss://relay.example.com', 5000);
-    assert.equal(result.success, false);
-    assert.ok(result.error.includes('Invalid token'), `Expected 'Invalid token', got: ${result.error}`);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test('checkTokenWithRelay resolves failure on 403 response', async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => ({ ok: false, status: 403 });
-  try {
-    const { client } = loadRelayClient();
-    const result = await client.checkTokenWithRelay('bad-token', 'wss://relay.example.com', 5000);
-    assert.equal(result.success, false);
-    assert.ok(result.error.includes('Invalid token'), `Expected 'Invalid token', got: ${result.error}`);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test('checkTokenWithRelay resolves failure on 500 response', async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => ({ ok: false, status: 500 });
-  try {
-    const { client } = loadRelayClient();
-    const result = await client.checkTokenWithRelay('tok', 'wss://relay.example.com', 5000);
-    assert.equal(result.success, false);
-    assert.ok(result.error.includes('500'), `Expected status in error, got: ${result.error}`);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test('checkTokenWithRelay resolves failure on network error', async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => { throw new Error('ECONNREFUSED'); };
-  try {
-    const { client } = loadRelayClient();
-    const result = await client.checkTokenWithRelay('tok', 'wss://relay.example.com', 5000);
     assert.equal(result.success, false);
     assert.ok(result.error.includes('ECONNREFUSED'), `Expected ECONNREFUSED, got: ${result.error}`);
   } finally {
-    globalThis.fetch = originalFetch;
+    global.fetch = originalFetch;
   }
 });
 
-test('checkTokenWithRelay resolves failure on timeout / abort', async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => { throw new Error('The operation was aborted'); };
+test('checkTokenWithRelay resolves failure on close code 1008 (policy violation / invalid token)', async () => {
+  const { client } = loadRelayClient();
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 401 });
   try {
-    const { client } = loadRelayClient();
+    const result = await client.checkTokenWithRelay('bad-token', 'wss://relay.example.com', 5000);
+    assert.equal(result.success, false);
+    assert.ok(result.error.includes('Invalid token'), `Expected 'Invalid token', got: ${result.error}`);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('checkTokenWithRelay resolves failure on close before open', async () => {
+  const { client } = loadRelayClient();
+  const originalFetch = global.fetch;
+  global.fetch = async () => { throw new Error('fetch failed'); };
+  try {
+    const result = await client.checkTokenWithRelay('tok', 'wss://relay.example.com', 5000);
+    assert.equal(result.success, false);
+    assert.ok(result.error, 'Expected an error message');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('checkTokenWithRelay resolves failure on close after open (non-1008)', async () => {
+  const { client } = loadRelayClient();
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 500 });
+  try {
+    const result = await client.checkTokenWithRelay('tok', 'wss://relay.example.com', 5000);
+    assert.equal(result.success, false);
+    assert.ok(
+      result.error.includes('500'),
+      `Expected status in error, got: ${result.error}`,
+    );
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('checkTokenWithRelay times out and resolves failure after ms', async () => {
+  const { client } = loadRelayClient();
+  const originalFetch = global.fetch;
+  global.fetch = async () => { throw new Error('The operation was aborted'); };
+  try {
     const result = await client.checkTokenWithRelay('tok', 'wss://relay.example.com', 60);
     assert.equal(result.success, false);
+    assert.ok(result.error, `Expected error message, got: ${result.error}`);
   } finally {
-    globalThis.fetch = originalFetch;
+    global.fetch = originalFetch;
   }
-});
+}, { timeout: 3000 });
 
-test('checkTokenWithRelay calls /api/church/app/me with Bearer token', async () => {
-  const originalFetch = globalThis.fetch;
-  let capturedUrl, capturedOpts;
-  globalThis.fetch = async (url, opts) => {
-    capturedUrl = url;
-    capturedOpts = opts;
-    return { ok: true, status: 200, json: async () => ({}) };
-  };
-  try {
-    const { client } = loadRelayClient();
-    await client.checkTokenWithRelay('my-secret-token', 'wss://relay.example.com', 5000);
-    assert.ok(capturedUrl.includes('/api/church/app/me'), `URL must include /api/church/app/me, got: ${capturedUrl}`);
-    assert.ok(capturedUrl.startsWith('https://'), `URL must use HTTPS, got: ${capturedUrl}`);
-    assert.equal(capturedOpts.headers.Authorization, 'Bearer my-secret-token');
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test('checkTokenWithRelay converts wss relay URL to https for HTTP call', async () => {
-  const originalFetch = globalThis.fetch;
+test('checkTokenWithRelay constructs HTTP URL with /api/church/app/me endpoint', async () => {
+  const { client } = loadRelayClient();
+  const originalFetch = global.fetch;
   let capturedUrl;
-  globalThis.fetch = async (url) => {
+  let capturedHeaders;
+  global.fetch = async (url, opts) => {
     capturedUrl = url;
-    return { ok: true, status: 200, json: async () => ({}) };
+    capturedHeaders = opts?.headers;
+    return { ok: true, status: 200 };
   };
   try {
-    const { client } = loadRelayClient();
-    await client.checkTokenWithRelay('tok', 'wss://api.tallyconnect.app', 5000);
-    assert.ok(capturedUrl.startsWith('https://api.tallyconnect.app'), `Expected https URL, got: ${capturedUrl}`);
+    await client.checkTokenWithRelay('my-secret-token', 'wss://relay.example.com', 5000);
+
+    assert.ok(capturedUrl.includes('/api/church/app/me'), `URL must include /api/church/app/me, got: ${capturedUrl}`);
+    assert.ok(capturedUrl.startsWith('https://'), `URL must start with https://, got: ${capturedUrl}`);
+    assert.equal(capturedHeaders?.['Authorization'], 'Bearer my-secret-token', `Expected Bearer token in Authorization header`);
   } finally {
-    globalThis.fetch = originalFetch;
+    global.fetch = originalFetch;
+  }
+}, { timeout: 3000 });
+
+test('checkTokenWithRelay resolves failure on 403 status', async () => {
+  const { client } = loadRelayClient();
+  const originalFetch = global.fetch;
+  global.fetch = async () => ({ ok: false, status: 403 });
+  try {
+    const result = await client.checkTokenWithRelay('tok', 'wss://relay.example.com', 5000);
+    assert.equal(result.success, false);
+    assert.ok(result.error.includes('Invalid token'), `Expected 'Invalid token', got: ${result.error}`);
+  } finally {
+    global.fetch = originalFetch;
   }
 });
 

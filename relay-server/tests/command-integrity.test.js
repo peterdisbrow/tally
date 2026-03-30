@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { commandHandlers } = require('../../church-client/src/commands');
+const { commandHandlers } = require('../../church-client/src/commands/index');
 const { buildSystemPrompt, getAvailableCommandNames } = require('../src/ai-parser.js');
 const { smartParse } = require('../src/smart-parser.js');
 
@@ -887,6 +887,8 @@ describe('Mixer command integrity', () => {
 describe('Companion command integrity', () => {
   const COMP_COMMANDS = [
     'companion.press', 'companion.pressNamed', 'companion.getGrid', 'companion.connections',
+    'companion.getVariable', 'companion.getCustomVariable', 'companion.setCustomVariable',
+    'companion.watchVariable', 'companion.getWatchedVariables',
   ];
 
   for (const cmd of COMP_COMMANDS) {

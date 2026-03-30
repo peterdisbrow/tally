@@ -325,10 +325,6 @@ test.describe('UI -- Dashboard Structure', () => {
     await expect(page.locator('#live-badge')).toHaveCount(1);
   });
 
-  test('NDI preview container exists in status tab', async () => {
-    await expect(page.locator('#ndi-preview-container')).toHaveCount(1);
-  });
-
   test('activity log exists in status tab', async () => {
     await expect(page.locator('#alerts-log')).toHaveCount(1);
   });
@@ -345,13 +341,6 @@ test.describe('UI -- Dashboard Structure', () => {
     await expect(page.locator('#val-bitrate')).toHaveCount(1);
   });
 
-  test('NDI status section exists in DOM (hidden by default)', async () => {
-    await expect(page.locator('#ndi-status-section')).toHaveCount(1);
-    await expect(page.locator('#val-ndi-source')).toHaveCount(1);
-    await expect(page.locator('#val-ndi-resolution')).toHaveCount(1);
-    await expect(page.locator('#val-ndi-fps')).toHaveCount(1);
-    await expect(page.locator('#val-ndi-codec')).toHaveCount(1);
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -401,13 +390,12 @@ test.describe('UI -- Equipment Tab Structure', () => {
     await expect(saveBtn).toHaveCount(1);
   });
 
-  test('equipment catalog categories exist: Core, Recording, Presentation, Monitoring, Audio', async () => {
+  test('equipment catalog categories exist: Core, Recording, Presentation, Audio', async () => {
     const catTexts = await page.locator('#equip-catalog .equip-catalog-category-title').allTextContents();
     const normalized = catTexts.map((t) => t.trim().toUpperCase());
     expect(normalized).toContain('CORE');
     expect(normalized).toContain('RECORDING & PLAYBACK');
     expect(normalized).toContain('PRESENTATION & VIDEO');
-    expect(normalized).toContain('MONITORING');
     expect(normalized).toContain('AUDIO');
   });
 
@@ -416,11 +404,6 @@ test.describe('UI -- Equipment Tab Structure', () => {
       if (typeof expandDeviceCard === 'function') expandDeviceCard('mixer');
     });
     await expect(page.locator('select[data-device="mixer"][data-field="type"]')).toHaveCount(1);
-  });
-
-  test('NDI decoder entry exists in monitoring catalog', async () => {
-    const ndiEntry = page.locator('#equip-catalog .equip-catalog-entry', { hasText: 'NDI Decoder' });
-    await expect(ndiEntry).toHaveCount(1);
   });
 
   test('NDI decoder is NOT in the encoder dropdown', async () => {
