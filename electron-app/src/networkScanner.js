@@ -283,6 +283,25 @@ function isBlackmagicWebPresenter(ip, port = 80, timeoutMs = 2000) {
   });
 }
 
+/**
+ * Fingerprint a Shelly smart plug by probing its local HTTP API.
+ * Gen2+ devices respond to /rpc/Shelly.GetDeviceInfo; Gen1 to /settings.
+ */
+function isShellyDevice(ip, port = 80, timeoutMs = 2000) {
+  return tryHttpGet(`http://${ip}:${port}/rpc/Shelly.GetDeviceInfo`, timeoutMs).then((resp) => {
+    if (resp.success && resp.data && typeof resp.data === 'object' && resp.data.id) {
+      return { match: true, name: resp.data.name || resp.data.id, gen: 2 };
+    }
+    // Gen1 fallback
+    return tryHttpGet(`http://${ip}:${port}/settings`, timeoutMs).then((resp2) => {
+      if (resp2.success && resp2.data && typeof resp2.data === 'object' && resp2.data.device) {
+        return { match: true, name: resp2.data.name || resp2.data.device.hostname || `Shelly ${ip}`, gen: 1 };
+      }
+      return { match: false };
+    });
+  });
+}
+
 // ─── Probe dispatcher ────────────────────────────────────────────────────────
 
 /**
@@ -422,6 +441,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
   const results = {
     atem: [], companion: [], obs: [], hyperdeck: [], propresenter: [], nmos: [],
     resolume: [], vmix: [], tricaster: [], birddog: [], videohub: [], mixers: [], encoders: [],
+    'smart-plug': [],
   };
   const { ips, localIps, label } = buildScanTargets(options);
 
@@ -446,6 +466,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { type: 'videohub', ip: '127.0.0.1', port: 9990 },
     { type: 'tally-encoder', ip: '127.0.0.1', port: 7070 },
     { type: 'blackmagic-webpresenter', ip: '127.0.0.1', port: 80 },
+    { type: 'shelly', ip: '127.0.0.1', port: 80 },
   ];
 
   // Check localhost first
@@ -550,6 +571,12 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
           results.encoders.push({ ip: '127.0.0.1', port: check.port, type: 'blackmagic', label: fp.productName || 'Blackmagic Web Presenter' });
           onProgress(5, `Found ${fp.productName || 'Blackmagic Web Presenter'} on localhost (found)`);
         }
+      } else if (check.type === 'shelly') {
+        const fp = await isShellyDevice('127.0.0.1', check.port);
+        if (fp.match) {
+          results['smart-plug'].push({ ip: '127.0.0.1', port: check.port, name: fp.name, gen: fp.gen });
+          onProgress(5, `Found Shelly smart plug on localhost (found)`);
+        }
       }
     }
   }
@@ -574,6 +601,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { port: 9990,  type: 'videohub' },              // TCP — Blackmagic Videohub protocol
     { port: 7070,  type: 'tally-encoder' },        // TCP — Tally Encoder HTTP
     { port: 80,    type: 'blackmagic-webpresenter' }, // TCP — Blackmagic Web Presenter REST API
+    { port: 80,    type: 'shelly' },                 // TCP — Shelly smart plug HTTP API
   ];
 
   let scanned = 0;
@@ -702,6 +730,12 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
                 results.encoders.push({ ip, port, type: 'blackmagic', label: fp.productName || 'Blackmagic Web Presenter' });
                 onProgress(null, `Found ${fp.productName || 'Blackmagic Web Presenter'} at ${ip} (found)`);
               }
+            } else if (type === 'shelly' && !results['smart-plug'].find((d) => d.ip === ip)) {
+              const fp = await isShellyDevice(ip, port);
+              if (fp.match) {
+                results['smart-plug'].push({ ip, port, name: fp.name, gen: fp.gen });
+                onProgress(null, `Found Shelly smart plug (${fp.name}) at ${ip} (found)`);
+              }
             }
           })
         );
@@ -714,7 +748,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     onProgress(pct, `Scanned ${scanned}/${totalScans} IPs...`);
   }
 
-  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.propresenter.length + results.resolume.length + results.vmix.length + results.tricaster.length + results.birddog.length + results.videohub.length + results.encoders.length} devices found`);
+  onProgress(100, `Scan complete: ${results.atem.length + results.companion.length + results.obs.length + results.hyperdeck.length + results.propresenter.length + results.resolume.length + results.vmix.length + results.tricaster.length + results.birddog.length + results.videohub.length + results.encoders.length + results['smart-plug'].length} devices found`);
   return results;
 }
 
@@ -728,6 +762,7 @@ module.exports = {
   getLocalSubnet,
   listAvailableInterfaces,
   isBlackmagicWebPresenter,
+  isShellyDevice,
   // Expose packets for equipment-tester
   ATEM_SYN_PACKET,
   OSC_INFO_PACKET,

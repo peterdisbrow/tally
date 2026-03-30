@@ -163,6 +163,21 @@ const DEVICE_REGISTRY = {
     testType: 'videohub',
   },
 
+  'smart-plug': {
+    id: 'smart-plug',
+    name: 'Smart Plug (Shelly)',
+    icon: '\u{1F50C}',
+    category: 'core',
+    description: 'Shelly WiFi smart plug — power monitoring and control (HTTP)',
+    multi: true,
+    maxInstances: 8,
+    fields: [
+      { key: 'ip', label: 'IP Address', type: 'text', placeholder: '192.168.1.100' },
+      { key: 'name', label: 'Name', type: 'text', placeholder: 'e.g. Projector Power' },
+    ],
+    testType: 'smart-plug',
+  },
+
   mixer: {
     id: 'mixer',
     name: 'Audio Console',
@@ -246,6 +261,7 @@ const SCAN_TO_DEVICE = {
   videohub: 'videohub',
   mixers: 'mixer',
   encoders: 'encoder',
+  'smart-plug': 'smart-plug',
 };
 
 /** Encoder display names for dashboard labels */
