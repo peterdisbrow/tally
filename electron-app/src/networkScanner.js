@@ -1,9 +1,11 @@
 /**
  * Network Scanner — Auto-discovers church AV devices on the local subnet.
- * Scans for ATEM, Companion, OBS, HyperDeck, PTZ cameras, mixers, and encoders.
+ * Scans for ATEM, Companion, OBS, HyperDeck, PTZ cameras, mixers, encoders,
+ * and Blackmagic Web Presenters.
  *
  * Protocol notes:
  *  - ATEM: UDP port 9910 (proprietary Blackmagic protocol)
+ *  - Blackmagic Web Presenter: HTTP port 80 (REST API v1 fingerprint)
  *  - Behringer/Midas X32/M32: OSC over UDP port 10023
  *  - Allen & Heath SQ/dLive: OSC over UDP port 51326/51327
  *  - Yamaha CL/QL: OSC over UDP port 8765
@@ -262,6 +264,25 @@ function extractBirdDogSource(resp) {
   return m ? m[1].trim() : '';
 }
 
+/**
+ * Fingerprint a Blackmagic Web Presenter by hitting its REST API v1.
+ * Returns { match: true, productName } if the device responds with valid
+ * Blackmagic product info, { match: false } otherwise.
+ * Port 80 is extremely common, so we MUST fingerprint to avoid false positives.
+ */
+function isBlackmagicWebPresenter(ip, port = 80, timeoutMs = 2000) {
+  return tryHttpGet(`http://${ip}:${port}/control/api/v1/system/product`, timeoutMs).then((resp) => {
+    if (!resp.success || !resp.data || typeof resp.data !== 'object') return { match: false };
+    const productName = resp.data.productName || '';
+    // Blackmagic Web Presenter and Streaming Encoder models respond with
+    // productName like "Web Presenter HD", "Web Presenter 4K", "Streaming Bridge"
+    if (/blackmagic|web\s*presenter|streaming\s*(bridge|encoder)/i.test(productName)) {
+      return { match: true, productName };
+    }
+    return { match: false };
+  });
+}
+
 // ─── Probe dispatcher ────────────────────────────────────────────────────────
 
 /**
@@ -424,6 +445,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { type: 'mixer-yamaha', ip: '127.0.0.1', port: 8765 },
     { type: 'videohub', ip: '127.0.0.1', port: 9990 },
     { type: 'tally-encoder', ip: '127.0.0.1', port: 7070 },
+    { type: 'blackmagic-webpresenter', ip: '127.0.0.1', port: 80 },
   ];
 
   // Check localhost first
@@ -522,6 +544,12 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
           results.encoders.push({ ip: '127.0.0.1', port: check.port, type: 'tally-encoder', label: 'Tally Encoder' });
           onProgress(5, 'Found Tally Encoder on localhost (found)');
         }
+      } else if (check.type === 'blackmagic-webpresenter') {
+        const fp = await isBlackmagicWebPresenter('127.0.0.1', check.port);
+        if (fp.match) {
+          results.encoders.push({ ip: '127.0.0.1', port: check.port, type: 'blackmagic', label: fp.productName || 'Blackmagic Web Presenter' });
+          onProgress(5, `Found ${fp.productName || 'Blackmagic Web Presenter'} on localhost (found)`);
+        }
       }
     }
   }
@@ -545,6 +573,7 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
     { port: 8765,  type: 'mixer-yamaha' },         // UDP — Yamaha CL/QL OSC
     { port: 9990,  type: 'videohub' },              // TCP — Blackmagic Videohub protocol
     { port: 7070,  type: 'tally-encoder' },        // TCP — Tally Encoder HTTP
+    { port: 80,    type: 'blackmagic-webpresenter' }, // TCP — Blackmagic Web Presenter REST API
   ];
 
   let scanned = 0;
@@ -661,11 +690,17 @@ async function discoverDevices(onProgress = () => {}, options = {}) {
                 results.videohub.push({ ip, port, model: fp.model || null });
                 onProgress(null, `Found Blackmagic Videohub${fp.model ? ` (${fp.model})` : ''} at ${ip} (found)`);
               }
-            } else if (type === 'tally-encoder' && !results.encoders.find((d) => d.ip === ip)) {
+            } else if (type === 'tally-encoder' && !results.encoders.find((d) => d.ip === ip && d.type === 'tally-encoder')) {
               const eResp = await tryHttpGet(`http://${ip}:${port}/health`, 2000);
               if (eResp.success) {
                 results.encoders.push({ ip, port, type: 'tally-encoder', label: 'Tally Encoder' });
                 onProgress(null, `Found Tally Encoder at ${ip}:${port} (found)`);
+              }
+            } else if (type === 'blackmagic-webpresenter' && !results.encoders.find((d) => d.ip === ip && d.type === 'blackmagic')) {
+              const fp = await isBlackmagicWebPresenter(ip, port);
+              if (fp.match) {
+                results.encoders.push({ ip, port, type: 'blackmagic', label: fp.productName || 'Blackmagic Web Presenter' });
+                onProgress(null, `Found ${fp.productName || 'Blackmagic Web Presenter'} at ${ip} (found)`);
               }
             }
           })
@@ -692,6 +727,7 @@ module.exports = {
   tryVideohubFingerprint,
   getLocalSubnet,
   listAvailableInterfaces,
+  isBlackmagicWebPresenter,
   // Expose packets for equipment-tester
   ATEM_SYN_PACKET,
   OSC_INFO_PACKET,

@@ -4139,6 +4139,9 @@ async function startNetworkScan() {
     (results.mixers || []).forEach(d => addScanResult(resultsEl, `Possible audio console at ${d.ip}:${d.port} (${d.type})`, () => {
       addFromScan('mixers', { ...d, mixerType: d.type });
     }));
+    (results.encoders || []).forEach(d => addScanResult(resultsEl, `${d.label || 'Encoder'} at ${d.ip}:${d.port}`, () => {
+      addFromScan('encoders', d);
+    }));
   } catch (e) {
     status.textContent = 'Scan failed: ' + e.message;
   } finally {
