@@ -3045,7 +3045,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       // Add to in-memory map
       churches.set(churchId, {
         churchId, name, email: email || '', token, ws: null,
-        status: { connected: false, atem: null, obs: null },
+        status: {},
         lastSeen: null, lastHeartbeat: null, registeredAt, disconnectedAt: null,
         _offlineAlertSent: false, church_type: type || 'recurring',
         event_expires_at: null, event_label: null, reseller_id: resellerId || null,

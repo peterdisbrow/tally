@@ -709,7 +709,7 @@ for (const row of stmtAll.all()) {
     token: row.token,
     ws: null,
     sockets: new Map(),  // Map<instanceName, ws> — multi-instance support
-    status: { connected: false, atem: null, obs: null },
+    status: {},
     instanceStatus: {},   // { instanceName → status object } — per-room status
     roomInstanceMap: {},  // { roomId → instanceName }
     lastSeen: null,
@@ -2307,7 +2307,7 @@ app.post('/api/churches/register', requireAdmin, rateLimit(10, 60_000), (req, re
   churches.set(churchId, {
     churchId, name, email: email || '',
     token, ws: null, sockets: new Map(),
-    status: { connected: false, atem: null, obs: null },
+    status: {},
     lastSeen: null, registeredAt, disconnectedAt: null,
     registrationCode,
   });

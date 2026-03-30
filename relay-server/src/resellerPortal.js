@@ -1459,7 +1459,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
         email: email || '',
         token: result.token,
         ws: null,
-        status: { connected: false, atem: null, obs: null },
+        status: {},
         lastSeen: null,
         lastHeartbeat: null,
         registeredAt: new Date().toISOString(),

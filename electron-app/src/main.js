@@ -162,6 +162,10 @@ function _mergeRelayStatus(status) {
     // Don't overwrite null (unconfigured device) with relay data
     if (agentStatus[key] === null) continue;
     const val = status[key];
+    // Don't let relay's default null values (from pre-connect snapshots) poison local state.
+    // The Electron app controls which devices are null (unconfigured) via its own config;
+    // relay nulls would permanently block future updates due to the guard above.
+    if (val === null || val === undefined) continue;
     if (val && typeof val === 'object' && !Array.isArray(val) && agentStatus[key] && typeof agentStatus[key] === 'object') {
       Object.assign(agentStatus[key], val);
     } else {

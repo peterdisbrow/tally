@@ -173,7 +173,7 @@ module.exports = function setupChurchOpsRoutes(app, ctx) {
       const result = eventMode.createEvent({ name, eventLabel, durationHours, tdName, tdTelegramChatId, contactEmail });
       churches.set(result.churchId, {
         churchId: result.churchId, name, email: contactEmail || '', token: result.token,
-        ws: null, status: { connected: false, atem: null, obs: null },
+        ws: null, status: {},
         lastSeen: null, lastHeartbeat: null, registeredAt: new Date().toISOString(),
         disconnectedAt: null, _offlineAlertSent: false,
         church_type: 'event', event_expires_at: result.expiresAt, event_label: eventLabel || name,
