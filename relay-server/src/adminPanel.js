@@ -286,6 +286,19 @@ tr:hover td{background:rgba(34,197,94,.02)}
 .chip-yellow{background:rgba(234,179,8,.15);color:var(--yellow);border:1px solid rgba(234,179,8,.3)}
 .token-box{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:'Courier New',monospace;font-size:11px;word-break:break-all;margin-top:8px;position:relative}
 .copy-btn{background:var(--green);color:#000;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;margin-top:6px}
+/* Onboarding Funnel */
+.funnel-step{display:flex;align-items:center;gap:12px;padding:10px 16px;border-radius:8px;margin-bottom:4px;position:relative;transition:background .2s}
+.funnel-bar{height:32px;border-radius:6px;background:var(--green);opacity:.18;position:absolute;left:0;top:0;bottom:0;border-radius:8px;transition:width .5s ease}
+.funnel-label{font-size:13px;color:var(--text);position:relative;z-index:1;flex:1}
+.funnel-count{font-size:15px;font-weight:700;color:var(--text);position:relative;z-index:1;min-width:40px;text-align:right}
+.funnel-pct{font-size:11px;color:var(--dim);position:relative;z-index:1;min-width:45px;text-align:right}
+.trend-indicator{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;margin-left:6px}
+.trend-up{color:var(--green)}.trend-down{color:var(--red)}.trend-flat{color:var(--muted)}
+/* Delete confirmation */
+.delete-confirm-name{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:14px;outline:none;margin-top:8px}
+.delete-confirm-name:focus{border-color:var(--red)}
+.delete-summary{font-size:12px;color:var(--muted);margin:12px 0;line-height:1.6}
+.delete-summary strong{color:var(--text)}
 /* Settings */
 .settings-section{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px;margin-bottom:20px}
 code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,255,.06);padding:1px 5px;border-radius:4px;color:var(--text)}
@@ -346,6 +359,10 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
     <div class="nav-item" onclick="showPage('resellers')" id="nav-resellers">
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z"/></svg>
       Resellers
+    </div>
+    <div class="nav-item" onclick="showPage('onboarding')" id="nav-onboarding">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg>
+      Onboarding
     </div>
     <div class="nav-divider">Operations</div>
     <div class="nav-item" onclick="showPage('alerts')" id="nav-alerts">
@@ -410,6 +427,22 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
         <div id="activity-feed"><div style="color:var(--muted);font-size:13px;padding:12px 0">Loading recent activity...</div></div>
       </div>
       <div style="color:var(--muted);font-size:12px;margin-top:8px" id="overview-status">Loading overview data...</div>
+    </div>
+
+    <!-- ONBOARDING PAGE -->
+    <div id="page-onboarding" style="display:none">
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-title">Onboarding Funnel</div>
+        <div id="onboarding-funnel"><div style="color:var(--muted);font-size:13px;padding:12px 0">Loading funnel data...</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Stuck Churches <span id="stuck-count" style="font-size:12px;color:var(--muted);font-weight:400"></span></div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Churches that connected the app but haven't progressed in 7+ days</div>
+        <table id="stuck-table">
+          <thead><tr><th>Church</th><th>Last Step</th><th>Completed</th><th>Days Stuck</th><th>Actions</th></tr></thead>
+          <tbody id="stuck-tbody"><tr><td colspan="5" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- CHURCHES PAGE -->
@@ -888,7 +921,7 @@ let ticketFilter = 'all';
 let allBilling = [];
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
-const allPages = ['overview','churches','resellers','alerts','tickets','billing','aiusage','emails','streams','settings'];
+const allPages = ['overview','onboarding','churches','resellers','alerts','tickets','billing','aiusage','emails','streams','settings'];
 function showPage(page) {
   allPages.forEach(p => {
     const el = document.getElementById('page-'+p);
@@ -896,7 +929,7 @@ function showPage(page) {
     const nav = document.getElementById('nav-'+p);
     if (nav) nav.classList.toggle('active', p === page);
   });
-  const titles = {overview:'Overview',churches:'Churches',resellers:'Resellers',alerts:'Alerts',tickets:'Tickets',billing:'Billing',aiusage:'AI Usage',emails:'Emails',streams:'Stream Preview',settings:'Settings'};
+  const titles = {overview:'Overview',onboarding:'Onboarding',churches:'Churches',resellers:'Resellers',alerts:'Alerts',tickets:'Tickets',billing:'Billing',aiusage:'AI Usage',emails:'Emails',streams:'Stream Preview',settings:'Settings'};
   document.getElementById('page-title').textContent = titles[page]||page;
   currentPage = page;
   // Close mobile nav on page switch
@@ -905,6 +938,7 @@ function showPage(page) {
   if (sb) sb.classList.remove('open');
   if (ov) ov.classList.remove('open');
   if (page === 'overview') loadOverview();
+  else if (page === 'onboarding') loadOnboarding();
   else if (page === 'churches') loadChurches();
   else if (page === 'resellers') loadResellers();
   else if (page === 'alerts') loadAlerts();
@@ -936,6 +970,9 @@ async function loadOverview() {
     document.getElementById('stat-tickets').textContent = d.openTickets ?? 0;
     const mrr = d.mrr ?? 0;
     document.getElementById('stat-mrr').textContent = '$' + mrr.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0});
+    // Trend indicators
+    renderTrend('stat-alerts', d.activeAlerts, d.prevAlerts);
+    renderTrend('stat-online', d.onlineNow, d.prevOnline);
     document.getElementById('overview-status').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
   } catch(e) {
     document.getElementById('overview-status').textContent = 'Failed to load overview data.';
@@ -959,6 +996,86 @@ async function loadOverview() {
       }).join('');
     }
   } catch { /* alerts endpoint may not be ready */ }
+}
+
+function renderTrend(parentId, current, previous) {
+  const el = document.getElementById(parentId);
+  if (!el || previous === undefined || previous === null) return;
+  const existing = el.parentElement.querySelector('.trend-indicator');
+  if (existing) existing.remove();
+  const diff = current - previous;
+  const pct = previous > 0 ? Math.round(Math.abs(diff) / previous * 100) : (diff > 0 ? 100 : 0);
+  if (diff === 0 && pct === 0) return;
+  const arrow = diff > 0 ? '\u2191' : diff < 0 ? '\u2193' : '\u2192';
+  const cls = diff > 0 ? 'trend-up' : diff < 0 ? 'trend-down' : 'trend-flat';
+  const span = document.createElement('span');
+  span.className = 'trend-indicator ' + cls;
+  span.textContent = arrow + ' ' + pct + '%';
+  el.parentElement.appendChild(span);
+}
+
+// ─── Onboarding Funnel ───────────────────────────────────────────────────────
+async function loadOnboarding() {
+  try {
+    const r = await fetch('/api/admin/onboarding/funnel');
+    if (!r.ok) throw new Error('Funnel failed');
+    const d = await r.json();
+    const funnel = d.funnel || {};
+    const total = funnel.total || 1;
+    const steps = [
+      { key: 'app_connected', label: 'App Connected' },
+      { key: 'atem_connected', label: 'ATEM Connected' },
+      { key: 'first_session', label: 'First Session' },
+      { key: 'telegram', label: 'Telegram Setup' },
+      { key: 'failover_tested', label: 'Failover Tested' },
+      { key: 'team_invited', label: 'Team Invited' },
+    ];
+    const funnelEl = document.getElementById('onboarding-funnel');
+    funnelEl.innerHTML = steps.map(s => {
+      const count = funnel[s.key] || 0;
+      const pct = Math.round(count / total * 100);
+      const barW = Math.max(pct, 2);
+      return '<div class="funnel-step"><div class="funnel-bar" style="width:' + barW + '%"></div>' +
+        '<span class="funnel-label">' + esc(s.label) + '</span>' +
+        '<span class="funnel-count">' + count + '</span>' +
+        '<span class="funnel-pct">' + pct + '%</span></div>';
+    }).join('');
+    funnelEl.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">' + total + ' total churches</div>' + funnelEl.innerHTML;
+
+    // Stuck churches
+    const stuck = d.stuck || [];
+    document.getElementById('stuck-count').textContent = stuck.length ? '(' + stuck.length + ')' : '';
+    const stuckTbody = document.getElementById('stuck-tbody');
+    if (!stuck.length) {
+      stuckTbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:24px">No stuck churches</td></tr>';
+    } else {
+      stuckTbody.innerHTML = stuck.map(s => {
+        return '<tr>' +
+          '<td style="color:var(--text);cursor:pointer" onclick="showPage(\\\'churches\\\');setTimeout(()=>openDetail(\\\''+esc(s.churchId)+'\\\'),300)">' + esc(s.name) + '</td>' +
+          '<td>' + esc(s.lastStep) + '</td>' +
+          '<td>' + esc(s.lastStepDate ? new Date(s.lastStepDate).toLocaleDateString() : '—') + '</td>' +
+          '<td><span class="badge badge-yellow">' + s.daysStuck + 'd</span></td>' +
+          '<td><button class="btn-sm" onclick="sendOnboardingNudge(\\\''+esc(s.churchId)+'\\\',\\\''+esc(s.name)+'\\\',\\\''+esc(s.lastStep)+'\\\')">Nudge</button></td>' +
+          '</tr>';
+      }).join('');
+    }
+  } catch(e) {
+    document.getElementById('onboarding-funnel').innerHTML = '<div style="color:var(--red);padding:12px 0">Failed to load onboarding data</div>';
+  }
+}
+
+async function sendOnboardingNudge(churchId, churchName, lastStep) {
+  if (!await modalConfirm('Send Nudge', 'Send an onboarding nudge email to <strong>' + esc(churchName) + '</strong>?<br><br>They are stuck at: <strong>' + esc(lastStep) + '</strong>')) return;
+  try {
+    const r = await fetchTimeout('/api/admin/onboarding/nudge', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ churchId, lastStep })
+    });
+    const d = await r.json();
+    if (r.ok) showToast('Nudge sent to ' + churchName);
+    else await modalAlert('Error', esc(d.error || 'Failed to send nudge'));
+  } catch { await modalAlert('Error', 'Request failed'); }
 }
 
 // ─── Churches ─────────────────────────────────────────────────────────────────
@@ -1095,7 +1212,44 @@ async function submitChurch(btn) {
 }
 
 async function deleteChurch(id, name) {
-  if (!await modalConfirm('Delete Church', \`Delete "\${esc(name)}"? This cannot be undone.\`)) return;
+  // Fetch deletion summary first
+  let summary = {};
+  try {
+    const sr = await fetch(\`/api/admin/churches/\${id}/delete-summary\`);
+    if (sr.ok) summary = await sr.json();
+  } catch { /* proceed without summary */ }
+  const parts = [];
+  if (summary.alerts) parts.push('<strong>' + summary.alerts + '</strong> alerts');
+  if (summary.sessions) parts.push('<strong>' + summary.sessions + '</strong> sessions');
+  if (summary.tickets) parts.push('<strong>' + summary.tickets + '</strong> tickets');
+  if (summary.messages) parts.push('<strong>' + summary.messages + '</strong> chat messages');
+  if (summary.rooms) parts.push('<strong>' + summary.rooms + '</strong> rooms');
+  const summaryHtml = parts.length
+    ? '<div class="delete-summary">This will permanently delete: ' + parts.join(', ') + '</div>'
+    : '<div class="delete-summary">This will permanently delete all data for this church.</div>';
+  const body = summaryHtml + '<div style="font-size:13px;color:var(--muted);margin-top:12px">Type <strong>' + esc(name) + '</strong> to confirm:</div><input class="delete-confirm-name" id="delete-confirm-input" placeholder="' + esc(name) + '" autocomplete="off">';
+  const ov = document.getElementById('dialog-overlay');
+  const titleEl = document.getElementById('dialog-title');
+  const bodyEl = document.getElementById('dialog-body');
+  const inputWrap = document.getElementById('dialog-input-wrap');
+  const okBtn = document.getElementById('dialog-ok');
+  const cancelBtn = document.getElementById('dialog-cancel');
+  titleEl.textContent = 'Delete Church';
+  bodyEl.innerHTML = body;
+  inputWrap.style.display = 'none';
+  cancelBtn.style.display = '';
+  okBtn.textContent = 'Delete';
+  okBtn.style.background = 'var(--red)';
+  okBtn.style.color = '#fff';
+  ov.style.display = 'flex';
+  const confirmInput = document.getElementById('delete-confirm-input');
+  confirmInput.focus();
+  const confirmed = await new Promise(resolve => {
+    function cleanup() { ov.style.display='none'; okBtn.onclick=null; cancelBtn.onclick=null; okBtn.textContent='OK'; okBtn.style.background='var(--green)'; okBtn.style.color='#000'; }
+    okBtn.onclick = () => { if (confirmInput.value === name) { cleanup(); resolve(true); } else { confirmInput.style.borderColor='var(--red)'; confirmInput.placeholder='Names do not match'; } };
+    cancelBtn.onclick = () => { cleanup(); resolve(false); };
+  });
+  if (!confirmed) return;
   const r = await fetchTimeout(\`/api/admin/churches/\${id}\`, {method:'DELETE'});
   const d = await r.json();
   if (r.ok) { showToast('Church deleted'); loadChurches(); }
@@ -1301,6 +1455,61 @@ async function openDetail(id) {
   html += '</div>';
 
   document.getElementById('detail-content').innerHTML = html;
+}
+
+async function openSendCommand(churchId) {
+  // Fetch rooms for this church
+  let rooms = [];
+  try {
+    const rr = await fetch('/api/admin/church/' + encodeURIComponent(churchId) + '/rooms');
+    if (rr.ok) { const rd = await rr.json(); rooms = rd.rooms || []; }
+  } catch { /* no rooms */ }
+  const roomOpts = rooms.length
+    ? '<option value="">All Rooms (broadcast)</option>' + rooms.map(r => '<option value="' + esc(r.id) + '">' + esc(r.name || r.id) + (r.online ? ' (online)' : ' (offline)') + '</option>').join('')
+    : '<option value="">All Instances</option>';
+  const cmds = ['restart_stream','stop_stream','start_recording','stop_recording','reconnect_obs','reconnect_atem','reconnect_encoder','restart_encoder','system.diagnosticBundle','system.preServiceCheck'];
+  const cmdOpts = cmds.map(c => '<option value="' + c + '">' + c + '</option>').join('');
+  const body = (rooms.length ? '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Target Room</label><select id="cmd-room" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:13px">' + roomOpts + '</select></div>' : '') +
+    '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Command</label><select id="cmd-select" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-size:13px">' + cmdOpts + '</select></div>';
+  const ov = document.getElementById('dialog-overlay');
+  document.getElementById('dialog-title').textContent = 'Send Command';
+  document.getElementById('dialog-body').innerHTML = body;
+  document.getElementById('dialog-input-wrap').style.display = 'none';
+  document.getElementById('dialog-cancel').style.display = '';
+  const okBtn = document.getElementById('dialog-ok');
+  okBtn.textContent = 'Send';
+  ov.style.display = 'flex';
+  const confirmed = await new Promise(resolve => {
+    function cleanup() { ov.style.display='none'; okBtn.onclick=null; document.getElementById('dialog-cancel').onclick=null; okBtn.textContent='OK'; }
+    okBtn.onclick = () => { cleanup(); resolve(true); };
+    document.getElementById('dialog-cancel').onclick = () => { cleanup(); resolve(false); };
+  });
+  if (!confirmed) return;
+  const command = document.getElementById('cmd-select')?.value;
+  const roomId = document.getElementById('cmd-room')?.value || '';
+  if (!command) return;
+  try {
+    const r = await fetchTimeout('/api/admin/church/' + encodeURIComponent(churchId) + '/send-command', {
+      method: 'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ command, roomId: roomId || undefined })
+    });
+    const d = await r.json();
+    if (r.ok) showToast('Command sent: ' + command + (roomId ? ' (room-targeted)' : ''));
+    else await modalAlert('Error', esc(d.error || 'Failed'));
+  } catch { await modalAlert('Error', 'Request failed'); }
+}
+
+async function openSendMessage(churchId) {
+  const msg = await _showDialog('Send Message', 'Type a support message to send to this church:', {showInput:true, showCancel:true});
+  if (!msg) return;
+  try {
+    const r = await fetchTimeout('/api/admin/church/' + encodeURIComponent(churchId) + '/send-message', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ message: msg, targets: ['app','telegram'] })
+    });
+    if (r.ok) showToast('Message sent');
+    else { const d = await r.json(); await modalAlert('Error', esc(d.error || 'Failed')); }
+  } catch { await modalAlert('Error', 'Request failed'); }
 }
 
 function revealToken() {
@@ -2998,7 +3207,25 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         "SELECT COALESCE(SUM(amount),0) AS total FROM billing WHERE status='active'"
       ).get()?.total || 0;
     } catch { /* billing table may not exist */ }
-    res.json({ totalChurches, onlineNow, totalResellers, activeAlerts, openTickets, mrr });
+    // Trend: previous 24h alerts (24-48h ago)
+    let prevAlerts = 0;
+    try {
+      prevAlerts = db.prepare(
+        "SELECT COUNT(*) AS cnt FROM alerts WHERE datetime(created_at) > datetime('now','-48 hours') AND datetime(created_at) <= datetime('now','-24 hours')"
+      ).get()?.cnt || 0;
+    } catch { /* alerts table may not exist */ }
+
+    // Trend: online count 24h ago approximation (use 7-day avg of churches connected at any point)
+    let prevOnline = null;
+    try {
+      // Use the average of churches that had heartbeats in the 24-48h window
+      const prevOnlineCount = db.prepare(
+        "SELECT COUNT(DISTINCT church_id) AS cnt FROM service_sessions WHERE datetime(started_at) > datetime('now','-48 hours') AND datetime(started_at) <= datetime('now','-24 hours')"
+      ).get()?.cnt;
+      if (prevOnlineCount !== undefined) prevOnline = prevOnlineCount;
+    } catch { /* table may not exist */ }
+
+    res.json({ totalChurches, onlineNow, totalResellers, activeAlerts, openTickets, mrr, prevAlerts, prevOnline });
   });
 
   app.get('/api/admin/churches', requireAdminSession, (req, res) => {
@@ -3338,6 +3565,140 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   // AI usage endpoint moved to server.js (uses requireAdminJwt for tally-landing proxy compatibility)
 
+  // ── Onboarding Funnel ────────────────────────────────────────────────────
+
+  app.get('/api/admin/onboarding/funnel', requireAdminSession, (req, res) => {
+    const total = db.prepare('SELECT COUNT(*) AS cnt FROM churches').get().cnt || 0;
+    let funnel = { total, app_connected: 0, atem_connected: 0, first_session: 0, telegram: 0, failover_tested: 0, team_invited: 0 };
+    try {
+      funnel.app_connected = db.prepare("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_app_connected_at IS NOT NULL").get()?.cnt || 0;
+      funnel.atem_connected = db.prepare("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_atem_connected_at IS NOT NULL").get()?.cnt || 0;
+      funnel.first_session = db.prepare("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_first_session_at IS NOT NULL").get()?.cnt || 0;
+      funnel.telegram = db.prepare("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_telegram_registered_at IS NOT NULL").get()?.cnt || 0;
+      funnel.failover_tested = db.prepare("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_failover_tested_at IS NOT NULL").get()?.cnt || 0;
+      funnel.team_invited = db.prepare("SELECT COUNT(*) AS cnt FROM churches WHERE onboarding_team_invited_at IS NOT NULL").get()?.cnt || 0;
+    } catch { /* onboarding columns may not exist */ }
+
+    // Stuck churches: connected app but no ATEM in 7+ days
+    let stuck = [];
+    try {
+      stuck = db.prepare(`
+        SELECT churchId, name, portal_email,
+               onboarding_app_connected_at, onboarding_atem_connected_at,
+               onboarding_first_session_at, onboarding_telegram_registered_at,
+               onboarding_failover_tested_at, onboarding_team_invited_at
+        FROM churches
+        WHERE onboarding_app_connected_at IS NOT NULL
+        ORDER BY registeredAt DESC
+      `).all().filter(c => {
+        // Find the last completed step
+        const steps = [
+          { key: 'app_connected', at: c.onboarding_app_connected_at },
+          { key: 'atem_connected', at: c.onboarding_atem_connected_at },
+          { key: 'first_session', at: c.onboarding_first_session_at },
+          { key: 'telegram', at: c.onboarding_telegram_registered_at },
+          { key: 'failover_tested', at: c.onboarding_failover_tested_at },
+          { key: 'team_invited', at: c.onboarding_team_invited_at },
+        ];
+        // If all steps done, not stuck
+        if (steps.every(s => s.at)) return false;
+        // Find the last completed step's date
+        const completed = steps.filter(s => s.at);
+        if (!completed.length) return false;
+        const lastCompleted = completed[completed.length - 1];
+        const daysSince = Math.floor((Date.now() - new Date(lastCompleted.at).getTime()) / (1000 * 60 * 60 * 24));
+        return daysSince >= 7;
+      }).map(c => {
+        const steps = [
+          { key: 'App Connected', at: c.onboarding_app_connected_at },
+          { key: 'ATEM Connected', at: c.onboarding_atem_connected_at },
+          { key: 'First Session', at: c.onboarding_first_session_at },
+          { key: 'Telegram Setup', at: c.onboarding_telegram_registered_at },
+          { key: 'Failover Tested', at: c.onboarding_failover_tested_at },
+          { key: 'Team Invited', at: c.onboarding_team_invited_at },
+        ];
+        const completed = steps.filter(s => s.at);
+        const lastStep = completed[completed.length - 1];
+        const daysSince = Math.floor((Date.now() - new Date(lastStep.at).getTime()) / (1000 * 60 * 60 * 24));
+        return {
+          churchId: c.churchId,
+          name: c.name,
+          email: c.portal_email,
+          lastStep: lastStep.key,
+          lastStepDate: lastStep.at,
+          daysStuck: daysSince,
+        };
+      });
+    } catch { /* columns may not exist */ }
+
+    res.json({ funnel, stuck });
+  });
+
+  app.post('/api/admin/onboarding/nudge', requireAdminSession, async (req, res) => {
+    const { churchId, lastStep } = req.body || {};
+    if (!churchId) return res.status(400).json({ error: 'churchId required' });
+    const church = db.prepare('SELECT name, portal_email, email FROM churches WHERE churchId = ?').get(churchId);
+    if (!church) return res.status(404).json({ error: 'Church not found' });
+    const recipient = church.portal_email || church.email;
+    if (!recipient) return res.status(400).json({ error: 'No email on file for this church' });
+
+    const { lifecycleEmails } = opts;
+    if (!lifecycleEmails) return res.status(500).json({ error: 'Email system not available' });
+
+    try {
+      const result = await lifecycleEmails.sendManual({
+        churchId,
+        emailType: 'onboarding_nudge',
+        to: recipient,
+        subject: `Continue setting up ${church.name} on Tally`,
+        html: `<p>Hi there!</p><p>We noticed you've completed <strong>${lastStep || 'initial setup'}</strong> but haven't taken the next step yet. We're here to help!</p><p>Log in to your Tally dashboard to continue onboarding. If you need assistance, just reply to this email.</p><p>— The Tally Team</p>`,
+        text: `Hi! We noticed you've completed ${lastStep || 'initial setup'} but haven't taken the next step yet. Log in to continue onboarding.`,
+      });
+      auditFromReq(req, 'onboarding_nudge_sent', 'church', churchId, { lastStep, to: recipient });
+      res.json({ sent: true, to: recipient });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e, 'Failed to send nudge') });
+    }
+  });
+
+  // ── Church Rooms List (for admin command targeting) ───────────────────────
+
+  app.get('/api/admin/church/:churchId/rooms', requireAdminSession, (req, res) => {
+    const { churchId } = req.params;
+    const runtime = churches.get(churchId);
+    const roomInstanceMap = runtime?.roomInstanceMap || {};
+    let rooms = [];
+    try {
+      rooms = db.prepare('SELECT id, name FROM rooms WHERE campus_id = ?').all(churchId).map(r => ({
+        id: r.id,
+        name: r.name,
+        online: !!roomInstanceMap[r.id],
+        instanceName: roomInstanceMap[r.id] || null,
+      }));
+    } catch { /* rooms table may not exist */ }
+    res.json({ rooms });
+  });
+
+  // ── Church Delete Summary ────────────────────────────────────────────────
+
+  app.get('/api/admin/churches/:id/delete-summary', requireAdminSession, (req, res) => {
+    const { id } = req.params;
+    const row = db.prepare('SELECT churchId FROM churches WHERE churchId=?').get(id);
+    if (!row) return res.status(404).json({ error: 'Church not found' });
+    const summary = {};
+    const counts = [
+      { key: 'alerts', sql: 'SELECT COUNT(*) AS cnt FROM alerts WHERE church_id = ?' },
+      { key: 'sessions', sql: 'SELECT COUNT(*) AS cnt FROM service_sessions WHERE church_id = ?' },
+      { key: 'tickets', sql: 'SELECT COUNT(*) AS cnt FROM support_tickets WHERE church_id = ?' },
+      { key: 'messages', sql: 'SELECT COUNT(*) AS cnt FROM chat_messages WHERE churchId = ?' },
+      { key: 'rooms', sql: 'SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ?' },
+    ];
+    for (const { key, sql } of counts) {
+      try { summary[key] = db.prepare(sql).get(id)?.cnt || 0; } catch { summary[key] = 0; }
+    }
+    res.json(summary);
+  });
+
   // ── Admin Church Support View (Quick Actions) ─────────────────────────────
 
   const { computeHealthScore } = require('./healthScore');
@@ -3560,7 +3921,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   // Sends an allowed command to the church client via WebSocket.
   app.post('/api/admin/church/:churchId/send-command', requireAdminSession, (req, res) => {
     const { churchId } = req.params;
-    const { command, params } = req.body || {};
+    const { command, params, roomId } = req.body || {};
 
     if (!command) return res.status(400).json({ error: 'command required' });
     if (!ALLOWED_ADMIN_COMMANDS.has(command)) {
@@ -3572,11 +3933,29 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
     const runtime = churches.get(churchId);
     const openSockets = [];
-    if (runtime?.sockets?.size) {
-      for (const sock of runtime.sockets.values()) {
-        if (sock.readyState === WebSocket.OPEN) openSockets.push(sock);
+
+    if (roomId && runtime?.roomInstanceMap?.[roomId]) {
+      // Room-targeted: find the specific socket for this room's instance
+      const instanceName = runtime.roomInstanceMap[roomId];
+      if (runtime.sockets?.size) {
+        for (const sock of runtime.sockets.values()) {
+          if (sock.readyState === WebSocket.OPEN && sock.instanceName === instanceName) {
+            openSockets.push(sock);
+          }
+        }
+      }
+      if (openSockets.length === 0) {
+        return res.status(409).json({ error: `Room instance "${instanceName}" is not connected` });
+      }
+    } else {
+      // Broadcast to all instances
+      if (runtime?.sockets?.size) {
+        for (const sock of runtime.sockets.values()) {
+          if (sock.readyState === WebSocket.OPEN) openSockets.push(sock);
+        }
       }
     }
+
     if (openSockets.length === 0) {
       return res.status(409).json({ error: 'Church client is not connected' });
     }
@@ -3591,8 +3970,8 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     });
     try {
       for (const sock of openSockets) sock.send(payload);
-      auditFromReq(req, 'admin_command_sent', 'church', churchId, { command, commandId });
-      res.json({ sent: true, commandId });
+      auditFromReq(req, 'admin_command_sent', 'church', churchId, { command, commandId, roomId: roomId || null });
+      res.json({ sent: true, commandId, targetedRoom: roomId || null, instanceCount: openSockets.length });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e, 'Failed to send command') });
     }
