@@ -117,10 +117,10 @@
   <div class="content" style="padding: 0; display: flex; flex-direction: column; height: calc(100% - 60px);">
     <!-- Progress bar -->
     <div class="ob-progress" id="ob-progress">
-      <div class="ob-stage" data-stage="gear">Gear</div>
-      <div class="ob-stage" data-stage="schedule">Schedule</div>
-      <div class="ob-stage" data-stage="tds">Team</div>
-      <div class="ob-stage" data-stage="stream">Stream</div>
+      <div class="ob-stage" data-stage="gear" onclick="jumpToOnboardingStage('gear')">Gear</div>
+      <div class="ob-stage" data-stage="schedule" onclick="jumpToOnboardingStage('schedule')">Schedule</div>
+      <div class="ob-stage" data-stage="tds" onclick="jumpToOnboardingStage('tds')">Team</div>
+      <div class="ob-stage" data-stage="stream" onclick="jumpToOnboardingStage('stream')">Stream</div>
     </div>
 
     <!-- Chat messages -->

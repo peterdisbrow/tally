@@ -449,14 +449,32 @@ async function init() {
 
     // Listen for mid-session auth invalidation
     api.onAuthInvalid(() => {
+      isRunning = false;
+      if (typeof resetDeviceState === 'function') resetDeviceState();
+      _cachedStatus = null;
       showSignIn();
       showSignInMessage('Session was invalidated by the server. Please sign in again.', 'var(--warn)');
     });
 
-    // Listen for sign-out triggered from the system tray
+    // Listen for sign-out triggered from the system tray or factory reset
     api.onSignedOut(() => {
       isRunning = false;
       updateToggleBtn();
+
+      // Clear all in-memory device/equipment state so stale data doesn't persist
+      if (typeof resetDeviceState === 'function') resetDeviceState();
+      _cachedStatus = null;
+      _audioViaAtem = false;
+      _failoverConfigLoaded = false;
+      _failoverSources = { atem: [], videohub: [], obs: [] };
+      _preServiceData = null;
+      _rundownData = null;
+      _obScanDone = false;
+      chatMessages = [];
+      chatLastTimestamp = null;
+      _chatRenderedCount = 0;
+      _chatIdSet.clear();
+
       showSignIn();
       showSignInMessage('Signed out.', 'var(--muted)');
     });
@@ -478,27 +496,9 @@ async function init() {
       const freshConfig = await api.getConfig();
       try { _audioViaAtem = !!(freshConfig.audioViaAtem); } catch {}
       if (result.valid) {
-        if (freshConfig.roomId) {
-          // Room already selected — proceed normally
-          if (freshConfig.name) {
-            const roomSuffix = freshConfig.roomName ? ' \u00b7 ' + freshConfig.roomName : '';
-            document.getElementById('church-name').textContent = freshConfig.name + roomSuffix;
-          }
-          if (freshConfig.setupComplete) {
-            showDashboard();
-            const autoStartResult = await api.getAutoStart();
-            const shouldAutoStart = autoStartResult.enabled !== false;
-            if (shouldAutoStart) {
-              try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`Agent start failed: ${e.message}`); }
-            }
-            updateToggleBtn();
-          } else {
-            showEquipmentWizard();
-          }
-        } else {
-          // No room assigned — show room selector before anything else
-          await showRoomSelector(config.name);
-        }
+        // Always show room selector on fresh launch — never auto-jump into a room.
+        // This ensures the user explicitly picks which room to monitor each session.
+        await showRoomSelector(freshConfig.name || config.name);
       } else {
         // Token invalid or expired
         const reason = result.reason || 'unknown';
@@ -734,13 +734,34 @@ async function selectRoom(roomId, roomName) {
   document.querySelectorAll('.rs-room-btn').forEach(b => { b.disabled = true; });
 
   try {
-    const result = await api.assignRoom(roomId);
-    if (result.success) {
-      await api.saveConfig({ roomId: result.roomId, roomName: result.roomName });
-      await proceedAfterRoomSelection(result.roomName);
+    // Clear any stale in-memory device state from a previous session
+    if (typeof resetDeviceState === 'function') resetDeviceState();
+
+    // Check if there's a previous room configured (returning user picking a room on startup)
+    const prevConfig = await api.getConfig();
+    const oldRoom = prevConfig.roomName || '';
+
+    if (oldRoom) {
+      // Use full room switch to properly swap equipment configs and fetch from relay
+      const result = await api.fullRoomSwitch(oldRoom, roomName, roomId);
+      if (result.ok) {
+        isRunning = true;
+        updateToggleBtn();
+        await proceedAfterRoomSelection(result.roomName || roomName);
+      } else {
+        if (msg) { msg.textContent = 'Failed to switch room.'; msg.style.color = 'var(--warn)'; }
+        document.querySelectorAll('.rs-room-btn').forEach(b => { b.disabled = false; });
+      }
     } else {
-      if (msg) { msg.textContent = result.error || 'Failed to assign room.'; msg.style.color = 'var(--warn)'; }
-      document.querySelectorAll('.rs-room-btn').forEach(b => { b.disabled = false; });
+      // First-time room assignment — no previous room to switch from
+      const result = await api.assignRoom(roomId);
+      if (result.success) {
+        await api.saveConfig({ roomId: result.roomId, roomName: result.roomName });
+        await proceedAfterRoomSelection(result.roomName);
+      } else {
+        if (msg) { msg.textContent = result.error || 'Failed to assign room.'; msg.style.color = 'var(--warn)'; }
+        document.querySelectorAll('.rs-room-btn').forEach(b => { b.disabled = false; });
+      }
     }
   } catch (e) {
     if (msg) { msg.textContent = 'Network error.'; msg.style.color = 'var(--danger)'; }
@@ -1232,6 +1253,15 @@ function updateOnboardingProgress(progress) {
       el.classList.add('active');
     }
   });
+}
+
+const _OB_STAGE_LABELS = { gear: 'Set up gear', schedule: 'Set service times', tds: 'Add team', stream: 'Configure streaming' };
+
+function jumpToOnboardingStage(stage) {
+  if (_onboardingSending) return;
+  const label = _OB_STAGE_LABELS[stage];
+  if (!label) return;
+  sendOnboardingMessage(label);
 }
 
 // ─── COMPLETION (#12, #13) ──────────────────────────────────────────────────
@@ -3289,9 +3319,15 @@ async function assignRoomFromPicker(roomId) {
       updateStatusUI(blankStatus);
       updateMultiEncoderUI(blankStatus);
 
-      // Refresh equipment UI
-      if (typeof loadEquipmentConfig === 'function') {
-        try { loadEquipmentConfig(); } catch { /* ignore */ }
+      // Clear ALL in-memory device state before reloading new room's equipment
+      if (typeof resetDeviceState === 'function') resetDeviceState();
+      _cachedStatus = null;
+      _failoverConfigLoaded = false;
+      _failoverSources = { atem: [], videohub: [], obs: [] };
+
+      // Reload equipment from config (now reflects new room's data)
+      if (typeof loadEquipment === 'function') {
+        try { await loadEquipment(); } catch { /* ignore */ }
       }
 
       // Reset chat for new room context
