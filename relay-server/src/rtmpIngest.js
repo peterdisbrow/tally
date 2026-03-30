@@ -10,7 +10,7 @@ const HLS_TEMP_DIR = process.env.HLS_TEMP_DIR || path.join(require('os').tmpdir(
 const RTMP_PORT = Number(process.env.RTMP_PORT || 1935);
 const HTTP_PORT_INTERNAL = Number(process.env.RTMP_HTTP_PORT || 8888); // NMS internal HTTP (not exposed)
 
-// Active streams: streamKey → { churchId, churchName, ffmpeg, startedAt }
+// Active streams: streamKey → { churchId, churchName, roomId, roomName, ffmpeg, startedAt }
 const activeStreams = new Map();
 
 let _db = null;
@@ -60,31 +60,56 @@ function initRtmpIngest(db, broadcastToSSE) {
       return;
     }
 
-    const church = _db.prepare(
-      'SELECT churchId, name FROM churches WHERE ingest_stream_key = ?'
+    // Try room-level stream key first, then fall back to church-level key
+    const room = _db.prepare(
+      `SELECT r.id AS roomId, r.name AS roomName, r.campus_id AS churchId, c.name AS churchName
+       FROM rooms r JOIN churches c ON c.churchId = r.campus_id
+       WHERE r.stream_key = ? AND r.deleted_at IS NULL`
     ).get(streamKey);
 
-    if (!church) {
-      console.log(`[RTMP] Rejected publish — invalid stream key: ${streamKey.slice(0, 8)}...`);
-      try { session.reject(); } catch {}
-      return;
+    let churchId, churchName, roomId, roomName;
+
+    if (room) {
+      churchId = room.churchId;
+      churchName = room.churchName;
+      roomId = room.roomId;
+      roomName = room.roomName;
+    } else {
+      // Fallback: church-level key
+      const church = _db.prepare(
+        'SELECT churchId, name FROM churches WHERE ingest_stream_key = ?'
+      ).get(streamKey);
+
+      if (!church) {
+        console.log(`[RTMP] Rejected publish — invalid stream key: ${streamKey.slice(0, 8)}...`);
+        try { session.reject(); } catch {}
+        return;
+      }
+      churchId = church.churchId;
+      churchName = church.name;
+      roomId = null;
+      roomName = null;
     }
 
-    // Check if church already has an active stream (reject duplicates)
+    // Check if this room/church already has an active stream (reject duplicates)
+    const targetId = roomId || churchId;
     for (const [key, info] of activeStreams) {
-      if (info.churchId === church.churchId) {
-        console.log(`[RTMP] Rejected duplicate stream for church ${church.name} (${church.churchId})`);
+      const infoTarget = info.roomId || info.churchId;
+      if (infoTarget === targetId) {
+        console.log(`[RTMP] Rejected duplicate stream for ${roomName || churchName} (${targetId})`);
         try { session.reject(); } catch {}
         return;
       }
     }
 
     // Tag the session so postPublish can read it
-    session._tallyChurchId = church.churchId;
-    session._tallyChurchName = church.name;
+    session._tallyChurchId = churchId;
+    session._tallyChurchName = churchName;
+    session._tallyRoomId = roomId;
+    session._tallyRoomName = roomName;
     session._tallyStreamKey = streamKey;
 
-    console.log(`[RTMP] Authenticated stream for ${church.name} (${church.churchId})`);
+    console.log(`[RTMP] Authenticated stream for ${churchName}${roomName ? ' / ' + roomName : ''} (${targetId})`);
   });
 
   // ─── Start FFmpeg HLS transcoding on successful publish ──────────────────
@@ -93,10 +118,14 @@ function initRtmpIngest(db, broadcastToSSE) {
 
     const churchId = session._tallyChurchId;
     const churchName = session._tallyChurchName;
+    const roomId = session._tallyRoomId;
+    const roomName = session._tallyRoomName;
     const streamKey = session._tallyStreamKey;
     const streamPath = session.streamPath;
 
-    const hlsDir = path.join(HLS_TEMP_DIR, churchId);
+    // Use roomId for HLS directory when available, else churchId
+    const hlsTargetId = roomId || churchId;
+    const hlsDir = path.join(HLS_TEMP_DIR, hlsTargetId);
     fs.mkdirSync(hlsDir, { recursive: true });
 
     const ffmpegArgs = [
@@ -115,7 +144,7 @@ function initRtmpIngest(db, broadcastToSSE) {
     // Add -progress for real-time stats and -v info for stream detection
     ffmpegArgs.unshift('-v', 'info', '-progress', 'pipe:2');
 
-    console.log(`[RTMP] Starting HLS transcoding for ${churchName} → ${hlsDir}`);
+    console.log(`[RTMP] Starting HLS transcoding for ${churchName}${roomName ? ' / ' + roomName : ''} → ${hlsDir}`);
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     // Parse FFmpeg stderr for stream metadata (bitrate, fps, resolution)
@@ -181,6 +210,8 @@ function initRtmpIngest(db, broadcastToSSE) {
     activeStreams.set(streamKey, {
       churchId,
       churchName,
+      roomId,
+      roomName,
       ffmpeg,
       startedAt: new Date().toISOString(),
       sessionId: session.id,
@@ -193,6 +224,8 @@ function initRtmpIngest(db, broadcastToSSE) {
         type: 'ingest_stream_start',
         churchId,
         churchName,
+        roomId,
+        roomName,
         startedAt: new Date().toISOString(),
       });
     }
@@ -216,8 +249,9 @@ function initRtmpIngest(db, broadcastToSSE) {
         }, 5000);
       }
 
-      // Clean up HLS files
-      const hlsDir = path.join(HLS_TEMP_DIR, info.churchId);
+      // Clean up HLS files (use roomId if available, else churchId)
+      const hlsTargetId = info.roomId || info.churchId;
+      const hlsDir = path.join(HLS_TEMP_DIR, hlsTargetId);
       cleanupHlsDir(hlsDir);
 
       // Broadcast to admin SSE
@@ -226,6 +260,8 @@ function initRtmpIngest(db, broadcastToSSE) {
           type: 'ingest_stream_stop',
           churchId: info.churchId,
           churchName: info.churchName,
+          roomId: info.roomId,
+          roomName: info.roomName,
         });
       }
 
@@ -264,9 +300,9 @@ function cleanupStaleStreams() {
   try {
     if (!fs.existsSync(HLS_TEMP_DIR)) return;
     const dirs = fs.readdirSync(HLS_TEMP_DIR);
-    const activeChurchIds = new Set([...activeStreams.values()].map(s => s.churchId));
+    const activeTargetIds = new Set([...activeStreams.values()].map(s => s.roomId || s.churchId));
     for (const dir of dirs) {
-      if (!activeChurchIds.has(dir)) {
+      if (!activeTargetIds.has(dir)) {
         cleanupHlsDir(path.join(HLS_TEMP_DIR, dir));
       }
     }
@@ -291,6 +327,8 @@ function getActiveStreams() {
     result.push({
       churchId: info.churchId,
       churchName: info.churchName,
+      roomId: info.roomId || null,
+      roomName: info.roomName || null,
       startedAt: info.startedAt,
       meta: info.meta || {},
     });
@@ -299,24 +337,26 @@ function getActiveStreams() {
 }
 
 /**
- * Get stream metadata for a specific church.
+ * Get stream metadata for a target (roomId or churchId).
  */
-function getStreamMeta(churchId) {
+function getStreamMeta(targetId) {
   for (const info of activeStreams.values()) {
-    if (info.churchId === churchId) return info.meta || {};
+    if (info.roomId === targetId || info.churchId === targetId) return info.meta || {};
   }
   return null;
 }
 
 /**
- * Get full stream info for a specific church.
+ * Get full stream info for a target (roomId or churchId).
  */
-function getStreamInfo(churchId) {
+function getStreamInfo(targetId) {
   for (const info of activeStreams.values()) {
-    if (info.churchId === churchId) {
+    if (info.roomId === targetId || info.churchId === targetId) {
       return {
         startedAt: info.startedAt,
         meta: info.meta || {},
+        roomId: info.roomId,
+        roomName: info.roomName,
       };
     }
   }
@@ -324,21 +364,22 @@ function getStreamInfo(churchId) {
 }
 
 /**
- * Check if a church has an active stream.
+ * Check if a target (roomId or churchId) has an active stream.
  */
-function isStreamActive(churchId) {
+function isStreamActive(targetId) {
   for (const info of activeStreams.values()) {
-    if (info.churchId === churchId) return true;
+    if (info.roomId === targetId || info.churchId === targetId) return true;
   }
   return false;
 }
 
 /**
- * Disconnect a church's active stream (e.g. when key is regenerated).
+ * Disconnect a target's active stream (e.g. when key is regenerated).
+ * Matches by roomId or churchId.
  */
-function disconnectStream(churchId) {
+function disconnectStream(targetId) {
   for (const [key, info] of activeStreams) {
-    if (info.churchId === churchId) {
+    if (info.roomId === targetId || info.churchId === targetId) {
       const session = _nms?.getSession(info.sessionId);
       if (session) session.reject();
       // donePublish handler will clean up
@@ -349,10 +390,10 @@ function disconnectStream(churchId) {
 }
 
 /**
- * Get the HLS directory path for a church.
+ * Get the HLS directory path for a target (roomId or churchId).
  */
-function getHlsDir(churchId) {
-  return path.join(HLS_TEMP_DIR, churchId);
+function getHlsDir(targetId) {
+  return path.join(HLS_TEMP_DIR, targetId);
 }
 
 /**
@@ -366,8 +407,8 @@ function shutdownRtmpIngest() {
     if (info.ffmpeg && !info.ffmpeg.killed) {
       info.ffmpeg.kill('SIGTERM');
     }
-    const hlsDir = path.join(HLS_TEMP_DIR, info.churchId);
-    cleanupHlsDir(hlsDir);
+    const hlsTargetId = info.roomId || info.churchId;
+    cleanupHlsDir(path.join(HLS_TEMP_DIR, hlsTargetId));
   }
   activeStreams.clear();
 
