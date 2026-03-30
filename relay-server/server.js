@@ -77,6 +77,7 @@ app.use(express.json({
 }));
 app.use(cookieParser());
 app.use('/portal', express.static(require('path').join(__dirname, 'public/portal')));
+app.use('/admin', express.static(require('path').join(__dirname, 'public/admin')));
 
 const { csrfMiddleware } = require('./src/csrf');
 app.use(csrfMiddleware);
@@ -3287,8 +3288,17 @@ function setAdminSession(res, key) {
 }
 
 app.get(['/dashboard', '/dashboard/*'], (req, res) => {
-  // Consolidated: canonical admin UI lives on Vercel.
-  res.redirect(302, ADMIN_UI_URL);
+  res.redirect(302, '/admin');
+});
+
+// SPA fallback: serve index.html for any /admin/* route that isn't a static file
+app.get('/admin/*', (req, res) => {
+  const indexPath = require('path').join(__dirname, 'public/admin/index.html');
+  if (require('fs').existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).send('Admin UI not built. Run: cd admin && npm run build');
+  }
 });
 
 // ─── SSE Dashboard Stream ─────────────────────────────────────────────────────
@@ -3300,6 +3310,7 @@ app.get('/api/dashboard/stream', (req, res) => {
 
   const key         = resolveAdminKey(req);
   const resellerKey = req.query.resellerKey || req.headers['x-reseller-key'];
+  const jwtToken    = req.query.token || '';
 
   let filterResellerId = null;
 
@@ -3308,7 +3319,19 @@ app.get('/api/dashboard/stream', (req, res) => {
     const reseller = resellerSystem.getReseller(resellerKey);
     if (!reseller) return res.status(403).json({ error: 'Invalid reseller key' });
     filterResellerId = reseller.id;
-  } else if (!safeCompareKey(key, ADMIN_API_KEY)) {
+  } else if (safeCompareKey(key, ADMIN_API_KEY)) {
+    // Admin API key — full access
+  } else if (jwtToken) {
+    // JWT token auth (admin SPA sends token as query param since EventSource can't set headers)
+    try {
+      const payload = jwt.verify(jwtToken, JWT_SECRET);
+      if (payload.type !== 'admin') return res.status(401).json({ error: 'Invalid token type' });
+      const user = db.prepare('SELECT id, active FROM admin_users WHERE id = ?').get(payload.userId);
+      if (!user || !user.active) return res.status(401).json({ error: 'Account deactivated' });
+    } catch (e) {
+      return res.status(401).json({ error: e.name === 'TokenExpiredError' ? 'Token expired' : 'Invalid token' });
+    }
+  } else {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
@@ -3921,6 +3944,186 @@ app.use((err, _req, res, _next) => {
   res.status(status).json({
     error: isProd && status >= 500 ? 'Internal server error' : (err.message || 'Internal server error'),
   });
+});
+
+// ─── ADMIN GENERATE (Outreach AI message generation) ─────────────────────────
+
+const OUTREACH_SYSTEM_PROMPT = `You are a ghostwriter for Andrew, the founder of TallyConnect — a church production monitoring and remote control platform. You write outreach messages to church technical directors, worship leaders, and production volunteers.
+
+RULES:
+- Never sound salesy, pitch-like, or corporate. Write like a fellow church tech person talking to a peer.
+- Lead with genuine help related to THEIR specific problem or situation.
+- Keep it conversational, warm, and practical.
+- Be concise. DMs should be 3-5 sentences. Emails should be 1-2 short paragraphs.
+- Only mention Tally casually and briefly — "we built something called Tally that handles this" or similar. Never hard-sell.
+- When relevant, mention our free tools naturally:
+  - Health Check: "we built a free 2-minute production audit" (https://tallyconnect.app/tools/healthcheck/)
+  - Checklist Generator: "we made a free pre-service checklist tool" (https://tallyconnect.app/tools/checklist/)
+- Use first person ("I" not "we" for DMs, "we" is fine for emails).
+- Match the tone of church tech communities — helpful, humble, practical.
+- Never use emojis excessively. One is fine if natural.
+- Never use exclamation marks more than once.
+- Don't over-explain what Tally does. Keep it mysterious enough to spark curiosity.
+- Always provide value in the message itself, even if they never click a link.
+
+ABOUT TALLY:
+TallyConnect.app monitors church production systems (ATEM switchers, OBS, ProPresenter, audio consoles, encoders) from one dashboard. It auto-recovers stream failures, runs pre-service health checks, sends instant alerts via Slack/Telegram, and provides full remote control. Pricing starts at $49/mo with a 30-day free trial.`;
+
+const OUTREACH_TYPE_PROMPTS = {
+  'cold-dm': 'Write a short, friendly cold DM (3-5 sentences). The goal is to start a conversation, not close a sale. Offer something genuinely helpful — the free health check tool or checklist. Don\'t mention pricing or trials unless asked.',
+  'healthcheck-followup': 'Write a personalized follow-up message based on their health check results. Reference their specific score and top risks. Frame Tally as the solution to their specific weak areas. Keep it warm and helpful, not "gotcha, you need us."',
+  'group-reply': 'Write a helpful reply to their post/question in a community group. Lead with actually answering their question or solving their problem. Only mention Tally briefly at the end as "something that might help with this long-term." The reply should be valuable even if they ignore the Tally mention.',
+  'email': 'Write a short professional email (1-2 paragraphs + brief sign-off). Slightly more formal than a DM but still conversational. Include a clear but soft CTA — either try the free health check or book a quick call. Sign off as "Andrew" from TallyConnect.',
+};
+
+const OUTREACH_SOURCE_CONTEXT = {
+  facebook: 'Found in a Facebook group for church tech/production.',
+  youtube: 'Found on YouTube (comment, channel, or video about church production).',
+  reddit: 'Found on Reddit (r/churchtechnology, r/churchav, or similar).',
+  direct: 'Direct outreach — reaching out proactively.',
+  healthcheck: 'They completed our Church Production Health Check.',
+};
+
+app.post('/api/admin/generate', requireAdminJwt(), async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'AI not configured' });
+
+  const { messageType, prospectName, churchName, source, context } = req.body;
+  if (!messageType || !OUTREACH_TYPE_PROMPTS[messageType]) {
+    return res.status(400).json({ error: 'Invalid messageType' });
+  }
+
+  let userMsg = '';
+  if (prospectName) userMsg += `Name: ${prospectName}\n`;
+  if (churchName) userMsg += `Church: ${churchName}\n`;
+  if (source && OUTREACH_SOURCE_CONTEXT[source]) userMsg += `Source: ${OUTREACH_SOURCE_CONTEXT[source]}\n`;
+  userMsg += `\nMessage type: ${messageType.replace(/-/g, ' ')}\n`;
+  if (context && context.trim()) userMsg += `\nContext about this person:\n${context.trim()}\n`;
+  userMsg += `\nInstructions: ${OUTREACH_TYPE_PROMPTS[messageType]}`;
+  userMsg += '\n\nWrite the message now. Output ONLY the message text — no subject lines, no labels, no explanation.';
+
+  try {
+    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        system: OUTREACH_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userMsg }],
+        max_tokens: 1024,
+        temperature: 0.7,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!aiRes.ok) {
+      const errBody = await aiRes.text().catch(() => '');
+      console.error('[Generate] Anthropic error:', aiRes.status, errBody.slice(0, 300));
+      return res.status(500).json({ error: 'Failed to generate message' });
+    }
+
+    const data = await aiRes.json();
+    const message = data?.content?.[0]?.text || '';
+
+    if (data?.usage) {
+      logAiUsage({
+        churchId: null,
+        feature: 'outreach_generate',
+        model: 'claude-haiku-4-5-20251001',
+        inputTokens: data.usage.input_tokens || 0,
+        outputTokens: data.usage.output_tokens || 0,
+      });
+    }
+
+    res.json({ message });
+  } catch (err) {
+    console.error('[Generate] Error:', err.message);
+    res.status(500).json({ error: 'Failed to generate message' });
+  }
+});
+
+// ─── ADMIN CHAT (AI chat for admin dashboard) ────────────────────────────────
+
+app.post('/api/admin/chat', requireAdminJwt(), async (req, res) => {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'AI not configured' });
+
+  const { message, history, churchStates } = req.body;
+  if (!message) return res.status(400).json({ error: 'message required' });
+
+  const systemPrompt = `You are Tally AI, an assistant for the Tally operations dashboard. You help admin users understand their church monitoring data, troubleshoot issues, and manage their connected churches.
+
+You have access to the current state of all connected churches provided as context. Use this data to answer questions about specific churches, their equipment status, connection health, and alerts.
+
+Be concise, helpful, and technical when needed. Format responses clearly.`;
+
+  // Build context from church states
+  let contextStr = '';
+  if (churchStates && typeof churchStates === 'object') {
+    const entries = Object.values(churchStates);
+    if (entries.length > 0) {
+      contextStr = `\n\nCurrent church states (${entries.length} churches):\n${JSON.stringify(entries.slice(0, 50), null, 0)}`;
+    }
+  }
+
+  const messages = [];
+  if (Array.isArray(history)) {
+    for (const m of history.slice(-18)) {
+      if (m.role === 'user' || m.role === 'assistant') {
+        messages.push({ role: m.role, content: m.content });
+      }
+    }
+  }
+  if (messages.length === 0 || messages[messages.length - 1]?.content !== message) {
+    messages.push({ role: 'user', content: message + contextStr });
+  }
+
+  try {
+    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        system: systemPrompt,
+        messages,
+        max_tokens: 500,
+        temperature: 0.5,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!aiRes.ok) {
+      const errBody = await aiRes.text().catch(() => '');
+      console.error('[AdminChat] Anthropic error:', aiRes.status, errBody.slice(0, 300));
+      return res.status(500).json({ error: 'AI service error' });
+    }
+
+    const data = await aiRes.json();
+    const reply = data?.content?.[0]?.text || 'No response.';
+
+    if (data?.usage) {
+      logAiUsage({
+        churchId: null,
+        feature: 'dashboard_chat',
+        model: 'claude-haiku-4-5-20251001',
+        inputTokens: data.usage.input_tokens || 0,
+        outputTokens: data.usage.output_tokens || 0,
+      });
+    }
+
+    res.json({ reply });
+  } catch (err) {
+    console.error('[AdminChat] Error:', err.message);
+    res.status(500).json({ error: 'Failed to get AI response' });
+  }
 });
 
 // ─── LANDING PAGE CHAT PROXY (Anthropic → SSE) ───────────────────────────────
