@@ -3125,9 +3125,20 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     }
   } catch { /* non-fatal — AI will work without it */ }
 
+  // Look up room name so AI knows which room it's talking about
+  let roomName = '';
+  if (roomId) {
+    try {
+      const roomRow = db.prepare('SELECT name FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
+      roomName = roomRow?.name || '';
+    } catch { /* non-fatal */ }
+  }
+
   const aiResult = await aiParseCommand(intent.prompt, {
     churchId,
     churchName: church?.name || '',
+    roomId: roomId || '',
+    roomName,
     status: roomStatus || {},
     tier: churchRow?.billing_tier || 'connect',
     engineerProfile,

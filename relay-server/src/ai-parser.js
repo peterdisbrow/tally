@@ -1247,6 +1247,7 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   // Build context hint from live status + engineer profile
   let contextHint = '';
   if (ctx.churchName) contextHint += `Church: ${ctx.churchName}. `;
+  if (ctx.roomId) contextHint += `Room ID: ${ctx.roomId}${ctx.roomName ? ` (${ctx.roomName})` : ''}. `;
 
   // ATEM switcher
   if (ctx.status?.atem?.connected) {
@@ -1452,7 +1453,8 @@ When troubleshooting:
 5. Be specific to THEIR gear: "Your ${ctx.status?.atem?.model || 'ATEM'} + ${ctx.status?.mixer?.model || 'mixer'} setup typically has issue X"
 6. If you see a memory about a fix that worked before, suggest it first: "This worked last time: [specific fix]"
 7. Think like a veteran TD who knows this specific room — reference their camera labels, mixer channels, encoder type
-8. Keep responses conversational — you're their engineer buddy, not a manual\n`;
+8. Keep responses conversational — you're their engineer buddy, not a manual
+9. Do NOT use markdown formatting (no **bold**, no *italic*, no bullet points, no headers). Write in plain conversational text like you're texting a coworker.\n`;
   }
 
   const promptTokenEst = Math.round(systemPrompt.length / 4);
