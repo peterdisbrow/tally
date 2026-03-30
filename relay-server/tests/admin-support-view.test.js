@@ -195,6 +195,7 @@ function createMockApp() {
     post: handler('post'),
     put: handler('put'),
     delete: handler('delete'),
+    patch: handler('patch'),
     all: handler('all'),
     routes,
   };

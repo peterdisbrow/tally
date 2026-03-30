@@ -772,3 +772,567 @@ test('encodeMessage handles special characters in strings', () => {
   const decoded = decodeMessage(buf);
   assert.equal(decoded.args[0].value, 'Kick DR');
 });
+
+// ─── SECTION 20: getStatus branch coverage ───────────────────────────────────
+
+test('getStatus returns offline status when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1', model: 'M32' });
+  const status = await mixer.getStatus();
+  assert.equal(status.online, false);
+  assert.equal(status.model, 'M32');
+  assert.equal(status.firmware, '');
+  assert.equal(status.mainFader, 0);
+  assert.equal(status.mainMuted, false);
+  assert.equal(status.scene, null);
+});
+
+test('getStatus with all null query responses', async () => {
+  const { mixer } = makeMixer();
+  mixer._osc.query = async () => null;
+  const status = await mixer.getStatus();
+  assert.equal(status.online, false);
+  assert.equal(status.firmware, '');
+  assert.equal(status.mainFader, 0);
+  assert.equal(status.mainMuted, false);
+  assert.equal(status.scene, null);
+});
+
+test('getStatus with full query responses', async () => {
+  const { mixer } = makeMixer();
+  mixer._osc.query = async (addr) => {
+    if (addr === '/info') return { args: [{ value: 'X32' }, { value: '4.06' }, { value: '' }, { value: 'X32' }] };
+    if (addr === '/main/st/mix/fader') return { args: [{ value: 0.75 }] };
+    if (addr === '/main/st/mix/on') return { args: [{ value: 0 }] };
+    if (addr === '/-show/prepos/current') return { args: [{ value: 5 }] };
+    return null;
+  };
+  const status = await mixer.getStatus();
+  assert.equal(status.online, true);
+  assert.equal(status.firmware, '4.06');
+  assert.equal(status.model, 'X32');
+  assert.equal(status.mainFader, 0.75);
+  assert.equal(status.mainMuted, true);
+  assert.equal(status.scene, 5);
+});
+
+test('getStatus catch branch returns offline on exception', async () => {
+  const { mixer } = makeMixer();
+  mixer._osc.query = async () => { throw new Error('network fail'); };
+  const status = await mixer.getStatus();
+  assert.equal(status.online, false);
+});
+
+// ─── SECTION 21: isOnline branch coverage ────────────────────────────────────
+
+test('isOnline returns false when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  assert.equal(await mixer.isOnline(), false);
+});
+
+test('isOnline returns false when query throws', async () => {
+  const { mixer } = makeMixer();
+  mixer._osc.query = async () => { throw new Error('timeout'); };
+  const result = await mixer.isOnline();
+  assert.equal(result, false);
+  assert.equal(mixer._online, false);
+});
+
+test('isOnline returns true when query succeeds', async () => {
+  const { mixer } = makeMixer();
+  mixer._osc.query = async () => ({ args: [] });
+  const result = await mixer.isOnline();
+  assert.equal(result, true);
+  assert.equal(mixer._online, true);
+});
+
+// ─── SECTION 22: disconnect branch coverage ──────────────────────────────────
+
+test('disconnect clears keepalive and osc', async () => {
+  const { mixer } = makeMixer();
+  mixer._keepalive = setInterval(() => {}, 99999);
+  await mixer.disconnect();
+  assert.equal(mixer._keepalive, null);
+  assert.equal(mixer._osc, null);
+  assert.equal(mixer._online, false);
+});
+
+test('disconnect when already disconnected (no keepalive, no osc)', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await mixer.disconnect(); // should not throw
+  assert.equal(mixer._online, false);
+});
+
+// ─── SECTION 23: getChannelStatus branch coverage ────────────────────────────
+
+test('getChannelStatus throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.getChannelStatus(1), /not connected/);
+});
+
+test('getChannelStatus with null response args uses defaults', async () => {
+  const { mixer } = makeMixer();
+  mixer._osc.query = async () => ({ args: [] });
+  const status = await mixer.getChannelStatus(1);
+  assert.equal(status.fader, 0);
+  assert.equal(status.muted, false);
+});
+
+test('getChannelStatus with valid responses', async () => {
+  const { mixer } = makeMixer();
+  mixer._osc.query = async (addr) => {
+    if (addr.includes('fader')) return { args: [{ value: 0.5 }] };
+    if (addr.includes('on')) return { args: [{ value: 0 }] };
+    return null;
+  };
+  const status = await mixer.getChannelStatus(5);
+  assert.equal(status.fader, 0.5);
+  assert.equal(status.muted, true);
+});
+
+// ─── SECTION 24: setFullChannelStrip branch coverage ─────────────────────────
+
+test('setFullChannelStrip throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.setFullChannelStrip(1, {}), /not connected/);
+});
+
+test('setFullChannelStrip applies all properties', async () => {
+  const { mixer, sent } = makeMixer();
+  // Mock query for assignToDca inside setFullChannelStrip if it were called
+  mixer._osc.query = async () => ({ args: [{ value: 0 }] });
+  await mixer.setFullChannelStrip(1, {
+    name: 'Kick',
+    color: 'red',
+    icon: 'mic',
+    pan: 0,
+    preampGain: 0,
+    phantom: true,
+    hpf: { enabled: true, frequency: 80 },
+    eq: { enabled: true, bands: [] },
+    compressor: { enabled: true },
+    gate: { enabled: true },
+    fader: 0.75,
+    mute: true,
+  });
+  // Verify key messages were sent
+  assert.ok(sent.some(m => m.address === '/ch/01/config/name'));
+  assert.ok(sent.some(m => m.address === '/ch/01/config/color'));
+  assert.ok(sent.some(m => m.address === '/ch/01/config/icon'));
+  assert.ok(sent.some(m => m.address === '/ch/01/mix/pan'));
+  assert.ok(sent.some(m => m.address === '/ch/01/preamp/trim'));
+  assert.ok(sent.some(m => m.address.includes('phantom')));
+  assert.ok(sent.some(m => m.address.includes('hpon')));
+  assert.ok(sent.some(m => m.address.includes('eq/on')));
+  assert.ok(sent.some(m => m.address.includes('dyn/on')));
+  assert.ok(sent.some(m => m.address.includes('gate/on')));
+  assert.ok(sent.some(m => m.address.includes('fader')));
+  assert.ok(sent.some(m => m.address === '/ch/01/mix/on'));
+});
+
+test('setFullChannelStrip with mute=false sends unmute', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setFullChannelStrip(1, { mute: false });
+  const muteMsg = sent.find(m => m.address === '/ch/01/mix/on');
+  assert.ok(muteMsg);
+  assert.equal(muteMsg.args[0].value, 1);
+});
+
+test('setFullChannelStrip with empty strip sends nothing extra', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setFullChannelStrip(1, {});
+  assert.equal(sent.length, 0);
+});
+
+// ─── SECTION 25: setCompressor optional params ──────────────────────────────
+
+test('setCompressor with release param sends dyn/release', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setCompressor(1, { release: 200 });
+  const msg = sent.find(m => m.address === '/ch/01/dyn/release');
+  assert.ok(msg);
+  assert.equal(msg.args[0].type, 'f');
+  assert.ok(Math.abs(msg.args[0].value - compReleaseToFloat(200)) < 0.0001);
+});
+
+test('setCompressor with knee param sends dyn/knee', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setCompressor(1, { knee: 3 });
+  const msg = sent.find(m => m.address === '/ch/01/dyn/knee');
+  assert.ok(msg);
+  assert.equal(msg.args[0].type, 'f');
+});
+
+test('setCompressor disabled sends dyn/on=0', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setCompressor(1, { enabled: false });
+  const dynOn = sent.find(m => m.address === '/ch/01/dyn/on');
+  assert.equal(dynOn.args[0].value, 0);
+});
+
+test('setCompressor throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.setCompressor(1, {}), /not connected/);
+});
+
+// ─── SECTION 26: setGate optional params ─────────────────────────────────────
+
+test('setGate with range param sends gate/range', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setGate(1, { range: 40 });
+  const msg = sent.find(m => m.address === '/ch/01/gate/range');
+  assert.ok(msg);
+});
+
+test('setGate with attack param sends gate/attack', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setGate(1, { attack: 5 });
+  const msg = sent.find(m => m.address === '/ch/01/gate/attack');
+  assert.ok(msg);
+});
+
+test('setGate with hold param sends gate/hold', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setGate(1, { hold: 100 });
+  const msg = sent.find(m => m.address === '/ch/01/gate/hold');
+  assert.ok(msg);
+});
+
+test('setGate with release param sends gate/release', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setGate(1, { release: 500 });
+  const msg = sent.find(m => m.address === '/ch/01/gate/release');
+  assert.ok(msg);
+});
+
+test('setGate throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.setGate(1, {}), /not connected/);
+});
+
+// ─── SECTION 27: getMeters branch coverage ───────────────────────────────────
+
+test('getMeters throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.getMeters(), /not connected/);
+});
+
+test('getMeters with specific channels', async () => {
+  const { mixer } = makeMixer();
+  mixer._osc.query = async (addr) => {
+    if (addr.includes('fader')) return { args: [{ value: 0.6 }] };
+    if (addr.includes('on')) return { args: [{ value: 1 }] };
+    return null;
+  };
+  const results = await mixer.getMeters([1, 2, 3]);
+  assert.equal(results.length, 3);
+  assert.equal(results[0].channel, 1);
+  assert.equal(results[0].fader, 0.6);
+  assert.equal(results[0].muted, false);
+});
+
+test('getMeters defaults to channels 1-32', async () => {
+  const { mixer } = makeMixer();
+  const queriedChannels = new Set();
+  mixer._osc.query = async (addr) => {
+    const match = addr.match(/\/ch\/(\d+)\//);
+    if (match) queriedChannels.add(parseInt(match[1]));
+    return { args: [{ value: 0 }] };
+  };
+  const results = await mixer.getMeters();
+  assert.equal(results.length, 32);
+  assert.ok(queriedChannels.has(1));
+  assert.ok(queriedChannels.has(32));
+});
+
+test('getMeters handles null query responses gracefully', async () => {
+  const { mixer } = makeMixer();
+  mixer._osc.query = async () => null;
+  const results = await mixer.getMeters([1]);
+  assert.equal(results[0].fader, 0);
+  assert.equal(results[0].muted, false);
+});
+
+test('getMeters handles query failures gracefully', async () => {
+  const { mixer } = makeMixer();
+  // The inner .catch(() => null) will turn this into null
+  mixer._osc.query = async () => { throw new Error('timeout'); };
+  const results = await mixer.getMeters([1]);
+  assert.equal(results.length, 1);
+  assert.equal(results[0].fader, 0);
+});
+
+test('getMeters batches in groups of 8 with >8 channels', async () => {
+  const { mixer } = makeMixer();
+  let queryCount = 0;
+  mixer._osc.query = async () => {
+    queryCount++;
+    return { args: [{ value: 0 }] };
+  };
+  const channels = Array.from({ length: 16 }, (_, i) => i + 1);
+  const results = await mixer.getMeters(channels);
+  assert.equal(results.length, 16);
+  // 16 channels * 2 queries per channel = 32 queries
+  assert.equal(queryCount, 32);
+});
+
+// ─── SECTION 28: saveScene branch coverage ───────────────────────────────────
+
+test('saveScene throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.saveScene(0), /not connected/);
+});
+
+test('saveScene with name sends name then save', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.saveScene(5, 'My Scene');
+  const nameMsg = sent.find(m => m.address.includes('/name'));
+  const saveMsg = sent.find(m => m.address.includes('/save'));
+  assert.ok(nameMsg, 'name message sent');
+  assert.equal(nameMsg.args[0].value, 'My Scene');
+  assert.ok(saveMsg, 'save message sent');
+});
+
+test('saveScene without name skips name message', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.saveScene(3);
+  const nameMsg = sent.find(m => m.address.includes('/name'));
+  assert.equal(nameMsg, undefined, 'no name message when name is omitted');
+  const saveMsg = sent.find(m => m.address.includes('/save'));
+  assert.ok(saveMsg);
+});
+
+test('saveScene truncates name to 14 chars', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.saveScene(0, 'This Is A Very Long Scene Name');
+  const nameMsg = sent.find(m => m.address.includes('/name'));
+  assert.equal(nameMsg.args[0].value.length, 14);
+});
+
+test('saveScene pads scene number to 3 digits', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.saveScene(5, 'Test');
+  const nameMsg = sent.find(m => m.address.includes('/name'));
+  assert.ok(nameMsg.address.includes('/005/'));
+});
+
+// ─── SECTION 29: verifySceneSave branch coverage ─────────────────────────────
+
+test('verifySceneSave throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.verifySceneSave(0), /not connected/);
+});
+
+test('verifySceneSave returns scene info on success', async () => {
+  const { mixer } = makeMixer();
+  mixer._osc.query = async () => ({ args: [{ value: 'My Scene' }] });
+  const result = await mixer.verifySceneSave(5);
+  assert.equal(result.sceneNumber, 5);
+  assert.equal(result.name, 'My Scene');
+  assert.equal(result.exists, true);
+});
+
+test('verifySceneSave returns exists=false when name is empty', async () => {
+  const { mixer } = makeMixer();
+  mixer._osc.query = async () => ({ args: [{ value: '' }] });
+  const result = await mixer.verifySceneSave(0);
+  assert.equal(result.exists, false);
+  assert.equal(result.name, null);
+});
+
+test('verifySceneSave returns exists=false on query failure', async () => {
+  const { mixer } = makeMixer();
+  mixer._osc.query = async () => { throw new Error('timeout'); };
+  const result = await mixer.verifySceneSave(0);
+  assert.equal(result.exists, false);
+  assert.equal(result.name, null);
+});
+
+// ─── SECTION 30: assignToDca catch branch ────────────────────────────────────
+
+test('assignToDca handles query failure (defaults to 0)', async () => {
+  const { mixer, sent } = makeMixer();
+  mixer._osc.query = async () => { throw new Error('timeout'); };
+  await mixer.assignToDca(1, 1, true);
+  const msg = last(sent);
+  assert.equal(msg.args[0].value, 1, 'bit 0 set starting from 0');
+});
+
+test('assignToDca handles null response args', async () => {
+  const { mixer, sent } = makeMixer();
+  mixer._osc.query = async () => ({ args: [] });
+  await mixer.assignToDca(1, 2, true);
+  const msg = last(sent);
+  assert.equal(msg.args[0].value, 2, 'bit 1 set starting from 0');
+});
+
+// ─── SECTION 31: setHpf frequency null branch ───────────────────────────────
+
+test('setHpf with frequency explicitly null skips hpf message', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setHpf(1, { enabled: true, frequency: null });
+  const hpfMsg = sent.find(m => m.address === '/ch/01/preamp/hpf');
+  // frequency != null is false when null, so hpf message should still be skipped
+  // Actually, the default is 80, so we need to pass explicit null
+  assert.equal(hpfMsg, undefined);
+});
+
+test('setHpf with defaults sends both hpon and hpf', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setHpf(1);
+  const hponMsg = sent.find(m => m.address === '/ch/01/preamp/hpon');
+  const hpfMsg = sent.find(m => m.address === '/ch/01/preamp/hpf');
+  assert.ok(hponMsg, 'default enabled=true sends hpon=1');
+  assert.equal(hponMsg.args[0].value, 1);
+  assert.ok(hpfMsg, 'default frequency=80 sends hpf float');
+});
+
+// ─── SECTION 32: setChannelName edge cases ───────────────────────────────────
+
+test('setChannelName with null name uses empty string', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setChannelName(1, null);
+  assert.equal(last(sent).args[0].value, '');
+});
+
+test('setChannelName with undefined name uses empty string', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setChannelName(1, undefined);
+  assert.equal(last(sent).args[0].value, '');
+});
+
+// ─── SECTION 33: _ch helper edge cases ───────────────────────────────────────
+
+test('_ch pads single digit', () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  assert.equal(mixer._ch(1), '01');
+  assert.equal(mixer._ch(9), '09');
+  assert.equal(mixer._ch(10), '10');
+  assert.equal(mixer._ch(32), '32');
+});
+
+// ─── SECTION 34: setEq edge case — band with only Q ─────────────────────────
+
+test('setEq band with only Q sends eq/N/q', async () => {
+  const { mixer, sent } = makeMixer();
+  await mixer.setEq(1, { enabled: true, bands: [{ band: 3, q: 2.5 }] });
+  const qMsg = sent.find(m => m.address === '/ch/01/eq/3/q');
+  assert.ok(qMsg, 'Q message sent');
+  assert.equal(qMsg.args[0].type, 'f');
+});
+
+// ─── SECTION 35: remaining stub coverage ─────────────────────────────────────
+
+test('unmuteDca logs warning and does not throw', async () => {
+  const { mixer } = makeMixer();
+  const orig = console.warn;
+  const warns = [];
+  console.warn = (...a) => warns.push(a.join(' '));
+  await mixer.unmuteDca(1);
+  console.warn = orig;
+  assert.ok(warns.some(w => w.includes('X32')));
+});
+
+test('setDcaFader logs warning and does not throw', async () => {
+  const { mixer } = makeMixer();
+  const orig = console.warn;
+  const warns = [];
+  console.warn = (...a) => warns.push(a.join(' '));
+  await mixer.setDcaFader(1, 0.5);
+  console.warn = orig;
+  assert.ok(warns.some(w => w.includes('X32')));
+});
+
+test('deactivateMuteGroup logs warning and does not throw', async () => {
+  const { mixer } = makeMixer();
+  const orig = console.warn;
+  const warns = [];
+  console.warn = (...a) => warns.push(a.join(' '));
+  await mixer.deactivateMuteGroup(1);
+  console.warn = orig;
+  assert.ok(warns.some(w => w.includes('X32')));
+});
+
+// ─── SECTION 36: assignToBus out-of-range ────────────────────────────────────
+
+test('assignToBus out-of-range throws', async () => {
+  const { mixer } = makeMixer();
+  await assert.rejects(() => mixer.assignToBus(1, 0, true), /Bus out of range/);
+  await assert.rejects(() => mixer.assignToBus(1, 17, true), /Bus out of range/);
+});
+
+// ─── SECTION 37: error guards for more methods ──────────────────────────────
+
+test('clearSolos throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.clearSolos(), /not connected/);
+});
+
+test('unmuteChannel throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.unmuteChannel(1), /not connected/);
+});
+
+test('muteMaster throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.muteMaster(), /not connected/);
+});
+
+test('unmuteMaster throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.unmuteMaster(), /not connected/);
+});
+
+test('setChannelName throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.setChannelName(1, 'Test'), /not connected/);
+});
+
+test('setHpf throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.setHpf(1, {}), /not connected/);
+});
+
+test('setEq throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.setEq(1, {}), /not connected/);
+});
+
+test('setChannelColor throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.setChannelColor(1, 'red'), /not connected/);
+});
+
+test('setChannelIcon throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.setChannelIcon(1, 'mic'), /not connected/);
+});
+
+test('setSendLevel throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.setSendLevel(1, 1, 0.5), /not connected/);
+});
+
+test('assignToBus throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.assignToBus(1, 1, true), /not connected/);
+});
+
+test('assignToDca throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.assignToDca(1, 1, true), /not connected/);
+});
+
+test('setHeadampGain throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.setHeadampGain(1, 0), /not connected/);
+});
+
+test('setPhantom throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.setPhantom(1, true), /not connected/);
+});
+
+test('setPan throws when _osc is null', async () => {
+  const mixer = new BehringerMixer({ host: '192.168.1.1' });
+  await assert.rejects(() => mixer.setPan(1, 0), /not connected/);
+});
