@@ -7,7 +7,7 @@
 const crypto = require('crypto');
 const { CircuitBreaker, CircuitOpenError } = require('./circuitBreaker');
 const { createLogger } = require('./logger');
-const { aiParseCommand } = require('./ai-parser');
+const { aiParseCommand, getConfiguredDeviceTypes } = require('./ai-parser');
 const { isStreamActive, isRecordingActive } = require('./status-utils');
 const { smartParse } = require('./smart-parser');
 const { classifyIntent } = require('./intent-classifier');
@@ -1510,11 +1510,25 @@ class TallyBot {
     }
 
     // ── AI fallback: Anthropic parser (Haiku — lean command context) ─────────
+    // Look up configured devices for this TD's room so AI only reports on real equipment
+    let configuredDevices = [];
+    try {
+      const { roomId: tdRoomId } = this._resolveRoomForChat(church, chatId);
+      const eqRow = tdRoomId
+        ? this.db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ?').get(tdRoomId)
+        : this.db.prepare('SELECT equipment FROM room_equipment WHERE church_id = ? LIMIT 1').get(church.churchId);
+      if (eqRow?.equipment) {
+        const equipment = JSON.parse(eqRow.equipment);
+        configuredDevices = getConfiguredDeviceTypes(equipment);
+      }
+    } catch { /* non-fatal */ }
+
     const ctx = {
       churchId: church.churchId,
       churchName: church.name,
       status: liveStatus,
       tier: church.billing_tier || 'connect',
+      configuredDevices,
     };
     const conversationHistory = this.chatEngine?.getRecentConversation(church.churchId) || [];
 

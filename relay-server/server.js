@@ -122,7 +122,7 @@ const { IncidentSummarizer } = require('./src/incidentSummarizer');
 const { AiRateLimiter } = require('./src/aiRateLimiter');
 const { WeeklyDigest } = require('./src/weeklyDigest');
 const { TallyBot, parseCommand } = require('./src/telegramBot');
-const { aiParseCommand, setAiUsageLogger: setParserLogger, setIncidentBypassCheck } = require('./src/ai-parser');
+const { aiParseCommand, setAiUsageLogger: setParserLogger, setIncidentBypassCheck, getConfiguredDeviceTypes } = require('./src/ai-parser');
 const { smartParse } = require('./src/smart-parser');
 const { detectSetupIntent, detectIntentWithAttachment, parsePatchList, generateMixerSetup, parseCameraPlot, buildCameraCommands, setAiUsageLogger: setSetupLogger } = require('./src/ai-setup-assistant');
 const { isOnTopic, OFF_TOPIC_RESPONSE, containsSensitiveData, SENSITIVE_RESPONSE } = require('./src/chat-guard');
@@ -3112,6 +3112,19 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     incidentChainCtx = _getIncidentChains(churchId);
   } catch {}
 
+  // Look up configured devices for this room so AI only reports on real equipment
+  let configuredDevices = [];
+  try {
+    // Try room-specific equipment first, then fall back to any room for this church
+    const eqRow = roomId
+      ? db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ?').get(roomId)
+      : db.prepare('SELECT equipment FROM room_equipment WHERE church_id = ? LIMIT 1').get(churchId);
+    if (eqRow?.equipment) {
+      const equipment = JSON.parse(eqRow.equipment);
+      configuredDevices = getConfiguredDeviceTypes(equipment);
+    }
+  } catch { /* non-fatal — AI will work without it */ }
+
   const aiResult = await aiParseCommand(intent.prompt, {
     churchId,
     churchName: church?.name || '',
@@ -3122,6 +3135,7 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     documentContext: docContext,
     diagnosticContext: diagnosticCtx,
     incidentChains: incidentChainCtx,
+    configuredDevices,
   }, conversationHistory);
 
   if (aiResult.type === 'error' || aiResult.type === 'rate_limited') {

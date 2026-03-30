@@ -73,6 +73,77 @@ function checkAiRateLimit(churchId, tier) {
   return true;
 }
 
+// ─── Configured-device extraction from room equipment JSON ─────────────────
+// Maps equipment config keys → status object keys
+const EQUIPMENT_TO_STATUS_KEY = {
+  atem: 'atem',
+  companion: 'companion',
+  encoder: 'encoder',
+  propresenter: 'proPresenter',
+  vmix: 'vmix',
+  resolume: 'resolume',
+  mixer: 'mixer',
+  hyperdeck: 'hyperdeck',
+  ptz: 'ptz',
+  videohub: 'videohub',
+  obs: 'obs',
+  ecamm: 'ecamm',
+  dante: 'dante',
+};
+
+// Display names for status reporting
+const DEVICE_DISPLAY_NAMES = {
+  atem: 'ATEM',
+  companion: 'Companion',
+  encoder: 'Encoder',
+  proPresenter: 'ProPresenter',
+  vmix: 'vMix',
+  resolume: 'Resolume',
+  mixer: 'Audio Mixer',
+  hyperdeck: 'HyperDeck',
+  ptz: 'PTZ',
+  videohub: 'VideoHub',
+  obs: 'OBS',
+  ecamm: 'Ecamm',
+  dante: 'Dante',
+};
+
+/**
+ * Extract configured device type keys (status-object keys) from room equipment JSON.
+ * Returns an array like ['atem', 'proPresenter', 'encoder'] for devices actually set up.
+ */
+function getConfiguredDeviceTypes(equipment) {
+  if (!equipment || typeof equipment !== 'object') return [];
+  const configured = [];
+  for (const [eqKey, statusKey] of Object.entries(EQUIPMENT_TO_STATUS_KEY)) {
+    const val = equipment[eqKey];
+    if (!val) continue;
+    // Multi-instance devices (encoder, hyperdeck, ptz, videohub) are arrays
+    if (Array.isArray(val)) {
+      if (eqKey === 'encoder') {
+        if (val.some(e => e.encoderType)) configured.push(statusKey);
+      } else {
+        // ptz, hyperdeck, videohub — check if any entry has an ip/host
+        if (val.some(e => e.ip || e.host)) configured.push(statusKey);
+      }
+    } else if (typeof val === 'object') {
+      // Single devices — check 'configured' flag or any meaningful field
+      if (val.configured) {
+        configured.push(statusKey);
+      } else if (eqKey === 'atem' && val.ip) {
+        configured.push(statusKey);
+      } else if (eqKey === 'companion' && val.host) {
+        configured.push(statusKey);
+      } else if (eqKey === 'mixer' && val.type) {
+        configured.push(statusKey);
+      } else if (val.host || val.ip) {
+        configured.push(statusKey);
+      }
+    }
+  }
+  return configured;
+}
+
 // ─── System prompt ─────────────────────────────────────────────────────────
 
 const FALLBACK_COMMANDS = [
@@ -1004,6 +1075,7 @@ RULES:
 - Troubleshooting: describe problem → return diagnosis with suggested commands.
 - Social phrases (thanks, hi) → friendly reply, NOT off-topic response.
 - Volunteer phrases: "are we live?" → status()
+- DEVICE STATUS ACCURACY: When reporting device status (connected/disconnected/online/offline), ONLY report on devices listed as "Configured devices" in the context. If a device is NOT in the configured list, it does NOT exist for this church — never mention it as disconnected or reference it. Use the live status data from the context block, not your general knowledge.
 
 MEMORY & PERSONALITY:
 - The context block may contain [Memory: ...] with learned observations about this specific church.
@@ -1313,6 +1385,39 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     if (ep.specialNotes) contextHint += `Notes: ${ep.specialNotes}. `;
   }
 
+  // Configured devices summary: tells AI exactly which devices this church has
+  // This prevents the AI from hallucinating disconnected devices that aren't configured
+  const configuredTypes = ctx.configuredDevices || [];
+  if (configuredTypes.length > 0) {
+    const connectedSet = new Set();
+    // Build set of currently connected device types from live status
+    if (ctx.status?.atem?.connected) connectedSet.add('atem');
+    if (ctx.status?.obs?.connected) connectedSet.add('obs');
+    if (ctx.status?.vmix?.connected) connectedSet.add('vmix');
+    if (ctx.status?.encoder?.connected) connectedSet.add('encoder');
+    if (ctx.status?.proPresenter?.connected) connectedSet.add('proPresenter');
+    if (ctx.status?.companion?.connected) connectedSet.add('companion');
+    if (ctx.status?.mixer?.connected) connectedSet.add('mixer');
+    if (ctx.status?.hyperdeck?.connected) connectedSet.add('hyperdeck');
+    if ((ctx.status?.ptz || []).some(c => c?.connected)) connectedSet.add('ptz');
+    if (ctx.status?.videohub?.connected) connectedSet.add('videohub');
+    if (ctx.status?.resolume?.connected) connectedSet.add('resolume');
+    if (ctx.status?.ecamm?.connected) connectedSet.add('ecamm');
+    if (ctx.status?.dante?.connected) connectedSet.add('dante');
+
+    const parts = configuredTypes.map(key => {
+      const name = DEVICE_DISPLAY_NAMES[key] || key;
+      return connectedSet.has(key) ? `${name}=Connected` : `${name}=Disconnected`;
+    });
+    contextHint += `Configured devices: ${parts.join(', ')}. `;
+    // Explicitly note devices NOT configured so AI doesn't invent them
+    const allKnown = Object.keys(DEVICE_DISPLAY_NAMES);
+    const notConfigured = allKnown.filter(k => !configuredTypes.includes(k));
+    if (notConfigured.length) {
+      contextHint += `NOT configured (do not mention): ${notConfigured.map(k => DEVICE_DISPLAY_NAMES[k]).join(', ')}. `;
+    }
+  }
+
   // Church memory (pre-compiled summary from past observations)
   if (ctx.memorySummary) contextHint += ctx.memorySummary + ' ';
 
@@ -1487,4 +1592,4 @@ When troubleshooting:
   }
 }
 
-module.exports = { aiParseCommand, getAvailableCommandNames, setAiUsageLogger, setIncidentBypassCheck, checkAiRateLimit, buildSystemPrompt };
+module.exports = { aiParseCommand, getAvailableCommandNames, setAiUsageLogger, setIncidentBypassCheck, checkAiRateLimit, buildSystemPrompt, getConfiguredDeviceTypes };
