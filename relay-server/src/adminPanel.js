@@ -204,6 +204,11 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .btn-sm:hover{background:rgba(34,197,94,.1)}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:0 0 10px;font-size:11px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+th.sortable{cursor:pointer;user-select:none;position:relative;padding-right:16px}
+th.sortable:hover{color:var(--green)}
+th.sortable::after{content:'⇅';position:absolute;right:0;opacity:.3;font-size:10px}
+th.sortable.sort-asc::after{content:'↑';opacity:.8}
+th.sortable.sort-desc::after{content:'↓';opacity:.8}
 td{padding:10px 0;font-size:13px;border-bottom:1px solid rgba(26,46,31,.5);vertical-align:middle}
 tr:hover td{background:rgba(34,197,94,.02)}
 .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
@@ -427,7 +432,7 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
       </div>
       <table id="churches-table">
         <thead><tr>
-          <th>Name</th><th>Reseller</th><th>Status</th><th>Type</th><th>Registered</th><th>Last Seen</th><th>Actions</th>
+          <th class="sortable" onclick="sortTable('churches','name',this)">Name</th><th>Reseller</th><th class="sortable" onclick="sortTable('churches','connected',this)">Status</th><th>Type</th><th>Registered</th><th class="sortable" onclick="sortTable('churches','lastSeen',this)">Last Seen</th><th>Actions</th>
         </tr></thead>
         <tbody id="churches-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
       </table>
@@ -495,10 +500,18 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
       </div>
       <table id="alerts-table">
         <thead><tr>
-          <th>Time</th><th>Church</th><th>Type</th><th>Severity</th><th>Status</th><th>Actions</th>
+          <th class="sortable" onclick="sortTable('alerts','created_at',this)">Time</th><th class="sortable" onclick="sortTable('alerts','church_name',this)">Church</th><th>Type</th><th class="sortable" onclick="sortTable('alerts','severity',this)">Severity</th><th>Status</th><th>Actions</th>
         </tr></thead>
         <tbody id="alerts-tbody"><tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
       </table>
+      <div id="alerts-pagination" style="display:none;align-items:center;justify-content:space-between;padding:14px 0;font-size:13px;color:var(--muted)">
+        <span id="alerts-count"></span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn-secondary" id="alerts-prev" onclick="alertsChangePage(-1)" style="padding:5px 12px;font-size:12px;display:flex;align-items:center;gap:4px"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg> Prev</button>
+          <span id="alerts-page-label"></span>
+          <button class="btn-secondary" id="alerts-next" onclick="alertsChangePage(1)" style="padding:5px 12px;font-size:12px;display:flex;align-items:center;gap:4px">Next <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg></button>
+        </div>
+      </div>
     </div>
 
     <!-- TICKETS PAGE -->
@@ -516,10 +529,18 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
       </div>
       <table id="tickets-table">
         <thead><tr>
-          <th>Created</th><th>Church</th><th>Severity</th><th>Category</th><th>Title</th><th>Status</th><th>Actions</th>
+          <th class="sortable" onclick="sortTable('tickets','created_at',this)">Created</th><th class="sortable" onclick="sortTable('tickets','church_name',this)">Church</th><th>Severity</th><th>Category</th><th>Title</th><th class="sortable" onclick="sortTable('tickets','status',this)">Status</th><th>Actions</th>
         </tr></thead>
         <tbody id="tickets-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
       </table>
+      <div id="tickets-pagination" style="display:none;align-items:center;justify-content:space-between;padding:14px 0;font-size:13px;color:var(--muted)">
+        <span id="tickets-count"></span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn-secondary" id="tickets-prev" onclick="ticketsChangePage(-1)" style="padding:5px 12px;font-size:12px;display:flex;align-items:center;gap:4px"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg> Prev</button>
+          <span id="tickets-page-label"></span>
+          <button class="btn-secondary" id="tickets-next" onclick="ticketsChangePage(1)" style="padding:5px 12px;font-size:12px;display:flex;align-items:center;gap:4px">Next <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg></button>
+        </div>
+      </div>
     </div>
 
     <!-- AI USAGE PAGE -->
@@ -557,10 +578,18 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
         <div class="card-title">Subscriptions</div>
         <table id="billing-table">
           <thead><tr>
-            <th>Church</th><th>Plan</th><th>Interval</th><th>Status</th><th>Period End</th><th>Actions</th>
+            <th class="sortable" onclick="sortTable('billing','church_name',this)">Church</th><th>Plan</th><th>Interval</th><th class="sortable" onclick="sortTable('billing','status',this)">Status</th><th>Period End</th><th>Actions</th>
           </tr></thead>
           <tbody id="billing-tbody"><tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
         </table>
+        <div id="billing-pagination" style="display:none;align-items:center;justify-content:space-between;padding:14px 0;font-size:13px;color:var(--muted)">
+          <span id="billing-count"></span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="btn-secondary" id="billing-prev" onclick="billingChangePage(-1)" style="padding:5px 12px;font-size:12px;display:flex;align-items:center;gap:4px"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg> Prev</button>
+            <span id="billing-page-label"></span>
+            <button class="btn-secondary" id="billing-next" onclick="billingChangePage(1)" style="padding:5px 12px;font-size:12px;display:flex;align-items:center;gap:4px">Next <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg></button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -881,11 +910,21 @@ let churchFilter = 'all';
 let regenChurchId = null;
 let currentApiKey = '';
 let allAlerts = [];
+let alertsTotal = 0;
+let alertsPage = 1;
+const ALERTS_PAGE_SIZE = 50;
 let alertFilter = 'all';
 let alertAckFilter = 'unack';
 let allTickets = [];
+let ticketsTotal = 0;
+let ticketsPage = 1;
+const TICKETS_PAGE_SIZE = 50;
 let ticketFilter = 'all';
 let allBilling = [];
+let billingTotal = 0;
+let billingPage = 1;
+const BILLING_PAGE_SIZE = 50;
+const tableSortState = {};
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
 const allPages = ['overview','churches','resellers','alerts','tickets','billing','aiusage','emails','streams','settings'];
@@ -997,6 +1036,7 @@ function renderChurches() {
   if (churchFilter === 'online') list = list.filter(c => c.connected);
   else if (churchFilter === 'offline') list = list.filter(c => !c.connected);
   if (search) list = list.filter(c => c.name.toLowerCase().includes(search) || (c.email||'').toLowerCase().includes(search));
+  list = applySortToList('churches', list);
   const tbody = document.getElementById('churches-tbody');
   if (!list.length) {
     tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">No churches found</td></tr>';
@@ -1506,14 +1546,29 @@ function copyApiKey() {
 }
 
 // ─── Alerts ──────────────────────────────────────────────────────────────────
-async function loadAlerts() {
+async function loadAlerts(page) {
+  if (page !== undefined) alertsPage = page;
   try {
-    const r = await fetch('/api/admin/alerts?limit=100');
-    allAlerts = await r.json();
+    const r = await fetch(\`/api/admin/alerts?page=\${alertsPage}&limit=\${ALERTS_PAGE_SIZE}\`);
+    const data = await r.json();
+    if (Array.isArray(data)) {
+      allAlerts = data;
+      alertsTotal = data.length;
+    } else {
+      allAlerts = data.alerts || [];
+      alertsTotal = data.total || allAlerts.length;
+      alertsPage = data.page || alertsPage;
+    }
     renderAlerts();
   } catch(e) {
     document.getElementById('alerts-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red);text-align:center;padding:24px">Failed to load alerts</td></tr>';
   }
+}
+
+function alertsChangePage(delta) {
+  const totalPages = Math.ceil(alertsTotal / ALERTS_PAGE_SIZE);
+  const newPage = Math.max(1, Math.min(totalPages, alertsPage + delta));
+  if (newPage !== alertsPage) loadAlerts(newPage);
 }
 
 function renderAlerts() {
@@ -1522,9 +1577,11 @@ function renderAlerts() {
   if (alertFilter !== 'all') list = list.filter(a => (a.severity||'info') === alertFilter);
   if (alertAckFilter === 'unack') list = list.filter(a => !a.acknowledged_at);
   if (search) list = list.filter(a => (a.church_name||'').toLowerCase().includes(search));
+  list = applySortToList('alerts', list);
   const tbody = document.getElementById('alerts-tbody');
   if (!list.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">No alerts found</td></tr>';
+    updatePagination('alerts', alertsTotal, alertsPage, ALERTS_PAGE_SIZE);
     return;
   }
   tbody.innerHTML = list.map(a => {
@@ -1541,6 +1598,7 @@ function renderAlerts() {
       <td>\${ackBtn}</td>
     </tr>\`;
   }).join('');
+  updatePagination('alerts', alertsTotal, alertsPage, ALERTS_PAGE_SIZE);
 }
 
 function filterAlerts() { renderAlerts(); }
@@ -1566,14 +1624,29 @@ async function acknowledgeAlert(id) {
 }
 
 // ─── Tickets ─────────────────────────────────────────────────────────────────
-async function loadTickets() {
+async function loadTickets(page) {
+  if (page !== undefined) ticketsPage = page;
   try {
-    const r = await fetch('/api/admin/tickets');
-    allTickets = await r.json();
+    const r = await fetch(\`/api/admin/tickets?page=\${ticketsPage}&limit=\${TICKETS_PAGE_SIZE}\`);
+    const data = await r.json();
+    if (Array.isArray(data)) {
+      allTickets = data;
+      ticketsTotal = data.length;
+    } else {
+      allTickets = data.tickets || [];
+      ticketsTotal = data.total || allTickets.length;
+      ticketsPage = data.page || ticketsPage;
+    }
     renderTickets();
   } catch(e) {
     document.getElementById('tickets-tbody').innerHTML = '<tr><td colspan="7" style="color:var(--red);text-align:center;padding:24px">Failed to load tickets</td></tr>';
   }
+}
+
+function ticketsChangePage(delta) {
+  const totalPages = Math.ceil(ticketsTotal / TICKETS_PAGE_SIZE);
+  const newPage = Math.max(1, Math.min(totalPages, ticketsPage + delta));
+  if (newPage !== ticketsPage) loadTickets(newPage);
 }
 
 function renderTickets() {
@@ -1581,9 +1654,11 @@ function renderTickets() {
   let list = allTickets;
   if (ticketFilter !== 'all') list = list.filter(t => t.status === ticketFilter);
   if (search) list = list.filter(t => (t.title||'').toLowerCase().includes(search) || (t.church_name||'').toLowerCase().includes(search));
+  list = applySortToList('tickets', list);
   const tbody = document.getElementById('tickets-tbody');
   if (!list.length) {
     tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">No tickets found</td></tr>';
+    updatePagination('tickets', ticketsTotal, ticketsPage, TICKETS_PAGE_SIZE);
     return;
   }
   tbody.innerHTML = list.map(t => {
@@ -1601,6 +1676,7 @@ function renderTickets() {
       <td><button class="btn-sm" onclick="event.stopPropagation();openTicketDetail('\${t.id}')">View</button></td>
     </tr>\`;
   }).join('');
+  updatePagination('tickets', ticketsTotal, ticketsPage, TICKETS_PAGE_SIZE);
 }
 
 function filterTickets() { renderTickets(); }
@@ -1643,16 +1719,30 @@ function openTicketDetail(id) {
 function closeTicketDetail() { document.getElementById('ticket-detail').classList.remove('open'); }
 
 // ─── Billing ─────────────────────────────────────────────────────────────────
-async function loadBilling() {
+async function loadBilling(page) {
+  if (page !== undefined) billingPage = page;
   try {
-    const r = await fetch('/api/admin/billing');
+    const r = await fetch(\`/api/admin/billing?page=\${billingPage}&limit=\${BILLING_PAGE_SIZE}\`);
     const d = await r.json();
-    allBilling = Array.isArray(d) ? d : (d.subscriptions || []);
+    if (Array.isArray(d)) {
+      allBilling = d;
+      billingTotal = d.length;
+    } else {
+      allBilling = d.subscriptions || [];
+      billingTotal = d.total || allBilling.length;
+      billingPage = d.page || billingPage;
+    }
     renderBilling();
     renderBillingSummary();
   } catch(e) {
     document.getElementById('billing-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red);text-align:center;padding:24px">Failed to load billing data</td></tr>';
   }
+}
+
+function billingChangePage(delta) {
+  const totalPages = Math.ceil(billingTotal / BILLING_PAGE_SIZE);
+  const newPage = Math.max(1, Math.min(totalPages, billingPage + delta));
+  if (newPage !== billingPage) loadBilling(newPage);
 }
 
 function renderBillingSummary() {
@@ -1670,12 +1760,15 @@ function renderBillingSummary() {
 }
 
 function renderBilling() {
+  let list = allBilling.slice();
+  list = applySortToList('billing', list);
   const tbody = document.getElementById('billing-tbody');
-  if (!allBilling.length) {
+  if (!list.length) {
     tbody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">No billing records</td></tr>';
+    updatePagination('billing', billingTotal, billingPage, BILLING_PAGE_SIZE);
     return;
   }
-  tbody.innerHTML = allBilling.map(b => {
+  tbody.innerHTML = list.map(b => {
     const status = (b.status||'inactive').toLowerCase();
     const statusClass = status==='active'?'green':status==='past_due'?'yellow':status==='canceled'?'red':'gray';
     const periodEnd = b.current_period_end ? new Date(b.current_period_end * 1000).toLocaleDateString() : '—';
@@ -1688,6 +1781,56 @@ function renderBilling() {
       <td>\${b.stripe_customer_id ? '<button class="btn-sm" onclick="window.open(\\'https://dashboard.stripe.com/customers/'+esc(b.stripe_customer_id)+'\\',\\'_blank\\')">Stripe</button>' : '—'}</td>
     </tr>\`;
   }).join('');
+  updatePagination('billing', billingTotal, billingPage, BILLING_PAGE_SIZE);
+}
+
+// ─── Shared: Sorting & Pagination ────────────────────────────────────────────
+function sortTable(tableName, column, thEl) {
+  const state = tableSortState[tableName] || {};
+  if (state.column === column) {
+    state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    state.column = column;
+    state.dir = 'asc';
+  }
+  tableSortState[tableName] = state;
+  // Update header classes
+  const table = thEl.closest('table');
+  table.querySelectorAll('th.sortable').forEach(th => { th.classList.remove('sort-asc','sort-desc'); });
+  thEl.classList.add('sort-' + state.dir);
+  // Re-render the appropriate table
+  const renderers = { churches: renderChurches, alerts: renderAlerts, tickets: renderTickets, billing: renderBilling };
+  if (renderers[tableName]) renderers[tableName]();
+}
+
+function applySortToList(tableName, list) {
+  const state = tableSortState[tableName];
+  if (!state || !state.column) return list;
+  const col = state.column;
+  const dir = state.dir === 'desc' ? -1 : 1;
+  return list.slice().sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if (va == null) va = '';
+    if (vb == null) vb = '';
+    if (typeof va === 'boolean') { va = va ? 1 : 0; vb = vb ? 1 : 0; }
+    if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+    va = String(va).toLowerCase(); vb = String(vb).toLowerCase();
+    return va < vb ? -dir : va > vb ? dir : 0;
+  });
+}
+
+function updatePagination(prefix, total, page, pageSize) {
+  const totalPages = Math.ceil(total / pageSize);
+  const countEl = document.getElementById(prefix + '-count');
+  const pageEl = document.getElementById(prefix + '-page-label');
+  const prevBtn = document.getElementById(prefix + '-prev');
+  const nextBtn = document.getElementById(prefix + '-next');
+  if (countEl) countEl.textContent = total + ' ' + prefix;
+  if (pageEl) pageEl.textContent = totalPages > 1 ? ('Page ' + page + ' of ' + totalPages) : '';
+  if (prevBtn) prevBtn.disabled = page <= 1;
+  if (nextBtn) nextBtn.disabled = page >= totalPages;
+  const pag = document.getElementById(prefix + '-pagination');
+  if (pag) pag.style.display = totalPages > 1 ? 'flex' : 'none';
 }
 
 // ─── AI Usage ────────────────────────────────────────────────────────────────
@@ -3235,27 +3378,28 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   app.get('/api/admin/alerts', requireAdminSession, (req, res) => {
     try {
-      const limit = parseInt(req.query.limit) || 50;
+      const page  = Math.max(1, parseInt(req.query.page)  || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+      const offset = (page - 1) * limit;
       const severity = req.query.severity;
       const church = req.query.church;
       const acknowledged = req.query.acknowledged;
 
-      let sql = `SELECT a.*, c.name as church_name FROM alerts a LEFT JOIN churches c ON a.church_id = c.churchId`;
+      let whereSql = '';
       const conditions = [];
       const params = [];
 
       if (severity && severity !== 'all') { conditions.push('a.severity = ?'); params.push(severity); }
       if (church) { conditions.push('c.name LIKE ?'); params.push('%' + church + '%'); }
       if (acknowledged === 'false') { conditions.push('a.acknowledged_at IS NULL'); }
-      if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
-      sql += ' ORDER BY a.created_at DESC LIMIT ?';
-      params.push(limit);
+      if (conditions.length) whereSql = ' WHERE ' + conditions.join(' AND ');
 
-      const rows = db.prepare(sql).all(...params);
-      res.json(rows);
+      const total = db.prepare(`SELECT COUNT(*) AS cnt FROM alerts a LEFT JOIN churches c ON a.church_id = c.churchId${whereSql}`).get(...params).cnt;
+      const rows = db.prepare(`SELECT a.*, c.name as church_name FROM alerts a LEFT JOIN churches c ON a.church_id = c.churchId${whereSql} ORDER BY a.created_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+      res.json({ alerts: rows, total, page, limit, pages: Math.ceil(total / limit) });
     } catch(e) {
       // alerts table may not exist yet
-      res.json([]);
+      res.json({ alerts: [], total: 0, page: 1, limit: 50, pages: 0 });
     }
   });
 
@@ -3276,19 +3420,24 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   app.get('/api/admin/tickets', requireAdminSession, (req, res) => {
     try {
+      const page  = Math.max(1, parseInt(req.query.page)  || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+      const offset = (page - 1) * limit;
+
+      const total = db.prepare('SELECT COUNT(*) AS cnt FROM support_tickets').get().cnt;
       const rows = db.prepare(
-        `SELECT t.*, c.name as church_name FROM support_tickets t LEFT JOIN churches c ON t.church_id = c.churchId ORDER BY t.created_at DESC LIMIT 200`
-      ).all();
+        `SELECT t.*, c.name as church_name FROM support_tickets t LEFT JOIN churches c ON t.church_id = c.churchId ORDER BY t.created_at DESC LIMIT ? OFFSET ?`
+      ).all(limit, offset);
       // Try to load updates for each ticket
       rows.forEach(t => {
         try {
           t.updates = db.prepare('SELECT * FROM ticket_updates WHERE ticket_id = ? ORDER BY created_at ASC').all(t.id);
         } catch { t.updates = []; }
       });
-      res.json(rows);
+      res.json({ tickets: rows, total, page, limit, pages: Math.ceil(total / limit) });
     } catch(e) {
       // support_tickets table may not exist
-      res.json([]);
+      res.json({ tickets: [], total: 0, page: 1, limit: 50, pages: 0 });
     }
   });
 
@@ -3296,13 +3445,18 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   app.get('/api/admin/billing', requireAdminSession, (req, res) => {
     try {
+      const page  = Math.max(1, parseInt(req.query.page)  || 1);
+      const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 50));
+      const offset = (page - 1) * limit;
+
+      const total = db.prepare('SELECT COUNT(*) AS cnt FROM billing').get().cnt;
       const rows = db.prepare(
-        `SELECT b.*, c.name as church_name FROM billing b LEFT JOIN churches c ON b.church_id = c.churchId ORDER BY b.created_at DESC`
-      ).all();
-      res.json(rows);
+        `SELECT b.*, c.name as church_name FROM billing b LEFT JOIN churches c ON b.church_id = c.churchId ORDER BY b.created_at DESC LIMIT ? OFFSET ?`
+      ).all(limit, offset);
+      res.json({ subscriptions: rows, total, page, limit, pages: Math.ceil(total / limit) });
     } catch(e) {
       // billing table may not exist
-      res.json([]);
+      res.json({ subscriptions: [], total: 0, page: 1, limit: 50, pages: 0 });
     }
   });
 
