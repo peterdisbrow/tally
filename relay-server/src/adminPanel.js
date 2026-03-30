@@ -4429,18 +4429,15 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
 
   app.get('/api/admin/church/:churchId/rooms', requireAdminSession, (req, res) => {
     const { churchId } = req.params;
-    const runtime = churches.get(churchId);
-    const roomInstanceMap = runtime?.roomInstanceMap || {};
     let rooms = [];
     try {
-      rooms = db.prepare('SELECT id, name FROM rooms WHERE campus_id = ?').all(churchId).map(r => ({
-        id: r.id,
-        name: r.name,
-        online: !!roomInstanceMap[r.id],
-        instanceName: roomInstanceMap[r.id] || null,
-      }));
+      rooms = db.prepare(
+        'SELECT id, name FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name'
+      ).all(churchId);
     } catch { /* rooms table may not exist */ }
-    res.json({ rooms });
+    const runtime = churches.get(churchId);
+    const roomInstanceMap = runtime?.roomInstanceMap || {};
+    res.json({ rooms, roomInstanceMap });
   });
 
   // ── Church Delete Summary ────────────────────────────────────────────────
@@ -4716,20 +4713,6 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     });
   });
 
-  // GET /api/admin/church/:churchId/rooms
-  // Returns rooms for a church plus runtime instance mapping.
-  app.get('/api/admin/church/:churchId/rooms', requireAdminSession, (req, res) => {
-    const { churchId } = req.params;
-    let rooms = [];
-    try {
-      rooms = db.prepare(
-        'SELECT id, name FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name'
-      ).all(churchId);
-    } catch { /* rooms table may not exist */ }
-    const runtime = churches.get(churchId);
-    const roomInstanceMap = runtime?.roomInstanceMap || {};
-    res.json({ rooms, roomInstanceMap });
-  });
 
   // POST /api/admin/church/:churchId/send-command
   // Sends an allowed command to the church client via WebSocket.
