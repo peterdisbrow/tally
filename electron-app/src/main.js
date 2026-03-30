@@ -1740,6 +1740,54 @@ ipcMain.handle('assign-room', async (_, { roomId }) => {
   return result;
 });
 
+// ─── Full room switch (stop agent → switch config → clear status → restart) ─
+ipcMain.handle('full-room-switch', async (_, { fromRoom, toRoom, toRoomId }) => {
+  // 1. Stop agent and SSE
+  stopAgent();
+
+  // 2. Switch per-room equipment config (save old, load new)
+  const switchResult = switchRoomConfig(fromRoom || '', toRoom || '');
+
+  // 3. Push current room equipment to relay, fetch new room equipment
+  const config = loadConfig();
+  const fromRoomId = config.roomId;
+  if (fromRoomId && config.token) {
+    const { extractEquipment } = configManager;
+    syncEquipmentToRelay(fromRoomId, extractEquipment(config)).catch(() => {});
+  }
+  if (toRoomId && config.token) {
+    const remoteEquip = await fetchEquipmentFromRelay(toRoomId);
+    if (remoteEquip) {
+      const fresh = loadConfig();
+      for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
+        fresh[key] = remoteEquip[key] !== undefined ? remoteEquip[key] : undefined;
+      }
+      if (!fresh.roomConfigs) fresh.roomConfigs = {};
+      fresh.roomConfigs[toRoom || '_default'] = remoteEquip;
+      saveConfig(fresh);
+    }
+  }
+
+  // 4. Assign room on relay
+  const assignResult = await assignRoom(toRoomId);
+  if (assignResult.success) {
+    const cfg = loadConfig();
+    cfg.roomId = assignResult.roomId;
+    cfg.roomName = assignResult.roomName;
+    saveConfig(cfg);
+  }
+
+  // 5. Clear all device status
+  agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {}, failover: null };
+  mainWindow?.webContents.send('status', agentStatus);
+
+  // 6. Restart agent
+  agentCrashCount = 0;
+  startAgent();
+
+  return { ok: true, roomName: assignResult.roomName || toRoom };
+});
+
 // ─── Per-room equipment switching ────────────────────────────────────────────
 // Called from renderer before saving roomId/roomName. Persists current equipment
 // under the old room name, then loads saved equipment for the new room.

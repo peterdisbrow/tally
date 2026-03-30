@@ -3242,48 +3242,59 @@ async function loadRoomPicker() {
 }
 
 async function assignRoomFromPicker(roomId) {
+  if (!roomId) return;
+  const config = await api.getConfig();
+  const oldRoom = config.roomName || '';
+
+  // Find the new room name from the picker select
+  const select = document.getElementById('room-picker-select');
+  const newRoom = select ? (select.options[select.selectedIndex]?.textContent || '') : '';
+
+  if (oldRoom === newRoom) return; // same room, no-op
+
+  // Confirm before switching — this restarts the agent
+  if (!(await asyncConfirm(`Switch to room "${newRoom}"? This will restart monitoring.`))) {
+    // Reset the dropdown to the previous value
+    if (select) {
+      for (const opt of select.options) {
+        if (opt.textContent === oldRoom) { opt.selected = true; break; }
+      }
+    }
+    return;
+  }
+
+  addAlert(`Switching to room: ${newRoom}...`);
+
   try {
-    const config = await api.getConfig();
-    const relayUrl = (config.relay || DEFAULT_RELAY_URL).replace('wss://', 'https://').replace('ws://', 'http://');
-    const resp = await fetch(`${relayUrl}/api/church/app/room-assign`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${config.token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ roomId: roomId || null }),
-      signal: AbortSignal.timeout(10000),
-    });
-    const data = await resp.json();
-    if (data.ok) {
-      const oldRoom = config.roomName || '';
-      const newRoom = data.roomName || '';
+    // Full room switch: stop agent → swap equipment → reassign → clear status → restart
+    const result = await api.fullRoomSwitch(oldRoom, newRoom, roomId);
 
-      // Switch per-room equipment config: save current room's gear, load target room's gear
-      if (oldRoom !== newRoom) {
-        const result = await api.switchRoom(oldRoom, newRoom, roomId);
-        if (result.loaded) {
-          console.log(`[Room] Loaded equipment config for "${newRoom}" (source: ${result.source || 'local'})`);
-        } else {
-          console.log(`[Room] No saved equipment config for "${newRoom}" — keeping current gear`);
-        }
-      }
+    if (result.ok) {
+      isRunning = true;
+      updateToggleBtn();
 
-      await api.saveConfig({ roomId: data.roomId || '', roomName: newRoom });
+      // Update header
       const nameEl = document.getElementById('church-name');
-      if (nameEl && newRoom) {
-        const baseName = nameEl.textContent.split(' · ')[0];
-        nameEl.textContent = baseName + ' \xb7 ' + newRoom;
-      } else if (nameEl) {
-        nameEl.textContent = nameEl.textContent.split(' \xb7 ')[0];
+      if (nameEl) {
+        const baseName = nameEl.textContent.split(' \u00b7 ')[0];
+        nameEl.textContent = baseName + ' \u00b7 ' + (result.roomName || newRoom);
       }
-      addAlert(newRoom ? `Assigned to room: ${newRoom}` : 'Room unassigned');
 
-      // Refresh equipment UI if it's currently visible
+      // Reset status UI to disconnected state while agent reconnects
+      const blankStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
+      updateStatusUI(blankStatus);
+      updateMultiEncoderUI(blankStatus);
+
+      // Refresh equipment UI
       if (typeof loadEquipmentConfig === 'function') {
         try { loadEquipmentConfig(); } catch { /* ignore */ }
       }
+
+      addAlert(`Now monitoring room: ${result.roomName || newRoom}`);
     }
   } catch (e) {
-    console.warn('[Room] Failed to assign room:', e.message);
-    addAlert('Failed to assign room: ' + e.message);
+    console.warn('[Room] Failed to switch room:', e.message);
+    addAlert('Failed to switch room: ' + e.message);
   }
 }
 
