@@ -770,6 +770,8 @@ async function selectRoom(roomId, roomName) {
       const result = await api.assignRoom(roomId);
       if (result.success) {
         await api.saveConfig({ roomId: result.roomId, roomName: result.roomName });
+        // Fetch equipment config from relay (server-authoritative)
+        await api.fetchRoomEquipment(result.roomId);
         await proceedAfterRoomSelection(result.roomName);
       } else {
         if (msg) { msg.textContent = result.error || 'Failed to assign room.'; msg.style.color = 'var(--warn)'; }

@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createRoom: (name, description) => ipcRenderer.invoke('create-room', { name, description }),
   assignRoom: (roomId) => ipcRenderer.invoke('assign-room', { roomId }),
   fullRoomSwitch: (fromRoom, toRoom, toRoomId) => ipcRenderer.invoke('full-room-switch', { fromRoom, toRoom, toRoomId }),
+  fetchRoomEquipment: (roomId) => ipcRenderer.invoke('fetch-room-equipment', { roomId }),
   validateToken: () => ipcRenderer.invoke('validate-token'),
   prepareForLogin: (newToken) => ipcRenderer.invoke('prepare-for-login', { newToken }),
   signOut: () => ipcRenderer.invoke('sign-out'),
