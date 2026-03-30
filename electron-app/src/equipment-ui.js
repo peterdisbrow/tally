@@ -26,6 +26,26 @@ const deviceState = {
 
 const expandedDevices = new Set();
 
+/**
+ * Reset all in-memory device state to defaults.
+ * Called on factory reset, sign-out, and room switch to prevent stale data.
+ */
+function resetDeviceState() {
+  deviceState.atem = { ip: '' };
+  deviceState.companion = { host: '', port: '8888' };
+  deviceState.encoder = [];
+  deviceState.propresenter = { host: '', port: '1025', configured: false };
+  deviceState.vmix = { host: '', port: '8088', configured: false };
+  deviceState.resolume = { host: '', port: '8080', configured: false };
+  deviceState.mixer = { type: '', host: '', port: '' };
+  deviceState['atem-recording'] = { autoRecord: false };
+  deviceState.hyperdeck = [];
+  deviceState.ptz = [];
+  deviceState.videohub = [];
+  expandedDevices.clear();
+  window._encoderConfig = { _type: '' };
+}
+
 // ─── ACTIVE DEVICES SUMMARY ─────────────────────────────────────────────────
 
 function renderActiveSummary() {
