@@ -3691,8 +3691,6 @@ loadFleet();
 // ─── MAIN SETUP ───────────────────────────────────────────────────────────────
 
 function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
-  const ADMIN_UI_URL = (process.env.ADMIN_UI_URL || 'https://tallyconnect.app/admin').trim();
-
   // ── Session middleware ────────────────────────────────────────────────────
 
   function requireAdminSession(req, res, next) {
@@ -3767,11 +3765,8 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
   }
 
   // ── Admin Portal ──────────────────────────────────────────────────────────
-
-  // Canonical admin UI is hosted on Vercel. Relay serves APIs only.
-  app.all(['/admin', '/admin/*'], (req, res) => {
-    res.redirect(302, ADMIN_UI_URL);
-  });
+  // Admin SPA is now served as static files from public/admin/ (express.static
+  // in server.js) with an SPA fallback route. No redirect needed.
 
   // ── Audit helper ─────────────────────────────────────────────────────────
   const _logAudit = opts.logAudit || (() => {});
