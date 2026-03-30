@@ -760,6 +760,7 @@ async function selectRoom(roomId, roomName) {
       if (result.ok) {
         isRunning = true;
         updateToggleBtn();
+        setAllDotsConnecting();
         await proceedAfterRoomSelection(result.roomName || roomName);
       } else {
         if (msg) { msg.textContent = 'Failed to switch room.'; msg.style.color = 'var(--warn)'; }
@@ -796,6 +797,7 @@ async function proceedAfterRoomSelection(roomName) {
     const autoStartResult = await api.getAutoStart();
     const shouldAutoStart = autoStartResult.enabled !== false;
     if (shouldAutoStart) {
+      setAllDotsConnecting();
       try { await api.startAgent(); isRunning = true; } catch (e) { addAlert(`Agent start failed: ${e.message}`); }
     }
     updateToggleBtn();
@@ -1343,6 +1345,7 @@ async function finishOnboarding() {
   showDashboard();
   const config = await api.getConfig();
   if (config.name) document.getElementById('church-name').textContent = config.name;
+  setAllDotsConnecting();
   try { await api.startAgent(); isRunning = true; } catch {}
   updateToggleBtn();
 }
@@ -1356,6 +1359,7 @@ function skipToManualSetup() {
   api.saveConfig({ setupComplete: true }).then(async () => {
     showDashboard();
     switchTab('equipment');
+    setAllDotsConnecting();
     try { await api.startAgent(); isRunning = true; } catch {}
     updateToggleBtn();
   });
@@ -2519,6 +2523,19 @@ function setDot(name, active) {
   else if (state === 'red') chip.classList.add('err');
 }
 
+function setAllDotsConnecting() {
+  _hasReceivedRelayStatus = false;
+  const dotNames = ['relay', 'atem', 'companion', 'resolume', 'propresenter', 'encoder'];
+  for (const name of dotNames) {
+    const dot = document.getElementById('dot-' + name);
+    if (!dot) continue;
+    const chip = dot.closest('.status-chip');
+    // Skip chips that are hidden (not configured)
+    if (chip && chip.style.display === 'none') continue;
+    setDot(name, { connecting: true });
+  }
+}
+
 function updateToggleBtn() {
   const btn = document.getElementById('btn-toggle');
   btn.textContent = isRunning ? 'Stop Monitoring' : 'Start Monitoring';
@@ -2537,6 +2554,7 @@ async function toggleAgent() {
       await api.stopAgent();
       isRunning = false;
     } else {
+      setAllDotsConnecting();
       await api.startAgent();
       isRunning = true;
     }
@@ -3330,10 +3348,8 @@ async function assignRoomFromPicker(roomId) {
         nameEl.textContent = baseName + ' \u00b7 ' + (result.roomName || newRoom);
       }
 
-      // Reset status UI to disconnected state while agent reconnects
-      const blankStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
-      updateStatusUI(blankStatus);
-      updateMultiEncoderUI(blankStatus);
+      // Show connecting (yellow pulse) while agent reconnects to new room
+      setAllDotsConnecting();
 
       // Clear ALL in-memory device state before reloading new room's equipment
       if (typeof resetDeviceState === 'function') resetDeviceState();
