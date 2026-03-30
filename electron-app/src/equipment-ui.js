@@ -500,8 +500,10 @@ function addFromScan(scanType, data) {
     // Map scan type to encoder subtype — push new instance
     if (!deviceState.encoder) deviceState.encoder = [];
     if (deviceState.encoder.length >= (def.maxInstances || 4)) return;
-    const typeMap = { obs: 'obs', tricaster: 'tricaster', birddog: 'birddog' };
-    const entry = { encoderType: typeMap[scanType] || '', host: data.ip || '', port: data.port ? String(data.port) : '', password: '', label: '', statusUrl: '', source: '' };
+    const typeMap = { obs: 'obs', tricaster: 'tricaster', birddog: 'birddog', blackmagic: 'blackmagic', 'tally-encoder': 'tally-encoder' };
+    // Encoder entries from 'encoders' scan key carry their subtype in data.type
+    const encoderType = typeMap[scanType] || (data.type && typeMap[data.type]) || '';
+    const entry = { encoderType, host: data.ip || '', port: data.port ? String(data.port) : '', password: '', label: '', statusUrl: '', source: '' };
     deviceState.encoder.push(entry);
   } else if (def.multi) {
     // Add new instance (non-encoder multi devices)
