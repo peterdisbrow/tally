@@ -91,6 +91,65 @@ const SAFE_REMEDIATIONS = {
   'audio_silence':          { command: 'recovery.resetAudio',       description: 'Reset audio routing', params: {} },
 };
 
+// ─── HUMAN-READABLE LABELS ──────────────────────────────────────────────────
+
+/** Convert raw alert_type codes into friendly, human-readable descriptions. */
+function _friendlyAlertType(alertType) {
+  const map = {
+    'stream_stopped':          'Stream stopped',
+    'atem_disconnected':       'ATEM switcher disconnected',
+    'multiple_systems_down':   'Multiple systems went down',
+    'recording_failed':        'Recording failed to start',
+    'recording_not_started':   'Recording not started',
+    'audio_muted':             'Audio is muted',
+    'audio_silence':           'No audio signal detected',
+    'failover_executed':       'Backup system activated',
+    'failover_command_failed': 'Backup system failed to activate',
+    'no_td_response':          'No response from tech director',
+    'encoder_stream_stopped':  'Encoder stream stopped',
+    'atem_stream_stopped':     'ATEM stream stopped',
+    'vmix_stream_stopped':     'vMix stream stopped',
+    'obs_disconnected':        'OBS disconnected',
+    'encoder_disconnected':    'Encoder disconnected',
+    'vmix_disconnected':       'vMix disconnected',
+    'connection_lost':         'Device connection lost',
+  };
+  return map[alertType] || alertType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/** Convert triage severity codes into user-friendly labels. */
+function _friendlySeverity(severity) {
+  const map = {
+    'critical': 'Critical',
+    'high':     'High',
+    'medium':   'Moderate',
+    'low':      'Low',
+    'info':     'Informational',
+  };
+  return map[severity] || severity;
+}
+
+/** Convert time_context codes into user-friendly phrases. */
+function _friendlyTimeContext(context) {
+  const map = {
+    'pre_service': 'Before service — your team is setting up',
+    'in_service':  'During service — you\'re live',
+    'off_hours':   'Outside of service hours',
+  };
+  return map[context] || context.replace(/_/g, ' ');
+}
+
+/** Convert reconnect_pattern codes into user-friendly descriptions. */
+function _friendlyReconnectPattern(pattern) {
+  const map = {
+    'stable':     'stable',
+    'occasional': 'Reconnected once or twice recently — worth keeping an eye on',
+    'frequent':   'Reconnecting frequently — the connection seems unstable',
+    'flapping':   'Connection is very unstable — dropping and reconnecting repeatedly',
+  };
+  return map[pattern] || pattern;
+}
+
 // ─── AI TRIAGE ENGINE CLASS ──────────────────────────────────────────────────
 
 class AITriageEngine {
@@ -700,24 +759,32 @@ class AITriageEngine {
     if (scored.triage_score < 40) return;
 
     const remediation = SAFE_REMEDIATIONS[alertType];
+    const friendlyAlert = _friendlyAlertType(alertType);
+    const friendlySeverity = _friendlySeverity(scored.triage_severity);
+    const friendlyContext = _friendlyTimeContext(scored.time_context);
+    const friendlyReconnect = _friendlyReconnectPattern(scored.reconnect_pattern);
+
     const recommendation = remediation
-      ? `Recommended action: ${remediation.description} (command: ${remediation.command})`
-      : `Manual investigation needed for ${alertType.replace(/_/g, ' ')}`;
+      ? `Suggested fix: ${remediation.description}`
+      : `This may need a hands-on look — check the ${alertType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())} equipment.`;
+
+    const deviceNote = scored.device_count > 1
+      ? `${scored.device_count} devices are affected.`
+      : 'One device is affected.';
 
     try {
       await this.createTicket({
         churchId,
-        title: `[AI Triage] ${alertType.replace(/_/g, ' ')} — ${scored.triage_severity} severity`,
+        title: `${friendlyAlert} — ${friendlySeverity} priority`,
         description: [
-          `AI Triage Score: ${scored.triage_score}/150`,
-          `Severity: ${scored.triage_severity}`,
-          `Time Context: ${scored.time_context.replace(/_/g, ' ')}`,
-          `Devices Affected: ${scored.device_count}`,
-          `Reconnect Pattern: ${scored.reconnect_pattern}`,
+          `We detected a ${friendlyAlert.toLowerCase()} issue (${friendlySeverity} priority).`,
+          `Timing: ${friendlyContext}.`,
+          deviceNote,
+          friendlyReconnect !== 'stable' ? `Connection stability: ${friendlyReconnect}.` : '',
           '',
           recommendation,
           '',
-          context.message ? `Alert message: ${context.message}` : '',
+          context.message || '',
         ].filter(Boolean).join('\n'),
         severity: scored.triage_severity === 'critical' ? 'P1' : scored.triage_severity === 'high' ? 'P2' : 'P3',
         issueCategory: this._alertTypeToCategory(alertType),
@@ -983,4 +1050,8 @@ module.exports = {
   RECONNECT_PATTERN_SCORES,
   ALERT_TYPE_WEIGHTS,
   SAFE_REMEDIATIONS,
+  _friendlyAlertType,
+  _friendlySeverity,
+  _friendlyTimeContext,
+  _friendlyReconnectPattern,
 };

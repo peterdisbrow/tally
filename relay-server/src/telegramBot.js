@@ -2196,10 +2196,10 @@ class TallyBot {
         return this.sendMessage(chatId, `✅ Test message sent to Slack!`);
       } else {
         const body = await resp.text();
-        return this.sendMessage(chatId, `❌ Slack rejected the message: ${resp.status} ${body}`);
+        return this.sendMessage(chatId, `❌ Slack couldn't deliver the message. Check that your webhook URL is still valid in the Tally settings.`);
       }
     } catch (e) {
-      return this.sendMessage(chatId, `❌ Failed to reach Slack: ${e.message}`);
+      return this.sendMessage(chatId, `❌ Couldn't reach Slack right now. Check your internet connection and webhook URL.`);
     }
   }
 
@@ -2515,7 +2515,8 @@ class TallyBot {
 
     if (error) {
       const label = roomName ? ` (${roomName})` : '';
-      return this.sendMessage(chatId, `❌ *${church.name}*${label} — ${error}`, { parse_mode: 'Markdown' });
+      const friendly = this._friendlyError(error, command);
+      return this.sendMessage(chatId, `❌ *${church.name}*${label} — ${friendly}`, { parse_mode: 'Markdown' });
     }
 
     // Format response based on command
@@ -2550,10 +2551,52 @@ class TallyBot {
         return `✅ Stream stopped`;
       case 'obs.setScene':
         return `✅ Switched to scene *${params.scene}*`;
+      case 'obs.startRecording':
+        return `✅ Recording started`;
+      case 'obs.stopRecording':
+        return `✅ Recording stopped`;
       case 'companion.pressNamed':
         return `✅ Button "${params.name}" pressed`;
+      case 'companion.press':
+        return `✅ Button pressed (page ${params.page}, row ${params.row}, col ${params.col})`;
+      case 'companion.getGrid':
+        if (result && typeof result === 'object') {
+          const pages = Object.keys(result).length;
+          return `🎛️ *Companion Grid*: ${pages} page${pages !== 1 ? 's' : ''} available`;
+        }
+        return `✅ Companion grid loaded`;
+      case 'companion.connections':
+        if (Array.isArray(result)) {
+          const lines = result.map(c => `• ${c.label || c.id}: ${c.enabled !== false ? '✅ Active' : '⚫ Disabled'}`);
+          return `🎛️ *Companion Connections*\n${lines.join('\n') || 'No connections configured'}`;
+        }
+        return `✅ Companion connections loaded`;
+      case 'companion.getVariable':
+      case 'companion.getCustomVariable':
+        return `✅ Value: *${result?.value != null ? result.value : result}*`;
       case 'videohub.route':
         return `✅ Input ${params.input} → Output ${params.output}`;
+      case 'videohub.getRoutes':
+        if (result && typeof result === 'object') {
+          if (Array.isArray(result)) {
+            const lines = result.map(r => `• Output ${r.output}: ← Input ${r.input}${r.inputLabel ? ` (${r.inputLabel})` : ''}`);
+            return `📺 *Video Hub Routing*\n${lines.join('\n') || 'No routes'}`;
+          }
+          const entries = Object.entries(result);
+          const lines = entries.slice(0, 20).map(([out, inp]) => `• Output ${out}: ← Input ${inp}`);
+          return `📺 *Video Hub Routing*\n${lines.join('\n') || 'No routes'}`;
+        }
+        return `✅ Routes loaded`;
+      case 'videohub.getInputLabels':
+      case 'videohub.getOutputLabels': {
+        const labelType = command.includes('Input') ? 'Input' : 'Output';
+        if (result && typeof result === 'object') {
+          const entries = Array.isArray(result) ? result.map((l, i) => [i + 1, l]) : Object.entries(result);
+          const lines = entries.slice(0, 20).map(([idx, label]) => `• ${labelType} ${idx}: ${label}`);
+          return `📺 *${labelType} Labels*\n${lines.join('\n') || 'No labels set'}`;
+        }
+        return `✅ ${labelType} labels loaded`;
+      }
       case 'videohub.setInputLabel':
         return `✅ Input ${params.index} renamed to *${params.label}*`;
       case 'videohub.setOutputLabel':
@@ -2565,12 +2608,32 @@ class TallyBot {
       case 'propresenter.lastSlide':
         return `✅ ${result || 'Jumped to last slide'}`;
       case 'propresenter.goToSlide':
-        // params.index is the user-visible 1-based number passed from the parser.
         return `✅ Jumped to slide ${params.index}`;
       case 'propresenter.status':
+        if (result && typeof result === 'object') {
+          const slide = result.currentSlide || result.slide || 'Unknown';
+          const idx = result.slideIndex != null ? ` (${result.slideIndex + 1}/${result.slideTotal || '?'})` : '';
+          return `⛪ *ProPresenter*: showing "${slide}"${idx}`;
+        }
         return `✅ ${result}`;
       case 'propresenter.playlist':
+        if (Array.isArray(result)) {
+          const lines = result.map((item, i) => `${i + 1}. ${item.name || item}`);
+          return `📋 *Playlist*\n${lines.join('\n')}`;
+        }
         return `📋 *Playlist*\n${result}`;
+      case 'propresenter.getTimers':
+        if (Array.isArray(result)) {
+          const lines = result.map(t => `• ${t.name || 'Timer'}: ${t.value || t.time || 'stopped'}`);
+          return `⏱️ *Timers*\n${lines.join('\n') || 'No timers'}`;
+        }
+        return `✅ Timers loaded`;
+      case 'propresenter.messages':
+        if (Array.isArray(result)) {
+          const lines = result.map(m => `• ${m.name || m}`);
+          return `💬 *Messages*\n${lines.join('\n') || 'No messages'}`;
+        }
+        return `✅ Messages loaded`;
       case 'dante.scene':
         return `✅ Dante scene "${params.name}" triggered`;
       case 'ptz.pan':
@@ -2581,6 +2644,153 @@ class TallyBot {
       case 'ptz.home':
       case 'ptz.stop':
         return `✅ ${typeof result === 'string' ? result : 'PTZ command executed'}`;
+      case 'vmix.isRunning':
+      case 'vmix.status': {
+        if (result && typeof result === 'object') {
+          let text = '🎬 *vMix Status*\n';
+          text += result.running !== false ? '• Running: ✅ Yes' : '• Running: ⚫ No';
+          if (result.streaming != null) text += `\n• Streaming: ${result.streaming ? '🔴 Live' : 'Off-air'}`;
+          if (result.recording != null) text += `\n• Recording: ${result.recording ? '🔴 Yes' : 'No'}`;
+          if (result.edition) text += `\n• Edition: ${result.edition}`;
+          if (result.version) text += `\n• Version: ${result.version}`;
+          if (result.activeInput != null) text += `\n• Active input: ${result.activeInput}`;
+          if (result.fadeToBlack) text += `\n• Fade to black: Active`;
+          return text;
+        }
+        return result ? '✅ vMix is running' : '⚫ vMix is not running';
+      }
+      case 'vmix.listInputs': {
+        if (Array.isArray(result)) {
+          const lines = result.slice(0, 20).map((inp, i) => {
+            const name = typeof inp === 'string' ? inp : (inp.name || inp.title || `Input ${i + 1}`);
+            const type = inp.type ? ` (${inp.type})` : '';
+            return `${i + 1}. ${name}${type}`;
+          });
+          return `🎬 *vMix Inputs*\n${lines.join('\n')}`;
+        }
+        return `✅ vMix inputs loaded`;
+      }
+      case 'vmix.audioLevels': {
+        if (result && typeof result === 'object') {
+          if (Array.isArray(result)) {
+            const lines = result.map(ch => `• ${ch.name || 'Channel'}: ${ch.muted ? '🔇 Muted' : `🔊 ${ch.volume != null ? ch.volume + '%' : 'Active'}`}`);
+            return `🔊 *vMix Audio Levels*\n${lines.join('\n')}`;
+          }
+          const master = result.master != null ? `Master: ${result.masterMuted ? '🔇 Muted' : `🔊 ${result.master}%`}` : '';
+          return `🔊 *vMix Audio*\n${master || 'Audio levels loaded'}`;
+        }
+        return `✅ Audio levels loaded`;
+      }
+      case 'vmix.startStream':
+        return `✅ vMix stream started — you're live!`;
+      case 'vmix.stopStream':
+        return `✅ vMix stream stopped`;
+      case 'vmix.startRecording':
+        return `✅ vMix recording started`;
+      case 'vmix.stopRecording':
+        return `✅ vMix recording stopped`;
+      case 'vmix.cut':
+        return `✅ vMix cut transition`;
+      case 'vmix.fade':
+        return `✅ vMix fade transition${params.ms ? ` (${params.ms}ms)` : ''}`;
+      case 'vmix.setPreview':
+        return `✅ vMix preview set to input ${params.input}`;
+      case 'vmix.setProgram':
+        return `✅ vMix program set to input ${params.input}`;
+      case 'vmix.mute':
+        return `🔇 vMix master muted`;
+      case 'vmix.unmute':
+        return `🔊 vMix master unmuted`;
+      case 'vmix.setVolume':
+        return `🔊 vMix volume set to ${params.value}%`;
+      case 'vmix.fadeToBlack':
+        return `✅ vMix fade to black toggled`;
+      case 'encoder.startStream':
+        return `✅ Encoder stream started`;
+      case 'encoder.stopStream':
+        return `✅ Encoder stream stopped`;
+      case 'encoder.startRecording':
+        return `✅ Encoder recording started`;
+      case 'encoder.stopRecording':
+        return `✅ Encoder recording stopped`;
+      case 'encoder.status': {
+        if (result && typeof result === 'object') {
+          let text = '📡 *Encoder Status*\n';
+          text += `• Connected: ${result.connected !== false ? '✅ Yes' : '❌ No'}`;
+          if (result.streaming != null) text += `\n• Streaming: ${result.streaming ? '🔴 Live' : 'Off-air'}`;
+          if (result.recording != null) text += `\n• Recording: ${result.recording ? '🔴 Yes' : 'No'}`;
+          if (result.bitrate) text += `\n• Bitrate: ${(result.bitrate / 1000).toFixed(1)} Mbps`;
+          if (result.uptime) text += `\n• Uptime: ${result.uptime}`;
+          if (result.model) text += `\n• Model: ${result.model}`;
+          return text;
+        }
+        return `✅ Encoder status loaded`;
+      }
+      case 'mixer.status': {
+        if (result && typeof result === 'object') {
+          let text = '🎚️ *Audio Mixer Status*\n';
+          text += `• Connected: ${result.connected !== false ? '✅ Yes' : '❌ No'}`;
+          if (result.model) text += `\n• Model: ${result.model}`;
+          if (result.channelCount) text += `\n• Channels: ${result.channelCount}`;
+          if (result.sampleRate) text += `\n• Sample rate: ${result.sampleRate} Hz`;
+          if (result.masterLevel != null) text += `\n• Master level: ${result.masterLevel} dB`;
+          if (result.masterMuted) text += `\n• Master: 🔇 Muted`;
+          return text;
+        }
+        return `✅ Mixer status loaded`;
+      }
+      case 'mixer.channelStatus': {
+        if (result && typeof result === 'object') {
+          let text = `🎚️ *Channel ${params.channel} Status*\n`;
+          if (result.name) text += `• Name: ${result.name}\n`;
+          text += `• Fader: ${result.faderLevel != null ? result.faderLevel + ' dB' : 'Unknown'}`;
+          if (result.muted != null) text += `\n• ${result.muted ? '🔇 Muted' : '🔊 Active'}`;
+          if (result.gain != null) text += `\n• Gain: ${result.gain} dB`;
+          if (result.phantom) text += `\n• 48V phantom: On`;
+          return text;
+        }
+        return `✅ Channel ${params.channel} status loaded`;
+      }
+      case 'mixer.setChannel':
+      case 'mixer.setFader':
+        return `✅ Channel ${params.channel} fader set to ${params.level != null ? params.level : params.value}`;
+      case 'mixer.muteChannel':
+        return `🔇 Channel ${params.channel} muted`;
+      case 'mixer.unmuteChannel':
+        return `🔊 Channel ${params.channel} unmuted`;
+      case 'mixer.setGain':
+        return `✅ Channel ${params.channel} gain set to ${params.gain}`;
+      case 'mixer.recallScene':
+        return `✅ Mixer scene ${params.scene} recalled`;
+      case 'mixer.saveScene':
+        return `✅ Mixer scene ${params.scene} saved${params.name ? ` as "${params.name}"` : ''}`;
+      case 'mixer.setChannelName':
+        return `✅ Channel ${params.channel} renamed to "${params.name}"`;
+      case 'resolume.status': {
+        if (result && typeof result === 'object') {
+          let text = '🎨 *Resolume Status*\n';
+          text += `• Running: ${result.running !== false ? '✅ Yes' : '⚫ No'}`;
+          if (result.version) text += `\n• Version: ${result.version}`;
+          if (result.bpm) text += `\n• BPM: ${result.bpm}`;
+          if (result.masterOpacity != null) text += `\n• Master opacity: ${Math.round(result.masterOpacity * 100)}%`;
+          return text;
+        }
+        return `✅ Resolume is running`;
+      }
+      case 'resolume.getLayers': {
+        if (Array.isArray(result)) {
+          const lines = result.slice(0, 10).map((l, i) => `• Layer ${i + 1}: ${l.name || 'Untitled'}${l.opacity != null ? ` (${Math.round(l.opacity * 100)}%)` : ''}`);
+          return `🎨 *Resolume Layers*\n${lines.join('\n')}`;
+        }
+        return `✅ Layers loaded`;
+      }
+      case 'resolume.getColumns': {
+        if (Array.isArray(result)) {
+          const lines = result.slice(0, 10).map((c, i) => `• Column ${i + 1}: ${c.name || 'Untitled'}${c.connected ? ' (active)' : ''}`);
+          return `🎨 *Resolume Columns*\n${lines.join('\n')}`;
+        }
+        return `✅ Columns loaded`;
+      }
       case 'system.preServiceCheck':
         if (result && result.checks) {
           const lines = result.checks.map(c => `${c.pass ? '✅' : '❌'} ${c.name}: ${c.detail}`);
@@ -2589,8 +2799,92 @@ class TallyBot {
         }
         return `✅ Pre-service check sent`;
       default:
-        return `✅ ${JSON.stringify(result)}`;
+        // Gracefully format unknown object results instead of raw JSON
+        if (result && typeof result === 'object') {
+          return `✅ ${this._friendlyObjectSummary(command, result)}`;
+        }
+        return `✅ Done`;
     }
+  }
+
+  /**
+   * Convert an unknown result object into a brief human-readable summary.
+   * Used as a fallback when no specific formatter exists.
+   */
+  _friendlyObjectSummary(command, obj) {
+    // If the object has a 'message' or 'text' field, use it directly
+    if (obj.message && typeof obj.message === 'string') return obj.message;
+    if (obj.text && typeof obj.text === 'string') return obj.text;
+    if (obj.status && typeof obj.status === 'string') return `Status: ${obj.status}`;
+
+    // If it has success/ok indicators, give a friendly confirmation
+    if (obj.success === true || obj.ok === true) return 'Command completed successfully';
+    if (obj.success === false || obj.ok === false) return 'Command completed but reported an issue';
+
+    // Summarize key fields without dumping the whole object
+    const keys = Object.keys(obj);
+    if (keys.length === 0) return 'Done';
+    if (keys.length <= 3) {
+      const parts = keys.map(k => {
+        const v = obj[k];
+        if (typeof v === 'boolean') return `${k}: ${v ? 'yes' : 'no'}`;
+        if (typeof v === 'number' || typeof v === 'string') return `${k}: ${v}`;
+        return null;
+      }).filter(Boolean);
+      if (parts.length) return parts.join(', ');
+    }
+
+    // Generic fallback — describe what the device is
+    const deviceName = command.split('.')[0] || 'device';
+    return `${deviceName} command completed`;
+  }
+
+  /**
+   * Convert a raw technical error into a friendly, human-readable message.
+   */
+  _friendlyError(error, command) {
+    if (!error || typeof error !== 'string') return 'Something went wrong. Please try again.';
+
+    const e = error.toLowerCase();
+    const device = (command || '').split('.')[0] || 'device';
+    const deviceLabel = { atem: 'ATEM switcher', obs: 'OBS', vmix: 'vMix', encoder: 'encoder', mixer: 'audio mixer', companion: 'Companion', propresenter: 'ProPresenter', videohub: 'Video Hub', resolume: 'Resolume', ptz: 'PTZ camera' }[device] || device;
+
+    // Connection timeouts
+    if (e.includes('etimedout') || e.includes('timed out') || e.includes('timeout')) {
+      return `Couldn't reach your ${deviceLabel}. Check that it's powered on and connected to the network.`;
+    }
+    // Connection refused
+    if (e.includes('econnrefused') || e.includes('connection refused')) {
+      return `Your ${deviceLabel} refused the connection. Make sure the software is running and the port is correct.`;
+    }
+    // Connection reset
+    if (e.includes('econnreset') || e.includes('connection reset')) {
+      return `Lost connection to your ${deviceLabel}. It may have restarted — try again in a moment.`;
+    }
+    // Not connected / offline
+    if (e.includes('not connected') || e.includes('offline') || e.includes('no connection') || e.includes('disconnected')) {
+      return `Your ${deviceLabel} isn't connected right now. Check the equipment page in Tally to reconnect.`;
+    }
+    // Host not found
+    if (e.includes('enotfound') || e.includes('getaddrinfo') || e.includes('dns')) {
+      return `Couldn't find your ${deviceLabel} on the network. Double-check the IP address in your equipment settings.`;
+    }
+    // Command not supported
+    if (e.includes('not supported') || e.includes('not available') || e.includes('unknown command') || e.includes('not implemented')) {
+      return `That command isn't supported by your ${deviceLabel}. Try a different approach or check that the feature is enabled.`;
+    }
+    // Auth / permission
+    if (e.includes('auth') || e.includes('permission') || e.includes('unauthorized') || e.includes('forbidden')) {
+      return `Your ${deviceLabel} requires authentication. Check the password in your equipment settings.`;
+    }
+    // Already in that state
+    if (e.includes('already')) {
+      return error; // "Already streaming" etc. are already human-readable
+    }
+    // Generic fallback — strip IP addresses and ports from the message
+    const cleaned = error.replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?\b/g, '').replace(/Error:\s*/i, '').trim();
+    if (cleaned.length < 120 && cleaned.length > 0) return cleaned;
+    return `There was a problem with your ${deviceLabel}. Please try again or check the equipment settings.`;
   }
 
   _waitForResult(churchId, msgId, timeoutMs) {
