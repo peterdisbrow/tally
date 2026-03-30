@@ -7,13 +7,17 @@
  * Critical: only one encoder can stream to a CDN at a time (same stream key).
  * The backup streams until it fails or the TD manually switches back. We do NOT
  * reconnect the primary in the background — it would fight for CDN credentials.
+ *
+ * After failover, roles swap: the old primary becomes config.backupEncoder so
+ * the system can fail over again if the new primary dies.
  */
 
 const EncoderBridge = require('../encoderBridge');
 
 /**
  * Switch from the primary encoder to the backup encoder.
- * Stops polling the primary, starts the backup, and begins monitoring it.
+ * Stops polling the primary, starts the backup, swaps roles so the old primary
+ * becomes the new backup config, and begins monitoring backup availability.
  */
 async function failoverSwitchToBackupEncoder(agent) {
   const backupCfg = agent.config.backupEncoder;
@@ -35,9 +39,8 @@ async function failoverSwitchToBackupEncoder(agent) {
     try { await agent.encoderBridge.disconnect(); } catch { /* ignore */ }
   }
 
-  // Store primary config for later recovery
-  agent._primaryEncoderBridge = agent.encoderBridge;
-  agent._primaryEncoderConfig = agent.config.encoder;
+  // Save the current primary config before overwriting
+  const oldPrimaryCfg = agent.config.encoder;
 
   if (backupType === 'atem-streaming') {
     // ATEM built-in streaming — no separate bridge needed
@@ -65,16 +68,24 @@ async function failoverSwitchToBackupEncoder(agent) {
 
   agent._backupEncoderActive = true;
 
-  // Restart polling at 3s to monitor backup encoder health
+  // ── Role swap: old primary becomes the new backup config ──
+  agent.config.encoder = backupCfg;
+  agent.config.backupEncoder = oldPrimaryCfg;
+
+  // Restart polling at 3s to monitor the now-active encoder
   agent._startEncoderPoll(3_000);
 
-  console.log(`[Failover] ✅ Switched from ${primaryType} to backup encoder (${backupType})`);
+  // Start monitoring the old primary (now backup) so TD knows when it's available
+  agent._monitorBackupEncoder(oldPrimaryCfg);
+
+  console.log(`[Failover] ✅ Switched from ${primaryType} to backup encoder (${backupType}) — roles swapped`);
   return `Switched to backup encoder (${backupType})`;
 }
 
 /**
- * Switch back from the backup encoder to the primary encoder.
- * Called when the backup fails or the TD manually triggers recovery.
+ * Switch to the other encoder (the current backup).
+ * Called when the TD triggers /recover, or when the current primary fails and
+ * the backup is available. Swaps roles again so the cycle can repeat.
  */
 async function failoverSwitchToPrimaryEncoder(agent) {
   const backupType = agent._backupEncoderType;
@@ -85,7 +96,12 @@ async function failoverSwitchToPrimaryEncoder(agent) {
     agent._encoderPollTimer = null;
   }
 
-  // Stop backup encoder
+  // Stop monitoring the backup encoder availability
+  if (agent._stopMonitoringBackupEncoder) {
+    agent._stopMonitoringBackupEncoder();
+  }
+
+  // Stop the current active encoder
   if (backupType === 'atem-streaming') {
     try { await agent.atem.stopStreaming(); } catch { /* ignore */ }
   } else if (agent.encoderBridge) {
@@ -93,36 +109,39 @@ async function failoverSwitchToPrimaryEncoder(agent) {
     try { await agent.encoderBridge.disconnect(); } catch { /* ignore */ }
   }
 
-  // Recreate primary encoder bridge from saved config
-  const primaryCfg = agent._primaryEncoderConfig || agent.config.encoder;
-  if (!primaryCfg || !primaryCfg.type) {
-    throw new Error('No primary encoder config available for recovery');
+  // The target is config.backupEncoder (the other encoder after role swap)
+  const targetCfg = agent.config.backupEncoder;
+  if (!targetCfg || !targetCfg.type) {
+    throw new Error('No backup encoder config available for recovery');
   }
 
-  const primaryBridge = new EncoderBridge(primaryCfg);
-  if (primaryCfg.type === 'obs' && agent.obs) {
-    primaryBridge.setObs(agent.obs);
+  const targetBridge = new EncoderBridge(targetCfg);
+  if (targetCfg.type === 'obs' && agent.obs) {
+    targetBridge.setObs(agent.obs);
   }
 
-  const online = await primaryBridge.connect();
+  const online = await targetBridge.connect();
   if (online) {
-    try { await primaryBridge.startStream(); } catch (e) {
-      console.warn(`[Failover] Primary encoder startStream: ${e.message}`);
+    try { await targetBridge.startStream(); } catch (e) {
+      console.warn(`[Failover] Recovery encoder startStream: ${e.message}`);
     }
   }
 
-  agent.encoderBridge = primaryBridge;
+  // ── Swap roles: target becomes primary, old active becomes backup ──
+  const oldActiveCfg = agent.config.encoder;
+  agent.config.encoder = targetCfg;
+  agent.config.backupEncoder = oldActiveCfg;
+
+  agent.encoderBridge = targetBridge;
   agent._backupEncoderActive = false;
   agent._backupEncoderType = null;
-  agent._primaryEncoderBridge = null;
-  agent._primaryEncoderConfig = null;
 
   // Resume polling at 3s (active stream)
   agent._startEncoderPoll(3_000);
 
-  const primaryType = primaryCfg.type;
-  console.log(`[Failover] ✅ Switched back to primary encoder (${primaryType})`);
-  return `Switched back to primary encoder (${primaryType})`;
+  const targetType = targetCfg.type;
+  console.log(`[Failover] ✅ Recovered to encoder (${targetType}) — roles swapped`);
+  return `Recovered to encoder (${targetType})`;
 }
 
 module.exports = {

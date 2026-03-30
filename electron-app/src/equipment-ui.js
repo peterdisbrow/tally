@@ -67,7 +67,8 @@ function renderActiveSummary() {
   deviceState.encoder.forEach((enc, i) => {
     if (enc.encoderType) {
       const encName = ENCODER_DISPLAY_NAMES[enc.encoderType] || 'Encoder';
-      addChip('encoder', encName + (deviceState.encoder.length > 1 ? ` ${i + 1}` : ''), enc.host || '');
+      const role = deviceState.encoder.length > 1 ? (i === 0 ? ' (Primary)' : i === 1 ? ' (Backup)' : ` ${i + 1}`) : '';
+      addChip('encoder', encName + role, enc.host || '');
     }
   });
   if (deviceState.companion.host) addChip('companion', 'Companion', `${deviceState.companion.host}:${deviceState.companion.port || '8888'}`);

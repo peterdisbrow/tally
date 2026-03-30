@@ -2001,6 +2001,8 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
     config.encoders = equipConfig.encoders;
     // Primary encoder for church-client backward compat
     config.encoder = equipConfig.encoders[0] || null;
+    // Second encoder becomes the backup for failover
+    config.backupEncoder = equipConfig.encoders[1] || null;
   }
   // Also accept flat primary encoder fields (legacy / wizard)
   if (equipConfig.encoderType !== undefined && !Array.isArray(equipConfig.encoders)) {

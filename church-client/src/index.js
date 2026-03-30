@@ -359,6 +359,9 @@ class ChurchAVAgent {
         cpuUsage: null,
         details: null,
       },
+      backupEncoder: config.backupEncoder?.type
+        ? { configured: true, connected: false, type: config.backupEncoder.type }
+        : { configured: false, connected: false, type: null },
       companion: { connected: false, endpoint: null, connectionCount: 0, connections: [] },
       videoHubs: [],
       hyperdeck: { connected: false, recording: false, decks: [] },
@@ -401,6 +404,7 @@ class ChurchAVAgent {
     this._bitrateSamples = [];         // rolling samples for baseline calculation
     this._bitrateInLoss = false;       // true = loss signal sent, waiting for recovery
     this._fastEncoderPoll = false;     // true = 3s poll instead of 15s
+    this._lastEncoderDisconnectSignalAt = 0; // dedup fast poll vs watchdog disconnect signals
 
     // ── Recent alerts / commands for diagnostic bundles ─────────────────────────
     this._recentAlerts = [];           // last 50 alerts (for diagnostic bundle)
@@ -658,7 +662,10 @@ class ChurchAVAgent {
     if (this._encoderManaged && this.encoderBridge && !this.status.encoder?.connected) {
       issues.push('encoder_disconnected');
       const encoderType = this.status.encoder?.type || this.config.encoder?.type || 'encoder';
-      this._sendWatchdogAlert('encoder_disconnected', `${encoderType} encoder disconnected`);
+      // Skip watchdog alert if the fast poll already sent encoder_disconnected signal recently
+      if (!this._lastEncoderDisconnectSignalAt || Date.now() - this._lastEncoderDisconnectSignalAt > 30_000) {
+        this._sendWatchdogAlert('encoder_disconnected', `${encoderType} encoder disconnected`);
+      }
     }
 
     // HyperDeck disconnected
@@ -1540,7 +1547,14 @@ class ChurchAVAgent {
       if (s?.details) this.logIdentity('encoder', 'Encoder identity:', s.details.replace(/ — Streaming \d+m\d+s/, ''));
 
       if (s.connected && !wasConnected) { this.health.encoder.reconnects++; console.log('✅ Encoder connected'); }
-      if (!s.connected && wasConnected) console.log('⚠️  Encoder disconnected');
+      if (!s.connected && wasConnected) {
+        console.log('⚠️  Encoder disconnected');
+        // Send signal immediately during active stream for fast failover (don't wait 30s watchdog)
+        if (this._fastEncoderPoll) {
+          this._lastEncoderDisconnectSignalAt = Date.now();
+          this.sendToRelay({ type: 'signal_event', signal: 'encoder_disconnected' });
+        }
+      }
       // Push status immediately on connection state changes
       if (s.connected !== wasConnected) this.sendStatus();
 
@@ -1663,6 +1677,54 @@ class ChurchAVAgent {
     if (isLive && s.bitrateKbps > 0) {
       this._updateBitrateSignal(s.bitrateKbps);
     }
+  }
+
+  /**
+   * Monitor the backup encoder's availability (API-level check, no streaming).
+   * After failover, the old primary becomes the backup. This polls it every 15s
+   * to see if it comes back online, so the TD knows /recover will work.
+   */
+  _monitorBackupEncoder(cfg) {
+    this._stopMonitoringBackupEncoder();
+    if (!cfg || !cfg.type) return;
+
+    const probe = new (require('./encoderBridge'))(cfg);
+    this._backupEncoderProbe = probe;
+    this._backupEncoderProbeConnected = false;
+
+    this._backupEncoderProbeTimer = this._track(setInterval(async () => {
+      try {
+        const connected = await probe.connect();
+        const wasConnected = this._backupEncoderProbeConnected;
+        this._backupEncoderProbeConnected = connected;
+
+        // Update status so portal can show backup encoder state
+        this.status.backupEncoder = { configured: true, connected, type: cfg.type };
+
+        if (connected && !wasConnected) {
+          console.log(`[Failover] Backup encoder (${cfg.type}) is back online — available for /recover`);
+          this.sendToRelay({
+            type: 'signal_event',
+            signal: 'backup_encoder_available',
+          });
+        }
+      } catch {
+        this._backupEncoderProbeConnected = false;
+        this.status.backupEncoder = { configured: true, connected: false, type: cfg.type };
+      }
+    }, 15_000));
+  }
+
+  _stopMonitoringBackupEncoder() {
+    if (this._backupEncoderProbeTimer) {
+      clearInterval(this._backupEncoderProbeTimer);
+      this._backupEncoderProbeTimer = null;
+    }
+    if (this._backupEncoderProbe) {
+      try { this._backupEncoderProbe.disconnect(); } catch { /* ignore */ }
+      this._backupEncoderProbe = null;
+    }
+    this._backupEncoderProbeConnected = false;
   }
 
   _updateBitrateSignal(bitrateKbps) {

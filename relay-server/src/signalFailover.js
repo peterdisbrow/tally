@@ -261,6 +261,9 @@ class SignalFailover {
       case 'backup_encoder_failed':
         this._onBackupEncoderFailed(churchId, s, config, church, data);
         break;
+      case 'backup_encoder_available':
+        this._onBackupEncoderAvailable(churchId, s, config, church);
+        break;
     }
   }
 
@@ -579,6 +582,24 @@ class SignalFailover {
         this._resetState(churchId);
       }
     })();
+  }
+
+  /**
+   * The backup encoder (old primary after role swap) is back online.
+   * Notify the TD that /recover is now available.
+   */
+  _onBackupEncoderAvailable(churchId, s, config, church) {
+    if (s.state !== STATES.FAILOVER_ACTIVE) return;
+    if (config.action?.type !== 'backup_encoder') return;
+
+    this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'backup_encoder_available');
+
+    this._sendAlert(church, 'backup_encoder_available',
+      `ℹ️ *Original Encoder Back Online* — ${church.name}\n` +
+      `The other encoder is reachable again and available as backup.\n` +
+      `The stream is running fine on the current encoder.\n\n` +
+      `When you're ready, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back.`
+    );
   }
 
   // ─── Escalation ─────────────────────────────────────────────────────────────

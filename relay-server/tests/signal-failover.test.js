@@ -725,4 +725,50 @@ describe('SignalFailover', () => {
       expect(alertEngine.sendTelegramMessage).toHaveBeenCalled();
     });
   });
+
+  // ── Backup Encoder Available ────────────────────────────────────────────
+
+  describe('Backup Encoder Available', () => {
+    it('sends alert when backup encoder becomes available during FAILOVER_ACTIVE', async () => {
+      db = mockDb({ failover_action: JSON.stringify({ type: 'backup_encoder' }) });
+      failover = new SignalFailover(churches, alertEngine, autoRecovery, db);
+
+      // Get to FAILOVER_ACTIVE: encoder disconnect → CONFIRMED → ack timeout → failover
+      failover.onSignalEvent('church-1', 'encoder_disconnected', { church });
+      expect(failover.getState('church-1').state).toBe(STATES.CONFIRMED_OUTAGE);
+
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(failover.getState('church-1').state).toBe(STATES.FAILOVER_ACTIVE);
+
+      const alertsBefore = alertEngine.sendTelegramMessage.mock.calls.length;
+
+      // Backup encoder comes back online
+      failover.onSignalEvent('church-1', 'backup_encoder_available', { church });
+
+      expect(alertEngine.sendTelegramMessage.mock.calls.length).toBeGreaterThan(alertsBefore);
+      const lastCall = alertEngine.sendTelegramMessage.mock.calls.at(-1);
+      expect(lastCall[2]).toContain('Original Encoder Back Online');
+      expect(lastCall[2]).toContain('/recover_');
+    });
+
+    it('ignores backup_encoder_available when not in FAILOVER_ACTIVE', () => {
+      db = mockDb({ failover_action: JSON.stringify({ type: 'backup_encoder' }) });
+      failover = new SignalFailover(churches, alertEngine, autoRecovery, db);
+
+      const alertsBefore = alertEngine.sendTelegramMessage.mock.calls.length;
+      failover.onSignalEvent('church-1', 'backup_encoder_available', { church });
+      expect(alertEngine.sendTelegramMessage.mock.calls.length).toBe(alertsBefore);
+    });
+
+    it('ignores backup_encoder_available when action type is not backup_encoder', async () => {
+      // Default action is atem_switch, not backup_encoder
+      failover.onSignalEvent('church-1', 'encoder_disconnected', { church });
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(failover.getState('church-1').state).toBe(STATES.FAILOVER_ACTIVE);
+
+      const alertsBefore = alertEngine.sendTelegramMessage.mock.calls.length;
+      failover.onSignalEvent('church-1', 'backup_encoder_available', { church });
+      expect(alertEngine.sendTelegramMessage.mock.calls.length).toBe(alertsBefore);
+    });
+  });
 });
