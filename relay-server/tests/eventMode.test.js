@@ -223,16 +223,16 @@ describe('EventMode.getTimeRemaining()', () => {
   });
 
   it('returns "Xh Ym" format for multi-hour events', () => {
-    // 2 hours and 30 minutes from now
-    const future = new Date(Date.now() + (2 * 60 + 30) * 60 * 1000).toISOString();
+    // 2 hours and 30 minutes from now (+ 500ms buffer so Math.floor doesn't round down)
+    const future = new Date(Date.now() + (2 * 60 + 30) * 60 * 1000 + 500).toISOString();
     const result = em.getTimeRemaining({ event_expires_at: future });
     expect(result).toMatch(/^\d+h \d+m$/);
     expect(result).toBe('2h 30m');
   });
 
   it('returns "Ym" for sub-hour events', () => {
-    // 45 minutes from now
-    const future = new Date(Date.now() + 45 * 60 * 1000).toISOString();
+    // 45 minutes from now (+ 500ms buffer so Math.floor doesn't round down)
+    const future = new Date(Date.now() + 45 * 60 * 1000 + 500).toISOString();
     const result = em.getTimeRemaining({ event_expires_at: future });
     expect(result).toMatch(/^\d+m$/);
     expect(result).toBe('45m');
