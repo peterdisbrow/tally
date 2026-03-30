@@ -3,6 +3,68 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     let profileData = {};
     let notifData = {};
     let supportTriage = null;
+
+    // ── Global room context ─────────────────────────────────────────────────────
+    // Shared across Overview, Engineer, and other room-scoped pages.
+    var _selectedRoomId = new URLSearchParams(window.location.search).get('room') || '';
+    var _roomListCache = null; // [{id, name, connected}, ...]
+
+    /** Fetch rooms from API (cached). Force refresh with skipCache=true. */
+    async function fetchRoomList(skipCache) {
+      if (_roomListCache && !skipCache) return _roomListCache;
+      try {
+        var payload = await api('GET', '/api/church/rooms');
+        _roomListCache = (payload && payload.rooms) || [];
+      } catch { _roomListCache = []; }
+      return _roomListCache;
+    }
+
+    /** Populate a <select> element with rooms. Auto-selects _selectedRoomId. */
+    function populateRoomSelector(selectEl, wrapEl, opts) {
+      if (!selectEl) return;
+      var rooms = _roomListCache || [];
+      if (rooms.length <= 1 && !(opts && opts.alwaysShow)) {
+        if (wrapEl) wrapEl.style.display = 'none';
+        // If exactly 1 room, auto-select it
+        if (rooms.length === 1 && !_selectedRoomId) {
+          _selectedRoomId = rooms[0].id;
+        }
+        return;
+      }
+      selectEl.innerHTML = '';
+      if (opts && opts.allowAll) {
+        var allOpt = document.createElement('option');
+        allOpt.value = '';
+        allOpt.textContent = 'All Rooms';
+        selectEl.appendChild(allOpt);
+      }
+      rooms.forEach(function(room) {
+        var opt = document.createElement('option');
+        opt.value = room.id;
+        var label = room.name || room.id;
+        if (!room.connected) label += ' (offline)';
+        opt.textContent = label;
+        selectEl.appendChild(opt);
+      });
+      if (_selectedRoomId) selectEl.value = _selectedRoomId;
+      if (wrapEl) wrapEl.style.display = '';
+    }
+
+    /** Update _selectedRoomId globally, sync all room selectors, persist to URL. */
+    function setSelectedRoom(roomId) {
+      if (roomId === _selectedRoomId) return;
+      _selectedRoomId = roomId;
+      // Persist to URL
+      var url = new URL(window.location);
+      if (_selectedRoomId) { url.searchParams.set('room', _selectedRoomId); }
+      else { url.searchParams.delete('room'); }
+      window.history.replaceState({}, '', url);
+      // Sync all room selectors
+      ['overview-room-selector'].forEach(function(id) {
+        var sel = document.getElementById(id);
+        if (sel && sel.value !== _selectedRoomId) sel.value = _selectedRoomId;
+      });
+    }
     const SCHEDULE_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const SCHEDULE_DAY_LABELS = {
       sunday: 'Sunday',
@@ -908,13 +970,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
       }
       if (e.target.id === 'overview-room-selector') {
-        _overviewRoomId = e.target.value;
-        // Persist selection to URL
-        var url = new URL(window.location);
-        if (_overviewRoomId) { url.searchParams.set('room', _overviewRoomId); }
-        else { url.searchParams.delete('room'); }
-        window.history.replaceState({}, '', url);
+        setSelectedRoom(e.target.value);
         loadOverview();
+        // Reset engineer chat for new room context (mirrors electron app behavior)
+        if (engineerChatPollTimer) {
+          clearEngineerChat();
+          loadEngineerChat();
+        }
       }
     });
 
@@ -947,45 +1009,24 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
 
     // ── Overview ───────────────────────────────────────────────────────────────
-    var _overviewRoomId = ''; // selected DB room ID for overview filtering
     var _overviewRoomsLoaded = false; // whether room selector has been populated from DB
 
     /** Build the query string suffix for room-filtered API calls. */
     function roomParam() {
-      return _overviewRoomId ? '?roomId=' + encodeURIComponent(_overviewRoomId) : '';
+      return _selectedRoomId ? '?roomId=' + encodeURIComponent(_selectedRoomId) : '';
     }
     function roomParamAmp() {
-      return _overviewRoomId ? '&roomId=' + encodeURIComponent(_overviewRoomId) : '';
+      return _selectedRoomId ? '&roomId=' + encodeURIComponent(_selectedRoomId) : '';
     }
 
     /** Populate overview room selector from DB rooms (once). */
     async function loadOverviewRoomSelector() {
       if (_overviewRoomsLoaded) return;
+      await fetchRoomList();
       var rSel = document.getElementById('overview-room-selector');
       var rWrap = document.getElementById('overview-room-selector-wrap');
-      if (!rSel || !rWrap) return;
-      try {
-        var payload = await api('GET', '/api/church/rooms');
-        var rooms = (payload && payload.rooms) || [];
-        if (rooms.length <= 1) { rWrap.style.display = 'none'; return; }
-        rSel.innerHTML = '<option value="">All Rooms</option>';
-        rooms.forEach(function(room) {
-          var opt = document.createElement('option');
-          opt.value = room.id;
-          var label = room.name || room.id;
-          if (!room.connected) label += ' (offline)';
-          opt.textContent = label;
-          rSel.appendChild(opt);
-        });
-        // Restore selection from URL param
-        var urlRoom = new URLSearchParams(window.location.search).get('room');
-        if (urlRoom) {
-          rSel.value = urlRoom;
-          _overviewRoomId = urlRoom;
-        }
-        rWrap.style.display = '';
-        _overviewRoomsLoaded = true;
-      } catch { /* rooms endpoint failed — hide selector */ }
+      populateRoomSelector(rSel, rWrap, { allowAll: true });
+      _overviewRoomsLoaded = true;
     }
 
     async function loadOverview() {
@@ -2725,7 +2766,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     async function loadEngineerChat() {
       try {
         var since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        var resp = await api('GET', '/api/church/chat?limit=50&since=' + encodeURIComponent(since));
+        var url = '/api/church/chat?limit=50&since=' + encodeURIComponent(since);
+        if (_selectedRoomId) url += '&roomId=' + encodeURIComponent(_selectedRoomId);
+        var resp = await api('GET', url);
         if (resp && resp.messages) {
           engineerChatMsgs = resp.messages;
           if (engineerChatMsgs.length > 0) {
@@ -2736,7 +2779,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       } catch(e) { /* silent */ }
     }
 
-    function startEngineerChatPoll() {
+    async function startEngineerChatPoll() {
       loadEngineerChat();
       if (engineerChatPollTimer) clearInterval(engineerChatPollTimer);
       engineerChatPollTimer = setInterval(pollEngineerChat, 4000);
@@ -2749,7 +2792,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     async function pollEngineerChat() {
       if (!engineerChatLastTs) return loadEngineerChat();
       try {
-        var resp = await api('GET', '/api/church/chat?since=' + encodeURIComponent(engineerChatLastTs));
+        var url = '/api/church/chat?since=' + encodeURIComponent(engineerChatLastTs);
+        if (_selectedRoomId) url += '&roomId=' + encodeURIComponent(_selectedRoomId);
+        var resp = await api('GET', url);
         if (resp && resp.messages && resp.messages.length > 0) {
           engineerChatMsgs = engineerChatMsgs.concat(resp.messages);
           engineerChatLastTs = resp.messages[resp.messages.length - 1].timestamp;
@@ -2802,7 +2847,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (!msg) return;
       input.value = '';
       try {
-        var resp = await api('POST', '/api/church/chat', { message: msg, senderName: 'TD' });
+        var resp = await api('POST', '/api/church/chat', { message: msg, senderName: 'TD', roomId: _selectedRoomId || null });
         if (resp && resp.id) {
           engineerChatMsgs.push(resp);
           engineerChatLastTs = resp.timestamp;
@@ -5759,9 +5804,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     // Apply i18n translations to all data-i18n elements based on navigator.language
     translatePage();
 
-    // Auto-load overview + billing banner on start
-    loadOverview();
-    startOverviewPoll();
+    // ── Zero-rooms gate: check for rooms before loading portal ─────────────────
+    (async function checkZeroRoomsGate() {
+      try {
+        var rooms = await fetchRoomList(true);
+        if (rooms.length === 0) {
+          var gate = document.getElementById('zero-rooms-gate');
+          if (gate) gate.style.display = 'flex';
+          return; // Don't load overview until a room is created
+        }
+        // Auto-select first room if none in URL
+        if (!_selectedRoomId && rooms.length > 0) {
+          _selectedRoomId = rooms[0].id;
+        }
+      } catch { /* fall through to load overview anyway */ }
+      loadOverview();
+      startOverviewPoll();
+    })();
     loadBilling(); // populates billing banner on all pages
 
     // ── Real-time status push via SSE ─────────────────────────────────────────
@@ -5961,6 +6020,27 @@ document.addEventListener('DOMContentLoaded', function() {
         })();
         break;
 
+      case 'createFirstRoom':
+        (async function() {
+          var nameInput = document.getElementById('zero-rooms-name');
+          var descInput = document.getElementById('zero-rooms-desc');
+          var errEl = document.getElementById('zero-rooms-error');
+          var name = (nameInput.value || '').trim();
+          if (!name) { errEl.textContent = 'Room name is required'; errEl.style.display = ''; nameInput.focus(); return; }
+          errEl.style.display = 'none';
+          try {
+            await api('POST', '/api/church/rooms', { name: name, description: (descInput.value || '').trim() });
+            // Refresh room list and auto-select the new room
+            var rooms = await fetchRoomList(true);
+            if (rooms.length > 0) _selectedRoomId = rooms[0].id;
+            // Hide gate, load portal
+            document.getElementById('zero-rooms-gate').style.display = 'none';
+            loadOverview();
+            startOverviewPoll();
+            toast('Room "' + name + '" created');
+          } catch(e) { errEl.textContent = e.message || 'Failed to create room'; errEl.style.display = ''; }
+        })();
+        break;
       case 'addRoom':
         if (typeof addRoom === 'function') addRoom();
         break;
@@ -6136,6 +6216,12 @@ document.addEventListener('DOMContentLoaded', function() {
     switch (action) {
       case 'sendEngineerChatOnEnter':
         if (e.key === 'Enter' && typeof sendEngineerChat === 'function') sendEngineerChat();
+        break;
+      case 'createFirstRoomOnEnter':
+        if (e.key === 'Enter') {
+          var createBtn = document.getElementById('zero-rooms-create-btn');
+          if (createBtn) createBtn.click();
+        }
         break;
     }
   });

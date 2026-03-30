@@ -73,6 +73,21 @@
 
     <div id="billing-banner"></div>
 
+    <!-- Zero-rooms gate: forces room creation before portal is usable (mirrors electron app) -->
+    <div id="zero-rooms-gate" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.85);align-items:center;justify-content:center">
+      <div style="background:#0F1613;border:1px solid #1a3a24;border-radius:16px;padding:32px 40px;max-width:420px;width:90%;text-align:center">
+        <div style="font-size:32px;margin-bottom:12px">&#x1F3DB;</div>
+        <div style="font-size:20px;font-weight:700;color:#F8FAFC;margin-bottom:8px">Create Your First Room</div>
+        <div style="font-size:14px;color:#94A3B8;margin-bottom:24px;line-height:1.5">Every Tally instance monitors a room. Create one to get started &mdash; you can always add more later.</div>
+        <input type="text" id="zero-rooms-name" placeholder="e.g. Main Sanctuary" maxlength="60"
+          data-action-keydown="createFirstRoomOnEnter"
+          style="width:100%;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:10px 14px;color:#F8FAFC;font-size:14px;margin-bottom:12px;outline:none;box-sizing:border-box">
+        <input type="text" id="zero-rooms-desc" placeholder="Description (optional)" maxlength="200"
+          style="width:100%;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:10px 14px;color:#F8FAFC;font-size:14px;margin-bottom:16px;outline:none;box-sizing:border-box">
+        <button id="zero-rooms-create-btn" data-action="createFirstRoom" class="btn-primary" style="width:100%;padding:12px;font-size:15px">Create Room</button>
+        <div id="zero-rooms-error" style="color:#ef4444;font-size:13px;margin-top:8px;display:none"></div>
+      </div>
+    </div>
 
     <!-- OVERVIEW -->
     <div class="page active" id="page-overview">
