@@ -2504,7 +2504,7 @@ function formatResultForChat(result) {
 const DIAGNOSTIC_MODEL = 'claude-sonnet-4-6';
 const DIAGNOSTIC_TIMEOUT = 25000; // Sonnet is slower — 25s acceptable for diagnostics
 
-async function callDiagnosticAI(churchId, question) {
+async function callDiagnosticAI(churchId, question, roomCtx = {}) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return 'AI is not configured (ANTHROPIC_API_KEY missing).';
 
@@ -2514,10 +2514,16 @@ async function callDiagnosticAI(churchId, question) {
   const systemPrompt = ENGINEER_SYSTEM_PROMPT
     + '\n\n── DIAGNOSTIC CONTEXT ──\n' + diagnosticContext;
 
+  // Prepend church/room context so AI knows where it is
+  let ctxPrefix = '';
+  if (roomCtx.churchName) ctxPrefix += `Church: ${roomCtx.churchName}. `;
+  if (roomCtx.roomId) ctxPrefix += `Room ID: ${roomCtx.roomId}${roomCtx.roomName ? ` (${roomCtx.roomName})` : ''}. `;
+  const userContent = ctxPrefix ? `[${ctxPrefix.trim()}]\n${question}` : question;
+
   const startMs = Date.now();
 
   try {
-    console.log(`[DiagnosticAI] Calling Sonnet for ${churchId}: "${question.slice(0, 60)}"`);
+    console.log(`[DiagnosticAI] Calling Sonnet for ${churchId} (church="${roomCtx.churchName}" room="${roomCtx.roomName || roomCtx.roomId || 'none'}"): "${question.slice(0, 60)}"`);
     const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -2530,7 +2536,7 @@ async function callDiagnosticAI(churchId, question) {
         system: systemPrompt,
         messages: [
           ...(Array.isArray(conversationHistory) ? conversationHistory : []),
-          { role: 'user', content: question },
+          { role: 'user', content: userContent },
         ],
         temperature: 0.4,
         max_tokens: 1200,
@@ -3002,6 +3008,27 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     return;
   }
 
+  // ─── Resolve church + roomId early so both diagnostic and command paths have context ──
+  const church = churches.get(churchId);
+  // Auto-detect roomId if not in request: check roomInstanceMap, then DB single-room
+  if (!roomId && church?.roomInstanceMap) {
+    const roomEntries = Object.entries(church.roomInstanceMap);
+    if (roomEntries.length === 1) roomId = roomEntries[0][0];
+  }
+  if (!roomId) {
+    try {
+      const singleRoom = db.prepare('SELECT id FROM rooms WHERE campus_id = ? AND deleted_at IS NULL LIMIT 2').all(churchId);
+      if (singleRoom.length === 1) roomId = singleRoom[0].id;
+    } catch { /* non-fatal */ }
+  }
+  let resolvedRoomName = '';
+  if (roomId) {
+    try {
+      const roomRow = db.prepare('SELECT name FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
+      resolvedRoomName = roomRow?.name || '';
+    } catch { /* non-fatal */ }
+  }
+
   // ─── Intent classification: route diagnostics to Sonnet, commands to Haiku ──
   const classification = classifyIntent(rawMessage);
   console.log(`[Router] "${rawMessage.slice(0, 50)}" → ${classification.intent} (${classification.confidence}, ${classification.reason})`);
@@ -3022,25 +3049,11 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
       postSystemChatMessage(churchId, `📊 AI Usage: ${limitCheck.usage}/${limitCheck.limit} diagnostic messages used this month. Upgrade for more → Settings > Billing`, roomId);
     }
 
-    const reply = await callDiagnosticAI(churchId, rawMessage);
+    const reply = await callDiagnosticAI(churchId, rawMessage, { churchName: church?.name || '', roomId: roomId || '', roomName: resolvedRoomName });
     postSystemChatMessage(churchId, reply, roomId);
     return;
   }
 
-  const church = churches.get(churchId);
-  // Auto-detect roomId if not provided:
-  // 1. Try roomInstanceMap (church client connected with room_id in WS URL)
-  if (!roomId && church?.roomInstanceMap) {
-    const roomEntries = Object.entries(church.roomInstanceMap);
-    if (roomEntries.length === 1) roomId = roomEntries[0][0];
-  }
-  // 2. Fall back to DB — if church has exactly one room, use it
-  if (!roomId) {
-    try {
-      const singleRoom = db.prepare('SELECT id FROM rooms WHERE campus_id = ? AND deleted_at IS NULL LIMIT 2').all(churchId);
-      if (singleRoom.length === 1) roomId = singleRoom[0].id;
-    } catch { /* non-fatal */ }
-  }
   // Resolve room-specific status: if roomId is provided and we have per-room status, use it
   const roomStatus = (roomId && church?.instanceStatus)
     ? (church.instanceStatus[church.roomInstanceMap?.[roomId]] || church?.status)
@@ -3139,20 +3152,11 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     }
   } catch { /* non-fatal — AI will work without it */ }
 
-  // Look up room name so AI knows which room it's talking about
-  let roomName = '';
-  if (roomId) {
-    try {
-      const roomRow = db.prepare('SELECT name FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
-      roomName = roomRow?.name || '';
-    } catch { /* non-fatal */ }
-  }
-
   const aiResult = await aiParseCommand(intent.prompt, {
     churchId,
     churchName: church?.name || '',
     roomId: roomId || '',
-    roomName,
+    roomName: resolvedRoomName,
     status: roomStatus || {},
     tier: churchRow?.billing_tier || 'connect',
     engineerProfile,
