@@ -388,6 +388,7 @@ module.exports = {
   switchRoomConfig,
   saveCurrentRoomEquipment,
   mergeEquipmentFromServer,
+  extractEquipment,
   ROOM_EQUIPMENT_KEYS,
   CONFIG_PATH,
   CONFIG_DIR,
