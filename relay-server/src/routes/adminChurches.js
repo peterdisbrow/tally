@@ -45,7 +45,7 @@ module.exports = function setupAdminChurchRoutes(app, ctx) {
     { table: 'automation_rules', column: 'church_id' },
     { table: 'church_documents', column: 'church_id' },
     { table: 'church_macros', column: 'church_id' },
-    { table: 'rooms', column: 'campus_id' },
+    { table: 'rooms', column: 'campus_id' }, // campus_id stores owning churchId
   ];
 
   function deleteChurchCascade(churchId) {
