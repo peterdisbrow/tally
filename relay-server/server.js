@@ -2562,18 +2562,19 @@ async function _callHaikuDiagnosticFallback(churchId, question, conversationHist
   }
 }
 
-function postSystemChatMessage(churchId, message) {
+function postSystemChatMessage(churchId, message, roomId) {
   const saved = chatEngine.saveMessage({
     churchId,
     senderName: 'Tally',
     senderRole: 'system',
     source: 'system',
     message,
+    roomId: roomId || null,
   });
   chatEngine.broadcastChat(saved);
 }
 
-async function executeChurchCommandWithResult(churchId, command, params = {}) {
+async function executeChurchCommandWithResult(churchId, command, params = {}, roomId) {
   const rateLimit = await checkCommandRateLimit(churchId);
   if (!rateLimit.ok) {
     return { ok: false, status: 429, error: 'Rate limit exceeded (max 10 commands/second)' };
@@ -2588,7 +2589,7 @@ async function executeChurchCommandWithResult(churchId, command, params = {}) {
   }
 
   try {
-    const sendCommand = makeCommandSender(church);
+    const sendCommand = makeCommandSender(church, roomId);
     totalMessagesRelayed++;
     const result = await sendCommand(command, params);
     return { ok: true, result };
@@ -2819,7 +2820,7 @@ async function handleSetupRequest(churchId, rawMessage, attachment) {
   }
 }
 
-async function handleChatCommandMessage(churchId, rawMessage, attachment) {
+async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId) {
   // If there's an attachment or a setup intent, route through the setup assistant
   if (attachment?.data || detectSetupIntent(rawMessage)) {
     return handleSetupRequest(churchId, rawMessage, attachment);
@@ -2829,7 +2830,7 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
 
   // ─── Sensitive data guard (stream keys, passwords, etc.) ─────────────────
   if (containsSensitiveData(rawMessage)) {
-    postSystemChatMessage(churchId, SENSITIVE_RESPONSE);
+    postSystemChatMessage(churchId, SENSITIVE_RESPONSE, roomId);
     return;
   }
 
@@ -2946,30 +2947,34 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
 
     if (!limitCheck.allowed) {
       const resetStr = limitCheck.resetDate || '1st of next month';
-      postSystemChatMessage(churchId, `You've used ${limitCheck.usage}/${limitCheck.limit} AI diagnostic messages this month. Resets ${resetStr}.\n\nDirect commands like "cam 2" and "status" are always available.`);
+      postSystemChatMessage(churchId, `You've used ${limitCheck.usage}/${limitCheck.limit} AI diagnostic messages this month. Resets ${resetStr}.\n\nDirect commands like "cam 2" and "status" are always available.`, roomId);
       return;
     }
 
     if (limitCheck.warning80) {
-      postSystemChatMessage(churchId, `📊 AI Usage: ${limitCheck.usage}/${limitCheck.limit} diagnostic messages used this month. Upgrade for more → Settings > Billing`);
+      postSystemChatMessage(churchId, `📊 AI Usage: ${limitCheck.usage}/${limitCheck.limit} diagnostic messages used this month. Upgrade for more → Settings > Billing`, roomId);
     }
 
     const reply = await callDiagnosticAI(churchId, rawMessage);
-    postSystemChatMessage(churchId, reply);
+    postSystemChatMessage(churchId, reply, roomId);
     return;
   }
 
   const church = churches.get(churchId);
-  const intent = parseChatCommandIntent(rawMessage, church?.status);
+  // Resolve room-specific status: if roomId is provided and we have per-room status, use it
+  const roomStatus = (roomId && church?.instanceStatus)
+    ? (church.instanceStatus[church.roomInstanceMap?.[roomId]] || church?.status)
+    : church?.status;
+  const intent = parseChatCommandIntent(rawMessage, roomStatus);
   if (!intent) return;
 
   if (intent.type === 'invalid') {
-    postSystemChatMessage(churchId, `⚠️ ${intent.reason}`);
+    postSystemChatMessage(churchId, `⚠️ ${intent.reason}`, roomId);
     return;
   }
 
   if (intent.type === 'chat_reply') {
-    postSystemChatMessage(churchId, intent.text);
+    postSystemChatMessage(churchId, intent.text, roomId);
     return;
   }
 
@@ -2978,9 +2983,9 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
 
   if (intent.type === 'commands' && Array.isArray(intent.steps) && intent.steps.length > 0) {
     if (!streamGuardBypassed) {
-      const wfSafety = checkWorkflowSafety(intent.steps, church?.status || {});
+      const wfSafety = checkWorkflowSafety(intent.steps, roomStatus || {});
       if (wfSafety) {
-        postSystemChatMessage(churchId, `${wfSafety.warning}\n\nTo confirm, resend: confirm: ${rawMessage}`);
+        postSystemChatMessage(churchId, `${wfSafety.warning}\n\nTo confirm, resend: confirm: ${rawMessage}`, roomId);
         return;
       }
     }
@@ -2988,16 +2993,16 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
       if (!step?.command) continue;
       if (step.command === 'system.wait') {
         const seconds = Math.min(Math.max(Number(step.params?.seconds) || 1, 0.5), 30);
-        postSystemChatMessage(churchId, `⏳ Waiting ${seconds}s...`);
+        postSystemChatMessage(churchId, `⏳ Waiting ${seconds}s...`, roomId);
         await new Promise((r) => setTimeout(r, seconds * 1000));
         continue;
       }
-      const executed = await executeChurchCommandWithResult(churchId, step.command, step.params || {});
+      const executed = await executeChurchCommandWithResult(churchId, step.command, step.params || {}, roomId);
       if (!executed.ok) {
-        postSystemChatMessage(churchId, `❌ ${friendlyError(step.command, executed.error)}`);
+        postSystemChatMessage(churchId, `❌ ${friendlyError(step.command, executed.error)}`, roomId);
         return;
       }
-      postSystemChatMessage(churchId, `✅ ${step.command} ${formatResultForChat(executed.result)}`);
+      postSystemChatMessage(churchId, `✅ ${step.command} ${formatResultForChat(executed.result)}`, roomId);
     }
     return;
   }
@@ -3005,27 +3010,27 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
   if (intent.type === 'command') {
     const { command, params } = intent.parsed;
     if (!streamGuardBypassed) {
-      const safety = checkStreamSafety(command, params, church?.status || {});
+      const safety = checkStreamSafety(command, params, roomStatus || {});
       if (safety) {
-        postSystemChatMessage(churchId, `${safety.warning}\n\nTo confirm, resend: confirm: ${rawMessage}`);
+        postSystemChatMessage(churchId, `${safety.warning}\n\nTo confirm, resend: confirm: ${rawMessage}`, roomId);
         return;
       }
     }
-    const executed = await executeChurchCommandWithResult(churchId, command, params || {});
+    const executed = await executeChurchCommandWithResult(churchId, command, params || {}, roomId);
     if (!executed.ok) {
-      postSystemChatMessage(churchId, `❌ ${command} failed: ${executed.error}`);
+      postSystemChatMessage(churchId, `❌ ${command} failed: ${executed.error}`, roomId);
       return;
     }
-    postSystemChatMessage(churchId, `✅ ${command} ${formatResultForChat(executed.result)}`);
+    postSystemChatMessage(churchId, `✅ ${command} ${formatResultForChat(executed.result)}`, roomId);
     return;
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    postSystemChatMessage(churchId, '❌ AI command parsing is not configured (ANTHROPIC_API_KEY missing).');
+    postSystemChatMessage(churchId, '❌ AI command parsing is not configured (ANTHROPIC_API_KEY missing).', roomId);
     return;
   }
 
-  const conversationHistory = chatEngine.getRecentConversation(churchId);
+  const conversationHistory = chatEngine.getRecentConversation(churchId, { roomId });
   const churchRow = stmtGet.get(churchId);
   let engineerProfile = {};
   try { engineerProfile = JSON.parse(churchRow?.engineer_profile || '{}'); } catch {}
@@ -3044,7 +3049,7 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
   const aiResult = await aiParseCommand(intent.prompt, {
     churchId,
     churchName: church?.name || '',
-    status: church?.status || {},
+    status: roomStatus || {},
     tier: churchRow?.billing_tier || 'connect',
     engineerProfile,
     memorySummary: churchRow?.memory_summary || '',
@@ -3054,12 +3059,39 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
   }, conversationHistory);
 
   if (aiResult.type === 'error' || aiResult.type === 'rate_limited') {
-    // Soft fallback: suggest direct commands instead of scary error
+    // Before giving up, try the regex + smart parsers one more time on the raw message
+    // (they may not have matched earlier due to intent classification routing)
+    const retryParsed = parseCommand(rawMessage);
+    if (retryParsed) {
+      const executed = await executeChurchCommandWithResult(churchId, retryParsed.command, retryParsed.params || {}, roomId);
+      if (executed.ok) {
+        postSystemChatMessage(churchId, `✅ ${retryParsed.command} ${formatResultForChat(executed.result)}`, roomId);
+      } else {
+        postSystemChatMessage(churchId, `❌ ${friendlyError(retryParsed.command, executed.error)}`, roomId);
+      }
+      return;
+    }
+    const retrySmartResult = smartParse(rawMessage, roomStatus || {});
+    if (retrySmartResult && retrySmartResult.type !== 'chat') {
+      const retrySteps = retrySmartResult.type === 'commands' ? retrySmartResult.steps : [{ command: retrySmartResult.command, params: retrySmartResult.params }];
+      for (const step of retrySteps) {
+        if (!step?.command) continue;
+        const executed = await executeChurchCommandWithResult(churchId, step.command, step.params || {}, roomId);
+        if (!executed.ok) {
+          postSystemChatMessage(churchId, `❌ ${friendlyError(step.command, executed.error)}`, roomId);
+          return;
+        }
+        postSystemChatMessage(churchId, `✅ ${step.command} ${formatResultForChat(executed.result)}`, roomId);
+      }
+      return;
+    }
+
+    // Genuinely could not parse — give a helpful message
     const isRateLimit = aiResult.type === 'rate_limited';
     const msg = isRateLimit
-      ? (aiResult.text || 'AI parsing temporarily at capacity. Try direct commands like "cam 2" or "status".')
-      : 'AI is temporarily unavailable. Try direct commands like "cam 2", "status", or "start stream".';
-    postSystemChatMessage(churchId, msg);
+      ? (aiResult.text || 'AI is at capacity right now. I understood your message but couldn\'t process it — try again in a moment, or use a direct command like "cam 2" or "status".')
+      : 'I\'m having trouble connecting to the AI right now. Try again in a moment, or I can handle direct commands like "cam 2", "status", or "start stream".';
+    postSystemChatMessage(churchId, msg, roomId);
     aiRateLimiter.logEvent(churchId, 'command', isRateLimit ? 'limit_hit' : 'api_failure_fallback', aiResult.message || '');
     return;
   }
@@ -3073,18 +3105,18 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
       if (limitCheck2.allowed) {
         console.log(`[Router] Ambiguous escalation to Sonnet for: "${rawMessage.slice(0, 50)}"`);
         const reply = await callDiagnosticAI(churchId, rawMessage);
-        postSystemChatMessage(churchId, reply);
+        postSystemChatMessage(churchId, reply, roomId);
 
         if (limitCheck2.warning80) {
-          postSystemChatMessage(churchId, `📊 AI Usage: ${limitCheck2.usage}/${limitCheck2.limit} this month. Upgrade for more → Settings > Billing`);
+          postSystemChatMessage(churchId, `📊 AI Usage: ${limitCheck2.usage}/${limitCheck2.limit} this month. Upgrade for more → Settings > Billing`, roomId);
         }
       } else {
         // Over diagnostic limit — show Haiku's chat response instead of escalating
-        postSystemChatMessage(churchId, aiResult.text || 'I could not map that to a command.');
+        postSystemChatMessage(churchId, aiResult.text || 'I could not map that to a command.', roomId);
       }
       return;
     }
-    postSystemChatMessage(churchId, aiResult.text || 'I could not map that to a command.');
+    postSystemChatMessage(churchId, aiResult.text || 'I could not map that to a command.', roomId);
     return;
   }
 
@@ -3093,15 +3125,15 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     : [{ command: aiResult.command, params: aiResult.params || {} }];
 
   if (!steps.length) {
-    postSystemChatMessage(churchId, '⚠️ AI parser returned no executable command.');
+    postSystemChatMessage(churchId, '⚠️ AI parser returned no executable command.', roomId);
     return;
   }
 
   // Stream guard for AI-parsed commands
   if (!streamGuardBypassed) {
-    const wfSafety = checkWorkflowSafety(steps, church?.status || {});
+    const wfSafety = checkWorkflowSafety(steps, roomStatus || {});
     if (wfSafety) {
-      postSystemChatMessage(churchId, `${wfSafety.warning}\n\nTo confirm, resend: confirm: ${rawMessage}`);
+      postSystemChatMessage(churchId, `${wfSafety.warning}\n\nTo confirm, resend: confirm: ${rawMessage}`, roomId);
       return;
     }
   }
@@ -3112,18 +3144,18 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment) {
     // Handle system.wait pseudo-command (delay between steps)
     if (step.command === 'system.wait') {
       const seconds = Math.min(Math.max(Number(step.params?.seconds) || 1, 0.5), 30);
-      postSystemChatMessage(churchId, `⏳ Waiting ${seconds}s...`);
+      postSystemChatMessage(churchId, `⏳ Waiting ${seconds}s...`, roomId);
       await new Promise((r) => setTimeout(r, seconds * 1000));
       continue;
     }
 
-    const executed = await executeChurchCommandWithResult(churchId, step.command, step.params || {});
+    const executed = await executeChurchCommandWithResult(churchId, step.command, step.params || {}, roomId);
     churchMemory.recordCommandOutcome(churchId, step.command, executed.ok, 'user_request');
     if (!executed.ok) {
-      postSystemChatMessage(churchId, `❌ ${friendlyError(step.command, executed.error)}`);
+      postSystemChatMessage(churchId, `❌ ${friendlyError(step.command, executed.error)}`, roomId);
       return;
     }
-    postSystemChatMessage(churchId, `✅ ${step.command} ${formatResultForChat(executed.result)}`);
+    postSystemChatMessage(churchId, `✅ ${step.command} ${formatResultForChat(executed.result)}`, roomId);
   }
 }
 
@@ -3716,18 +3748,22 @@ function requireChurchOrAdmin(req, res, next) {
 
 // Helper: create a sendCommand function for a church WebSocket
 // (kept in server.js — used by autoPilot executor and executeChurchCommandWithResult)
-function makeCommandSender(church) {
+function makeCommandSender(church, roomId) {
   return (command, params) => new Promise((resolve, reject) => {
     const { WebSocket: WS } = require('ws');
-    // Gather all open sockets for this church (multi-instance)
+    // Gather open sockets — if roomId is specified, target only that room's instance
     const openSockets = [];
-    if (church.sockets?.size) {
+    if (roomId && church.roomInstanceMap?.[roomId]) {
+      const instanceName = church.roomInstanceMap[roomId];
+      const sock = church.sockets?.get(instanceName);
+      if (sock?.readyState === WS.OPEN) openSockets.push(sock);
+    } else if (church.sockets?.size) {
       for (const sock of church.sockets.values()) {
         if (sock.readyState === WS.OPEN) openSockets.push(sock);
       }
     }
     if (openSockets.length === 0) {
-      return reject(new Error('Church client not connected'));
+      return reject(new Error(roomId ? 'Room client not connected' : 'Church client not connected'));
     }
     const { v4: uuid } = require('uuid');
     const id = uuid();

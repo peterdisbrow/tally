@@ -544,6 +544,11 @@ function updateTray() {
       });
       if (response !== 0) return;
       stopAgent();
+      // Clear relay-side equipment before wiping local config (prevents stale IPs re-appearing on next login)
+      const preResetConfig = loadConfig();
+      if (preResetConfig.roomId && preResetConfig.token) {
+        await syncEquipmentToRelay(preResetConfig.roomId, {}).catch(() => {});
+      }
       resetConfig();
       agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
       mainWindow?.webContents.send('status', agentStatus);
@@ -1375,6 +1380,11 @@ ipcMain.handle('sign-out', async () => {
 ipcMain.handle('factory-reset', async () => {
   try {
     stopAgent();
+    // Clear relay-side equipment before wiping local config (prevents stale IPs re-appearing on next login)
+    const preResetConfig = loadConfig();
+    if (preResetConfig.roomId && preResetConfig.token) {
+      await syncEquipmentToRelay(preResetConfig.roomId, {}).catch(() => {});
+    }
     resetConfig();
     agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
     mainWindow?.webContents.send('status', agentStatus);
@@ -1432,7 +1442,7 @@ ipcMain.handle('send-command', async (_, cmd, params) => {
 });
 
 // ─── CHAT IPC ──────────────────────────────────────────────────────────────────
-ipcMain.handle('send-chat', async (_, { message, senderName }) => {
+ipcMain.handle('send-chat', async (_, { message, senderName, roomId }) => {
   const config = loadConfig();
   if (!config.token) return { error: 'Not configured' };
   const relayHttp = relayHttpUrl(config.relay || DEFAULT_RELAY_URL);
@@ -1440,7 +1450,7 @@ ipcMain.handle('send-chat', async (_, { message, senderName }) => {
     const resp = await fetch(`${relayHttp}/api/church/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.token}` },
-      body: JSON.stringify({ message, senderName: senderName || config.churchName || 'TD' }),
+      body: JSON.stringify({ message, senderName: senderName || config.churchName || 'TD', roomId: roomId || config.roomId || null }),
     });
     return await resp.json();
   } catch (e) {
@@ -1493,6 +1503,7 @@ ipcMain.handle('upload-chat-file', async (_, { message, filePath, fileName, mime
         message: message || '',
         senderName: config.churchName || 'TD',
         attachment: { data: base64Data, mimeType, fileName },
+        roomId: config.roomId || null,
       }),
     });
     return await resp.json();
@@ -1509,6 +1520,9 @@ ipcMain.handle('get-chat', async (_, opts = {}) => {
   if (opts.since) params.set('since', opts.since);
   if (opts.latest) params.set('latest', 'true');
   if (opts.limit) params.set('limit', String(opts.limit));
+  // Pass roomId to scope chat history to current room
+  const roomId = opts.roomId || config.roomId;
+  if (roomId) params.set('roomId', roomId);
   const qs = params.toString() ? `?${params.toString()}` : '';
   try {
     const resp = await fetch(`${relayHttp}/api/church/chat${qs}`, {
