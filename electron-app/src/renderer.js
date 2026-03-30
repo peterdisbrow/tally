@@ -470,10 +470,23 @@ async function init() {
       _preServiceData = null;
       _rundownData = null;
       _obScanDone = false;
+
+      // Clear chat state and stop polling
+      stopChatPolling();
       chatMessages = [];
       chatLastTimestamp = null;
       _chatRenderedCount = 0;
       _chatIdSet.clear();
+      const chatContainer = document.getElementById('chat-messages');
+      if (chatContainer) chatContainer.innerHTML = '';
+
+      // Clear all activity logs, raw logs, and counters
+      alertCount = 0;
+      _activityCount = 0;
+      const alertsLog = document.getElementById('alerts-log');
+      if (alertsLog) alertsLog.innerHTML = '<div class="empty-state">No activity yet.</div>';
+      if (typeof clearRawLogs === 'function') clearRawLogs();
+      updateActivityBadge();
 
       showSignIn();
       showSignInMessage('Signed out.', 'var(--muted)');
@@ -3049,6 +3062,9 @@ async function switchTab(name) {
 let chatMessages = [];
 let chatLastTimestamp = null;
 let chatPollInterval = null;
+// Session start timestamp — chat only loads messages sent after this point.
+// Ensures each session starts with a clean chat (no historical messages).
+const _chatSessionStart = new Date().toISOString();
 const MAX_CHAT_MESSAGES = 200;
 let _chatRenderedCount = 0; // track how many messages are already in the DOM
 const _chatIdSet = new Set();  // O(1) dedup instead of .some() scan
@@ -3064,11 +3080,9 @@ function stopChatPolling() {
 }
 
 async function loadChatHistory() {
-  // Only load today's messages (since midnight local) — latest 200 so we
-  // show the most recent conversation, not stale messages from hours ago.
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const resp = await api.getChat({ since: today.toISOString(), latest: true, limit: 200 });
+  // Only load messages sent after this session started — each launch starts fresh.
+  // Historical chat is preserved server-side for the portal, not the electron app.
+  const resp = await api.getChat({ since: _chatSessionStart, latest: true, limit: 200 });
   if (resp?.messages) {
     chatMessages = resp.messages;
     _chatIdSet.clear();
