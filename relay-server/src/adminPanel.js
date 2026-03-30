@@ -327,6 +327,40 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
   #ai-summary,#email-summary{grid-template-columns:1fr 1fr}
   .stream-layout{grid-template-columns:1fr !important}
 }
+/* Billing Analytics */
+.analytics-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+.analytics-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px}
+.analytics-card .card-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:16px;text-transform:uppercase;letter-spacing:.5px}
+.summary-row-5{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:24px}
+.summary-card .trend{font-size:11px;margin-top:4px}
+.trend-up{color:var(--green)}
+.trend-down{color:var(--red)}
+.trend-flat{color:var(--muted)}
+.bar-chart-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.bar-chart-row .bar-label{width:70px;font-size:12px;color:var(--muted);text-align:right;flex-shrink:0}
+.bar-chart-row .bar-track{flex:1;height:24px;background:rgba(148,163,184,.08);border-radius:4px;overflow:hidden;position:relative}
+.bar-chart-row .bar-fill{height:100%;border-radius:4px;transition:width .3s ease;display:flex;align-items:center;padding-left:8px;font-size:11px;font-weight:600;color:var(--text);min-width:fit-content}
+.bar-chart-row .bar-count{width:80px;font-size:12px;color:var(--text);flex-shrink:0}
+.mrr-chart-container{position:relative;height:200px;display:flex;align-items:flex-end;gap:4px;padding:20px 0 30px 50px}
+.mrr-chart-container .y-axis{position:absolute;left:0;top:20px;bottom:30px;width:45px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end;padding-right:6px}
+.mrr-chart-container .y-axis span{font-size:10px;color:var(--dim)}
+.mrr-bar-group{flex:1;display:flex;flex-direction:column;align-items:center;position:relative;height:100%}
+.mrr-bar{width:100%;max-width:40px;border-radius:3px 3px 0 0;transition:height .3s ease;position:absolute;bottom:0;cursor:default}
+.mrr-bar:hover{opacity:.85}
+.mrr-bar-label{position:absolute;bottom:-22px;font-size:9px;color:var(--dim);white-space:nowrap}
+.mrr-tooltip{position:absolute;top:-24px;font-size:10px;color:var(--text);white-space:nowrap;opacity:0;transition:opacity .2s}
+.mrr-bar-group:hover .mrr-tooltip{opacity:1}
+.aging-table{width:100%}
+.aging-table th{text-align:left;padding:0 0 8px;font-size:11px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.aging-table td{padding:8px 0;font-size:13px;border-bottom:1px solid rgba(26,46,31,.5)}
+.aging-alert{color:var(--red);font-weight:600}
+.reseller-table{width:100%}
+.reseller-table th{text-align:left;padding:0 0 8px;font-size:11px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.reseller-table td{padding:8px 0;font-size:13px;border-bottom:1px solid rgba(26,46,31,.5)}
+@media(max-width:768px){
+  .analytics-grid{grid-template-columns:1fr}
+  .summary-row-5{grid-template-columns:1fr 1fr}
+}
 </style></head>
 <body>
 
@@ -582,12 +616,40 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 
     <!-- BILLING PAGE -->
     <div id="page-billing" style="display:none">
-      <div class="summary-row" id="billing-summary">
-        <div class="summary-card"><div class="stat-num" id="billing-mrr">—</div><div class="stat-label">Monthly Revenue</div></div>
-        <div class="summary-card"><div class="stat-num" id="billing-active">—</div><div class="stat-label">Active</div></div>
-        <div class="summary-card"><div class="stat-num" id="billing-past-due">—</div><div class="stat-label">Past Due</div></div>
-        <div class="summary-card"><div class="stat-num" id="billing-free">—</div><div class="stat-label">Free (Connect)</div></div>
+      <!-- Summary Cards -->
+      <div class="summary-row-5" id="billing-summary">
+        <div class="summary-card"><div class="stat-num" id="billing-mrr">—</div><div class="stat-label">Total MRR</div><div class="trend" id="billing-mrr-trend"></div></div>
+        <div class="summary-card"><div class="stat-num" id="billing-active">—</div><div class="stat-label">Active Subscriptions</div><div class="trend" id="billing-active-trend"></div></div>
+        <div class="summary-card"><div class="stat-num" id="billing-past-due">—</div><div class="stat-label">Past Due</div><div class="trend" id="billing-pastdue-trend"></div></div>
+        <div class="summary-card"><div class="stat-num" id="billing-free">—</div><div class="stat-label">Free / Trial</div></div>
+        <div class="summary-card"><div class="stat-num" id="billing-arpc">—</div><div class="stat-label">Avg Rev / Church</div></div>
       </div>
+
+      <!-- Analytics Row 1: MRR Trend + Plan Distribution -->
+      <div class="analytics-grid">
+        <div class="analytics-card">
+          <div class="card-title">MRR Trend (12 months)</div>
+          <div id="mrr-trend-chart" class="mrr-chart-container"><span style="color:var(--muted);font-size:12px">Loading...</span></div>
+        </div>
+        <div class="analytics-card">
+          <div class="card-title">Plan Distribution</div>
+          <div id="plan-distribution"></div>
+        </div>
+      </div>
+
+      <!-- Analytics Row 2: Churn/Status + Resellers -->
+      <div class="analytics-grid">
+        <div class="analytics-card">
+          <div class="card-title">Status Breakdown &amp; Past Due Aging</div>
+          <div id="status-breakdown"></div>
+        </div>
+        <div class="analytics-card" id="reseller-card">
+          <div class="card-title">Revenue per Reseller</div>
+          <div id="reseller-revenue"></div>
+        </div>
+      </div>
+
+      <!-- Existing Subscription Table -->
       <div class="card">
         <div class="card-title">Subscriptions</div>
         <table id="billing-table">
@@ -1822,8 +1884,11 @@ function closeTicketDetail() { document.getElementById('ticket-detail').classLis
 async function loadBilling(page) {
   if (page !== undefined) billingPage = page;
   try {
-    const r = await fetch(\`/api/admin/billing?page=\${billingPage}&limit=\${BILLING_PAGE_SIZE}\`);
-    const d = await r.json();
+    const [billingRes, analyticsRes] = await Promise.all([
+      fetch(\`/api/admin/billing?page=\${billingPage}&limit=\${BILLING_PAGE_SIZE}\`),
+      fetch('/api/admin/billing/analytics')
+    ]);
+    const d = await billingRes.json();
     if (Array.isArray(d)) {
       allBilling = d;
       billingTotal = d.length;
@@ -1833,7 +1898,17 @@ async function loadBilling(page) {
       billingPage = d.page || billingPage;
     }
     renderBilling();
-    renderBillingSummary();
+
+    const analytics = await analyticsRes.json();
+    if (analytics.summary) {
+      renderBillingSummary(analytics.summary);
+      renderMRRTrend(analytics.mrrTrend);
+      renderPlanDistribution(analytics.planDistribution);
+      renderStatusBreakdown(analytics.summary, analytics.pastDueAging);
+      renderResellerRevenue(analytics.resellers);
+    } else {
+      renderBillingSummaryFallback();
+    }
   } catch(e) {
     document.getElementById('billing-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red);text-align:center;padding:24px">Failed to load billing data</td></tr>';
   }
@@ -1845,7 +1920,30 @@ function billingChangePage(delta) {
   if (newPage !== billingPage) loadBilling(newPage);
 }
 
-function renderBillingSummary() {
+function fmtDollars(n) { return '$' + n.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0}); }
+
+function trendHtml(current, previous, isDollar) {
+  if (!previous) return '<span class="trend trend-flat">—</span>';
+  const diff = current - previous;
+  const pct = previous > 0 ? ((diff / previous) * 100).toFixed(1) : 0;
+  const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
+  const cls = diff > 0 ? 'trend-up' : diff < 0 ? 'trend-down' : 'trend-flat';
+  const val = isDollar ? fmtDollars(Math.abs(diff)) : Math.abs(diff);
+  return '<span class="trend ' + cls + '">' + arrow + ' ' + val + ' (' + (diff >= 0 ? '+' : '') + pct + '%)</span>';
+}
+
+function renderBillingSummary(s) {
+  document.getElementById('billing-mrr').textContent = fmtDollars(s.totalMRR);
+  document.getElementById('billing-mrr-trend').innerHTML = trendHtml(s.totalMRR, s.prevMRR, true);
+  document.getElementById('billing-active').textContent = s.activeSubs;
+  document.getElementById('billing-active-trend').innerHTML = trendHtml(s.activeSubs, s.prevActive, false);
+  document.getElementById('billing-past-due').textContent = s.pastDueCount;
+  document.getElementById('billing-past-due').style.color = s.pastDueCount > 0 ? 'var(--yellow)' : '';
+  document.getElementById('billing-free').textContent = (s.freeCount + s.trialCount);
+  document.getElementById('billing-arpc').textContent = fmtDollars(s.avgRevenue);
+}
+
+function renderBillingSummaryFallback() {
   let mrr = 0, active = 0, pastDue = 0, free = 0;
   allBilling.forEach(b => {
     const status = (b.status||'').toLowerCase();
@@ -1853,10 +1951,119 @@ function renderBillingSummary() {
     else if (status === 'past_due') { pastDue++; mrr += (b.amount||0); }
     else if (status === 'free' || status === 'connect' || !b.plan || b.plan === 'connect') { free++; }
   });
-  document.getElementById('billing-mrr').textContent = '$' + mrr.toLocaleString(undefined, {minimumFractionDigits:0, maximumFractionDigits:0});
+  document.getElementById('billing-mrr').textContent = fmtDollars(mrr);
   document.getElementById('billing-active').textContent = active;
   document.getElementById('billing-past-due').textContent = pastDue;
   document.getElementById('billing-free').textContent = free;
+  document.getElementById('billing-arpc').textContent = '—';
+}
+
+function renderMRRTrend(trend) {
+  const container = document.getElementById('mrr-trend-chart');
+  if (!trend || !trend.length) { container.innerHTML = '<span style="color:var(--muted);font-size:12px">No data</span>'; return; }
+  const maxMRR = Math.max(...trend.map(t => t.mrr), 1);
+  const chartH = 150;
+  // Y-axis labels
+  let html = '<div class="y-axis">';
+  for (let i = 4; i >= 0; i--) {
+    html += '<span>' + fmtDollars(Math.round(maxMRR * i / 4)) + '</span>';
+  }
+  html += '</div>';
+  // Bars
+  trend.forEach(t => {
+    const h = Math.max(2, (t.mrr / maxMRR) * chartH);
+    const label = t.month.slice(5); // MM
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monthLabel = monthNames[parseInt(label, 10) - 1] || label;
+    html += '<div class="mrr-bar-group">';
+    html += '<div class="mrr-tooltip">' + fmtDollars(t.mrr) + '</div>';
+    html += '<div class="mrr-bar" style="height:' + h + 'px;background:var(--green)"></div>';
+    html += '<div class="mrr-bar-label">' + monthLabel + '</div>';
+    html += '</div>';
+  });
+  container.innerHTML = html;
+}
+
+function renderPlanDistribution(plans) {
+  const el = document.getElementById('plan-distribution');
+  if (!plans || !plans.length) { el.innerHTML = '<span style="color:var(--muted);font-size:12px">No data</span>'; return; }
+  const maxCount = Math.max(...plans.map(p => p.count), 1);
+  const colors = { connect: '#94A3B8', plus: '#22c55e', pro: '#3b82f6', managed: '#a855f7', event: '#eab308' };
+  let html = '';
+  plans.forEach(p => {
+    const pct = maxCount > 0 ? Math.max(2, (p.count / maxCount) * 100) : 0;
+    const color = colors[p.plan] || 'var(--green)';
+    const label = p.plan.charAt(0).toUpperCase() + p.plan.slice(1);
+    html += '<div class="bar-chart-row">';
+    html += '<div class="bar-label">' + esc(label) + '</div>';
+    html += '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;background:' + color + '">' + p.count + '</div></div>';
+    html += '<div class="bar-count">' + p.pct + '%</div>';
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function renderStatusBreakdown(summary, aging) {
+  const el = document.getElementById('status-breakdown');
+  const statuses = [
+    { label: 'Active', count: summary.activeSubs, cls: 'green' },
+    { label: 'Past Due', count: summary.pastDueCount, cls: 'yellow' },
+    { label: 'Canceled', count: summary.canceledCount, cls: 'red' },
+    { label: 'Free / Trial', count: summary.freeCount + summary.trialCount, cls: 'gray' },
+  ];
+  let html = '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">';
+  statuses.forEach(s => {
+    html += '<div style="display:flex;align-items:center;gap:6px">';
+    html += '<span class="badge badge-' + s.cls + '">' + s.count + '</span>';
+    html += '<span style="font-size:12px;color:var(--muted)">' + s.label + '</span>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // Past due aging
+  if (aging && (aging['1-7'].length || aging['8-30'].length || aging['30+'].length)) {
+    html += '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px">Past Due Aging</div>';
+    html += '<table class="aging-table"><thead><tr><th>Church</th><th>Plan</th><th>Days Overdue</th></tr></thead><tbody>';
+    const allAging = [
+      ...aging['30+'].map(a => ({...a, bucket: '30+'})),
+      ...aging['8-30'].map(a => ({...a, bucket: '8-30'})),
+      ...aging['1-7'].map(a => ({...a, bucket: '1-7'})),
+    ];
+    if (!allAging.length) {
+      html += '<tr><td colspan="3" style="color:var(--muted);text-align:center;padding:12px">No past due accounts</td></tr>';
+    } else {
+      allAging.forEach(a => {
+        const isAlert = a.days > 30;
+        html += '<tr>';
+        html += '<td' + (isAlert ? ' class="aging-alert"' : '') + '>' + esc(a.church_name) + '</td>';
+        html += '<td>' + esc(a.tier) + '</td>';
+        html += '<td' + (isAlert ? ' class="aging-alert"' : '') + '>' + a.days + ' days' + (isAlert ? ' ⚠' : '') + '</td>';
+        html += '</tr>';
+      });
+    }
+    html += '</tbody></table>';
+  }
+  el.innerHTML = html;
+}
+
+function renderResellerRevenue(resellers) {
+  const el = document.getElementById('reseller-revenue');
+  const card = document.getElementById('reseller-card');
+  if (!resellers || !resellers.length) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  let html = '<table class="reseller-table"><thead><tr><th>Reseller</th><th>Churches</th><th>MRR</th></tr></thead><tbody>';
+  resellers.forEach(r => {
+    html += '<tr>';
+    html += '<td>' + esc(r.name) + '</td>';
+    html += '<td>' + r.churches + '</td>';
+    html += '<td style="color:var(--green);font-weight:600">' + fmtDollars(r.mrr) + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
 }
 
 function renderBilling() {
@@ -3716,6 +3923,150 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     } catch(e) {
       // billing table may not exist
       res.json({ subscriptions: [], total: 0, page: 1, limit: 50, pages: 0 });
+    }
+  });
+
+  // ── Billing Analytics API ─────────────────────────────────────────────────
+
+  app.get('/api/admin/billing/analytics', requireAdminSession, (req, res) => {
+    // Monthly prices by tier (cents → dollars happens client-side)
+    const TIER_MRR = { connect: 0, plus: 49, pro: 99, managed: 199, event: 0 };
+    const ANNUAL_DISCOUNT = 1; // annual prices are already monthly-equivalent
+
+    try {
+      // 1. All billing customers with church + reseller info
+      const rows = db.prepare(`
+        SELECT bc.*, c.name as church_name, r.name as reseller_name
+        FROM billing_customers bc
+        LEFT JOIN churches c ON bc.church_id = c.churchId
+        LEFT JOIN resellers r ON bc.reseller_id = r.id
+        ORDER BY bc.created_at DESC
+      `).all();
+
+      const now = new Date();
+      const nowISO = now.toISOString();
+
+      // 2. Summary metrics
+      let totalMRR = 0, activeSubs = 0, pastDueCount = 0, freeCount = 0, canceledCount = 0, trialCount = 0;
+      let prevMRR = 0, prevActive = 0, prevPastDue = 0;
+      const oneMonthAgo = new Date(now);
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+      // 3. Plan distribution
+      const planCounts = { connect: 0, plus: 0, pro: 0, managed: 0, event: 0 };
+
+      // 4. Past-due aging buckets
+      const pastDueAging = { '1-7': [], '8-30': [], '30+': [] };
+
+      // 5. Reseller revenue
+      const resellerMap = {};
+
+      // 6. MRR history — track by month when subscriptions were created
+      const mrrByMonth = {};
+      // Initialize last 12 months
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = d.toISOString().slice(0, 7); // YYYY-MM
+        mrrByMonth[key] = { month: key, mrr: 0, count: 0 };
+      }
+
+      rows.forEach(r => {
+        const status = (r.status || '').toLowerCase();
+        const tier = (r.tier || 'connect').toLowerCase();
+        const monthlyRevenue = TIER_MRR[tier] || 0;
+
+        // Plan distribution
+        if (planCounts.hasOwnProperty(tier)) planCounts[tier]++;
+        else planCounts[tier] = 1;
+
+        // Status breakdown
+        if (status === 'active') {
+          activeSubs++;
+          totalMRR += monthlyRevenue;
+        } else if (status === 'past_due') {
+          pastDueCount++;
+          totalMRR += monthlyRevenue; // still billing
+
+          // Aging: use grace_ends_at or current_period_end to determine how long overdue
+          const overdueStart = r.current_period_end
+            ? new Date(typeof r.current_period_end === 'number' ? r.current_period_end * 1000 : r.current_period_end)
+            : null;
+          if (overdueStart) {
+            const daysOverdue = Math.floor((now - overdueStart) / (1000 * 60 * 60 * 24));
+            const entry = { church_name: r.church_name || 'Unknown', tier, days: daysOverdue, church_id: r.church_id };
+            if (daysOverdue > 30) pastDueAging['30+'].push(entry);
+            else if (daysOverdue > 7) pastDueAging['8-30'].push(entry);
+            else pastDueAging['1-7'].push(entry);
+          }
+        } else if (status === 'canceled') {
+          canceledCount++;
+        } else if (status === 'trialing') {
+          trialCount++;
+        } else {
+          freeCount++;
+        }
+
+        // MRR history: attribute revenue to months where subscription was active
+        if ((status === 'active' || status === 'past_due') && r.created_at) {
+          const createdDate = new Date(r.created_at);
+          Object.keys(mrrByMonth).forEach(monthKey => {
+            const monthDate = new Date(monthKey + '-01');
+            const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+            if (createdDate <= monthEnd) {
+              mrrByMonth[monthKey].mrr += monthlyRevenue;
+              mrrByMonth[monthKey].count++;
+            }
+          });
+        }
+
+        // Reseller aggregation
+        if (r.reseller_id && r.reseller_name) {
+          if (!resellerMap[r.reseller_id]) {
+            resellerMap[r.reseller_id] = { name: r.reseller_name, churches: 0, mrr: 0 };
+          }
+          resellerMap[r.reseller_id].churches++;
+          if (status === 'active' || status === 'past_due') {
+            resellerMap[r.reseller_id].mrr += monthlyRevenue;
+          }
+        }
+      });
+
+      // Compute previous month MRR for trend comparison
+      const prevMonthKey = oneMonthAgo.toISOString().slice(0, 7);
+      const prevData = mrrByMonth[prevMonthKey];
+      if (prevData) {
+        prevMRR = prevData.mrr;
+        prevActive = prevData.count;
+      }
+
+      const totalChurches = activeSubs + pastDueCount + freeCount + canceledCount + trialCount;
+      const avgRevenue = totalChurches > 0 ? totalMRR / totalChurches : 0;
+
+      const mrrTrend = Object.values(mrrByMonth);
+
+      res.json({
+        summary: {
+          totalMRR,
+          prevMRR,
+          mrrChange: prevMRR > 0 ? ((totalMRR - prevMRR) / prevMRR * 100) : 0,
+          activeSubs,
+          prevActive,
+          pastDueCount,
+          canceledCount,
+          freeCount,
+          trialCount,
+          avgRevenue: Math.round(avgRevenue * 100) / 100,
+        },
+        mrrTrend,
+        planDistribution: Object.entries(planCounts).map(([plan, count]) => ({
+          plan, count, pct: totalChurches > 0 ? Math.round(count / totalChurches * 100) : 0
+        })),
+        pastDueAging,
+        resellers: Object.values(resellerMap).sort((a, b) => b.mrr - a.mrr),
+        tierPrices: TIER_MRR,
+      });
+    } catch (e) {
+      res.json({ summary: null, mrrTrend: [], planDistribution: [], pastDueAging: {}, resellers: [], tierPrices: {} });
     }
   });
 
