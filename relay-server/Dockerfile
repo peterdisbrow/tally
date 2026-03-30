@@ -13,7 +13,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --production
 COPY . .
-COPY --from=admin-build /app/admin/../public/admin ./public/admin
+COPY --from=admin-build /app/public/admin ./public/admin
 RUN mkdir -p data
 EXPOSE 3000 1935
 CMD ["node", "server.js"]
