@@ -926,6 +926,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id === 'analytics') loadAnalytics();
       if (id === 'billing') { loadBilling(); loadReferralsPage(); }
       if (id === 'support') { loadSupportInfo(); initMigrationWizard(); }
+      if (id === 'ai-triage') loadAiTriagePage();
       if (id === 'engineer') startEngineerChatPoll(); else stopEngineerChatPoll();
     }
 
@@ -6198,6 +6199,17 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof shareRefSMS === 'function') shareRefSMS();
         break;
 
+      // AI Triage
+      case 'saveAiTriageSettings':
+        if (typeof saveAiTriageSettings === 'function') saveAiTriageSettings();
+        break;
+      case 'refreshAiTriageEvents':
+        if (typeof refreshAiTriageEvents === 'function') refreshAiTriageEvents();
+        break;
+      case 'loadMoreTriageEvents':
+        if (typeof loadMoreTriageEvents === 'function') loadMoreTriageEvents();
+        break;
+
       // Support
       case 'runSupportTriage':
         if (typeof runSupportTriage === 'function') runSupportTriage();
@@ -6288,6 +6300,326 @@ document.addEventListener('DOMContentLoaded', function() {
         el.value = el.value.replace(/[^a-z0-9_]/g, '').toLowerCase();
         break;
     }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // AI TRIAGE PAGE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  var _aiTriageEventsOffset = 0;
+  var _aiTriageSettings = null;
+
+  async function loadAiTriagePage() {
+    _aiTriageEventsOffset = 0;
+    try {
+      var [statsRes, settingsRes, contextRes, windowsRes] = await Promise.all([
+        api('GET', '/api/church/ai-triage/stats?days=7'),
+        api('GET', '/api/church/ai-triage/settings'),
+        api('GET', '/api/church/ai-triage/context'),
+        api('GET', '/api/church/ai-triage/windows'),
+      ]);
+      _aiTriageSettings = settingsRes;
+      renderAiTriageStats(statsRes);
+      renderAiTriageContext(contextRes);
+      renderAiTriageSettings(settingsRes);
+      renderAiTriageSeverityChart(statsRes);
+      renderAiTriageWindows(windowsRes);
+      renderAiTriageDailyChart(statsRes);
+      await refreshAiTriageEvents();
+    } catch (err) {
+      console.error('[AI Triage] Load error:', err);
+    }
+  }
+
+  function renderAiTriageStats(stats) {
+    var el = function(id) { return document.getElementById(id); };
+    el('ai-triage-stat-total').textContent = stats.total_events || 0;
+    var critCount = 0;
+    (stats.severity_distribution || []).forEach(function(s) {
+      if (s.triage_severity === 'critical') critCount = s.count;
+    });
+    el('ai-triage-stat-critical').textContent = critCount;
+    el('ai-triage-stat-resolution').textContent = (stats.resolution_rate || 0) + '%';
+  }
+
+  function renderAiTriageContext(ctx) {
+    var banner = document.getElementById('ai-triage-context-banner');
+    var iconEl = document.getElementById('ai-triage-context-icon');
+    var labelEl = document.getElementById('ai-triage-context-label');
+    var detailEl = document.getElementById('ai-triage-context-detail');
+
+    var context = ctx.context || 'off_hours';
+    var details = ctx.details || {};
+
+    if (context === 'pre_service') {
+      banner.style.borderLeftColor = '#f97316';
+      iconEl.textContent = '\u26A0\uFE0F';
+      labelEl.textContent = 'Pre-Service';
+      labelEl.className = 'triage-pulse';
+      detailEl.textContent = details.minutesUntilService
+        ? details.minutesUntilService + ' min until service starts'
+        : 'Setup window active';
+    } else if (context === 'in_service') {
+      banner.style.borderLeftColor = '#ef4444';
+      iconEl.textContent = '\uD83D\uDD34';
+      labelEl.textContent = 'In Service';
+      labelEl.className = 'triage-pulse';
+      detailEl.textContent = details.minutesIntoService
+        ? details.minutesIntoService + ' min into service'
+        : 'Service in progress';
+    } else {
+      banner.style.borderLeftColor = '#475569';
+      iconEl.textContent = '\uD83D\uDFE2';
+      labelEl.textContent = 'Off Hours';
+      labelEl.className = '';
+      detailEl.textContent = details.reason === 'no_schedule'
+        ? 'No service schedule configured'
+        : 'Lower priority monitoring active';
+    }
+  }
+
+  function renderAiTriageSettings(settings) {
+    var mode = settings.ai_mode || 'recommend_only';
+    document.getElementById('ai-triage-stat-mode').textContent =
+      mode === 'full_auto' ? 'Full Auto' : mode === 'recommend_only' ? 'Recommend' : 'Monitor';
+
+    // Highlight active mode button
+    document.querySelectorAll('.ai-mode-btn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+
+    // Set sensitivity slider
+    var slider = document.getElementById('ai-triage-sensitivity');
+    slider.value = settings.sensitivity_threshold || 50;
+    document.getElementById('ai-triage-sensitivity-val').textContent = slider.value;
+
+    // Set pre-service window
+    var preWindow = document.getElementById('ai-triage-pre-window');
+    preWindow.value = String(settings.pre_service_window_minutes || 60);
+
+    // Wire up mode button clicks
+    document.querySelectorAll('.ai-mode-btn').forEach(function(btn) {
+      btn.onclick = function() {
+        document.querySelectorAll('.ai-mode-btn').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+      };
+    });
+
+    // Wire up sensitivity slider
+    slider.oninput = function() {
+      document.getElementById('ai-triage-sensitivity-val').textContent = slider.value;
+    };
+  }
+
+  async function saveAiTriageSettings() {
+    var activeBtn = document.querySelector('.ai-mode-btn.active');
+    var mode = activeBtn ? activeBtn.dataset.mode : 'recommend_only';
+    var sensitivity = parseInt(document.getElementById('ai-triage-sensitivity').value, 10);
+    var preWindow = parseInt(document.getElementById('ai-triage-pre-window').value, 10);
+
+    try {
+      var btn = document.getElementById('btn-save-ai-settings');
+      btn.textContent = 'Saving...';
+      btn.disabled = true;
+      var res = await api('PUT', '/api/church/ai-triage/settings', {
+        ai_mode: mode,
+        sensitivity_threshold: sensitivity,
+        pre_service_window_minutes: preWindow,
+      });
+      _aiTriageSettings = res;
+      renderAiTriageSettings(res);
+      toast('AI settings saved');
+    } catch (err) {
+      toast('Failed to save settings', true);
+    } finally {
+      var btnEl = document.getElementById('btn-save-ai-settings');
+      btnEl.textContent = 'Save Settings';
+      btnEl.disabled = false;
+    }
+  }
+
+  function renderAiTriageSeverityChart(stats) {
+    var container = document.getElementById('ai-triage-severity-chart');
+    var legend = document.getElementById('ai-triage-severity-legend');
+    var dist = stats.severity_distribution || [];
+    if (!dist.length) {
+      container.innerHTML = '<div style="color:#475569;font-size:13px;text-align:center;width:100%;padding:40px 0">No events recorded yet</div>';
+      legend.innerHTML = '';
+      return;
+    }
+
+    var maxCount = Math.max.apply(null, dist.map(function(d) { return d.count; }));
+    var colors = { critical: '#ef4444', high: '#f97316', medium: '#eab308', low: '#3b82f6', info: '#6b7280' };
+    var html = '';
+    dist.forEach(function(d) {
+      var pct = maxCount > 0 ? Math.max(4, Math.round((d.count / maxCount) * 100)) : 4;
+      var color = colors[d.triage_severity] || '#6b7280';
+      html += '<div class="triage-bar" style="height:' + pct + '%;background:' + color + '" title="' + d.triage_severity + ': ' + d.count + '"></div>';
+    });
+    container.innerHTML = html;
+
+    var legendHtml = '';
+    dist.forEach(function(d) {
+      var color = colors[d.triage_severity] || '#6b7280';
+      legendHtml += '<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + color + ';margin-right:4px"></span>' + d.triage_severity + ': ' + d.count + '</span>';
+    });
+    legend.innerHTML = legendHtml;
+  }
+
+  function renderAiTriageWindows(data) {
+    var container = document.getElementById('ai-triage-windows');
+    var noWindows = document.getElementById('ai-triage-no-windows');
+    var windows = data.windows || [];
+
+    if (!windows.length) {
+      container.style.display = 'none';
+      noWindows.style.display = 'block';
+      return;
+    }
+    container.style.display = '';
+    noWindows.style.display = 'none';
+
+    var dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    var totalMin = 24 * 60;
+    var html = '';
+
+    windows.forEach(function(w) {
+      var preStart = Math.max(0, w.preServiceStart) / totalMin * 100;
+      var serviceStart = Math.max(0, w.serviceStart) / totalMin * 100;
+      var serviceEnd = Math.min(totalMin, w.serviceEnd) / totalMin * 100;
+      var postEnd = Math.min(totalMin, w.postBufferEnd) / totalMin * 100;
+
+      html += '<div style="display:flex;align-items:center;gap:10px">';
+      html += '<div style="min-width:36px;font-size:12px;font-weight:600;color:#94A3B8">' + w.dayName + '</div>';
+      html += '<div class="window-bar" style="flex:1">';
+      html += '<div class="window-segment pre" style="left:' + preStart + '%;width:' + (serviceStart - preStart) + '%"></div>';
+      html += '<div class="window-segment service" style="left:' + serviceStart + '%;width:' + (serviceEnd - serviceStart) + '%"></div>';
+      html += '<div class="window-segment post" style="left:' + serviceEnd + '%;width:' + (postEnd - serviceEnd) + '%"></div>';
+      html += '</div>';
+      html += '<div style="min-width:90px;font-size:11px;color:#475569">' + w.startFormatted + ' - ' + w.endFormatted + '</div>';
+      html += '</div>';
+    });
+
+    // Legend
+    html += '<div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:#94A3B8">';
+    html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#f9731630;margin-right:4px"></span>Pre-service</span>';
+    html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#22c55e30;margin-right:4px"></span>In service</span>';
+    html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#3b82f620;margin-right:4px"></span>Post-buffer</span>';
+    html += '</div>';
+
+    container.innerHTML = html;
+  }
+
+  function renderAiTriageDailyChart(stats) {
+    var container = document.getElementById('ai-triage-daily-chart');
+    var labels = document.getElementById('ai-triage-daily-labels');
+    var trend = stats.daily_trend || [];
+
+    if (!trend.length) {
+      container.innerHTML = '<div style="color:#475569;font-size:13px;text-align:center;width:100%;padding:30px 0">No daily data yet</div>';
+      labels.innerHTML = '';
+      return;
+    }
+
+    var maxCount = Math.max.apply(null, trend.map(function(d) { return d.count; }));
+    var html = '';
+    trend.forEach(function(d) {
+      var total = d.count || 0;
+      var critPct = maxCount > 0 ? (d.critical || 0) / maxCount * 100 : 0;
+      var highPct = maxCount > 0 ? (d.high || 0) / maxCount * 100 : 0;
+      var medPct = maxCount > 0 ? (d.medium || 0) / maxCount * 100 : 0;
+      var lowPct = maxCount > 0 ? (d.low || 0) / maxCount * 100 : 0;
+      var totalPct = maxCount > 0 ? Math.max(2, total / maxCount * 100) : 2;
+
+      html += '<div style="flex:1;display:flex;flex-direction:column;align-items:stretch;gap:1px;height:100%">';
+      if (critPct > 0) html += '<div style="height:' + critPct + '%;background:#ef4444;border-radius:2px;min-height:2px"></div>';
+      if (highPct > 0) html += '<div style="height:' + highPct + '%;background:#f97316;border-radius:2px;min-height:2px"></div>';
+      if (medPct > 0) html += '<div style="height:' + medPct + '%;background:#eab308;border-radius:2px;min-height:2px"></div>';
+      if (lowPct > 0) html += '<div style="height:' + lowPct + '%;background:#3b82f6;border-radius:2px;min-height:2px"></div>';
+      if (total === 0) html += '<div style="height:2px;background:#1a2e1f;border-radius:2px"></div>';
+      html += '</div>';
+    });
+    container.innerHTML = html;
+
+    var labelHtml = '';
+    trend.forEach(function(d) {
+      var parts = (d.day || '').split('-');
+      labelHtml += '<span>' + (parts[1] || '') + '/' + (parts[2] || '') + '</span>';
+    });
+    labels.innerHTML = labelHtml;
+  }
+
+  async function refreshAiTriageEvents() {
+    _aiTriageEventsOffset = 0;
+    var severity = document.getElementById('ai-triage-filter-severity').value;
+    try {
+      var res = await api('GET', '/api/church/ai-triage/events?limit=25' + (severity ? '&severity=' + severity : ''));
+      renderAiTriageEvents(res.events || [], false);
+      _aiTriageEventsOffset = (res.events || []).length;
+      var loadMoreBtn = document.getElementById('btn-load-more-triage');
+      loadMoreBtn.style.display = (res.events || []).length >= 25 ? '' : 'none';
+    } catch (err) {
+      document.getElementById('ai-triage-events-tbody').innerHTML =
+        '<tr><td colspan="6" style="color:#ef4444;text-align:center;padding:20px">Failed to load events</td></tr>';
+    }
+  }
+
+  async function loadMoreTriageEvents() {
+    var severity = document.getElementById('ai-triage-filter-severity').value;
+    try {
+      var res = await api('GET', '/api/church/ai-triage/events?limit=25&offset=' + _aiTriageEventsOffset + (severity ? '&severity=' + severity : ''));
+      renderAiTriageEvents(res.events || [], true);
+      _aiTriageEventsOffset += (res.events || []).length;
+      var loadMoreBtn = document.getElementById('btn-load-more-triage');
+      loadMoreBtn.style.display = (res.events || []).length >= 25 ? '' : 'none';
+    } catch (err) {
+      toast('Failed to load more events', true);
+    }
+  }
+
+  function renderAiTriageEvents(events, append) {
+    var tbody = document.getElementById('ai-triage-events-tbody');
+    if (!append) tbody.innerHTML = '';
+
+    if (!events.length && !append) {
+      tbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No triage events yet. Events appear as alerts are processed.</td></tr>';
+      return;
+    }
+
+    events.forEach(function(ev) {
+      var tr = document.createElement('tr');
+      var time = new Date(ev.created_at);
+      var timeStr = time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+        time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+      var alertLabel = (ev.alert_type || '').replace(/_/g, ' ');
+
+      var scoreColor = ev.triage_score >= 100 ? '#ef4444' : ev.triage_score >= 70 ? '#f97316' : ev.triage_score >= 40 ? '#eab308' : '#3b82f6';
+
+      var contextLabel = (ev.time_context || '').replace(/_/g, ' ');
+
+      var actionText = ev.resolution_id ? 'Auto-fixed' : '--';
+
+      tr.innerHTML =
+        '<td style="font-size:12px;white-space:nowrap;color:#94A3B8">' + timeStr + '</td>' +
+        '<td style="font-size:12px;font-weight:500">' + alertLabel + '</td>' +
+        '<td style="font-size:13px;font-weight:700;color:' + scoreColor + '">' + ev.triage_score + '</td>' +
+        '<td><span class="severity-badge ' + ev.triage_severity + '">' + ev.triage_severity + '</span></td>' +
+        '<td><span class="context-badge ' + ev.time_context + '">' + contextLabel + '</span></td>' +
+        '<td style="font-size:12px;color:' + (ev.resolution_id ? '#22c55e' : '#475569') + '">' + actionText + '</td>';
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Wire severity filter change
+  document.getElementById('ai-triage-filter-severity').addEventListener('change', function() {
+    refreshAiTriageEvents();
+  });
+
+  // Sensitivity slider live update
+  document.getElementById('ai-triage-sensitivity').addEventListener('input', function() {
+    document.getElementById('ai-triage-sensitivity-val').textContent = this.value;
   });
 
 });

@@ -116,6 +116,7 @@ const { ScheduleEngine } = require('./src/scheduleEngine');
 const { AlertEngine } = require('./src/alertEngine');
 const { VersionConfig } = require('./src/versionConfig');
 const { AutoRecovery } = require('./src/autoRecovery');
+const { AITriageEngine } = require('./src/aiTriage');
 const { SignalFailover } = require('./src/signalFailover');
 const { IncidentSummarizer } = require('./src/incidentSummarizer');
 const { AiRateLimiter } = require('./src/aiRateLimiter');
@@ -1026,6 +1027,24 @@ const onCallRotation = new OnCallRotation(db);
 const alertEngine = new AlertEngine(db, scheduleEngine, { onCallRotation });
 const versionConfig = new VersionConfig(db);
 const autoRecovery = new AutoRecovery(churches, alertEngine, db);
+const aiTriageEngine = new AITriageEngine(db, scheduleEngine, {
+  churches,
+  autoRecovery,
+  broadcastToSSE: (data) => broadcastToSSE(data),
+  createTicket: ({ churchId, title, description, severity, issueCategory, aiTriageEventId }) => {
+    const ticketId = uuidv4();
+    const now = new Date().toISOString();
+    try {
+      db.prepare(`
+        INSERT INTO support_tickets (id, church_id, triage_id, issue_category, severity, title, description, status, forced_bypass, diagnostics_json, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'open', 0, ?, ?, ?, ?)
+      `).run(ticketId, churchId, aiTriageEventId || null, issueCategory || 'other', severity || 'P3', title, description, '{}', 'ai_triage', now, now);
+      db.prepare(`INSERT INTO support_ticket_updates (ticket_id, message, actor_type, actor_id, created_at) VALUES (?, ?, 'system', 'ai_triage', ?)`)
+        .run(ticketId, description || 'AI Triage recommendation', now);
+    } catch (e) { console.error('[AITriage] Ticket creation failed:', e.message); }
+    return ticketId;
+  },
+});
 const signalFailover = new SignalFailover(churches, alertEngine, autoRecovery, db);
 const weeklyDigest = new WeeklyDigest(db);
 weeklyDigest.setNotificationConfig(process.env.ALERT_BOT_TOKEN);
@@ -1337,6 +1356,7 @@ _intervals.push(setInterval(() => {
     const pruned = db.prepare("DELETE FROM audit_log WHERE created_at < datetime('now', '-90 days')").run();
     if (pruned.changes > 0) log(`[AuditLog] Pruned ${pruned.changes} entries older than 90 days`);
   } catch { /* ignore */ }
+  try { aiTriageEngine.cleanup(90); } catch { /* ignore */ }
 }, 24 * 60 * 60 * 1000));
 billing.setLifecycleEmails(lifecycleEmails);
 sessionRecap.setLifecycleEmails(lifecycleEmails);
@@ -1604,7 +1624,7 @@ scheduleEngine.addWindowCloseCallback(async (churchId) => {
 });
 
 // Church Portal — self-service login for individual churches
-setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal });
+setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine });
 console.log('[Server] ✓ Church Portal routes registered');
 
 // ─── Church Portal Live Status SSE ───────────────────────────────────────────
@@ -2398,7 +2418,7 @@ const routeCtx = {
   safeErrorMessage, safeSend, queueMessage, messageQueues,
   stmtGet, stmtInsert, stmtDelete, stmtFindByName, stmtUpdateRegistrationCode,
   resellerSystem, planningCenter, streamOAuth, eventMode,
-  scheduleEngine, alertEngine, weeklyDigest, sessionRecap,
+  scheduleEngine, alertEngine, weeklyDigest, sessionRecap, aiTriageEngine,
   monthlyReport, autoPilot, presetLibrary, onCallRotation, rundownEngine, scheduler,
   guestTdMode, chatEngine,
   logAiUsage, logAudit, isOnTopic, OFF_TOPIC_RESPONSE, runManualDbSnapshot,
@@ -2419,6 +2439,7 @@ require('./src/routes/automation')(app, routeCtx);
 require('./src/routes/scheduler')(app, routeCtx);
 require('./src/routes/churchOps')(app, routeCtx);
 require('./src/routes/roomEquipment')(app, routeCtx);
+require('./src/routes/aiTriage')(app, routeCtx);
 console.log('[Server] ✓ Route modules registered');
 
 // Admin auth, users, AI usage routes → src/routes/adminAuth.js
@@ -3419,6 +3440,7 @@ const _wsHandlers = createWebSocketHandlers({
       console.error('[branding] lookup error:', e.message);
     }
     broadcastToPortal(church.churchId, { type: 'connected', status: church.status, lastSeen: church.lastSeen, instanceStatus: church.instanceStatus, roomInstanceMap: church.roomInstanceMap });
+    aiTriageEngine.recordReconnection(church.churchId);
     log(`Church "${church.name}" connected`, { event: 'church_connect', churchId: church.churchId, church: church.name });
     // (WS-level ping interval is managed by the factory via wsPingIntervalMs)
   },
@@ -3491,6 +3513,12 @@ const _wsHandlers = createWebSocketHandlers({
             const escalated = alertResult && alertResult.severity === 'EMERGENCY';
             sessionRecap.recordAlert(church.churchId, msg.alertType, false, escalated);
           }
+          // ── AI Triage: score and process every alert ──
+          aiTriageEngine.processAlert(
+            church.churchId, msg.alertType,
+            alertEngine.classifyAlert(msg.alertType),
+            { message: msg.message, status: church.status, roomId: church.room_id },
+          ).catch(e => console.error('[AITriage] Process error:', e.message));
           // ── AutoPilot: evaluate alert-based rules ──
           if (autoPilot) {
             autoPilot.onAlert(church.churchId, {

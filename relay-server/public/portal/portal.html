@@ -53,6 +53,9 @@
     <button class="nav-item" data-page="billing" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 0 0 2.25-2.25V6.75A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25v10.5A2.25 2.25 0 0 0 4.5 19.5Z"/></svg></span> <span data-i18n="nav.billing">Billing</span>
     </button>
+    <button class="nav-item" data-page="ai-triage" data-action="showPage">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"/></svg></span> <span>AI Triage</span>
+    </button>
     <button class="nav-item" data-page="support" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"/></svg></span> <span data-i18n="nav.support">Help &amp; Support</span>
     </button>
@@ -1462,6 +1465,148 @@
 
         <!-- Step 2: comparison + setup guidance (populated by JS) -->
         <div id="migrate-step-2" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- ── AI TRIAGE PAGE ───────────────────────────────────────────────── -->
+    <div class="page" id="page-ai-triage">
+      <div class="page-header">
+        <div class="page-title">AI Triage</div>
+        <div class="page-sub">Intelligent event scoring, automated diagnostics, and resolution tracking</div>
+      </div>
+
+      <!-- Time Context Banner -->
+      <div id="ai-triage-context-banner" class="card" style="margin-bottom:16px;padding:16px 20px;display:flex;align-items:center;gap:14px;border-left:3px solid #475569">
+        <div id="ai-triage-context-icon" style="font-size:24px"></div>
+        <div>
+          <div id="ai-triage-context-label" style="font-weight:600;font-size:14px;color:#F8FAFC"></div>
+          <div id="ai-triage-context-detail" style="font-size:12px;color:#94A3B8;margin-top:2px"></div>
+        </div>
+      </div>
+
+      <!-- Stats Row -->
+      <div class="stats-row" style="margin-bottom:16px">
+        <div class="stat-card">
+          <div class="stat-value" id="ai-triage-stat-total">--</div>
+          <div class="stat-label">Events (7d)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="ai-triage-stat-critical" style="color:#ef4444">--</div>
+          <div class="stat-label">Critical</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="ai-triage-stat-resolution" style="color:#22c55e">--</div>
+          <div class="stat-label">Resolution Rate</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="ai-triage-stat-mode">--</div>
+          <div class="stat-label">AI Mode</div>
+        </div>
+      </div>
+
+      <!-- AI Mode Selector -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:12px">AI Mode</div>
+        <div id="ai-triage-mode-selector" style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="ai-mode-btn" data-mode="full_auto" id="ai-mode-full-auto">
+            <span class="ai-mode-icon">&#9889;</span>
+            <span class="ai-mode-label">Full Auto</span>
+            <span class="ai-mode-desc">Detect, triage &amp; auto-fix</span>
+          </button>
+          <button class="ai-mode-btn" data-mode="recommend_only" id="ai-mode-recommend">
+            <span class="ai-mode-icon">&#128161;</span>
+            <span class="ai-mode-label">Recommend Only</span>
+            <span class="ai-mode-desc">Detect &amp; recommend fixes</span>
+          </button>
+          <button class="ai-mode-btn" data-mode="monitor_only" id="ai-mode-monitor">
+            <span class="ai-mode-icon">&#128065;</span>
+            <span class="ai-mode-label">Monitor Only</span>
+            <span class="ai-mode-desc">Watch &amp; log patterns</span>
+          </button>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+          <div class="field" style="flex:1;min-width:180px;margin-bottom:0">
+            <label style="font-size:12px;margin-bottom:4px">Sensitivity</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="range" id="ai-triage-sensitivity" min="10" max="100" value="50" style="flex:1;accent-color:#22c55e">
+              <span id="ai-triage-sensitivity-val" style="font-size:13px;color:#F8FAFC;min-width:30px;text-align:right">50</span>
+            </div>
+          </div>
+          <div class="field" style="flex:1;min-width:180px;margin-bottom:0">
+            <label style="font-size:12px;margin-bottom:4px">Pre-service window</label>
+            <select id="ai-triage-pre-window" style="font-size:13px">
+              <option value="30">30 min before</option>
+              <option value="45">45 min before</option>
+              <option value="60" selected>60 min before</option>
+              <option value="90">90 min before</option>
+              <option value="120">120 min before</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:10px;text-align:right">
+          <button class="btn-primary" id="btn-save-ai-settings" data-action="saveAiTriageSettings" style="font-size:13px;padding:6px 16px">Save Settings</button>
+        </div>
+      </div>
+
+      <!-- Severity Distribution Chart -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:12px">Severity Distribution (7 days)</div>
+        <div id="ai-triage-severity-chart" style="display:flex;gap:6px;align-items:flex-end;height:120px;padding:0 4px"></div>
+        <div id="ai-triage-severity-legend" style="display:flex;gap:16px;margin-top:10px;font-size:12px;color:#94A3B8;flex-wrap:wrap"></div>
+      </div>
+
+      <!-- Service Window Visualization -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:12px">Service Windows</div>
+        <div id="ai-triage-windows" style="display:flex;flex-direction:column;gap:8px"></div>
+        <div id="ai-triage-no-windows" style="display:none;color:#475569;font-size:13px;text-align:center;padding:20px">
+          No service schedule configured. <a href="#" data-action="showPage" data-page="profile" style="color:#22c55e">Set up your schedule</a>
+        </div>
+      </div>
+
+      <!-- Daily Trend Chart -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" style="margin-bottom:12px">Daily Trend</div>
+        <div id="ai-triage-daily-chart" style="display:flex;gap:4px;align-items:flex-end;height:100px;padding:0 4px"></div>
+        <div id="ai-triage-daily-labels" style="display:flex;justify-content:space-between;font-size:10px;color:#475569;margin-top:6px;padding:0 4px"></div>
+      </div>
+
+      <!-- Recent Events Feed -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <div class="card-title" style="margin-bottom:0">Recent Events</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="ai-triage-filter-severity" style="font-size:12px;padding:4px 8px">
+              <option value="">All severities</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+              <option value="info">Info</option>
+            </select>
+            <button class="btn-secondary" data-action="refreshAiTriageEvents" style="font-size:12px;padding:4px 12px">Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Alert</th>
+                <th>Score</th>
+                <th>Severity</th>
+                <th>Context</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="ai-triage-events-tbody">
+              <tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="text-align:center;margin-top:12px">
+          <button class="btn-secondary" id="btn-load-more-triage" data-action="loadMoreTriageEvents" style="font-size:12px;padding:4px 16px;display:none">Load More</button>
+        </div>
       </div>
     </div>
 

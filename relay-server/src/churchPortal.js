@@ -418,7 +418,7 @@ function _escapeHtml(str) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine } = {}) {
   const express = require('express');
   log.info('Setup started');
 
@@ -3644,6 +3644,85 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
     log.info(`Set portal credentials for church ${req.params.churchId}: ${email}`);
     res.json({ ok: true, email: email.trim().toLowerCase(), loginUrl: '/church-login' });
   });
+
+  // ── AI TRIAGE ENDPOINTS (church-facing) ────────────────────────────────────
+
+  if (aiTriageEngine) {
+    // GET /api/church/ai-triage/events — triage events for this church
+    app.get('/api/church/ai-triage/events', authMiddleware, (req, res) => {
+      try {
+        const events = aiTriageEngine.getRecentEvents({
+          churchId: req.church.churchId,
+          limit: Math.min(parseInt(req.query.limit, 10) || 50, 100),
+          offset: parseInt(req.query.offset, 10) || 0,
+          severity: req.query.severity || null,
+        });
+        res.json({ events });
+      } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch triage events' });
+      }
+    });
+
+    // GET /api/church/ai-triage/stats — triage stats for this church
+    app.get('/api/church/ai-triage/stats', authMiddleware, (req, res) => {
+      try {
+        const stats = aiTriageEngine.getStats({
+          churchId: req.church.churchId,
+          days: Math.min(parseInt(req.query.days, 10) || 7, 30),
+        });
+        res.json(stats);
+      } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch triage stats' });
+      }
+    });
+
+    // GET /api/church/ai-triage/settings — AI settings for this church
+    app.get('/api/church/ai-triage/settings', authMiddleware, (req, res) => {
+      try {
+        const settings = aiTriageEngine.getChurchSettings(req.church.churchId);
+        res.json(settings);
+      } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch AI settings' });
+      }
+    });
+
+    // PUT /api/church/ai-triage/settings — update AI settings (admin only)
+    app.put('/api/church/ai-triage/settings', adminMiddleware, (req, res) => {
+      try {
+        const settings = aiTriageEngine.updateChurchSettings(
+          req.church.churchId,
+          req.body,
+          req.church.portal_email || 'church_admin',
+        );
+        res.json(settings);
+      } catch (err) {
+        if (err.message.includes('Invalid AI mode')) {
+          return res.status(400).json({ error: err.message });
+        }
+        res.status(500).json({ error: 'Failed to update AI settings' });
+      }
+    });
+
+    // GET /api/church/ai-triage/windows — service window visualization
+    app.get('/api/church/ai-triage/windows', authMiddleware, (req, res) => {
+      try {
+        const windows = aiTriageEngine.getServiceWindows(req.church.churchId);
+        res.json(windows);
+      } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch service windows' });
+      }
+    });
+
+    // GET /api/church/ai-triage/context — current time context
+    app.get('/api/church/ai-triage/context', authMiddleware, (req, res) => {
+      try {
+        const context = aiTriageEngine.getTimeContext(req.church.churchId);
+        res.json(context);
+      } catch (err) {
+        res.status(500).json({ error: 'Failed to determine time context' });
+      }
+    });
+  }
 
   log.info('Setup complete — routes registered');
 }
