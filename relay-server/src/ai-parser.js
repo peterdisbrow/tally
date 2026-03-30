@@ -1459,6 +1459,7 @@ When troubleshooting:
 
   const promptTokenEst = Math.round(systemPrompt.length / 4);
   try {
+    console.log(`[ai-parser] ctx.churchName="${ctx.churchName}" ctx.roomId="${ctx.roomId}" ctx.roomName="${ctx.roomName}" contextHint="${contextHint.slice(0, 120)}"`);
     console.log(`[ai-parser] Calling ${useSonnet ? 'Sonnet (diagnostic)' : 'Haiku'} (${messages.length} msg, ~${promptTokenEst} prompt tokens) for: "${text.slice(0, 60)}"`);
     const { text: raw, usage, latencyMs } = await callAnthropic(messages, useSonnet ? 25000 : 15000, systemPrompt, modelId);
     console.log(`[ai-parser] ${useSonnet ? 'Sonnet' : 'Haiku'} response (${latencyMs}ms): ${raw.slice(0, 300)}`);
