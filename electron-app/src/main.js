@@ -537,8 +537,10 @@ function updateTray() {
     { type: 'separator' },
     { label: t('tray.checkForUpdates'), click: () => {
       if (autoUpdater) {
-        autoUpdater.checkForUpdates().then(() => {}).catch(() => {
-          mainWindow?.webContents.send('update-not-available');
+        autoUpdater.checkForUpdates().then(() => {}).catch((e) => {
+          const msg = e?.message || 'Update check failed';
+          appendAppLog('SYSTEM', `Manual update check failed: ${msg}`);
+          mainWindow?.webContents.send('update-error', msg);
         });
       } else {
         shell.openExternal('https://github.com/peterdisbrow/tally/releases/latest');
@@ -2256,7 +2258,14 @@ function setupAutoUpdate() {
   });
 
   autoUpdater.on('error', (err) => {
-    const msg = err?.message || 'Unknown update error';
+    const raw = err?.message || 'Unknown update error';
+    // Provide user-friendly context for common failure modes
+    let msg = raw;
+    if (/signature/i.test(raw) || /verify/i.test(raw) || /ERR_UPDATER_INVALID_SIGNATURE/i.test(raw)) {
+      msg = `Update signature verification failed — the installer may not be code-signed. ${raw}`;
+    } else if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|network/i.test(raw)) {
+      msg = `Update check failed — unable to reach update server. ${raw}`;
+    }
     appendAppLog('SYSTEM', `Auto-update error: ${msg}`);
     mainWindow?.webContents.send('update-error', msg);
   });
@@ -2272,7 +2281,10 @@ function setupAutoUpdate() {
   // Periodic re-check based on interval setting
   if (intervalHours < 168) {
     setInterval(() => {
-      autoUpdater.checkForUpdates().catch(() => {});
+      autoUpdater.checkForUpdates().catch((e) => {
+        appendAppLog('SYSTEM', `Periodic update check failed: ${e?.message}`);
+        mainWindow?.webContents.send('update-error', e?.message || 'Periodic update check failed');
+      });
     }, intervalHours * 60 * 60 * 1000);
   }
 }

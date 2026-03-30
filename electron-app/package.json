@@ -12,6 +12,8 @@
     "build:mac:signed": "npm run release:check && electron-builder --mac --arm64 --x64",
     "build:mac:dist": "mkdir -p \"$HOME/Desktop/Tally\" && electron-builder --mac && cp -f dist/Tally-*.dmg \"$HOME/Desktop/Tally/\"",
     "build:win": "electron-builder --win",
+    "build:win:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win",
+    "build:win:signed": "npm run release:check && electron-builder --win --x64",
     "build:all": "npm run build:mac:unsigned",
     "release:check": "node scripts/release-readiness-check.js",
     "release:check:mac": "node scripts/release-readiness-check.js --profile mac-unsigned",
