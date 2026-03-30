@@ -567,8 +567,6 @@ class ChurchAVAgent {
     await this.connectATEM();
     if (this.isObsMonitoringEnabled()) {
       await this.connectOBS();
-    } else {
-      console.log('🎬 OBS not configured (set via Equipment tab)');
     }
     this.audioMonitor.start(this);
     this.streamHealthMonitor.start(this);
@@ -1240,7 +1238,7 @@ class ChurchAVAgent {
         this.reconnectATEM();
       }
     } else {
-      console.log('📹 ATEM IP not configured — skipping (set with --atem <ip>)');
+      // Silently skip — no ATEM configured
     }
   }
 
@@ -1342,7 +1340,6 @@ class ChurchAVAgent {
     if (!this._obsReconnectDelay) this._obsReconnectDelay = 5000;
     const obsUrl = this.getObsUrlForConnection();
     if (!obsUrl) {
-      console.log('🎬 OBS not configured (set via Equipment tab)');
       return;
     }
     // Create OBS instance and attach event listeners ONCE.
@@ -1458,8 +1455,6 @@ class ChurchAVAgent {
   async connectEncoder() {
     const cfg = this.config.encoder;
     if (!cfg || !cfg.type) {
-      // No explicit encoder configured — OBS fallback (existing behavior)
-      console.log('📡 Encoder: using OBS default (no encoder configured)');
       return;
     }
 
@@ -1990,7 +1985,6 @@ class ChurchAVAgent {
   async connectVMix() {
     const cfg = this.config.vmix;
     if (!cfg || !cfg.host) {
-      console.log('🎬 vMix not configured (set via Equipment tab — Windows only)');
       return;
     }
 
@@ -2057,7 +2051,6 @@ class ChurchAVAgent {
   async connectMixer() {
     const cfg = this.config.mixer;
     if (!cfg || !cfg.host) {
-      console.log('🎛️  Audio console not configured (set via Equipment tab)');
       return;
     }
 
@@ -2112,7 +2105,6 @@ class ChurchAVAgent {
   async connectPTZ() {
     const entries = Array.isArray(this.config.ptz) ? this.config.ptz.filter((c) => c?.ip) : [];
     if (entries.length === 0) {
-      console.log('🎥 PTZ cameras not configured (set via Equipment tab)');
       this.status.ptz = [];
       return;
     }
