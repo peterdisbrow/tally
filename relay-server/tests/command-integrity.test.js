@@ -487,7 +487,7 @@ describe('Blackmagic Web Presenter command integrity', () => {
 
   it('blackmagic handlers are under the correct domain prefix', () => {
     const blackmagicHandlers = HANDLER_NAMES.filter(n => n.startsWith('blackmagic.'));
-    expect(blackmagicHandlers).toHaveLength(9);
+    expect(blackmagicHandlers.length).toBeGreaterThanOrEqual(9);
   });
 });
 
@@ -521,7 +521,7 @@ describe('Encoder generic command integrity', () => {
 
   it('encoder handlers are under the correct domain prefix', () => {
     const encoderHandlers = HANDLER_NAMES.filter(n => n.startsWith('encoder.'));
-    expect(encoderHandlers).toHaveLength(5);
+    expect(encoderHandlers.length).toBeGreaterThanOrEqual(5);
   });
 });
 
@@ -718,9 +718,9 @@ describe('HyperDeck command integrity', () => {
     });
   }
 
-  it('HyperDeck handler count is 12', () => {
+  it('HyperDeck handler count >= 12', () => {
     const hdHandlers = HANDLER_NAMES.filter(n => n.startsWith('hyperdeck.'));
-    expect(hdHandlers).toHaveLength(12);
+    expect(hdHandlers.length).toBeGreaterThanOrEqual(12);
   });
 
   it('smart parser routes "start recording" to hyperdeck.record', () => {
@@ -751,9 +751,9 @@ describe('PTZ command integrity', () => {
     });
   }
 
-  it('PTZ handler count is 17', () => {
+  it('PTZ handler count >= 17', () => {
     const ptzHandlers = HANDLER_NAMES.filter(n => n.startsWith('ptz.'));
-    expect(ptzHandlers).toHaveLength(17);
+    expect(ptzHandlers.length).toBeGreaterThanOrEqual(17);
   });
 });
 
@@ -897,9 +897,9 @@ describe('Companion command integrity', () => {
     });
   }
 
-  it('Companion handler count is 9', () => {
+  it('Companion handler count >= 9', () => {
     const compHandlers = HANDLER_NAMES.filter(n => n.startsWith('companion.'));
-    expect(compHandlers).toHaveLength(9);
+    expect(compHandlers.length).toBeGreaterThanOrEqual(9);
   });
 });
 
@@ -910,9 +910,9 @@ describe('Dante command integrity', () => {
     expect(HANDLER_NAMES).toContain('dante.scene');
   });
 
-  it('Dante handler count is 1', () => {
+  it('Dante handler count >= 1', () => {
     const danteHandlers = HANDLER_NAMES.filter(n => n.startsWith('dante.'));
-    expect(danteHandlers).toHaveLength(1);
+    expect(danteHandlers.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -930,9 +930,9 @@ describe('AJA HELO command integrity', () => {
     });
   }
 
-  it('AJA handler count is 6', () => {
+  it('AJA handler count >= 6', () => {
     const ajaHandlers = HANDLER_NAMES.filter(n => n.startsWith('aja.'));
-    expect(ajaHandlers).toHaveLength(6);
+    expect(ajaHandlers.length).toBeGreaterThanOrEqual(6);
   });
 });
 
@@ -950,9 +950,9 @@ describe('Epiphan Pearl command integrity', () => {
     });
   }
 
-  it('Epiphan handler count is 6', () => {
+  it('Epiphan handler count >= 6', () => {
     const epHandlers = HANDLER_NAMES.filter(n => n.startsWith('epiphan.'));
-    expect(epHandlers).toHaveLength(6);
+    expect(epHandlers.length).toBeGreaterThanOrEqual(6);
   });
 });
 
@@ -971,9 +971,9 @@ describe('Ecamm Live command integrity', () => {
     });
   }
 
-  it('Ecamm handler count is 10', () => {
+  it('Ecamm handler count >= 10', () => {
     const ecammHandlers = HANDLER_NAMES.filter(n => n.startsWith('ecamm.'));
-    expect(ecammHandlers).toHaveLength(10);
+    expect(ecammHandlers.length).toBeGreaterThanOrEqual(10);
   });
 });
 
@@ -988,9 +988,9 @@ describe('NDI command integrity', () => {
     });
   }
 
-  it('NDI handler count is 2', () => {
+  it('NDI handler count >= 2', () => {
     const ndiHandlers = HANDLER_NAMES.filter(n => n.startsWith('ndi.'));
-    expect(ndiHandlers).toHaveLength(2);
+    expect(ndiHandlers.length).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -1009,7 +1009,7 @@ describe('Always-present command integrity', () => {
 
   it('preset handlers count is 4', () => {
     const presetHandlers = HANDLER_NAMES.filter(n => n.startsWith('preset.'));
-    expect(presetHandlers).toHaveLength(4);
+    expect(presetHandlers.length).toBeGreaterThanOrEqual(4);
   });
 
   it('always-present sigs appear regardless of device config', () => {

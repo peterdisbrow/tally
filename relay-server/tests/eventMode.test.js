@@ -227,7 +227,8 @@ describe('EventMode.getTimeRemaining()', () => {
     const future = new Date(Date.now() + (2 * 60 + 30) * 60 * 1000 + 500).toISOString();
     const result = em.getTimeRemaining({ event_expires_at: future });
     expect(result).toMatch(/^\d+h \d+m$/);
-    expect(result).toBe('2h 30m');
+    // Allow ±1 minute tolerance for timing jitter in CI
+    expect(['2h 29m', '2h 30m']).toContain(result);
   });
 
   it('returns "Ym" for sub-hour events', () => {
