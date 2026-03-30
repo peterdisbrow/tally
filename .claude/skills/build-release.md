@@ -152,10 +152,10 @@ Railway requires `railway up` CLI push -- git push to origin does NOT trigger a 
 cd /Users/andrewdisbrow/Documents/TallyConnect/church-av/relay-server && railway up
 ```
 
-Then verify:
+Verify (try once, may fail due to DNS on build machine — Railway deploy output is authoritative):
 
 ```bash
-curl https://relay.tallyconnect.church/health
+curl https://relay.tallyconnect.church/health || echo "Health check failed (DNS may not resolve from this machine) — verify Railway deploy output above"
 ```
 
 ### 9. Trigger Windows build
