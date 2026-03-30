@@ -2452,11 +2452,11 @@ function getStatusActive(active) {
 }
 
 function getDotState(active) {
-  // Before first relay status, show grey (neutral) instead of red for disconnected devices
+  // Before first relay status, show connecting (yellow pulse) when running
   if (!_hasReceivedRelayStatus) {
     if (active === true) return 'green';
     if (active && typeof active === 'object' && (active.connected === true || active.online === true)) return 'green';
-    return ''; // grey/neutral
+    return isRunning ? 'yellow' : '';
   }
 
   if (typeof active === 'boolean') return active ? 'green' : 'red';
@@ -2511,9 +2511,9 @@ function setDot(name, active) {
   dot.className = `dot${state ? ' ' + state : ''}`;
 
   if (!chip) return;
-  chip.classList.remove('ok', 'warn', 'err', 'active');
+  chip.classList.remove('ok', 'warn', 'err', 'active', 'connecting');
   if (state === 'green') chip.classList.add('active', 'ok');
-  else if (state === 'yellow') chip.classList.add('warn');
+  else if (state === 'yellow') { chip.classList.add('warn', 'connecting'); }
   else if (state === 'red') chip.classList.add('err');
 }
 

@@ -190,8 +190,21 @@ body.is-mac .header .header-title {
   margin-right: 1px;
 }
 .dot.green { background: var(--green); box-shadow: 0 0 7px var(--green); width: 6px; height: 6px; }
-.dot.yellow { background: var(--warn); box-shadow: 0 0 7px var(--warn); width: 6px; height: 6px; }
+.dot.yellow { background: var(--warn); box-shadow: 0 0 7px var(--warn); width: 6px; height: 6px; animation: dot-pulse 1.4s ease-in-out infinite; }
 .dot.red { background: var(--danger); box-shadow: 0 0 7px var(--danger); width: 6px; height: 6px; }
+
+/* Connecting / pulsing animation for status chips */
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 7px var(--warn); }
+  50% { opacity: 0.3; box-shadow: 0 0 2px var(--warn); }
+}
+@keyframes chip-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.status-chip.connecting {
+  animation: chip-breathe 1.4s ease-in-out infinite;
+}
 
 /* ── Offline Banner ─────────────────────────────────────────── */
 .offline-banner {
