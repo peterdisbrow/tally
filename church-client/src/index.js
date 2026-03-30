@@ -1504,6 +1504,12 @@ class ChurchAVAgent {
   }
 
   async _pollEncoder() {
+    // ── Backup encoder active: monitor backup instead of primary ──────────
+    if (this._backupEncoderActive) {
+      this._pollBackupEncoder();
+      return;
+    }
+
     if (!this.encoderBridge) return;
     try {
       const wasConnected = this.status.encoder.connected;
@@ -1568,6 +1574,75 @@ class ChurchAVAgent {
         this._updateBitrateSignal(s.bitrateKbps);
       }
     } catch { /* ignore */ }
+  }
+
+  /**
+   * Poll the backup encoder while failover is active.
+   * For atem-streaming: reads ATEM streaming state directly.
+   * For other types: polls the backup encoder bridge.
+   * If backup stops streaming, signals backup_encoder_failed to relay.
+   */
+  _pollBackupEncoder() {
+    try {
+      const wasLive = this.status.encoder.live || this.status.encoder.streaming;
+      let s;
+
+      if (this._backupEncoderType === 'atem-streaming') {
+        // Read ATEM streaming status directly
+        const atem = this.status.atem || {};
+        const isStreaming = atem.streaming === true;
+        s = {
+          type: 'atem-streaming',
+          connected: atem.connected !== false,
+          live: isStreaming,
+          streaming: isStreaming,
+          bitrateKbps: atem.streamingBitrate ? Math.round(atem.streamingBitrate / 1000) : null,
+          fps: null,
+          cpuUsage: null,
+          details: `ATEM Streaming (backup)${isStreaming ? ' — Live' : ' — Idle'}`,
+        };
+      } else if (this.encoderBridge) {
+        // Poll hardware/software backup encoder
+        // getStatus is async but we handle it synchronously in poll context
+        const status = this.encoderBridge.getStatus();
+        if (status && typeof status.then === 'function') {
+          status.then(result => {
+            Object.assign(this.status.encoder, result);
+            this._checkBackupEncoderHealth(wasLive, result);
+          }).catch(() => {});
+          return;
+        }
+        s = status;
+      } else {
+        return;
+      }
+
+      Object.assign(this.status.encoder, s);
+      this._checkBackupEncoderHealth(wasLive, s);
+    } catch { /* ignore */ }
+  }
+
+  /**
+   * Check if the backup encoder is still healthy. If it stopped streaming,
+   * signal the relay so it can switch back to the primary.
+   */
+  _checkBackupEncoderHealth(wasLive, s) {
+    const isLive = s.live || s.streaming;
+
+    if (wasLive && !isLive) {
+      // Backup encoder stopped streaming — tell the relay
+      console.warn(`[Failover] ⚠️ Backup encoder (${this._backupEncoderType}) stopped streaming`);
+      this.sendToRelay({
+        type: 'signal_event',
+        signal: 'backup_encoder_failed',
+      });
+      this.sendStatus();
+    }
+
+    // Track bitrate for the backup encoder too
+    if (isLive && s.bitrateKbps > 0) {
+      this._updateBitrateSignal(s.bitrateKbps);
+    }
   }
 
   _updateBitrateSignal(bitrateKbps) {

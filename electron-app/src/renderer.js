@@ -2378,6 +2378,17 @@ function populateFailoverSourceDropdown(selectedValue) {
     }
   }
 
+  // Show/hide source dropdown vs backup encoder note
+  const safeInputWrap = document.getElementById('failover-safe-input-wrap');
+  const backupNote = document.getElementById('failover-backup-encoder-note');
+  if (actionType === 'backup_encoder') {
+    if (safeInputWrap) safeInputWrap.style.display = 'none';
+    if (backupNote) backupNote.style.display = '';
+  } else {
+    if (safeInputWrap) safeInputWrap.style.display = '';
+    if (backupNote) backupNote.style.display = 'none';
+  }
+
   if (selectedValue != null) select.value = String(selectedValue);
 }
 
@@ -2430,7 +2441,10 @@ function getFailoverConfigFromUI() {
   const ackTimeoutS = parseInt(document.getElementById('failover-ack-timeout')?.value) || 30;
   const autoRecover = document.getElementById('failover-auto-recover')?.checked || false;
   const audioTrigger = document.getElementById('failover-audio-trigger')?.checked || false;
-  return { enabled, action: { type: actionType, input: safeInput }, blackThresholdS, ackTimeoutS, autoRecover, audioTrigger };
+  const action = actionType === 'backup_encoder'
+    ? { type: 'backup_encoder' }
+    : { type: actionType, input: safeInput };
+  return { enabled, action, blackThresholdS, ackTimeoutS, autoRecover, audioTrigger };
 }
 
 function initFailoverConfigUI() {

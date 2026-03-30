@@ -195,6 +195,9 @@ function getSanitizedConfigForExport() {
   if (sanitized.encoder && sanitized.encoder.password) {
     sanitized.encoder = { ...sanitized.encoder, password: '[redacted]' };
   }
+  if (sanitized.backupEncoder && sanitized.backupEncoder.password) {
+    sanitized.backupEncoder = { ...sanitized.backupEncoder, password: '[redacted]' };
+  }
   if (Array.isArray(sanitized.ptz)) {
     sanitized.ptz = sanitized.ptz.map(p => {
       const cleaned = { ...p };
@@ -273,7 +276,7 @@ const ROOM_EQUIPMENT_KEYS = [
   'atemIp', 'companionUrl', 'obsUrl', 'obsPassword',
   'hyperdecks', 'videoHubs', 'ptz',
   'proPresenter', 'vmix', 'resolume', 'mixer',
-  'encoders', 'encoder',
+  'encoders', 'encoder', 'backupEncoder',
   'encoderType', 'encoderHost', 'encoderPort', 'encoderPassword',
   'encoderLabel', 'encoderStatusUrl', 'encoderSource',
   'rtmpUrl', 'rtmpStreamKey', 'atemAutoRecord',

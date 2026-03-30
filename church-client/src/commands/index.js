@@ -23,6 +23,7 @@ const commandHandlers = {
   ...require('./videohub'),
   ...require('./system'),
   ...require('./recovery'),
+  ...require('./failover'),
   ...require('./shelly'),
 };
 

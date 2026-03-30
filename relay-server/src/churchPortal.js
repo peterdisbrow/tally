@@ -904,6 +904,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             input: Number(action.input),
             hubIndex: Number(action.hubIndex) || 0,
           });
+        } else if (action.type === 'backup_encoder') {
+          actionJson = JSON.stringify({ type: 'backup_encoder' });
         }
       }
 
@@ -944,7 +946,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       // Check 2: failover action is set
       let action = null;
       try { action = row && row.failover_action ? JSON.parse(row.failover_action) : null; } catch {}
-      if (!action) issues.push('No failover action configured. Select an ATEM input or VideoHub route above.');
+      if (!action) issues.push('No failover action configured. Select an ATEM input, VideoHub route, or backup encoder above.');
       checks.push({ name: 'Failover action configured', passed: !!action });
 
       // Check 3: church client is connected (so the action could actually execute)
@@ -954,7 +956,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       checks.push({ name: 'Client app connected', passed: !!clientConnected, optional: true });
 
       // Check 4: validate the configured action type
-      const validAction = action && (action.type === 'atem_switch' || action.type === 'videohub_route');
+      const validAction = action && (action.type === 'atem_switch' || action.type === 'videohub_route' || action.type === 'backup_encoder');
       checks.push({ name: 'Action type is valid', passed: !!validAction });
 
       const criticalIssues = issues.filter((_, i) => !checks[i]?.optional);
@@ -965,7 +967,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       ).join('\n');
 
       const actionDesc = action
-        ? (action.type === 'atem_switch' ? 'Switch ATEM to ' + friendlyInputName(action.input) : 'VideoHub route output ' + action.output + ' → input ' + action.input)
+        ? (action.type === 'atem_switch' ? 'Switch ATEM to ' + friendlyInputName(action.input)
+          : action.type === 'backup_encoder' ? 'Switch to backup encoder'
+          : 'VideoHub route output ' + action.output + ' → input ' + action.input)
         : 'No action configured';
 
       const thresholds = `Black threshold: ${row?.failover_black_threshold_s || 5}s, Ack timeout: ${row?.failover_ack_timeout_s || 30}s`;

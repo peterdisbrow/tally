@@ -257,6 +257,9 @@ class SignalFailover {
       case 'audio_silence_cleared':
         this._onAudioSilenceCleared(churchId, s, config, church);
         break;
+      case 'backup_encoder_failed':
+        this._onBackupEncoderFailed(churchId, s, config, church, data);
+        break;
     }
   }
 
@@ -525,6 +528,47 @@ class SignalFailover {
     s.audioSilence = false;
   }
 
+  /**
+   * Backup encoder failed while in FAILOVER_ACTIVE — switch back to primary.
+   * Only relevant for backup_encoder action type. The primary may have recovered
+   * by now, so we attempt recovery (switch back to primary encoder).
+   */
+  _onBackupEncoderFailed(churchId, s, config, church, data) {
+    if (s.state !== STATES.FAILOVER_ACTIVE) return;
+    if (config.action?.type !== 'backup_encoder') return;
+
+    const elapsed = s.outageStartedAt ? Math.round((Date.now() - s.outageStartedAt) / 1000) : 0;
+
+    this._sendAlert(church, 'failover_backup_failed',
+      `⚠️ *Backup Encoder Also Failed* — ${church.name}\n` +
+      `The backup encoder stopped streaming after ${elapsed}s on failover.\n` +
+      `Switching back to the primary encoder...`
+    );
+
+    this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'backup_encoder_failed');
+
+    // Attempt recovery back to primary — reuse the existing recovery path
+    (async () => {
+      try {
+        await this._executeRecovery(churchId, s, config, church);
+        this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.HEALTHY, 'switched_back_to_primary');
+        this._sendAlert(church, 'failover_switched_back',
+          `🔄 *Switched Back to Primary* — ${church.name}\n` +
+          `Backup encoder failed, so Tally switched back to the primary encoder.`
+        );
+        this._resetState(churchId);
+      } catch (e) {
+        console.error(`[SignalFailover] Recovery to primary failed for ${churchId}:`, e.message);
+        this._sendAlert(church, 'failover_recovery_failed',
+          `❌ *Both Encoders Down* — ${church.name}\n` +
+          `Backup failed and Tally couldn't switch back to primary: ${e.message}\n` +
+          `Someone needs to check the equipment immediately.`
+        );
+        this._resetState(churchId);
+      }
+    })();
+  }
+
   // ─── Escalation ─────────────────────────────────────────────────────────────
 
   _escalateToConfirmed(churchId, s, config, church, trigger) {
@@ -693,6 +737,8 @@ class SignalFailover {
         return { command: 'atem.cut', params: { input: action.input } };
       case 'videohub_route':
         return { command: 'videohub.route', params: { output: action.output, input: action.input, hubIndex: action.hubIndex || 0 } };
+      case 'backup_encoder':
+        return { command: 'failover.switchToBackupEncoder', params: {} };
       default:
         throw new Error(`Unknown failover action type: ${action.type}`);
     }
@@ -704,6 +750,8 @@ class SignalFailover {
         return { command: 'atem.cut', params: { input: originalSource } };
       case 'videohub_route':
         return { command: 'videohub.route', params: { output: action.output, input: originalSource, hubIndex: action.hubIndex || 0 } };
+      case 'backup_encoder':
+        return { command: 'failover.switchToPrimaryEncoder', params: {} };
       default:
         throw new Error(`Unknown failover action type: ${action.type}`);
     }
@@ -721,6 +769,8 @@ class SignalFailover {
         }
         return null;
       }
+      case 'backup_encoder':
+        return 'primary';
       default:
         return null;
     }
@@ -750,6 +800,8 @@ class SignalFailover {
         return `Switch ATEM to input ${action.input}`;
       case 'videohub_route':
         return `Route VideoHub output ${action.output} to input ${action.input}`;
+      case 'backup_encoder':
+        return 'Switch to backup encoder';
       default:
         return 'Unknown action';
     }
@@ -762,6 +814,8 @@ class SignalFailover {
         return `ATEM input ${source}`;
       case 'videohub_route':
         return `VideoHub input ${source}`;
+      case 'backup_encoder':
+        return 'primary encoder';
       default:
         return `source ${source}`;
     }

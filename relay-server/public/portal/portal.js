@@ -3535,6 +3535,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var t = document.getElementById('failover-action-type').value;
       document.getElementById('failover-atem-fields').style.display = t === 'atem_switch' ? 'block' : 'none';
       document.getElementById('failover-videohub-fields').style.display = t === 'videohub_route' ? 'block' : 'none';
+      document.getElementById('failover-backup-encoder-fields').style.display = t === 'backup_encoder' ? 'block' : 'none';
     }
 
     async function loadFailoverSettings() {
@@ -3641,6 +3642,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var vhInput = document.getElementById('failover-vh-input').value;
           if (!output || !vhInput) { toast('Select VideoHub output and input for failover', true); return; }
           action = { type: 'videohub_route', output: Number(output), input: Number(vhInput), hubIndex: 0 };
+        } else if (actionType === 'backup_encoder') {
+          action = { type: 'backup_encoder' };
         }
 
         var enabled = document.getElementById('failover-enabled').checked;
