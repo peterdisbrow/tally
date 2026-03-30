@@ -154,6 +154,12 @@ export default function MonitorTab({ token, api }) {
     });
   }
 
+  function refreshPlayer() {
+    if (!expandedId) return;
+    destroyPlayer();
+    startPlayer(expandedId, streamKey?.hlsUrl);
+  }
+
   // Expand a church row to show detail panel
   async function handleRowClick(churchId) {
     if (expandedId === churchId) {
@@ -491,8 +497,15 @@ export default function MonitorTab({ token, api }) {
                               <div>
                                 {streamKey?.active ? (
                                   <div>
-                                    <div style={{ marginBottom: 8 }}>
+                                    <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                                       <span style={s.badge(C.red)}>{'\uD83D\uDD34'} LIVE</span>
+                                      <button
+                                        style={{ ...s.btn('secondary'), padding: '3px 10px', fontSize: 11 }}
+                                        onClick={(e) => { e.stopPropagation(); refreshPlayer(); }}
+                                        title="Refresh stream preview"
+                                      >
+                                        {'\u21BB'} Refresh
+                                      </button>
                                     </div>
                                     <video
                                       ref={videoRef}

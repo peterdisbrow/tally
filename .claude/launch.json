@@ -22,7 +22,8 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vite", "--host"],
       "port": 5173,
-      "cwd": "relay-server/admin"
+      "cwd": "relay-server/admin",
+      "autoPort": true
     }
   ]
 }
