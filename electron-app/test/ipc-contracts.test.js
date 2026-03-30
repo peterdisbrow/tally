@@ -136,7 +136,6 @@ const INVOKE_CHANNELS = [
   ['pfRunHistory',            'pf-run-history'],
   ['pfFeedback',              'pf-feedback'],
   ['pfGetConfig',             'pf-get-config'],
-  ['pfSimulateFix',           'pf-simulate-fix'],
   ['pfAvailable',             'pf-available'],
   ['pfSetCamerasVerified',    'pf-set-cameras-verified'],
   ['pfGetCamerasVerified',    'pf-get-cameras-verified'],
@@ -265,14 +264,6 @@ test('setAutoStart forwards boolean false', async () => {
   await api.setAutoStart(false);
   const call = ipcRenderer.invoked.find((c) => c.channel === 'set-autostart');
   assert.equal(call.args[0], false);
-});
-
-test('pfSimulateFix forwards simId string', async () => {
-  const { api, ipcRenderer } = loadPreload();
-  ipcRenderer.invoked = [];
-  await api.pfSimulateFix('relay_reconnect');
-  const call = ipcRenderer.invoked.find((c) => c.channel === 'pf-simulate-fix');
-  assert.equal(call.args[0], 'relay_reconnect');
 });
 
 test('pfGoNoGo forwards options object', async () => {

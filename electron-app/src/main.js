@@ -2214,7 +2214,6 @@ ipcMain.handle('pf-go-no-go', (_, opts) => problemFinderBridge.runGoNoGo(opts));
 ipcMain.handle('pf-run-history', () => problemFinderBridge.getRunHistory());
 ipcMain.handle('pf-feedback', (_, fb) => problemFinderBridge.recordFeedback(fb));
 ipcMain.handle('pf-get-config', () => problemFinderBridge.getFeatureFlags());
-ipcMain.handle('pf-simulate-fix', (_, simId) => problemFinderBridge.simulateFix(simId));
 ipcMain.handle('pf-available', () => problemFinderBridge.isAvailable());
 ipcMain.handle('pf-set-cameras-verified', (_, verified) => problemFinderBridge.setCamerasVerified(verified));
 ipcMain.handle('pf-get-cameras-verified', () => problemFinderBridge.getCamerasVerified());

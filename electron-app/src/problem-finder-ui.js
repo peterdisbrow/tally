@@ -392,11 +392,6 @@ function renderPfIssues(issues) {
           <div style="font-size:11px; color:var(--dim);">\u{1F4A1} ${escHtml(issue.fixSteps[0])}</div>
         ` : ''}
       `}
-      ${issue.simulation ? `
-        <button class="btn-tiny" onclick="pfSimulateFix('${escAttr(issue.simulation.id)}')">
-          Simulate Fix: ${escHtml(issue.simulation.label)}
-        </button>
-      ` : ''}
     </div>
   `;
   }).join('');
@@ -468,24 +463,6 @@ function prependRunEntry(run) {
   if (entries.length > 10) entries[entries.length - 1].remove();
 }
 
-async function pfSimulateFix(simId) {
-  try {
-    const api = window.electronAPI;
-    const result = await api.pfSimulateFix(simId);
-    if (result.error) {
-      showPfError(result.error);
-      return;
-    }
-    const diff = result.diff;
-    // Show simulation result in a non-blocking dialog
-    const msg = `Simulation: ${simId}\n\nIssues: ${diff.issueDelta >= 0 ? '+' : ''}${diff.issueDelta}\nCoverage: ${diff.coverageDelta >= 0 ? '+' : ''}${diff.coverageDelta}\nResolved: ${diff.resolvedIssueIds.join(', ') || 'none'}\nNew: ${diff.newIssueIds.join(', ') || 'none'}`;
-    if (typeof asyncConfirm === 'function') {
-      await asyncConfirm(msg);
-    }
-  } catch (err) {
-    showPfError(err.message);
-  }
-}
 
 // ─── GUIDED TROUBLESHOOTER ────────────────────────────────────────────────────
 

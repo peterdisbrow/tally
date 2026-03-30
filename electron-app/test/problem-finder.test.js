@@ -249,19 +249,6 @@ if (labAvailable) {
       assert(typeof lastRun.coverageScore === 'number', 'run entry has coverageScore');
       assert(typeof lastRun.goNoGoStatus === 'string', 'run entry has goNoGoStatus');
 
-      // ─── Simulate Fix ──────────────────────────────────────────────
-
-      section('Simulate Fix');
-
-      const sim = await bridge.simulateFix('relay_reconnect');
-      assert(typeof sim === 'object', 'simulateFix returns object');
-      assert(sim.simulationId === 'relay_reconnect', 'simulationId preserved');
-      if (!sim.error) {
-        assert(typeof sim.diff === 'object', 'sim has diff');
-        assert(typeof sim.diff.issueDelta === 'number', 'diff has issueDelta');
-        assert(typeof sim.diff.coverageDelta === 'number', 'diff has coverageDelta');
-      }
-
       // ─── Feature Flags ─────────────────────────────────────────────
 
       section('Feature Flags');
