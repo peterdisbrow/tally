@@ -135,6 +135,126 @@ async function resolumeTriggerColumnByName(agent, params) {
   return `Triggered column "${name}"`;
 }
 
+// ─── COMPANION PARITY: Layer Bypass (Solo/Mute) ──────────────────────────
+
+async function resolumeSetLayerBypass(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const layer = toInt(params.layer, 'layer');
+  const bypassed = params.bypassed !== false && params.bypassed !== 'false';
+  await agent.resolume.setLayerBypass(layer, bypassed);
+  return `Layer ${layer} ${bypassed ? 'muted (bypassed)' : 'unmuted'}`;
+}
+
+async function resolumeSetLayerSolo(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const layer = toInt(params.layer, 'layer');
+  const solo = params.solo !== false && params.solo !== 'false';
+  await agent.resolume.setLayerSolo(layer, solo);
+  return `Layer ${layer} solo ${solo ? 'on' : 'off'}`;
+}
+
+// ─── COMPANION PARITY: Clip Speed & Transport ────────────────────────────
+
+async function resolumeSetClipSpeed(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const layer = toInt(params.layer, 'layer');
+  const clip = toInt(params.clip, 'clip');
+  const speed = await agent.resolume.setClipSpeed(layer, clip, params.speed || 1);
+  return `Clip speed set to ${speed}x (layer ${layer}, clip ${clip})`;
+}
+
+async function resolumePauseClip(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const layer = toInt(params.layer, 'layer');
+  const clip = toInt(params.clip, 'clip');
+  await agent.resolume.pauseClip(layer, clip);
+  return `Clip paused (layer ${layer}, clip ${clip})`;
+}
+
+async function resolumeRestartClip(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const layer = toInt(params.layer, 'layer');
+  const clip = toInt(params.clip, 'clip');
+  await agent.resolume.restartClip(layer, clip);
+  return `Clip restarted (layer ${layer}, clip ${clip})`;
+}
+
+// ─── COMPANION PARITY: Effect Parameters ─────────────────────────────────
+
+async function resolumeSetLayerEffectParam(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const layer = toInt(params.layer, 'layer');
+  const effect = toInt(params.effect, 'effect');
+  if (!params.param) throw new Error('param name required');
+  await agent.resolume.setLayerEffectParam(layer, effect, params.param, params.value);
+  return `Layer ${layer} effect ${effect} "${params.param}" set to ${params.value}`;
+}
+
+async function resolumeSetLayerEffectBypassed(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const layer = toInt(params.layer, 'layer');
+  const effect = toInt(params.effect, 'effect');
+  const bypassed = params.bypassed !== false && params.bypassed !== 'false';
+  await agent.resolume.setLayerEffectBypassed(layer, effect, bypassed);
+  return `Layer ${layer} effect ${effect} ${bypassed ? 'bypassed' : 'active'}`;
+}
+
+// ─── COMPANION PARITY: Deck Switching ────────────────────────────────────
+
+async function resolumeSelectDeck(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const deck = toInt(params.deck, 'deck');
+  await agent.resolume.selectDeck(deck);
+  return `Deck ${deck} selected`;
+}
+
+// ─── COMPANION PARITY: Layer Blend Mode ──────────────────────────────────
+
+async function resolumeSetLayerBlendMode(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const layer = toInt(params.layer, 'layer');
+  const mode = String(params.mode || '').trim();
+  if (!mode) throw new Error('blend mode required');
+  await agent.resolume.setLayerBlendMode(layer, mode);
+  return `Layer ${layer} blend mode set to "${mode}"`;
+}
+
+// ─── COMPANION PARITY: Crossfader ───────────────────────────────────────
+
+async function resolumeSetCrossfader(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const value = await agent.resolume.setCrossfader(params.value);
+  return `Crossfader set to ${Math.round(value * 100)}%`;
+}
+
+// ─── COMPANION PARITY: Composition Speed ────────────────────────────────
+
+async function resolumeSetCompositionSpeed(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const speed = await agent.resolume.setCompositionSpeed(params.speed || 1);
+  return `Composition speed set to ${speed}x`;
+}
+
+// ─── COMPANION PARITY: Layer Select ─────────────────────────────────────
+
+async function resolumeSelectLayer(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const layer = toInt(params.layer, 'layer');
+  await agent.resolume.selectLayer(layer);
+  return `Layer ${layer} selected`;
+}
+
+// ─── COMPANION PARITY: Clip Thumbnail ───────────────────────────────────
+
+async function resolumeGetClipThumbnail(agent, params) {
+  if (!agent.resolume) throw new Error('Resolume not configured');
+  const layer = toInt(params.layer, 'layer');
+  const clip = toInt(params.clip, 'clip');
+  const b64 = await agent.resolume.getClipThumbnail(layer, clip);
+  if (!b64) return 'Thumbnail not available';
+  return { type: 'screenshot', data: b64, source: `resolume-L${layer}C${clip}` };
+}
+
 module.exports = {
   'resolume.status': resolumeStatus,
   'resolume.playClip': resolumePlayClip,
@@ -151,4 +271,35 @@ module.exports = {
   'resolume.getBpm': resolumeGetBpm,
   'resolume.playClipByName': resolumePlayClipByName,
   'resolume.triggerColumnByName': resolumeTriggerColumnByName,
+
+  // Companion parity: layer bypass (solo/mute)
+  'resolume.setLayerBypass': resolumeSetLayerBypass,
+  'resolume.setLayerSolo': resolumeSetLayerSolo,
+
+  // Companion parity: clip speed & transport
+  'resolume.setClipSpeed': resolumeSetClipSpeed,
+  'resolume.pauseClip': resolumePauseClip,
+  'resolume.restartClip': resolumeRestartClip,
+
+  // Companion parity: effect parameters
+  'resolume.setLayerEffectParam': resolumeSetLayerEffectParam,
+  'resolume.setLayerEffectBypassed': resolumeSetLayerEffectBypassed,
+
+  // Companion parity: deck switching
+  'resolume.selectDeck': resolumeSelectDeck,
+
+  // Companion parity: layer blend mode
+  'resolume.setLayerBlendMode': resolumeSetLayerBlendMode,
+
+  // Companion parity: crossfader
+  'resolume.setCrossfader': resolumeSetCrossfader,
+
+  // Companion parity: composition speed
+  'resolume.setCompositionSpeed': resolumeSetCompositionSpeed,
+
+  // Companion parity: layer select
+  'resolume.selectLayer': resolumeSelectLayer,
+
+  // Companion parity: clip thumbnail
+  'resolume.getClipThumbnail': resolumeGetClipThumbnail,
 };

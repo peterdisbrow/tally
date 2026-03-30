@@ -1178,6 +1178,99 @@ async function atemClearStartupState(agent) {
   return 'Startup state cleared';
 }
 
+// ─── COMPANION PARITY: Monitoring Feedbacks ──────────────────────────────────
+
+async function atemGetFadeToBlackStatus(agent) {
+  const state = agent.atem?.state;
+  if (!state) throw new Error('ATEM state not available');
+  const me = state.video?.mixEffects?.[0];
+  if (!me) return { active: false, inTransition: false, remainingFrames: 0 };
+  const ftb = me.fadeToBlack || {};
+  return {
+    active: !!ftb.isFullyBlack,
+    inTransition: !!ftb.inTransition,
+    remainingFrames: ftb.remainingFrames || 0,
+    rate: ftb.rate || 0,
+  };
+}
+
+async function atemGetTransitionStatus(agent) {
+  const state = agent.atem?.state;
+  if (!state) throw new Error('ATEM state not available');
+  const me = state.video?.mixEffects?.[0];
+  if (!me) return { inTransition: false, position: 0, style: null, preview: false };
+  const tp = me.transitionPosition || {};
+  const ts = me.transitionSettings || {};
+  return {
+    inTransition: !!tp.inTransition,
+    position: tp.handlePosition || 0,
+    remainingFrames: tp.remainingFrames || 0,
+    style: ts.nextTransition?.style ?? null,
+    preview: !!me.transitionPreview,
+  };
+}
+
+async function atemGetMacroStatus(agent) {
+  const state = agent.atem?.state;
+  if (!state) throw new Error('ATEM state not available');
+  const macro = state.macro || {};
+  return {
+    isRunning: !!macro.macroPlayer?.isRunning,
+    isWaiting: !!macro.macroPlayer?.isWaiting,
+    isRecording: !!macro.macroRecorder?.isRecording,
+    loop: !!macro.macroPlayer?.loop,
+    runningIndex: macro.macroPlayer?.macroIndex ?? null,
+    recordingIndex: macro.macroRecorder?.macroIndex ?? null,
+  };
+}
+
+async function atemGetCameraControl(agent, params) {
+  // Camera control via ATEM Camera Control Protocol (CCdP)
+  // Returns camera settings from ATEM's internal state
+  const state = agent.atem?.state;
+  if (!state) throw new Error('ATEM state not available');
+  const cameras = agent.status?.atem?.cameras || {};
+  if (params.camera) {
+    const cam = cameras[params.camera];
+    if (!cam) throw new Error(`Camera ${params.camera} not found in ATEM state`);
+    return cam;
+  }
+  return cameras;
+}
+
+async function atemGetTallyByIndex(agent, params) {
+  const state = agent.atem?.state;
+  if (!state) throw new Error('ATEM state not available');
+  const me = state.video?.mixEffects?.[0];
+  if (!me) return { input: null, program: false, preview: false };
+  const input = toInt(params.input, 'input');
+  return {
+    input,
+    name: friendlyInputName(input),
+    program: me.programInput === input,
+    preview: me.previewInput === input,
+  };
+}
+
+async function atemGetInputProperties(agent) {
+  const state = agent.atem?.state;
+  if (!state) throw new Error('ATEM state not available');
+  const inputs = state.inputs || {};
+  const result = [];
+  for (const [id, inp] of Object.entries(inputs)) {
+    result.push({
+      id: Number(id),
+      shortName: inp.shortName || '',
+      longName: inp.longName || '',
+      externalPortType: inp.externalPortType ?? null,
+      internalPortType: inp.internalPortType ?? null,
+      availableExternalPortTypes: inp.availableExternalPortTypes || [],
+      meAvailability: inp.meAvailability ?? null,
+    });
+  }
+  return result.sort((a, b) => a.id - b.id);
+}
+
 // ─── COMMAND REGISTRY ───────────────────────────────────────────────────────
 
 module.exports = {
@@ -1309,4 +1402,12 @@ module.exports = {
   'atem.setMediaPlayer': atemSetMediaPlayer,
   'atem.captureStill': atemCaptureStill,
   'atem.clearStill': atemClearStill,
+
+  // Companion parity: monitoring feedbacks
+  'atem.getFadeToBlackStatus': atemGetFadeToBlackStatus,
+  'atem.getTransitionStatus': atemGetTransitionStatus,
+  'atem.getMacroStatus': atemGetMacroStatus,
+  'atem.getCameraControl': atemGetCameraControl,
+  'atem.getTallyByIndex': atemGetTallyByIndex,
+  'atem.getInputProperties': atemGetInputProperties,
 };

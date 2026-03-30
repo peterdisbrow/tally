@@ -276,6 +276,122 @@ class Resolume {
     return value;
   }
 
+  // ─── COMPANION PARITY: Layer Bypass (Solo/Mute) ──────────────────────────────
+
+  async setLayerBypass(layerIndex, bypassed) {
+    const result = await this._put(`/composition/layers/${layerIndex}/bypassed`, { value: !!bypassed });
+    if (result === null) throw new Error(`Could not set bypass on layer ${layerIndex}`);
+    return !!bypassed;
+  }
+
+  async setLayerSolo(layerIndex, solo) {
+    const result = await this._put(`/composition/layers/${layerIndex}/solo`, { value: !!solo });
+    if (result === null) throw new Error(`Could not set solo on layer ${layerIndex}`);
+    return !!solo;
+  }
+
+  // ─── COMPANION PARITY: Clip Speed & Transport ──────────────────────────────
+
+  async setClipSpeed(layerIndex, clipIndex, speed) {
+    const clamped = Math.max(0, Math.min(10, parseFloat(speed)));
+    const result = await this._put(`/composition/layers/${layerIndex}/clips/${clipIndex}/transport/position/speed`, { value: clamped });
+    if (result === null) throw new Error('Could not set clip speed');
+    return clamped;
+  }
+
+  async pauseClip(layerIndex, clipIndex) {
+    const result = await this._put(`/composition/layers/${layerIndex}/clips/${clipIndex}/transport/position/behaviour`, { value: 'Pause' });
+    if (result === null) throw new Error('Could not pause clip');
+    return true;
+  }
+
+  async restartClip(layerIndex, clipIndex) {
+    // Disconnect then reconnect to restart
+    await this._delete(`/composition/layers/${layerIndex}/clips/${clipIndex}/connect`);
+    const result = await this._post(`/composition/layers/${layerIndex}/clips/${clipIndex}/connect`);
+    if (result === null) throw new Error('Could not restart clip');
+    this._compositionCache = null;
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Effect Parameters ───────────────────────────────────
+
+  async setLayerEffectParam(layerIndex, effectIndex, paramName, value) {
+    const result = await this._put(`/composition/layers/${layerIndex}/effects/${effectIndex}/${paramName}`, { value });
+    if (result === null) throw new Error(`Could not set effect param "${paramName}"`);
+    return true;
+  }
+
+  async setClipEffectParam(layerIndex, clipIndex, effectIndex, paramName, value) {
+    const result = await this._put(`/composition/layers/${layerIndex}/clips/${clipIndex}/effects/${effectIndex}/${paramName}`, { value });
+    if (result === null) throw new Error(`Could not set clip effect param "${paramName}"`);
+    return true;
+  }
+
+  async setLayerEffectBypassed(layerIndex, effectIndex, bypassed) {
+    const result = await this._put(`/composition/layers/${layerIndex}/effects/${effectIndex}/bypassed`, { value: !!bypassed });
+    if (result === null) throw new Error('Could not set effect bypass');
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Deck Switching ──────────────────────────────────────
+
+  async selectDeck(deckIndex) {
+    const result = await this._post(`/composition/decks/${deckIndex}/select`);
+    if (result === null) throw new Error(`Could not select deck ${deckIndex}`);
+    this._compositionCache = null;
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Layer Blend Mode ────────────────────────────────────
+
+  async setLayerBlendMode(layerIndex, blendMode) {
+    const result = await this._put(`/composition/layers/${layerIndex}/video/mixer/blendmode`, { value: blendMode });
+    if (result === null) throw new Error(`Could not set blend mode on layer ${layerIndex}`);
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Crossfader ─────────────────────────────────────────
+
+  async setCrossfader(value) {
+    const clamped = Math.max(0, Math.min(1, parseFloat(value)));
+    const result = await this._put('/composition/crossfader/phase', { value: clamped });
+    if (result === null) throw new Error('Could not set crossfader');
+    return clamped;
+  }
+
+  // ─── COMPANION PARITY: Composition Speed ──────────────────────────────────
+
+  async setCompositionSpeed(speed) {
+    const clamped = Math.max(0, Math.min(10, parseFloat(speed)));
+    const result = await this._put('/composition/speed', { value: clamped });
+    if (result === null) throw new Error('Could not set composition speed');
+    return clamped;
+  }
+
+  // ─── COMPANION PARITY: Layer Select ───────────────────────────────────────
+
+  async selectLayer(layerIndex) {
+    const result = await this._post(`/composition/layers/${layerIndex}/select`);
+    if (result === null) throw new Error(`Could not select layer ${layerIndex}`);
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Clip Thumbnail ─────────────────────────────────────
+
+  async getClipThumbnail(layerIndex, clipIndex) {
+    try {
+      const resp = await fetch(`${this.baseUrl}/composition/layers/${layerIndex}/clips/${clipIndex}/thumbnail`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!resp.ok) return null;
+      const buf = await resp.arrayBuffer();
+      return Buffer.from(buf).toString('base64');
+    } catch {
+      return null;
+    }
+  }
+
   // ─── STATUS SUMMARY ──────────────────────────────────────────────────────────
 
   toStatus() {
