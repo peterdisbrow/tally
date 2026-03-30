@@ -83,7 +83,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pfRunHistory: () => ipcRenderer.invoke('pf-run-history'),
   pfFeedback: (fb) => ipcRenderer.invoke('pf-feedback', fb),
   pfGetConfig: () => ipcRenderer.invoke('pf-get-config'),
-  pfSimulateFix: (simId) => ipcRenderer.invoke('pf-simulate-fix', simId),
   pfAvailable: () => ipcRenderer.invoke('pf-available'),
   pfSetCamerasVerified: (v) => ipcRenderer.invoke('pf-set-cameras-verified', v),
   pfGetCamerasVerified: () => ipcRenderer.invoke('pf-get-cameras-verified'),

@@ -300,34 +300,6 @@ async function runGoNoGo(opts = {}) {
   return runAnalysis({ ...opts, triggerType: opts.triggerType || 'preflight' });
 }
 
-async function simulateFix(simulationId) {
-  if (!engine) return { error: 'Problem Finder engine not available' };
-
-  try {
-    const snapshot = buildLiveSnapshot();
-    const beforeReport = await engine.analyzeFromSnapshot(snapshot, { useAi: false });
-    const simulatedSnapshot = engine.applySimulation(snapshot, simulationId);
-    const afterReport = await engine.analyzeFromSnapshot(simulatedSnapshot, { useAi: false });
-
-    const beforeIds = new Set((beforeReport.diagnostics?.issues || []).map((i) => i.id));
-    const afterIds = new Set((afterReport.diagnostics?.issues || []).map((i) => i.id));
-
-    return {
-      simulationId,
-      before: { issues: beforeReport.diagnostics?.issues || [], coverageScore: beforeReport.coverage?.score || 0 },
-      after: { issues: afterReport.diagnostics?.issues || [], coverageScore: afterReport.coverage?.score || 0 },
-      diff: {
-        issueDelta: (afterReport.diagnostics?.issues?.length || 0) - (beforeReport.diagnostics?.issues?.length || 0),
-        coverageDelta: (afterReport.coverage?.score || 0) - (beforeReport.coverage?.score || 0),
-        resolvedIssueIds: Array.from(beforeIds).filter((id) => !afterIds.has(id)).sort(),
-        newIssueIds: Array.from(afterIds).filter((id) => !beforeIds.has(id)).sort(),
-      },
-    };
-  } catch (err) {
-    return { error: err.message };
-  }
-}
-
 // ─── FEEDBACK ────────────────────────────────────────────────────────────────
 
 function recordFeedback(fb) {
@@ -534,7 +506,6 @@ module.exports = {
   buildLiveSnapshot,
   runAnalysis,
   runGoNoGo,
-  simulateFix,
   recordFeedback,
   onAgentEvent,
   startScheduledSweeps,

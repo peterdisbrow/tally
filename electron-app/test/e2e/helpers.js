@@ -121,7 +121,6 @@ const EXPECTED_API_METHODS = [
   'pfRunHistory',
   'pfFeedback',
   'pfGetConfig',
-  'pfSimulateFix',
   'pfAvailable',
   'pfSetCamerasVerified',
   'pfGetCamerasVerified',
