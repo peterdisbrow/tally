@@ -32,7 +32,7 @@ function makeChurchEntry(id, name, overrides = {}) {
     name,
     ws:               null,
     sockets:          new Map(),
-    status:           { connected: false, atem: null, obs: null },
+    status:           {},
     lastSeen:         null,
     lastHeartbeat:    null,
     disconnectedAt:   null,
@@ -751,7 +751,7 @@ describe('WebSocket routing — real integration tests against createWebSocketHa
       await nextMessage(ctrl); // status_update from church-1
 
       const church2 = server.churches.get('church-2');
-      expect(church2.status.atem).toBeNull();
+      expect(church2.status.atem).toBeUndefined();
 
       await closeWs(ws1);
       await closeWs(ws2);

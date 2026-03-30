@@ -119,7 +119,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
 
     churches.set(churchId, {
       churchId, name: cleanName, email: cleanEmail, token: connectionToken,
-      ws: null, status: { connected: false, atem: null, obs: null },
+      ws: null, status: {},
       lastSeen: null, lastHeartbeat: null, registeredAt, disconnectedAt: null,
       _offlineAlertSent: false, church_type: 'recurring',
       event_expires_at: null, event_label: null, reseller_id: null, registrationCode,

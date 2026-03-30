@@ -105,7 +105,7 @@ module.exports = function setupResellerRoutes(app, ctx) {
 
       churches.set(churchId, {
         churchId, name, email: email || '', token, ws: null,
-        status: { connected: false, atem: null, obs: null },
+        status: {},
         lastSeen: null, lastHeartbeat: null, registeredAt,
         disconnectedAt: null, _offlineAlertSent: false,
         church_type: 'recurring', event_expires_at: null, event_label: null,
@@ -224,7 +224,7 @@ module.exports = function setupResellerRoutes(app, ctx) {
       churches.set(result.churchId, {
         churchId: result.churchId, name: result.churchName,
         email: cleanContactEmail, token: result.token, ws: null,
-        status: { connected: false, atem: null, obs: null },
+        status: {},
         lastSeen: null, lastHeartbeat: null, registeredAt: new Date().toISOString(),
         disconnectedAt: null, _offlineAlertSent: false,
         church_type: 'recurring', event_expires_at: null, event_label: null,
