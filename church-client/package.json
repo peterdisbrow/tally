@@ -1,6 +1,6 @@
 {
   "name": "tally",
-  "version": "1.1.44",
+  "version": "1.1.45",
   "description": "Connect your church AV system to ATEM School remote monitoring",
   "main": "src/index.js",
   "bin": {
