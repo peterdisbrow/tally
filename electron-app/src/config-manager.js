@@ -276,7 +276,8 @@ const ROOM_EQUIPMENT_KEYS = [
   'encoders', 'encoder',
   'encoderType', 'encoderHost', 'encoderPort', 'encoderPassword',
   'encoderLabel', 'encoderStatusUrl', 'encoderSource',
-  'rtmpUrl', 'audioViaAtem', 'audioViaAtemOverride',
+  'rtmpUrl', 'rtmpStreamKey', 'atemAutoRecord',
+  'audioViaAtem', 'audioViaAtemOverride',
 ];
 
 /**

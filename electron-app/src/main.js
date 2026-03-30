@@ -1930,7 +1930,13 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
   if (equipConfig.ptz !== undefined) config.ptz = equipConfig.ptz;
   if (equipConfig.proPresenterHost !== undefined) {
     config.proPresenter = equipConfig.proPresenterHost
-      ? { host: sanitizeHost(equipConfig.proPresenterHost), port: sanitizePort(equipConfig.proPresenterPort, 1025) }
+      ? {
+          host: sanitizeHost(equipConfig.proPresenterHost),
+          port: sanitizePort(equipConfig.proPresenterPort, 1025),
+          triggerMode: equipConfig.proPresenterTriggerMode || 'presentation',
+          backupHost: equipConfig.proPresenterBackupHost ? sanitizeHost(equipConfig.proPresenterBackupHost) : '',
+          backupPort: sanitizePort(equipConfig.proPresenterBackupPort, 1025),
+        }
       : null;
   }
   if (equipConfig.vmixHost !== undefined) {
@@ -1984,6 +1990,11 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
     delete config.encoderSource;
   }
   if (equipConfig.rtmpUrl !== undefined) config.rtmpUrl = equipConfig.rtmpUrl;
+  if (equipConfig.rtmpStreamKey !== undefined && equipConfig.rtmpStreamKey) config.rtmpStreamKey = equipConfig.rtmpStreamKey;
+  // Streaming API keys — only overwrite if user entered a new value (not empty placeholder)
+  if (equipConfig.youtubeApiKey) config.youtubeApiKey = equipConfig.youtubeApiKey;
+  if (equipConfig.facebookAccessToken) config.facebookAccessToken = equipConfig.facebookAccessToken;
+  if (equipConfig.vimeoAccessToken) config.vimeoAccessToken = equipConfig.vimeoAccessToken;
   // Audio-via-ATEM flag + override
   if (equipConfig.audioViaAtem !== undefined) config.audioViaAtem = equipConfig.audioViaAtem ? 1 : 0;
   if (equipConfig.audioViaAtemOverride !== undefined) config.audioViaAtemOverride = equipConfig.audioViaAtemOverride || null;
@@ -2027,6 +2038,9 @@ ipcMain.handle('get-equipment', () => {
     proPresenterConfigured: !!config.proPresenter?.host,
     proPresenterHost: config.proPresenter?.host || '',
     proPresenterPort: config.proPresenter?.port || 1025,
+    proPresenterTriggerMode: config.proPresenter?.triggerMode || 'presentation',
+    proPresenterBackupHost: config.proPresenter?.backupHost || '',
+    proPresenterBackupPort: config.proPresenter?.backupPort || 1025,
     vmixConfigured: !!config.vmix?.host,
     vmixHost: config.vmix?.host || '',
     vmixPort: config.vmix?.port || 8088,
@@ -2048,6 +2062,10 @@ ipcMain.handle('get-equipment', () => {
     encoderLabel: config.encoder?.label || '',
     encoderStatusUrl: config.encoder?.statusUrl || '',
     rtmpUrl: config.rtmpUrl || '',
+    rtmpKeySet: !!(config.rtmpStreamKey),
+    youtubeKeySet: !!(config.youtubeApiKey),
+    facebookTokenSet: !!(config.facebookAccessToken),
+    vimeoTokenSet: !!(config.vimeoAccessToken),
   };
 });
 
