@@ -996,7 +996,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const requestedRoomId = req.query.roomId;
 
       // Get all rooms for this church (for the dropdown)
-      const rooms = db.prepare('SELECT id, name, campus_id FROM rooms WHERE campus_id = ? ORDER BY name').all(churchId);
+      const rooms = db.prepare('SELECT id, name, campus_id FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name').all(churchId);
 
       // Also get room_equipment entries to show which rooms have config
       const equipRows = db.prepare('SELECT room_id, updated_at FROM room_equipment WHERE church_id = ?').all(churchId);
@@ -1197,7 +1197,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const churchId = req.church.churchId;
       const tier = String(req.church.billing_tier || 'connect').toLowerCase();
       const maxRooms = maxRoomsForTier(tier);
-      const currentCount = db.prepare('SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ?').get(churchId)?.cnt || 0;
+      const currentCount = db.prepare('SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL').get(churchId)?.cnt || 0;
       if (currentCount >= maxRooms) {
         return res.status(403).json({
           error: `Your ${tier.toUpperCase()} plan allows ${maxRooms} room${maxRooms === 1 ? '' : 's'}. Upgrade for more.`,
@@ -1206,6 +1206,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const name = String(req.body?.name || '').trim();
       const description = String(req.body?.description || '').trim();
       if (!name) return res.status(400).json({ error: 'Room name is required' });
+      if (description.length > 500) return res.status(400).json({ error: 'Room description must be 500 characters or less' });
 
       const id = crypto.randomUUID();
       const created_at = new Date().toISOString();
@@ -1221,7 +1222,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       const churchId = req.church.churchId;
       const roomId = String(req.params.roomId || '').trim();
-      const room = db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ?').get(roomId, churchId);
+      const room = db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
       if (!room) return res.status(404).json({ error: 'Room not found' });
 
       const updates = [];
@@ -1234,8 +1235,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         params.push(cleanName);
       }
       if (description !== undefined) {
+        const cleanDesc = String(description).trim();
+        if (cleanDesc.length > 500) return res.status(400).json({ error: 'Room description must be 500 characters or less' });
         updates.push('description = ?');
-        params.push(String(description).trim());
+        params.push(cleanDesc);
       }
       if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
       params.push(roomId);
@@ -1250,12 +1253,12 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       const churchId = req.church.churchId;
       const roomId = String(req.params.roomId || '').trim();
-      const room = db.prepare('SELECT id, name FROM rooms WHERE id = ? AND campus_id = ?').get(roomId, churchId);
+      const room = db.prepare('SELECT id, name FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
       if (!room) return res.status(404).json({ error: 'Room not found' });
 
-      // CASCADE cleanup: remove all data referencing this room
+      // M5: Soft-delete — set deleted_at timestamp, cleanup related data
       const deleteRelated = db.transaction(() => {
-        db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId);
+        db.prepare('UPDATE rooms SET deleted_at = ? WHERE id = ?').run(new Date().toISOString(), roomId);
         db.prepare('DELETE FROM problem_finder_reports WHERE church_id = ? AND instance_name = ?').run(churchId, roomId);
         db.prepare('DELETE FROM preservice_check_results WHERE church_id = ? AND instance_name = ?').run(churchId, roomId);
         db.prepare('DELETE FROM alerts WHERE church_id = ? AND instance_name = ?').run(churchId, roomId);
@@ -1279,6 +1282,27 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       }
 
       res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/church/rooms/:roomId/restore — restore a soft-deleted room (within 30 days)
+  app.post('/api/church/rooms/:roomId/restore', adminMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const roomId = String(req.params.roomId || '').trim();
+      const room = db.prepare('SELECT id, name, deleted_at FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NOT NULL').get(roomId, churchId);
+      if (!room) return res.status(404).json({ error: 'Deleted room not found' });
+
+      const deletedAt = new Date(room.deleted_at);
+      const daysSinceDelete = (Date.now() - deletedAt.getTime()) / (1000 * 60 * 60 * 24);
+      if (daysSinceDelete > 30) {
+        return res.status(410).json({ error: 'Room was deleted more than 30 days ago and cannot be restored' });
+      }
+
+      db.prepare('UPDATE rooms SET deleted_at = NULL WHERE id = ?').run(roomId);
+      res.json({ ok: true, roomId, roomName: room.name });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }

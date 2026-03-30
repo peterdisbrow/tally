@@ -82,6 +82,10 @@ function createWebSocketHandlers({
   // Interval in ms between WS-level pings. Set to 0 to disable.
   wsPingIntervalMs = 25_000,
 
+  // ─── Room validation ────────────────────────────────────────────────────
+  // (roomId: string, churchId: string) => bool — checks room exists and belongs to church
+  validateRoomId = () => true,
+
   // ─── Lifecycle hooks (fired AFTER the routing action, no-op by default) ───
   // Use these in production to attach subsystem side-effects without embedding
   // heavy dependencies inside the routing layer.
@@ -231,10 +235,15 @@ function createWebSocketHandlers({
     church.disconnectedAt = null;
 
     // Immediately restore room mapping so the portal never loses track of which
-    // room this instance belongs to (no gap between connect and first status_update)
+    // room this instance belongs to (no gap between connect and first status_update).
+    // Validate the room_id actually exists for this church (I1).
     if (roomIdFromConnect) {
-      if (!church.roomInstanceMap) church.roomInstanceMap = {};
-      church.roomInstanceMap[roomIdFromConnect] = instance;
+      if (validateRoomId(roomIdFromConnect, church.churchId)) {
+        if (!church.roomInstanceMap) church.roomInstanceMap = {};
+        church.roomInstanceMap[roomIdFromConnect] = instance;
+      } else {
+        console.log(`[WS] Church ${church.churchId} instance="${instance}" connected with invalid room_id="${roomIdFromConnect}" — ignoring room mapping`);
+      }
     }
 
     console.log(`[WS] Church ${church.churchId} instance="${instance}" connected (${church.sockets.size} instance(s) total${roomIdFromConnect ? `, room=${roomIdFromConnect}` : ''})`);
@@ -288,10 +297,14 @@ function createWebSocketHandlers({
         church.sockets.delete(instance);
       }
 
-      // Clean up roomInstanceMap and instanceStatus entries for this instance
+      // Find the roomId(s) this instance was serving before cleanup
+      const disconnectedRoomIds = [];
       if (church.roomInstanceMap) {
         for (const [rid, inst] of Object.entries(church.roomInstanceMap)) {
-          if (inst === instance) delete church.roomInstanceMap[rid];
+          if (inst === instance) {
+            disconnectedRoomIds.push(rid);
+            delete church.roomInstanceMap[rid];
+          }
         }
       }
       if (church.instanceStatus) {
@@ -299,6 +312,29 @@ function createWebSocketHandlers({
       }
 
       console.log(`[WS] Church ${church.churchId} instance="${instance}" disconnected (${church.sockets.size} instance(s) remaining)`);
+
+      // I6: Broadcast per-room disconnect when a single instance drops
+      // (even if other instances are still connected)
+      if (disconnectedRoomIds.length > 0) {
+        const instanceDisconnectEvent = {
+          type: 'instance_disconnected',
+          churchId: church.churchId,
+          name: church.name,
+          instance,
+          roomIds: disconnectedRoomIds,
+          remainingInstances: church.sockets.size,
+          timestamp: new Date().toISOString(),
+        };
+        broadcastToControllers(instanceDisconnectEvent);
+        broadcastToSSE(instanceDisconnectEvent);
+        broadcastToPortal(church.churchId, {
+          type: 'instance_disconnected',
+          instance,
+          roomIds: disconnectedRoomIds,
+          instanceStatus: church.instanceStatus,
+          roomInstanceMap: church.roomInstanceMap,
+        });
+      }
 
       // Update church.ws to another open socket (or null)
       if (church.ws === ws) {
@@ -308,11 +344,25 @@ function createWebSocketHandlers({
         }
       }
 
+      // Rebuild church.status from remaining instances (same primary-instance logic)
+      const remainingKeys = Object.keys(church.instanceStatus || {});
+      if (remainingKeys.length === 1) {
+        church.status = { ...church.instanceStatus[remainingKeys[0]] };
+      } else if (remainingKeys.length > 1) {
+        const primaryKey = remainingKeys.sort()[0];
+        church.status = { ...church.instanceStatus[primaryKey] };
+      }
+      // If remainingKeys.length === 0, we'll handle in the full-disconnect block below
+
       // Only broadcast church_disconnected if ALL instances are gone
       if (!hasOpenSocket(church)) {
         church.lastSeen = new Date().toISOString();
         church.disconnectedAt = Date.now();
-        church.status = { connected: false, atem: null, obs: null };
+        // M4: Preserve last-known device status instead of wiping to null.
+        // Mark as disconnected but keep device data so the portal can show
+        // "last known state" after the booth computer goes offline.
+        church.status = { ...church.status, connected: false, _disconnectedAt: church.disconnectedAt };
+        // Keep instanceStatus/roomInstanceMap empty since all instances are gone
         church.instanceStatus = {};
         church.roomInstanceMap = {};
 
@@ -356,22 +406,30 @@ function createWebSocketHandlers({
             senderInstance = inst;
             church.instanceStatus[inst] = { ...msg.status, _updatedAt: Date.now() };
             // Build roomId → instance mapping from the system.roomId the Electron app reports
+            // Validate the room actually belongs to this church (I1)
             const roomId = msg.status?.system?.roomId;
-            if (roomId) {
+            if (roomId && validateRoomId(roomId, church.churchId)) {
               church.roomInstanceMap[roomId] = inst;
             }
             break;
           }
         }
 
-        // Rebuild church.status from per-instance data (backward compat for
-        // single-instance churches & controller SSE consumers).  For single-
-        // instance this is identical to the old behaviour; for multi-instance
-        // it reflects only the sender so downstream consumers see a coherent
-        // snapshot rather than a cross-room frankenstatus.
-        church.status = senderInstance
-          ? { ...church.instanceStatus[senderInstance] }
-          : { ...msg.status };
+        // Rebuild church.status from the "primary" instance for backward compat
+        // with single-room churches and legacy controller consumers.
+        // Primary = first connected instance (alphabetically by key) so the
+        // value is stable and doesn't flip-flop as different rooms send updates.
+        const instanceKeys = Object.keys(church.instanceStatus);
+        if (instanceKeys.length === 1) {
+          // Single-room: identical to old behaviour
+          church.status = { ...church.instanceStatus[instanceKeys[0]] };
+        } else if (instanceKeys.length > 1) {
+          // Multi-room: use the first instance alphabetically as primary
+          const primaryKey = instanceKeys.sort()[0];
+          church.status = { ...church.instanceStatus[primaryKey] };
+        } else {
+          church.status = { ...msg.status };
+        }
 
         church._offlineAlertSent = false;
 
@@ -381,6 +439,8 @@ function createWebSocketHandlers({
           name:          church.name,
           status:        church.status,
           instance:      senderInstance,
+          instanceStatus: church.instanceStatus,
+          roomInstanceMap: church.roomInstanceMap,
           timestamp:     church.lastSeen,
           lastHeartbeat: church.lastHeartbeat,
         };

@@ -192,7 +192,8 @@ function createTestDb() {
       campus_id   TEXT NOT NULL,
       name        TEXT NOT NULL,
       description TEXT DEFAULT '',
-      created_at  TEXT NOT NULL
+      created_at  TEXT NOT NULL,
+      deleted_at  TEXT
     )
   `);
   db.exec(`

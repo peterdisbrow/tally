@@ -590,6 +590,46 @@ db.exec(`
 `);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_room_equipment_church ON room_equipment(church_id)`);
 
+// ─── ROOMS SCHEMA HARDENING (M1, M3, M5) ───────────────────────────────────
+
+// M3: Enable foreign key enforcement
+db.exec('PRAGMA foreign_keys = ON');
+
+// M5: Soft-delete for rooms — add deleted_at column (must come before unique index)
+try { db.exec('ALTER TABLE rooms ADD COLUMN deleted_at TEXT'); } catch { /* already exists */ }
+
+// M1: UNIQUE(campus_id, name) — prevent duplicate room names within a church.
+// Handle existing duplicates by appending a suffix before creating the constraint.
+try {
+  const dupes = db.prepare(`
+    SELECT campus_id, name, COUNT(*) AS cnt
+    FROM rooms WHERE deleted_at IS NULL
+    GROUP BY campus_id, name HAVING cnt > 1
+  `).all();
+  if (dupes.length > 0) {
+    const fixDupe = db.prepare('UPDATE rooms SET name = ? WHERE id = ?');
+    for (const d of dupes) {
+      const rows = db.prepare('SELECT id FROM rooms WHERE campus_id = ? AND name = ? ORDER BY created_at ASC')
+        .all(d.campus_id, d.name);
+      // Keep the first, rename the rest
+      for (let i = 1; i < rows.length; i++) {
+        fixDupe.run(`${d.name} (${i + 1})`, rows[i].id);
+      }
+    }
+    console.log(`[migration] Fixed ${dupes.length} duplicate room name(s)`);
+  }
+  // Only enforce uniqueness on non-deleted rooms
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_rooms_unique_name ON rooms(campus_id, name) WHERE deleted_at IS NULL');
+} catch (e) {
+  // Index may already exist or rooms table may not have the expected shape
+  console.log(`[migration] rooms unique index: ${e.message}`);
+}
+
+// M3: FK constraint — room_equipment.room_id references rooms.id
+// SQLite cannot add FK constraints to existing tables via ALTER TABLE, but we
+// can create an index to enforce referential integrity at the application layer.
+// The FK is enforced in the room delete endpoint (cascade cleanup).
+
 // ─── ADMIN USERS TABLE ──────────────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS admin_users (
@@ -3337,6 +3377,12 @@ const _wsHandlers = createWebSocketHandlers({
   broadcastToSSE,
   broadcastToPortal,
   streamOAuth,
+  validateRoomId: (roomId, churchId) => {
+    try {
+      const row = db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
+      return !!row;
+    } catch { return false; }
+  },
   onChurchConnected(church, ws) {
     // Onboarding milestone: first app connection
     try {
@@ -3408,13 +3454,9 @@ const _wsHandlers = createWebSocketHandlers({
       try { db.prepare('UPDATE churches SET timezone = ? WHERE churchId = ?').run(church.timezone, church.churchId); }
       catch (e) { log(`[timezone] sync DB error: ${e.message}`); }
     }
-    // Sync room assignment from client
-    if (msg.status?.system?.roomId && church.room_id !== msg.status.system.roomId) {
-      church.room_id = msg.status.system.roomId;
-      church.room_name = msg.status.system.roomName || '';
-      try { db.prepare('UPDATE churches SET room_id = ?, room_name = ? WHERE churchId = ?').run(church.room_id, church.room_name, church.churchId); }
-      catch (e) { log(`[room] sync DB error: ${e.message}`); }
-    }
+    // Room assignment is managed exclusively via the /api/church/app/room-assign
+    // endpoint.  Status-driven sync was removed to prevent flip-flopping when
+    // multiple instances report different roomIds (C2/I2 architecture fix).
     _checkDeviceVersions(church, msg.status);
     scheduler.onEquipmentStateChange(church.churchId, church.status)
       .catch(e => console.error('[Scheduler] Equipment state change error:', e.message));

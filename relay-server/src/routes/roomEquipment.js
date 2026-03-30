@@ -13,7 +13,7 @@ module.exports = function setupRoomEquipmentRoutes(app, ctx) {
 
   /** Check that a room belongs to this church. */
   function verifyRoomAccess(roomId, churchId) {
-    return db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ?').get(roomId, churchId);
+    return db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
   }
 
   // ── GET /api/church/app/rooms/:roomId/equipment ──────────────────────────

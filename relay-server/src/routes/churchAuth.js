@@ -290,7 +290,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
   app.get('/api/church/app/rooms', requireChurchAppAuth, (req, res) => {
     try {
       const churchId = req.church.churchId;
-      const rooms = db.prepare('SELECT id, campus_id, name, description FROM rooms WHERE campus_id = ? ORDER BY name ASC').all(churchId);
+      const rooms = db.prepare('SELECT id, campus_id, name, description FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name ASC').all(churchId);
       const currentRoomId = db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId)?.room_id || null;
       res.json({ rooms, currentRoomId });
     } catch (e) {
@@ -304,7 +304,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       const churchId = req.church.churchId;
       const roomId = req.body?.roomId || null;
       if (roomId) {
-        const room = db.prepare('SELECT id, name FROM rooms WHERE id = ? AND campus_id = ?').get(roomId, churchId);
+        const room = db.prepare('SELECT id, name FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
         if (!room) return res.status(404).json({ error: 'Room not found or not accessible by this church' });
         db.prepare('UPDATE churches SET room_id = ?, room_name = ? WHERE churchId = ?').run(roomId, room.name, churchId);
         res.json({ ok: true, roomId, roomName: room.name });
@@ -324,7 +324,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       const tier = String(req.church.billing_tier || 'connect').toLowerCase();
       const tierRoomLimits = { connect: 1, plus: 3, pro: 5, managed: 999, event: 1 };
       const maxRooms = tierRoomLimits[tier] || 1;
-      const currentCount = db.prepare('SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ?').get(churchId)?.cnt || 0;
+      const currentCount = db.prepare('SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL').get(churchId)?.cnt || 0;
       if (currentCount >= maxRooms) {
         return res.status(403).json({
           error: `Your ${tier.toUpperCase()} plan allows ${maxRooms} room${maxRooms === 1 ? '' : 's'}. Upgrade for more.`,
@@ -333,6 +333,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
       const name = String(req.body?.name || '').trim();
       const description = String(req.body?.description || '').trim();
       if (!name) return res.status(400).json({ error: 'Room name is required' });
+      if (description.length > 500) return res.status(400).json({ error: 'Room description must be 500 characters or less' });
 
       const id = uuidv4();
       const created_at = new Date().toISOString();

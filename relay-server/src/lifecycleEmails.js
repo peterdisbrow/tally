@@ -3436,7 +3436,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       // Skip if they already have multiple rooms or cameras
       let roomCount = 0;
       try {
-        const row = this.db.prepare('SELECT COUNT(*) as cnt FROM rooms WHERE church_id = ?').get(church.churchId);
+        const row = this.db.prepare('SELECT COUNT(*) as cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL').get(church.churchId);
         roomCount = row?.cnt || 0;
       } catch { /* table may not exist */ }
       if (roomCount > 1) continue;

@@ -5876,12 +5876,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           try {
             var data = JSON.parse(event.data);
             if (data.type === 'status_update' || data.type === 'status_snapshot' || data.type === 'connected') {
-              if (data.status) {
+              // Resolve per-room status using instanceStatus + roomInstanceMap
+              var effectiveStatus = data.status;
+              if (data.instanceStatus && data.roomInstanceMap && _selectedRoomId) {
+                var instanceName = data.roomInstanceMap[_selectedRoomId];
+                if (instanceName && data.instanceStatus[instanceName]) {
+                  effectiveStatus = data.instanceStatus[instanceName];
+                }
+              }
+              if (effectiveStatus) {
                 // Update the status dot on the connection stat card
                 var dot = document.getElementById('stat-status-dot');
                 var txt = document.getElementById('stat-status-text');
                 if (dot && txt) {
-                  var isConnected = data.type === 'connected' || !!(data.status.connected !== false && (data.status.atem || data.status.obs || data.status.encoder));
+                  var isConnected = data.type === 'connected' || !!(effectiveStatus.connected !== false && (effectiveStatus.atem || effectiveStatus.obs || effectiveStatus.encoder));
                   dot.style.background = isConnected ? '#22c55e' : '#475569';
                   txt.textContent = isConnected ? 'Connected' : 'Offline';
                 }
@@ -5895,6 +5903,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 if (document.getElementById('page-overview').classList.contains('active')) {
                   loadOverview();
                 }
+              }
+            } else if (data.type === 'instance_disconnected') {
+              // Per-room disconnect: if the disconnected room is our selected room, show offline
+              if (data.roomIds && data.roomIds.indexOf(_selectedRoomId) !== -1) {
+                var dot3 = document.getElementById('stat-status-dot');
+                var txt3 = document.getElementById('stat-status-text');
+                if (dot3 && txt3) { dot3.style.background = '#475569'; txt3.textContent = 'Offline'; }
               }
             } else if (data.type === 'viewer_update') {
               var card = document.getElementById('live-viewers-card');
