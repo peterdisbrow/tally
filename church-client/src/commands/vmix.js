@@ -228,6 +228,216 @@ async function vmixReplay(agent, params) {
   return `vMix replay: ${action}`;
 }
 
+// ─── COMPANION PARITY: Transition Types ───────────────────────────────────
+
+async function vmixTransition(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const type = String(params.type || 'Cut').trim();
+  const input = params.input;
+  const duration = params.duration || params.ms;
+  await agent.vmix.transition(type, input, duration);
+  return `vMix: ${type} transition${input != null ? ` to input ${input}` : ''}`;
+}
+
+// ─── COMPANION PARITY: Input Position/Zoom/Crop ──────────────────────────
+
+async function vmixSetInputPosition(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input required');
+  await agent.vmix.setInputPosition(params.input, params.x || 0, params.y || 0);
+  return `vMix input ${params.input} position set`;
+}
+
+async function vmixSetInputZoom(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input required');
+  await agent.vmix.setInputZoom(params.input, params.value || 1);
+  return `vMix input ${params.input} zoom set to ${params.value}`;
+}
+
+async function vmixSetInputCrop(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input required');
+  await agent.vmix.setInputCrop(params.input, params.x1 || 0, params.y1 || 0, params.x2 || 1, params.y2 || 1);
+  return `vMix input ${params.input} crop set`;
+}
+
+// ─── COMPANION PARITY: MultiCorder & External ────────────────────────────
+
+async function vmixStartMultiCorder(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.startMultiCorder();
+  return 'vMix MultiCorder started';
+}
+
+async function vmixStopMultiCorder(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.stopMultiCorder();
+  return 'vMix MultiCorder stopped';
+}
+
+async function vmixStartExternal(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.startExternal();
+  return 'vMix external output started';
+}
+
+async function vmixStopExternal(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.stopExternal();
+  return 'vMix external output stopped';
+}
+
+// ─── COMPANION PARITY: Fullscreen, Loop, Rename ─────────────────────────
+
+async function vmixToggleFullscreen(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  await agent.vmix.toggleFullscreen();
+  return 'vMix fullscreen toggled';
+}
+
+async function vmixSetInputLoop(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input required');
+  const on = params.on !== false && params.on !== 'false';
+  await agent.vmix.setInputLoop(params.input, on);
+  return `vMix input ${params.input} loop ${on ? 'on' : 'off'}`;
+}
+
+async function vmixRenameInput(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input required');
+  if (!params.name) throw new Error('name required');
+  await agent.vmix.renameInput(params.input, params.name);
+  return `vMix input ${params.input} renamed to "${params.name}"`;
+}
+
+// ─── COMPANION PARITY: Colour Correction ────────────────────────────────
+
+async function vmixSetColourCorrection(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input required');
+  await agent.vmix.setInputColourCorrection(params.input, {
+    lift: params.lift, gamma: params.gamma, gain: params.gain,
+    saturation: params.saturation, hue: params.hue,
+  });
+  return `vMix input ${params.input} colour correction updated`;
+}
+
+// ─── COMPANION PARITY: Audio Bus Routing ────────────────────────────────
+
+async function vmixSetInputAudioBus(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input required');
+  const bus = String(params.bus || 'A').toUpperCase();
+  const on = params.on !== false && params.on !== 'false';
+  await agent.vmix.setInputAudioBus(params.input, bus, on);
+  return `vMix input ${params.input} audio bus ${bus} ${on ? 'on' : 'off'}`;
+}
+
+async function vmixSetBusVolume(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const bus = String(params.bus || 'A').toUpperCase();
+  const value = toInt(params.value, 'value');
+  const vol = await agent.vmix.setBusVolume(bus, value);
+  return `vMix bus ${bus} volume set to ${vol}%`;
+}
+
+async function vmixMuteBus(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const bus = String(params.bus || 'A').toUpperCase();
+  await agent.vmix.muteBus(bus);
+  return `vMix bus ${bus} mute toggled`;
+}
+
+// ─── COMPANION PARITY: NDI, Layers, Title, Tally, Script ───────────────
+
+async function vmixSetInputNDISource(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input required');
+  if (!params.source) throw new Error('NDI source name required');
+  await agent.vmix.setInputNDISource(params.input, params.source);
+  return `vMix input ${params.input} NDI source set to "${params.source}"`;
+}
+
+async function vmixSetLayerInput(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const layer = toInt(params.layer || 1, 'layer');
+  if (params.input == null) throw new Error('input required');
+  await agent.vmix.setLayerInput(layer, params.input);
+  return `vMix layer ${layer} set to input ${params.input}`;
+}
+
+async function vmixSetTitleField(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input required');
+  if (!params.field) throw new Error('field name required');
+  await agent.vmix.setTitleField(params.input, params.field, params.value || '');
+  return `vMix input ${params.input} title field "${params.field}" updated`;
+}
+
+async function vmixSelectTitleIndex(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input required');
+  const index = toInt(params.index, 'index');
+  await agent.vmix.selectTitleIndex(params.input, index);
+  return `vMix input ${params.input} title index set to ${index}`;
+}
+
+async function vmixGetTallyState(agent) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const tally = await agent.vmix.getTallyState();
+  if (!tally) return 'Tally data not available';
+  return tally.map(t => {
+    const state = t.program ? 'PGM' : t.preview ? 'PVW' : '---';
+    return `${t.number}. ${t.title} [${state}]`;
+  }).join('\n');
+}
+
+async function vmixRunScript(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const name = String(params.name || '').trim();
+  if (!name) throw new Error('script name required');
+  await agent.vmix.runScript(name);
+  return `vMix script "${name}" started`;
+}
+
+async function vmixStopScript(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const name = String(params.name || '').trim();
+  if (!name) throw new Error('script name required');
+  await agent.vmix.stopScript(name);
+  return `vMix script "${name}" stopped`;
+}
+
+// ─── COMPANION PARITY: Snapshots ────────────────────────────────────────
+
+async function vmixSaveSnapshot(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const filename = String(params.filename || params.name || '').trim();
+  if (!filename) throw new Error('filename required');
+  await agent.vmix.saveSnapshot(filename);
+  return `vMix snapshot saved: ${filename}`;
+}
+
+async function vmixLoadSnapshot(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  const filename = String(params.filename || params.name || '').trim();
+  if (!filename) throw new Error('filename required');
+  await agent.vmix.loadSnapshot(filename);
+  return `vMix snapshot loaded: ${filename}`;
+}
+
+// ─── COMPANION PARITY: Browser Navigate ─────────────────────────────────
+
+async function vmixBrowserNavigate(agent, params) {
+  if (!agent.vmix) throw new Error('vMix not configured');
+  if (params.input == null) throw new Error('input required');
+  if (!params.url) throw new Error('url required');
+  await agent.vmix.browserNavigate(params.input, params.url);
+  return `vMix browser input ${params.input} navigated to ${params.url}`;
+}
+
 module.exports = {
   'vmix.status': vmixStatus,
   'vmix.startStream': vmixStartStream,
@@ -256,4 +466,49 @@ module.exports = {
   'vmix.overlayOff': vmixOverlayOff,
   'vmix.setText': vmixSetText,
   'vmix.replay': vmixReplay,
+
+  // Companion parity: transition types
+  'vmix.transition': vmixTransition,
+
+  // Companion parity: input position/zoom/crop
+  'vmix.setInputPosition': vmixSetInputPosition,
+  'vmix.setInputZoom': vmixSetInputZoom,
+  'vmix.setInputCrop': vmixSetInputCrop,
+
+  // Companion parity: multicorder & external
+  'vmix.startMultiCorder': vmixStartMultiCorder,
+  'vmix.stopMultiCorder': vmixStopMultiCorder,
+  'vmix.startExternal': vmixStartExternal,
+  'vmix.stopExternal': vmixStopExternal,
+
+  // Companion parity: fullscreen, loop, rename
+  'vmix.toggleFullscreen': vmixToggleFullscreen,
+  'vmix.setInputLoop': vmixSetInputLoop,
+  'vmix.renameInput': vmixRenameInput,
+
+  // Companion parity: colour correction
+  'vmix.setColourCorrection': vmixSetColourCorrection,
+
+  // Companion parity: audio bus routing
+  'vmix.setInputAudioBus': vmixSetInputAudioBus,
+  'vmix.setBusVolume': vmixSetBusVolume,
+  'vmix.muteBus': vmixMuteBus,
+
+  // Companion parity: NDI, layers, title, tally
+  'vmix.setInputNDISource': vmixSetInputNDISource,
+  'vmix.setLayerInput': vmixSetLayerInput,
+  'vmix.setTitleField': vmixSetTitleField,
+  'vmix.selectTitleIndex': vmixSelectTitleIndex,
+  'vmix.getTallyState': vmixGetTallyState,
+
+  // Companion parity: scripting
+  'vmix.runScript': vmixRunScript,
+  'vmix.stopScript': vmixStopScript,
+
+  // Companion parity: snapshots
+  'vmix.saveSnapshot': vmixSaveSnapshot,
+  'vmix.loadSnapshot': vmixLoadSnapshot,
+
+  // Companion parity: browser navigate
+  'vmix.browserNavigate': vmixBrowserNavigate,
 };

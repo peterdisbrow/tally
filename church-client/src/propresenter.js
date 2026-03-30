@@ -413,6 +413,238 @@ class ProPresenter extends EventEmitter {
 
   // ─── AUDIENCE SCREENS ───────────────────────────────────────────────
 
+  // ─── COMPANION PARITY: Presentation & Playlist Trigger ─────────────
+
+  async triggerPresentation(nameOrUUID) {
+    // Find in libraries, then trigger by UUID
+    const libs = await this.getLibraries();
+    for (const lib of libs) {
+      const found = lib.presentations.find(p =>
+        (p.name || '').toLowerCase() === String(nameOrUUID).toLowerCase() ||
+        p.id === nameOrUUID
+      );
+      if (found) {
+        await this._fire(`/v1/presentation/${encodeURIComponent(found.id)}/0/trigger`);
+        this._mirror(`/v1/presentation/${encodeURIComponent(found.id)}/0/trigger`);
+        return found.name;
+      }
+    }
+    // Try direct UUID trigger
+    await this._fire(`/v1/presentation/${encodeURIComponent(nameOrUUID)}/0/trigger`);
+    this._mirror(`/v1/presentation/${encodeURIComponent(nameOrUUID)}/0/trigger`);
+    return nameOrUUID;
+  }
+
+  async triggerPlaylistItem(playlistName, itemIndex = 0) {
+    const data = await this._fetch('/v1/playlists');
+    if (!data) throw new Error('Could not fetch playlists');
+    const playlists = data.playlists || data || [];
+    const findPlaylist = (list) => {
+      for (const item of (Array.isArray(list) ? list : [])) {
+        if ((item.name || '').toLowerCase() === String(playlistName).toLowerCase() ||
+            (item.id?.name || '').toLowerCase() === String(playlistName).toLowerCase()) {
+          return item;
+        }
+        if (item.items) {
+          const found = findPlaylist(item.items);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const playlist = findPlaylist(playlists);
+    if (!playlist) throw new Error(`Playlist "${playlistName}" not found`);
+    const playlistId = playlist.id?.uuid || playlist.id;
+    await this._fire(`/v1/playlist/${encodeURIComponent(playlistId)}/${itemIndex}/trigger`);
+    this._mirror(`/v1/playlist/${encodeURIComponent(playlistId)}/${itemIndex}/trigger`);
+    return playlist.name || playlist.id?.name || playlistName;
+  }
+
+  // ─── COMPANION PARITY: Props ──────────────────────────────────────────
+
+  async getProps() {
+    const data = await this._fetch('/v1/props');
+    if (!data) return [];
+    return (data.props || data || []).map(p => ({
+      id: p.id?.uuid || p.id || p.uuid,
+      name: p.id?.name || p.name || 'Untitled',
+    }));
+  }
+
+  async triggerProp(nameOrId) {
+    const props = await this.getProps();
+    const found = props.find(p =>
+      (p.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
+      p.id === nameOrId
+    );
+    if (!found) throw new Error(`Prop "${nameOrId}" not found. Available: ${props.map(p => p.name).join(', ')}`);
+    await this._fire(`/v1/prop/${encodeURIComponent(found.id)}/trigger`);
+    this._mirror(`/v1/prop/${encodeURIComponent(found.id)}/trigger`);
+    return found.name;
+  }
+
+  async clearProps() {
+    await this._fire('/v1/clear/layer/props');
+    this._mirror('/v1/clear/layer/props');
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Timer Reset & Configure ────────────────────────
+
+  async resetTimer(nameOrId) {
+    const timers = await this.getTimers();
+    const found = timers.find(t =>
+      (t.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
+      t.id === nameOrId
+    );
+    if (!found) throw new Error(`Timer "${nameOrId}" not found`);
+    await this._fire(`/v1/timer/${encodeURIComponent(found.id)}/reset`);
+    this._mirror(`/v1/timer/${encodeURIComponent(found.id)}/reset`);
+    return found.name;
+  }
+
+  async createTimer(name, settings = {}) {
+    const body = {
+      id: { name },
+      allows_overrun: settings.allowsOverrun || false,
+    };
+    if (settings.countdownDuration) {
+      body.countdown = { duration: settings.countdownDuration };
+    }
+    await this._fire('/v1/timers', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return name;
+  }
+
+  // ─── COMPANION PARITY: Groups ─────────────────────────────────────────
+
+  async getGroups() {
+    const data = await this._fetch('/v1/groups');
+    if (!data) return [];
+    return (data.groups || data || []).map(g => ({
+      id: g.id?.uuid || g.id || g.uuid,
+      name: g.id?.name || g.name || 'Untitled',
+      color: g.color || null,
+    }));
+  }
+
+  async triggerGroup(nameOrId) {
+    const groups = await this.getGroups();
+    const found = groups.find(g =>
+      (g.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
+      g.id === nameOrId
+    );
+    if (!found) throw new Error(`Group "${nameOrId}" not found. Available: ${groups.map(g => g.name).join(', ')}`);
+    await this._fire(`/v1/group/${encodeURIComponent(found.id)}/trigger`);
+    this._mirror(`/v1/group/${encodeURIComponent(found.id)}/trigger`);
+    return found.name;
+  }
+
+  // ─── COMPANION PARITY: Announcements ──────────────────────────────────
+
+  async nextAnnouncement() {
+    await this._fire('/v1/announcement/active/next/trigger');
+    this._mirror('/v1/announcement/active/next/trigger');
+    return true;
+  }
+
+  async previousAnnouncement() {
+    await this._fire('/v1/announcement/active/previous/trigger');
+    this._mirror('/v1/announcement/active/previous/trigger');
+    return true;
+  }
+
+  async getAnnouncementStatus() {
+    const data = await this._fetch('/v1/announcement/active');
+    if (!data) return null;
+    return {
+      presentationName: data.presentation?.name || data.id?.name || null,
+      slideIndex: data.slideIndex ?? 0,
+      slideCount: data.slideCount ?? 0,
+    };
+  }
+
+  // ─── COMPANION PARITY: Macros ─────────────────────────────────────────
+
+  async getMacros() {
+    const data = await this._fetch('/v1/macros');
+    if (!data) return [];
+    return (data.macros || data || []).map(m => ({
+      id: m.id?.uuid || m.id || m.uuid,
+      name: m.id?.name || m.name || 'Untitled',
+    }));
+  }
+
+  async triggerMacro(nameOrId) {
+    const macros = await this.getMacros();
+    const found = macros.find(m =>
+      (m.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
+      m.id === nameOrId
+    );
+    if (!found) throw new Error(`Macro "${nameOrId}" not found. Available: ${macros.map(m => m.name).join(', ')}`);
+    await this._fire(`/v1/macro/${encodeURIComponent(found.id)}/trigger`);
+    this._mirror(`/v1/macro/${encodeURIComponent(found.id)}/trigger`);
+    return found.name;
+  }
+
+  // ─── COMPANION PARITY: Stage Layouts ──────────────────────────────────
+
+  async getStageLayouts() {
+    const data = await this._fetch('/v1/stage/layouts');
+    if (!data) return [];
+    return (data.layouts || data || []).map(l => ({
+      id: l.id?.uuid || l.id || l.uuid,
+      name: l.id?.name || l.name || 'Untitled',
+    }));
+  }
+
+  async setStageLayout(nameOrId, screenIndex = 0) {
+    const layouts = await this.getStageLayouts();
+    const found = layouts.find(l =>
+      (l.name || '').toLowerCase() === String(nameOrId).toLowerCase() ||
+      l.id === nameOrId
+    );
+    if (!found) throw new Error(`Stage layout "${nameOrId}" not found`);
+    await this._fire(`/v1/stage/layout/${encodeURIComponent(found.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ screen: screenIndex }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    this._mirror(`/v1/stage/layout/${encodeURIComponent(found.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ screen: screenIndex }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return found.name;
+  }
+
+  // ─── COMPANION PARITY: Clear Specific Layers ─────────────────────────
+
+  async clearMedia() {
+    await this._fire('/v1/clear/layer/media');
+    this._mirror('/v1/clear/layer/media');
+    return true;
+  }
+
+  async clearAudio() {
+    await this._fire('/v1/clear/layer/audio');
+    this._mirror('/v1/clear/layer/audio');
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Video Input ────────────────────────────────────
+
+  async triggerVideoInput(name) {
+    await this._fire(`/v1/video_input/${encodeURIComponent(name)}/trigger`);
+    this._mirror(`/v1/video_input/${encodeURIComponent(name)}/trigger`);
+    return true;
+  }
+
+  // ─── AUDIENCE SCREENS ───────────────────────────────────────────────
+
   async setAudienceScreens(on) {
     await this._fire('/v1/status/audience_screens', {
       method: 'PUT',

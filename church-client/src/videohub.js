@@ -155,6 +155,21 @@ class VideoHub extends EventEmitter {
         this._resolvePending('VIDEO OUTPUT ROUTING');
         break;
 
+      case 'VIDEO OUTPUT LOCKS':
+        if (!this._outputLocks) this._outputLocks = new Map();
+        for (const line of dataLines) {
+          const m = line.match(/^(\d+)\s+([OLU])$/);
+          if (m) this._outputLocks.set(parseInt(m[1]), m[2]);
+        }
+        this._resolvePending('VIDEO OUTPUT LOCKS');
+        break;
+
+      case 'SERIAL PORT ROUTING':
+      case 'PROCESSING UNIT ROUTING':
+      case 'VIDEO MONITORING OUTPUT ROUTING':
+        this._resolvePending(header);
+        break;
+
       case 'ACK':
         this._resolvePending('ACK');
         break;
@@ -268,6 +283,94 @@ class VideoHub extends EventEmitter {
     try {
       await this._sendAndWait(`OUTPUT LABELS:\n${index} ${label}\n\n`, 'ACK');
       this._outputLabels.set(index, label);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // ─── COMPANION PARITY: Lock/Unlock Output ──────────────────────────────
+
+  async lockOutput(output, lockState = 'O') {
+    // Lock states: 'O' = owned (locked by us), 'L' = locked (by another), 'U' = unlocked
+    if (!this.connected) throw new Error(`Video Hub "${this.name}" not connected`);
+    try {
+      await this._sendAndWait(`VIDEO OUTPUT LOCKS:\n${output} ${lockState}\n\n`, 'ACK');
+      if (!this._outputLocks) this._outputLocks = new Map();
+      this._outputLocks.set(output, lockState);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async unlockOutput(output) {
+    return this.lockOutput(output, 'U');
+  }
+
+  async getOutputLocks() {
+    if (!this.connected) throw new Error(`Video Hub "${this.name}" not connected`);
+    await this._sendAndWait('VIDEO OUTPUT LOCKS:\n\n', 'VIDEO OUTPUT LOCKS');
+    const locks = [];
+    if (this._outputLocks) {
+      for (const [index, state] of this._outputLocks) {
+        locks.push({
+          output: index,
+          state,
+          label: this._outputLabels.get(index) || `Output ${index}`,
+          locked: state !== 'U',
+        });
+      }
+    }
+    return locks.sort((a, b) => a.output - b.output);
+  }
+
+  // ─── COMPANION PARITY: Serial Port Routing ────────────────────────────
+
+  async setSerialRoute(output, input) {
+    if (!this.connected) throw new Error(`Video Hub "${this.name}" not connected`);
+    try {
+      await this._sendAndWait(`SERIAL PORT ROUTING:\n${output} ${input}\n\n`, 'ACK');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // ─── COMPANION PARITY: Processing Unit Routing ────────────────────────
+
+  async setProcessingRoute(output, input) {
+    if (!this.connected) throw new Error(`Video Hub "${this.name}" not connected`);
+    try {
+      await this._sendAndWait(`PROCESSING UNIT ROUTING:\n${output} ${input}\n\n`, 'ACK');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // ─── COMPANION PARITY: Monitoring Output Routing ──────────────────────
+
+  async setMonitoringRoute(output, input) {
+    if (!this.connected) throw new Error(`Video Hub "${this.name}" not connected`);
+    try {
+      await this._sendAndWait(`VIDEO MONITORING OUTPUT ROUTING:\n${output} ${input}\n\n`, 'ACK');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // ─── COMPANION PARITY: Bulk Route Load ────────────────────────────────
+
+  async setBulkRoutes(routes) {
+    if (!this.connected) throw new Error(`Video Hub "${this.name}" not connected`);
+    const lines = routes.map(r => `${r.output} ${r.input}`).join('\n');
+    try {
+      await this._sendAndWait(`VIDEO OUTPUT ROUTING:\n${lines}\n\n`, 'ACK');
+      for (const r of routes) {
+        this._routes.set(r.output, r.input);
+      }
       return true;
     } catch {
       return false;

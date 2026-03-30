@@ -287,6 +287,200 @@ class VMix {
     }
   }
 
+  // ─── COMPANION PARITY: Transition Types ────────────────────────────────────
+
+  async transition(type, input, duration) {
+    const params = {};
+    if (input != null) params.Input = input;
+    if (duration != null) params.Duration = duration;
+    const result = await this._call(type, params);
+    if (result === null) throw new Error(`Could not execute transition "${type}"`);
+    this._stateCache = null;
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Input Position/Zoom/Crop ──────────────────────────
+
+  async setInputPosition(input, x, y) {
+    const params = { Input: input };
+    if (x != null) params.Value = `${x},${y}`;
+    const result = await this._call('SetPosition', params);
+    if (result === null) throw new Error('Could not set input position');
+    return true;
+  }
+
+  async setInputZoom(input, value) {
+    const result = await this._call('SetZoom', { Input: input, Value: value });
+    if (result === null) throw new Error('Could not set input zoom');
+    return true;
+  }
+
+  async setInputCrop(input, x1, y1, x2, y2) {
+    const result = await this._call('SetCrop', { Input: input, Value: `${x1},${y1},${x2},${y2}` });
+    if (result === null) throw new Error('Could not set input crop');
+    return true;
+  }
+
+  // ─── COMPANION PARITY: MultiCorder & External ────────────────────────────
+
+  async startMultiCorder() {
+    const result = await this._call('StartMultiCorder');
+    if (result === null) throw new Error('Could not start MultiCorder');
+    this._stateCache = null;
+    return true;
+  }
+
+  async stopMultiCorder() {
+    const result = await this._call('StopMultiCorder');
+    if (result === null) throw new Error('Could not stop MultiCorder');
+    this._stateCache = null;
+    return true;
+  }
+
+  async startExternal() {
+    const result = await this._call('StartExternal');
+    if (result === null) throw new Error('Could not start external output');
+    this._stateCache = null;
+    return true;
+  }
+
+  async stopExternal() {
+    const result = await this._call('StopExternal');
+    if (result === null) throw new Error('Could not stop external output');
+    this._stateCache = null;
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Fullscreen, Loop, Rename ──────────────────────────
+
+  async toggleFullscreen() {
+    const result = await this._call('Fullscreen');
+    if (result === null) throw new Error('Could not toggle fullscreen');
+    this._stateCache = null;
+    return true;
+  }
+
+  async setInputLoop(input, on) {
+    const fn = on ? 'LoopOn' : 'LoopOff';
+    const result = await this._call(fn, { Input: input });
+    if (result === null) throw new Error(`Could not set loop ${on ? 'on' : 'off'}`);
+    return true;
+  }
+
+  async renameInput(input, name) {
+    const result = await this._call('SetInputName', { Input: input, Value: name });
+    if (result === null) throw new Error('Could not rename input');
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Colour Correction ─────────────────────────────────
+
+  async setInputColourCorrection(input, settings) {
+    const calls = [];
+    if (settings.lift != null) calls.push(this._call('SetCCLift', { Input: input, Value: settings.lift }));
+    if (settings.gamma != null) calls.push(this._call('SetCCGamma', { Input: input, Value: settings.gamma }));
+    if (settings.gain != null) calls.push(this._call('SetCCGain', { Input: input, Value: settings.gain }));
+    if (settings.saturation != null) calls.push(this._call('SetCCSaturation', { Input: input, Value: settings.saturation }));
+    if (settings.hue != null) calls.push(this._call('SetCCHue', { Input: input, Value: settings.hue }));
+    await Promise.all(calls);
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Audio Bus Routing ─────────────────────────────────
+
+  async setInputAudioBus(input, bus, on) {
+    // bus = 'A', 'B', 'C', etc.
+    const fn = on ? `AudioBus${bus}On` : `AudioBus${bus}Off`;
+    const result = await this._call(fn, { Input: input });
+    if (result === null) throw new Error(`Could not set audio bus ${bus}`);
+    return true;
+  }
+
+  async setBusVolume(bus, value) {
+    const vol = Math.max(0, Math.min(100, parseInt(value)));
+    const result = await this._call(`SetBus${bus}Volume`, { Value: vol });
+    if (result === null) throw new Error(`Could not set bus ${bus} volume`);
+    return vol;
+  }
+
+  async muteBus(bus) {
+    const result = await this._call(`Bus${bus}Audio`);
+    if (result === null) throw new Error(`Could not toggle bus ${bus} mute`);
+    return true;
+  }
+
+  // ─── COMPANION PARITY: NDI, Layers, Title, Tally, Script ────────────────
+
+  async setInputNDISource(input, ndiSource) {
+    const result = await this._call('SetInputNDI', { Input: input, Value: ndiSource });
+    if (result === null) throw new Error('Could not set NDI source');
+    return true;
+  }
+
+  async setLayerInput(layer, input) {
+    const result = await this._call(`Layer${layer}`, { Input: input });
+    if (result === null) throw new Error(`Could not set layer ${layer}`);
+    return true;
+  }
+
+  async setTitleField(input, field, value) {
+    const result = await this._call('SetText', { Input: input, SelectedName: field, Value: value });
+    if (result === null) throw new Error('Could not set title field');
+    return true;
+  }
+
+  async selectTitleIndex(input, index) {
+    const result = await this._call('SelectIndex', { Input: input, Value: index });
+    if (result === null) throw new Error('Could not select title index');
+    return true;
+  }
+
+  async getTallyState() {
+    const state = await this.getState(true);
+    if (!state) return null;
+    return state.inputs.map(i => ({
+      number: i.number,
+      title: i.title,
+      program: i.number === state.activeInput,
+      preview: i.number === state.previewInput,
+    }));
+  }
+
+  async runScript(name) {
+    const result = await this._call('ScriptStart', { Value: name });
+    if (result === null) throw new Error(`Could not run script "${name}"`);
+    return true;
+  }
+
+  async stopScript(name) {
+    const result = await this._call('ScriptStop', { Value: name });
+    if (result === null) throw new Error(`Could not stop script "${name}"`);
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Snapshots ─────────────────────────────────────────
+
+  async saveSnapshot(filename) {
+    const result = await this._call('SnapshotSave', { Value: filename });
+    if (result === null) throw new Error('Could not save snapshot');
+    return true;
+  }
+
+  async loadSnapshot(filename) {
+    const result = await this._call('SnapshotLoad', { Value: filename });
+    if (result === null) throw new Error('Could not load snapshot');
+    this._stateCache = null;
+    return true;
+  }
+
+  // ─── COMPANION PARITY: Browser Navigate ──────────────────────────────────
+
+  async browserNavigate(input, url) {
+    const result = await this._call('BrowserNavigate', { Input: input, Value: url });
+    if (result === null) throw new Error('Could not navigate browser input');
+    return true;
+  }
+
   // ─── STATUS ───────────────────────────────────────────────────────────────
 
   toStatus() {

@@ -233,6 +233,164 @@ async function propresenterAudienceScreens(agent, params) {
   return result;
 }
 
+// ─── COMPANION PARITY: Trigger Presentation ───────────────────────────
+
+async function propresenterTriggerPresentation(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const name = String(params.name || params.uuid || '').trim();
+  if (!name) throw new Error('presentation name or UUID required');
+  const result = await agent.proPresenter.triggerPresentation(name);
+  return `Triggered presentation "${result}"`;
+}
+
+async function propresenterTriggerPlaylistItem(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const playlist = String(params.playlist || '').trim();
+  if (!playlist) throw new Error('playlist name required');
+  const index = params.index != null ? toInt(params.index, 'index') : 0;
+  const result = await agent.proPresenter.triggerPlaylistItem(playlist, index);
+  return `Triggered playlist "${result}" item ${index}`;
+}
+
+// ─── COMPANION PARITY: Props ──────────────────────────────────────────
+
+async function propresenterGetProps(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const props = await agent.proPresenter.getProps();
+  if (!props.length) return 'No props found';
+  return props.map(p => p.name).join('\n');
+}
+
+async function propresenterTriggerProp(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const name = String(params.name || '').trim();
+  if (!name) throw new Error('prop name required');
+  const result = await agent.proPresenter.triggerProp(name);
+  return `Prop "${result}" triggered`;
+}
+
+async function propresenterClearProps(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  await agent.proPresenter.clearProps();
+  return 'Props layer cleared';
+}
+
+// ─── COMPANION PARITY: Timer Reset & Create ───────────────────────────
+
+async function propresenterResetTimer(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  if (!params.name) throw new Error('Timer name required');
+  const name = await agent.proPresenter.resetTimer(params.name);
+  return `Timer "${name}" reset`;
+}
+
+async function propresenterCreateTimer(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  if (!params.name) throw new Error('Timer name required');
+  const name = await agent.proPresenter.createTimer(params.name, {
+    allowsOverrun: params.allowsOverrun || false,
+    countdownDuration: params.duration || null,
+  });
+  return `Timer "${name}" created`;
+}
+
+// ─── COMPANION PARITY: Groups ─────────────────────────────────────────
+
+async function propresenterGetGroups(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const groups = await agent.proPresenter.getGroups();
+  if (!groups.length) return 'No groups found';
+  return groups.map(g => g.name).join('\n');
+}
+
+async function propresenterTriggerGroup(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const name = String(params.name || '').trim();
+  if (!name) throw new Error('group name required');
+  const result = await agent.proPresenter.triggerGroup(name);
+  return `Group "${result}" triggered`;
+}
+
+// ─── COMPANION PARITY: Announcements ──────────────────────────────────
+
+async function propresenterNextAnnouncement(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  await agent.proPresenter.nextAnnouncement();
+  return 'Next announcement slide';
+}
+
+async function propresenterPreviousAnnouncement(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  await agent.proPresenter.previousAnnouncement();
+  return 'Previous announcement slide';
+}
+
+async function propresenterAnnouncementStatus(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const status = await agent.proPresenter.getAnnouncementStatus();
+  if (!status) return 'No active announcement';
+  return `Announcement: ${status.presentationName || 'Unknown'} — slide ${status.slideIndex + 1} of ${status.slideCount}`;
+}
+
+// ─── COMPANION PARITY: Macros ─────────────────────────────────────────
+
+async function propresenterGetMacros(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const macros = await agent.proPresenter.getMacros();
+  if (!macros.length) return 'No macros found';
+  return macros.map(m => m.name).join('\n');
+}
+
+async function propresenterTriggerMacro(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const name = String(params.name || '').trim();
+  if (!name) throw new Error('macro name required');
+  const result = await agent.proPresenter.triggerMacro(name);
+  return `Macro "${result}" triggered`;
+}
+
+// ─── COMPANION PARITY: Stage Layouts ──────────────────────────────────
+
+async function propresenterGetStageLayouts(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const layouts = await agent.proPresenter.getStageLayouts();
+  if (!layouts.length) return 'No stage layouts found';
+  return layouts.map(l => l.name).join('\n');
+}
+
+async function propresenterSetStageLayout(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const name = String(params.name || '').trim();
+  if (!name) throw new Error('layout name required');
+  const screen = params.screen != null ? toInt(params.screen, 'screen') : 0;
+  const result = await agent.proPresenter.setStageLayout(name, screen);
+  return `Stage layout set to "${result}"`;
+}
+
+// ─── COMPANION PARITY: Clear Specific Layers ──────────────────────────
+
+async function propresenterClearMedia(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  await agent.proPresenter.clearMedia();
+  return 'Media layer cleared';
+}
+
+async function propresenterClearAudio(agent) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  await agent.proPresenter.clearAudio();
+  return 'Audio layer cleared';
+}
+
+// ─── COMPANION PARITY: Video Input ────────────────────────────────────
+
+async function propresenterTriggerVideoInput(agent, params) {
+  if (!agent.proPresenter) throw new Error('ProPresenter not configured');
+  const name = String(params.name || '').trim();
+  if (!name) throw new Error('video input name required');
+  await agent.proPresenter.triggerVideoInput(name);
+  return `Video input "${name}" triggered`;
+}
+
 module.exports = {
   'propresenter.next': propresenterNext,
   'propresenter.previous': propresenterPrevious,
@@ -251,11 +409,47 @@ module.exports = {
   'propresenter.stopTimer': propresenterStopTimer,
   'propresenter.version': propresenterVersion,
   'propresenter.messages': propresenterMessages,
-  // New commands
   'propresenter.lastSlide': propresenterLastSlide,
   'propresenter.activeLook': propresenterActiveLook,
   'propresenter.timerStatus': propresenterTimerStatus,
   'propresenter.screenStatus': propresenterScreenStatus,
   'propresenter.libraries': propresenterLibraries,
   'propresenter.audienceScreens': propresenterAudienceScreens,
+
+  // Companion parity: presentation & playlist triggers
+  'propresenter.triggerPresentation': propresenterTriggerPresentation,
+  'propresenter.triggerPlaylistItem': propresenterTriggerPlaylistItem,
+
+  // Companion parity: props
+  'propresenter.getProps': propresenterGetProps,
+  'propresenter.triggerProp': propresenterTriggerProp,
+  'propresenter.clearProps': propresenterClearProps,
+
+  // Companion parity: timer management
+  'propresenter.resetTimer': propresenterResetTimer,
+  'propresenter.createTimer': propresenterCreateTimer,
+
+  // Companion parity: groups
+  'propresenter.getGroups': propresenterGetGroups,
+  'propresenter.triggerGroup': propresenterTriggerGroup,
+
+  // Companion parity: announcements
+  'propresenter.nextAnnouncement': propresenterNextAnnouncement,
+  'propresenter.previousAnnouncement': propresenterPreviousAnnouncement,
+  'propresenter.announcementStatus': propresenterAnnouncementStatus,
+
+  // Companion parity: macros
+  'propresenter.getMacros': propresenterGetMacros,
+  'propresenter.triggerMacro': propresenterTriggerMacro,
+
+  // Companion parity: stage layouts
+  'propresenter.getStageLayouts': propresenterGetStageLayouts,
+  'propresenter.setStageLayout': propresenterSetStageLayout,
+
+  // Companion parity: clear individual layers
+  'propresenter.clearMedia': propresenterClearMedia,
+  'propresenter.clearAudio': propresenterClearAudio,
+
+  // Companion parity: video input
+  'propresenter.triggerVideoInput': propresenterTriggerVideoInput,
 };
