@@ -372,6 +372,10 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>
       Stream Preview
     </div>
+    <div class="nav-item" onclick="showPage('auditlog')" id="nav-auditlog">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z"/></svg>
+      Audit Log
+    </div>
     <div style="flex:1"></div>
     <div class="nav-item" onclick="showPage('settings')" id="nav-settings">
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>
@@ -427,9 +431,9 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
       </div>
       <table id="churches-table">
         <thead><tr>
-          <th>Name</th><th>Reseller</th><th>Status</th><th>Type</th><th>Registered</th><th>Last Seen</th><th>Actions</th>
+          <th>Name</th><th>Reseller</th><th>Status</th><th>Type</th><th>Rooms</th><th>Registered</th><th>Last Seen</th><th>Actions</th>
         </tr></thead>
-        <tbody id="churches-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
+        <tbody id="churches-tbody"><tr><td colspan="8" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
       </table>
       <div id="churches-pagination" style="display:flex;align-items:center;justify-content:space-between;padding:14px 0;font-size:13px;color:var(--muted)">
         <span id="churches-count"></span>
@@ -524,6 +528,16 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
 
     <!-- AI USAGE PAGE -->
     <div id="page-aiusage" style="display:none">
+      <div class="table-toolbar" style="margin-bottom:16px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span style="color:var(--muted);font-size:13px">Date Range:</span>
+          <input type="date" class="search-input" id="ai-date-from" style="width:150px" title="From date">
+          <span style="color:var(--muted)">to</span>
+          <input type="date" class="search-input" id="ai-date-to" style="width:150px" title="To date">
+          <button class="btn-primary" onclick="loadAIUsage()" style="padding:7px 16px">Apply</button>
+          <button class="btn-secondary" onclick="clearAIDateRange()" style="padding:7px 12px;font-size:12px">Reset (30d)</button>
+        </div>
+      </div>
       <div class="summary-row" id="ai-summary">
         <div class="summary-card"><div class="stat-num" id="ai-requests">—</div><div class="stat-label">Requests (30d)</div></div>
         <div class="summary-card"><div class="stat-num" id="ai-input-tok">—</div><div class="stat-label">Input Tokens</div></div>
@@ -699,6 +713,40 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
               <div style="color:var(--muted);padding:8px 0">Stream not active</div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUDIT LOG PAGE -->
+    <div id="page-auditlog" style="display:none">
+      <div class="table-toolbar" style="flex-wrap:wrap;gap:10px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <select id="audit-action-filter" class="search-input" style="width:180px">
+            <option value="">All Actions</option>
+          </select>
+          <input class="search-input" id="audit-email-search" placeholder="Admin email..." style="width:200px">
+          <input type="date" class="search-input" id="audit-date-from" style="width:150px" title="From date">
+          <input type="date" class="search-input" id="audit-date-to" style="width:150px" title="To date">
+          <button class="btn-primary" onclick="loadAuditLog(1)" style="padding:7px 16px">Search</button>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer">
+            <input type="checkbox" id="audit-auto-refresh" onchange="toggleAuditAutoRefresh()"> Auto-refresh
+          </label>
+        </div>
+      </div>
+      <table id="auditlog-table">
+        <thead><tr>
+          <th>Timestamp</th><th>Admin</th><th>Action</th><th>Details</th><th>IP Address</th>
+        </tr></thead>
+        <tbody id="auditlog-tbody"><tr><td colspan="5" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
+      </table>
+      <div id="auditlog-pagination" style="display:flex;align-items:center;justify-content:space-between;padding:14px 0;font-size:13px;color:var(--muted)">
+        <span id="auditlog-count"></span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn-secondary" id="auditlog-prev" onclick="auditLogChangePage(-1)" style="padding:5px 12px;font-size:12px;display:flex;align-items:center;gap:4px"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5"/></svg> Prev</button>
+          <span id="auditlog-page-label"></span>
+          <button class="btn-secondary" id="auditlog-next" onclick="auditLogChangePage(1)" style="padding:5px 12px;font-size:12px;display:flex;align-items:center;gap:4px">Next <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg></button>
         </div>
       </div>
     </div>
@@ -888,7 +936,7 @@ let ticketFilter = 'all';
 let allBilling = [];
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
-const allPages = ['overview','churches','resellers','alerts','tickets','billing','aiusage','emails','streams','settings'];
+const allPages = ['overview','churches','resellers','alerts','tickets','billing','aiusage','emails','streams','auditlog','settings'];
 function showPage(page) {
   allPages.forEach(p => {
     const el = document.getElementById('page-'+p);
@@ -896,7 +944,7 @@ function showPage(page) {
     const nav = document.getElementById('nav-'+p);
     if (nav) nav.classList.toggle('active', p === page);
   });
-  const titles = {overview:'Overview',churches:'Churches',resellers:'Resellers',alerts:'Alerts',tickets:'Tickets',billing:'Billing',aiusage:'AI Usage',emails:'Emails',streams:'Stream Preview',settings:'Settings'};
+  const titles = {overview:'Overview',churches:'Churches',resellers:'Resellers',alerts:'Alerts',tickets:'Tickets',billing:'Billing',aiusage:'AI Usage',emails:'Emails',streams:'Stream Preview',auditlog:'Audit Log',settings:'Settings'};
   document.getElementById('page-title').textContent = titles[page]||page;
   currentPage = page;
   // Close mobile nav on page switch
@@ -913,6 +961,7 @@ function showPage(page) {
   else if (page === 'aiusage') loadAIUsage();
   else if (page === 'emails') loadEmails();
   else if (page === 'streams') loadStreamPreview();
+  else if (page === 'auditlog') loadAuditLog();
   else if (page === 'settings') loadSettings();
 }
 
@@ -981,7 +1030,7 @@ async function loadChurches(page) {
     populateResellerDropdown('cm-reseller');
     renderChurches();
   } catch(e) {
-    document.getElementById('churches-tbody').innerHTML = '<tr><td colspan="7" style="color:var(--red);text-align:center;padding:24px">Failed to load churches</td></tr>';
+    document.getElementById('churches-tbody').innerHTML = '<tr><td colspan="8" style="color:var(--red);text-align:center;padding:24px">Failed to load churches</td></tr>';
   }
 }
 
@@ -999,7 +1048,7 @@ function renderChurches() {
   if (search) list = list.filter(c => c.name.toLowerCase().includes(search) || (c.email||'').toLowerCase().includes(search));
   const tbody = document.getElementById('churches-tbody');
   if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">No churches found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:24px">No churches found</td></tr>';
     return;
   }
   tbody.innerHTML = list.map(c => {
@@ -1014,6 +1063,7 @@ function renderChurches() {
       <td>\${reseller ? esc(reseller.brand_name || reseller.name) : '<span style="color:var(--muted)">Direct</span>'}</td>
       <td>\${statusHtml}</td>
       <td>\${esc(c.church_type||'recurring')}</td>
+      <td>\${c.roomCount ?? '—'}</td>
       <td>\${reg}</td>
       <td>\${lastSeen}</td>
       <td>
@@ -1691,9 +1741,21 @@ function renderBilling() {
 }
 
 // ─── AI Usage ────────────────────────────────────────────────────────────────
+function clearAIDateRange() {
+  document.getElementById('ai-date-from').value = '';
+  document.getElementById('ai-date-to').value = '';
+  loadAIUsage();
+}
+
 async function loadAIUsage() {
   try {
-    const r = await fetch('/api/admin/ai-usage');
+    const fromVal = document.getElementById('ai-date-from')?.value;
+    const toVal   = document.getElementById('ai-date-to')?.value;
+    const params  = new URLSearchParams();
+    if (fromVal) params.set('from', fromVal + 'T00:00:00');
+    if (toVal)   params.set('to', toVal + 'T23:59:59');
+    const qs = params.toString();
+    const r = await fetch('/api/admin/ai-usage' + (qs ? '?' + qs : ''));
     if (!r.ok) throw new Error('Failed to load AI usage');
     const { totals, byChurch, byFeature } = await r.json();
     document.getElementById('ai-requests').textContent = (totals.total_requests||0).toLocaleString();
@@ -1730,6 +1792,95 @@ async function loadAIUsage() {
   } catch(e) {
     document.getElementById('ai-by-church').innerHTML = '<tr><td colspan="5" style="color:var(--red);text-align:center;padding:24px">Failed to load AI usage</td></tr>';
     document.getElementById('ai-by-feature').innerHTML = '';
+  }
+}
+
+// ─── Audit Log ──────────────────────────────────────────────────────────────
+let auditLogPage = 1;
+let auditLogTotal = 0;
+const AUDIT_PAGE_SIZE = 50;
+let auditAutoRefreshTimer = null;
+
+async function loadAuditLog(page) {
+  if (page !== undefined) auditLogPage = page;
+  try {
+    const action = document.getElementById('audit-action-filter').value;
+    const email  = document.getElementById('audit-email-search').value.trim();
+    const from   = document.getElementById('audit-date-from').value;
+    const to     = document.getElementById('audit-date-to').value;
+
+    const params = new URLSearchParams({ page: auditLogPage, limit: AUDIT_PAGE_SIZE });
+    if (action) params.set('action', action);
+    if (email)  params.set('adminEmail', email);
+    if (from)   params.set('from', from + 'T00:00:00');
+    if (to)     params.set('to', to + 'T23:59:59');
+
+    const r = await fetch('/api/admin/audit-log?' + params);
+    if (!r.ok) throw new Error('Failed: ' + r.status);
+    const data = await r.json();
+
+    auditLogTotal = data.total || 0;
+    auditLogPage  = data.page  || auditLogPage;
+    const logs    = data.logs  || [];
+
+    // Populate action type dropdown if empty (first load)
+    const actionSelect = document.getElementById('audit-action-filter');
+    if (actionSelect.options.length <= 1) {
+      const actions = [...new Set(logs.map(l => l.action).filter(Boolean))].sort();
+      actions.forEach(a => {
+        const opt = document.createElement('option');
+        opt.value = a; opt.textContent = a.replace(/_/g,' ');
+        actionSelect.appendChild(opt);
+      });
+    }
+
+    const tbody = document.getElementById('auditlog-tbody');
+    if (!logs.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:24px">No audit log entries found</td></tr>';
+    } else {
+      tbody.innerHTML = logs.map(l => {
+        const time = new Date(l.created_at).toLocaleString();
+        const details = l.target_type ? (esc(l.target_type) + (l.target_id ? ': ' + esc(l.target_id) : '')) : (l.details ? esc(l.details).substring(0,80) : '—');
+        return '<tr>' +
+          '<td style="white-space:nowrap">' + time + '</td>' +
+          '<td>' + esc(l.admin_email||'—') + '</td>' +
+          '<td><span class="badge badge-green" style="font-size:11px">' + esc(l.action||'—').replace(/_/g,' ') + '</span></td>' +
+          '<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(l.details||'') + '">' + details + '</td>' +
+          '<td style="font-family:monospace;font-size:12px">' + esc(l.ip||'—') + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    // Update pagination
+    const totalPages = Math.ceil(auditLogTotal / AUDIT_PAGE_SIZE);
+    const countEl = document.getElementById('auditlog-count');
+    const pageEl  = document.getElementById('auditlog-page-label');
+    const prevBtn = document.getElementById('auditlog-prev');
+    const nextBtn = document.getElementById('auditlog-next');
+    if (countEl) countEl.textContent = auditLogTotal + ' entries';
+    if (pageEl)  pageEl.textContent  = totalPages > 1 ? 'Page ' + auditLogPage + ' of ' + totalPages : '';
+    if (prevBtn) prevBtn.disabled    = auditLogPage <= 1;
+    if (nextBtn) nextBtn.disabled    = auditLogPage >= totalPages;
+    const pag = document.getElementById('auditlog-pagination');
+    if (pag) pag.style.display = totalPages > 1 ? 'flex' : 'none';
+  } catch(e) {
+    document.getElementById('auditlog-tbody').innerHTML = '<tr><td colspan="5" style="color:var(--red);text-align:center;padding:24px">Failed to load audit log</td></tr>';
+  }
+}
+
+function auditLogChangePage(delta) {
+  const totalPages = Math.ceil(auditLogTotal / AUDIT_PAGE_SIZE);
+  const newPage = Math.max(1, Math.min(totalPages, auditLogPage + delta));
+  if (newPage !== auditLogPage) loadAuditLog(newPage);
+}
+
+function toggleAuditAutoRefresh() {
+  const on = document.getElementById('audit-auto-refresh').checked;
+  if (auditAutoRefreshTimer) { clearInterval(auditAutoRefreshTimer); auditAutoRefreshTimer = null; }
+  if (on) {
+    auditAutoRefreshTimer = setInterval(() => {
+      if (currentPage === 'auditlog') loadAuditLog();
+    }, 30000);
   }
 }
 
@@ -3009,8 +3160,13 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     const total = db.prepare('SELECT COUNT(*) AS cnt FROM churches').get().cnt;
     const rows  = db.prepare('SELECT * FROM churches ORDER BY registeredAt DESC LIMIT ? OFFSET ?').all(limit, offset);
 
+    // Pre-fetch room counts for all churches in this page
+    const roomCountStmt = db.prepare('SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL');
+
     const list = rows.map(row => {
       const runtime = churches.get(row.churchId);
+      let roomCount = 0;
+      try { roomCount = roomCountStmt.get(row.churchId)?.cnt || 0; } catch { /* rooms table may not exist */ }
       return {
         churchId:         row.churchId,
         name:             row.name,
@@ -3024,6 +3180,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         status:           runtime?.status || { connected: false },
         lastSeen:         runtime?.lastSeen || null,
         registrationCode: row.registration_code || null,
+        roomCount,
       };
     });
     res.json({ churches: list, total, page, limit, pages: Math.ceil(total / limit) });
