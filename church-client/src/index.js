@@ -777,9 +777,12 @@ class ChurchAVAgent {
     this._relayConnecting = true;
 
     return new Promise((resolve) => {
-      // Include instance name so the relay can track multiple Tally agents per church
-      // (e.g. multi-room). Without this, each agent replaces the previous one.
-      const instanceName = this.config.name || os.hostname();
+      // Instance name must be unique per room so multiple agents for the same
+      // church don't replace each other.  Append roomId when available so two
+      // rooms on the same machine (same hostname / same config.name) get
+      // distinct instance keys on the relay.
+      const baseName = this.config.name || os.hostname();
+      const instanceName = this.config.roomId ? `${baseName}::${this.config.roomId}` : baseName;
       const params = new URLSearchParams({ token: this.config.token, instance: instanceName });
       if (this.config.roomId) params.set('room_id', this.config.roomId);
       const url = `${this.config.relay}/church?${params}`;

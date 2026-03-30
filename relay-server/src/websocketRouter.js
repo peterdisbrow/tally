@@ -184,9 +184,15 @@ function createWebSocketHandlers({
     }
 
     // Instance name — allows multiple Tally agents per church (multi-room).
-    // Falls back to '_default' for legacy clients that don't send &instance=.
-    const instance = url.searchParams.get('instance') || '_default';
+    // Updated clients include roomId in the instance name (e.g. "Sanctuary::room_abc").
+    // For legacy clients that send a bare instance + room_id, append room_id so
+    // two agents on the same host for different rooms don't collide.
+    const rawInstance = url.searchParams.get('instance') || '_default';
     const roomIdFromConnect = url.searchParams.get('room_id') || null;
+    // Only append room_id if the client didn't already embed it in the instance name
+    const instance = (roomIdFromConnect && !rawInstance.includes('::'))
+      ? `${rawInstance}::${roomIdFromConnect}`
+      : rawInstance;
     ws._tallyInstance = instance; // stash on the socket for disconnect lookup
 
     ensureSockets(church);
