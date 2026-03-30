@@ -563,6 +563,116 @@
     /* Page header */
     body.light-theme .page-header { border-bottom-color: #e2e8f0; }
 
+    /* ─── REPORTS PAGE ───────────────────────────────────────────────── */
+    .reports-range.active, .rpt-win-range.active, .rpt-health-range.active {
+      background: rgba(34,197,94,0.15);
+      border-color: #22c55e;
+      color: #22c55e;
+    }
+    .rpt-summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .rpt-summary-item {
+      background: #09090B;
+      border-radius: 8px;
+      padding: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .rpt-summary-item .rpt-item-label { font-size: 13px; color: #94A3B8; }
+    .rpt-summary-item .rpt-item-value { font-size: 18px; font-weight: 700; color: #F8FAFC; }
+    .rpt-context-bar {
+      flex: 1;
+      min-width: 80px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .rpt-context-bar-fill {
+      width: 100%;
+      border-radius: 6px 6px 0 0;
+      transition: height 0.4s ease;
+      min-height: 4px;
+    }
+    .rpt-context-bar-fill.pre { background: #f97316; }
+    .rpt-context-bar-fill.in { background: #ef4444; }
+    .rpt-context-bar-fill.off { background: #475569; }
+    .rpt-context-bar-label { font-size: 11px; color: #94A3B8; text-align: center; }
+    .rpt-context-bar-value { font-size: 16px; font-weight: 700; color: #F8FAFC; }
+    .rpt-health-card {
+      background: #0F1613;
+      border: 1px solid #1a2e1f;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .rpt-health-card .rpt-h-uptime {
+      font-size: 28px;
+      font-weight: 700;
+      min-width: 80px;
+      text-align: center;
+    }
+    .rpt-health-card .rpt-h-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #F8FAFC;
+    }
+    .rpt-health-card .rpt-h-detail {
+      font-size: 12px;
+      color: #94A3B8;
+      margin-top: 2px;
+    }
+    .rpt-trend-arrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .rpt-trend-arrow.improving { color: #22c55e; background: rgba(34,197,94,0.1); }
+    .rpt-trend-arrow.declining { color: #ef4444; background: rgba(239,68,68,0.1); }
+    .rpt-trend-arrow.stable { color: #94A3B8; background: rgba(148,163,184,0.1); }
+    .rpt-device-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(26,46,31,0.5);
+    }
+    .rpt-device-row:last-child { border-bottom: none; }
+    .rpt-device-row .rpt-d-label { flex: 1; font-size: 13px; font-weight: 500; text-transform: capitalize; }
+    .rpt-device-row .rpt-d-count { font-size: 13px; color: #F8FAFC; font-weight: 600; min-width: 40px; text-align: right; }
+    .rpt-device-row .rpt-d-bar { flex: 2; height: 8px; background: #09090B; border-radius: 4px; overflow: hidden; }
+    .rpt-device-row .rpt-d-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+    .rpt-ai-action-result {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .rpt-ai-action-result.success { background: rgba(34,197,94,0.12); color: #22c55e; }
+    .rpt-ai-action-result.failed { background: rgba(239,68,68,0.12); color: #ef4444; }
+    @media (max-width: 768px) {
+      .rpt-summary-grid { grid-template-columns: 1fr; }
+      .rpt-health-card { flex-direction: column; text-align: center; }
+      .rpt-device-row { flex-wrap: wrap; }
+      .rpt-device-row .rpt-d-bar { flex-basis: 100%; }
+    }
+    /* Light theme overrides for reports */
+    body.light-theme .rpt-summary-item { background: #f8fafc; }
+    body.light-theme .rpt-health-card { background: #ffffff; border-color: #e2e8f0; }
+    body.light-theme .rpt-device-row .rpt-d-bar { background: #f1f5f9; }
+
     /* ─── AI TRIAGE PAGE ─────────────────────────────────────────────── */
     .ai-mode-btn {
       flex: 1;

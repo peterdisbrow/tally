@@ -926,6 +926,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id === 'analytics') loadAnalytics();
       if (id === 'billing') { loadBilling(); loadReferralsPage(); }
       if (id === 'support') { loadSupportInfo(); initMigrationWizard(); }
+      if (id === 'reports') loadReports();
       if (id === 'ai-triage') loadAiTriagePage();
       if (id === 'engineer') startEngineerChatPoll(); else stopEngineerChatPoll();
     }
@@ -952,6 +953,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (tabId === 'tab-guests') loadGuests();
         if (tabId === 'tab-autopilot') loadAutopilot();
         if (tabId === 'tab-sessions') loadSessions();
+        if (tabId === 'tab-reports-summary') loadReportsSummary();
+        if (tabId === 'tab-reports-events') loadReportsEvents();
+        if (tabId === 'tab-reports-windows') loadReportsWindows();
+        if (tabId === 'tab-reports-health') loadReportsHealth();
+        if (tabId === 'tab-reports-ai') loadReportsAi();
         if (tabId === 'tab-analytics-data') loadAnalytics();
       }
     }
@@ -6210,6 +6216,20 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof loadMoreTriageEvents === 'function') loadMoreTriageEvents();
         break;
 
+      // Reports
+      case 'searchReportEvents':
+        if (typeof searchReportEvents === 'function') searchReportEvents();
+        break;
+      case 'reportEventsPrev':
+        if (typeof reportEventsPrev === 'function') reportEventsPrev();
+        break;
+      case 'reportEventsNext':
+        if (typeof reportEventsNext === 'function') reportEventsNext();
+        break;
+      case 'loadMoreAiActions':
+        if (typeof loadMoreAiActions === 'function') loadMoreAiActions();
+        break;
+
       // Support
       case 'runSupportTriage':
         if (typeof runSupportTriage === 'function') runSupportTriage();
@@ -6610,6 +6630,351 @@ document.addEventListener('DOMContentLoaded', function() {
 
       tbody.appendChild(tr);
     });
+  }
+
+  // ── REPORTS TAB ──────────────────────────────────────────────────────────────
+  var _reportsSummaryDays = 7;
+  var _reportsEventsPage = 1;
+  var _reportsWindowsDays = 7;
+  var _reportsHealthDays = 7;
+  var _reportsAiPage = 1;
+
+  function loadReports() {
+    _tabLoaded = {};
+    loadReportsSummary();
+  }
+
+  // ── Weekly Summary ──────────────────────────────────────────────────────────
+  async function loadReportsSummary() {
+    try {
+      var data = await api('GET', '/api/church/reports/weekly-summary?days=' + _reportsSummaryDays);
+      document.getElementById('rpt-sessions').textContent = data.sessions || 0;
+      document.getElementById('rpt-events').textContent = data.eventsDetected || 0;
+      document.getElementById('rpt-recovery').textContent = data.autoRecoveryRate ? data.autoRecoveryRate + '%' : '—';
+      document.getElementById('rpt-uptime').textContent = data.uptimePct ? data.uptimePct + '%' : '—';
+
+      // Summary breakdown
+      var body = document.getElementById('rpt-summary-body');
+      body.innerHTML =
+        '<div class="rpt-summary-grid">' +
+          '<div class="rpt-summary-item"><span class="rpt-item-label">Events Resolved</span><span class="rpt-item-value">' + (data.eventsResolved || 0) + '</span></div>' +
+          '<div class="rpt-summary-item"><span class="rpt-item-label">Auto-Recoveries</span><span class="rpt-item-value" style="color:#22c55e">' + (data.autoRecoveryCount || 0) + '</span></div>' +
+          '<div class="rpt-summary-item"><span class="rpt-item-label">Escalated Alerts</span><span class="rpt-item-value" style="color:' + ((data.escalated || 0) > 0 ? '#ef4444' : '#F8FAFC') + '">' + (data.escalated || 0) + '</span></div>' +
+          '<div class="rpt-summary-item"><span class="rpt-item-label">Total Alerts</span><span class="rpt-item-value">' + (data.totalAlerts || 0) + '</span></div>' +
+        '</div>';
+
+      // Uptime bars
+      var bars = document.getElementById('rpt-uptime-bars');
+      if (data.deviceUptime && data.deviceUptime.length) {
+        var html = '';
+        data.deviceUptime.forEach(function(d) {
+          var pct = parseFloat(d.avgUptime) || 0;
+          var color = pct >= 99 ? '#22c55e' : pct >= 95 ? '#eab308' : '#ef4444';
+          html += '<div class="a-bar-row">' +
+            '<div class="a-bar-label">' + escapeHtml(d.device) + '</div>' +
+            '<div class="a-bar-track"><div class="a-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
+            '<div class="a-bar-value" style="color:' + color + '">' + pct + '%</div>' +
+          '</div>';
+        });
+        bars.innerHTML = html;
+      } else {
+        bars.innerHTML = '<span style="color:#475569;font-size:13px">No uptime data yet for this period.</span>';
+      }
+    } catch (err) {
+      document.getElementById('rpt-summary-body').innerHTML = '<span style="color:#ef4444">Failed to load summary</span>';
+    }
+  }
+
+  // Range button handler
+  document.addEventListener('click', function(e) {
+    if (e.target.matches('.reports-range')) {
+      document.querySelectorAll('.reports-range').forEach(function(b) { b.classList.remove('active'); });
+      e.target.classList.add('active');
+      _reportsSummaryDays = parseInt(e.target.dataset.days) || 7;
+      loadReportsSummary();
+    }
+    if (e.target.matches('.rpt-win-range')) {
+      document.querySelectorAll('.rpt-win-range').forEach(function(b) { b.classList.remove('active'); });
+      e.target.classList.add('active');
+      _reportsWindowsDays = parseInt(e.target.dataset.days) || 7;
+      loadReportsWindows();
+    }
+    if (e.target.matches('.rpt-health-range')) {
+      document.querySelectorAll('.rpt-health-range').forEach(function(b) { b.classList.remove('active'); });
+      e.target.classList.add('active');
+      _reportsHealthDays = parseInt(e.target.dataset.days) || 7;
+      loadReportsHealth();
+    }
+  });
+
+  // ── Event History ───────────────────────────────────────────────────────────
+  async function loadReportsEvents() {
+    try {
+      // Populate room selector
+      var roomSelect = document.getElementById('rpt-event-room');
+      if (roomSelect.options.length <= 1) {
+        try {
+          var rooms = await api('GET', '/api/church/rooms');
+          (rooms || []).forEach(function(r) {
+            var opt = document.createElement('option');
+            opt.value = r.id;
+            opt.textContent = r.name;
+            roomSelect.appendChild(opt);
+          });
+        } catch {}
+      }
+      fetchReportEvents();
+    } catch {}
+  }
+
+  async function fetchReportEvents() {
+    var params = 'page=' + _reportsEventsPage + '&limit=25';
+    var search = document.getElementById('rpt-event-search').value.trim();
+    var severity = document.getElementById('rpt-event-severity').value;
+    var room = document.getElementById('rpt-event-room').value;
+    var since = document.getElementById('rpt-event-since').value;
+    var until = document.getElementById('rpt-event-until').value;
+
+    if (search) params += '&search=' + encodeURIComponent(search);
+    if (severity) params += '&severity=' + severity;
+    if (room) params += '&room=' + room;
+    if (since) params += '&since=' + new Date(since).toISOString();
+    if (until) params += '&until=' + new Date(until + 'T23:59:59').toISOString();
+
+    try {
+      var data = await api('GET', '/api/church/reports/event-history?' + params);
+      var tbody = document.getElementById('rpt-events-tbody');
+
+      if (!data.events || !data.events.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No events found for the selected filters.</td></tr>';
+      } else {
+        tbody.innerHTML = '';
+        data.events.forEach(function(ev) {
+          var tr = document.createElement('tr');
+          var time = new Date(ev.timestamp);
+          var timeStr = time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+            time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+          var resText = ev.resolution
+            ? '<span class="rpt-ai-action-result ' + (ev.resolution.success ? 'success' : 'failed') + '">' + (ev.resolution.success ? '✓ Fixed' : '✗ Failed') + '</span>'
+            : '<span style="color:#475569">—</span>';
+          var contextLabel = (ev.timeContext || '').replace(/_/g, ' ');
+          tr.innerHTML =
+            '<td style="font-size:12px;white-space:nowrap;color:#94A3B8">' + timeStr + '</td>' +
+            '<td><span class="severity-badge ' + ev.severity + '">' + ev.severity + '</span></td>' +
+            '<td style="font-size:12px;font-weight:500">' + escapeHtml(ev.alertType) + '</td>' +
+            '<td style="font-size:12px;color:#94A3B8">' + (ev.roomId || '—') + '</td>' +
+            '<td><span class="context-badge ' + (ev.timeContext || '') + '">' + contextLabel + '</span></td>' +
+            '<td>' + resText + '</td>';
+          tbody.appendChild(tr);
+        });
+      }
+
+      // Pagination
+      var pg = data.pagination || {};
+      document.getElementById('rpt-events-count').textContent =
+        'Showing ' + ((pg.page - 1) * pg.limit + 1) + '–' + Math.min(pg.page * pg.limit, pg.total) + ' of ' + pg.total;
+      document.getElementById('rpt-events-prev').disabled = pg.page <= 1;
+      document.getElementById('rpt-events-next').disabled = pg.page >= pg.totalPages;
+    } catch (err) {
+      document.getElementById('rpt-events-tbody').innerHTML = '<tr><td colspan="6" style="color:#ef4444;text-align:center;padding:20px">Failed to load events</td></tr>';
+    }
+  }
+
+  function searchReportEvents() { _reportsEventsPage = 1; fetchReportEvents(); }
+  function reportEventsPrev() { if (_reportsEventsPage > 1) { _reportsEventsPage--; fetchReportEvents(); } }
+  function reportEventsNext() { _reportsEventsPage++; fetchReportEvents(); }
+
+  // ── Service Windows ─────────────────────────────────────────────────────────
+  var DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  async function loadReportsWindows() {
+    try {
+      var data = await api('GET', '/api/church/reports/service-windows?days=' + _reportsWindowsDays);
+
+      // Schedule display
+      var schedEl = document.getElementById('rpt-windows-schedule');
+      if (data.serviceWindows && data.serviceWindows.length) {
+        var html = '';
+        data.serviceWindows.forEach(function(w) {
+          var day = DAYS_SHORT[w.day] || 'Day ' + w.day;
+          var startH = w.startHour || 0;
+          var startM = w.startMin || 0;
+          var ampm = startH >= 12 ? 'PM' : 'AM';
+          var h12 = startH % 12 || 12;
+          var timeStr = h12 + ':' + String(startM).padStart(2, '0') + ' ' + ampm;
+          var dur = (w.durationHours || 0) + 'h';
+          html += '<div class="schedule-window"><span class="sw-time">' + day + ' ' + timeStr + '</span><span class="sw-label">' + dur + '</span></div>';
+        });
+        schedEl.innerHTML = html;
+      } else {
+        schedEl.innerHTML = '<span style="color:#475569">No service windows configured.</span>';
+      }
+
+      // Context chart
+      var ctx = data.eventsByContext || {};
+      var maxCtx = Math.max(ctx.pre_service || 0, ctx.in_service || 0, ctx.off_hours || 0, 1);
+      var chartEl = document.getElementById('rpt-windows-context-chart');
+      chartEl.innerHTML =
+        '<div class="rpt-context-bar"><div class="rpt-context-bar-value">' + (ctx.pre_service || 0) + '</div><div class="rpt-context-bar-fill pre" style="height:' + Math.max(4, ((ctx.pre_service || 0) / maxCtx) * 120) + 'px"></div><div class="rpt-context-bar-label">Pre-Service</div></div>' +
+        '<div class="rpt-context-bar"><div class="rpt-context-bar-value">' + (ctx.in_service || 0) + '</div><div class="rpt-context-bar-fill in" style="height:' + Math.max(4, ((ctx.in_service || 0) / maxCtx) * 120) + 'px"></div><div class="rpt-context-bar-label">In-Service</div></div>' +
+        '<div class="rpt-context-bar"><div class="rpt-context-bar-value">' + (ctx.off_hours || 0) + '</div><div class="rpt-context-bar-fill off" style="height:' + Math.max(4, ((ctx.off_hours || 0) / maxCtx) * 120) + 'px"></div><div class="rpt-context-bar-label">Off-Hours</div></div>';
+
+      // Sessions table
+      var tbody = document.getElementById('rpt-sessions-tbody');
+      if (!data.sessions || !data.sessions.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No sessions in this period.</td></tr>';
+      } else {
+        tbody.innerHTML = '';
+        data.sessions.forEach(function(s) {
+          var tr = document.createElement('tr');
+          var d = new Date(s.startedAt);
+          var dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          var gradeColor = s.grade === 'A' ? '#22c55e' : s.grade === 'B' ? '#eab308' : '#ef4444';
+          tr.innerHTML =
+            '<td style="font-size:12px;color:#94A3B8">' + dateStr + '</td>' +
+            '<td style="font-size:12px">' + (s.room || '—') + '</td>' +
+            '<td style="font-size:12px">' + (s.durationMin || 0) + ' min</td>' +
+            '<td style="font-size:12px;color:' + (s.alerts > 0 ? '#eab308' : '#22c55e') + '">' + (s.alerts || 0) + '</td>' +
+            '<td style="font-size:12px;color:#22c55e">' + (s.autoRecovered || 0) + '</td>' +
+            '<td style="font-weight:700;color:' + gradeColor + '">' + (s.grade || '—') + '</td>';
+          tbody.appendChild(tr);
+        });
+      }
+    } catch (err) {
+      document.getElementById('rpt-windows-schedule').innerHTML = '<span style="color:#ef4444">Failed to load</span>';
+    }
+  }
+
+  // ── Device Health ───────────────────────────────────────────────────────────
+  async function loadReportsHealth() {
+    try {
+      var data = await api('GET', '/api/church/reports/device-health?days=' + _reportsHealthDays);
+
+      // Uptime cards
+      var uptimeEl = document.getElementById('rpt-health-uptime');
+      if (data.uptimeSummary && data.uptimeSummary.length) {
+        var html = '';
+        data.uptimeSummary.forEach(function(d) {
+          var pct = parseFloat(d.avgUptime) || 0;
+          var color = pct >= 99 ? '#22c55e' : pct >= 95 ? '#eab308' : '#ef4444';
+          html += '<div class="rpt-health-card">' +
+            '<div class="rpt-h-uptime" style="color:' + color + '">' + pct + '%</div>' +
+            '<div><div class="rpt-h-name">' + escapeHtml(d.device) + '</div>' +
+            '<div class="rpt-h-detail">' + d.sessions + ' sessions monitored</div></div>' +
+          '</div>';
+        });
+        uptimeEl.innerHTML = html;
+      } else {
+        uptimeEl.innerHTML = '<div class="card"><div style="color:#475569;text-align:center;padding:20px;font-size:13px">No uptime data available yet.</div></div>';
+      }
+
+      // Device incident breakdown
+      var devEl = document.getElementById('rpt-health-devices');
+      if (data.devices && data.devices.length) {
+        var maxInc = Math.max.apply(null, data.devices.map(function(d) { return d.incidents; })) || 1;
+        var html = '';
+        data.devices.forEach(function(d) {
+          var barColor = d.incidents > 5 ? '#ef4444' : d.incidents > 2 ? '#eab308' : '#22c55e';
+          var trendIcon = d.trend === 'improving' ? '↓' : d.trend === 'declining' ? '↑' : '→';
+          html += '<div class="rpt-device-row">' +
+            '<div class="rpt-d-label">' + escapeHtml(d.label) + '</div>' +
+            '<div class="rpt-d-bar"><div class="rpt-d-bar-fill" style="width:' + ((d.incidents / maxInc) * 100) + '%;background:' + barColor + '"></div></div>' +
+            '<div class="rpt-d-count">' + d.incidents + '</div>' +
+            '<span class="rpt-trend-arrow ' + d.trend + '">' + trendIcon + ' ' + d.trend + '</span>' +
+          '</div>';
+          if (d.reconnAttempts) {
+            html += '<div style="padding:0 0 8px 12px;font-size:11px;color:#64748B">' +
+              'Reconnection: ' + d.reconnSuccesses + '/' + d.reconnAttempts + ' successful' +
+              (d.avgReconnMs ? ' · avg ' + Math.round(d.avgReconnMs / 1000) + 's' : '') +
+            '</div>';
+          }
+        });
+        devEl.innerHTML = html;
+      } else {
+        devEl.innerHTML = '<span style="color:#475569;font-size:13px">No device incidents in this period.</span>';
+      }
+    } catch (err) {
+      document.getElementById('rpt-health-devices').innerHTML = '<span style="color:#ef4444">Failed to load device health</span>';
+    }
+  }
+
+  // ── AI Activity ─────────────────────────────────────────────────────────────
+  async function loadReportsAi() {
+    try {
+      var data = await api('GET', '/api/church/reports/ai-activity?days=7&page=' + _reportsAiPage);
+
+      if (!data.aiEnabled) {
+        document.getElementById('rpt-ai-disabled').style.display = 'block';
+        document.getElementById('rpt-ai-content').style.display = 'none';
+        return;
+      }
+      document.getElementById('rpt-ai-disabled').style.display = 'none';
+      document.getElementById('rpt-ai-content').style.display = 'block';
+
+      // KPIs
+      var s = data.summary || {};
+      document.getElementById('rpt-ai-total').textContent = s.totalActions || 0;
+      document.getElementById('rpt-ai-success').textContent = s.successRate ? s.successRate + '%' : '—';
+      document.getElementById('rpt-ai-pending').textContent = (data.pendingIssues || []).length;
+      document.getElementById('rpt-ai-avg-time').textContent = s.avgDurationMs ? (s.avgDurationMs / 1000).toFixed(1) + 's' : '—';
+
+      // Actions table
+      var tbody = document.getElementById('rpt-ai-actions-tbody');
+      if (!data.actions || !data.actions.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">No AI actions recorded yet.</td></tr>';
+      } else {
+        tbody.innerHTML = '';
+        data.actions.forEach(function(a) {
+          var tr = document.createElement('tr');
+          var time = new Date(a.timestamp);
+          var timeStr = time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+            time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+          tr.innerHTML =
+            '<td style="font-size:12px;white-space:nowrap;color:#94A3B8">' + timeStr + '</td>' +
+            '<td style="font-size:12px"><span class="severity-badge ' + a.severity + '">' + a.severity + '</span> ' + escapeHtml(a.alertType) + '</td>' +
+            '<td style="font-size:12px;color:#F8FAFC">' + escapeHtml(a.action || '—') + '</td>' +
+            '<td><span class="rpt-ai-action-result ' + (a.success ? 'success' : 'failed') + '">' + (a.success ? '✓ Success' : '✗ Failed') + '</span></td>' +
+            '<td style="font-size:12px;color:#94A3B8">' + (a.durationMs ? (a.durationMs / 1000).toFixed(1) + 's' : '—') + '</td>';
+          tbody.appendChild(tr);
+        });
+      }
+
+      // Load more button
+      var pg = data.pagination || {};
+      document.getElementById('rpt-ai-load-more').style.display = pg.page < pg.totalPages ? 'inline-block' : 'none';
+
+      // Pending issues
+      var pendEl = document.getElementById('rpt-ai-pending-list');
+      if (!data.pendingIssues || !data.pendingIssues.length) {
+        pendEl.innerHTML = '<span style="color:#22c55e;font-size:13px">✓ No unresolved issues — all clear!</span>';
+      } else {
+        var html = '';
+        data.pendingIssues.forEach(function(p) {
+          var time = new Date(p.timestamp);
+          var timeStr = time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+            time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+          html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(26,46,31,0.5)">' +
+            '<span class="severity-badge ' + p.severity + '">' + p.severity + '</span>' +
+            '<span style="font-size:12px;flex:1">' + escapeHtml(p.alertType) + '</span>' +
+            '<span style="font-size:11px;color:#94A3B8">' + timeStr + '</span>' +
+          '</div>';
+        });
+        pendEl.innerHTML = html;
+      }
+    } catch (err) {
+      document.getElementById('rpt-ai-content').style.display = 'block';
+      document.getElementById('rpt-ai-actions-tbody').innerHTML = '<tr><td colspan="5" style="color:#ef4444;text-align:center;padding:20px">Failed to load AI activity</td></tr>';
+    }
+  }
+
+  function loadMoreAiActions() { _reportsAiPage++; loadReportsAi(); }
+
+  // HTML escaping utility for reports
+  function escapeHtml(str) {
+    if (!str) return '';
+    var d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
   }
 
   // Wire severity filter change
