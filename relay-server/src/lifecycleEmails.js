@@ -731,7 +731,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
 
     try {
       const events = this.db.prepare(
-        'SELECT event_type, resolved, auto_resolved FROM service_events WHERE church_id = ? AND timestamp >= ?'
+        "SELECT event_type, resolved, auto_resolved FROM service_events WHERE church_id = ? AND timestamp >= ? AND event_type NOT LIKE 'incident_summary_%'"
       ).all(churchId, sinceIso);
 
       totalEvents = events.length;
@@ -762,6 +762,18 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       totalSessions = sessionCount?.cnt || 0;
     } catch {
       // service_sessions table might not exist
+    }
+
+    // Fallback: if no formal sessions but events exist, estimate from distinct event dates
+    if (totalSessions === 0 && totalEvents > 0) {
+      try {
+        const distinctDays = this.db.prepare(
+          "SELECT COUNT(DISTINCT date(timestamp)) as cnt FROM service_events WHERE church_id = ? AND timestamp >= ? AND event_type NOT LIKE 'incident_summary_%'"
+        ).get(churchId, sinceIso);
+        totalSessions = distinctDays?.cnt || 0;
+      } catch {
+        // ignore — best-effort estimate
+      }
     }
 
     return { totalEvents, criticalEvents, autoRecoveries, totalAlerts, totalSessions };
@@ -1254,7 +1266,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     if (stats.criticalEvents === 0 && stats.totalSessions > 0) {
       insightLine = `<p style="font-size: 14px; color: #22c55e; font-weight: 600; margin: 0 0 16px;">✓ Clean week &mdash; zero critical issues across ${stats.totalSessions} service${stats.totalSessions !== 1 ? 's' : ''}.</p>`;
     } else if (stats.autoRecoveries > 0 && stats.criticalEvents > 0) {
-      const pct = Math.round((stats.autoRecoveries / stats.criticalEvents) * 100);
+      const pct = Math.min(100, Math.round((stats.autoRecoveries / stats.totalEvents) * 100));
       insightLine = `<p style="font-size: 14px; color: #eab308; font-weight: 600; margin: 0 0 16px;">Tally auto-handled ${pct}% of issues this week without any manual intervention.</p>`;
     } else if (stats.criticalEvents > 0) {
       insightLine = `<p style="font-size: 14px; color: #ef4444; font-weight: 600; margin: 0 0 16px;">${stats.criticalEvents} critical event${stats.criticalEvents !== 1 ? 's' : ''} required attention this week. Check your portal for the full timeline.</p>`;
