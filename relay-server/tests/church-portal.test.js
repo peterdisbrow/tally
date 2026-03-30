@@ -290,6 +290,7 @@ function buildApp() {
     churchId: CHURCH_A_ID,
     name: 'Church Alpha',
     ws: { readyState: 1 },
+    sockets: new Map([['default', { readyState: 1, send() {} }]]),
     status: {
       atem: { connected: true, programInput: 1, inputLabels: { 1: 'Camera 1', 2: 'Camera 2' } },
       encoder: { connected: true, live: true },
@@ -302,6 +303,7 @@ function buildApp() {
     churchId: CHURCH_B_ID,
     name: 'Church Beta',
     ws: { readyState: 1 },
+    sockets: new Map([['default', { readyState: 1, send() {} }]]),
     status: {},
     lastSeen: new Date().toISOString(),
   });
@@ -791,6 +793,7 @@ describe('Church Portal API', () => {
 
     it('GET /api/church/me shows disconnected when ws is not open', async () => {
       churches.get(CHURCH_A_ID).ws = { readyState: 3 };
+      churches.get(CHURCH_A_ID).sockets = new Map([['default', { readyState: 3, send() {} }]]);
       const res = await client.get('/api/church/me', authHeaders(tokenA));
       expect(res.body.connected).toBe(false);
     });
