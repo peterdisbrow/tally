@@ -264,6 +264,19 @@ function appendAppLog(source, message) {
   }
 }
 
+/**
+ * Clear all logs — in-memory buffer and log files on disk.
+ * Logs only persist when the user explicitly exports them.
+ */
+function clearAllLogs() {
+  recentLogLines.length = 0;
+  try {
+    if (fs.existsSync(APP_LOG_PATH)) fs.unlinkSync(APP_LOG_PATH);
+    const rotated = APP_LOG_PATH + '.1';
+    if (fs.existsSync(rotated)) fs.unlinkSync(rotated);
+  } catch { /* best effort */ }
+}
+
 // Delegated to config-manager module
 const getSanitizedConfigForExport = configManager.getSanitizedConfigForExport;
 
@@ -1259,6 +1272,13 @@ ipcMain.handle('validate-token', async () => {
     const config = loadConfig();
     if (!config.token) return { valid: false, reason: 'no-token' };
 
+    // Clear stale roomId on every validation (startup).
+    // The user must pick a room from the selector each session.
+    // This handles crash scenarios where before-quit didn't fire.
+    if (config.roomId) {
+      saveConfig({ roomId: undefined });
+    }
+
     // Decode JWT and check expiration locally first
     try {
       const parts = config.token.split('.');
@@ -1292,36 +1312,10 @@ ipcMain.handle('validate-token', async () => {
         }
       } catch (e) { console.warn('Profile sync failed:', e?.message); }
 
-      // Bootstrap equipment from relay (non-blocking)
-      const freshConfig = loadConfig();
-      if (freshConfig.roomId && freshConfig.token) {
-        // One-time migration: push existing local equipment to relay if never synced
-        if (!freshConfig._equipmentSyncedToRelay) {
-          const equip = configManager.extractEquipment(freshConfig);
-          const hasEquip = Object.values(equip).some(v => v !== undefined && v !== '' && v !== null);
-          if (hasEquip) {
-            syncEquipmentToRelay(freshConfig.roomId, equip).then(r => {
-              if (r.success) saveConfig({ _equipmentSyncedToRelay: true });
-            }).catch(() => {});
-          } else {
-            saveConfig({ _equipmentSyncedToRelay: true });
-          }
-        }
-
-        // Fetch latest equipment from relay and update local cache
-        fetchEquipmentFromRelay(freshConfig.roomId).then(remoteEquip => {
-          if (remoteEquip) {
-            const current = loadConfig();
-            for (const key of configManager.ROOM_EQUIPMENT_KEYS) {
-              current[key] = remoteEquip[key] !== undefined ? remoteEquip[key] : undefined;
-            }
-            if (!current.roomConfigs) current.roomConfigs = {};
-            current.roomConfigs[current.roomName || '_default'] = remoteEquip;
-            saveConfig(current);
-            mainWindow?.webContents.send('config-updated');
-          }
-        }).catch(() => {});
-      }
+      // Equipment bootstrap is deferred until the user selects a room.
+      // The room selector (shown every launch) triggers fullRoomSwitch which
+      // handles fetching equipment from relay for the chosen room.
+      // This prevents stale roomId from pre-loading the wrong room's equipment.
 
       return { valid: true, churchName: config.name || '' };
     }
@@ -1333,6 +1327,7 @@ ipcMain.handle('validate-token', async () => {
 
 function performSignOut() {
   stopAgent();
+  clearAllLogs();
   resetConfig(); // atomic wipe — no credential bleed via saveConfig merge
   agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
   mainWindow?.webContents.send('status', agentStatus);
@@ -1385,6 +1380,7 @@ ipcMain.handle('factory-reset', async () => {
     if (preResetConfig.roomId && preResetConfig.token) {
       await syncEquipmentToRelay(preResetConfig.roomId, {}).catch(() => {});
     }
+    clearAllLogs();
     resetConfig();
     agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {} };
     mainWindow?.webContents.send('status', agentStatus);
@@ -2318,6 +2314,15 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   app.isQuitting = true;
-  appendAppLog('SYSTEM', 'App before-quit');
   stopAgent();
+  // Clear roomId so next launch always shows the room selector.
+  // Keep roomName + roomConfigs so equipment is preserved per-room.
+  // Setting to undefined causes saveConfig's filter to strip the key from disk.
+  try {
+    if (loadConfig().roomId) {
+      saveConfig({ roomId: undefined });
+    }
+  } catch { /* best effort */ }
+  // Clear all logs — next session starts fresh
+  clearAllLogs();
 });
