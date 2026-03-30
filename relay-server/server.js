@@ -550,6 +550,9 @@ const _schemaMigrations = [
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
 }
+// Disable auto-recover globally — TD should manually switch back after failover
+// (auto-recover caused bounce loops when the source was still intermittent)
+try { db.exec("UPDATE churches SET failover_auto_recover = 0 WHERE failover_auto_recover = 1"); } catch { /* ok */ }
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_churches_portal_email ON churches(portal_email)');
 
 // Performance indexes for commonly queried columns
