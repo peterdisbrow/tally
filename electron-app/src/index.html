@@ -53,6 +53,57 @@
   </div>
 </div>
 
+<!-- ═══════════════════════ ROOM SELECTOR ═══════════════════════ -->
+<div class="room-selector" id="room-selector">
+  <div class="header">
+    <div class="header-title">
+      <div class="header-dot"></div>
+      <h1>Tally</h1>
+    </div>
+    <p class="sub" id="rs-church-name">by Tally Connect</p>
+  </div>
+
+  <div class="content">
+    <div class="rs-box">
+      <div style="text-align:center; margin-bottom: 20px;">
+        <div class="wizard-badge">Tally</div>
+        <div class="wizard-headline" id="rs-headline">Select a Room</div>
+        <p class="rs-subtitle" id="rs-subtitle">Choose which room this computer will monitor.</p>
+      </div>
+
+      <!-- Loading state -->
+      <div class="rs-loading" id="rs-loading">
+        <div class="spinner-inline" style="width:20px; height:20px; border-width:3px;"></div>
+        <p style="color: var(--muted); font-size: 12px; margin-top: 10px;">Loading rooms...</p>
+      </div>
+
+      <!-- Room list -->
+      <div class="rs-room-list" id="rs-room-list" style="display:none;"></div>
+
+      <!-- Create room form (shown when no rooms exist or user clicks create) -->
+      <div class="rs-create-form" id="rs-create-form" style="display:none;">
+        <div class="form-group">
+          <label>Room Name</label>
+          <input id="rs-room-name" type="text" placeholder="e.g. Main Sanctuary" maxlength="100">
+        </div>
+        <button class="btn-save" style="width:100%; margin-top: 12px;" id="rs-create-btn" onclick="doCreateRoom()">Create Room</button>
+      </div>
+
+      <!-- Message area -->
+      <div class="rs-message" id="rs-message"></div>
+
+      <!-- Add room link (shown when rooms exist) -->
+      <div class="rs-add-link" id="rs-add-link" style="display:none;">
+        <a href="#" onclick="event.preventDefault(); showRoomCreateForm();">+ Add a new room</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="branding">
+    Powered by <a href="#" class="ext-link" data-url="https://tallyconnect.app">Tally Connect</a>
+  </div>
+</div>
+
 <!-- ═══════════════════════ ONBOARDING CHAT ═══════════════════════ -->
 <div class="wizard" id="wizard">
   <div class="header">

@@ -325,6 +325,63 @@ async function sendProblemFinderReport(report) {
   }
 }
 
+// ─── Room management ─────────────────────────────────────────────────────────
+
+async function fetchRooms() {
+  const config = _loadConfig();
+  if (!config.token) return { success: false, error: 'No token' };
+  const base = relayHttpUrl(config.relay).replace(/\/+$/, '');
+  try {
+    const resp = await fetch(`${base}/api/church/app/rooms`, {
+      headers: { 'Authorization': `Bearer ${config.token}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!resp.ok) return { success: false, error: `Server returned ${resp.status}` };
+    const data = await resp.json();
+    return { success: true, rooms: data.rooms || [], currentRoomId: data.currentRoomId || null };
+  } catch (e) {
+    return { success: false, error: e.message || 'Failed to fetch rooms' };
+  }
+}
+
+async function createRoom(name, description) {
+  const config = _loadConfig();
+  if (!config.token) return { success: false, error: 'No token' };
+  const base = relayHttpUrl(config.relay).replace(/\/+$/, '');
+  try {
+    const resp = await fetch(`${base}/api/church/app/rooms`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${config.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description: description || '' }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return { success: false, error: data.error || `Server returned ${resp.status}` };
+    return { success: true, room: data };
+  } catch (e) {
+    return { success: false, error: e.message || 'Failed to create room' };
+  }
+}
+
+async function assignRoom(roomId) {
+  const config = _loadConfig();
+  if (!config.token) return { success: false, error: 'No token' };
+  const base = relayHttpUrl(config.relay).replace(/\/+$/, '');
+  try {
+    const resp = await fetch(`${base}/api/church/app/room-assign`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${config.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomId }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await resp.json();
+    if (!resp.ok) return { success: false, error: data.error || `Server returned ${resp.status}` };
+    return { success: true, roomId: data.roomId, roomName: data.roomName };
+  } catch (e) {
+    return { success: false, error: e.message || 'Failed to assign room' };
+  }
+}
+
 // ─── Room equipment sync ─────────────────────────────────────────────────────
 
 async function syncEquipmentToRelay(roomId, equipment) {
@@ -377,4 +434,7 @@ module.exports = {
   sendProblemFinderReport,
   syncEquipmentToRelay,
   fetchEquipmentFromRelay,
+  fetchRooms,
+  createRoom,
+  assignRoom,
 };

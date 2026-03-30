@@ -317,6 +317,33 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     }
   });
 
+  // POST /api/church/app/rooms — create a new room from the desktop app
+  app.post('/api/church/app/rooms', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const tier = String(req.church.billing_tier || 'connect').toLowerCase();
+      const tierRoomLimits = { connect: 1, plus: 3, pro: 5, managed: 999, event: 1 };
+      const maxRooms = tierRoomLimits[tier] || 1;
+      const currentCount = db.prepare('SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ?').get(churchId)?.cnt || 0;
+      if (currentCount >= maxRooms) {
+        return res.status(403).json({
+          error: `Your ${tier.toUpperCase()} plan allows ${maxRooms} room${maxRooms === 1 ? '' : 's'}. Upgrade for more.`,
+        });
+      }
+      const name = String(req.body?.name || '').trim();
+      const description = String(req.body?.description || '').trim();
+      if (!name) return res.status(400).json({ error: 'Room name is required' });
+
+      const id = uuidv4();
+      const created_at = new Date().toISOString();
+      db.prepare('INSERT INTO rooms (id, campus_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(id, churchId, name, description, created_at);
+      res.status(201).json({ id, campusId: churchId, name, description, createdAt: created_at });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
   // POST /api/pf/report — Problem Finder analysis results
   app.post('/api/pf/report', requireChurchAppAuth, requireChurchWriteAccess, (req, res) => {
     try {
