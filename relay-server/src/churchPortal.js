@@ -418,7 +418,7 @@ function _escapeHtml(str) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal } = {}) {
   const express = require('express');
   log.info('Setup started');
 
@@ -1274,8 +1274,23 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         if (sock && sock.readyState === 1) {
           sock.send(JSON.stringify({ type: 'room_deleted', roomId, roomName: room.name }));
         }
+        // Clean up instanceStatus entries for this room's instance
+        if (runtime.instanceStatus?.[instanceName]) {
+          delete runtime.instanceStatus[instanceName];
+        }
         // Clean up the mapping
         delete runtime.roomInstanceMap[roomId];
+      }
+
+      // Broadcast to portal SSE so the UI updates without page refresh
+      if (broadcastToPortal) {
+        broadcastToPortal(churchId, {
+          type: 'room_deleted',
+          roomId,
+          roomName: room.name,
+          instanceStatus: runtime?.instanceStatus || {},
+          roomInstanceMap: runtime?.roomInstanceMap || {},
+        });
       }
 
       res.json({ ok: true });

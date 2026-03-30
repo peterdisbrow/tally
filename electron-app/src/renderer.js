@@ -492,6 +492,16 @@ async function init() {
       showSignInMessage('Signed out.', 'var(--muted)');
     });
 
+    // Listen for room deletion — portal deleted the room this app was assigned to
+    api.onRoomDeleted(({ roomName }) => {
+      isRunning = false;
+      updateToggleBtn();
+      if (typeof resetDeviceState === 'function') resetDeviceState();
+      _cachedStatus = null;
+      addAlert(`Room "${roomName || 'Unknown'}" was deleted. Please select a new room.`);
+      showRoomSelector();
+    });
+
     const config = await api.getConfig();
     isRunning = await api.isRunning();
     _audioViaAtem = !!(config.audioViaAtem);

@@ -968,6 +968,11 @@ class ChurchAVAgent {
         console.log(`[CONFIG_UPDATE] ${JSON.stringify({ section: msg.section, data: msg.data, roomId: msg.roomId || null })}`);
         break;
       }
+      case 'room_deleted': {
+        this.log(`Room deleted by portal: ${msg.roomName || msg.roomId}`);
+        console.log(`[ROOM_DELETED] ${JSON.stringify({ roomId: msg.roomId, roomName: msg.roomName })}`);
+        break;
+      }
       default:
         console.log('Relay msg:', msg.type);
     }

@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   onStatus: (cb) => ipcRenderer.on('status', (_, data) => cb(data)),
   onAuthInvalid: (cb) => ipcRenderer.on('auth-invalid', () => cb()),
+  onRoomDeleted: (cb) => ipcRenderer.on('room-deleted', (_, data) => cb(data)),
   onSignedOut: (cb) => ipcRenderer.on('signed-out', () => cb()),
   onLog: (cb) => ipcRenderer.on('log', (_, data) => cb(data)),
   onUpdateReady: (cb) => ipcRenderer.on('update-ready', () => cb()),

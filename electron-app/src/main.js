@@ -1042,6 +1042,27 @@ function startAgent() {
       } catch (e) { console.warn('Config update parse error:', e?.message); }
     }
 
+    // Detect room deletion notification from relay
+    const roomDeletedMatch = text.match(/\[ROOM_DELETED\]\s*(\{.+\})/);
+    if (roomDeletedMatch) {
+      try {
+        const { roomId, roomName } = JSON.parse(roomDeletedMatch[1]);
+        appendAppLog('SYSTEM', `Room "${roomName || roomId}" was deleted from portal — stopping agent and returning to room selector`);
+        // Stop the agent (sets agentProcess = null to prevent auto-restart)
+        stopAgent();
+        // Clear room assignment from config
+        const cfg = loadConfig();
+        cfg.roomId = null;
+        cfg.roomName = null;
+        saveConfig(cfg);
+        // Reset device status
+        agentStatus = { relay: false, atem: false, obs: false, companion: false, encoder: false, encoderType: '', audio: {}, failover: null };
+        mainWindow?.webContents.send('status', agentStatus);
+        // Notify renderer to show room selector
+        mainWindow?.webContents.send('room-deleted', { roomId, roomName });
+      } catch (e) { console.warn('Room deleted parse error:', e?.message); }
+    }
+
     // Only run expensive notification/UI updates when status actually changed
     if (statusChanged) {
       checkAndNotify();
