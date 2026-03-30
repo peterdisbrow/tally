@@ -95,6 +95,18 @@ function buildDiagnosticContext(churchId, db, churches, signalFailover) {
       lines.push(`  Companion: connected (${s.companion.connectionCount || 0} modules)`);
     }
 
+    if (s.resolume?.connected != null) {
+      let resLine = `  Resolume: ${s.resolume.connected ? 'connected' : 'DISCONNECTED'}`;
+      if (s.resolume.version) resLine += ` (${s.resolume.version})`;
+      lines.push(resLine);
+    }
+
+    const vhConnected = (s.videoHubs || []).filter(h => h?.connected);
+    const vhTotal = (s.videoHubs || []).length;
+    if (vhTotal > 0) {
+      lines.push(`  VideoHub: ${vhConnected.length}/${vhTotal} connected`);
+    }
+
     if (s.audio?.silenceDetected) {
       lines.push('  ⚠ Audio silence detected');
     }

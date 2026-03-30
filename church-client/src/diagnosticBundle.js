@@ -73,6 +73,10 @@ async function collectDiagnosticBundle(agent) {
   // vMix
   connections.vmix = {
     connected: agent.status?.vmix?.connected || false,
+    streaming: agent.status?.vmix?.streaming || false,
+    recording: agent.status?.vmix?.recording || false,
+    edition: agent.status?.vmix?.edition || null,
+    version: agent.status?.vmix?.version || null,
   };
 
   // Companion
@@ -89,6 +93,9 @@ async function collectDiagnosticBundle(agent) {
       connected: agent.status?.encoder?.connected || false,
       streaming: agent.status?.encoder?.live || agent.status?.encoder?.streaming || false,
       bitrate: agent.status?.encoder?.bitrateKbps || null,
+      host: agent.config?.encoder?.host || null,
+      port: agent.config?.encoder?.port || null,
+      details: agent.status?.encoder?.details || null,
     });
   }
 
@@ -123,6 +130,52 @@ async function collectDiagnosticBundle(agent) {
         diskSpace: s.diskSpace ?? s.remainingDiskSpace ?? null,
       };
     });
+  }
+
+  // ProPresenter
+  connections.proPresenter = {
+    connected: agent.status?.proPresenter?.connected || false,
+    running: agent.status?.proPresenter?.running || false,
+    version: agent.status?.proPresenter?.version || null,
+    host: agent.config?.proPresenter?.host || null,
+    port: agent.config?.proPresenter?.port || null,
+    currentSlide: agent.status?.proPresenter?.currentSlide || null,
+    slideIndex: agent.status?.proPresenter?.slideIndex ?? null,
+    slideTotal: agent.status?.proPresenter?.slideTotal ?? null,
+  };
+
+  // Resolume
+  connections.resolume = {
+    connected: agent.status?.resolume?.connected || false,
+    host: agent.status?.resolume?.host || agent.config?.resolume?.host || null,
+    port: agent.status?.resolume?.port || agent.config?.resolume?.port || null,
+    version: agent.status?.resolume?.version || null,
+  };
+
+  // VideoHubs
+  connections.videoHubs = [];
+  if (Array.isArray(agent.videoHubs)) {
+    connections.videoHubs = agent.videoHubs.map((hub, i) => {
+      const s = typeof hub?.toStatus === 'function' ? hub.toStatus() : {};
+      return {
+        name: s.name || hub?.name || `VideoHub ${i + 1}`,
+        connected: s.connected ?? hub?.connected ?? false,
+        ip: hub?.ip || null,
+        inputs: s.inputCount ?? null,
+        outputs: s.outputCount ?? null,
+      };
+    });
+  }
+
+  // Smart Plugs
+  connections.smartPlugs = [];
+  if (agent.shellyManager && typeof agent.shellyManager.toStatus === 'function') {
+    const plugStatus = agent.shellyManager.toStatus();
+    if (Array.isArray(plugStatus)) {
+      connections.smartPlugs = plugStatus;
+    }
+  } else if (Array.isArray(agent.status?.smartPlugs)) {
+    connections.smartPlugs = agent.status.smartPlugs;
   }
 
   // ── Stream status ───────────────────────────────────────────────────────────

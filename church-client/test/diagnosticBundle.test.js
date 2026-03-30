@@ -36,6 +36,8 @@ function createMockAgent(overrides = {}) {
     ptzManager: overrides.ptzManager ?? null,
     encoderBridge: overrides.encoderBridge ?? { type: 'obs' },
     hyperdecks: overrides.hyperdecks ?? [],
+    videoHubs: overrides.videoHubs ?? [],
+    shellyManager: overrides.shellyManager ?? null,
     streamHealthMonitor: overrides.streamHealthMonitor ?? { getStatus: () => ({ monitoring: true, history: [] }) },
     audioMonitor: overrides.audioMonitor ?? {},
     _recentAlerts: overrides._recentAlerts ?? [],
@@ -401,4 +403,141 @@ test('problemFinder includes last run results when available', async () => {
   });
   const bundle = await collectDiagnosticBundle(agent);
   assert.deepEqual(bundle.problemFinder, { issues: 3, blockers: 1, coverage: 0.85 });
+});
+
+// ─── ProPresenter in diagnostic bundle ──────────────────────────────────────
+
+test('connections.proPresenter shows connected state with slide info', async () => {
+  const agent = createMockAgent({
+    status: {
+      ...createMockAgent().status,
+      proPresenter: { connected: true, running: true, version: 'PP 21.0.1', currentSlide: 'How Great Is Our God', slideIndex: 3, slideTotal: 12 },
+    },
+    config: { ...createMockAgent().config, proPresenter: { host: '192.168.1.50', port: 1025 } },
+  });
+  const bundle = await collectDiagnosticBundle(agent);
+
+  assert.equal(bundle.connections.proPresenter.connected, true);
+  assert.equal(bundle.connections.proPresenter.running, true);
+  assert.equal(bundle.connections.proPresenter.version, 'PP 21.0.1');
+  assert.equal(bundle.connections.proPresenter.host, '192.168.1.50');
+  assert.equal(bundle.connections.proPresenter.currentSlide, 'How Great Is Our God');
+  assert.equal(bundle.connections.proPresenter.slideIndex, 3);
+});
+
+test('connections.proPresenter shows disconnected when not configured', async () => {
+  const agent = createMockAgent();
+  const bundle = await collectDiagnosticBundle(agent);
+
+  assert.equal(bundle.connections.proPresenter.connected, false);
+  assert.equal(bundle.connections.proPresenter.host, null);
+});
+
+// ─── Resolume in diagnostic bundle ──────────────────────────────────────────
+
+test('connections.resolume shows connected state', async () => {
+  const agent = createMockAgent({
+    status: {
+      ...createMockAgent().status,
+      resolume: { connected: true, host: '192.168.1.60', port: 8080, version: 'Arena 7.16.0' },
+    },
+  });
+  const bundle = await collectDiagnosticBundle(agent);
+
+  assert.equal(bundle.connections.resolume.connected, true);
+  assert.equal(bundle.connections.resolume.version, 'Arena 7.16.0');
+  assert.equal(bundle.connections.resolume.host, '192.168.1.60');
+});
+
+test('connections.resolume defaults to disconnected', async () => {
+  const agent = createMockAgent();
+  const bundle = await collectDiagnosticBundle(agent);
+
+  assert.equal(bundle.connections.resolume.connected, false);
+});
+
+// ─── VideoHubs in diagnostic bundle ─────────────────────────────────────────
+
+test('connections.videoHubs populates from videoHub instances', async () => {
+  const agent = createMockAgent({
+    videoHubs: [
+      { name: 'Main Hub', ip: '192.168.1.70', connected: true, toStatus: () => ({ name: 'Main Hub', connected: true, inputCount: 20, outputCount: 20 }) },
+    ],
+  });
+  const bundle = await collectDiagnosticBundle(agent);
+
+  assert.equal(bundle.connections.videoHubs.length, 1);
+  assert.equal(bundle.connections.videoHubs[0].name, 'Main Hub');
+  assert.equal(bundle.connections.videoHubs[0].connected, true);
+  assert.equal(bundle.connections.videoHubs[0].ip, '192.168.1.70');
+});
+
+test('connections.videoHubs returns empty array when no hubs', async () => {
+  const agent = createMockAgent();
+  const bundle = await collectDiagnosticBundle(agent);
+
+  assert.ok(Array.isArray(bundle.connections.videoHubs));
+  assert.equal(bundle.connections.videoHubs.length, 0);
+});
+
+// ─── Smart Plugs in diagnostic bundle ───────────────────────────────────────
+
+test('connections.smartPlugs populated from shellyManager', async () => {
+  const agent = createMockAgent({
+    shellyManager: {
+      toStatus: () => [{ name: 'Projector', ip: '192.168.1.80', on: true }],
+    },
+  });
+  const bundle = await collectDiagnosticBundle(agent);
+
+  assert.equal(bundle.connections.smartPlugs.length, 1);
+  assert.equal(bundle.connections.smartPlugs[0].name, 'Projector');
+});
+
+test('connections.smartPlugs falls back to status array', async () => {
+  const agent = createMockAgent({
+    status: {
+      ...createMockAgent().status,
+      smartPlugs: [{ name: 'Amp', ip: '192.168.1.81', on: false }],
+    },
+  });
+  const bundle = await collectDiagnosticBundle(agent);
+
+  assert.equal(bundle.connections.smartPlugs.length, 1);
+  assert.equal(bundle.connections.smartPlugs[0].name, 'Amp');
+});
+
+// ─── Enriched encoder section ───────────────────────────────────────────────
+
+test('connections.encoders includes host and details', async () => {
+  const agent = createMockAgent({
+    config: { ...createMockAgent().config, encoder: { type: 'blackmagic', host: '192.168.1.90', port: 80 } },
+    status: {
+      ...createMockAgent().status,
+      encoder: { connected: true, live: true, bitrateKbps: 5000, type: 'blackmagic', details: 'Web Presenter HD v3.5' },
+    },
+  });
+  const bundle = await collectDiagnosticBundle(agent);
+
+  assert.equal(bundle.connections.encoders[0].host, '192.168.1.90');
+  assert.equal(bundle.connections.encoders[0].port, 80);
+  assert.equal(bundle.connections.encoders[0].details, 'Web Presenter HD v3.5');
+});
+
+// ─── Enriched vMix section ──────────────────────────────────────────────────
+
+test('connections.vmix includes streaming and version info', async () => {
+  const agent = createMockAgent({
+    status: {
+      ...createMockAgent().status,
+      vmix: { connected: true, streaming: true, recording: false, edition: 'Pro', version: '27.0.0.42' },
+    },
+  });
+  const bundle = await collectDiagnosticBundle(agent);
+
+  assert.equal(bundle.connections.vmix.connected, true);
+  assert.equal(bundle.connections.vmix.streaming, true);
+  assert.equal(bundle.connections.vmix.recording, false);
+  assert.equal(bundle.connections.vmix.edition, 'Pro');
+  assert.equal(bundle.connections.vmix.version, '27.0.0.42');
 });
