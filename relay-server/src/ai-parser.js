@@ -821,7 +821,12 @@ WEB PRESENTER (Blackmagic):
 - "Show YouTube config" / "YouTube settings" → blackmagic.getPlatformConfig(name:"YouTube")
 - "Change resolution" / "set to 720p" → first blackmagic.getSupportedVideoFormats(), then blackmagic.setVideoFormat(format:X)
 - "What audio input?" / "audio sources" → blackmagic.getAudioSources()
-- NEVER tell the user to "run a command" — YOU run the command. If you need information before acting, run the query command yourself and use the result to help the user.` : '';
+- RTMP CREDENTIAL PUSH: When a user provides an RTMP URL (like rtmp://host:port/live/) and/or a stream key, ALWAYS use blackmagic.setActivePlatform to push them to the Web Presenter. Examples:
+  - "Set the RTMP URL to rtmp://x.com/live with key abc123" → blackmagic.setActivePlatform(config:{platform:"Custom RTMP",server:"rtmp://x.com/live",key:"abc123",quality:"1080p High"})
+  - "Push rtmp://gondola.proxy.rlwy.net:50201/live/ to the encoder" → blackmagic.setActivePlatform(config:{server:"rtmp://gondola.proxy.rlwy.net:50201/live/"}) — if key/quality not provided, first run blackmagic.getActivePlatform() to get current values and preserve them
+  - "Stream to YouTube with this key: xxxx-xxxx-xxxx-xxxx" → blackmagic.setActivePlatform(config:{platform:"YouTube",key:"xxxx-xxxx-xxxx-xxxx"}) — preserve existing server/quality from getActivePlatform()
+  - If only a URL or only a key is provided, fetch current config with getActivePlatform() first, then merge the new value with existing config in setActivePlatform.
+- NEVER tell the user to "run a command" or to configure the encoder manually — YOU execute setActivePlatform directly. If you need information before acting, run the query command yourself and use the result.` : '';
 
   // OBS detail rules
   const obsRules = s.obs?.connected ? `

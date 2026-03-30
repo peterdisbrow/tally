@@ -102,8 +102,6 @@ const SENSITIVE_PATTERNS = [
   /\b[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}(-[a-z0-9]{4})?\b/i,
   // Facebook / generic long hex/alphanum keys (20+ chars)
   /\b[A-Za-z0-9]{20,}\b/,
-  // RTMP URLs with keys embedded
-  /rtmp[s]?:\/\/\S+/i,
   // Explicit "stream key" or "key is" phrasing with a value
   /\b(stream\s*key|server\s*key|secret\s*key|api\s*key|password)\s*(is|:|=)\s*\S+/i,
 ];
@@ -121,12 +119,17 @@ function containsSensitiveData(message) {
   if (!trimmed) return false;
 
   // Only flag messages that look like they're sharing a key, not just any long word
-  // Require either an explicit key-related keyword OR an RTMP URL
+  // Require an explicit key-related keyword (NOT rtmp — RTMP URLs are server addresses, not secrets)
   const lower = trimmed.toLowerCase();
-  const hasKeyContext = /\b(stream\s*key|key|rtmp|secret|password|credential|token)\b/i.test(lower);
-  const hasRtmpUrl = /rtmp[s]?:\/\//i.test(trimmed);
+  const hasKeyContext = /\b(stream\s*key|key|secret|password|credential|token)\b/i.test(lower);
 
-  if (!hasKeyContext && !hasRtmpUrl) return false;
+  if (!hasKeyContext) return false;
+
+  // If the user is trying to configure a device (push credentials to encoder/web presenter),
+  // let the message through so the AI can execute the setActivePlatform command
+  const isDeviceConfig = /\b(set|push|configure|update|change|switch|send|apply)\b/i.test(lower)
+    && /\b(rtmp|encoder|web\s*presenter|blackmagic|platform|destination|stream\s*(to|url|server))\b/i.test(lower);
+  if (isDeviceConfig) return false;
 
   return SENSITIVE_PATTERNS.some((pat) => pat.test(trimmed));
 }
