@@ -33,6 +33,7 @@ const DEFAULTS = {
   ackTimeoutS: 30,
   bitrateDropRatio: 0.2,     // below 20% of baseline = loss
   bitrateRecoverRatio: 0.5,  // above 50% of baseline = recovered
+  strongRecoverRatio: 0.8,   // above 80% of baseline = strong recovery (cancels SUSPECTED_BLACK)
   baselineSamples: 3,        // samples needed to establish baseline
   stabilityTimerS: 10,       // seconds to verify source is stable before auto-recover
 };
@@ -389,12 +390,23 @@ class SignalFailover {
   _onEncoderRecovered(churchId, s, config, church, data) {
     switch (s.state) {
       case STATES.SUSPECTED_BLACK: {
-        // Recovered within the threshold window — cancel (brief glitch, like a real engineer would ignore)
-        if (s.blackTimer) { clearTimeout(s.blackTimer); s.blackTimer = null; }
-        this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.HEALTHY, 'encoder_recovered');
-        s.state = STATES.HEALTHY;
-        s.outageStartedAt = null;
-        s.diagnosis = null;
+        // Check if this is a strong recovery (>80% of baseline) or a weak bounce
+        const baseline = s.bitrateBaseline;
+        const recoveredKbps = data.bitrateKbps || 0;
+        const ratio = baseline > 0 ? recoveredKbps / baseline : 1;
+
+        if (ratio >= DEFAULTS.strongRecoverRatio) {
+          // Strong recovery — genuinely back, cancel the confirmation timer
+          if (s.blackTimer) { clearTimeout(s.blackTimer); s.blackTimer = null; }
+          this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.HEALTHY, 'encoder_recovered');
+          s.state = STATES.HEALTHY;
+          s.outageStartedAt = null;
+          s.diagnosis = null;
+        } else {
+          // Weak recovery (50-80%) — stream is still degraded, let the timer keep running
+          console.log(`[SignalFailover] Weak recovery for ${churchId}: ${recoveredKbps} kbps (${Math.round(ratio * 100)}% of baseline ${Math.round(baseline)} kbps) — confirmation timer continues`);
+          this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.SUSPECTED_BLACK, 'weak_recovery_ignored');
+        }
         break;
       }
 

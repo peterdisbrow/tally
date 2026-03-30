@@ -102,11 +102,88 @@ describe('SignalFailover', () => {
     expect(failover.getState('church-1').state).toBe(STATES.SUSPECTED_BLACK);
   });
 
-  it('returns to HEALTHY when encoder recovers within threshold', () => {
+  it('returns to HEALTHY when encoder recovers strongly (>80% of baseline) within threshold', () => {
+    // Feed 3 status updates to establish a baseline of ~5000 kbps
+    for (let i = 0; i < 3; i++) {
+      failover.onStatusUpdate('church-1', { encoder: { bitrateKbps: 5000 } });
+    }
+
     failover.onSignalEvent('church-1', 'encoder_bitrate_loss', { church });
     expect(failover.getState('church-1').state).toBe(STATES.SUSPECTED_BLACK);
 
-    // Recover before 5s
+    // Strong recovery: 4500 kbps = 90% of 5000 baseline → cancels timer
+    vi.advanceTimersByTime(3000);
+    failover.onSignalEvent('church-1', 'encoder_bitrate_recovered', { church, bitrateKbps: 4500 });
+    expect(failover.getState('church-1').state).toBe(STATES.HEALTHY);
+  });
+
+  it('stays in SUSPECTED_BLACK on weak recovery (50-80% of baseline)', () => {
+    // Establish baseline of ~4345 kbps
+    for (let i = 0; i < 3; i++) {
+      failover.onStatusUpdate('church-1', { encoder: { bitrateKbps: 4345 } });
+    }
+
+    failover.onSignalEvent('church-1', 'encoder_bitrate_loss', { church });
+    expect(failover.getState('church-1').state).toBe(STATES.SUSPECTED_BLACK);
+
+    // Weak recovery: 2328 kbps = 54% of 4345 baseline → timer keeps running
+    vi.advanceTimersByTime(3000);
+    failover.onSignalEvent('church-1', 'encoder_bitrate_recovered', { church, bitrateKbps: 2328 });
+    expect(failover.getState('church-1').state).toBe(STATES.SUSPECTED_BLACK);
+  });
+
+  it('escalates to CONFIRMED_OUTAGE after weak recovery when timer fires', () => {
+    // Establish baseline of ~4345 kbps
+    for (let i = 0; i < 3; i++) {
+      failover.onStatusUpdate('church-1', { encoder: { bitrateKbps: 4345 } });
+    }
+
+    failover.onSignalEvent('church-1', 'encoder_bitrate_loss', { church });
+    expect(failover.getState('church-1').state).toBe(STATES.SUSPECTED_BLACK);
+
+    // Weak recovery at 2s — timer should keep running
+    vi.advanceTimersByTime(2000);
+    failover.onSignalEvent('church-1', 'encoder_bitrate_recovered', { church, bitrateKbps: 2328 });
+    expect(failover.getState('church-1').state).toBe(STATES.SUSPECTED_BLACK);
+
+    // Timer fires at 5s — should escalate to CONFIRMED_OUTAGE
+    vi.advanceTimersByTime(3000);
+    expect(failover.getState('church-1').state).toBe(STATES.CONFIRMED_OUTAGE);
+    expect(alertEngine.sendTelegramMessage).toHaveBeenCalled();
+  });
+
+  it('weak recovery followed by timer fires ATEM switch after ack timeout', async () => {
+    db = mockDb({ failover_ack_timeout_s: 10 });
+    failover = new SignalFailover(churches, alertEngine, autoRecovery, db);
+    // Establish baseline of ~4345 kbps
+    for (let i = 0; i < 3; i++) {
+      failover.onStatusUpdate('church-1', { encoder: { bitrateKbps: 4345 } });
+    }
+
+    failover.onSignalEvent('church-1', 'encoder_bitrate_loss', { church });
+
+    // Weak recovery at 54% — doesn't cancel timer
+    vi.advanceTimersByTime(2000);
+    failover.onSignalEvent('church-1', 'encoder_bitrate_recovered', { church, bitrateKbps: 2328 });
+    expect(failover.getState('church-1').state).toBe(STATES.SUSPECTED_BLACK);
+
+    // Black timer fires at 5s → CONFIRMED_OUTAGE
+    vi.advanceTimersByTime(3000);
+    expect(failover.getState('church-1').state).toBe(STATES.CONFIRMED_OUTAGE);
+
+    // Ack timeout fires at 10s → should execute failover (ATEM switch)
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(failover.getState('church-1').state).toBe(STATES.FAILOVER_ACTIVE);
+    expect(autoRecovery.dispatchCommand).toHaveBeenCalledWith(
+      church, 'atem.cut', { input: 3010 }
+    );
+  });
+
+  it('returns to HEALTHY on recovery when no baseline is set (backward compat)', () => {
+    // No baseline set — ratio defaults to 1.0 (strong), so any recovery cancels
+    failover.onSignalEvent('church-1', 'encoder_bitrate_loss', { church });
+    expect(failover.getState('church-1').state).toBe(STATES.SUSPECTED_BLACK);
+
     vi.advanceTimersByTime(3000);
     failover.onSignalEvent('church-1', 'encoder_bitrate_recovered', { church, bitrateKbps: 5000 });
     expect(failover.getState('church-1').state).toBe(STATES.HEALTHY);
