@@ -88,21 +88,25 @@ export default function MonitorTab({ token, api }) {
     loadActiveStreams();
   }, [loadActiveStreams]);
 
-  // Poll stream stats while expanded and active
+  // Get the currently displayed stream info (selected room or church-level fallback)
+  const activeRoomStream = streamKey?.rooms?.find(r => r.roomId === selectedRoom) || null;
+  const displayStream = activeRoomStream || streamKey;
+
+  // Poll stream stats while expanded
   useEffect(() => {
-    if (!expandedId || !api || !streamKey?.active) {
+    if (!expandedId || !api) {
       clearInterval(statsIntervalRef.current);
       return;
     }
     const poll = async () => {
       try {
         const data = await api(`/api/admin/stream/${expandedId}/key`);
-        setStreamKey(prev => ({ ...prev, meta: data.meta, active: data.active, startedAt: data.startedAt }));
+        setStreamKey(prev => ({ ...prev, meta: data.meta, active: data.active, startedAt: data.startedAt, rooms: data.rooms }));
       } catch { /* ignore */ }
     };
     statsIntervalRef.current = setInterval(poll, 5000);
     return () => clearInterval(statsIntervalRef.current);
-  }, [expandedId, api, streamKey?.active]);
+  }, [expandedId, api]);
 
   // HLS player helpers
   function destroyPlayer() {
@@ -181,12 +185,18 @@ export default function MonitorTab({ token, api }) {
       setRooms(data.rooms || []);
     } catch { /* rooms endpoint may not exist */ }
 
-    // Load stream key + status
+    // Load stream key + status (includes per-room keys)
     try {
       const data = await api(`/api/admin/stream/${churchId}/key`);
       setStreamKey(data);
-      if (data.active) {
-        // Wait a tick for the video element to mount
+      // Auto-select first room if rooms exist
+      if (data.rooms?.length > 0) {
+        setSelectedRoom(data.rooms[0].roomId);
+        const firstRoom = data.rooms[0];
+        if (firstRoom.active) {
+          setTimeout(() => startPlayer(firstRoom.roomId, firstRoom.hlsUrl), 50);
+        }
+      } else if (data.active) {
         setTimeout(() => startPlayer(churchId, data.hlsUrl), 50);
       }
     } catch { /* ignore */ }
@@ -200,13 +210,41 @@ export default function MonitorTab({ token, api }) {
 
   async function handleRegenerate() {
     if (!expandedId || !api) return;
-    if (!confirm('Regenerate stream key? This will disconnect any active stream.')) return;
-    try {
-      const data = await api(`/api/admin/stream/${expandedId}/key/regenerate`, { method: 'POST' });
-      setStreamKey(prev => ({ ...prev, ...data }));
-      destroyPlayer();
-    } catch {
-      alert('Failed to regenerate key');
+    // If a room is selected, regenerate that room's key
+    if (selectedRoom) {
+      if (!confirm('Regenerate this room\'s stream key? This will disconnect any active stream for this room.')) return;
+      try {
+        const data = await api(`/api/admin/stream/${expandedId}/room/${selectedRoom}/key/regenerate`, { method: 'POST' });
+        setStreamKey(prev => ({
+          ...prev,
+          rooms: (prev.rooms || []).map(r => r.roomId === selectedRoom ? { ...r, streamKey: data.streamKey, rtmpUrl: data.rtmpUrl, active: false, meta: null } : r),
+        }));
+        destroyPlayer();
+      } catch {
+        alert('Failed to regenerate room key');
+      }
+    } else {
+      if (!confirm('Regenerate church stream key? This will disconnect any active stream.')) return;
+      try {
+        const data = await api(`/api/admin/stream/${expandedId}/key/regenerate`, { method: 'POST' });
+        setStreamKey(prev => ({ ...prev, ...data }));
+        destroyPlayer();
+      } catch {
+        alert('Failed to regenerate key');
+      }
+    }
+  }
+
+  function handleRoomSelect(roomId) {
+    destroyPlayer();
+    setSelectedRoom(roomId);
+    if (roomId && streamKey?.rooms) {
+      const room = streamKey.rooms.find(r => r.roomId === roomId);
+      if (room?.active) {
+        setTimeout(() => startPlayer(room.roomId, room.hlsUrl), 50);
+      }
+    } else if (!roomId && streamKey?.active) {
+      setTimeout(() => startPlayer(expandedId, streamKey.hlsUrl), 50);
     }
   }
 
@@ -471,16 +509,16 @@ export default function MonitorTab({ token, api }) {
                         <td colSpan={5} style={{ padding: 0, borderBottom: `1px solid ${C.border}` }}>
                           <div style={{ padding: 20, background: 'rgba(255,255,255,0.02)' }}>
                             {/* Room selector */}
-                            {rooms.length > 0 && (
+                            {(streamKey?.rooms?.length > 0 || rooms.length > 0) && (
                               <div style={{ marginBottom: 16 }}>
                                 <select
                                   style={{ ...s.input, maxWidth: 200 }}
                                   value={selectedRoom}
-                                  onChange={e => setSelectedRoom(e.target.value)}
+                                  onChange={e => handleRoomSelect(e.target.value)}
                                 >
-                                  <option value="">All Rooms</option>
-                                  {rooms.map(rm => (
-                                    <option key={rm.id} value={rm.id}>{rm.name}</option>
+                                  <option value="">Church Default</option>
+                                  {(streamKey?.rooms || rooms).map(rm => (
+                                    <option key={rm.roomId || rm.id} value={rm.roomId || rm.id}>{rm.roomName || rm.name}</option>
                                   ))}
                                 </select>
                               </div>
@@ -489,7 +527,7 @@ export default function MonitorTab({ token, api }) {
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 20 }}>
                               {/* Left: stream preview */}
                               <div>
-                                {streamKey?.active ? (
+                                {displayStream?.active ? (
                                   <div>
                                     <div style={{ marginBottom: 8 }}>
                                       <span style={s.badge(C.red)}>{'\uD83D\uDD34'} LIVE</span>
@@ -519,15 +557,15 @@ export default function MonitorTab({ token, api }) {
                                 )}
 
                                 {/* Encoder stats */}
-                                {streamKey?.active && streamKey.meta && (
+                                {displayStream?.active && displayStream.meta && (
                                   <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                                     {[
-                                      streamKey.meta.bitrateKbps > 0 && ['Bitrate', `${streamKey.meta.bitrateKbps} kbps`, streamKey.meta.bitrateKbps < 1000 ? C.yellow : C.green],
-                                      streamKey.meta.fps > 0 && ['FPS', `${streamKey.meta.fps}`, streamKey.meta.fps < 25 ? C.yellow : C.green],
-                                      streamKey.meta.resolution && ['Resolution', streamKey.meta.resolution, C.white],
-                                      streamKey.meta.codec && ['Codec', `${streamKey.meta.codec}${streamKey.meta.audioCodec ? ' / ' + streamKey.meta.audioCodec : ''}`, C.white],
-                                      streamKey.startedAt && ['Uptime', (() => {
-                                        const sec = Math.floor((Date.now() - new Date(streamKey.startedAt).getTime()) / 1000);
+                                      displayStream.meta.bitrateKbps > 0 && ['Bitrate', `${displayStream.meta.bitrateKbps} kbps`, displayStream.meta.bitrateKbps < 1000 ? C.yellow : C.green],
+                                      displayStream.meta.fps > 0 && ['FPS', `${displayStream.meta.fps}`, displayStream.meta.fps < 25 ? C.yellow : C.green],
+                                      displayStream.meta.resolution && ['Resolution', displayStream.meta.resolution, C.white],
+                                      displayStream.meta.codec && ['Codec', `${displayStream.meta.codec}${displayStream.meta.audioCodec ? ' / ' + displayStream.meta.audioCodec : ''}`, C.white],
+                                      displayStream.startedAt && ['Uptime', (() => {
+                                        const sec = Math.floor((Date.now() - new Date(displayStream.startedAt).getTime()) / 1000);
                                         const h = Math.floor(sec / 3600);
                                         const m = Math.floor((sec % 3600) / 60);
                                         const s2 = sec % 60;
@@ -546,31 +584,36 @@ export default function MonitorTab({ token, api }) {
                                 )}
 
                                 {/* Stream key info */}
-                                {streamKey && (
+                                {displayStream && (
                                   <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
+                                    {selectedRoom && activeRoomStream && (
+                                      <div style={{ color: C.green, fontSize: 11, fontWeight: 600, marginBottom: 2 }}>
+                                        Room: {activeRoomStream.roomName}
+                                      </div>
+                                    )}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                                       <span style={{ color: C.muted, flexShrink: 0 }}>RTMP:</span>
                                       <code style={{ color: C.muted, wordBreak: 'break-all', whiteSpace: 'normal' }}>
-                                        {streamKey.rtmpUrl ? streamKey.rtmpUrl.replace(streamKey.streamKey, '{KEY}') : '\u2014'}
+                                        {displayStream.rtmpUrl ? displayStream.rtmpUrl.replace(displayStream.streamKey, '{KEY}') : '\u2014'}
                                       </code>
-                                      {streamKey.rtmpUrl && (
+                                      {displayStream.rtmpUrl && (
                                         <button
                                           style={{ ...s.btn('secondary'), padding: '2px 6px', fontSize: 10, flexShrink: 0 }}
-                                          onClick={(e) => copyToClipboard(e, streamKey.rtmpUrl)}
+                                          onClick={(e) => copyToClipboard(e, displayStream.rtmpUrl)}
                                         >
-                                          {copyFeedback === streamKey.rtmpUrl ? '\u2713 Copied' : 'Copy'}
+                                          {copyFeedback === displayStream.rtmpUrl ? '\u2713 Copied' : 'Copy'}
                                         </button>
                                       )}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
                                       <span style={{ color: C.muted, flexShrink: 0 }}>Key:</span>
-                                      <code style={{ color: C.white, wordBreak: 'break-all' }}>{streamKey.streamKey || '\u2014'}</code>
-                                      {streamKey.streamKey && (
+                                      <code style={{ color: C.white, wordBreak: 'break-all' }}>{displayStream.streamKey || '\u2014'}</code>
+                                      {displayStream.streamKey && (
                                         <button
                                           style={{ ...s.btn('secondary'), padding: '2px 6px', fontSize: 10, flexShrink: 0 }}
-                                          onClick={(e) => copyToClipboard(e, streamKey.streamKey)}
+                                          onClick={(e) => copyToClipboard(e, displayStream.streamKey)}
                                         >
-                                          {copyFeedback === streamKey.streamKey ? '\u2713 Copied' : 'Copy'}
+                                          {copyFeedback === displayStream.streamKey ? '\u2713 Copied' : 'Copy'}
                                         </button>
                                       )}
                                     </div>
@@ -579,7 +622,7 @@ export default function MonitorTab({ token, api }) {
                                         style={{ ...s.btn('danger'), padding: '4px 10px', fontSize: 11 }}
                                         onClick={(e) => { e.stopPropagation(); handleRegenerate(); }}
                                       >
-                                        Regenerate
+                                        Regenerate {selectedRoom ? 'Room Key' : 'Key'}
                                       </button>
                                     </div>
                                   </div>

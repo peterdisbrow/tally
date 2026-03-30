@@ -604,6 +604,9 @@ db.exec('PRAGMA foreign_keys = ON');
 // M5: Soft-delete for rooms — add deleted_at column (must come before unique index)
 try { db.exec('ALTER TABLE rooms ADD COLUMN deleted_at TEXT'); } catch { /* already exists */ }
 
+// M6: Per-room stream keys — each room gets its own RTMP ingest key
+try { db.exec('ALTER TABLE rooms ADD COLUMN stream_key TEXT'); } catch { /* already exists */ }
+
 // M1: UNIQUE(campus_id, name) — prevent duplicate room names within a church.
 // Handle existing duplicates by appending a suffix before creating the constraint.
 try {
@@ -630,6 +633,24 @@ try {
   // Index may already exist or rooms table may not have the expected shape
   console.log(`[migration] rooms unique index: ${e.message}`);
 }
+
+// M6b: Backfill stream keys for existing rooms that don't have one
+{
+  const roomsWithoutKeys = db.prepare('SELECT id FROM rooms WHERE stream_key IS NULL AND deleted_at IS NULL').all();
+  if (roomsWithoutKeys.length > 0) {
+    const updateStmt = db.prepare('UPDATE rooms SET stream_key = ? WHERE id = ?');
+    const backfill = db.transaction(() => {
+      for (const room of roomsWithoutKeys) {
+        updateStmt.run(crypto.randomBytes(16).toString('hex'), room.id);
+      }
+    });
+    backfill();
+    console.log(`[migration] Generated stream keys for ${roomsWithoutKeys.length} existing room(s)`);
+  }
+}
+
+// Add index on rooms.stream_key for RTMP lookup
+try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_rooms_stream_key ON rooms(stream_key)'); } catch { /* already exists */ }
 
 // M3: FK constraint — room_equipment.room_id references rooms.id
 // SQLite cannot add FK constraints to existing tables via ALTER TABLE, but we
@@ -4291,7 +4312,7 @@ app.get('/api/admin/streams', requireAdmin, (req, res) => {
   res.json({ streams: getActiveStreams() });
 });
 
-// Get or generate stream key for a church
+// Get stream key for a church (legacy church-level key)
 app.get('/api/admin/stream/:churchId/key', requireAdmin, (req, res) => {
   const church = db.prepare('SELECT churchId, name, ingest_stream_key FROM churches WHERE churchId = ?').get(req.params.churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
@@ -4302,6 +4323,11 @@ app.get('/api/admin/stream/:churchId/key', requireAdmin, (req, res) => {
     db.prepare('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?').run(key, church.churchId);
   }
 
+  // Include per-room stream keys
+  const rooms = db.prepare(
+    'SELECT id, name, stream_key FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name ASC'
+  ).all(church.churchId);
+
   const rtmpHost = process.env.RTMP_PUBLIC_URL || `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}`;
   const rtmpUrl = `${rtmpHost}/live/${key}`;
   const active = isIngestActive(church.churchId);
@@ -4309,6 +4335,23 @@ app.get('/api/admin/stream/:churchId/key', requireAdmin, (req, res) => {
   const hlsToken = createHlsToken(church.churchId);
   const relayBase = process.env.RELAY_PUBLIC_URL || `https://${req.hostname}`;
   const hlsUrl = `${relayBase}/api/admin/stream/${church.churchId}/live.m3u8?token=${encodeURIComponent(hlsToken)}`;
+
+  const roomStreams = rooms.map(r => {
+    const roomActive = isIngestActive(r.id);
+    const roomInfo = roomActive ? getStreamInfo(r.id) : null;
+    const roomHlsToken = createHlsToken(r.id);
+    return {
+      roomId: r.id,
+      roomName: r.name,
+      streamKey: r.stream_key,
+      rtmpUrl: `${rtmpHost}/live/${r.stream_key}`,
+      active: roomActive,
+      meta: roomInfo?.meta || null,
+      startedAt: roomInfo?.startedAt || null,
+      hlsUrl: `${relayBase}/api/admin/stream/${r.id}/live.m3u8?token=${encodeURIComponent(roomHlsToken)}`,
+    };
+  });
+
   res.json({
     churchId: church.churchId,
     churchName: church.name,
@@ -4318,10 +4361,11 @@ app.get('/api/admin/stream/:churchId/key', requireAdmin, (req, res) => {
     meta: info?.meta || null,
     startedAt: info?.startedAt || null,
     hlsUrl,
+    rooms: roomStreams,
   });
 });
 
-// Regenerate stream key (disconnects active stream)
+// Regenerate stream key — supports both church-level and per-room keys
 app.post('/api/admin/stream/:churchId/key/regenerate', requireAdmin, (req, res) => {
   const church = db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(req.params.churchId);
   if (!church) return res.status(404).json({ error: 'Church not found' });
@@ -4335,6 +4379,21 @@ app.post('/api/admin/stream/:churchId/key/regenerate', requireAdmin, (req, res) 
   const rtmpHost = process.env.RTMP_PUBLIC_URL || `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}`;
   const rtmpUrl = `${rtmpHost}/live/${key}`;
   res.json({ churchId: church.churchId, streamKey: key, rtmpUrl });
+});
+
+// Regenerate stream key for a specific room (admin)
+app.post('/api/admin/stream/:churchId/room/:roomId/key/regenerate', requireAdmin, (req, res) => {
+  const { churchId, roomId } = req.params;
+  const room = db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+
+  disconnectStream(roomId);
+
+  const key = generateStreamKey();
+  db.prepare('UPDATE rooms SET stream_key = ? WHERE id = ?').run(key, roomId);
+
+  const rtmpHost = process.env.RTMP_PUBLIC_URL || `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}`;
+  res.json({ roomId, streamKey: key, rtmpUrl: `${rtmpHost}/live/${key}` });
 });
 
 // ─── HLS Token Auth ──────────────────────────────────────────────────────────

@@ -1091,12 +1091,57 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   });
 
   // ── POST /api/church/config/ingest-key/regenerate ─────────────────────────────
+  // Legacy church-level key regeneration (kept for backward compat)
   app.post('/api/church/config/ingest-key/regenerate', adminMiddleware, (req, res) => {
     try {
       const churchId = req.church.churchId;
       const newKey = require('crypto').randomBytes(16).toString('hex');
       db.prepare('UPDATE churches SET ingest_stream_key = ? WHERE churchId = ?').run(newKey, churchId);
       res.json({ ok: true, ingestStreamKey: newKey });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── POST /api/church/rooms/:roomId/stream-key/regenerate ──────────────────────
+  app.post('/api/church/rooms/:roomId/stream-key/regenerate', adminMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const roomId = String(req.params.roomId || '').trim();
+      const room = db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
+      if (!room) return res.status(404).json({ error: 'Room not found' });
+
+      const { disconnectStream } = require('./rtmpIngest');
+      disconnectStream(roomId);
+
+      const newKey = require('crypto').randomBytes(16).toString('hex');
+      db.prepare('UPDATE rooms SET stream_key = ? WHERE id = ?').run(newKey, roomId);
+      res.json({ ok: true, streamKey: newKey, roomId });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── GET /api/church/rooms/:roomId/stream-key ──────────────────────────────────
+  app.get('/api/church/rooms/:roomId/stream-key', authMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const roomId = String(req.params.roomId || '').trim();
+      const room = db.prepare('SELECT id, stream_key FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
+      if (!room) return res.status(404).json({ error: 'Room not found' });
+
+      const { isStreamActive, getStreamInfo } = require('./rtmpIngest');
+      const active = isStreamActive(roomId);
+      const info = active ? getStreamInfo(roomId) : null;
+      const rtmpHost = process.env.RTMP_PUBLIC_URL || `rtmp://${req.hostname}:${Number(process.env.RTMP_PORT || 1935)}`;
+      res.json({
+        roomId,
+        streamKey: room.stream_key,
+        rtmpUrl: `${rtmpHost}/live/${room.stream_key}`,
+        active,
+        meta: info?.meta || null,
+        startedAt: info?.startedAt || null,
+      });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }
@@ -1172,9 +1217,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const churchId = req.church.churchId;
       const runtime = churches.get(churchId);
       const roomInstanceMap = runtime?.roomInstanceMap || {};
-      const rooms = db.prepare(`SELECT r.id, r.campus_id, r.name, r.description, r.created_at
+      const rooms = db.prepare(`SELECT r.id, r.campus_id, r.name, r.description, r.created_at, r.stream_key
         FROM rooms r
-        WHERE r.campus_id = ?
+        WHERE r.campus_id = ? AND r.deleted_at IS NULL
         ORDER BY r.name ASC`).all(churchId);
       const result = rooms.map(r => {
         const assigned = db.prepare('SELECT churchId, name, room_name FROM churches WHERE room_id = ?').all(r.id);
@@ -1185,6 +1230,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           campusId: r.campus_id,
           name: r.name,
           description: r.description || '',
+          streamKey: r.stream_key || null,
           assignedDesktops: assigned.map(a => ({ churchId: a.churchId, name: a.name })),
           connected: !!(instanceWs && instanceWs.readyState === 1),
           instanceName,
@@ -1219,9 +1265,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       const id = crypto.randomUUID();
       const created_at = new Date().toISOString();
-      db.prepare('INSERT INTO rooms (id, campus_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)')
-        .run(id, churchId, name, description, created_at);
-      res.status(201).json({ id, campusId: churchId, name, description, createdAt: created_at });
+      const stream_key = crypto.randomBytes(16).toString('hex');
+      db.prepare('INSERT INTO rooms (id, campus_id, name, description, created_at, stream_key) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id, churchId, name, description, created_at, stream_key);
+      res.status(201).json({ id, campusId: churchId, name, description, createdAt: created_at, streamKey: stream_key });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
     }

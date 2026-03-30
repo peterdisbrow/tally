@@ -2687,9 +2687,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Memory summary for engineer page
         var memEl = document.getElementById('engineer-memory-summary');
         if (memEl) memEl.value = d.memory_summary || '';
-        // Ingest key for equipment page
-        var ikEl = document.getElementById('eq-ingest-key');
-        if (ikEl && d.ingest_stream_key) ikEl.textContent = d.ingest_stream_key;
+        // Per-room stream keys for equipment page
+        loadRoomStreamKeys();
 
         // TD session — scope sidebar & show indicator
         if (d.isTd) {
@@ -2699,6 +2698,33 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       } catch(e) { toast('Failed to load profile', true); }
     }
     loadProfile();
+
+    /** Load per-room stream keys into the equipment page */
+    async function loadRoomStreamKeys() {
+      var container = document.getElementById('eq-room-stream-keys');
+      if (!container) return;
+      try {
+        var data = await api('GET', '/api/church/rooms');
+        var rooms = data.rooms || [];
+        if (!rooms.length) {
+          container.innerHTML = '<span style="color:#475569;font-size:13px">No rooms yet. Create a room first.</span>';
+          return;
+        }
+        container.innerHTML = '';
+        rooms.forEach(function(r) {
+          var row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid #1E293B';
+          row.innerHTML =
+            '<span style="font-size:13px;color:#CBD5E1;min-width:120px;font-weight:500">' + escapeHtml(r.name) + '</span>' +
+            '<code id="room-key-' + r.id + '" style="font-size:13px;color:#22c55e;padding:6px 10px;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;letter-spacing:0.5px;flex:1;min-width:180px;overflow:hidden;text-overflow:ellipsis">' + (r.streamKey || '—') + '</code>' +
+            '<button class="btn-secondary" data-action="copyRoomKey" data-room-id="' + r.id + '" style="font-size:11px;white-space:nowrap;padding:4px 8px">Copy</button>' +
+            '<button class="btn-secondary" data-action="regenRoomKey" data-room-id="' + r.id + '" style="font-size:11px;white-space:nowrap;padding:4px 8px">Regenerate</button>';
+          container.appendChild(row);
+        });
+      } catch(e) {
+        container.innerHTML = '<span style="color:#EF4444;font-size:13px">Failed to load room keys</span>';
+      }
+    }
 
     /**
      * Hide sidebar pages a TD cannot access and show the TD indicator.
@@ -6153,21 +6179,24 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'changePassword':
         if (typeof changePassword === 'function') changePassword();
         break;
-      case 'copyIngestKey':
+      case 'copyRoomKey':
         (function() {
-          var el = document.getElementById('eq-ingest-key');
+          var roomId = btn.getAttribute('data-room-id');
+          var el = document.getElementById('room-key-' + roomId);
           if (el && el.textContent && el.textContent !== '—') {
             navigator.clipboard.writeText(el.textContent).then(function() { toast('Copied to clipboard'); });
           }
         })();
         break;
-      case 'regenIngestKey':
+      case 'regenRoomKey':
         (async function() {
-          if (!confirm('Regenerate ingest key? The old key will stop working.')) return;
+          var roomId = btn.getAttribute('data-room-id');
+          if (!confirm('Regenerate this room\'s stream key? The old key will stop working.')) return;
           try {
-            var d = await api('POST', '/api/church/config/ingest-key/regenerate');
-            document.getElementById('eq-ingest-key').textContent = d.ingestStreamKey;
-            toast('Ingest key regenerated');
+            var d = await api('POST', '/api/church/rooms/' + roomId + '/stream-key/regenerate');
+            var el = document.getElementById('room-key-' + roomId);
+            if (el) el.textContent = d.streamKey;
+            toast('Stream key regenerated');
           } catch(e) { toast(e.message, true); }
         })();
         break;
