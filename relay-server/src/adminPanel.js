@@ -495,9 +495,9 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
       </div>
       <table id="alerts-table">
         <thead><tr>
-          <th>Time</th><th>Church</th><th>Type</th><th>Severity</th><th>Status</th><th>Actions</th>
+          <th>Time</th><th>Church</th><th>Room</th><th>Type</th><th>Severity</th><th>Status</th><th>Actions</th>
         </tr></thead>
-        <tbody id="alerts-tbody"><tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
+        <tbody id="alerts-tbody"><tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">Loading...</td></tr></tbody>
       </table>
     </div>
 
@@ -642,6 +642,9 @@ code{font-family:'Courier New',monospace;font-size:12px;background:rgba(255,255,
       <div class="stream-toolbar" style="display:flex;gap:12px;align-items:center;margin-bottom:20px;flex-wrap:wrap">
         <select id="stream-church-select" class="search-input" style="width:280px" onchange="onStreamChurchSelect()">
           <option value="">— Select a church —</option>
+        </select>
+        <select id="stream-room-select" class="search-input" style="width:200px;display:none" onchange="onStreamRoomSelect()">
+          <option value="">All Rooms</option>
         </select>
         <div id="stream-live-badge" style="display:none;background:#e53e3e;color:#fff;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;letter-spacing:0.5px;animation:pulse-live 1.5s ease-in-out infinite">LIVE</div>
         <div id="stream-offline-badge" style="display:none;background:var(--border);color:var(--muted);font-size:11px;font-weight:600;padding:3px 10px;border-radius:12px">OFFLINE</div>
@@ -1126,11 +1129,17 @@ function copyRegenToken() {
 }
 
 // ─── Church Detail Panel ──────────────────────────────────────────────────────
+let detailSupportView = null; // cached support-view data for room filtering
+let detailChurchId = null;
+let detailSelectedRoom = ''; // '' = all rooms
+
 async function openDetail(id) {
   const c = allChurches.find(x => x.churchId === id);
   if (!c) return;
   const reseller = allResellers.find(r => r.id === c.reseller_id);
 
+  detailChurchId = id;
+  detailSelectedRoom = '';
   document.getElementById('detail-name').textContent = c.name;
   document.getElementById('detail-content').innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Loading...</div>';
   document.getElementById('church-detail').classList.add('open');
@@ -1142,6 +1151,30 @@ async function openDetail(id) {
     sv = await r.json();
   } catch { sv = {}; }
 
+  detailSupportView = sv;
+  renderDetailPanel(c, reseller);
+}
+
+function onDetailRoomChange() {
+  detailSelectedRoom = document.getElementById('detail-room-select')?.value || '';
+  const c = allChurches.find(x => x.churchId === detailChurchId);
+  if (!c) return;
+  const reseller = allResellers.find(r => r.id === c.reseller_id);
+  renderDetailPanel(c, reseller);
+}
+
+function getDevicesForRoom(sv, roomId) {
+  if (!roomId) return (sv.status || {}).connectedDevices || {};
+  const roomInstanceMap = sv.roomInstanceMap || {};
+  const instanceName = roomInstanceMap[roomId];
+  if (!instanceName) return {};
+  const instData = (sv.instanceStatusMap || {})[instanceName];
+  if (!instData) return {};
+  return instData.connectedDevices || {};
+}
+
+function renderDetailPanel(c, reseller) {
+  const sv = detailSupportView || {};
   const ch = sv.church || {};
   const st = sv.status || {};
   const hs = sv.healthScore || { score: 100, trend: 'stable' };
@@ -1154,7 +1187,8 @@ async function openDetail(id) {
   const tickets = sv.recentTickets || [];
   const chat = sv.chatHistory || [];
   const tds = sv.tds || [];
-  const devs = st.connectedDevices || {};
+  const rooms = sv.rooms || [];
+  const devs = getDevicesForRoom(sv, detailSelectedRoom);
 
   function chip(label, ok) { return '<span class="detail-chip ' + (ok ? 'on' : 'off') + '">' + esc(label) + '</span>'; }
   function fmtDate(d) { return d ? new Date(d).toLocaleDateString() : '—'; }
@@ -1178,6 +1212,18 @@ async function openDetail(id) {
 
   let html = '';
 
+  // ── Room Selector (only for multi-room churches) ──
+  if (rooms.length >= 2) {
+    html += '<div style="margin-bottom:16px;display:flex;align-items:center;gap:10px">';
+    html += '<label style="font-size:12px;color:var(--muted);font-weight:500">Room:</label>';
+    html += '<select id="detail-room-select" class="search-input" style="width:200px;padding:6px 10px;font-size:13px" onchange="onDetailRoomChange()">';
+    html += '<option value="">All Rooms</option>';
+    rooms.forEach(function(rm) {
+      html += '<option value="' + esc(rm.id) + '"' + (detailSelectedRoom === rm.id ? ' selected' : '') + '>' + esc(rm.name) + '</option>';
+    });
+    html += '</select></div>';
+  }
+
   // ── Overview ──
   html += '<div class="detail-section"><div class="detail-section-title">Overview</div><div class="detail-grid">';
   html += '<div class="dg-label">Status</div><div class="dg-value">' + (st.online ? '<span class="status-dot status-online"></span>Online' : '<span class="status-dot status-offline"></span>Offline') + '</div>';
@@ -1194,6 +1240,7 @@ async function openDetail(id) {
   html += '<div class="dg-label">Timezone</div><div class="dg-value">' + esc(ch.timezone || '—') + '</div>';
   html += '<div class="dg-label">Registered</div><div class="dg-value">' + fmtTime(ch.registeredAt) + '</div>';
   html += '<div class="dg-label">Last Seen</div><div class="dg-value">' + fmtTime(st.lastHeartbeat) + '</div>';
+  if (rooms.length >= 2) html += '<div class="dg-label">Rooms</div><div class="dg-value">' + rooms.length + ' rooms</div>';
   html += '</div></div>';
 
   // ── Health ──
@@ -1201,13 +1248,13 @@ async function openDetail(id) {
   html += '<span class="health-badge ' + healthClass(hs.score) + '">' + hs.score + '/100</span> ';
   html += '<span style="font-size:12px;color:var(--muted)">Trend: ' + esc(hs.trend || 'stable') + '</span>';
   if (st.currentSession) {
-    html += '<div style="margin-top:8px;font-size:12px;color:var(--green)">Active session — ' + Math.floor(st.currentSession.duration / 60) + ' min</div>';
+    html += '<div style="margin-top:8px;font-size:12px;color:var(--green)">Active session ��� ' + Math.floor(st.currentSession.duration / 60) + ' min</div>';
   }
   if (st.streamActive) html += '<div style="font-size:12px;color:var(--green);margin-top:4px">Stream active</div>';
   html += '</div>';
 
-  // ── Devices ──
-  html += '<div class="detail-section"><div class="detail-section-title">Devices</div><div class="detail-chips">';
+  // ── Devices ��─
+  html += '<div class="detail-section"><div class="detail-section-title">Devices' + (detailSelectedRoom && rooms.length >= 2 ? ' <span style="font-size:10px;color:var(--dim);font-weight:400">(filtered by room)</span>' : '') + '</div><div class="detail-chips">';
   html += chip('ATEM', devs.atem) + chip('OBS', devs.obs) + chip('vMix', devs.vmix) + chip('Companion', devs.companion);
   if (devs.encoders?.length) devs.encoders.forEach(function(e) { html += chip(e.name || 'Encoder', true); });
   if (devs.mixers?.length) devs.mixers.forEach(function(m) { html += chip(m.name || 'Mixer', true); });
@@ -1294,10 +1341,11 @@ async function openDetail(id) {
   html += '</div>';
 
   // ── Actions ──
+  const detId = detailChurchId;
   html += '<div class="detail-actions">';
-  html += '<button class="btn-primary" onclick="openSendCommand(\\\'' + esc(id) + '\\\')">Send Command</button>';
-  html += '<button class="btn-secondary" onclick="openSendMessage(\\\'' + esc(id) + '\\\')">Send Message</button>';
-  html += '<button class="btn-secondary" onclick="openRegenToken(\\\'' + esc(id) + '\\\')">Regen Token</button>';
+  html += '<button class="btn-primary" onclick="openSendCommand(\\\'' + esc(detId) + '\\\')">Send Command</button>';
+  html += '<button class="btn-secondary" onclick="openSendMessage(\\\'' + esc(detId) + '\\\')">Send Message</button>';
+  html += '<button class="btn-secondary" onclick="openRegenToken(\\\'' + esc(detId) + '\\\')">Regen Token</button>';
   html += '</div>';
 
   document.getElementById('detail-content').innerHTML = html;
@@ -1512,7 +1560,7 @@ async function loadAlerts() {
     allAlerts = await r.json();
     renderAlerts();
   } catch(e) {
-    document.getElementById('alerts-tbody').innerHTML = '<tr><td colspan="6" style="color:var(--red);text-align:center;padding:24px">Failed to load alerts</td></tr>';
+    document.getElementById('alerts-tbody').innerHTML = '<tr><td colspan="7" style="color:var(--red);text-align:center;padding:24px">Failed to load alerts</td></tr>';
   }
 }
 
@@ -1521,10 +1569,10 @@ function renderAlerts() {
   let list = allAlerts;
   if (alertFilter !== 'all') list = list.filter(a => (a.severity||'info') === alertFilter);
   if (alertAckFilter === 'unack') list = list.filter(a => !a.acknowledged_at);
-  if (search) list = list.filter(a => (a.church_name||'').toLowerCase().includes(search));
+  if (search) list = list.filter(a => (a.church_name||'').toLowerCase().includes(search) || (a.instance_name||'').toLowerCase().includes(search));
   const tbody = document.getElementById('alerts-tbody');
   if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">No alerts found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">No alerts found</td></tr>';
     return;
   }
   tbody.innerHTML = list.map(a => {
@@ -1532,9 +1580,11 @@ function renderAlerts() {
     const time = new Date(a.created_at).toLocaleString();
     const acked = a.acknowledged_at ? '<span class="badge badge-gray">Acknowledged</span>' : '<span class="badge badge-red">Active</span>';
     const ackBtn = a.acknowledged_at ? '' : \`<button class="btn-sm" onclick="acknowledgeAlert('\${a.id}')">Acknowledge</button>\`;
+    const roomName = a.instance_name ? a.instance_name.split('::')[0] : '';
     return \`<tr>
       <td>\${time}</td>
       <td>\${esc(a.church_name||'Unknown')}</td>
+      <td style="color:var(--muted);font-size:12px">\${roomName ? esc(roomName) : '—'}</td>
       <td>\${esc(a.alert_type||a.type||'—')}</td>
       <td><span class="badge badge-\${sevClass}">\${esc(a.severity||'info')}</span></td>
       <td>\${acked}</td>
@@ -2151,6 +2201,10 @@ let streamHls = null;
 let streamChurchId = null;
 let streamKeyData = null;
 let streamChurchStatus = {}; // churchId → latest status from SSE
+let streamSelectedRoom = ''; // '' = all rooms
+let streamRooms = []; // rooms for selected church
+let streamRoomInstanceMap = {}; // roomId → instanceName
+let streamInstanceStatusMap = {}; // instanceName → status
 
 async function loadStreamPreview() {
   // Populate church selector
@@ -2194,9 +2248,15 @@ async function loadStreamPreview() {
 async function onStreamChurchSelect() {
   const sel = document.getElementById('stream-church-select');
   const churchId = sel.value;
+  const roomSel = document.getElementById('stream-room-select');
 
   // Cleanup previous HLS player
   destroyStreamPlayer();
+  streamSelectedRoom = '';
+  streamRooms = [];
+  streamRoomInstanceMap = {};
+  streamInstanceStatusMap = {};
+  roomSel.style.display = 'none';
 
   if (!churchId) {
     streamChurchId = null;
@@ -2211,10 +2271,31 @@ async function onStreamChurchSelect() {
   streamChurchId = churchId;
   document.getElementById('stream-status-panel').style.display = '';
 
+  // Fetch rooms for this church
+  try {
+    const rr = await fetch('/api/admin/church/' + encodeURIComponent(churchId) + '/rooms');
+    if (rr.ok) {
+      const rd = await rr.json();
+      streamRooms = rd.rooms || [];
+      streamRoomInstanceMap = rd.roomInstanceMap || {};
+      if (streamRooms.length >= 2) {
+        roomSel.innerHTML = '<option value="">All Rooms</option>' + streamRooms.map(function(rm) {
+          return '<option value="' + esc(rm.id) + '">' + esc(rm.name) + '</option>';
+        }).join('');
+        roomSel.style.display = '';
+      }
+    }
+  } catch { /* rooms endpoint may not be available */ }
+
   // Load stream key + status
   await refreshStreamState(churchId);
   // Render equipment status from SSE data
   renderStreamEquipmentStatus(churchId);
+}
+
+function onStreamRoomSelect() {
+  streamSelectedRoom = document.getElementById('stream-room-select').value;
+  if (streamChurchId) renderStreamEquipmentStatus(streamChurchId);
 }
 
 async function refreshStreamState(churchId) {
@@ -2342,9 +2423,29 @@ async function renderStreamEquipmentStatus(churchId) {
     if (!r.ok) throw new Error('Failed');
     const data = await r.json();
 
-    const st = data.status || {};
-    const devices = st.connectedDevices || {};
-    const online = st.online;
+    // Cache instance data for room switching without re-fetching
+    streamInstanceStatusMap = data.instanceStatusMap || {};
+    if (data.roomInstanceMap) streamRoomInstanceMap = data.roomInstanceMap;
+
+    let st = data.status || {};
+    let devices = st.connectedDevices || {};
+    let online = st.online;
+    let streamActive = st.streamActive;
+
+    // If a specific room is selected, use that room's instance status
+    if (streamSelectedRoom && streamRoomInstanceMap[streamSelectedRoom]) {
+      const instName = streamRoomInstanceMap[streamSelectedRoom];
+      const instData = streamInstanceStatusMap[instName];
+      if (instData) {
+        devices = instData.connectedDevices || {};
+        online = instData.online;
+        streamActive = instData.streamActive;
+      } else {
+        devices = {};
+        online = false;
+        streamActive = false;
+      }
+    }
 
     // Equipment list
     const items = [];
@@ -2376,14 +2477,15 @@ async function renderStreamEquipmentStatus(churchId) {
       vhs.forEach(h => items.push(dot(h.connected) + 'VideoHub' + (h.name ? ' (' + h.name + ')' : '')));
     }
 
-    eqEl.innerHTML = items.length ? items.map(i => '<div style="padding:4px 0">' + i + '</div>').join('') : '<div style="color:var(--muted);padding:8px 0;text-align:center">No equipment detected</div>';
+    const roomLabel = streamSelectedRoom ? ' <span style="font-size:10px;color:var(--dim)">(filtered)</span>' : '';
+    eqEl.innerHTML = items.length ? items.map(i => '<div style="padding:4px 0">' + i + '</div>').join('') : '<div style="color:var(--muted);padding:8px 0;text-align:center">No equipment detected' + roomLabel + '</div>';
 
     // Tally indicators — not available from support-view (would need raw WebSocket status)
     tallyEl.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0">Tally data available when streaming</div>';
 
     // Stream meta
     const meta = [];
-    if (st.streamActive !== undefined) meta.push('Stream Active: ' + (st.streamActive ? 'Yes' : 'No'));
+    if (streamActive !== undefined) meta.push('Stream Active: ' + (streamActive ? 'Yes' : 'No'));
     if (st.currentSession) {
       meta.push('Session: Active');
       if (st.currentSession.duration) {
@@ -3539,6 +3641,38 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       tds = db.prepare('SELECT id, name, email, access_level, created_at FROM church_tds WHERE church_id = ?').all(churchId);
     } catch { /* table may not exist */ }
 
+    // ── Rooms + per-instance status ──
+    let rooms = [];
+    try {
+      rooms = db.prepare(
+        'SELECT id, name FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name'
+      ).all(churchId);
+    } catch { /* rooms table may not exist */ }
+
+    // Build per-instance status map for multi-room support
+    const instanceStatusMap = {};
+    if (runtime?.instanceStatus) {
+      for (const [instName, instStatus] of Object.entries(runtime.instanceStatus)) {
+        instanceStatusMap[instName] = {
+          online: true,
+          connectedDevices: {
+            atem: !!instStatus.atem?.connected,
+            obs: !!instStatus.obs?.connected,
+            vmix: !!instStatus.vmix?.connected,
+            companion: !!instStatus.companion?.connected,
+            encoders: Array.isArray(instStatus.encoders) ? instStatus.encoders : [],
+            mixers: Array.isArray(instStatus.mixers) ? instStatus.mixers : [],
+            ptz: Array.isArray(instStatus.ptz) ? instStatus.ptz : [],
+            hyperdecks: Array.isArray(instStatus.hyperdecks) ? instStatus.hyperdecks : [],
+            videoHubs: Array.isArray(instStatus.videoHubs) ? instStatus.videoHubs : [],
+          },
+          streamActive: !!instStatus.streaming || !!instStatus.obs?.streaming,
+        };
+      }
+    }
+
+    const roomInstanceMap = runtime?.roomInstanceMap || {};
+
     res.json({
       church,
       status,
@@ -3553,7 +3687,25 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       chatHistory,
       config,
       tds,
+      rooms,
+      instanceStatusMap,
+      roomInstanceMap,
     });
+  });
+
+  // GET /api/admin/church/:churchId/rooms
+  // Returns rooms for a church plus runtime instance mapping.
+  app.get('/api/admin/church/:churchId/rooms', requireAdminSession, (req, res) => {
+    const { churchId } = req.params;
+    let rooms = [];
+    try {
+      rooms = db.prepare(
+        'SELECT id, name FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name'
+      ).all(churchId);
+    } catch { /* rooms table may not exist */ }
+    const runtime = churches.get(churchId);
+    const roomInstanceMap = runtime?.roomInstanceMap || {};
+    res.json({ rooms, roomInstanceMap });
   });
 
   // POST /api/admin/church/:churchId/send-command
