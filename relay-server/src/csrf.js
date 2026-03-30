@@ -57,6 +57,9 @@ function csrfMiddleware(req, res, next) {
   if (SAFE_METHODS.has(req.method)) return next();
   if (CSRF_EXEMPT.has(req.path)) return next();
 
+  // Admin SPA uses JWT auth (Authorization header), not cookies — no CSRF risk.
+  if (req.path.startsWith('/api/admin/')) return next();
+
   // Only enforce when the request carries a browser session cookie.
   const hasSessionCookie = SESSION_COOKIES.some(name => req.cookies && req.cookies[name]);
   if (!hasSessionCookie) return next();
