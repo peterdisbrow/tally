@@ -478,12 +478,27 @@ function createWebSocketHandlers({
       }
 
       case 'alert': {
+        // Resolve sender instance so alert handlers can scope per-room
+        let alertInstance = null;
+        let alertRoomId = null;
+        if (church.sockets?.size) {
+          for (const [inst, sock] of church.sockets.entries()) {
+            if (sock === senderWs) { alertInstance = inst; break; }
+          }
+        }
+        if (alertInstance && church.roomInstanceMap) {
+          for (const [rid, inst] of Object.entries(church.roomInstanceMap)) {
+            if (inst === alertInstance) { alertRoomId = rid; break; }
+          }
+        }
         const alertEvent = {
           type:      'alert',
           churchId:  church.churchId,
           name:      church.name,
           severity:  msg.severity || 'warning',
           message:   msg.message,
+          instance:  alertInstance,
+          roomId:    alertRoomId,
           timestamp: church.lastSeen,
         };
         broadcastToControllers(alertEvent);
@@ -569,9 +584,23 @@ function createWebSocketHandlers({
       case 'propresenter_slide_change':
       case 'chat':
       case 'preview_frame':
-      case 'smart_plug_result':
-        onChurchMessage(church, msg);
+      case 'smart_plug_result': {
+        // Resolve sender instance so subsystems can scope per-room
+        let msgInstance = null;
+        let msgRoomId = null;
+        if (church.sockets?.size) {
+          for (const [inst, sock] of church.sockets.entries()) {
+            if (sock === senderWs) { msgInstance = inst; break; }
+          }
+        }
+        if (msgInstance && church.roomInstanceMap) {
+          for (const [rid, inst] of Object.entries(church.roomInstanceMap)) {
+            if (inst === msgInstance) { msgRoomId = rid; break; }
+          }
+        }
+        onChurchMessage(church, { ...msg, _instance: msgInstance, _roomId: msgRoomId });
         break;
+      }
 
       default:
         // Forward unknown types to all controllers, tagged with church identity

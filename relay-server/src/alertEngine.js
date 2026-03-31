@@ -305,6 +305,9 @@ class AlertEngine {
     // Migration: add instance_name for room-based filtering
     try { this.db.prepare('SELECT instance_name FROM alerts LIMIT 1').get(); }
     catch { try { this.db.exec('ALTER TABLE alerts ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
+    // Migration: add room_id for multi-room scoping
+    try { this.db.prepare('SELECT room_id FROM alerts LIMIT 1').get(); }
+    catch { try { this.db.exec('ALTER TABLE alerts ADD COLUMN room_id TEXT'); } catch { /* already exists */ } }
   }
 
   classifyAlert(alertType, context) {
@@ -444,10 +447,14 @@ class AlertEngine {
       ...(recoveryResult ? { recovery: recoveryResult } : {}),
     };
 
-    // Log to DB (with optional session_id for timeline linking)
+    // Extract room/instance context (from church runtime or context)
+    const instanceName = context._instanceName || church._alertInstanceName || null;
+    const roomId = context._roomId || church._alertRoomId || church.room_id || null;
+
+    // Log to DB (with optional session_id for timeline linking, plus room/instance)
     this.db.prepare(
-      'INSERT INTO alerts (id, church_id, alert_type, severity, context, created_at, session_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(alertId, church.churchId, alertType, severity, JSON.stringify(enrichedContext), now, sessionId);
+      'INSERT INTO alerts (id, church_id, alert_type, severity, context, created_at, session_id, instance_name, room_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(alertId, church.churchId, alertType, severity, JSON.stringify(enrichedContext), now, sessionId, instanceName, roomId);
 
     const ts = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     console.log(`[${now}] ALERT [${severity}] ${church.name}: ${alertType}`);

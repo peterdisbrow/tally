@@ -154,7 +154,8 @@ describe('Signal Failover E2E — Full Round-Trip', () => {
     expect(autoRecovery.dispatchCommand).toHaveBeenCalledWith(
       expect.objectContaining({ churchId: 'church-e2e' }),
       'atem.cut',
-      { input: 3010 }
+      { input: 3010 },
+      null
     );
 
     // ── Step 6: Telegram alert sent for failover execution ──
@@ -232,7 +233,8 @@ describe('Signal Failover E2E — Full Round-Trip', () => {
     expect(autoRecovery.dispatchCommand).toHaveBeenCalledWith(
       expect.anything(),
       'atem.cut',
-      { input: 3010 }
+      { input: 3010 },
+      null
     );
   });
 

@@ -316,6 +316,7 @@ describe('SignalFailover sends alerts via AlertEngine on state transitions', () 
       expect.anything(),
       'atem.cut',
       expect.objectContaining({ input: 3010 }),
+      null,
     );
     expect(failover.getState('ch1').state).toBe(STATES.FAILOVER_ACTIVE);
   });

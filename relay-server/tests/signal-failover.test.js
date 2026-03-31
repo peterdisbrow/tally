@@ -175,7 +175,7 @@ describe('SignalFailover', () => {
     await vi.advanceTimersByTimeAsync(10000);
     expect(failover.getState('church-1').state).toBe(STATES.FAILOVER_ACTIVE);
     expect(autoRecovery.dispatchCommand).toHaveBeenCalledWith(
-      church, 'atem.cut', { input: 3010 }
+      church, 'atem.cut', { input: 3010 }, null
     );
   });
 
@@ -284,7 +284,8 @@ describe('SignalFailover', () => {
     expect(autoRecovery.dispatchCommand).toHaveBeenCalledWith(
       expect.anything(),
       'atem.cut',
-      { input: 3010 }
+      { input: 3010 },
+      null
     );
   });
 
@@ -366,7 +367,8 @@ describe('SignalFailover', () => {
     expect(autoRecovery.dispatchCommand).toHaveBeenCalledWith(
       expect.anything(),
       'videohub.route',
-      { output: 0, input: 5, hubIndex: 0 }
+      { output: 0, input: 5, hubIndex: 0 },
+      null
     );
   });
 

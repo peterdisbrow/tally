@@ -50,8 +50,13 @@ class SignalFailover {
     this.alertEngine = alertEngine;
     this.autoRecovery = autoRecovery;
     this.db = db;
-    this._states = new Map(); // churchId → per-church failover state
-    this._transitionListeners = []; // fn(churchId, from, to, trigger, snapshot) — fire-and-forget
+    this._states = new Map(); // compositeKey (churchId::instanceName) → per-instance failover state
+    this._transitionListeners = []; // fn(churchId, from, to, trigger, snapshot, instanceName) — fire-and-forget
+  }
+
+  /** Build composite key for per-instance state. Falls back to churchId for single-room. */
+  _compositeKey(churchId, instanceName) {
+    return instanceName ? `${churchId}::${instanceName}` : churchId;
   }
 
   // ─── Per-church config from DB ──────────────────────────────────────────────
@@ -85,9 +90,10 @@ class SignalFailover {
 
   // ─── Per-church state management ────────────────────────────────────────────
 
-  _getState(churchId) {
-    if (!this._states.has(churchId)) {
-      this._states.set(churchId, {
+  _getState(churchId, instanceName) {
+    const key = this._compositeKey(churchId, instanceName);
+    if (!this._states.has(key)) {
+      this._states.set(key, {
         state: STATES.HEALTHY,
         blackTimer: null,
         ackTimer: null,
@@ -101,13 +107,14 @@ class SignalFailover {
         failoverAlertId: null,
         diagnosis: null,           // { type, confidence, signals } — current failure diagnosis
         stateLog: [],
+        instanceName: instanceName || null,  // track which instance this state belongs to
       });
     }
-    return this._states.get(churchId);
+    return this._states.get(key);
   }
 
-  _resetState(churchId) {
-    const s = this._getState(churchId);
+  _resetState(churchId, instanceName) {
+    const s = this._getState(churchId, instanceName);
     if (s.blackTimer) clearTimeout(s.blackTimer);
     if (s.ackTimer) clearTimeout(s.ackTimer);
     if (s.stabilityTimer) clearTimeout(s.stabilityTimer);
@@ -226,43 +233,44 @@ class SignalFailover {
    * Handle a signal event from the church client.
    * @param {string} churchId
    * @param {string} signal — signal type
-   * @param {object} data — { bitrateKbps, baselineKbps, church, durationSec }
+   * @param {object} data — { bitrateKbps, baselineKbps, church, durationSec, instanceName, roomId }
    */
   onSignalEvent(churchId, signal, data) {
     const config = this._getConfig(churchId);
     if (!config) return; // failover not enabled or not configured
 
-    const s = this._getState(churchId);
+    const instanceName = data.instanceName || null;
+    const s = this._getState(churchId, instanceName);
     const church = data.church || this.churches.get(churchId);
     if (!church) return;
 
     switch (signal) {
       case 'encoder_bitrate_loss':
-        this._onEncoderLoss(churchId, s, config, church, data);
+        this._onEncoderLoss(churchId, s, config, church, data, instanceName);
         break;
       case 'encoder_bitrate_recovered':
-        this._onEncoderRecovered(churchId, s, config, church, data);
+        this._onEncoderRecovered(churchId, s, config, church, data, instanceName);
         break;
       case 'encoder_disconnected':
-        this._onEncoderDisconnected(churchId, s, config, church, data);
+        this._onEncoderDisconnected(churchId, s, config, church, data, instanceName);
         break;
       case 'atem_lost':
-        this._onAtemLost(churchId, s, config, church, data);
+        this._onAtemLost(churchId, s, config, church, data, instanceName);
         break;
       case 'atem_restored':
-        this._onAtemRestored(churchId, s, config, church);
+        this._onAtemRestored(churchId, s, config, church, instanceName);
         break;
       case 'audio_silence_sustained':
-        this._onAudioSilence(churchId, s, config, church, data);
+        this._onAudioSilence(churchId, s, config, church, data, instanceName);
         break;
       case 'audio_silence_cleared':
-        this._onAudioSilenceCleared(churchId, s, config, church);
+        this._onAudioSilenceCleared(churchId, s, config, church, instanceName);
         break;
       case 'backup_encoder_failed':
-        this._onBackupEncoderFailed(churchId, s, config, church, data);
+        this._onBackupEncoderFailed(churchId, s, config, church, data, instanceName);
         break;
       case 'backup_encoder_available':
-        this._onBackupEncoderAvailable(churchId, s, config, church);
+        this._onBackupEncoderAvailable(churchId, s, config, church, instanceName);
         break;
     }
   }
@@ -271,14 +279,14 @@ class SignalFailover {
    * Feed regular status updates for secondary bitrate monitoring.
    * Called from server.js on every status_update message.
    */
-  onStatusUpdate(churchId, status) {
+  onStatusUpdate(churchId, status, instanceName) {
     const config = this._getConfig(churchId);
     if (!config) return;
 
     // Update bitrate baseline from regular polls
     const bitrateKbps = status?.encoder?.bitrateKbps || status?.atem?.streamingBitrate / 1000 || 0;
     if (bitrateKbps > 500) {
-      const s = this._getState(churchId);
+      const s = this._getState(churchId, instanceName);
       s.bitrateSamples.push(bitrateKbps);
       if (s.bitrateSamples.length > 10) s.bitrateSamples.shift();
       if (s.bitrateSamples.length >= DEFAULTS.baselineSamples && !s.bitrateBaseline) {
@@ -291,21 +299,21 @@ class SignalFailover {
    * Reset bitrate baseline when a stream session ends.
    * Called when encoder goes from live → not live.
    */
-  resetBaseline(churchId) {
-    const s = this._getState(churchId);
+  resetBaseline(churchId, instanceName) {
+    const s = this._getState(churchId, instanceName);
     s.bitrateBaseline = null;
     s.bitrateSamples = [];
     s.bitrateInLoss = false;
     // Also reset the full state on stream end
     if (s.state !== STATES.HEALTHY) {
-      this._logTransition(churchId, s.state, STATES.HEALTHY, 'stream_ended');
-      this._resetState(churchId);
+      this._logTransition(churchId, s.state, STATES.HEALTHY, 'stream_ended', instanceName);
+      this._resetState(churchId, instanceName);
     }
   }
 
   // ─── State Transition Handlers ──────────────────────────────────────────────
 
-  _onEncoderLoss(churchId, s, config, church, data) {
+  _onEncoderLoss(churchId, s, config, church, data, instanceName) {
     switch (s.state) {
       case STATES.HEALTHY: {
         // Diagnose before acting — like a real engineer, check all signals
@@ -315,13 +323,13 @@ class SignalFailover {
         // Audio silence + encoder loss = cascading → skip timer, escalate fast
         if (diagnosis.type === 'cascading') {
           s.outageStartedAt = Date.now();
-          this._logTransition(churchId, STATES.HEALTHY, STATES.CONFIRMED_OUTAGE, 'cascading_failure');
-          this._escalateToConfirmed(churchId, s, config, church, 'cascading_failure');
+          this._logTransition(churchId, STATES.HEALTHY, STATES.CONFIRMED_OUTAGE, 'cascading_failure', instanceName);
+          this._escalateToConfirmed(churchId, s, config, church, 'cascading_failure', instanceName);
           return;
         }
 
         // Start suspected black timer
-        this._logTransition(churchId, STATES.HEALTHY, STATES.SUSPECTED_BLACK, 'encoder_bitrate_loss');
+        this._logTransition(churchId, STATES.HEALTHY, STATES.SUSPECTED_BLACK, 'encoder_bitrate_loss', instanceName);
         s.state = STATES.SUSPECTED_BLACK;
         s.outageStartedAt = Date.now();
 
@@ -333,11 +341,11 @@ class SignalFailover {
             s.diagnosis = freshDiagnosis;
 
             if (freshDiagnosis.switchWillHelp) {
-              this._escalateToConfirmed(churchId, s, config, church, 'black_timeout');
+              this._escalateToConfirmed(churchId, s, config, church, 'black_timeout', instanceName);
             } else {
               // Network outage — switching won't help, alert TD instead
-              this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.CONFIRMED_OUTAGE, 'black_timeout_no_switch');
-              this._escalateToConfirmed(churchId, s, config, church, 'black_timeout_network_issue');
+              this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.CONFIRMED_OUTAGE, 'black_timeout_no_switch', instanceName);
+              this._escalateToConfirmed(churchId, s, config, church, 'black_timeout_network_issue', instanceName);
             }
           }
         }, config.blackThresholdS * 1000);
@@ -347,8 +355,8 @@ class SignalFailover {
       case STATES.ATEM_LOST: {
         // ATEM already lost + encoder drops = correlated failure, skip timer
         s.diagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true, atemLost: true });
-        this._logTransition(churchId, STATES.ATEM_LOST, STATES.CONFIRMED_OUTAGE, 'correlated_loss');
-        this._escalateToConfirmed(churchId, s, config, church, 'correlated_atem_and_encoder');
+        this._logTransition(churchId, STATES.ATEM_LOST, STATES.CONFIRMED_OUTAGE, 'correlated_loss', instanceName);
+        this._escalateToConfirmed(churchId, s, config, church, 'correlated_atem_and_encoder', instanceName);
         break;
       }
       // In other states (SUSPECTED_BLACK, CONFIRMED, FAILOVER) — no change needed
@@ -360,7 +368,7 @@ class SignalFailover {
    * This is more severe than bitrate loss — skip the SUSPECTED_BLACK timer
    * and go straight to CONFIRMED_OUTAGE since the device is unreachable.
    */
-  _onEncoderDisconnected(churchId, s, config, church, data) {
+  _onEncoderDisconnected(churchId, s, config, church, data, instanceName) {
     switch (s.state) {
       case STATES.HEALTHY:
       case STATES.ATEM_LOST: {
@@ -373,8 +381,8 @@ class SignalFailover {
         s.outageStartedAt = s.outageStartedAt || Date.now();
 
         const fromState = s.state;
-        this._logTransition(churchId, fromState, STATES.CONFIRMED_OUTAGE, 'encoder_disconnected');
-        this._escalateToConfirmed(churchId, s, config, church, 'encoder_disconnected');
+        this._logTransition(churchId, fromState, STATES.CONFIRMED_OUTAGE, 'encoder_disconnected', instanceName);
+        this._escalateToConfirmed(churchId, s, config, church, 'encoder_disconnected', instanceName);
         break;
       }
 
@@ -382,15 +390,15 @@ class SignalFailover {
         // Already suspected — encoder disconnect confirms it, skip remaining timer
         if (s.blackTimer) { clearTimeout(s.blackTimer); s.blackTimer = null; }
         s.diagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true });
-        this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.CONFIRMED_OUTAGE, 'encoder_disconnected_during_black');
-        this._escalateToConfirmed(churchId, s, config, church, 'encoder_disconnected_confirmed');
+        this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.CONFIRMED_OUTAGE, 'encoder_disconnected_during_black', instanceName);
+        this._escalateToConfirmed(churchId, s, config, church, 'encoder_disconnected_confirmed', instanceName);
         break;
       }
       // In CONFIRMED_OUTAGE or FAILOVER_ACTIVE — already handling, no change needed
     }
   }
 
-  _onEncoderRecovered(churchId, s, config, church, data) {
+  _onEncoderRecovered(churchId, s, config, church, data, instanceName) {
     switch (s.state) {
       case STATES.SUSPECTED_BLACK: {
         // Check if this is a strong recovery (>80% of baseline) or a weak bounce
@@ -401,14 +409,14 @@ class SignalFailover {
         if (ratio >= DEFAULTS.strongRecoverRatio) {
           // Strong recovery — genuinely back, cancel the confirmation timer
           if (s.blackTimer) { clearTimeout(s.blackTimer); s.blackTimer = null; }
-          this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.HEALTHY, 'encoder_recovered');
+          this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.HEALTHY, 'encoder_recovered', instanceName);
           s.state = STATES.HEALTHY;
           s.outageStartedAt = null;
           s.diagnosis = null;
         } else {
           // Weak recovery (50-80%) — stream is still degraded, let the timer keep running
-          console.log(`[SignalFailover] Weak recovery for ${churchId}: ${recoveredKbps} kbps (${Math.round(ratio * 100)}% of baseline ${Math.round(baseline)} kbps) — confirmation timer continues`);
-          this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.SUSPECTED_BLACK, 'weak_recovery_ignored');
+          console.log(`[SignalFailover] Weak recovery for ${churchId}${instanceName ? `:${instanceName}` : ''}: ${recoveredKbps} kbps (${Math.round(ratio * 100)}% of baseline ${Math.round(baseline)} kbps) — confirmation timer continues`);
+          this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.SUSPECTED_BLACK, 'weak_recovery_ignored', instanceName);
         }
         break;
       }
@@ -424,9 +432,10 @@ class SignalFailover {
           this._sendAlert(church, 'failover_source_recovering_auto',
             `✅ *Source Looks Like It's Back* — ${church.name}\n` +
             `Outage lasted about ${elapsed}s.\n` +
-            `Watching for 10 seconds to make sure it's stable before switching back...`
+            `Watching for 10 seconds to make sure it's stable before switching back...`,
+            instanceName
           );
-          this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'source_recovering_auto');
+          this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'source_recovering_auto', instanceName);
 
           s.stabilityTimer = setTimeout(() => {
             s.stabilityTimer = null;
@@ -435,7 +444,7 @@ class SignalFailover {
             if (s.state === STATES.FAILOVER_ACTIVE && currentChurch && this._isEncoderHealthy(currentChurch)) {
               // Source stayed healthy for 10s — auto-recover
               const currentConfig = this._getConfig(churchId);
-              if (currentConfig) this._autoRecover(churchId, s, currentConfig, currentChurch);
+              if (currentConfig) this._autoRecover(churchId, s, currentConfig, currentChurch, instanceName);
             }
           }, DEFAULTS.stabilityTimerS * 1000);
         } else {
@@ -444,16 +453,17 @@ class SignalFailover {
             `✅ *Looks Like It's Back* — ${church.name}\n` +
             `The video source seems to be working again.\n` +
             `Outage lasted about ${elapsed}s.\n\n` +
-            `When you're ready, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back to the main source.`
+            `When you're ready, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back to the main source.`,
+            instanceName
           );
-          this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'source_recovering');
+          this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'source_recovering', instanceName);
         }
         break;
       }
     }
   }
 
-  _onAtemLost(churchId, s, config, church, data) {
+  _onAtemLost(churchId, s, config, church, data, instanceName) {
     switch (s.state) {
       case STATES.HEALTHY: {
         // Check if encoder is also in loss (simultaneous)
@@ -462,21 +472,22 @@ class SignalFailover {
           // ATEM-only loss — network issue, alert but don't switch
           s.diagnosis = { type: 'atem_only', confidence: 0.8, signals: ['atem_disconnected'], switchWillHelp: false,
             message: 'Lost connection to the switcher but the stream is still going' };
-          this._logTransition(churchId, STATES.HEALTHY, STATES.ATEM_LOST, 'atem_lost');
+          this._logTransition(churchId, STATES.HEALTHY, STATES.ATEM_LOST, 'atem_lost', instanceName);
           s.state = STATES.ATEM_LOST;
           s.outageStartedAt = Date.now();
           this._sendAlert(church, 'failover_atem_lost',
             `⚠️ *Lost Connection to the Switcher* — ${church.name}\n` +
             `Tally can't reach the ATEM, but the stream is still going.\n` +
             `This is usually a network issue.\n\n` +
-            `Check the network cable at the booth.`
+            `Check the network cable at the booth.`,
+            instanceName
           );
         } else {
           // Simultaneous loss — diagnose and skip timer
           s.outageStartedAt = Date.now();
           s.diagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true, atemLost: true });
-          this._logTransition(churchId, STATES.HEALTHY, STATES.CONFIRMED_OUTAGE, 'simultaneous_loss');
-          this._escalateToConfirmed(churchId, s, config, church, 'simultaneous_atem_and_encoder');
+          this._logTransition(churchId, STATES.HEALTHY, STATES.CONFIRMED_OUTAGE, 'simultaneous_loss', instanceName);
+          this._escalateToConfirmed(churchId, s, config, church, 'simultaneous_atem_and_encoder', instanceName);
         }
         break;
       }
@@ -485,17 +496,17 @@ class SignalFailover {
         // Already suspected black + ATEM drops = correlated, skip remaining timer
         if (s.blackTimer) { clearTimeout(s.blackTimer); s.blackTimer = null; }
         s.diagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true, atemLost: true });
-        this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.CONFIRMED_OUTAGE, 'atem_lost_during_black');
-        this._escalateToConfirmed(churchId, s, config, church, 'correlated_atem_during_black');
+        this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.CONFIRMED_OUTAGE, 'atem_lost_during_black', instanceName);
+        this._escalateToConfirmed(churchId, s, config, church, 'correlated_atem_during_black', instanceName);
         break;
       }
     }
   }
 
-  _onAtemRestored(churchId, s, config, church) {
+  _onAtemRestored(churchId, s, config, church, instanceName) {
     switch (s.state) {
       case STATES.ATEM_LOST: {
-        this._logTransition(churchId, STATES.ATEM_LOST, STATES.HEALTHY, 'atem_restored');
+        this._logTransition(churchId, STATES.ATEM_LOST, STATES.HEALTHY, 'atem_restored', instanceName);
         s.state = STATES.HEALTHY;
         s.outageStartedAt = null;
         s.diagnosis = null;
@@ -507,7 +518,7 @@ class SignalFailover {
 
   // ─── Audio Silence Handlers ─────────────────────────────────────────────────
 
-  _onAudioSilence(churchId, s, config, church, data) {
+  _onAudioSilence(churchId, s, config, church, data, instanceName) {
     s.audioSilence = true;
 
     // Only act on audio if this church opted in
@@ -522,7 +533,8 @@ class SignalFailover {
           this._sendAlert(church, 'failover_audio_silence',
             `🔇 *Audio Went Silent* — ${church.name}\n` +
             `No audio detected for ${data.durationSec || 30}+ seconds.\n` +
-            `Video looks fine — check the mic and mixer levels.`
+            `Video looks fine — check the mic and mixer levels.`,
+            instanceName
           );
         }
         break;
@@ -532,14 +544,14 @@ class SignalFailover {
         // Encoder already suspected + audio dies = cascading, escalate immediately
         if (s.blackTimer) { clearTimeout(s.blackTimer); s.blackTimer = null; }
         s.diagnosis = this._diagnoseFailure(churchId, church, { encoderLost: true });
-        this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.CONFIRMED_OUTAGE, 'audio_silence_during_black');
-        this._escalateToConfirmed(churchId, s, config, church, 'cascading_encoder_and_audio');
+        this._logTransition(churchId, STATES.SUSPECTED_BLACK, STATES.CONFIRMED_OUTAGE, 'audio_silence_during_black', instanceName);
+        this._escalateToConfirmed(churchId, s, config, church, 'cascading_encoder_and_audio', instanceName);
         break;
       }
     }
   }
 
-  _onAudioSilenceCleared(churchId, s, config, church) {
+  _onAudioSilenceCleared(churchId, s, config, church, instanceName) {
     s.audioSilence = false;
   }
 
@@ -548,7 +560,7 @@ class SignalFailover {
    * Only relevant for backup_encoder action type. The primary may have recovered
    * by now, so we attempt recovery (switch back to primary encoder).
    */
-  _onBackupEncoderFailed(churchId, s, config, church, data) {
+  _onBackupEncoderFailed(churchId, s, config, church, data, instanceName) {
     if (s.state !== STATES.FAILOVER_ACTIVE) return;
     if (config.action?.type !== 'backup_encoder') return;
 
@@ -557,29 +569,32 @@ class SignalFailover {
     this._sendAlert(church, 'failover_backup_failed',
       `⚠️ *Backup Encoder Also Failed* — ${church.name}\n` +
       `The backup encoder stopped streaming after ${elapsed}s on failover.\n` +
-      `Switching back to the primary encoder...`
+      `Switching back to the primary encoder...`,
+      instanceName
     );
 
-    this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'backup_encoder_failed');
+    this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'backup_encoder_failed', instanceName);
 
     // Attempt recovery back to primary — reuse the existing recovery path
     (async () => {
       try {
-        await this._executeRecovery(churchId, s, config, church);
-        this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.HEALTHY, 'switched_back_to_primary');
+        await this._executeRecovery(churchId, s, config, church, instanceName);
+        this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.HEALTHY, 'switched_back_to_primary', instanceName);
         this._sendAlert(church, 'failover_switched_back',
           `🔄 *Switched Back to Primary* — ${church.name}\n` +
-          `Backup encoder failed, so Tally switched back to the primary encoder.`
+          `Backup encoder failed, so Tally switched back to the primary encoder.`,
+          instanceName
         );
-        this._resetState(churchId);
+        this._resetState(churchId, instanceName);
       } catch (e) {
         console.error(`[SignalFailover] Recovery to primary failed for ${churchId}:`, e.message);
         this._sendAlert(church, 'failover_recovery_failed',
           `❌ *Both Encoders Down* — ${church.name}\n` +
           `Backup failed and Tally couldn't switch back to primary: ${e.message}\n` +
-          `Someone needs to check the equipment immediately.`
+          `Someone needs to check the equipment immediately.`,
+          instanceName
         );
-        this._resetState(churchId);
+        this._resetState(churchId, instanceName);
       }
     })();
   }
@@ -588,23 +603,24 @@ class SignalFailover {
    * The backup encoder (old primary after role swap) is back online.
    * Notify the TD that /recover is now available.
    */
-  _onBackupEncoderAvailable(churchId, s, config, church) {
+  _onBackupEncoderAvailable(churchId, s, config, church, instanceName) {
     if (s.state !== STATES.FAILOVER_ACTIVE) return;
     if (config.action?.type !== 'backup_encoder') return;
 
-    this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'backup_encoder_available');
+    this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.FAILOVER_ACTIVE, 'backup_encoder_available', instanceName);
 
     this._sendAlert(church, 'backup_encoder_available',
       `ℹ️ *Original Encoder Back Online* — ${church.name}\n` +
       `The other encoder is reachable again and available as backup.\n` +
       `The stream is running fine on the current encoder.\n\n` +
-      `When you're ready, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back.`
+      `When you're ready, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back.`,
+      instanceName
     );
   }
 
   // ─── Escalation ─────────────────────────────────────────────────────────────
 
-  _escalateToConfirmed(churchId, s, config, church, trigger) {
+  _escalateToConfirmed(churchId, s, config, church, trigger, instanceName) {
     s.state = STATES.CONFIRMED_OUTAGE;
     if (!s.outageStartedAt) s.outageStartedAt = Date.now();
 
@@ -623,9 +639,10 @@ class SignalFailover {
         `🔴 *Stream Problem* — ${church.name}\n` +
         `${diagnosis.message}.\n` +
         `Auto-switching won't help here — someone needs to check the physical setup.\n\n` +
-        `Outage started ${elapsed}s ago.`
+        `Outage started ${elapsed}s ago.`,
+        instanceName
       );
-      this._logTransition(churchId, s.state, STATES.CONFIRMED_OUTAGE, 'no_switch_available');
+      this._logTransition(churchId, s.state, STATES.CONFIRMED_OUTAGE, 'no_switch_available', instanceName);
       // No ack timer — we won't auto-switch for network outages
       return;
     }
@@ -634,14 +651,15 @@ class SignalFailover {
       `🔴 *Stream Problem* — ${church.name}\n` +
       `${diagnosis.message}.\n` +
       `Tally will automatically switch to a safe source in ${ackTimeout}s.\n\n` +
-      `If you're handling it, reply /ack_${s.failoverAlertId.slice(0, 8)} and Tally will stand by.`
+      `If you're handling it, reply /ack_${s.failoverAlertId.slice(0, 8)} and Tally will stand by.`,
+      instanceName
     );
 
     // Start ack countdown
     s.ackTimer = setTimeout(() => {
       s.ackTimer = null;
       if (s.state === STATES.CONFIRMED_OUTAGE) {
-        this._executeFailover(churchId, s, config, church);
+        this._executeFailover(churchId, s, config, church, instanceName);
       }
     }, ackTimeout * 1000);
   }
@@ -650,45 +668,76 @@ class SignalFailover {
 
   /**
    * TD acknowledged the alert — cancel auto-failover but stay in CONFIRMED.
+   * Searches all instances for this church to find one in CONFIRMED_OUTAGE.
    */
-  onTdAcknowledge(churchId) {
-    const s = this._getState(churchId);
-    if (s.state === STATES.CONFIRMED_OUTAGE && s.ackTimer) {
-      clearTimeout(s.ackTimer);
-      s.ackTimer = null;
-      this._logTransition(churchId, STATES.CONFIRMED_OUTAGE, STATES.CONFIRMED_OUTAGE, 'td_acknowledged');
-      console.log(`[SignalFailover] TD acknowledged outage for ${churchId} — auto-failover cancelled`);
+  onTdAcknowledge(churchId, instanceName) {
+    // If instanceName provided, use composite key directly
+    if (instanceName) {
+      const s = this._getState(churchId, instanceName);
+      if (s.state === STATES.CONFIRMED_OUTAGE && s.ackTimer) {
+        clearTimeout(s.ackTimer);
+        s.ackTimer = null;
+        this._logTransition(churchId, STATES.CONFIRMED_OUTAGE, STATES.CONFIRMED_OUTAGE, 'td_acknowledged', instanceName);
+        console.log(`[SignalFailover] TD acknowledged outage for ${churchId}:${instanceName} — auto-failover cancelled`);
+      }
+      return;
+    }
+    // No instanceName — search all states for this church (backward compat / Telegram commands)
+    for (const [key, s] of this._states.entries()) {
+      if ((key === churchId || key.startsWith(`${churchId}::`)) && s.state === STATES.CONFIRMED_OUTAGE && s.ackTimer) {
+        clearTimeout(s.ackTimer);
+        s.ackTimer = null;
+        this._logTransition(churchId, STATES.CONFIRMED_OUTAGE, STATES.CONFIRMED_OUTAGE, 'td_acknowledged', s.instanceName);
+        console.log(`[SignalFailover] TD acknowledged outage for ${key} — auto-failover cancelled`);
+      }
     }
   }
 
   /**
    * TD confirms recovery — switch back to original source.
+   * Searches all instances for this church to find one in FAILOVER_ACTIVE.
    */
-  async onTdConfirmRecovery(churchId) {
-    const s = this._getState(churchId);
-    if (s.state !== STATES.FAILOVER_ACTIVE) return;
-
+  async onTdConfirmRecovery(churchId, instanceName) {
     const church = this.churches.get(churchId);
     if (!church) return;
-
     const config = this._getConfig(churchId);
     if (!config) return;
 
+    // If instanceName provided, use composite key directly
+    if (instanceName) {
+      const s = this._getState(churchId, instanceName);
+      if (s.state !== STATES.FAILOVER_ACTIVE) return;
+      await this._recoverInstance(churchId, s, config, church, instanceName);
+      return;
+    }
+
+    // No instanceName — search all states for this church (backward compat / Telegram commands)
+    for (const [key, s] of this._states.entries()) {
+      if ((key === churchId || key.startsWith(`${churchId}::`)) && s.state === STATES.FAILOVER_ACTIVE) {
+        await this._recoverInstance(churchId, s, config, church, s.instanceName);
+      }
+    }
+  }
+
+  /** Internal: execute recovery for a specific instance state entry. */
+  async _recoverInstance(churchId, s, config, church, instanceName) {
     // Cancel any pending auto-recover stability timer
     if (s.stabilityTimer) { clearTimeout(s.stabilityTimer); s.stabilityTimer = null; }
 
     try {
-      await this._executeRecovery(churchId, s, config, church);
-      this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.HEALTHY, 'td_confirmed_recovery');
+      await this._executeRecovery(churchId, s, config, church, instanceName);
+      this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.HEALTHY, 'td_confirmed_recovery', instanceName);
       const origDesc = this._describeSource(s.originalSource, config.action);
       this._sendAlert(church, 'failover_recovery_executed',
-        `✅ *All Good* — ${church.name}\nSwitched back to ${origDesc}. You're back to normal.`
+        `✅ *All Good* — ${church.name}\nSwitched back to ${origDesc}. You're back to normal.`,
+        instanceName
       );
-      this._resetState(churchId);
+      this._resetState(churchId, instanceName);
     } catch (e) {
       console.error(`[SignalFailover] Recovery command failed for ${churchId}:`, e.message);
       this._sendAlert(church, 'failover_recovery_failed',
-        `❌ *Couldn't Switch Back* — ${church.name}\nSomething went wrong: ${e.message}\nYou'll need to switch it back manually at the booth.`
+        `❌ *Couldn't Switch Back* — ${church.name}\nSomething went wrong: ${e.message}\nYou'll need to switch it back manually at the booth.`,
+        instanceName
       );
     }
   }
@@ -699,31 +748,33 @@ class SignalFailover {
    * Automatically switch back after the stability timer confirms the source is stable.
    * Like a real engineer: watch the source for a few seconds before trusting it.
    */
-  async _autoRecover(churchId, s, config, church) {
+  async _autoRecover(churchId, s, config, church, instanceName) {
     try {
-      await this._executeRecovery(churchId, s, config, church);
-      this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.HEALTHY, 'auto_recovered');
+      await this._executeRecovery(churchId, s, config, church, instanceName);
+      this._logTransition(churchId, STATES.FAILOVER_ACTIVE, STATES.HEALTHY, 'auto_recovered', instanceName);
       const origDesc = this._describeSource(s.originalSource, config.action);
       this._sendAlert(church, 'failover_auto_recovered',
         `✅ *Switched Back Automatically* — ${church.name}\n` +
         `Source was stable for 10 seconds, so Tally switched back to ${origDesc}.\n` +
-        `Everything looks good.`
+        `Everything looks good.`,
+        instanceName
       );
-      this._resetState(churchId);
+      this._resetState(churchId, instanceName);
     } catch (e) {
       console.error(`[SignalFailover] Auto-recovery command failed for ${churchId}:`, e.message);
       this._sendAlert(church, 'failover_auto_recovery_failed',
         `⚠️ *Auto Switch-Back Failed* — ${church.name}\n` +
         `Source recovered but Tally couldn't switch back: ${e.message}\n` +
-        `Reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to try again, or switch manually.`
+        `Reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to try again, or switch manually.`,
+        instanceName
       );
     }
   }
 
   // ─── Failover Execution ─────────────────────────────────────────────────────
 
-  async _executeFailover(churchId, s, config, church) {
-    this._logTransition(churchId, STATES.CONFIRMED_OUTAGE, STATES.FAILOVER_ACTIVE, 'failover_executed');
+  async _executeFailover(churchId, s, config, church, instanceName) {
+    this._logTransition(churchId, STATES.CONFIRMED_OUTAGE, STATES.FAILOVER_ACTIVE, 'failover_executed', instanceName);
     s.state = STATES.FAILOVER_ACTIVE;
 
     // Store original source for recovery
@@ -734,8 +785,8 @@ class SignalFailover {
 
     try {
       const { command, params } = this._buildFailoverCommand(config.action);
-      await this.autoRecovery.dispatchCommand(church, command, params);
-      console.log(`[SignalFailover] ✅ Failover executed for ${churchId}: ${actionDesc}`);
+      await this.autoRecovery.dispatchCommand(church, command, params, instanceName);
+      console.log(`[SignalFailover] ✅ Failover executed for ${churchId}${instanceName ? `:${instanceName}` : ''}: ${actionDesc}`);
 
       this._sendAlert(church, 'failover_executed',
         `🔄 *Switched to Backup* — ${church.name}\n` +
@@ -743,7 +794,8 @@ class SignalFailover {
         `The stream is still live.\n\n` +
         (config.autoRecover
           ? `Tally will automatically switch back when the source is stable.`
-          : `When things look good, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back.`)
+          : `When things look good, reply /recover_${(s.failoverAlertId || '').slice(0, 8)} to switch back.`),
+        instanceName
       );
     } catch (e) {
       console.error(`[SignalFailover] ❌ Failover command failed for ${churchId}:`, e.message);
@@ -751,15 +803,16 @@ class SignalFailover {
         `❌ *Couldn't Switch Automatically* — ${church.name}\n` +
         `Tally tried to switch to the backup but it didn't work.\n` +
         `Error: ${e.message}\n\n` +
-        `Someone needs to switch it manually at the booth right away.`
+        `Someone needs to switch it manually at the booth right away.`,
+        instanceName
       );
     }
   }
 
-  async _executeRecovery(churchId, s, config, church) {
+  async _executeRecovery(churchId, s, config, church, instanceName) {
     const { command, params } = this._buildRecoveryCommand(config.action, s.originalSource);
-    await this.autoRecovery.dispatchCommand(church, command, params);
-    console.log(`[SignalFailover] ✅ Recovery executed for ${churchId}`);
+    await this.autoRecovery.dispatchCommand(church, command, params, instanceName);
+    console.log(`[SignalFailover] ✅ Recovery executed for ${churchId}${instanceName ? `:${instanceName}` : ''}`);
   }
 
   // ─── Command Builders ───────────────────────────────────────────────────────
@@ -854,7 +907,7 @@ class SignalFailover {
     }
   }
 
-  async _sendAlert(church, alertType, message) {
+  async _sendAlert(church, alertType, message, instanceName) {
     try {
       // Send directly via Telegram (bypass full alert engine escalation — failover has its own)
       const dbChurch = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(church.churchId);
@@ -865,22 +918,23 @@ class SignalFailover {
         await this.alertEngine.sendTelegramMessage(tdChatId, botToken, message);
       }
 
-      console.log(`[SignalFailover] Alert (${alertType}): ${church.name}`);
+      console.log(`[SignalFailover] Alert (${alertType}): ${church.name}${instanceName ? ` [${instanceName}]` : ''}`);
     } catch (e) {
       console.error(`[SignalFailover] Alert send failed:`, e.message);
     }
   }
 
-  _logTransition(churchId, from, to, trigger) {
-    const s = this._getState(churchId);
-    const entry = { ts: new Date().toISOString(), from, to, trigger, diagnosis: s.diagnosis?.type || null };
+  _logTransition(churchId, from, to, trigger, instanceName) {
+    const s = this._getState(churchId, instanceName);
+    const entry = { ts: new Date().toISOString(), from, to, trigger, diagnosis: s.diagnosis?.type || null, instanceName: instanceName || null };
     s.stateLog.push(entry);
     // Keep log bounded
     if (s.stateLog.length > 50) s.stateLog.shift();
-    console.log(`[SignalFailover] ${churchId}: ${from} → ${to} (${trigger})${s.diagnosis ? ` [${s.diagnosis.type}]` : ''}`);
+    const instLabel = instanceName ? `:${instanceName}` : '';
+    console.log(`[SignalFailover] ${churchId}${instLabel}: ${from} → ${to} (${trigger})${s.diagnosis ? ` [${s.diagnosis.type}]` : ''}`);
 
     // Fire-and-forget: notify listeners (never block state machine)
-    const snapshot = { state: to, diagnosis: s.diagnosis, outageStartedAt: s.outageStartedAt, stateLog: s.stateLog.slice(-10) };
+    const snapshot = { state: to, diagnosis: s.diagnosis, outageStartedAt: s.outageStartedAt, stateLog: s.stateLog.slice(-10), instanceName: instanceName || null };
     for (const fn of this._transitionListeners) {
       try {
         Promise.resolve(fn(churchId, from, to, trigger, snapshot)).catch(e =>
@@ -894,16 +948,57 @@ class SignalFailover {
 
   // ─── Status / Debug ─────────────────────────────────────────────────────────
 
-  getState(churchId) {
-    const s = this._states.get(churchId);
-    if (!s) return { state: STATES.HEALTHY };
-    return {
-      state: s.state,
-      diagnosis: s.diagnosis,
-      outageStartedAt: s.outageStartedAt,
-      bitrateBaseline: s.bitrateBaseline,
-      stateLog: s.stateLog.slice(-10),
-    };
+  /**
+   * Get failover state. With instanceName, returns per-instance state.
+   * Without, returns first non-healthy state or healthy (backward compat).
+   */
+  getState(churchId, instanceName) {
+    if (instanceName) {
+      const key = this._compositeKey(churchId, instanceName);
+      const s = this._states.get(key);
+      if (!s) return { state: STATES.HEALTHY };
+      return {
+        state: s.state,
+        diagnosis: s.diagnosis,
+        outageStartedAt: s.outageStartedAt,
+        bitrateBaseline: s.bitrateBaseline,
+        stateLog: s.stateLog.slice(-10),
+        instanceName: s.instanceName,
+      };
+    }
+    // Backward compat: check plain churchId key first, then scan for any non-healthy instance
+    const plain = this._states.get(churchId);
+    if (plain && plain.state !== STATES.HEALTHY) {
+      return {
+        state: plain.state,
+        diagnosis: plain.diagnosis,
+        outageStartedAt: plain.outageStartedAt,
+        bitrateBaseline: plain.bitrateBaseline,
+        stateLog: plain.stateLog.slice(-10),
+      };
+    }
+    for (const [key, s] of this._states.entries()) {
+      if (key.startsWith(`${churchId}::`) && s.state !== STATES.HEALTHY) {
+        return {
+          state: s.state,
+          diagnosis: s.diagnosis,
+          outageStartedAt: s.outageStartedAt,
+          bitrateBaseline: s.bitrateBaseline,
+          stateLog: s.stateLog.slice(-10),
+          instanceName: s.instanceName,
+        };
+      }
+    }
+    if (plain) {
+      return {
+        state: plain.state,
+        diagnosis: plain.diagnosis,
+        outageStartedAt: plain.outageStartedAt,
+        bitrateBaseline: plain.bitrateBaseline,
+        stateLog: plain.stateLog.slice(-10),
+      };
+    }
+    return { state: STATES.HEALTHY };
   }
 
   /**
@@ -915,14 +1010,28 @@ class SignalFailover {
     this._transitionListeners.push(fn);
   }
 
-  /** Clean up timers for a disconnecting church */
-  cleanup(churchId) {
-    const s = this._states.get(churchId);
-    if (s) {
-      if (s.blackTimer) clearTimeout(s.blackTimer);
-      if (s.ackTimer) clearTimeout(s.ackTimer);
-      if (s.stabilityTimer) clearTimeout(s.stabilityTimer);
-      this._states.delete(churchId);
+  /** Clean up timers for a disconnecting church (all instances). */
+  cleanup(churchId, instanceName) {
+    if (instanceName) {
+      // Clean up specific instance
+      const key = this._compositeKey(churchId, instanceName);
+      const s = this._states.get(key);
+      if (s) {
+        if (s.blackTimer) clearTimeout(s.blackTimer);
+        if (s.ackTimer) clearTimeout(s.ackTimer);
+        if (s.stabilityTimer) clearTimeout(s.stabilityTimer);
+        this._states.delete(key);
+      }
+      return;
+    }
+    // Clean up all instances for this church
+    for (const [key, s] of this._states.entries()) {
+      if (key === churchId || key.startsWith(`${churchId}::`)) {
+        if (s.blackTimer) clearTimeout(s.blackTimer);
+        if (s.ackTimer) clearTimeout(s.ackTimer);
+        if (s.stabilityTimer) clearTimeout(s.stabilityTimer);
+        this._states.delete(key);
+      }
     }
   }
 }

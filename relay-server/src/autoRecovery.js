@@ -231,12 +231,25 @@ class AutoRecovery {
     }
   }
 
-  /** Dispatch a command to the church client via WebSocket. */
-  async dispatchCommand(church, command, params) {
+  /**
+   * Dispatch a command to the church client via WebSocket.
+   * When instanceName is provided, targets only that specific instance's socket.
+   * Falls back to all sockets for backward compatibility.
+   */
+  async dispatchCommand(church, command, params, instanceName) {
     const { WebSocket } = require('ws');
-    // Gather all open sockets (multi-instance support)
     const openSockets = [];
-    if (church.sockets?.size) {
+
+    if (instanceName && church.sockets?.has(instanceName)) {
+      // Target specific instance socket
+      const sock = church.sockets.get(instanceName);
+      if (sock?.readyState === WebSocket.OPEN) {
+        openSockets.push(sock);
+      }
+    }
+
+    // Fallback: gather all open sockets if no specific instance or instance socket not found
+    if (openSockets.length === 0 && church.sockets?.size) {
       for (const sock of church.sockets.values()) {
         if (sock.readyState === WebSocket.OPEN) openSockets.push(sock);
       }

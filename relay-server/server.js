@@ -547,6 +547,22 @@ const _schemaMigrations = [
   "ALTER TABLE churches ADD COLUMN room_name TEXT",
   // RTMP ingest stream key (for test stream preview in admin portal)
   "ALTER TABLE churches ADD COLUMN ingest_stream_key TEXT",
+  // ── Multi-room Phase 1: room_id / instance_name on church-scoped tables ──
+  "ALTER TABLE alerts ADD COLUMN room_id TEXT",
+  "ALTER TABLE service_sessions ADD COLUMN room_id TEXT",
+  "ALTER TABLE service_sessions ADD COLUMN instance_name TEXT",
+  "ALTER TABLE post_service_reports ADD COLUMN room_id TEXT",
+  "ALTER TABLE post_service_reports ADD COLUMN instance_name TEXT",
+  "ALTER TABLE preservice_check_results ADD COLUMN room_id TEXT",
+  "ALTER TABLE automation_rules ADD COLUMN room_id TEXT",
+  "ALTER TABLE active_rundowns ADD COLUMN room_id TEXT",
+  "ALTER TABLE viewer_snapshots ADD COLUMN room_id TEXT",
+  "ALTER TABLE viewer_snapshots ADD COLUMN instance_name TEXT",
+  "ALTER TABLE command_log ADD COLUMN room_id TEXT",
+  "ALTER TABLE command_log ADD COLUMN instance_name TEXT",
+  "ALTER TABLE incident_summaries ADD COLUMN room_id TEXT",
+  "ALTER TABLE incident_summaries ADD COLUMN instance_name TEXT",
+  "ALTER TABLE problem_finder_reports ADD COLUMN room_id TEXT",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -1216,12 +1232,19 @@ incidentSummarizer.setAiUsageLogger(logAiUsage);
 signalFailover.onTransition((churchId, from, to, trigger, snapshot) => {
   incidentSummarizer.handleTransition(churchId, from, to, trigger, snapshot);
 
-  // Broadcast failover state to ALL connected instances (for Electron app display)
+  // Send failover state to the specific instance that triggered it, or all if unknown
   const church = churches.get(churchId);
   if (church?.sockets?.size) {
     const payload = JSON.stringify({ type: 'failover_state', ...snapshot });
-    for (const sock of church.sockets.values()) {
+    const targetInstance = snapshot?.instanceName;
+    if (targetInstance && church.sockets.has(targetInstance)) {
+      const sock = church.sockets.get(targetInstance);
       try { if (sock.readyState === 1) sock.send(payload); } catch { /* best effort */ }
+    } else {
+      // Backward compat: broadcast to all instances if no specific instance
+      for (const sock of church.sockets.values()) {
+        try { if (sock.readyState === 1) sock.send(payload); } catch { /* best effort */ }
+      }
     }
   }
 });
@@ -3544,7 +3567,7 @@ const _wsHandlers = createWebSocketHandlers({
   onChurchDisconnected(church) {
     log(`Church "${church.name}" disconnected`, { event: 'church_disconnect', churchId: church.churchId, church: church.name });
   },
-  onStatusUpdate(church, msg) {
+  onStatusUpdate(church, msg, statusEvent) {
     // Onboarding milestone: first ATEM connection
     if (msg.status?.atem?.connected && !church._onboardingAtemTracked) {
       try {
@@ -3585,16 +3608,20 @@ const _wsHandlers = createWebSocketHandlers({
       if (msg.status.obs?.viewers !== undefined) sessionRecap.recordPeakViewers(church.churchId, msg.status.obs.viewers);
       if (isRecordingActive(msg.status)) sessionRecap.recordRecordingConfirmed(church.churchId);
     }
-    signalFailover.onStatusUpdate(church.churchId, church.status);
+    signalFailover.onStatusUpdate(church.churchId, church.status, statusEvent?.instance || null);
     totalMessagesRelayed++;
   },
-  onAlert(church, msg) {
+  onAlert(church, msg, alertEvent) {
     if (msg.alertType) {
+      // Extract instance/room context from the resolved alertEvent
+      const alertInstanceName = alertEvent?.instance || null;
+      const alertRoomId = alertEvent?.roomId || null;
+
       if (msg.alertType === 'audio_silence') sessionRecap.recordAudioSilence(church.churchId);
       // Forward encoder disconnect to SignalFailover so it can evaluate failover
       // (watchdog alerts bypass signal_event path — bridge the gap here)
       if (msg.alertType === 'encoder_disconnected') {
-        signalFailover.onSignalEvent(church.churchId, 'encoder_disconnected', { church });
+        signalFailover.onSignalEvent(church.churchId, 'encoder_disconnected', { church, instanceName: alertInstanceName, roomId: alertRoomId });
       }
       recordAlertForChaining(church.churchId, msg.alertType);
       (async () => {
@@ -3611,7 +3638,7 @@ const _wsHandlers = createWebSocketHandlers({
             if (recovery.attempted && recovery.command) churchMemory.recordCommandOutcome(church.churchId, recovery.command, false, msg.alertType);
             const dbChurch = stmtGet.get(church.churchId);
             const recoveryInfo = recovery.attempted ? recovery : null;
-            const alertResult = await alertEngine.sendAlert({ ...church, ...dbChurch }, msg.alertType, { message: msg.message, status: church.status }, activeSessionId, recoveryInfo);
+            const alertResult = await alertEngine.sendAlert({ ...church, ...dbChurch }, msg.alertType, { message: msg.message, status: church.status, _instanceName: alertInstanceName, _roomId: alertRoomId }, activeSessionId, recoveryInfo);
             const escalated = alertResult && alertResult.severity === 'EMERGENCY';
             sessionRecap.recordAlert(church.churchId, msg.alertType, false, escalated);
           }
@@ -3619,7 +3646,7 @@ const _wsHandlers = createWebSocketHandlers({
           aiTriageEngine.processAlert(
             church.churchId, msg.alertType,
             alertEngine.classifyAlert(msg.alertType),
-            { message: msg.message, status: church.status, roomId: church.room_id },
+            { message: msg.message, status: church.status, roomId: alertRoomId || church.room_id },
           ).catch(e => console.error('[AITriage] Process error:', e.message));
           // ── AutoPilot: evaluate alert-based rules ──
           if (autoPilot) {
@@ -3647,6 +3674,8 @@ const _wsHandlers = createWebSocketHandlers({
           bitrateKbps: msg.bitrateKbps,
           baselineKbps: msg.baselineKbps,
           church,
+          instanceName: msg._instance || null,
+          roomId: msg._roomId || null,
         });
         break;
       case 'viewer_snapshot': {
@@ -3656,9 +3685,9 @@ const _wsHandlers = createWebSocketHandlers({
         const sessionId = activeSession?.sessionId || null;
         try {
           db.prepare(`
-            INSERT INTO viewer_snapshots (church_id, session_id, total, youtube, facebook, vimeo, captured_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `).run(church.churchId, sessionId, total, breakdown.youtube ?? null, breakdown.facebook ?? null, breakdown.vimeo ?? null, msg.timestamp || new Date().toISOString());
+            INSERT INTO viewer_snapshots (church_id, session_id, total, youtube, facebook, vimeo, captured_at, room_id, instance_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(church.churchId, sessionId, total, breakdown.youtube ?? null, breakdown.facebook ?? null, breakdown.vimeo ?? null, msg.timestamp || new Date().toISOString(), msg._roomId || null, msg._instance || null);
         } catch (e) {
           console.error('[ViewerSnapshot] Insert failed:', e.message);
         }
