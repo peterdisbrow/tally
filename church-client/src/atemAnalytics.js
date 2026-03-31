@@ -6,9 +6,10 @@
  */
 
 class AtemAnalytics {
-  constructor(configuredInputs = []) {
+  constructor(configuredInputs = [], switcherId = null) {
     // configuredInputs: array of { id, name } for all known inputs
     this._configuredInputs = configuredInputs;
+    this._switcherId = switcherId; // optional — identifies which switcher this tracks
     this._tracking = false;
     this._sessionStart = null;
     this._sessionEnd = null;
@@ -161,6 +162,7 @@ class AtemAnalytics {
       .map((inp) => inp.id);
 
     return {
+      switcherId: this._switcherId || undefined,
       totalDuration,
       inputs,
       totalSwitches,
@@ -172,4 +174,54 @@ class AtemAnalytics {
   }
 }
 
-module.exports = { AtemAnalytics };
+/**
+ * Manages AtemAnalytics instances across multiple switchers.
+ * Falls back to a single default instance for legacy single-ATEM setups.
+ */
+class SwitcherAnalyticsManager {
+  constructor() {
+    this._instances = new Map(); // switcherId → AtemAnalytics
+  }
+
+  /**
+   * Get or create an analytics instance for a switcher.
+   * @param {string} switcherId
+   * @param {Array} [configuredInputs]
+   */
+  getOrCreate(switcherId, configuredInputs = []) {
+    if (!this._instances.has(switcherId)) {
+      this._instances.set(switcherId, new AtemAnalytics(configuredInputs, switcherId));
+    }
+    return this._instances.get(switcherId);
+  }
+
+  /** Start tracking on all instances */
+  startAll() {
+    for (const inst of this._instances.values()) inst.startTracking();
+  }
+
+  /** Stop tracking on all instances */
+  stopAll() {
+    for (const inst of this._instances.values()) inst.stopTracking();
+  }
+
+  /** Get session stats for all switchers, keyed by switcherId */
+  getAllStats() {
+    const result = {};
+    for (const [id, inst] of this._instances) {
+      result[id] = inst.getSessionStats();
+    }
+    return result;
+  }
+
+  /** Get all switch timelines, keyed by switcherId */
+  getAllTimelines() {
+    const result = {};
+    for (const [id, inst] of this._instances) {
+      result[id] = inst.getSwitchTimeline();
+    }
+    return result;
+  }
+}
+
+module.exports = { AtemAnalytics, SwitcherAnalyticsManager };
