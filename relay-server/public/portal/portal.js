@@ -1598,6 +1598,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function updateAtemDetailCard(status) {
       var card = document.getElementById('atem-detail-card');
       if (!card) return;
+
+      // If multi-switcher data is available, hide the legacy card and use dynamic cards instead
+      if (status.switchers && Object.keys(status.switchers).length > 0) {
+        card.style.display = 'none';
+        updateSwitchersCards(status);
+        return;
+      }
+
       var atem = status.atem;
       if (!atem || (!atem.connected && atem !== true)) { card.style.display = 'none'; return; }
       card.style.display = '';
@@ -1626,6 +1634,79 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         badges.innerHTML = parts.join(' ');
       }
     }
+
+    // ── Multi-Switcher Cards (dynamic rendering) ──────────────────────────────
+    function updateSwitchersCards(status) {
+      var container = document.getElementById('switchers-cards-container');
+      if (!container) return;
+      var switchers = status.switchers;
+      if (!switchers || typeof switchers !== 'object') { container.innerHTML = ''; return; }
+
+      var ids = Object.keys(switchers);
+      if (ids.length === 0) { container.innerHTML = ''; return; }
+
+      // Sort: primary first, then by ID
+      ids.sort(function(a, b) {
+        var sa = switchers[a], sb = switchers[b];
+        if (sa.role === 'primary' && sb.role !== 'primary') return -1;
+        if (sb.role === 'primary' && sa.role !== 'primary') return 1;
+        return a.localeCompare(b);
+      });
+
+      var html = '';
+      for (var i = 0; i < ids.length; i++) {
+        var sw = switchers[ids[i]];
+        if (!sw) continue;
+
+        var typeIcon = sw.type === 'atem' ? '\uD83C\uDF9B' : sw.type === 'obs' ? '\uD83D\uDCF9' : sw.type === 'vmix' ? '\uD83C\uDFAC' : '\uD83D\uDD00';
+        var typeLabel = sw.type === 'atem' ? 'ATEM' : sw.type === 'obs' ? 'OBS' : sw.type === 'vmix' ? 'vMix' : sw.type;
+        var modelLabel = sw.model || sw.version || typeLabel;
+        var roleBadge = '<span class="badge badge-gray" style="font-size:10px;text-transform:uppercase">' + _escHtml(sw.role || 'unknown') + '</span>';
+        var connDot = sw.connected ? '<span style="color:#22c55e">\u25CF</span>' : '<span style="color:#ef4444">\u25CF</span>';
+
+        // Program/Preview display
+        var pgmName = sw.programInput != null ? (sw.type === 'atem' ? friendlyInputName(sw.programInput) : String(sw.programInput)) : '\u2014';
+        var pvwName = sw.previewInput != null ? (sw.type === 'atem' ? friendlyInputName(sw.previewInput) : String(sw.previewInput)) : '\u2014';
+        var labels = sw.inputLabels || {};
+        var pgmLabel = labels[sw.programInput] || '';
+        var pvwLabel = labels[sw.previewInput] || '';
+
+        // Badges
+        var badgeParts = [];
+        if (sw.recording) badgeParts.push('<span class="badge badge-green">Recording</span>');
+        if (sw.streaming) badgeParts.push('<span class="badge badge-green"><span style="color:#ef4444">\u25CF</span> Streaming</span>');
+        if (!sw.recording && !sw.streaming && sw.connected) badgeParts.push('<span class="badge badge-gray">Standby</span>');
+        if (!sw.connected) badgeParts.push('<span class="badge badge-red">Disconnected</span>');
+
+        html += '<div class="card" style="margin-bottom:12px">'
+          + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'
+          + '<div class="card-title" style="margin:0">' + typeIcon + ' ' + _escHtml(sw.name || sw.id) + ' ' + connDot + '</div>'
+          + '<div style="display:flex;gap:8px;align-items:center">' + roleBadge
+          + '<span style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px">' + _escHtml(modelLabel) + '</span>'
+          + '</div></div>';
+
+        if (sw.connected) {
+          html += '<div class="grid-2col" style="gap:16px;margin-bottom:14px">'
+            + '<div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">'
+            + '<div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Program</div>'
+            + '<div style="font-size:22px;font-weight:700;color:#ef4444">' + _escHtml(pgmName) + '</div>'
+            + '<div style="font-size:12px;color:#94A3B8;margin-top:4px">' + _escHtml(pgmLabel) + '</div>'
+            + '</div>'
+            + '<div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">'
+            + '<div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Preview</div>'
+            + '<div style="font-size:22px;font-weight:700;color:#22c55e">' + _escHtml(pvwName) + '</div>'
+            + '<div style="font-size:12px;color:#94A3B8;margin-top:4px">' + _escHtml(pvwLabel) + '</div>'
+            + '</div></div>';
+        }
+
+        html += '<div style="display:flex;gap:8px;flex-wrap:wrap">' + badgeParts.join(' ') + '</div>';
+        html += '</div>';
+      }
+
+      container.innerHTML = html;
+    }
+
+    function _escHtml(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
     // ── Audio Health Card ────────────────────────────────────────────────────
     function updateAudioHealthCard(status, audioViaAtem) {

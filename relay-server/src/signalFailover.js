@@ -150,7 +150,10 @@ class SignalFailover {
 
     // Use signal event flags (from state machine) OR live status, whichever shows a problem
     const encoderDead = opts.encoderLost || !this._isEncoderHealthy(church);
-    const atemConnected = opts.atemLost ? false : (status.atem?.connected !== false);
+    // Multi-switcher: check the failover target switcher, then fall back to legacy status.atem
+    const failoverConfig = this._getConfig(churchId);
+    const targetSwitcherId = failoverConfig?.action?.switcherId;
+    const atemConnected = opts.atemLost ? false : this._isSwitcherConnected(status, targetSwitcherId);
     const audioSilent = s.audioSilence;
 
     if (encoderDead) signals.push('encoder_loss');
@@ -819,8 +822,12 @@ class SignalFailover {
 
   _buildFailoverCommand(action) {
     switch (action.type) {
+      case 'switcher_switch':
+        // Generic multi-switcher: route to the specific switcher by ID
+        return { command: 'switcher.cut', params: { switcherId: action.switcherId, input: action.input } };
       case 'atem_switch':
-        return { command: 'atem.cut', params: { input: action.input } };
+        // Legacy: if switcherId is specified, use it; otherwise targets primary ATEM
+        return { command: 'atem.cut', params: { input: action.input, switcherId: action.switcherId } };
       case 'videohub_route':
         return { command: 'videohub.route', params: { output: action.output, input: action.input, hubIndex: action.hubIndex || 0 } };
       case 'backup_encoder':
@@ -832,8 +839,10 @@ class SignalFailover {
 
   _buildRecoveryCommand(action, originalSource) {
     switch (action.type) {
+      case 'switcher_switch':
+        return { command: 'switcher.cut', params: { switcherId: action.switcherId, input: originalSource } };
       case 'atem_switch':
-        return { command: 'atem.cut', params: { input: originalSource } };
+        return { command: 'atem.cut', params: { input: originalSource, switcherId: action.switcherId } };
       case 'videohub_route':
         return { command: 'videohub.route', params: { output: action.output, input: originalSource, hubIndex: action.hubIndex || 0 } };
       case 'backup_encoder':
@@ -845,8 +854,19 @@ class SignalFailover {
 
   _captureCurrentSource(church, action) {
     switch (action.type) {
-      case 'atem_switch':
+      case 'switcher_switch': {
+        // Multi-switcher: read programInput from the specific switcher
+        const sw = church.status?.switchers?.[action.switcherId];
+        if (sw) return sw.programInput || null;
         return church.status?.atem?.programInput || null;
+      }
+      case 'atem_switch': {
+        // If switcherId specified, read from that switcher; otherwise legacy
+        if (action.switcherId && church.status?.switchers?.[action.switcherId]) {
+          return church.status.switchers[action.switcherId].programInput || null;
+        }
+        return church.status?.atem?.programInput || null;
+      }
       case 'videohub_route': {
         const hubs = church.status?.videoHubs || [];
         const hub = hubs[action.hubIndex || 0];
@@ -860,6 +880,17 @@ class SignalFailover {
       default:
         return null;
     }
+  }
+
+  /**
+   * Check if the relevant switcher is connected.
+   * Prefers multi-switcher status, falls back to legacy status.atem.
+   */
+  _isSwitcherConnected(status, switcherId) {
+    if (switcherId && status.switchers?.[switcherId]) {
+      return status.switchers[switcherId].connected !== false;
+    }
+    return status.atem?.connected !== false;
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
