@@ -78,13 +78,8 @@ module.exports = function setupSessionRoutes(app, ctx) {
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
     if (!anthropicKey) return res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured.' });
 
-    const systemPrompt = 'You are Tally AI, the admin assistant for Tally — a church AV monitoring and control system. '
-      + 'You ONLY answer questions about: church AV equipment (ATEM switchers, audio mixers, cameras, encoders, video hubs, etc.), '
-      + 'production troubleshooting, equipment status, alerts, streaming/recording, and church service technical operations. '
-      + 'If a message is not about church AV production or equipment, reply with exactly: '
-      + '"I\'m only here for production and equipment. Try \'help\' to see what I can do." '
-      + 'Never discuss politics, religion (beyond service logistics), personal advice, coding, or any non-AV topic. '
-      + 'Be concise. Church states: ' + JSON.stringify(churchStates || {});
+    const { buildAdminPrompt } = require('../tally-engineer');
+    const systemPrompt = buildAdminPrompt() + '\n\nChurch states: ' + JSON.stringify(churchStates || {});
 
     try {
       const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
@@ -103,10 +98,10 @@ module.exports = function setupSessionRoutes(app, ctx) {
             ).slice(-20),
             { role: 'user', content: message },
           ],
-          temperature: 0.7,
-          max_tokens: 512,
+          temperature: 0.5,
+          max_tokens: 1200,
         }),
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!aiRes.ok) {

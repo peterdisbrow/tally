@@ -6,6 +6,8 @@
  */
 
 const { isOnTopic, OFF_TOPIC_RESPONSE } = require('./chat-guard');
+const { buildCommandPrompt, TALLY_ENGINEER_IDENTITY, TALLY_ENGINEER_KNOWLEDGE } = require('./tally-engineer');
+const { buildContext } = require('./tally-context');
 
 // ─── AI USAGE LOGGING ────────────────────────────────────────────────────────
 
@@ -528,120 +530,9 @@ const AVAILABLE_COMMANDS = getAvailableCommandNames();
 const AVAILABLE_COMMANDS_TEXT = AVAILABLE_COMMANDS.map((cmd) => `- ${cmd}`).join('\n');
 // Note: AVAILABLE_COMMANDS is exported via getAvailableCommandNames() for use elsewhere
 
-const SYSTEM_PROMPT = `You are the AI command interface for Tally, a church AV monitoring and control system.
-A Technical Director is chatting with you from the Tally app. You have DIRECT control over their equipment.
-When they ask you to do something or ask about device state, you EXECUTE the action or QUERY the status yourself — you ARE the command interface.
-NEVER tell the user to "type a command" or "try typing X" — if they asked you to do it, DO IT by returning the appropriate command JSON.
-When asked about live device state (e.g. "what's on aux 1", "what camera is on program", "is the stream running"), return a command to query that state (e.g. status, atem.listVisibleInputs, encoder.status).
-
-AVAILABLE COMMANDS (JSON schema):
-{"command":"atem.cut","params":{"input":N}}                        — switch program to camera N
-{"command":"atem.setPreview","params":{"input":N}}                 — put camera N on preview
-{"command":"atem.auto","params":{}}                                — execute auto transition / take
-{"command":"atem.fadeToBlack","params":{}}                         — toggle fade to black
-{"command":"atem.startRecording","params":{}}
-{"command":"atem.stopRecording","params":{}}
-{"command":"atem.setInputLabel","params":{"input":N,"longName":"X"}}
-{"command":"atem.runMacro","params":{"macroIndex":N}}
-{"command":"atem.stopMacro","params":{}}
-{"command":"atem.setAux","params":{"aux":N,"input":N}}
-{"command":"atem.setTransitionStyle","params":{"style":"mix|dip|wipe|dve|stinger"}}
-{"command":"atem.setTransitionRate","params":{"rate":N}}
-{"command":"atem.setDskOnAir","params":{"keyer":N,"onAir":true}}
-{"command":"atem.setDskTie","params":{"keyer":N,"tie":true}}
-{"command":"atem.setDskRate","params":{"keyer":N,"rate":N}}
-{"command":"atem.setDskSource","params":{"keyer":N,"fillSource":N,"keySource":N}}
-{"command":"switcher.cut","params":{"switcherId":"X","input":N}}      — cut on a specific switcher (by id or role)
-{"command":"switcher.list","params":{}}                               — list all configured switchers
-{"command":"switcher.status","params":{"switcherId":"X"}}             — get status of a specific switcher
-{"command":"hyperdeck.play","params":{"hyperdeck":N}}
-{"command":"hyperdeck.stop","params":{"hyperdeck":N}}
-{"command":"hyperdeck.record","params":{"hyperdeck":N}}
-{"command":"hyperdeck.nextClip","params":{"hyperdeck":N}}
-{"command":"hyperdeck.prevClip","params":{"hyperdeck":N}}
-{"command":"ptz.pan","params":{"camera":N,"speed":-1.0-1.0}}
-{"command":"ptz.tilt","params":{"camera":N,"speed":-1.0-1.0}}
-{"command":"ptz.zoom","params":{"camera":N,"speed":-1.0-1.0}}
-{"command":"ptz.preset","params":{"camera":N,"preset":N}}
-{"command":"ptz.setPreset","params":{"camera":N,"preset":N}}
-{"command":"ptz.stop","params":{"camera":N}}
-{"command":"ptz.home","params":{"camera":N}}
-{"command":"obs.startStream","params":{}}
-{"command":"obs.stopStream","params":{}}
-{"command":"obs.startRecording","params":{}}
-{"command":"obs.stopRecording","params":{}}
-{"command":"obs.setScene","params":{"scene":"X"}}                           — switch to scene "X"
-{"command":"encoder.startStream","params":{}}
-{"command":"encoder.stopStream","params":{}}
-{"command":"encoder.startRecording","params":{}}
-{"command":"encoder.stopRecording","params":{}}
-{"command":"encoder.status","params":{}}
-{"command":"companion.pressNamed","params":{"name":"X"}}           — press a named Companion button
-{"command":"companion.getVariable","params":{"connection":"atem","variable":"pgm1_input"}} — read a Companion module variable
-{"command":"companion.getCustomVariable","params":{"name":"X"}}    — read a Companion custom variable
-{"command":"companion.setCustomVariable","params":{"name":"X","value":"Y"}} — set a Companion custom variable
-{"command":"companion.getWatchedVariables","params":{}}            — list all watched Companion variables and current values
-{"command":"vmix.startStream","params":{}}
-{"command":"vmix.stopStream","params":{}}
-{"command":"vmix.startRecording","params":{}}
-{"command":"vmix.stopRecording","params":{}}
-{"command":"vmix.cut","params":{}}
-{"command":"vmix.fade","params":{"ms":300}}
-{"command":"vmix.setPreview","params":{"input":1}}
-{"command":"vmix.setProgram","params":{"input":1}}
-{"command":"vmix.setVolume","params":{"value":80}}
-{"command":"vmix.mute","params":{}}
-{"command":"vmix.unmute","params":{}}
-{"command":"vmix.preview","params":{}}
-{"command":"vmix.isRunning","params":{}}
-{"command":"vmix.function","params":{"function":"X","input":"Y"}}
-{"command":"videohub.route","params":{"input":N,"output":N}}
-{"command":"videohub.getRoutes","params":{}}
-{"command":"propresenter.next","params":{}}
-{"command":"propresenter.previous","params":{}}
-{"command":"propresenter.goToSlide","params":{"index":N}}
-{"command":"propresenter.lastSlide","params":{}}
-{"command":"propresenter.status","params":{}}
-{"command":"propresenter.playlist","params":{}}
-{"command":"resolume.playClip","params":{"name":"X"}}
-{"command":"resolume.triggerColumn","params":{"column":N}}
-{"command":"resolume.clearAll","params":{}}
-{"command":"resolume.setBpm","params":{"bpm":N}}
-{"command":"mixer.status","params":{}}
-{"command":"mixer.mute","params":{"channel":"master|N"}}
-{"command":"mixer.unmute","params":{"channel":"master|N"}}
-{"command":"mixer.recallScene","params":{"scene":N}}
-{"command":"mixer.setFader","params":{"channel":N,"level":0.0-1.0}}
-{"command":"dante.scene","params":{"name":"X"}}
-{"command":"system.preServiceCheck","params":{}}
-{"command":"status","params":{}}                                   — overall system status
-
-ADDITIONAL VALID COMMAND IDS (same params as church runtime):
-${AVAILABLE_COMMANDS_TEXT}
-
-RESPONSE FORMAT — always return valid JSON, one of these three shapes:
-
-1. Single command:
-{"type":"command","command":"atem.cut","params":{"input":2}}
-
-2. Multiple sequential commands:
-{"type":"commands","steps":[
-  {"command":"atem.cut","params":{"input":2}},
-  {"command":"obs.startStream","params":{}}
-]}
-
-3. Conversational reply (questions, unknown intent, out-of-scope):
-{"type":"chat","text":"Short helpful reply here."}
-
-RULES:
-- You ARE the command interface. There is only ONE chat input — the user is already talking to you through it. NEVER say "type this command", "try entering", "use the command", or redirect to another input. If they asked for it, return the command JSON and it will be executed.
-- When asked about device state ("what's on program", "what camera is live", "is aux 1 set", "what's the stream status"), return a status-querying command like {"type":"command","command":"status","params":{}} or a specific device query. The result will be shown to the user.
-- Be liberal with inference. "wide angle" likely means camera 1. "pastor" likely means camera 2. "center" or "main" likely means camera 1 or the current program input.
-- If the message references lowering/muting audio: map to companion.pressNamed with a descriptive name like "Mute Audience Mics" or "Lower Music".
-- If the message is production-related but you cannot map it to a command with confidence, return type:chat with a brief clarifying question. Do NOT suggest the user type a command — ask what they want and you will execute it.
-- If the message is NOT related to church AV production (weather, sports, general chat, jokes, etc.), return type:chat with exactly: "I'm only here for production. Try 'help' for what I can do."
-- Never return anything outside of the three JSON shapes above.
-- No markdown, no explanation, just the JSON.`;
+// Note: The static SYSTEM_PROMPT was removed in the Tally Engineer unification.
+// Command prompts are now built dynamically by buildSystemPrompt() which uses
+// tally-engineer.js for identity + knowledge, and tally-context.js for device context.
 
 // ─── Device command signature blocks (included only when device is connected) ──
 const CMD_SIGS = {
@@ -1019,8 +910,16 @@ When enabling compressor/gate/limiter/EQ → MUST set enabled flag to true with 
 Classic audio mute/unmute: "mute headphone/monitor" → setClassicAudioMonitorProps(mute:true). "unmute headphone/monitor" → setClassicAudioMonitorProps(mute:false). Never use setClassicAudioHeadphonesProps or setClassicAudioResetPeaks for mute/unmute.`;
   }
 
-  const prompt = `You parse natural language into JSON commands for Tally, a church AV control system.
-Return ONLY valid JSON. No markdown, no explanation.
+  const prompt = `${TALLY_ENGINEER_IDENTITY}
+
+${TALLY_ENGINEER_KNOWLEDGE}
+
+You are the command interface. A Technical Director is chatting with you from the Tally app. You have DIRECT control over their equipment.
+When they ask you to do something or ask about device state, you EXECUTE the action or QUERY the status yourself — you ARE the command interface.
+NEVER tell the user to "type a command" or "try typing X" — if they asked you to do it, DO IT by returning the appropriate command JSON.
+When asked about live device state (e.g. "what's on aux 1", "what camera is on program", "is the stream running"), return a command to query that state (e.g. status, atem.listVisibleInputs, encoder.status).
+
+You parse natural language into JSON commands. Return ONLY valid JSON. No markdown, no explanation.
 
 AVAILABLE COMMANDS (N=number, X=string):
 ${sigs.join('\n')}
@@ -1219,27 +1118,8 @@ function parseJSON(raw) {
  *   { type: 'chat', text }
  *   { type: 'error', message }   — if API call fails
  */
-/**
- * Detect if a message is a diagnostic/troubleshooting question that warrants Sonnet.
- * Commands like "cut to cam 1" stay on Haiku. Questions like "why did my stream drop?" go to Sonnet.
- */
-function _isDiagnosticQuestion(text) {
-  const t = text.toLowerCase().trim();
-  // Diagnostic keywords / patterns
-  const diagnosticPatterns = [
-    /\bwhy\b.*\b(drop|fail|stop|crash|disconnect|die|broke|down|lost|mute|silent|freeze|lag|buffer)/,
-    /\bwhat('s| is)\b.*\b(wrong|happening|issue|problem|cause|going on)/,
-    /\bhow\b.*\b(fix|solve|troubleshoot|diagnose|resolve|prevent|avoid)/,
-    /\bhelp\b.*\b(me|with|troubleshoot|diagnose|figure|understand)/,
-    /\b(diagnos|troubleshoot|root cause|investigate|debug)/,
-    /\b(keeps? (dropping|crashing|disconnecting|failing|stopping|freezing))/,
-    /\b(not working|won't connect|can't connect|no signal|no audio|no video)/,
-    /\b(stream|encoder|atem|obs|mixer|camera|audio)\b.*\b(issue|problem|error|fail|broke)/,
-    /\b(what happened|what went wrong|what caused|explain|tell me about)/,
-    /\b(should i|do i need|is it normal|is something wrong)/,
-  ];
-  return diagnosticPatterns.some(p => p.test(t));
-}
+// _isDiagnosticQuestion() removed — diagnostic routing is now handled by
+// intent-classifier.js which routes directly to callDiagnosticAI() in server.js.
 
 async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   // ── Pre-filter: reject obviously off-topic messages before calling AI ──
@@ -1275,346 +1155,50 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     }
   }
 
-  // Build context hint from live status + engineer profile
-  let contextHint = '';
-  if (ctx.churchName) contextHint += `Church: ${ctx.churchName}. `;
-  if (ctx.roomId) contextHint += `Room ID: ${ctx.roomId}${ctx.roomName ? ` (${ctx.roomName})` : ''}. `;
+  // Build context using unified tally-context.js (Tier 1: operational, auto-upgrades to Tier 2 if degraded)
+  const contextBlock = buildContext(ctx.status || {}, 'operational', {
+    churchName: ctx.churchName,
+    roomId: ctx.roomId,
+    roomName: ctx.roomName,
+    recentAlerts: ctx.recentAlerts,
+    healthScore: ctx.healthScore,
+    failoverState: ctx.failoverState,
+    engineerProfile: ctx.engineerProfile,
+    configuredDevices: ctx.configuredDevices,
+    memorySummary: ctx.memorySummary,
+    documentContext: ctx.documentContext,
+  });
 
-  // ── Multi-switcher status (preferred over legacy single-ATEM) ──
-  if (ctx.status?.switchers && Object.keys(ctx.status.switchers).length > 0) {
-    for (const [swId, sw] of Object.entries(ctx.status.switchers)) {
-      const typeLabel = (sw.type || 'switcher').toUpperCase();
-      let swInfo = `${typeLabel} "${sw.name || swId}" [${sw.role || 'primary'}]: ${sw.connected ? 'connected' : 'DISCONNECTED'}`;
-      if (sw.connected) {
-        if (sw.model) swInfo += ` (${sw.model})`;
-        swInfo += `, pgm=input ${sw.programInput || '?'}, pvw=input ${sw.previewInput || '?'}`;
-        if (sw.streaming) swInfo += ', streaming';
-        if (sw.recording) swInfo += ', recording';
-      }
-      contextHint += swInfo + '. ';
-    }
-  }
-
-  // ATEM switcher (legacy single-ATEM path — skipped if multi-switcher already reported)
-  if (ctx.status?.atem?.connected && !(ctx.status?.switchers && Object.keys(ctx.status.switchers).length > 0)) {
-    const s = ctx.status.atem;
-    let atemInfo = 'ATEM';
-    if (s.model) atemInfo += ` (${s.model})`;
-    atemInfo += `: pgm=cam${s.programInput || '?'}, pvw=cam${s.previewInput || '?'}`;
-    if (s.inTransition) atemInfo += ', IN TRANSITION';
-    contextHint += atemInfo + '. ';
-    if (s.inputLabels && Object.keys(s.inputLabels).length) {
-      const labels = Object.entries(s.inputLabels).map(([k, v]) => `${k}=${v}`).join(', ');
-      contextHint += `Labels: ${labels}. `;
-    }
-    if (s.streaming) contextHint += `ATEM streaming${s.streamingBitrate ? ` ${s.streamingBitrate}kbps` : ''}${s.streamingService ? ` (${s.streamingService})` : ''}. `;
-    if (s.recording) contextHint += 'ATEM recording. ';
-  }
-  // ATEM extended state (always include if ATEM connected, regardless of multi-switcher)
-  if (ctx.status?.atem?.connected) {
-    const s = ctx.status.atem;
-    // audio_via_atem flag for audio routing
-    if (ctx.status.audio_via_atem || ctx.status.audioViaAtem) contextHint += 'audio_via_atem=true. ';
-    // Input labels (if not already added above via legacy path)
-    if (ctx.status?.switchers && Object.keys(ctx.status.switchers).length > 0) {
-      if (s.inputLabels && Object.keys(s.inputLabels).length) {
-        const labels = Object.entries(s.inputLabels).map(([k, v]) => `${k}=${v}`).join(', ');
-        contextHint += `ATEM Labels: ${labels}. `;
-      }
-    }
-  }
-
-  // OBS
-  if (ctx.status?.obs?.connected) {
-    const o = ctx.status.obs;
-    let obsInfo = `OBS: ${o.streaming ? 'live' : 'idle'}`;
-    if (o.streaming && o.bitrate) obsInfo += `, ${o.bitrate}kbps`;
-    if (o.fps) obsInfo += `, ${o.fps}fps`;
-    if (o.currentScene) obsInfo += `, scene="${o.currentScene}"`;
-    if (o.recording) obsInfo += ', recording';
-    contextHint += obsInfo + '. ';
-    if (o.scenes?.length) contextHint += `OBS scenes: ${o.scenes.join(', ')}. `;
-  }
-
-  // vMix
-  if (ctx.status?.vmix?.connected) {
-    const v = ctx.status.vmix;
-    let vmixInfo = `vMix: ${v.streaming ? 'live' : 'idle'}`;
-    if (v.recording) vmixInfo += ', recording';
-    if (v.edition) vmixInfo += ` (${v.edition})`;
-    if (v.activeInput) vmixInfo += `, active=${v.activeInput}`;
-    if (v.masterVolume != null) vmixInfo += `, vol=${v.masterVolume}`;
-    if (v.masterMuted) vmixInfo += ', MUTED';
-    contextHint += vmixInfo + '. ';
-  }
-
-  // Encoder bridge
-  if (ctx.status?.encoder?.connected) {
-    const e = ctx.status.encoder;
-    let encInfo = `Encoder: ${e.type || 'unknown'}, ${e.live ? 'live' : 'idle'}`;
-    if (e.bitrateKbps) encInfo += `, ${e.bitrateKbps}kbps`;
-    if (e.fps) encInfo += `, ${e.fps}fps`;
-    contextHint += encInfo + '. ';
-  }
-
-  // Backup encoder
-  if (ctx.status?.backupEncoder?.configured) {
-    const be = ctx.status.backupEncoder;
-    contextHint += `Backup encoder: ${be.type || 'unknown'}, ${be.connected ? 'connected' : 'DISCONNECTED'}${be.live ? ', live' : ''}. `;
-  }
-
-  // Web Presenter extended info (platform, quality profile)
-  const wpStatus = ctx.status?.webPresenter || (ctx.status?.encoder?.type?.toLowerCase() === 'blackmagic' ? ctx.status.encoder : null);
-  if (wpStatus?.connected) {
-    // Note: platform/quality/server may not be in basic status — getActivePlatform fetches it on demand
-    let wpInfo = 'WebPresenter: use blackmagic.* commands for platform/bitrate/format config';
-    if (wpStatus.platform) wpInfo += `, platform=${wpStatus.platform}`;
-    if (wpStatus.quality) wpInfo += `, quality=${wpStatus.quality}`;
-    contextHint += wpInfo + '. ';
-  }
-
-  // ProPresenter
-  if (ctx.status?.proPresenter?.connected) {
-    const pp = ctx.status.proPresenter;
-    let ppInfo = `ProPresenter: slide ${pp.slideIndex != null ? pp.slideIndex + 1 : '?'}/${pp.slideTotal || '?'}`;
-    if (pp.presentationName) ppInfo += ` ("${pp.presentationName}")`;
-    if (pp.activeLook) ppInfo += `, look="${pp.activeLook}"`;
-    contextHint += ppInfo + '. ';
-  }
-
-  // Audio mixer
-  if (ctx.status?.mixer?.connected) {
-    const m = ctx.status.mixer;
-    contextHint += `Audio: ${m.type || ''} ${m.model || ''}${m.mainMuted ? ', MUTED' : ''}. `;
-    if (m.channelNames && Object.keys(m.channelNames).length) {
-      const chNames = Object.entries(m.channelNames).map(([k, v]) => `ch${k}=${v}`).join(', ');
-      contextHint += `Channels: ${chNames}. `;
-    }
-  }
-
-  // Audio silence detection
-  if (ctx.status?.audio?.silenceDetected) {
-    contextHint += '⚠ AUDIO SILENCE DETECTED. ';
-  }
-
-  // PTZ cameras
-  const ptzConnected = (ctx.status?.ptz || []).filter(c => c.connected);
-  if (ptzConnected.length) contextHint += `PTZ: ${ptzConnected.length} camera${ptzConnected.length > 1 ? 's' : ''} connected. `;
-
-  // HyperDecks (array format)
-  const hyperdeckArr = ctx.status?.hyperdecks || [];
-  if (hyperdeckArr.length > 0) {
-    const hdParts = hyperdeckArr.map((hd, i) => {
-      if (!hd) return null;
-      let info = `deck${i + 1}=${hd.connected ? (hd.recording ? 'recording' : hd.playing ? 'playing' : 'idle') : 'disconnected'}`;
-      if (hd.connected && hd.diskPercent != null) info += ` disk=${hd.diskPercent}%`;
-      return info;
-    }).filter(Boolean);
-    if (hdParts.length) contextHint += `HyperDecks: ${hdParts.join(', ')}. `;
-  } else if (ctx.status?.hyperdeck?.connected) {
-    // Legacy single hyperdeck fallback
-    const hd = ctx.status.hyperdeck;
-    let hdInfo = `HyperDeck: ${hd.recording ? 'recording' : hd.playing ? 'playing' : 'idle'}`;
-    if (hd.diskPercent != null) hdInfo += `, disk=${hd.diskPercent}%`;
-    if (hd.estimatedMinutesRemaining != null) hdInfo += `, ~${hd.estimatedMinutesRemaining}min remaining`;
-    contextHint += hdInfo + '. ';
-  }
-
-  // VideoHubs (array format)
-  const vhArr = ctx.status?.videoHubs || [];
-  if (vhArr.length > 0) {
-    const vhConnected = vhArr.filter(h => h?.connected).length;
-    contextHint += `VideoHub: ${vhConnected}/${vhArr.length} connected. `;
-  } else if (ctx.status?.videohub?.connected) {
-    contextHint += 'VideoHub: connected. ';
-  }
-
-  // Resolume
-  if (ctx.status?.resolume?.connected) {
-    let resInfo = 'Resolume: connected';
-    if (ctx.status.resolume.version) resInfo += ` (${ctx.status.resolume.version})`;
-    contextHint += resInfo + '. ';
-  }
-
-  // Ecamm
-  if (ctx.status?.ecamm?.connected) {
-    const ec = ctx.status.ecamm;
-    contextHint += `Ecamm: ${ec.live ? 'live' : 'idle'}${ec.recording ? ', recording' : ''}. `;
-  }
-
-  // Dante
-  if (ctx.status?.dante?.connected) {
-    contextHint += 'Dante: connected. ';
-  }
-
-  // NDI
-  if (ctx.status?.ndi?.connected) {
-    contextHint += 'NDI: connected. ';
-  }
-
-  // Smart plugs (Shelly)
-  const plugs = ctx.status?.smartPlugs || [];
-  if (plugs.length > 0) {
-    const plugParts = plugs.map(p => `${p.name || p.ip}=${p.on ? 'ON' : 'OFF'}${p.power ? ` ${p.power}W` : ''}`);
-    contextHint += `Smart plugs: ${plugParts.join(', ')}. `;
-  }
-
-  // Companion
-  if (ctx.status?.companion?.connected) {
-    const cc = ctx.status.companion.connectionCount || 0;
-    if (cc > 0) {
-      const connLabels = (ctx.status.companion.connections || []).map(c => c.label).filter(Boolean).join(', ');
-      contextHint += `Companion: ${cc} module${cc > 1 ? 's' : ''}${connLabels ? ' (' + connLabels + ')' : ''}. `;
-      // Include live variable values if available
-      const vars = ctx.status.companion.variables;
-      if (vars && Object.keys(vars).length > 0) {
-        const varParts = [];
-        for (const [conn, varObj] of Object.entries(vars)) {
-          const entries = Object.entries(varObj).filter(([, v]) => v != null).map(([k, v]) => `${k}=${v}`).join(', ');
-          if (entries) varParts.push(`${conn}: ${entries}`);
-        }
-        if (varParts.length) contextHint += `Companion vars: ${varParts.join('; ')}. `;
-      }
-    }
-  }
-
-  // ── Device health telemetry (latency, reconnects) ──
-  if (ctx.status?.health) {
-    const h = ctx.status.health;
-    const healthParts = [];
-    if (h.relay?.latencyMs != null) healthParts.push(`relay=${h.relay.latencyMs}ms`);
-    if (h.atem?.latencyMs != null) healthParts.push(`atem=${h.atem.latencyMs}ms`);
-    if (h.atem?.reconnects > 0) healthParts.push(`atem_reconnects=${h.atem.reconnects}`);
-    if (h.encoder?.reconnects > 0) healthParts.push(`encoder_reconnects=${h.encoder.reconnects}`);
-    if (h.obs?.reconnects > 0) healthParts.push(`obs_reconnects=${h.obs.reconnects}`);
-    if (healthParts.length) contextHint += `Device health: ${healthParts.join(', ')}. `;
-  }
-
-  // ── System info ──
-  if (ctx.status?.system) {
-    const sys = ctx.status.system;
-    if (sys.uptime > 0) contextHint += `System uptime: ${Math.floor(sys.uptime / 60)}min. `;
-  }
-
-  // ── Recent alerts (from DB, passed by server.js) ──
-  if (ctx.recentAlerts?.length > 0) {
-    const alertParts = ctx.recentAlerts.slice(0, 5).map(a => {
-      const status = a.resolved ? 'resolved' : a.acknowledged_at ? 'acked' : 'ACTIVE';
-      return `${a.alert_type}(${a.severity})[${status}]`;
-    });
-    contextHint += `Recent alerts: ${alertParts.join(', ')}. `;
-  }
-
-  // ── Health score (from DB, passed by server.js) ──
-  if (ctx.healthScore != null) {
-    contextHint += `Health score: ${ctx.healthScore}/100. `;
-  }
-
-  // ── Signal failover state (passed by server.js) ──
-  if (ctx.failoverState && ctx.failoverState !== 'HEALTHY') {
-    contextHint += `⚠ Failover state: ${ctx.failoverState}. `;
-  }
-
-  // Engineer profile (user-provided setup context)
-  const ep = ctx.engineerProfile;
-  if (ep && Object.keys(ep).length) {
-    if (ep.streamPlatform && ep.streamPlatform !== 'None') contextHint += `Streams to: ${ep.streamPlatform}. `;
-    if (ep.expectedViewers) contextHint += `Expected viewers: ${ep.expectedViewers}. `;
-    if (ep.operatorLevel) contextHint += `Operator: ${ep.operatorLevel}. `;
-    if (ep.backupEncoder) contextHint += `Backup encoder: ${ep.backupEncoder}. `;
-    if (ep.backupSwitcher) contextHint += `Backup switcher: ${ep.backupSwitcher}. `;
-    if (ep.specialNotes) contextHint += `Notes: ${ep.specialNotes}. `;
-  }
-
-  // Configured devices summary: tells AI exactly which devices this church has
-  // This prevents the AI from hallucinating disconnected devices that aren't configured
-  const configuredTypes = ctx.configuredDevices || [];
-  if (configuredTypes.length > 0) {
-    const connectedSet = new Set();
-    // Build set of currently connected device types from live status
-    if (ctx.status?.atem?.connected) connectedSet.add('atem');
-    if (ctx.status?.obs?.connected) connectedSet.add('obs');
-    if (ctx.status?.vmix?.connected) connectedSet.add('vmix');
-    if (ctx.status?.encoder?.connected) connectedSet.add('encoder');
-    if (ctx.status?.proPresenter?.connected) connectedSet.add('proPresenter');
-    if (ctx.status?.companion?.connected) connectedSet.add('companion');
-    if (ctx.status?.mixer?.connected) connectedSet.add('mixer');
-    if (ctx.status?.hyperdeck?.connected) connectedSet.add('hyperdeck');
-    if ((ctx.status?.ptz || []).some(c => c?.connected)) connectedSet.add('ptz');
-    if (ctx.status?.videohub?.connected) connectedSet.add('videohub');
-    if (ctx.status?.resolume?.connected) connectedSet.add('resolume');
-    if (ctx.status?.ecamm?.connected) connectedSet.add('ecamm');
-    if (ctx.status?.dante?.connected) connectedSet.add('dante');
-    if (ctx.status?.ndi?.connected) connectedSet.add('ndi');
-
-    const parts = configuredTypes.map(key => {
-      const name = DEVICE_DISPLAY_NAMES[key] || key;
-      return connectedSet.has(key) ? `${name}=Connected` : `${name}=Disconnected`;
-    });
-    contextHint += `Configured devices: ${parts.join(', ')}. `;
-    // Explicitly note devices NOT configured so AI doesn't invent them
-    const allKnown = Object.keys(DEVICE_DISPLAY_NAMES);
-    const notConfigured = allKnown.filter(k => !configuredTypes.includes(k));
-    if (notConfigured.length) {
-      contextHint += `NOT configured (do not mention): ${notConfigured.map(k => DEVICE_DISPLAY_NAMES[k]).join(', ')}. `;
-    }
-  }
-
-  // Church memory (pre-compiled summary from past observations)
-  if (ctx.memorySummary) contextHint += ctx.memorySummary + ' ';
-
-  // Church knowledge base documents (relevant chunk for current query)
-  if (ctx.documentContext) contextHint += `[Docs: ${ctx.documentContext}] `;
-
-  const userContent = contextHint
-    ? `[${contextHint.trim()}]\n${text}`
+  const userContent = contextBlock
+    ? `[${contextBlock}]\n${text}`
     : text;
 
   // Build messages array: conversation history + current message
   const messages = [...conversationHistory, { role: 'user', content: userContent }];
 
-  // ── Detect diagnostic/troubleshooting intent → upgrade to Sonnet ──
-  const isDiagnostic = _isDiagnosticQuestion(text);
-  const useSonnet = isDiagnostic && !!ctx.diagnosticContext;
-  const modelId = useSonnet ? 'claude-sonnet-4-20250514' : 'claude-haiku-4-5-20251001';
+  // Command parser always uses Haiku — diagnostic routing is handled upstream by intent-classifier
+  const modelId = 'claude-haiku-4-5-20251001';
 
-  // Build dynamic system prompt based on connected devices
-  let systemPrompt = buildSystemPrompt(ctx.status || {});
-
-  // For diagnostic questions, inject diagnostic context + memory referencing instructions
-  if (useSonnet) {
-    systemPrompt += `\n\n--- DIAGNOSTIC CONTEXT ---\n${ctx.diagnosticContext}\n`;
-    systemPrompt += `\n--- INCIDENT CHAINS ---\n${ctx.incidentChains || 'No known incident chains yet.'}\n`;
-    systemPrompt += `\n--- INSTRUCTIONS FOR DIAGNOSTIC RESPONSES ---
-When troubleshooting:
-1. Reference specific memories if relevant: "Last time this happened (2 weeks ago), it was caused by..."
-2. Correlate current symptoms with past patterns: "I've seen this pattern 3 times — encoder drops followed by stream failure within 30s"
-3. Walk the user through diagnosis step by step — ask follow-up questions if needed
-4. Rank possible causes by likelihood based on their specific equipment and history
-5. Be specific to THEIR gear: "Your ${ctx.status?.atem?.model || 'ATEM'} + ${ctx.status?.mixer?.model || 'mixer'} setup typically has issue X"
-6. If you see a memory about a fix that worked before, suggest it first: "This worked last time: [specific fix]"
-7. Think like a veteran TD who knows this specific room — reference their camera labels, mixer channels, encoder type
-8. Keep responses conversational — you're their engineer buddy, not a manual
-9. Do NOT use markdown formatting (no **bold**, no *italic*, no bullet points, no headers). Write in plain conversational text like you're texting a coworker.\n`;
-  }
+  // Build dynamic system prompt based on connected devices (includes identity + knowledge from tally-engineer)
+  const systemPrompt = buildSystemPrompt(ctx.status || {});
 
   const promptTokenEst = Math.round(systemPrompt.length / 4);
   try {
-    console.log(`[ai-parser] ctx.churchName="${ctx.churchName}" ctx.roomId="${ctx.roomId}" ctx.roomName="${ctx.roomName}" contextHint="${contextHint.slice(0, 120)}"`);
-    console.log(`[ai-parser] Calling ${useSonnet ? 'Sonnet (diagnostic)' : 'Haiku'} (${messages.length} msg, ~${promptTokenEst} prompt tokens) for: "${text.slice(0, 60)}"`);
-    const { text: raw, usage, latencyMs } = await callAnthropic(messages, useSonnet ? 25000 : 15000, systemPrompt, modelId);
-    console.log(`[ai-parser] ${useSonnet ? 'Sonnet' : 'Haiku'} response (${latencyMs}ms): ${raw.slice(0, 300)}`);
+    console.log(`[ai-parser] ctx.churchName="${ctx.churchName}" ctx.roomId="${ctx.roomId}" ctx.roomName="${ctx.roomName}" context=${contextBlock.length} chars`);
+    console.log(`[ai-parser] Calling Haiku (${messages.length} msg, ~${promptTokenEst} prompt tokens) for: "${text.slice(0, 60)}"`);
+    const { text: raw, usage, latencyMs } = await callAnthropic(messages, 15000, systemPrompt, modelId);
+    console.log(`[ai-parser] Haiku response (${latencyMs}ms): ${raw.slice(0, 300)}`);
 
     // Log AI usage
     if (_logAiUsage && usage) {
       _logAiUsage({
         churchId: ctx.churchId || null,
-        feature: useSonnet ? 'diagnostic_engineer' : 'command_parser',
+        feature: 'command_parser',
         model: modelId,
         inputTokens: usage.input_tokens || 0,
         outputTokens: usage.output_tokens || 0,
         latencyMs,
-        intent: useSonnet ? 'diagnostic' : 'command',
+        intent: 'command',
       });
     }
 
@@ -1736,4 +1320,125 @@ When troubleshooting:
   }
 }
 
-module.exports = { aiParseCommand, getAvailableCommandNames, setAiUsageLogger, setIncidentBypassCheck, checkAiRateLimit, buildSystemPrompt, getConfiguredDeviceTypes };
+// ─── Contextual command confirmations (template-based, zero LLM cost) ────────
+// After command execution, generate a brief situational response that
+// references input labels, device names, and recent health events.
+
+/**
+ * Generate a contextual confirmation message after command execution.
+ * Template-based for common commands (zero LLM cost).
+ * Returns null for commands where default "✅ command result" is sufficient.
+ *
+ * @param {string} command — executed command name
+ * @param {object} params — command parameters
+ * @param {object} result — execution result (from church client)
+ * @param {object} [status] — current device status
+ * @returns {string|null} contextual confirmation or null for default
+ */
+function buildCommandConfirmation(command, params, result, status) {
+  const inputLabels = status?.atem?.inputLabels || {};
+
+  // Helper: get label for an ATEM input number
+  function inputLabel(input) {
+    const label = inputLabels[input] || inputLabels[String(input)];
+    return label ? `${label} (input ${input})` : `input ${input}`;
+  }
+
+  switch (command) {
+    case 'atem.cut':
+    case 'atem.setProgram':
+      if (params?.input != null) return `Cut to ${inputLabel(params.input)}.`;
+      break;
+
+    case 'atem.setPreview':
+      if (params?.input != null) return `Preview set to ${inputLabel(params.input)}.`;
+      break;
+
+    case 'atem.auto':
+      return 'Transition executed.';
+
+    case 'atem.fadeToBlack':
+      return status?.atem?.fadeToBlack ? 'Fading to black.' : 'Coming back from black.';
+
+    case 'atem.startStreaming': {
+      // Check for recent encoder reconnects
+      const reconnects = status?.health?.atem?.reconnects || 0;
+      const base = 'ATEM stream started.';
+      if (reconnects > 2) return `${base} Heads up — ATEM has reconnected ${reconnects} times recently.`;
+      return base;
+    }
+    case 'atem.stopStreaming':
+      return 'ATEM stream stopped.';
+
+    case 'atem.startRecording':
+      return 'ATEM recording started.';
+    case 'atem.stopRecording':
+      return 'ATEM recording stopped.';
+
+    case 'obs.startStream': {
+      const bitrate = status?.obs?.bitrate;
+      const reconnects = status?.health?.obs?.reconnects || 0;
+      let msg = 'OBS stream started.';
+      if (bitrate) msg = `OBS stream started at ${bitrate}kbps.`;
+      if (reconnects > 2) msg += ` Heads up — OBS has reconnected ${reconnects} times recently.`;
+      return msg;
+    }
+    case 'obs.stopStream':
+      return 'OBS stream stopped.';
+    case 'obs.startRecording':
+      return 'OBS recording started.';
+    case 'obs.stopRecording':
+      return 'OBS recording stopped.';
+    case 'obs.setScene':
+      return params?.scene ? `Switched to scene "${params.scene}".` : null;
+
+    case 'encoder.startStream': {
+      const encType = status?.encoder?.type || 'Encoder';
+      const bitrate = status?.encoder?.bitrateKbps;
+      const reconnects = status?.health?.encoder?.reconnects || 0;
+      let msg = `${encType} stream started.`;
+      if (bitrate) msg = `${encType} stream started at ${bitrate}kbps.`;
+      if (reconnects > 2) msg += ` Heads up — encoder has reconnected ${reconnects} times recently.`;
+      return msg;
+    }
+    case 'encoder.stopStream':
+      return `${status?.encoder?.type || 'Encoder'} stream stopped.`;
+
+    case 'vmix.startStream':
+      return 'vMix stream started.';
+    case 'vmix.stopStream':
+      return 'vMix stream stopped.';
+
+    case 'mixer.mute':
+      return params?.channel === 'master' ? 'Master muted.' : `Channel ${params?.channel} muted.`;
+    case 'mixer.unmute':
+      return params?.channel === 'master' ? 'Master unmuted.' : `Channel ${params?.channel} unmuted.`;
+
+    case 'atem.runMacro':
+      return params?.macroIndex != null ? `Macro ${params.macroIndex} running.` : null;
+
+    case 'atem.setDskOnAir':
+      if (params?.keyer != null) {
+        const keyerLabel = params.keyer === 0 ? 'Lower third' : params.keyer === 1 ? 'Bug/logo' : `DSK ${params.keyer + 1}`;
+        return params.onAir ? `${keyerLabel} on.` : `${keyerLabel} off.`;
+      }
+      break;
+
+    case 'propresenter.next':
+      return 'Next slide.';
+    case 'propresenter.previous':
+      return 'Previous slide.';
+    case 'propresenter.clearAll':
+      return 'ProPresenter cleared.';
+
+    case 'ptz.preset':
+      return params?.preset != null ? `Camera ${params.camera || 1} to preset ${params.preset}.` : null;
+
+    default:
+      return null; // Use default "✅ command result" formatting
+  }
+
+  return null;
+}
+
+module.exports = { aiParseCommand, getAvailableCommandNames, setAiUsageLogger, setIncidentBypassCheck, checkAiRateLimit, buildSystemPrompt, getConfiguredDeviceTypes, buildCommandConfirmation };
