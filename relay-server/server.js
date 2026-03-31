@@ -2670,6 +2670,7 @@ async function callDiagnosticAI(churchId, question, roomCtx = {}) {
     db,
     churches,
     signalFailover,
+    planningCenter,
   });
 
   const conversationHistory = chatEngine.getRecentConversation(churchId);
@@ -3376,6 +3377,7 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     recentAlerts,
     healthScore,
     failoverState,
+    planningCenter,
   }, conversationHistory);
 
   if (aiResult.type === 'error' || aiResult.type === 'rate_limited') {

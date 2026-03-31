@@ -317,6 +317,14 @@ function _buildOperationalContext(status, opts) {
   // ── Church memory summary ──
   if (opts.memorySummary) sections.push(opts.memorySummary);
 
+  // ── Planning Center service plan context ──
+  if (opts.planningCenter && opts.churchId) {
+    try {
+      const pcoContext = opts.planningCenter.buildAIContext(opts.churchId);
+      if (pcoContext) sections.push(pcoContext);
+    } catch { /* planningCenter may not be available */ }
+  }
+
   // ── Document context ──
   if (opts.documentContext) sections.push(`[Docs: ${opts.documentContext}]`);
 
@@ -495,6 +503,7 @@ function _buildDiagnosticExtras(churchId, db, churches, signalFailover) {
  * @param {string} [opts.memorySummary] — compiled church memory summary
  * @param {string} [opts.documentContext] — relevant knowledge base chunk
  * @param {string} [opts.incidentChains] — incident chain context
+ * @param {object} [opts.planningCenter] — PlanningCenter instance (for PCO service plan context)
  * @param {object} [opts.db] — better-sqlite3 database instance (required for diagnostic tier)
  * @param {Map} [opts.churches] — runtime church map (required for diagnostic tier)
  * @param {object} [opts.signalFailover] — SignalFailover instance (optional, for diagnostic tier)

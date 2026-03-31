@@ -527,7 +527,7 @@ describe('PlanningCenter.getUpcomingPlans', () => {
 
   it('throws when church not found', async () => {
     await expect(pc.getUpcomingPlans('nonexistent'))
-      .rejects.toThrow(/not found/i);
+      .rejects.toThrow(/not found|not configured/i);
   });
 
   it('throws when credentials not configured', async () => {

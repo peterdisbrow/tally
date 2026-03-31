@@ -1157,6 +1157,7 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
 
   // Build context using unified tally-context.js (Tier 1: operational, auto-upgrades to Tier 2 if degraded)
   const contextBlock = buildContext(ctx.status || {}, 'operational', {
+    churchId: ctx.churchId,
     churchName: ctx.churchName,
     roomId: ctx.roomId,
     roomName: ctx.roomName,
@@ -1167,6 +1168,7 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     configuredDevices: ctx.configuredDevices,
     memorySummary: ctx.memorySummary,
     documentContext: ctx.documentContext,
+    planningCenter: ctx.planningCenter,
   });
 
   const userContent = contextBlock
