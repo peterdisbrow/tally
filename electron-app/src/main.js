@@ -1959,6 +1959,28 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
 
   const config = loadConfig();
   if (equipConfig.atemIp !== undefined) config.atemIp = sanitizeHost(equipConfig.atemIp);
+  // Multi-ATEM array
+  if (Array.isArray(equipConfig.atems)) {
+    config.atems = equipConfig.atems.map(a => ({
+      ip: sanitizeHost(a.ip || ''),
+      role: typeof a.role === 'string' ? a.role.slice(0, 32) : 'primary',
+      name: typeof a.name === 'string' ? a.name.slice(0, 64) : '',
+    })).filter(a => a.ip);
+  }
+  // Switchers config for SwitcherManager
+  if (Array.isArray(equipConfig.switchers)) {
+    config.switchers = equipConfig.switchers.map(s => ({
+      id: typeof s.id === 'string' ? s.id.slice(0, 64) : '',
+      type: typeof s.type === 'string' ? s.type.slice(0, 32) : '',
+      role: typeof s.role === 'string' ? s.role.slice(0, 32) : 'primary',
+      name: typeof s.name === 'string' ? s.name.slice(0, 64) : '',
+      ip: s.ip ? sanitizeHost(s.ip) : undefined,
+      host: s.host ? sanitizeHost(s.host) : undefined,
+      port: s.port ? sanitizePort(s.port, null) : undefined,
+      url: s.url ? sanitizeUrl(s.url) : undefined,
+      password: typeof s.password === 'string' ? s.password.slice(0, 512) : undefined,
+    })).filter(s => s.id && s.type);
+  }
   if (equipConfig.companionUrl !== undefined) config.companionUrl = sanitizeUrl(equipConfig.companionUrl);
   if (equipConfig.obsUrl !== undefined) config.obsUrl = sanitizeUrl(equipConfig.obsUrl);
   if (equipConfig.obsPassword !== undefined) config.obsPassword = typeof equipConfig.obsPassword === 'string' ? equipConfig.obsPassword.slice(0, 512) : '';
@@ -1982,6 +2004,7 @@ ipcMain.handle('save-equipment', (_, equipConfig) => {
       ? { host: sanitizeHost(equipConfig.vmixHost), port: sanitizePort(equipConfig.vmixPort, 8088) }
       : null;
   }
+  if (equipConfig.vmixSwitcherRole !== undefined) config.vmixSwitcherRole = typeof equipConfig.vmixSwitcherRole === 'string' ? equipConfig.vmixSwitcherRole.slice(0, 32) : '';
   if (equipConfig.resolumeHost !== undefined) {
     config.resolume = equipConfig.resolumeHost
       ? { host: sanitizeHost(equipConfig.resolumeHost), port: sanitizePort(equipConfig.resolumePort, 8080) }
@@ -2067,6 +2090,8 @@ ipcMain.handle('get-equipment', () => {
   const config = loadConfig();
   return {
     atemIp: config.atemIp || '',
+    atems: config.atems || [],
+    switchers: config.switchers || [],
     companionUrl: config.companionUrl || '',
     obsUrl: config.obsUrl || '',
     obsPasswordSet: !!(config.obsPassword),
@@ -2084,6 +2109,7 @@ ipcMain.handle('get-equipment', () => {
     vmixConfigured: !!config.vmix?.host,
     vmixHost: config.vmix?.host || '',
     vmixPort: config.vmix?.port || 8088,
+    vmixSwitcherRole: config.vmixSwitcherRole || '',
     resolumeConfigured: !!config.resolume?.host,
     resolumeHost: config.resolume?.host || '',
     resolumePort: config.resolume?.port || 8080,

@@ -273,9 +273,10 @@ function importPortableConfig(portableBlob) {
 // ─── Per-room equipment config ───────────────────────────────────────────────
 // Equipment keys that are stored per-room. Everything else is global.
 const ROOM_EQUIPMENT_KEYS = [
-  'atemIp', 'companionUrl', 'obsUrl', 'obsPassword',
+  'atemIp', 'atems', 'switchers',
+  'companionUrl', 'obsUrl', 'obsPassword',
   'hyperdecks', 'videoHubs', 'ptz',
-  'proPresenter', 'vmix', 'resolume', 'mixer',
+  'proPresenter', 'vmix', 'vmixSwitcherRole', 'resolume', 'mixer',
   'encoders', 'encoder', 'backupEncoder',
   'encoderType', 'encoderHost', 'encoderPort', 'encoderPassword',
   'encoderLabel', 'encoderStatusUrl', 'encoderSource',

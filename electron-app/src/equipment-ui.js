@@ -11,11 +11,11 @@
 // ─── STATE ──────────────────────────────────────────────────────────────────
 
 const deviceState = {
-  atem:          { ip: '' },
+  atem:          [],  // [{ ip, role, name }]  — multi-instance (was single object)
   companion:     { host: '', port: '8888' },
   encoder:       [],  // [{ encoderType, host, port, password, label, statusUrl, source }]
   propresenter:  { host: '', port: '1025', configured: false },
-  vmix:          { host: '', port: '8088', configured: false },
+  vmix:          { host: '', port: '8088', configured: false, switcherRole: '' },
   resolume:      { host: '', port: '8080', configured: false },
   mixer:         { type: '', host: '', port: '' },
   'atem-recording': { autoRecord: false },
@@ -31,11 +31,11 @@ const expandedDevices = new Set();
  * Called on factory reset, sign-out, and room switch to prevent stale data.
  */
 function resetDeviceState() {
-  deviceState.atem = { ip: '' };
+  deviceState.atem = [];
   deviceState.companion = { host: '', port: '8888' };
   deviceState.encoder = [];
   deviceState.propresenter = { host: '', port: '1025', configured: false };
-  deviceState.vmix = { host: '', port: '8088', configured: false };
+  deviceState.vmix = { host: '', port: '8088', configured: false, switcherRole: '' };
   deviceState.resolume = { host: '', port: '8080', configured: false };
   deviceState.mixer = { type: '', host: '', port: '' };
   deviceState['atem-recording'] = { autoRecord: false };
@@ -63,7 +63,12 @@ function renderActiveSummary() {
     </div>`);
   };
 
-  if (deviceState.atem.ip) addChip('atem', 'ATEM', deviceState.atem.ip);
+  (deviceState.atem || []).forEach((a, i) => {
+    if (a.ip) {
+      const label = a.name || `ATEM${deviceState.atem.length > 1 ? ` ${i + 1}` : ''}`;
+      addChip('atem', label, a.ip);
+    }
+  });
   deviceState.encoder.forEach((enc, i) => {
     if (enc.encoderType) {
       const encName = ENCODER_DISPLAY_NAMES[enc.encoderType] || 'Encoder';
