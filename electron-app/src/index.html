@@ -265,11 +265,11 @@
             <div class="label">Model</div>
             <div class="value muted" id="val-atem-model">—</div>
           </div>
-          <div class="info-card" title="Currently live program output source on the ATEM">
+          <div class="info-card tally-program" id="card-program" title="Currently live program output source on the ATEM">
             <div class="label">Program</div>
             <div class="value muted" id="val-program">—</div>
           </div>
-          <div class="info-card" title="Next source queued on preview bus">
+          <div class="info-card tally-preview" id="card-preview" title="Next source queued on preview bus">
             <div class="label">Preview</div>
             <div class="value muted" id="val-preview">—</div>
           </div>
@@ -278,13 +278,28 @@
             <div class="value muted" id="val-recording">—</div>
             <div id="atem-rec-detail" style="display:none; font-size:10px; color:var(--dim); margin-top:4px; font-family:var(--mono);"></div>
           </div>
-          <div class="info-card" title="Bitfocus Companion macro controller connection">
-            <div class="label">Companion</div>
-            <div class="value muted" id="val-companion">—</div>
-          </div>
         </div>
         <!-- Audio delay warning — only visible when program input has non-zero delay -->
         <div id="val-audio-delay" style="display:none; margin-top:8px; padding:6px 10px; background:rgba(234,179,8,0.12); border:1px solid rgba(234,179,8,0.3); border-radius:6px; font-size:11px; color:#eab308; font-family:var(--mono);"></div>
+      </div>
+    </div>
+
+    <!-- Companion Status -->
+    <div class="section collapsible-section" id="section-companion" style="display:none;">
+      <div class="section-toggle" onclick="toggleCollapsible('section-companion')">
+        <h2>Companion</h2>
+      </div>
+      <div class="section-body">
+        <div class="info-grid">
+          <div class="info-card" title="Bitfocus Companion macro controller connection">
+            <div class="label">Status</div>
+            <div class="value muted" id="val-companion">—</div>
+          </div>
+          <div class="info-card" title="Companion server endpoint">
+            <div class="label">Endpoint</div>
+            <div class="value muted" id="val-companion-endpoint">—</div>
+          </div>
+        </div>
       </div>
     </div>
 
