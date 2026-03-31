@@ -3597,7 +3597,13 @@ function renderSimpleDeviceList(eq) {
   const container = document.getElementById('simple-device-list');
   if (!container) return;
   const items = [];
-  if (eq.atemIp) items.push({ icon: '\uD83C\uDFAC', name: 'ATEM Switcher', detail: eq.atemIp });
+  if (Array.isArray(eq.atems) && eq.atems.length > 0) {
+    eq.atems.forEach((a, i) => {
+      if (a.ip) items.push({ icon: '\uD83C\uDFAC', name: a.name || `ATEM Switcher${eq.atems.length > 1 ? ` ${i + 1}` : ''}`, detail: `${a.ip} (${a.role || 'primary'})` });
+    });
+  } else if (eq.atemIp) {
+    items.push({ icon: '\uD83C\uDFAC', name: 'ATEM Switcher', detail: eq.atemIp });
+  }
   // Encoder — check both single encoder and multi-encoder formats
   const encType = eq.encoderType || '';
   const encHost = eq.encoderHost || '';
@@ -3628,7 +3634,16 @@ async function loadEquipment() {
   const eq = await api.getEquipment();
 
   // ── Populate deviceState from API response ──
-  deviceState.atem.ip = eq.atemIp || '';
+  // Multi-ATEM: prefer atems array, fall back to legacy atemIp string
+  if (Array.isArray(eq.atems) && eq.atems.length > 0) {
+    deviceState.atem = eq.atems.map(a => ({
+      ip: a.ip || '', role: a.role || 'primary', name: a.name || '',
+    }));
+  } else if (eq.atemIp) {
+    deviceState.atem = [{ ip: eq.atemIp, role: 'primary', name: '' }];
+  } else {
+    deviceState.atem = [];
+  }
   // Parse companion URL → host + port (e.g. "http://localhost:8888" → "localhost", "8888")
   if (eq.companionUrl) {
     try {
@@ -3671,7 +3686,7 @@ async function loadEquipment() {
     backupHost: eq.proPresenterBackupHost || '', backupPort: String(eq.proPresenterBackupPort || '1025'),
   };
   const vmixConfigured = !!eq.vmixConfigured || !!(eq.vmixHost && String(eq.vmixHost).trim());
-  deviceState.vmix = { host: eq.vmixHost || '', port: String(eq.vmixPort || '8088'), configured: vmixConfigured };
+  deviceState.vmix = { host: eq.vmixHost || '', port: String(eq.vmixPort || '8088'), configured: vmixConfigured, switcherRole: eq.vmixSwitcherRole || '' };
   const resolumeConfigured = !!eq.resolumeConfigured || !!(eq.resolumeHost && String(eq.resolumeHost).trim());
   deviceState.resolume = { host: eq.resolumeHost || '', port: String(eq.resolumePort || '8080'), configured: resolumeConfigured };
 
@@ -3693,7 +3708,7 @@ async function loadEquipment() {
 
   // ── Auto-expand configured devices ──
   expandedDevices.clear();
-  if (deviceState.atem.ip) { expandedDevices.add('atem'); expandedDevices.add('atem-recording'); }
+  if (deviceState.atem.length > 0 && deviceState.atem.some(a => a.ip)) { expandedDevices.add('atem'); expandedDevices.add('atem-recording'); }
   if (deviceState.encoder.length > 0 && deviceState.encoder.some(e => e.encoderType)) expandedDevices.add('encoder');
   if (deviceState.companion.host) expandedDevices.add('companion');
   if (deviceState.hyperdeck.length > 0) expandedDevices.add('hyperdeck');
@@ -4047,8 +4062,29 @@ async function _doSaveEquipment() {
   const enc = deviceState.encoder[0] || {};
   const encType = enc.encoderType || '';
 
+  // Build multi-ATEM array
+  const atems = (deviceState.atem || []).filter(a => (a.ip || '').trim()).map(a => ({
+    ip: (a.ip || '').trim(), role: a.role || 'primary', name: (a.name || '').trim(),
+  }));
+  // Build switchers config from ATEMs + optional vMix/OBS switcher roles
+  const switchers = atems.map((a, i) => ({
+    id: `atem-${i + 1}`, type: 'atem', role: a.role, name: a.name, ip: a.ip,
+  }));
+  if (deviceState.vmix.switcherRole && deviceState.vmix.host) {
+    switchers.push({
+      id: 'vmix-1', type: 'vmix', role: deviceState.vmix.switcherRole,
+      name: 'vMix', host: (deviceState.vmix.host || '').trim(),
+      port: parseInt(deviceState.vmix.port) || 8088,
+    });
+  }
+
   const config = {
-    atemIp: (deviceState.atem.ip || '').trim(),
+    // Legacy atemIp (primary ATEM IP for backward compat with church-client)
+    atemIp: atems.length > 0 ? atems[0].ip : '',
+    // Multi-ATEM array
+    atems,
+    // Switchers config (for SwitcherManager)
+    switchers: switchers.length > 0 ? switchers : undefined,
     companionUrl: deviceState.companion.host ? `http://${(deviceState.companion.host || 'localhost').trim()}:${deviceState.companion.port || '8888'}` : '',
     // Encoders array (new format)
     encoders,
@@ -4076,6 +4112,7 @@ async function _doSaveEquipment() {
     proPresenterBackupPort: parseInt(deviceState.propresenter.backupPort) || 1025,
     vmixHost: (deviceState.vmix.configured || deviceState.vmix.host) ? (deviceState.vmix.host || '').trim() : '',
     vmixPort: parseInt(deviceState.vmix.port) || 8088,
+    vmixSwitcherRole: deviceState.vmix.switcherRole || '',
     resolumeHost: deviceState.resolume.configured ? (deviceState.resolume.host || '').trim() : '',
     resolumePort: parseInt(deviceState.resolume.port) || 8080,
     // Audio

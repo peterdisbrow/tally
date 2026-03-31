@@ -31,6 +31,7 @@ const { PTZManager, normalizeProtocol } = require('./ptz');
 const { ShellyManager } = require('./shellyManager');
 const { getSystemHealth } = require('./systemHealth');
 const { collectDiagnosticBundle } = require('./diagnosticBundle');
+const { SwitcherManager } = require('./switcherManager');
 
 // ExternalPortType enum → human-readable label (used for audio source detection)
 const PORT_TYPE_NAMES = { 1: 'SDI', 2: 'HDMI', 4: 'Component', 8: 'Composite',
@@ -281,6 +282,7 @@ class ChurchAVAgent {
     this.config = config;
     this.relay = null;
     this.atem = null;
+    this.switcherManager = new SwitcherManager(this);
 
     // Derive churchId and HTTP base URL from JWT token + relay URL
     try {
@@ -429,6 +431,10 @@ class ChurchAVAgent {
   }
 
   updateAtemIdentity(state) {
+    // When using SwitcherManager, identity is handled by AtemSwitcher instances.
+    // This legacy method is only called from the inline connectATEM() path.
+    if (this.switcherManager && this.switcherManager.size > 0) return;
+
     const source = (state && typeof state === 'object') ? state : this.atem?.state;
     if (!source || typeof source !== 'object') return;
 
@@ -584,9 +590,39 @@ class ChurchAVAgent {
     console.log(`   Relay: ${this.config.relay}`);
 
     await this.connectRelay();
-    await this.connectATEM();
+
+    // ── Multi-switcher support ───────────────────────────────────────────
+    // Build and connect all switchers (ATEM/OBS/vMix) via the SwitcherManager.
+    // For legacy configs (no config.switchers), auto-migrates from atemIp.
+    this.switcherManager.buildFromConfig(this.config);
+
+    if (this.switcherManager.size > 0) {
+      // Use SwitcherManager for ATEM connections.  The legacy connectATEM()
+      // path is skipped — the manager owns the ATEM lifecycle now.
+      await this.switcherManager.connectAll();
+
+      // Expose primary ATEM's raw instance as this.atem for backward compat
+      // (commands, atemCommand(), watchdog checks all reference agent.atem)
+      const primaryAtem = this.switcherManager.getPrimary();
+      if (primaryAtem && primaryAtem.type === 'atem') {
+        this.atem = primaryAtem.raw;
+        this._fakeAtemMode = false;
+      }
+
+      // Sync legacy status fields immediately
+      this.switcherManager.syncLegacyStatus(this.status);
+    } else {
+      // No switchers configured via new system — use legacy connectATEM()
+      await this.connectATEM();
+    }
+
     if (this.isObsMonitoringEnabled()) {
       await this.connectOBS();
+      // If OBS was also added as a switcher, let the ObsSwitcher share the connection
+      const obsSwitch = this.switcherManager.getFirstByType('obs');
+      if (obsSwitch && this.obs && this.status.obs?.connected) {
+        obsSwitch.attachShared(this.obs);
+      }
     }
     this.audioMonitor.start(this);
     this.streamHealthMonitor.start(this);
@@ -600,6 +636,11 @@ class ChurchAVAgent {
     await this.connectProPresenter();
     await this.connectResolume();
     await this.connectVMix();
+    // If vMix was also added as a switcher, let the VmixSwitcher share the connection
+    const vmixSwitch = this.switcherManager.getFirstByType('vmix');
+    if (vmixSwitch && this.vmix) {
+      vmixSwitch.attachShared(this.vmix);
+    }
     await this.connectMixer();
     await this.connectPTZ();
     await this.connectEncoder();
@@ -647,9 +688,16 @@ class ChurchAVAgent {
       this._sendWatchdogAlert('bitrate_low', `Low bitrate on ${bitrate.source}: ${bitrate.value}kbps`);
     }
 
-    // ATEM disconnected
+    // ATEM disconnected (check all switcher-managed ATEMs, fall back to legacy)
     const churchName = this.config.name || 'Church';
-    if (this.config.atemIp && !this.status.atem.connected) {
+    if (this.switcherManager && this.switcherManager.size > 0) {
+      for (const sw of this.switcherManager.getAllByType('atem')) {
+        if (!sw.connected) {
+          issues.push('atem_disconnected');
+          this._sendWatchdogAlert(`atem_disconnected_${sw.id}`, `${churchName}: ${sw.name || 'ATEM'} disconnected (${sw.ip || 'unknown IP'}) — will auto-reconnect`);
+        }
+      }
+    } else if (this.config.atemIp && !this.status.atem.connected) {
       issues.push('atem_disconnected');
       this._sendWatchdogAlert('atem_disconnected', `${churchName}: ATEM disconnected (${this.config.atemIp || 'unknown IP'}) — will auto-reconnect`);
     }
@@ -1291,6 +1339,8 @@ class ChurchAVAgent {
   }
 
   reconnectATEM() {
+    // When using SwitcherManager, reconnection is handled by AtemSwitcher instances
+    if (this.switcherManager && this.switcherManager.size > 0) return;
     if (this._stopping || this.atemReconnecting || !this.config.atemIp) return;
     this.health.atem.reconnects++;
     this.atemReconnecting = true;
@@ -1315,7 +1365,10 @@ class ChurchAVAgent {
   }
 
   async atemCommand(fn, timeoutMs = 10000) {
-    if (!this.atem || !this.status.atem.connected) throw new Error('ATEM not connected');
+    // Support both legacy this.atem and switcher-managed ATEMs
+    const atem = this.atem;
+    const connected = this.switcherManager?.getPrimary()?.connected ?? this.status.atem.connected;
+    if (!atem || !connected) throw new Error('ATEM not connected');
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('ATEM command timed out after ' + (timeoutMs / 1000) + 's')), timeoutMs);
       fn().then(result => { clearTimeout(timer); resolve(result); })
@@ -1343,6 +1396,11 @@ class ChurchAVAgent {
 
     // 4. Prevent pending ATEM reconnect from firing
     this.atemReconnecting = true;
+
+    // 4b. Disconnect all switchers managed by SwitcherManager
+    try {
+      if (this.switcherManager) await this.switcherManager.disconnectAll();
+    } catch { /* ignore */ }
 
     // 5. Disconnect all devices (each in its own try/catch so one failure doesn't skip the rest)
     try {
@@ -2369,8 +2427,16 @@ class ChurchAVAgent {
     // Debounce rapid status sends (e.g. multiple device events within 100ms)
     if (this._statusDebounce) return;
     this._statusDebounce = true;
+    // Sync switcher state to legacy fields before sending
+    if (this.switcherManager && this.switcherManager.size > 0) {
+      this.switcherManager.syncLegacyStatus(this.status);
+    }
     // Send immediately on first call, then coalesce subsequent calls within 100ms
     const fullStatus = { ...this.status, health: this.health };
+    // Include multi-switcher status if available
+    if (this.switcherManager && this.switcherManager.size > 0) {
+      fullStatus.switchers = this.switcherManager.getSwitchersStatus();
+    }
     this.sendToRelay({ type: 'status_update', status: fullStatus });
     setTimeout(() => {
       this._statusDebounce = false;

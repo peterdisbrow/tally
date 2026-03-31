@@ -31,7 +31,21 @@ function buildDiagnosticContext(churchId, db, churches, signalFailover) {
     const s = church.status;
     const lines = ['CURRENT DEVICE STATUS:'];
 
-    if (s.atem?.connected != null) {
+    // Multi-switcher status (if available)
+    if (s.switchers && Object.keys(s.switchers).length > 0) {
+      for (const [swId, sw] of Object.entries(s.switchers)) {
+        const typeLabel = (sw.type || 'switcher').toUpperCase();
+        let swLine = `  ${typeLabel} "${sw.name || swId}" [${sw.role || 'primary'}]: ${sw.connected ? 'connected' : 'DISCONNECTED'}`;
+        if (sw.connected) {
+          if (sw.model) swLine += ` (${sw.model})`;
+          swLine += `, pgm=input ${sw.programInput || '?'}`;
+          if (sw.streaming) swLine += ', streaming';
+          if (sw.recording) swLine += ', recording';
+        }
+        lines.push(swLine);
+      }
+    } else if (s.atem?.connected != null) {
+      // Legacy single-ATEM fallback
       let atemLine = `  ATEM: ${s.atem.connected ? 'connected' : 'DISCONNECTED'}`;
       if (s.atem.connected) {
         if (s.atem.model) atemLine += ` (${s.atem.model})`;

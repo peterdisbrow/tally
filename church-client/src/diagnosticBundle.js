@@ -41,7 +41,7 @@ async function collectDiagnosticBundle(agent) {
     url: agent.config?.relay || null,
   };
 
-  // ATEM
+  // ATEM (legacy single-instance)
   connections.atem = {
     connected: agent.status?.atem?.connected || false,
     model: agent.status?.atem?.model || null,
@@ -49,6 +49,11 @@ async function collectDiagnosticBundle(agent) {
     programInput: agent.status?.atem?.programInput ?? null,
     previewInput: agent.status?.atem?.previewInput ?? null,
   };
+
+  // Multi-switcher status (if SwitcherManager is active)
+  if (agent.switcherManager) {
+    connections.switchers = agent.switcherManager.getSwitchersStatus();
+  }
 
   // OBS
   connections.obs = {

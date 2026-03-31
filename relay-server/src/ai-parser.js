@@ -77,6 +77,7 @@ function checkAiRateLimit(churchId, tier) {
 // Maps equipment config keys → status object keys
 const EQUIPMENT_TO_STATUS_KEY = {
   atem: 'atem',
+  atems: 'atem',  // multi-ATEM array key
   companion: 'companion',
   encoder: 'encoder',
   propresenter: 'proPresenter',
@@ -122,6 +123,9 @@ function getConfiguredDeviceTypes(equipment) {
     if (Array.isArray(val)) {
       if (eqKey === 'encoder') {
         if (val.some(e => e.encoderType)) configured.push(statusKey);
+      } else if (eqKey === 'atem') {
+        // Multi-ATEM: atems array — check if any entry has an ip
+        if (val.some(e => e.ip || e.host)) configured.push(statusKey);
       } else {
         // ptz, hyperdeck, videohub — check if any entry has an ip/host
         if (val.some(e => e.ip || e.host)) configured.push(statusKey);
@@ -130,7 +134,7 @@ function getConfiguredDeviceTypes(equipment) {
       // Single devices — check 'configured' flag or any meaningful field
       if (val.configured) {
         configured.push(statusKey);
-      } else if (eqKey === 'atem' && val.ip) {
+      } else if (eqKey === 'atem' && (val.ip || val.host)) {
         configured.push(statusKey);
       } else if (eqKey === 'companion' && val.host) {
         configured.push(statusKey);
@@ -259,6 +263,13 @@ const FALLBACK_COMMANDS = [
   'atem.stopStreaming',
   'atem.switchRecordingDisk',
   'atem.uploadStill',
+  // ── Multi-switcher (abstract) ──
+  'switcher.cut',
+  'switcher.setProgram',
+  'switcher.setPreview',
+  'switcher.auto',
+  'switcher.list',
+  'switcher.status',
   // ── Blackmagic Web Presenter ──
   'blackmagic.getActivePlatform',
   'blackmagic.getAudioSources',
@@ -538,6 +549,9 @@ AVAILABLE COMMANDS (JSON schema):
 {"command":"atem.setDskTie","params":{"keyer":N,"tie":true}}
 {"command":"atem.setDskRate","params":{"keyer":N,"rate":N}}
 {"command":"atem.setDskSource","params":{"keyer":N,"fillSource":N,"keySource":N}}
+{"command":"switcher.cut","params":{"switcherId":"X","input":N}}      — cut on a specific switcher (by id or role)
+{"command":"switcher.list","params":{}}                               — list all configured switchers
+{"command":"switcher.status","params":{"switcherId":"X"}}             — get status of a specific switcher
 {"command":"hyperdeck.play","params":{"hyperdeck":N}}
 {"command":"hyperdeck.stop","params":{"hyperdeck":N}}
 {"command":"hyperdeck.record","params":{"hyperdeck":N}}
@@ -670,6 +684,7 @@ const CMD_SIGS = {
   propresenter: `propresenter: next(), previous(), goToSlide(index:N), lastSlide(), status(), playlist(), clearAll(), clearSlide(), stageMessage(name:X), clearMessage(), getLooks(), setLook(name:X), getTimers(), startTimer(name:X), stopTimer(name:X), version(), messages()`,
   resolume: `resolume: playClip(name:X OR layer:N,clip:N), stopClip(layer:N,clip:N), triggerColumn(column:N OR name:X), clearAll(), setBpm(bpm:N), getBpm(), setLayerOpacity(layer:N,value:0-1), setMasterOpacity(value:0-1), getLayers(), getColumns(), isRunning(), version(), status(), playClipByName(name:X), triggerColumnByName(name:X)`,
   mixer: `mixer: status(), mute(channel:master|N), unmute(channel:master|N), recallScene(scene:N), saveScene(scene:N,name:X), setFader(channel:N,level:0-1), setChannelName(channel:N,name:X), setHpf(channel:N,enabled:bool,frequency:N), setEq(channel:N,enabled:bool,bands:[...]), setCompressor(channel:N,enabled:bool,threshold:N,ratio:N,attack:N,release:N,knee:N), setGate(channel:N,enabled:bool,threshold:N,range:N,attack:N,hold:N,release:N), setPreampGain(channel:N,gain:N), setPhantom(channel:N,enabled:bool), setPan(channel:N,pan:-1to1), setSendLevel(channel:N,bus:N,level:0-1), assignToBus(channel:N,bus:N,enabled:bool), assignToDca(channel:N,dca:N,enabled:bool), muteDca(dca:N), unmuteDca(dca:N), setDcaFader(dca:N,level:0-1), activateMuteGroup(group:N), deactivateMuteGroup(group:N), pressSoftKey(key:N), clearSolos(), channelStatus(channel:N), getMeters(), capabilities(), setChannelColor(channel:N,color:X), setChannelIcon(channel:N,icon:X)`,
+  switcher: `switcher (multi-switcher — use when multiple ATEMs/OBS/vMix are configured, or to target a specific switcher by id or role): cut(switcherId:X,input:N), setProgram(switcherId:X,input:N), setPreview(switcherId:X,input:N), auto(switcherId:X), list(), status(switcherId:X). switcherId can be an ID or role name (primary, backup, imag, broadcast, recording).`,
   dante: `dante: scene(name:X)`,
   ecamm: `ecamm: togglePause(), getScenes(), setScene(id:X), nextScene(), prevScene(), toggleMute(), getInputs(), setInput(id:X), togglePIP(), getOverlays()`,
   aja: `aja (AJA HELO): setVideoInput(source:N), setAudioInput(source:N), setStreamProfile(profile:X), setRecordProfile(profile:X), setMute(muted:bool), recallPreset(preset:X)`,
@@ -691,8 +706,15 @@ function buildSystemPrompt(status = {}) {
   const s = status || {};
   const sigs = [];
 
+  // Multi-switcher support: include switcher commands when multiple switchers present
+  const hasSwitchers = s.switchers && Object.keys(s.switchers).length > 1;
+  if (hasSwitchers) {
+    sigs.push(CMD_SIGS.switcher);
+  }
+
   // ATEM is almost always present
-  if (s.atem?.connected) {
+  const atemConnected = s.atem?.connected || (s.switchers && Object.values(s.switchers).some(sw => sw.type === 'atem' && sw.connected));
+  if (atemConnected) {
     sigs.push(CMD_SIGS.atem);
     sigs.push(CMD_SIGS.atemFairlight);
     sigs.push(CMD_SIGS.atemClassicAudio);
@@ -704,14 +726,16 @@ function buildSystemPrompt(status = {}) {
   if (s.hyperdeck?.connected)     sigs.push(CMD_SIGS.hyperdeck);
   const ptzConnected = (s.ptz || []).some(c => c?.connected);
   if (ptzConnected)               sigs.push(CMD_SIGS.ptz);
-  if (s.atem?.connected)          sigs.push(CMD_SIGS.camera); // BMD camera control requires ATEM
-  if (s.obs?.connected)           sigs.push(CMD_SIGS.obs);
+  if (atemConnected)              sigs.push(CMD_SIGS.camera); // BMD camera control requires ATEM
+  const obsConnected = s.obs?.connected || (s.switchers && Object.values(s.switchers).some(sw => sw.type === 'obs' && sw.connected));
+  if (obsConnected)               sigs.push(CMD_SIGS.obs);
   if (s.encoder?.connected)       sigs.push(CMD_SIGS.encoder);
   // Web Presenter commands are available when encoder type is 'blackmagic'
   const isWebPresenter = s.encoder?.connected && (s.encoder.type || '').toLowerCase() === 'blackmagic';
   if (isWebPresenter || s.webPresenter?.connected)  sigs.push(CMD_SIGS.webPresenter);
   if (s.companion?.connected)     sigs.push(CMD_SIGS.companion);
-  if (s.vmix?.connected)          sigs.push(CMD_SIGS.vmix);
+  const vmixConnected = s.vmix?.connected || (s.switchers && Object.values(s.switchers).some(sw => sw.type === 'vmix' && sw.connected));
+  if (vmixConnected)              sigs.push(CMD_SIGS.vmix);
   if (s.videohub?.connected)      sigs.push(CMD_SIGS.videohub);
   if (s.proPresenter?.connected)  sigs.push(CMD_SIGS.propresenter);
   if (s.resolume?.connected)      sigs.push(CMD_SIGS.resolume);
@@ -729,10 +753,10 @@ function buildSystemPrompt(status = {}) {
   }
 
   // Count connected streaming devices for conditional prompt sections
-  const streamDevices = [s.encoder?.connected, s.obs?.connected, s.vmix?.connected, s.atem?.connected].filter(Boolean);
+  const streamDevices = [s.encoder?.connected, obsConnected, vmixConnected, atemConnected].filter(Boolean);
   const hasMultipleStreamDevices = streamDevices.length > 1;
   const hasMixer = !!s.mixer?.connected;
-  const hasAtemAudio = !!s.atem?.connected && !hasMixer;
+  const hasAtemAudio = atemConnected && !hasMixer;
 
   // Build streaming selection rules (only if multiple streaming devices exist)
   let streamingRules = '';

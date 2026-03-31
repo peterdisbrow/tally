@@ -11,6 +11,7 @@ const { mixerBrandName: _mb, ...mixerCommands } = require('./mixer');
 
 const commandHandlers = {
   ...require('./atem'),
+  ...require('./switcher'),
   ...mixerCommands,
   ...require('./vmix'),
   ...require('./obs'),

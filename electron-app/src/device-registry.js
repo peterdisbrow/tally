@@ -19,9 +19,18 @@ const DEVICE_REGISTRY = {
     icon: '\u{1F39B}',
     category: 'core',
     description: 'Blackmagic video switcher (UDP 9910)',
-    multi: false,
+    multi: true,
+    maxInstances: 4,
     fields: [
       { key: 'ip', label: 'IP Address', type: 'text', placeholder: '192.168.1.10' },
+      { key: 'role', label: 'Role', type: 'select', options: [
+        { value: 'primary', label: 'Primary (Broadcast)' },
+        { value: 'backup', label: 'Backup' },
+        { value: 'imag', label: 'IMAG' },
+        { value: 'broadcast', label: 'Broadcast' },
+        { value: 'recording', label: 'Recording' },
+      ]},
+      { key: 'name', label: 'Label', type: 'text', placeholder: 'e.g. Broadcast ATEM', style: 'flex:1' },
     ],
     testType: 'atem',
   },
@@ -130,6 +139,13 @@ const DEVICE_REGISTRY = {
     fields: [
       { key: 'host', label: 'Host', type: 'text', placeholder: 'localhost or 192.168.1.x' },
       { key: 'port', label: 'Port', type: 'text', placeholder: '8088', style: 'max-width:80px' },
+      { key: 'switcherRole', label: 'Switcher Role', type: 'select', options: [
+        { value: '', label: 'Not a switcher' },
+        { value: 'primary', label: 'Primary (Broadcast)' },
+        { value: 'backup', label: 'Backup' },
+        { value: 'imag', label: 'IMAG' },
+        { value: 'broadcast', label: 'Broadcast' },
+      ]},
     ],
     testType: 'vmix',
   },
