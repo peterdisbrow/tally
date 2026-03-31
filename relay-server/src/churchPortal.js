@@ -436,7 +436,7 @@ function _escapeHtml(str) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine, preServiceRundown, viewerBaseline } = {}) {
   const express = require('express');
   log.info('Setup started');
 
@@ -1891,6 +1891,135 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       if (!result) return res.status(400).json({ error: 'Cannot jump — invalid step or no active rundown' });
       const current = rundownEngine.getCurrentStep(req.church.churchId);
       res.json({ ...result, ...current });
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // ── PRE-SERVICE RUNDOWN ENDPOINTS ─────────────────────────────────────────────
+
+  // GET /api/church/rundown/status — Get the active pre-service rundown
+  app.get('/api/church/rundown/status', supportAuthMiddleware, async (req, res) => {
+    try {
+      if (!preServiceRundown) return res.json({ active: false });
+      const churchId = req.church.churchId;
+
+      // Try in-memory first, then DB fallback
+      let rundown = preServiceRundown.getActiveRundown(churchId);
+      if (!rundown) {
+        rundown = preServiceRundown.getLatestRundown(churchId);
+      }
+      if (!rundown) return res.json({ active: false });
+
+      res.json({ active: true, ...rundown });
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // POST /api/church/rundown/confirm — Confirm "All Clear"
+  app.post('/api/church/rundown/confirm', authMiddleware, (req, res) => {
+    try {
+      if (!preServiceRundown) return res.status(503).json({ error: 'Pre-service rundown not available' });
+      const churchId = req.church.churchId;
+      const confirmedBy = req.body.confirmedBy || req.church.churchName || 'portal';
+      const confirmedVia = req.body.confirmedVia || 'portal';
+
+      const result = preServiceRundown.confirm(churchId, confirmedBy, confirmedVia);
+      if (!result) return res.status(404).json({ error: 'No active rundown to confirm' });
+      res.json({ confirmed: true, confirmedBy, confirmedAt: result.confirmation.confirmedAt });
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // POST /api/church/rundown/generate — Manually trigger a rundown generation
+  app.post('/api/church/rundown/generate', authMiddleware, async (req, res) => {
+    try {
+      if (!preServiceRundown) return res.status(503).json({ error: 'Pre-service rundown not available' });
+      const churchId = req.church.churchId;
+      const rundown = await preServiceRundown.generate(churchId);
+      if (!rundown) return res.status(500).json({ error: 'Failed to generate rundown' });
+
+      // Generate AI summary in background
+      preServiceRundown.generateAISummary(churchId).catch(() => {});
+
+      res.json(rundown);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // GET /api/church/rundown/viewer-baseline — Get viewer baseline for next service
+  app.get('/api/church/rundown/viewer-baseline', supportAuthMiddleware, (req, res) => {
+    try {
+      if (!viewerBaseline) return res.json({});
+      const churchId = req.church.churchId;
+      const day = req.query.day != null ? parseInt(req.query.day, 10) : new Date().getDay();
+      const baseline = viewerBaseline.getBaseline(churchId, day);
+      res.json(baseline);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // GET /api/church/rundown/escalation-contacts — List escalation contacts
+  app.get('/api/church/rundown/escalation-contacts', authMiddleware, (req, res) => {
+    try {
+      if (!preServiceRundown) return res.json([]);
+      res.json(preServiceRundown.getEscalationContacts(req.church.churchId));
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // POST /api/church/rundown/escalation-contacts — Add escalation contact
+  app.post('/api/church/rundown/escalation-contacts', authMiddleware, (req, res) => {
+    try {
+      if (!preServiceRundown) return res.status(503).json({ error: 'Not available' });
+      const { role, name, contactType, contactValue, notifyOn } = req.body;
+      if (!role || !name || !contactType || !contactValue) {
+        return res.status(400).json({ error: 'role, name, contactType, contactValue required' });
+      }
+      const allowed = ['backup_td', 'pastor', 'admin'];
+      if (!allowed.includes(role)) return res.status(400).json({ error: `role must be one of: ${allowed.join(', ')}` });
+
+      const contact = preServiceRundown.addEscalationContact(req.church.churchId, { role, name, contactType, contactValue, notifyOn });
+      res.json(contact);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // DELETE /api/church/rundown/escalation-contacts/:id — Remove escalation contact
+  app.delete('/api/church/rundown/escalation-contacts/:id', authMiddleware, (req, res) => {
+    try {
+      if (!preServiceRundown) return res.status(503).json({ error: 'Not available' });
+      preServiceRundown.removeEscalationContact(req.params.id);
+      res.json({ removed: true });
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // GET /api/church/rundown/history — Get recent pre-service rundown history
+  app.get('/api/church/rundown/history', authMiddleware, (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+      const rows = db.prepare(
+        'SELECT id, church_id, service_time, overall_status, confirmed_by, confirmed_at, escalation_level, ai_summary, created_at FROM preservice_rundowns WHERE church_id = ? ORDER BY created_at DESC LIMIT ?'
+      ).all(req.church.churchId, limit);
+      res.json(rows);
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // GET /api/church/rundown/escalation-settings — Get escalation config
+  app.get('/api/church/rundown/escalation-settings', authMiddleware, (req, res) => {
+    try {
+      const row = db.prepare('SELECT escalation_enabled, escalation_timing_json FROM churches WHERE churchId = ?').get(req.church.churchId);
+      res.json({
+        enabled: !!(row?.escalation_enabled),
+        timing: row?.escalation_timing_json ? JSON.parse(row.escalation_timing_json) : { remind: 20, backup: 15, pastor: 10, unconfirmed: 5 },
+      });
+    } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+  });
+
+  // PUT /api/church/rundown/escalation-settings — Update escalation config
+  app.put('/api/church/rundown/escalation-settings', authMiddleware, (req, res) => {
+    try {
+      const { enabled, timing } = req.body;
+      const updates = [];
+      const vals = [];
+      if (enabled !== undefined) { updates.push('escalation_enabled = ?'); vals.push(enabled ? 1 : 0); }
+      if (timing) { updates.push('escalation_timing_json = ?'); vals.push(JSON.stringify(timing)); }
+      if (updates.length === 0) return res.status(400).json({ error: 'No settings to update' });
+      vals.push(req.church.churchId);
+      db.prepare(`UPDATE churches SET ${updates.join(', ')} WHERE churchId = ?`).run(...vals);
+      res.json({ updated: true });
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 

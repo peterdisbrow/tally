@@ -219,6 +219,9 @@ function buildBackgroundPrompt(task) {
     case 'support_triage':
       return base + `You are a church production diagnostic expert. Analyze the system state and provide a root cause analysis. Be specific about which equipment is involved and what the likely failure mode is. Reference the diagnostic context, recent events, and basic health checks provided.`;
 
+    case 'pre_service_rundown':
+      return base + `Generate a brief, conversational pre-service rundown summary for the tech director. Include: (1) overall readiness status in one sentence, (2) any warnings with specific, actionable advice, (3) one historical insight — a pattern, trend, or encouragement, (4) viewer expectations if available. Sign off with encouragement. Be warm but concise. No markdown formatting — write in plain conversational text. Keep it under 150 words.`;
+
     default:
       return base + `Provide a concise, helpful analysis. No markdown formatting.`;
   }

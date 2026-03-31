@@ -157,6 +157,8 @@ const { setupBroadcastMonitor } = require('./src/broadcastMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
 const { RundownEngine } = require('./src/rundownEngine');
 const { RundownScheduler } = require('./src/scheduler');
+const { PreServiceRundown } = require('./src/preServiceRundown');
+const { ViewerBaseline } = require('./src/viewerBaseline');
 const { setupResellerPortal } = require('./src/resellerPortal');
 const { setupStatusPage } = require('./src/statusPage');
 const { setupDocsPortal } = require('./src/docsPortal');
@@ -568,6 +570,9 @@ const _schemaMigrations = [
   "ALTER TABLE incident_summaries ADD COLUMN room_id TEXT",
   "ALTER TABLE incident_summaries ADD COLUMN instance_name TEXT",
   "ALTER TABLE problem_finder_reports ADD COLUMN room_id TEXT",
+  // Pre-service rundown escalation config on churches table
+  "ALTER TABLE churches ADD COLUMN escalation_enabled INTEGER DEFAULT 0",
+  "ALTER TABLE churches ADD COLUMN escalation_timing_json TEXT",
 ];
 for (const m of _schemaMigrations) {
   try { db.exec(m); } catch { /* column already exists */ }
@@ -1580,6 +1585,41 @@ preServiceCheck = new PreServiceCheck({
 });
 preServiceCheck.start();
 
+// ─── PRE-SERVICE RUNDOWN ORCHESTRATOR ─────────────────────────────────────────
+const viewerBaseline = new ViewerBaseline(db);
+const preServiceRundown = new PreServiceRundown({
+  db,
+  scheduleEngine,
+  preServiceCheck,
+  churchMemory,
+  viewerBaseline,
+  rundownEngine,
+  churches,
+  broadcastToPortal,
+  postSystemChatMessage,
+  makeCommandSender,
+  alertBotToken: process.env.ALERT_BOT_TOKEN,
+});
+
+// Hook service window transitions for pre-service rundown lifecycle
+scheduleEngine.addWindowOpenCallback((churchId) => {
+  preServiceRundown.onServiceWindowOpen(churchId).catch(e =>
+    console.error(`[PreServiceRundown] onWindowOpen error for ${churchId}:`, e.message)
+  );
+});
+scheduleEngine.addWindowCloseCallback((churchId) => {
+  preServiceRundown.onServiceWindowClose(churchId);
+});
+
+// Recompute viewer baselines weekly (Sunday at 2 AM)
+_intervals.push(setInterval(() => {
+  const now = new Date();
+  if (now.getDay() === 0 && now.getHours() === 2 && now.getMinutes() === 0) {
+    viewerBaseline.recomputeAll();
+  }
+}, 60 * 1000));
+console.log('[Server] ✓ Pre-Service Rundown orchestrator initialized');
+
 // ─── PRE-SERVICE BRIEFING (posted when service window opens) ────────────────
 // Registered after preServiceCheck so getLatestResult() is available
 scheduleEngine.addWindowOpenCallback((churchId) => {
@@ -1685,7 +1725,7 @@ scheduleEngine.addWindowCloseCallback(async (churchId) => {
 });
 
 // Church Portal — self-service login for individual churches
-setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine });
+setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine, preServiceRundown, viewerBaseline });
 console.log('[Server] ✓ Church Portal routes registered');
 
 // ─── Church Portal Live Status SSE ───────────────────────────────────────────
@@ -4631,6 +4671,9 @@ function gracefulShutdown(signal, exitCode = 0) {
   clearInterval(heartbeatInterval);
 
   // Clean up subsystem timers (failover back/ack timers, Telegram bot polling)
+  try { preServiceRundown.shutdown(); } catch (e) {
+    logWarn('preServiceRundown.shutdown() threw during shutdown', { error: e?.message });
+  }
   try { signalFailover.cleanup(); } catch (e) {
     logWarn('signalFailover.cleanup() threw during shutdown', { error: e?.message });
   }
