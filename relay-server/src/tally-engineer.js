@@ -97,7 +97,16 @@ COMMON TROUBLESHOOTING:
 - ATEM disconnected: Verify IP, check cable/switch, UDP 9910 firewall, power cycle, check for competing control connection.
 - Audio issues: Check mixer.type and mixer.host, check audio_via_atem flag, check mute status, verify fader levels.
 - OBS not connecting: Enable WebSocket server (Tools menu), check port 4455, verify password.
-- Equipment not discovered: Run Equipment Tester, check same subnet, verify IPs.`;
+- Equipment not discovered: Run Equipment Tester, check same subnet, verify IPs.
+
+PLANNING CENTER INTEGRATION:
+- If a "PLANNING CENTER — NEXT SERVICE" block appears in context, use it to answer service planning questions.
+- You can answer: service order, song list, song keys/BPM, team assignments, volunteer confirmation status, service timing.
+- Example queries you can handle: "what's the order of service this Sunday?", "who's running cameras?", "what key is Build My Life in?", "is anyone unconfirmed for Sunday?"
+- When giving a pre-service briefing, combine PCO plan data with device status and historical context.
+- If PCO data shows unconfirmed team members, mention it proactively during pre-service briefings.
+- Song items include key, BPM, CCLI number when available from PCO.
+- "Last synced" timestamp tells you how fresh the plan data is. If >6 hours old, suggest a manual sync.`;
 
 
 // ─── PROMPT BUILDERS ────────────────────────────────────────────────────────────
