@@ -125,7 +125,7 @@ function extractAtemIdentity(state) {
   const modelCode = Number.isFinite(parsedModelCode) ? parsedModelCode : null;
 
   const modelEnumName = modelCode !== null ? ATEM_MODEL_ENUM[modelCode] : null;
-  const modelName = productIdentifier || prettifyAtemModelEnumName(modelEnumName);
+  const modelName = prettifyAtemModelEnumName(modelEnumName) || productIdentifier;
 
   // Protocol version serves as a proxy for firmware revision
   const apiVer = info.apiVersion;
