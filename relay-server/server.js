@@ -157,6 +157,8 @@ const { setupBroadcastMonitor } = require('./src/broadcastMonitor');
 const { setupChurchPortal } = require('./src/churchPortal');
 const { RundownEngine } = require('./src/rundownEngine');
 const { RundownScheduler } = require('./src/scheduler');
+const { PushNotificationService } = require('./src/pushNotifications');
+const { createMobileWebSocketHandler } = require('./src/mobileWebSocket');
 const { setupResellerPortal } = require('./src/resellerPortal');
 const { setupStatusPage } = require('./src/statusPage');
 const { setupDocsPortal } = require('./src/docsPortal');
@@ -1072,6 +1074,33 @@ const scheduleEngine = new ScheduleEngine(db);
 const billing = new BillingSystem(db);
 const onCallRotation = new OnCallRotation(db);
 const alertEngine = new AlertEngine(db, scheduleEngine, { onCallRotation });
+
+// ─── PUSH NOTIFICATIONS (mobile) ──────────────────────────────────────────────
+let firebaseApp = null;
+try {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    const admin = require('firebase-admin');
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    firebaseApp = admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+    console.log('[Server] ✓ Firebase Admin initialized for push notifications');
+  } else if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
+    const admin = require('firebase-admin');
+    const serviceAccount = require(process.env.FIREBASE_SERVICE_ACCOUNT_PATH);
+    firebaseApp = admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+    console.log('[Server] ✓ Firebase Admin initialized from file');
+  } else {
+    console.log('[Server] ℹ FIREBASE_SERVICE_ACCOUNT not set — push notifications disabled');
+  }
+} catch (e) {
+  console.warn('[Server] Firebase Admin init failed (push notifications disabled):', e.message);
+}
+const pushNotifications = new PushNotificationService({ db, firebaseApp, log: console.log });
+alertEngine.setPushNotifications(pushNotifications);
+
 const versionConfig = new VersionConfig(db);
 const autoRecovery = new AutoRecovery(churches, alertEngine, db);
 const aiTriageEngine = new AITriageEngine(db, scheduleEngine, {
@@ -1125,6 +1154,28 @@ sessionRecap.setNotificationConfig(
   process.env.ANDREW_TELEGRAM_CHAT_ID
 );
 sessionRecap.recoverActiveSessions(); // Re-hydrate sessions that survived a restart
+
+// ─── PRE-SERVICE PUSH REMINDER (T-30 minutes) ────────────────────────────────
+scheduleEngine.addPreServiceCallback(async (churchId, nextService) => {
+  try {
+    const church = churches.get(churchId);
+    const churchName = church?.name || 'Church';
+    let rundownSummary = null;
+    try {
+      const activeRundown = rundownEngine.getActive(churchId);
+      if (activeRundown?.items?.length) {
+        rundownSummary = `${activeRundown.items.length} items in rundown`;
+      }
+    } catch { /* no rundown */ }
+    await pushNotifications.sendServiceReminder(churchId, {
+      name: `${churchName} Service`,
+      startsAt: nextService.startTime,
+      rundownSummary,
+    });
+  } catch (e) {
+    console.error(`[Push] Pre-service reminder error for ${churchId}:`, e.message);
+  }
+});
 
 // Hook schedule engine window transitions → session lifecycle
 scheduleEngine.addWindowOpenCallback((churchId) => {
@@ -2481,7 +2532,7 @@ const routeCtx = {
   resellerSystem, planningCenter, streamOAuth, eventMode,
   scheduleEngine, alertEngine, weeklyDigest, sessionRecap, aiTriageEngine,
   monthlyReport, autoPilot, presetLibrary, onCallRotation, rundownEngine, scheduler,
-  guestTdMode, chatEngine,
+  guestTdMode, chatEngine, pushNotifications,
   logAiUsage, logAudit, isOnTopic, OFF_TOPIC_RESPONSE, runManualDbSnapshot,
   jwt, JWT_SECRET, ADMIN_ROLES, ADMIN_API_KEY, uuidv4,
   CHURCH_APP_TOKEN_TTL, REQUIRE_ACTIVE_BILLING, TRIAL_PERIOD_DAYS,
@@ -2501,7 +2552,8 @@ require('./src/routes/scheduler')(app, routeCtx);
 require('./src/routes/churchOps')(app, routeCtx);
 require('./src/routes/roomEquipment')(app, routeCtx);
 require('./src/routes/aiTriage')(app, routeCtx);
-console.log('[Server] ✓ Route modules registered');
+require('./src/routes/mobile')(app, routeCtx);
+console.log('[Server] ✓ Route modules registered (including mobile)');
 
 // Admin auth, users, AI usage routes → src/routes/adminAuth.js
 
@@ -3610,11 +3662,13 @@ const _wsHandlers = createWebSocketHandlers({
       console.error('[branding] lookup error:', e.message);
     }
     broadcastToPortal(church.churchId, { type: 'connected', status: church.status, lastSeen: church.lastSeen, instanceStatus: church.instanceStatus, roomInstanceMap: church.roomInstanceMap });
+    _mobileWsHandler.sendConnectionChange(church.churchId, null, true);
     aiTriageEngine.recordReconnection(church.churchId);
     log(`Church "${church.name}" connected`, { event: 'church_connect', churchId: church.churchId, church: church.name });
     // (WS-level ping interval is managed by the factory via wsPingIntervalMs)
   },
   onChurchDisconnected(church) {
+    _mobileWsHandler.sendConnectionChange(church.churchId, null, false);
     log(`Church "${church.name}" disconnected`, { event: 'church_disconnect', churchId: church.churchId, church: church.name });
   },
   onStatusUpdate(church, msg, statusEvent) {
@@ -3659,6 +3713,8 @@ const _wsHandlers = createWebSocketHandlers({
       if (isRecordingActive(msg.status)) sessionRecap.recordRecordingConfirmed(church.churchId);
     }
     signalFailover.onStatusUpdate(church.churchId, church.status, statusEvent?.instance || null);
+    // Send delta updates to mobile WebSocket clients
+    _mobileWsHandler.sendStatusDelta(church.churchId, msg.status || {}, statusEvent?.roomId || null);
     totalMessagesRelayed++;
   },
   onAlert(church, msg, alertEvent) {
@@ -3668,6 +3724,14 @@ const _wsHandlers = createWebSocketHandlers({
       const alertRoomId = alertEvent?.roomId || null;
 
       if (msg.alertType === 'audio_silence') sessionRecap.recordAudioSilence(church.churchId);
+      // Forward alert to mobile WebSocket clients
+      _mobileWsHandler.sendAlertToMobile(church.churchId, {
+        alertType: msg.alertType,
+        severity: alertEngine.classifyAlert(msg.alertType),
+        context: { message: msg.message, _instanceName: alertInstanceName, _roomId: alertRoomId },
+        diagnosis: alertEngine.getDiagnosis(msg.alertType),
+        timestamp: Date.now(),
+      });
       // Forward encoder disconnect to SignalFailover so it can evaluate failover
       // (watchdog alerts bypass signal_event path — bridge the gap here)
       if (msg.alertType === 'encoder_disconnected') {
@@ -3785,6 +3849,15 @@ const _wsHandlers = createWebSocketHandlers({
   },
 });
 
+// ─── MOBILE WEBSOCKET HANDLER ─────────────────────────────────────────────────
+const _mobileWsHandler = createMobileWebSocketHandler({
+  churches,
+  db,
+  jwtSecret: JWT_SECRET,
+  pushNotifications,
+  log,
+});
+
 wss.on('connection', (ws, req) => {
   // Clear pong-timeout when client responds to a heartbeat ping
   ws.on('pong', () => {
@@ -3802,6 +3875,8 @@ wss.on('connection', (ws, req) => {
     handleChurchConnection(ws, url, clientIp);
   } else if (role === 'controller') {
     handleControllerConnection(ws, url, req);
+  } else if (role === 'mobile') {
+    _mobileWsHandler.handleMobileConnection(ws, url);
   } else {
     ws.close(1008, 'Unknown role');
   }

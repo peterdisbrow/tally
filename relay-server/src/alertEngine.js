@@ -244,6 +244,8 @@ class AlertEngine {
     this.onCallRotation = options.onCallRotation || null;
     // Optional: ResellerSystem for white-labeling brand names
     this.resellerSystem = options.resellerSystem || null;
+    // Optional: PushNotificationService for mobile push alerts
+    this.pushNotifications = options.pushNotifications || null;
 
     // ─── Deduplication state ──────────────────────────────────────────────────
     // dedupState: Map<"churchId::alertType" → { count, firstSeen, lastContext, timer }>
@@ -258,6 +260,11 @@ class AlertEngine {
   /** Attach lifecycle emails engine for escalation emails */
   setLifecycleEmails(engine) {
     this.lifecycleEmails = engine;
+  }
+
+  /** Attach push notification service for mobile alerts */
+  setPushNotifications(service) {
+    this.pushNotifications = service;
   }
 
   /**
@@ -532,6 +539,12 @@ class AlertEngine {
 
     // Send Slack alert if configured
     await this.sendSlackAlert(church, alertType, severity, context, diagnosis);
+
+    // Send mobile push notification if configured
+    if (this.pushNotifications) {
+      this.pushNotifications.sendAlert(church.churchId, { alertId, alertType, severity, context, diagnosis })
+        .catch(e => console.error('[AlertEngine] Push notification failed:', e.message));
+    }
 
     // CRITICAL → start escalation timer
     if (severity === 'CRITICAL') {

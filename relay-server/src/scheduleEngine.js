@@ -47,6 +47,8 @@ class ScheduleEngine {
     this._windowState = new Map();   // churchId → boolean (was in window last poll?)
     this._openCallbacks = [];        // fn(churchId) — fired when window opens
     this._closeCallbacks = [];       // fn(churchId) — fired when window closes
+    this._preServiceCallbacks = [];  // fn(churchId, nextService) — fired at T-30 before service
+    this._preServiceSent = new Map(); // churchId::dayStart → true (dedup pre-service reminders)
     this._pollTimer = null;
     this._ensureColumn();
   }
@@ -124,6 +126,14 @@ class ScheduleEngine {
   }
 
   /**
+   * Register a callback that fires ~30 minutes before a service window opens.
+   * @param {function(churchId: string, nextService: object): void} fn
+   */
+  addPreServiceCallback(fn) {
+    this._preServiceCallbacks.push(fn);
+  }
+
+  /**
    * Start polling all churches every 60 seconds for window transitions.
    * Fires onWindowOpen / onWindowClose callbacks on state changes.
    */
@@ -160,6 +170,25 @@ class ScheduleEngine {
         }
       } else {
         this._windowState.set(churchId, inWindow);
+      }
+
+      // Pre-service reminder: fire callbacks ~30 minutes before service
+      if (!inWindow && this._preServiceCallbacks.length > 0) {
+        const next = this.getNextService(churchId);
+        if (next && next.minutesUntil > 25 && next.minutesUntil <= 35) {
+          const dedupKey = `${churchId}::${next.day}::${next.startTime}`;
+          if (!this._preServiceSent.has(dedupKey)) {
+            this._preServiceSent.set(dedupKey, true);
+            for (const fn of this._preServiceCallbacks) {
+              try { fn(churchId, next); } catch (e) { log.error('preService callback error', { event: 'pre_service_error', churchId, error: e.message }); }
+            }
+            // Clean up old dedup entries (keep only current week)
+            if (this._preServiceSent.size > 200) {
+              const keys = [...this._preServiceSent.keys()];
+              for (let i = 0; i < keys.length - 100; i++) this._preServiceSent.delete(keys[i]);
+            }
+          }
+        }
       }
     }
   }
