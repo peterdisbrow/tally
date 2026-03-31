@@ -79,10 +79,24 @@ function isFakeAtem(agent) {
  * Validate ATEM camera input number. If the ATEM reports available inputs,
  * check that the requested input exists. Returns early for non-camera sources
  * (e.g. color bars 1000+, media player 3010+, etc.).
+ *
+ * @param {object} agent
+ * @param {number} input
+ * @param {string} [switcherId] — optional: validate against a specific switcher's labels
  */
-function validateAtemInput(agent, input) {
+function validateAtemInput(agent, input, switcherId) {
   if (input == null || input >= 1000) return; // special sources are fine
-  const labels = agent.status?.atem?.inputLabels;
+
+  // Resolve labels from a specific switcher or from legacy status.atem
+  let labels;
+  if (switcherId && agent.switcherManager) {
+    const sw = agent.switcherManager.get(switcherId);
+    if (sw) {
+      const s = sw.getStatus();
+      labels = s.inputLabels;
+    }
+  }
+  if (!labels) labels = agent.status?.atem?.inputLabels;
   if (!labels || typeof labels !== 'object') return; // can't validate without labels
   const knownIds = Object.keys(labels).map(Number).filter((n) => n >= 1 && n <= 40);
   if (knownIds.length === 0) return; // no label data
@@ -92,35 +106,54 @@ function validateAtemInput(agent, input) {
   }
 }
 
+/**
+ * Resolve the ATEM instance and connected flag for a command.
+ * If params.switcherId is set, use that specific switcher's raw Atem.
+ * Otherwise use the legacy agent.atem (primary).
+ */
+function resolveAtem(agent, params) {
+  if (params.switcherId && agent.switcherManager) {
+    const sw = agent.switcherManager.get(params.switcherId);
+    if (!sw) throw new Error(`Switcher "${params.switcherId}" not found`);
+    if (sw.type !== 'atem') throw new Error(`Switcher "${params.switcherId}" is ${sw.type}, not ATEM`);
+    if (!sw.connected) throw new Error(`ATEM "${params.switcherId}" not connected`);
+    return { atem: sw.raw, fake: false };
+  }
+  return { atem: agent.atem, fake: isFakeAtem(agent) };
+}
+
 // ─── CORE SWITCHING ─────────────────────────────────────────────────────────
 
 async function atemCut(agent, params) {
   const me = toInt(params.me ?? 0, 'me');
   const input = params.input != null ? toInt(params.input, 'input') : null;
-  if (input != null) validateAtemInput(agent, input);
+  if (input != null) validateAtemInput(agent, input, params.switcherId);
+  const { atem, fake } = resolveAtem(agent, params);
   await agent.atemCommand(async () => {
     if (input != null) {
-      if (isFakeAtem(agent)) await agent.atem?.changeProgramInput(me, input);
-      else await agent.atem?.changeProgramInput(input, me);
+      if (fake) await atem?.changeProgramInput(me, input);
+      else await atem?.changeProgramInput(input, me);
       return;
     }
-    await agent.atem?.cut(me);
+    await atem?.cut(me);
   });
   return input != null ? `Cut to ${friendlyInputName(input)}` : 'Cut executed';
 }
 
 async function atemAuto(agent, params) {
-  await agent.atemCommand(() => agent.atem?.autoTransition(params.me || 0));
+  const { atem } = resolveAtem(agent, params);
+  await agent.atemCommand(() => atem?.autoTransition(params.me || 0));
   return 'Auto transition executed';
 }
 
 async function atemSetProgram(agent, params) {
   const input = toInt(params.input, 'input');
   const me = toInt(params.me ?? 0, 'me');
-  validateAtemInput(agent, input);
+  validateAtemInput(agent, input, params.switcherId);
+  const { atem, fake } = resolveAtem(agent, params);
   await agent.atemCommand(() => {
-    if (isFakeAtem(agent)) return agent.atem?.changeProgramInput(me, input);
-    return agent.atem?.changeProgramInput(input, me);
+    if (fake) return atem?.changeProgramInput(me, input);
+    return atem?.changeProgramInput(input, me);
   });
   return `Program set to ${friendlyInputName(input)}`;
 }
@@ -128,10 +161,11 @@ async function atemSetProgram(agent, params) {
 async function atemSetPreview(agent, params) {
   const input = toInt(params.input, 'input');
   const me = toInt(params.me ?? 0, 'me');
-  validateAtemInput(agent, input);
+  validateAtemInput(agent, input, params.switcherId);
+  const { atem, fake } = resolveAtem(agent, params);
   await agent.atemCommand(() => {
-    if (isFakeAtem(agent)) return agent.atem?.changePreviewInput(me, input);
-    return agent.atem?.changePreviewInput(input, me);
+    if (fake) return atem?.changePreviewInput(me, input);
+    return atem?.changePreviewInput(input, me);
   });
   return `Preview set to ${friendlyInputName(input)}`;
 }
