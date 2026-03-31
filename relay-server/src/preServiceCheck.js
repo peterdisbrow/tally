@@ -16,7 +16,7 @@ class PreServiceCheck {
    * @param {object} [opts.sessionRecap] - SessionRecap instance for session ID linking
    */
   constructor({ db, scheduleEngine, churches, defaultBotToken, andrewChatId, sessionRecap, versionConfig } = {}) {
-    this.lastPreServiceCheckAt = new Map(); // churchId → timestamp (ms)
+    this.lastPreServiceCheckAt = new Map(); // compositeKey (churchId::instanceName) → timestamp (ms)
     this._timer = null;
     this.db = db || null;
     this.scheduleEngine = scheduleEngine || null;
@@ -80,6 +80,9 @@ class PreServiceCheck {
     // Migration: add instance_name for room-based filtering
     try { this.db.prepare('SELECT instance_name FROM preservice_check_results LIMIT 1').get(); }
     catch { try { this.db.exec('ALTER TABLE preservice_check_results ADD COLUMN instance_name TEXT'); } catch { /* already exists */ } }
+    // Migration: add room_id for room-based filtering
+    try { this.db.prepare('SELECT room_id FROM preservice_check_results LIMIT 1').get(); }
+    catch { try { this.db.exec('ALTER TABLE preservice_check_results ADD COLUMN room_id TEXT'); } catch { /* already exists */ } }
   }
 
   /**
@@ -87,11 +90,18 @@ class PreServiceCheck {
    * @param {string} churchId
    * @returns {object|null}
    */
-  getLatestResult(churchId) {
+  getLatestResult(churchId, instanceName) {
     try {
-      const row = this.db.prepare(
-        'SELECT * FROM preservice_check_results WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
-      ).get(churchId);
+      let row;
+      if (instanceName) {
+        row = this.db.prepare(
+          'SELECT * FROM preservice_check_results WHERE church_id = ? AND (instance_name = ? OR instance_name IS NULL) ORDER BY created_at DESC LIMIT 1'
+        ).get(churchId, instanceName);
+      } else {
+        row = this.db.prepare(
+          'SELECT * FROM preservice_check_results WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
+        ).get(churchId);
+      }
       if (!row) return null;
       return { ...row, checks: JSON.parse(row.checks_json || '[]') };
     } catch { return null; }
@@ -275,18 +285,18 @@ class PreServiceCheck {
    * @param {string} triggerType - 'auto' or 'manual'
    * @param {string} [instanceName] - instance name for room-based filtering
    */
-  _persistResult(churchId, result, triggerType = 'auto', instanceName = null) {
+  _persistResult(churchId, result, triggerType = 'auto', instanceName = null, roomId = null) {
     if (!this.db || !result) return;
     try {
       const crypto = require('crypto');
-      const sessionId = this.sessionRecap?.getActiveSessionId(churchId) || null;
+      const sessionId = this.sessionRecap?.getActiveSessionId(churchId, instanceName) || null;
       this.db.prepare(`
-        INSERT INTO preservice_check_results (id, church_id, session_id, pass, checks_json, trigger_type, created_at, instance_name)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO preservice_check_results (id, church_id, session_id, pass, checks_json, trigger_type, created_at, instance_name, room_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         crypto.randomUUID(), churchId, sessionId,
         result.pass ? 1 : 0, JSON.stringify(result.checks || []),
-        triggerType, new Date().toISOString(), instanceName
+        triggerType, new Date().toISOString(), instanceName, roomId
       );
     } catch (e) {
       console.error('[PreServiceCheck] DB persist error:', e.message);
@@ -340,7 +350,13 @@ class PreServiceCheck {
       result.checks = this._enrichWithVersionChecks(result.checks || [], churchRuntime.status);
       result.pass = result.pass && !result.checks.some(c => !c.pass);
     }
-    this._persistResult(churchId, result, 'manual', instanceName);
+    // Look up room_id for this church
+    let roomId = null;
+    try {
+      const row = this.db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId);
+      roomId = row?.room_id || null;
+    } catch { /* non-fatal */ }
+    this._persistResult(churchId, result, 'manual', instanceName, roomId);
     return result;
   }
 

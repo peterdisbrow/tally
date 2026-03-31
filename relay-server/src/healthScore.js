@@ -47,15 +47,15 @@ const RECOMMENDATIONS = {
  * @param {number} [days=7]  Number of days to look back
  * @returns {{ score: number, breakdown: object, trend: string, recommendations: string[] }}
  */
-function computeHealthScore(db, churchId, days = 7) {
+function computeHealthScore(db, churchId, days = 7, { instanceName } = {}) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
   const breakdown = {
-    uptime:             _computeUptime(db, churchId, since),
-    alertRate:          _computeAlertRate(db, churchId, since),
-    recoveryRate:       _computeRecoveryRate(db, churchId, since),
-    preServicePassRate: _computePreServicePassRate(db, churchId, since),
-    streamStability:    _computeStreamStability(db, churchId, since),
+    uptime:             _computeUptime(db, churchId, since, null, instanceName),
+    alertRate:          _computeAlertRate(db, churchId, since, null, instanceName),
+    recoveryRate:       _computeRecoveryRate(db, churchId, since, null, instanceName),
+    preServicePassRate: _computePreServicePassRate(db, churchId, since, null, instanceName),
+    streamStability:    _computeStreamStability(db, churchId, since, null, instanceName),
   };
 
   // Check if ALL sub-scores had no data (all returned null)
@@ -93,7 +93,7 @@ function computeHealthScore(db, churchId, days = 7) {
  * @param {number} [weeks=4]
  * @returns {{ weeks: Array<{ weekStart: string, score: number, breakdown: object }>, trend: string }}
  */
-function getHealthTrend(db, churchId, weeks = 4) {
+function getHealthTrend(db, churchId, weeks = 4, { instanceName } = {}) {
   const weeklyScores = [];
 
   for (let i = weeks - 1; i >= 0; i--) {
@@ -104,11 +104,11 @@ function getHealthTrend(db, churchId, weeks = 4) {
     const until = weekEnd.toISOString();
 
     const breakdown = {
-      uptime:             _computeUptime(db, churchId, since, until),
-      alertRate:          _computeAlertRate(db, churchId, since, until),
-      recoveryRate:       _computeRecoveryRate(db, churchId, since, until),
-      preServicePassRate: _computePreServicePassRate(db, churchId, since, until),
-      streamStability:    _computeStreamStability(db, churchId, since, until),
+      uptime:             _computeUptime(db, churchId, since, until, instanceName),
+      alertRate:          _computeAlertRate(db, churchId, since, until, instanceName),
+      recoveryRate:       _computeRecoveryRate(db, churchId, since, until, instanceName),
+      preServicePassRate: _computePreServicePassRate(db, churchId, since, until, instanceName),
+      streamStability:    _computeStreamStability(db, churchId, since, until, instanceName),
     };
 
     let score = 0;
@@ -172,17 +172,19 @@ function getHealthRecommendations(breakdown) {
  * Uptime: % of service session time that devices were connected.
  * Uses service_sessions duration vs alert-indicated downtime.
  */
-function _computeUptime(db, churchId, since, until) {
+function _computeUptime(db, churchId, since, until, instanceName) {
   try {
     const params = until
       ? [churchId, since, until]
       : [churchId, since];
     const untilClause = until ? ' AND started_at < ?' : '';
+    const instanceClause = instanceName ? ' AND (instance_name = ? OR instance_name IS NULL)' : '';
+    if (instanceName) params.push(instanceName);
 
     const sessions = db.prepare(
       `SELECT duration_minutes, alert_count, auto_recovered_count
        FROM service_sessions
-       WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL`
+       WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL${instanceClause}`
     ).all(...params);
 
     if (!sessions.length) return null; // No sessions = no data
@@ -192,26 +194,33 @@ function _computeUptime(db, churchId, since, until) {
 
     // Estimate downtime: 5 minutes per unresolved critical alert (not auto-recovered)
     // plus count critical events from service_events table
+    const eventParams = until ? [churchId, since, until] : [churchId, since];
+    const eventUntilClause = until ? ' AND timestamp < ?' : '';
+    const eventInstanceClause = instanceName ? ' AND (instance_name = ? OR instance_name IS NULL)' : '';
+    if (instanceName) eventParams.push(instanceName);
+
     const criticalEvents = db.prepare(
       `SELECT COUNT(*) as cnt FROM service_events
-       WHERE church_id = ? AND timestamp >= ?${untilClause}
+       WHERE church_id = ? AND timestamp >= ?${eventUntilClause}
        AND event_type IN ('stream_stopped', 'atem_disconnected', 'recording_failed',
                           'multiple_systems_down', 'atem_stream_stopped',
                           'vmix_stream_stopped', 'encoder_stream_stopped')
-       AND resolved = 0`
-    ).get(...params);
+       AND resolved = 0${eventInstanceClause}`
+    ).get(...eventParams);
 
     const unresolvedDowntime = (criticalEvents?.cnt || 0) * 5;
 
     // Also count resolved events but with shorter downtime estimate (2 min recovery)
+    const resolvedParams = [...eventParams.slice(0, until ? 3 : 2)];
+    if (instanceName) resolvedParams.push(instanceName);
     const resolvedEvents = db.prepare(
       `SELECT COUNT(*) as cnt FROM service_events
-       WHERE church_id = ? AND timestamp >= ?${untilClause}
+       WHERE church_id = ? AND timestamp >= ?${eventUntilClause}
        AND event_type IN ('stream_stopped', 'atem_disconnected', 'recording_failed',
                           'multiple_systems_down', 'atem_stream_stopped',
                           'vmix_stream_stopped', 'encoder_stream_stopped')
-       AND resolved = 1`
-    ).get(...params);
+       AND resolved = 1${eventInstanceClause}`
+    ).get(...resolvedParams);
 
     const resolvedDowntime = (resolvedEvents?.cnt || 0) * 2;
     const totalDowntime = unresolvedDowntime + resolvedDowntime;
@@ -228,29 +237,33 @@ function _computeUptime(db, churchId, since, until) {
  * Alert rate: inverse score — fewer alerts per service hour = higher score.
  * 0 alerts = 100, 1 per hour = ~80, 3+ per hour = <50
  */
-function _computeAlertRate(db, churchId, since, until) {
+function _computeAlertRate(db, churchId, since, until, instanceName) {
   try {
     const params = until
       ? [churchId, since, until]
       : [churchId, since];
     const untilClause = until ? ' AND created_at < ?' : '';
+    const instClause = instanceName ? ' AND (instance_name = ? OR instance_name IS NULL)' : '';
+    if (instanceName) params.push(instanceName);
 
     // Count non-INFO alerts
     const alertCount = db.prepare(
       `SELECT COUNT(*) as cnt FROM alerts
        WHERE church_id = ? AND created_at >= ?${untilClause}
-       AND severity != 'INFO'`
+       AND severity != 'INFO'${instClause}`
     ).get(...params);
 
     const sessionParams = until
       ? [churchId, since, until]
       : [churchId, since];
     const sessionUntilClause = until ? ' AND started_at < ?' : '';
+    const sessInstClause = instanceName ? ' AND (instance_name = ? OR instance_name IS NULL)' : '';
+    if (instanceName) sessionParams.push(instanceName);
 
     const sessions = db.prepare(
       `SELECT SUM(duration_minutes) as total
        FROM service_sessions
-       WHERE church_id = ? AND started_at >= ?${sessionUntilClause} AND ended_at IS NOT NULL`
+       WHERE church_id = ? AND started_at >= ?${sessionUntilClause} AND ended_at IS NOT NULL${sessInstClause}`
     ).get(...sessionParams);
 
     const totalHours = (sessions?.total || 0) / 60;
@@ -270,17 +283,19 @@ function _computeAlertRate(db, churchId, since, until) {
 /**
  * Recovery rate: % of alerts that were auto-recovered.
  */
-function _computeRecoveryRate(db, churchId, since, until) {
+function _computeRecoveryRate(db, churchId, since, until, instanceName) {
   try {
     const params = until
       ? [churchId, since, until]
       : [churchId, since];
     const untilClause = until ? ' AND started_at < ?' : '';
+    const instClause = instanceName ? ' AND (instance_name = ? OR instance_name IS NULL)' : '';
+    if (instanceName) params.push(instanceName);
 
     const sessions = db.prepare(
       `SELECT SUM(alert_count) as total_alerts, SUM(auto_recovered_count) as total_recovered
        FROM service_sessions
-       WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL`
+       WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL${instClause}`
     ).get(...params);
 
     const row = sessions;
@@ -298,22 +313,26 @@ function _computeRecoveryRate(db, churchId, since, until) {
 /**
  * Pre-service pass rate: % of pre-service checks that passed.
  */
-function _computePreServicePassRate(db, churchId, since, until) {
+function _computePreServicePassRate(db, churchId, since, until, instanceName) {
   try {
     const params = until
       ? [churchId, since, until]
       : [churchId, since];
     const untilClause = until ? ' AND created_at < ?' : '';
+    const instClause = instanceName ? ' AND (instance_name = ? OR instance_name IS NULL)' : '';
+    if (instanceName) params.push(instanceName);
 
     const total = db.prepare(
       `SELECT COUNT(*) as cnt FROM preservice_check_results
-       WHERE church_id = ? AND created_at >= ?${untilClause}`
+       WHERE church_id = ? AND created_at >= ?${untilClause}${instClause}`
     ).get(...params);
 
+    const passedParams = until ? [churchId, since, until] : [churchId, since];
+    if (instanceName) passedParams.push(instanceName);
     const passed = db.prepare(
       `SELECT COUNT(*) as cnt FROM preservice_check_results
-       WHERE church_id = ? AND created_at >= ?${untilClause} AND pass = 1`
-    ).get(...params);
+       WHERE church_id = ? AND created_at >= ?${untilClause} AND pass = 1${instClause}`
+    ).get(...passedParams);
 
     if (!total?.cnt) return null; // No checks = no data
     return Math.round((passed.cnt / total.cnt) * 1000) / 10;
@@ -328,12 +347,14 @@ function _computePreServicePassRate(db, churchId, since, until) {
  * of service events. Uses service_events for bitrate_low alerts as a proxy.
  * Fewer bitrate issues = higher stability score.
  */
-function _computeStreamStability(db, churchId, since, until) {
+function _computeStreamStability(db, churchId, since, until, instanceName) {
   try {
     const params = until
       ? [churchId, since, until]
       : [churchId, since];
     const untilClause = until ? ' AND timestamp < ?' : '';
+    const instClause = instanceName ? ' AND (instance_name = ? OR instance_name IS NULL)' : '';
+    if (instanceName) params.push(instanceName);
 
     // Count bitrate/quality-related events
     const qualityEvents = db.prepare(
@@ -341,18 +362,20 @@ function _computeStreamStability(db, churchId, since, until) {
        WHERE church_id = ? AND timestamp >= ?${untilClause}
        AND event_type IN ('bitrate_low', 'fps_low', 'stream_stopped',
                           'atem_stream_stopped', 'vmix_stream_stopped',
-                          'encoder_stream_stopped')`
+                          'encoder_stream_stopped')${instClause}`
     ).get(...params);
 
     const sessionParams = until
       ? [churchId, since, until]
       : [churchId, since];
     const sessionUntilClause = until ? ' AND started_at < ?' : '';
+    const sessInstClause = instanceName ? ' AND (instance_name = ? OR instance_name IS NULL)' : '';
+    if (instanceName) sessionParams.push(instanceName);
 
     const sessions = db.prepare(
       `SELECT SUM(duration_minutes) as total, SUM(stream_runtime_minutes) as stream_total
        FROM service_sessions
-       WHERE church_id = ? AND started_at >= ?${sessionUntilClause} AND ended_at IS NOT NULL`
+       WHERE church_id = ? AND started_at >= ?${sessionUntilClause} AND ended_at IS NOT NULL${sessInstClause}`
     ).get(...sessionParams);
 
     const streamHours = (sessions?.stream_total || 0) / 60;

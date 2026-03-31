@@ -64,24 +64,44 @@ class RundownEngine {
       catch { this.db.exec(`ALTER TABLE active_rundowns ADD COLUMN ${col} ${def}`); }
     }
 
+    // Migration: add room scoping columns to rundowns and active_rundowns
+    const rundownRoomCols = { instance_name: 'TEXT', room_id: 'TEXT' };
+    for (const [col, def] of Object.entries(rundownRoomCols)) {
+      try { this.db.prepare(`SELECT ${col} FROM rundowns LIMIT 1`).get(); }
+      catch { try { this.db.exec(`ALTER TABLE rundowns ADD COLUMN ${col} ${def}`); } catch { /* already exists */ } }
+      try { this.db.prepare(`SELECT ${col} FROM active_rundowns LIMIT 1`).get(); }
+      catch { try { this.db.exec(`ALTER TABLE active_rundowns ADD COLUMN ${col} ${def}`); } catch { /* already exists */ } }
+    }
+
     try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_rundowns_church ON rundowns(church_id)'); } catch {}
   }
 
   // ─── CRUD ────────────────────────────────────────────────────────────────────
 
-  createRundown(churchId, name, steps = []) {
+  createRundown(churchId, name, steps = [], { instanceName, roomId } = {}) {
     const id = uuidv4();
     const now = new Date().toISOString();
     this.db.prepare(
-      'INSERT INTO rundowns (id, church_id, name, steps_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(id, churchId, name, JSON.stringify(steps), now, now);
-    return { id, church_id: churchId, name, steps, created_at: now, updated_at: now };
+      'INSERT INTO rundowns (id, church_id, name, steps_json, created_at, updated_at, instance_name, room_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(id, churchId, name, JSON.stringify(steps), now, now, instanceName || null, roomId || null);
+    return { id, church_id: churchId, name, steps, created_at: now, updated_at: now, instance_name: instanceName || null, room_id: roomId || null };
   }
 
-  getRundowns(churchId) {
-    const rows = this.db.prepare(
-      'SELECT * FROM rundowns WHERE church_id = ? ORDER BY updated_at DESC'
-    ).all(churchId);
+  getRundowns(churchId, { instanceName, roomId } = {}) {
+    let rows;
+    if (instanceName) {
+      rows = this.db.prepare(
+        'SELECT * FROM rundowns WHERE church_id = ? AND (instance_name = ? OR instance_name IS NULL) ORDER BY updated_at DESC'
+      ).all(churchId, instanceName);
+    } else if (roomId) {
+      rows = this.db.prepare(
+        'SELECT * FROM rundowns WHERE church_id = ? AND (room_id = ? OR room_id IS NULL) ORDER BY updated_at DESC'
+      ).all(churchId, roomId);
+    } else {
+      rows = this.db.prepare(
+        'SELECT * FROM rundowns WHERE church_id = ? ORDER BY updated_at DESC'
+      ).all(churchId);
+    }
     return rows.map(r => ({ ...r, steps: JSON.parse(r.steps_json || '[]') }));
   }
 
@@ -114,38 +134,50 @@ class RundownEngine {
 
   // ─── ACTIVE STATE ────────────────────────────────────────────────────────────
 
-  activateRundown(churchId, rundownId) {
+  activateRundown(churchId, rundownId, instanceName) {
     const rundown = this.getRundown(rundownId);
     if (!rundown) return null;
     if (rundown.church_id !== churchId) return null;
     const now = new Date().toISOString();
+    // For multi-room: deactivate any existing rundown for this church+instance first
+    if (instanceName) {
+      this.db.prepare('DELETE FROM active_rundowns WHERE church_id = ? AND instance_name = ?').run(churchId, instanceName);
+    }
     this.db.prepare(
-      'INSERT OR REPLACE INTO active_rundowns (church_id, rundown_id, current_step, started_at) VALUES (?, ?, 0, ?)'
-    ).run(churchId, rundownId, now);
-    return { churchId, rundownId, currentStep: 0, startedAt: now, rundown };
+      'INSERT OR REPLACE INTO active_rundowns (church_id, rundown_id, current_step, started_at, instance_name, room_id) VALUES (?, ?, 0, ?, ?, ?)'
+    ).run(churchId, rundownId, now, instanceName || null, rundown.room_id || null);
+    return { churchId, rundownId, currentStep: 0, startedAt: now, rundown, instanceName: instanceName || null };
   }
 
-  advanceStep(churchId) {
-    const active = this.getActiveRundown(churchId);
+  advanceStep(churchId, instanceName) {
+    const active = this.getActiveRundown(churchId, instanceName);
     if (!active) return null;
     const nextStep = active.currentStep + 1;
     const steps = active.rundown.steps || [];
     if (nextStep >= steps.length) return null; // already at last step
-    this.db.prepare('UPDATE active_rundowns SET current_step = ? WHERE church_id = ?').run(nextStep, churchId);
+    if (instanceName) {
+      this.db.prepare('UPDATE active_rundowns SET current_step = ? WHERE church_id = ? AND instance_name = ?').run(nextStep, churchId, instanceName);
+    } else {
+      this.db.prepare('UPDATE active_rundowns SET current_step = ? WHERE church_id = ? AND instance_name IS NULL').run(nextStep, churchId);
+    }
     return { ...active, currentStep: nextStep };
   }
 
-  goToStep(churchId, stepIndex) {
-    const active = this.getActiveRundown(churchId);
+  goToStep(churchId, stepIndex, instanceName) {
+    const active = this.getActiveRundown(churchId, instanceName);
     if (!active) return null;
     const steps = active.rundown.steps || [];
     if (stepIndex < 0 || stepIndex >= steps.length) return null;
-    this.db.prepare('UPDATE active_rundowns SET current_step = ? WHERE church_id = ?').run(stepIndex, churchId);
+    if (instanceName) {
+      this.db.prepare('UPDATE active_rundowns SET current_step = ? WHERE church_id = ? AND instance_name = ?').run(stepIndex, churchId, instanceName);
+    } else {
+      this.db.prepare('UPDATE active_rundowns SET current_step = ? WHERE church_id = ? AND instance_name IS NULL').run(stepIndex, churchId);
+    }
     return { ...active, currentStep: stepIndex };
   }
 
-  getCurrentStep(churchId) {
-    const active = this.getActiveRundown(churchId);
+  getCurrentStep(churchId, instanceName) {
+    const active = this.getActiveRundown(churchId, instanceName);
     if (!active) return null;
     const steps = active.rundown.steps || [];
     return {
@@ -156,13 +188,23 @@ class RundownEngine {
     };
   }
 
-  getActiveRundown(churchId) {
-    const row = this.db.prepare('SELECT * FROM active_rundowns WHERE church_id = ?').get(churchId);
+  getActiveRundown(churchId, instanceName) {
+    let row;
+    if (instanceName) {
+      row = this.db.prepare('SELECT * FROM active_rundowns WHERE church_id = ? AND instance_name = ?').get(churchId, instanceName);
+    }
+    // Fallback: try church-level (no instance) for backward compat
+    if (!row) {
+      row = this.db.prepare('SELECT * FROM active_rundowns WHERE church_id = ? AND (instance_name IS NULL OR instance_name = ?)').get(churchId, instanceName || '');
+    }
+    if (!row) {
+      row = this.db.prepare('SELECT * FROM active_rundowns WHERE church_id = ?').get(churchId);
+    }
     if (!row) return null;
     const rundown = this.getRundown(row.rundown_id);
     if (!rundown) {
       // Orphaned active rundown — clean up
-      this.db.prepare('DELETE FROM active_rundowns WHERE church_id = ?').run(churchId);
+      this.db.prepare('DELETE FROM active_rundowns WHERE church_id = ? AND rundown_id = ?').run(churchId, row.rundown_id);
       return null;
     }
     return {
@@ -170,12 +212,17 @@ class RundownEngine {
       rundownId: row.rundown_id,
       currentStep: row.current_step,
       startedAt: row.started_at,
+      instanceName: row.instance_name || null,
       rundown,
     };
   }
 
-  deactivateRundown(churchId) {
-    this.db.prepare('DELETE FROM active_rundowns WHERE church_id = ?').run(churchId);
+  deactivateRundown(churchId, instanceName) {
+    if (instanceName) {
+      this.db.prepare('DELETE FROM active_rundowns WHERE church_id = ? AND instance_name = ?').run(churchId, instanceName);
+    } else {
+      this.db.prepare('DELETE FROM active_rundowns WHERE church_id = ?').run(churchId);
+    }
     return { deactivated: true };
   }
 
@@ -187,10 +234,17 @@ class RundownEngine {
    * @param {number} dayOfWeek 0=Sun, 6=Sat
    * @returns {object|null}
    */
-  getAutoActivateRundown(churchId, dayOfWeek) {
-    const row = this.db.prepare(
-      'SELECT * FROM rundowns WHERE church_id = ? AND auto_activate = 1 AND (service_day IS NULL OR service_day = ?) LIMIT 1'
-    ).get(churchId, dayOfWeek);
+  getAutoActivateRundown(churchId, dayOfWeek, instanceName) {
+    let row;
+    if (instanceName) {
+      row = this.db.prepare(
+        'SELECT * FROM rundowns WHERE church_id = ? AND auto_activate = 1 AND (service_day IS NULL OR service_day = ?) AND (instance_name = ? OR instance_name IS NULL) LIMIT 1'
+      ).get(churchId, dayOfWeek, instanceName);
+    } else {
+      row = this.db.prepare(
+        'SELECT * FROM rundowns WHERE church_id = ? AND auto_activate = 1 AND (service_day IS NULL OR service_day = ?) LIMIT 1'
+      ).get(churchId, dayOfWeek);
+    }
     if (!row) return null;
     return { ...row, steps: JSON.parse(row.steps_json || '[]') };
   }
@@ -198,28 +252,38 @@ class RundownEngine {
   /**
    * Activate a rundown with full scheduler state tracking.
    */
-  activateRundownForScheduler(churchId, rundownId, serviceStartAt) {
+  activateRundownForScheduler(churchId, rundownId, serviceStartAt, instanceName) {
     const rundown = this.getRundown(rundownId);
     if (!rundown) return null;
     if (rundown.church_id !== churchId) return null;
     const now = new Date().toISOString();
+    // Deactivate existing for this church+instance
+    if (instanceName) {
+      this.db.prepare('DELETE FROM active_rundowns WHERE church_id = ? AND instance_name = ?').run(churchId, instanceName);
+    }
     this.db.prepare(`
       INSERT OR REPLACE INTO active_rundowns
-        (church_id, rundown_id, current_step, state, started_at, service_start_at, last_cue_fired_at, cues_fired)
-      VALUES (?, ?, 0, 'running', ?, ?, NULL, '[]')
-    `).run(churchId, rundownId, now, serviceStartAt || now);
-    return { churchId, rundownId, currentStep: 0, state: 'running', startedAt: now, serviceStartAt: serviceStartAt || now, rundown };
+        (church_id, rundown_id, current_step, state, started_at, service_start_at, last_cue_fired_at, cues_fired, instance_name, room_id)
+      VALUES (?, ?, 0, 'running', ?, ?, NULL, '[]', ?, ?)
+    `).run(churchId, rundownId, now, serviceStartAt || now, instanceName || null, rundown.room_id || null);
+    return { churchId, rundownId, currentStep: 0, state: 'running', startedAt: now, serviceStartAt: serviceStartAt || now, rundown, instanceName: instanceName || null };
   }
 
   /**
    * Get full active rundown state (including scheduler fields).
    */
-  getActiveRundownFull(churchId) {
-    const row = this.db.prepare('SELECT * FROM active_rundowns WHERE church_id = ?').get(churchId);
+  getActiveRundownFull(churchId, instanceName) {
+    let row;
+    if (instanceName) {
+      row = this.db.prepare('SELECT * FROM active_rundowns WHERE church_id = ? AND instance_name = ?').get(churchId, instanceName);
+    }
+    if (!row) {
+      row = this.db.prepare('SELECT * FROM active_rundowns WHERE church_id = ?').get(churchId);
+    }
     if (!row) return null;
     const rundown = this.getRundown(row.rundown_id);
     if (!rundown) {
-      this.db.prepare('DELETE FROM active_rundowns WHERE church_id = ?').run(churchId);
+      this.db.prepare('DELETE FROM active_rundowns WHERE church_id = ? AND rundown_id = ?').run(churchId, row.rundown_id);
       return null;
     }
     return {
@@ -231,6 +295,7 @@ class RundownEngine {
       serviceStartAt: row.service_start_at || row.started_at,
       lastCueFiredAt: row.last_cue_fired_at || null,
       cuesFired: JSON.parse(row.cues_fired || '[]'),
+      instanceName: row.instance_name || null,
       rundown,
     };
   }
@@ -238,7 +303,7 @@ class RundownEngine {
   /**
    * Update scheduler-specific state fields on the active rundown.
    */
-  updateActiveState(churchId, updates) {
+  updateActiveState(churchId, updates, instanceName) {
     const sets = [];
     const vals = [];
     if (updates.currentStep !== undefined) { sets.push('current_step = ?'); vals.push(updates.currentStep); }
@@ -247,7 +312,12 @@ class RundownEngine {
     if (updates.cuesFired !== undefined) { sets.push('cues_fired = ?'); vals.push(JSON.stringify(updates.cuesFired)); }
     if (sets.length === 0) return;
     vals.push(churchId);
-    this.db.prepare(`UPDATE active_rundowns SET ${sets.join(', ')} WHERE church_id = ?`).run(...vals);
+    if (instanceName) {
+      vals.push(instanceName);
+      this.db.prepare(`UPDATE active_rundowns SET ${sets.join(', ')} WHERE church_id = ? AND instance_name = ?`).run(...vals);
+    } else {
+      this.db.prepare(`UPDATE active_rundowns SET ${sets.join(', ')} WHERE church_id = ?`).run(...vals);
+    }
   }
 }
 

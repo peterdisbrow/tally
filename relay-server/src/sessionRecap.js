@@ -13,10 +13,14 @@ class SessionRecap {
    */
   constructor(db) {
     this.db = db;
-    this.activeSessions = new Map(); // churchId → session object
+    this.activeSessions = new Map(); // compositeKey (churchId::instanceName) → session object
     this._botToken = null;
     this._andrewChatId = null;
     this._ensureTable();
+  }
+
+  _compositeKey(churchId, instanceName) {
+    return instanceName ? `${churchId}::${instanceName}` : churchId;
   }
 
   /**
@@ -69,8 +73,10 @@ class SessionRecap {
    * @param {string} churchId
    * @returns {string|null} The session ID or null if no active session
    */
-  getActiveSessionId(churchId) {
-    const session = this.activeSessions.get(churchId);
+  getActiveSessionId(churchId, instanceName) {
+    // Try composite key first, fall back to churchId-only for single-room backward compat
+    const key = this._compositeKey(churchId, instanceName);
+    const session = this.activeSessions.get(key) || (instanceName ? this.activeSessions.get(churchId) : null);
     return session?.sessionId || null;
   }
 
@@ -94,7 +100,8 @@ class SessionRecap {
           console.log(`[SessionRecap] Marked stale session ${row.id} as interrupted`);
           continue;
         }
-        this.activeSessions.set(row.church_id, {
+        const sessionKey = this._compositeKey(row.church_id, row.instance_name);
+        this.activeSessions.set(sessionKey, {
           sessionId: row.id,
           churchId: row.church_id,
           startedAt,
@@ -128,19 +135,27 @@ class SessionRecap {
    * @param {string|null} tdName  Name of the on-call TD
    */
   startSession(churchId, tdName, instanceName) {
-    if (this.activeSessions.has(churchId)) {
-      console.warn(`[SessionRecap] Session already active for ${churchId} — ending it first`);
-      this.endSession(churchId).catch(e => console.error('[SessionRecap] endSession on start error:', e.message));
+    const sessionKey = this._compositeKey(churchId, instanceName);
+    if (this.activeSessions.has(sessionKey)) {
+      console.warn(`[SessionRecap] Session already active for ${sessionKey} — ending it first`);
+      this.endSession(churchId, instanceName).catch(e => console.error('[SessionRecap] endSession on start error:', e.message));
     }
 
     const sessionId = uuidv4();
     const startedAt = new Date();
 
-    this.db.prepare(
-      'INSERT INTO service_sessions (id, church_id, started_at, td_name, instance_name) VALUES (?, ?, ?, ?, ?)'
-    ).run(sessionId, churchId, startedAt.toISOString(), tdName || null, instanceName || null);
+    // Look up room_id from the churches table for this church
+    let roomId = null;
+    try {
+      const row = this.db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId);
+      roomId = row?.room_id || null;
+    } catch { /* non-fatal */ }
 
-    this.activeSessions.set(churchId, {
+    this.db.prepare(
+      'INSERT INTO service_sessions (id, church_id, started_at, td_name, instance_name, room_id) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(sessionId, churchId, startedAt.toISOString(), tdName || null, instanceName || null, roomId);
+
+    this.activeSessions.set(sessionKey, {
       sessionId,
       churchId,
       startedAt,
@@ -167,14 +182,17 @@ class SessionRecap {
    * @param {string} churchId
    * @returns {Promise<object|null>}
    */
-  async endSession(churchId) {
-    const session = this.activeSessions.get(churchId);
+  async endSession(churchId, instanceName) {
+    const sessionKey = this._compositeKey(churchId, instanceName);
+    const session = this.activeSessions.get(sessionKey) || this.activeSessions.get(churchId);
     if (!session) {
       console.warn(`[SessionRecap] No active session for church ${churchId}`);
       return null;
     }
 
-    this.activeSessions.delete(churchId);
+    // Delete using the actual key the session was stored under
+    const actualKey = this.activeSessions.has(sessionKey) ? sessionKey : churchId;
+    this.activeSessions.delete(actualKey);
 
     const endedAt = new Date();
     const durationMinutes = Math.round((endedAt - session.startedAt) / 60000);
@@ -269,8 +287,9 @@ class SessionRecap {
    * @param {boolean} autoRecovered  Was this auto-fixed?
    * @param {boolean} escalated      Was this escalated to Andrew?
    */
-  recordAlert(churchId, alertType, autoRecovered = false, escalated = false) {
-    const session = this.activeSessions.get(churchId);
+  recordAlert(churchId, alertType, autoRecovered = false, escalated = false, instanceName) {
+    const key = this._compositeKey(churchId, instanceName);
+    const session = this.activeSessions.get(key) || this.activeSessions.get(churchId);
     if (!session) return;
 
     session.alertCount++;
@@ -291,8 +310,9 @@ class SessionRecap {
    * Record an audio silence detection.
    * @param {string} churchId
    */
-  recordAudioSilence(churchId) {
-    const session = this.activeSessions.get(churchId);
+  recordAudioSilence(churchId, instanceName) {
+    const key = this._compositeKey(churchId, instanceName);
+    const session = this.activeSessions.get(key) || this.activeSessions.get(churchId);
     if (!session) return;
 
     session.audioSilenceCount++;
@@ -306,8 +326,9 @@ class SessionRecap {
    * @param {string} churchId
    * @param {boolean} streaming
    */
-  recordStreamStatus(churchId, streaming) {
-    const session = this.activeSessions.get(churchId);
+  recordStreamStatus(churchId, streaming, instanceName) {
+    const key = this._compositeKey(churchId, instanceName);
+    const session = this.activeSessions.get(key) || this.activeSessions.get(churchId);
     if (!session) return;
 
     const wasStreaming = session.streaming;
@@ -332,8 +353,9 @@ class SessionRecap {
    * @param {string} churchId
    * @param {number} count
    */
-  recordPeakViewers(churchId, count) {
-    const session = this.activeSessions.get(churchId);
+  recordPeakViewers(churchId, count, instanceName) {
+    const key = this._compositeKey(churchId, instanceName);
+    const session = this.activeSessions.get(key) || this.activeSessions.get(churchId);
     if (!session || typeof count !== 'number') return;
 
     if (session.peakViewers === null || count > session.peakViewers) {
@@ -347,8 +369,9 @@ class SessionRecap {
    * Mark recording as confirmed for this session.
    * @param {string} churchId
    */
-  recordRecordingConfirmed(churchId) {
-    const session = this.activeSessions.get(churchId);
+  recordRecordingConfirmed(churchId, instanceName) {
+    const key = this._compositeKey(churchId, instanceName);
+    const session = this.activeSessions.get(key) || this.activeSessions.get(churchId);
     if (!session || session.recordingConfirmed) return;
 
     session.recordingConfirmed = true;

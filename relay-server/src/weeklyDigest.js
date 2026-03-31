@@ -35,13 +35,17 @@ class WeeklyDigest {
     // Migration: add instance_name column for per-room event tracking
     try { this.db.prepare('SELECT instance_name FROM service_events LIMIT 1').get(); }
     catch { this.db.exec('ALTER TABLE service_events ADD COLUMN instance_name TEXT'); }
+
+    // Migration: add room_id column for per-room event tracking
+    try { this.db.prepare('SELECT room_id FROM service_events LIMIT 1').get(); }
+    catch { this.db.exec('ALTER TABLE service_events ADD COLUMN room_id TEXT'); }
   }
 
-  addEvent(churchId, eventType, details = '', sessionId = null) {
+  addEvent(churchId, eventType, details = '', sessionId = null, { instanceName, roomId } = {}) {
     const now = new Date().toISOString();
     const result = this.db.prepare(
-      'INSERT INTO service_events (church_id, timestamp, event_type, details, session_id) VALUES (?, ?, ?, ?, ?)'
-    ).run(churchId, now, eventType, typeof details === 'string' ? details : JSON.stringify(details), sessionId);
+      'INSERT INTO service_events (church_id, timestamp, event_type, details, session_id, instance_name, room_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    ).run(churchId, now, eventType, typeof details === 'string' ? details : JSON.stringify(details), sessionId, instanceName || null, roomId || null);
     return result.lastInsertRowid;
   }
 
@@ -92,13 +96,25 @@ class WeeklyDigest {
       if (!churchEvents.length) {
         lines.push('✅ No events this week');
       } else {
+        // Sub-group by room/instance if multi-room events exist
+        const byRoom = new Map();
         for (const e of churchEvents) {
-          const t = new Date(e.timestamp).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-          const icon = e.resolved ? (e.auto_resolved ? '🤖' : '✅') : '⚠️';
-          const resolveNote = e.resolved
-            ? (e.auto_resolved ? ' — auto-recovered' : ' — manually resolved')
-            : ' — UNRESOLVED';
-          lines.push(`${icon} ${e.event_type.replace(/_/g, ' ')} ${t}${resolveNote}`);
+          const roomKey = e.instance_name || '(default)';
+          if (!byRoom.has(roomKey)) byRoom.set(roomKey, []);
+          byRoom.get(roomKey).push(e);
+        }
+
+        const hasMultipleRooms = byRoom.size > 1 || (byRoom.size === 1 && !byRoom.has('(default)'));
+        for (const [roomKey, roomEvents] of byRoom) {
+          if (hasMultipleRooms) lines.push(`**Room: ${roomKey}**`);
+          for (const e of roomEvents) {
+            const t = new Date(e.timestamp).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+            const icon = e.resolved ? (e.auto_resolved ? '🤖' : '✅') : '⚠️';
+            const resolveNote = e.resolved
+              ? (e.auto_resolved ? ' — auto-recovered' : ' — manually resolved')
+              : ' — UNRESOLVED';
+            lines.push(`${icon} ${e.event_type.replace(/_/g, ' ')} ${t}${resolveNote}`);
+          }
         }
       }
       lines.push('');
@@ -216,12 +232,19 @@ class WeeklyDigest {
    * @param {object[]} events
    * @returns {number|null}
    */
-  _computeReliability(churchId, events) {
+  _computeReliability(churchId, events, instanceName) {
     try {
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      const sessions = this.db.prepare(
-        'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? ORDER BY started_at ASC'
-      ).all(churchId, weekAgo.toISOString());
+      let sessions;
+      if (instanceName) {
+        sessions = this.db.prepare(
+          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL) ORDER BY started_at ASC'
+        ).all(churchId, weekAgo.toISOString(), instanceName);
+      } else {
+        sessions = this.db.prepare(
+          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? ORDER BY started_at ASC'
+        ).all(churchId, weekAgo.toISOString());
+      }
 
       if (!sessions.length) return null;
 
@@ -410,24 +433,37 @@ class WeeklyDigest {
    * @param {string} churchId
    * @returns {object}
    */
-  getChurchDigest(churchId) {
+  getChurchDigest(churchId, instanceName) {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    const events = this.db.prepare(
-      'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? ORDER BY timestamp ASC'
-    ).all(churchId, weekAgo.toISOString());
+    let events;
+    if (instanceName) {
+      events = this.db.prepare(
+        'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? AND (instance_name = ? OR instance_name IS NULL) ORDER BY timestamp ASC'
+      ).all(churchId, weekAgo.toISOString(), instanceName);
+    } else {
+      events = this.db.prepare(
+        'SELECT * FROM service_events WHERE church_id = ? AND timestamp >= ? ORDER BY timestamp ASC'
+      ).all(churchId, weekAgo.toISOString());
+    }
 
     const patterns = this.detectPatterns(churchId, events);
-    const reliability = this._computeReliability(churchId, events);
+    const reliability = this._computeReliability(churchId, events, instanceName);
     const autoResolved = events.filter(e => e.auto_resolved).length;
     const totalEvents = events.length;
 
     let sessions = [];
     try {
-      sessions = this.db.prepare(
-        'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ?'
-      ).all(churchId, weekAgo.toISOString());
+      if (instanceName) {
+        sessions = this.db.prepare(
+          'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL)'
+        ).all(churchId, weekAgo.toISOString(), instanceName);
+      } else {
+        sessions = this.db.prepare(
+          'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ?'
+        ).all(churchId, weekAgo.toISOString());
+      }
     } catch {}
 
     return {

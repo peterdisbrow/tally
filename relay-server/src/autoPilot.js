@@ -182,7 +182,7 @@ class AutoPilot {
     this.billing = opts.billing || null;
     this._ensureSchema();
 
-    // Per-church pause state (churchId → boolean)
+    // Per-church/room pause state (churchId or churchId::instanceName → boolean)
     this._paused = new Map();
 
     // Dedup: Track which rules have fired this session (sessionId → Set<ruleId>)
@@ -232,6 +232,20 @@ class AutoPilot {
       )
     `);
 
+    // Migration: add room scoping columns to automation_rules
+    const ruleCols = { instance_name: 'TEXT', room_id: 'TEXT' };
+    for (const [col, def] of Object.entries(ruleCols)) {
+      try { this.db.prepare(`SELECT ${col} FROM automation_rules LIMIT 1`).get(); }
+      catch { try { this.db.exec(`ALTER TABLE automation_rules ADD COLUMN ${col} ${def}`); } catch { /* already exists */ } }
+    }
+
+    // Migration: add room scoping columns to command_log
+    const cmdLogCols = { instance_name: 'TEXT', room_id: 'TEXT' };
+    for (const [col, def] of Object.entries(cmdLogCols)) {
+      try { this.db.prepare(`SELECT ${col} FROM command_log LIMIT 1`).get(); }
+      catch { try { this.db.exec(`ALTER TABLE command_log ADD COLUMN ${col} ${def}`); } catch { /* already exists */ } }
+    }
+
     // Persisted per-session dedup so relay restarts don't re-fire rules in
     // the same service session (in-memory _firedThisSession is supplemented
     // by this table on every _hasFiredThisSession lookup).
@@ -251,26 +265,37 @@ class AutoPilot {
   /**
    * Log a command execution (from any source: manual, telegram, autopilot).
    */
-  logCommand(churchId, command, params = {}, source = 'manual', result = null, equipmentState = null) {
+  logCommand(churchId, command, params = {}, source = 'manual', result = null, equipmentState = null, { instanceName, roomId } = {}) {
     const id = uuidv4();
-    const sessionId = this.sessionRecap?.getActiveSessionId(churchId) || null;
+    const sessionId = this.sessionRecap?.getActiveSessionId(churchId, instanceName) || null;
     this.db.prepare(`
-      INSERT INTO command_log (id, church_id, session_id, timestamp, command, params, source, result, equipment_state)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO command_log (id, church_id, session_id, timestamp, command, params, source, result, equipment_state, instance_name, room_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, churchId, sessionId,
       new Date().toISOString(), command,
       JSON.stringify(params), source,
       result ? String(result).substring(0, 500) : null,
-      equipmentState ? JSON.stringify(equipmentState) : null
+      equipmentState ? JSON.stringify(equipmentState) : null,
+      instanceName || null, roomId || null
     );
     return id;
   }
 
   /**
-   * Get command log for a church (paginated).
+   * Get command log for a church (paginated), optionally filtered by room.
    */
-  getCommandLog(churchId, limit = 50, offset = 0) {
+  getCommandLog(churchId, limit = 50, offset = 0, { instanceName, roomId } = {}) {
+    if (instanceName) {
+      return this.db.prepare(
+        'SELECT * FROM command_log WHERE church_id = ? AND instance_name = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?'
+      ).all(churchId, instanceName, limit, offset);
+    }
+    if (roomId) {
+      return this.db.prepare(
+        'SELECT * FROM command_log WHERE church_id = ? AND room_id = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?'
+      ).all(churchId, roomId, limit, offset);
+    }
     return this.db.prepare(
       'SELECT * FROM command_log WHERE church_id = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?'
     ).all(churchId, limit, offset);
@@ -278,7 +303,7 @@ class AutoPilot {
 
   // ─── RULE MANAGEMENT (CRUD) ───────────────────────────────────────────────
 
-  createRule(churchId, { name, triggerType, triggerConfig, actions }) {
+  createRule(churchId, { name, triggerType, triggerConfig, actions, instanceName, roomId }) {
     if (!TRIGGER_TYPES.includes(triggerType)) {
       throw new Error(`Invalid trigger type: ${triggerType}. Must be one of: ${TRIGGER_TYPES.join(', ')}`);
     }
@@ -300,10 +325,10 @@ class AutoPilot {
     const id = uuidv4();
     const now = new Date().toISOString();
     this.db.prepare(`
-      INSERT INTO automation_rules (id, church_id, name, trigger_type, trigger_config, actions, enabled, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-    `).run(id, churchId, name, triggerType, JSON.stringify(triggerConfig || {}), JSON.stringify(actions || []), now, now);
-    return { id, name, triggerType, enabled: false };
+      INSERT INTO automation_rules (id, church_id, name, trigger_type, trigger_config, actions, enabled, created_at, updated_at, instance_name, room_id)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+    `).run(id, churchId, name, triggerType, JSON.stringify(triggerConfig || {}), JSON.stringify(actions || []), now, now, instanceName || null, roomId || null);
+    return { id, name, triggerType, enabled: false, instanceName: instanceName || null, roomId: roomId || null };
   }
 
   updateRule(ruleId, updates) {
@@ -336,10 +361,21 @@ class AutoPilot {
     return result.changes > 0;
   }
 
-  getRules(churchId) {
-    const rules = this.db.prepare(
-      'SELECT * FROM automation_rules WHERE church_id = ? ORDER BY created_at ASC'
-    ).all(churchId);
+  getRules(churchId, { instanceName, roomId } = {}) {
+    let rules;
+    if (instanceName) {
+      rules = this.db.prepare(
+        'SELECT * FROM automation_rules WHERE church_id = ? AND (instance_name = ? OR instance_name IS NULL) ORDER BY created_at ASC'
+      ).all(churchId, instanceName);
+    } else if (roomId) {
+      rules = this.db.prepare(
+        'SELECT * FROM automation_rules WHERE church_id = ? AND (room_id = ? OR room_id IS NULL) ORDER BY created_at ASC'
+      ).all(churchId, roomId);
+    } else {
+      rules = this.db.prepare(
+        'SELECT * FROM automation_rules WHERE church_id = ? ORDER BY created_at ASC'
+      ).all(churchId);
+    }
     return rules.map(r => ({
       ...r,
       trigger_config: JSON.parse(r.trigger_config || '{}'),
@@ -477,17 +513,24 @@ class AutoPilot {
 
   // ─── PAUSE/RESUME ─────────────────────────────────────────────────────────
 
-  pause(churchId) {
-    this._paused.set(churchId, true);
-    console.log(`[AutoPilot] Paused for church ${churchId}`);
+  pause(churchId, instanceName) {
+    const key = instanceName ? `${churchId}::${instanceName}` : churchId;
+    this._paused.set(key, true);
+    console.log(`[AutoPilot] Paused for ${key}`);
   }
 
-  resume(churchId) {
-    this._paused.delete(churchId);
-    console.log(`[AutoPilot] Resumed for church ${churchId}`);
+  resume(churchId, instanceName) {
+    const key = instanceName ? `${churchId}::${instanceName}` : churchId;
+    this._paused.delete(key);
+    console.log(`[AutoPilot] Resumed for ${key}`);
   }
 
-  isPaused(churchId) {
+  isPaused(churchId, instanceName) {
+    // Check room-specific pause first, then church-wide
+    if (instanceName) {
+      const roomKey = `${churchId}::${instanceName}`;
+      if (this._paused.get(roomKey) === true) return true;
+    }
     return this._paused.get(churchId) === true;
   }
 
@@ -662,10 +705,18 @@ class AutoPilot {
     return this.scheduleEngine.isServiceWindow(churchId);
   }
 
-  _getActiveRules(churchId, triggerType) {
-    const rules = this.db.prepare(
-      'SELECT * FROM automation_rules WHERE church_id = ? AND trigger_type = ? AND enabled = 1'
-    ).all(churchId, triggerType);
+  _getActiveRules(churchId, triggerType, instanceName) {
+    let rules;
+    if (instanceName) {
+      // Return rules for this specific room OR rules with no room (global rules)
+      rules = this.db.prepare(
+        'SELECT * FROM automation_rules WHERE church_id = ? AND trigger_type = ? AND enabled = 1 AND (instance_name = ? OR instance_name IS NULL)'
+      ).all(churchId, triggerType, instanceName);
+    } else {
+      rules = this.db.prepare(
+        'SELECT * FROM automation_rules WHERE church_id = ? AND trigger_type = ? AND enabled = 1'
+      ).all(churchId, triggerType);
+    }
     return rules.map(r => ({
       ...r,
       trigger_config: JSON.parse(r.trigger_config || '{}'),
@@ -722,14 +773,16 @@ class AutoPilot {
   }
 
   async _fireRule(churchId, rule, triggerContext) {
+    const ruleInstanceName = rule.instance_name || null;
+    const ruleRoomId = rule.room_id || null;
     // Check per-session fire cap to prevent runaway automation
-    const sessionId = this.sessionRecap?.getActiveSessionId(churchId);
+    const sessionId = this.sessionRecap?.getActiveSessionId(churchId, ruleInstanceName);
     if (sessionId) {
       const firedSet = this._firedThisSession.get(sessionId);
       if (firedSet && firedSet.size >= MAX_FIRES_PER_SESSION) {
         console.warn(`[AutoPilot] Session fire cap reached (${MAX_FIRES_PER_SESSION}) for church ${churchId} — pausing autopilot`);
         this.pause(churchId);
-        this.logCommand(churchId, 'autopilot.auto_paused', { reason: 'session_fire_cap', limit: MAX_FIRES_PER_SESSION }, 'system');
+        this.logCommand(churchId, 'autopilot.auto_paused', { reason: 'session_fire_cap', limit: MAX_FIRES_PER_SESSION }, 'system', null, null, { instanceName: ruleInstanceName, roomId: ruleRoomId });
         return;
       }
     }
@@ -749,13 +802,13 @@ class AutoPilot {
       try {
         if (this._executeCommand) {
           const result = await this._executeCommand(churchId, action.command, action.params || {}, 'autopilot');
-          this.logCommand(churchId, action.command, action.params || {}, 'autopilot', result);
+          this.logCommand(churchId, action.command, action.params || {}, 'autopilot', result, null, { instanceName: ruleInstanceName, roomId: ruleRoomId });
         } else {
           console.warn(`[AutoPilot] No command executor configured — cannot execute ${action.command}`);
         }
       } catch (e) {
         console.error(`[AutoPilot] Action "${action.command}" failed for rule "${rule.name}":`, e.message);
-        this.logCommand(churchId, action.command, action.params || {}, 'autopilot', `ERROR: ${e.message}`);
+        this.logCommand(churchId, action.command, action.params || {}, 'autopilot', `ERROR: ${e.message}`, null, { instanceName: ruleInstanceName, roomId: ruleRoomId });
       }
     }
   }

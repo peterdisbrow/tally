@@ -380,7 +380,9 @@ class AlertEngine {
       return { action: 'send' };
     }
 
-    const key = `${church.churchId}::${alertType}`;
+    // Include instanceName in dedup key so different rooms dedup independently
+    const instanceName = context?._instanceName || '';
+    const key = instanceName ? `${church.churchId}::${instanceName}::${alertType}` : `${church.churchId}::${alertType}`;
     const existing = this.dedupState.get(key);
 
     if (existing) {

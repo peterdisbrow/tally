@@ -54,13 +54,18 @@ function deriveFacebookHealth(fbStatus) {
  * @param {function} notifyUpdate - (churchId?) => void — push SSE update
  */
 function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
-  // Per-church state
-  // churchId → { youtube: {...}, facebook: {...}, lastAlerts: { yt, fb } }
+  // Per-room state keyed by compositeKey = `${churchId}::${instanceName}`
+  // (same pattern as signalFailover Phase 1)
   const state = new Map();
 
-  function getState(churchId) {
-    if (!state.has(churchId)) {
-      state.set(churchId, {
+  function _compositeKey(churchId, instanceName) {
+    return instanceName ? `${churchId}::${instanceName}` : churchId;
+  }
+
+  function getState(churchId, instanceName) {
+    const key = _compositeKey(churchId, instanceName);
+    if (!state.has(key)) {
+      state.set(key, {
         youtube: null,
         facebook: null,
         lastAlerts: { yt: 0, fb: 0 },
@@ -68,7 +73,7 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
         prevFbHealth: null,
       });
     }
-    return state.get(churchId);
+    return state.get(key);
   }
 
   // ── YouTube broadcast health polling ──────────────────────────────────────
@@ -101,7 +106,7 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
     }
   }
 
-  async function pollYouTube(churchId, church) {
+  async function pollYouTube(churchId, church, instanceName, roomId) {
     const row = db.prepare(
       'SELECT yt_access_token, yt_refresh_token, yt_token_expires_at, yt_channel_name FROM churches WHERE churchId = ?'
     ).get(churchId);
@@ -119,7 +124,7 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
       }
     }
 
-    const cs = getState(churchId);
+    const cs = getState(churchId, instanceName);
     try {
       // 1. Get active broadcasts
       const bcResp = await fetch(
@@ -135,7 +140,7 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
 
       if (!broadcast) {
         cs.youtube = { status: 'no_broadcast', live: false, checkedAt: new Date().toISOString() };
-        handleYouTubeTransition(churchId, church, cs, 'noData');
+        handleYouTubeTransition(churchId, church, cs, 'noData', instanceName, roomId);
         return;
       }
 
@@ -182,13 +187,13 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
         checkedAt: new Date().toISOString(),
       };
 
-      handleYouTubeTransition(churchId, church, cs, healthStatus);
+      handleYouTubeTransition(churchId, church, cs, healthStatus, instanceName, roomId);
     } catch (e) {
       cs.youtube = { status: 'error', error: e.message, checkedAt: new Date().toISOString() };
     }
   }
 
-  function handleYouTubeTransition(churchId, church, cs, newHealth) {
+  function handleYouTubeTransition(churchId, church, cs, newHealth, instanceName, roomId) {
     const prev = cs.prevYtHealth;
     cs.prevYtHealth = newHealth;
     const now = Date.now();
@@ -202,6 +207,8 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
           platform: 'YouTube',
           streamStatus: cs.youtube?.streamStatus,
           issues: cs.youtube?.configurationIssues,
+          _instanceName: instanceName || null,
+          _roomId: roomId || null,
         }).catch(e => console.error('[BroadcastMonitor] YT alert error:', e.message));
       }
     }
@@ -213,24 +220,26 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
         alertEngine.sendAlert(dbChurch, 'yt_broadcast_offline', {
           platform: 'YouTube',
           channelName: cs.youtube?.channelName || '',
+          _instanceName: instanceName || null,
+          _roomId: roomId || null,
         }).catch(e => console.error('[BroadcastMonitor] YT offline alert error:', e.message));
       }
     }
     // Recovery notification
     if (newHealth === 'good' && (prev === 'error' || prev === 'noData') && prev !== null) {
-      console.log(`[BroadcastMonitor] YouTube broadcast recovered for ${churchId}`);
+      console.log(`[BroadcastMonitor] YouTube broadcast recovered for ${churchId}${instanceName ? ' (' + instanceName + ')' : ''}`);
     }
   }
 
   // ── Facebook broadcast health polling ─────────────────────────────────────
 
-  async function pollFacebook(churchId, church) {
+  async function pollFacebook(churchId, church, instanceName, roomId) {
     const row = db.prepare(
       'SELECT fb_access_token, fb_page_id, fb_page_name FROM churches WHERE churchId = ?'
     ).get(churchId);
     if (!row?.fb_access_token) return;
 
-    const cs = getState(churchId);
+    const cs = getState(churchId, instanceName);
     const target = row.fb_page_id || 'me';
 
     try {
@@ -250,7 +259,7 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
 
       if (!video) {
         cs.facebook = { status: 'no_broadcast', live: false, checkedAt: new Date().toISOString() };
-        handleFacebookTransition(churchId, church, cs, 'noData');
+        handleFacebookTransition(churchId, church, cs, 'noData', instanceName, roomId);
         return;
       }
 
@@ -285,13 +294,13 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
         checkedAt: new Date().toISOString(),
       };
 
-      handleFacebookTransition(churchId, church, cs, healthStatus);
+      handleFacebookTransition(churchId, church, cs, healthStatus, instanceName, roomId);
     } catch (e) {
       cs.facebook = { status: 'error', error: e.message, checkedAt: new Date().toISOString() };
     }
   }
 
-  function handleFacebookTransition(churchId, church, cs, newHealth) {
+  function handleFacebookTransition(churchId, church, cs, newHealth, instanceName, roomId) {
     const prev = cs.prevFbHealth;
     cs.prevFbHealth = newHealth;
     const now = Date.now();
@@ -303,6 +312,8 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
         alertEngine.sendAlert(dbChurch, 'fb_broadcast_unhealthy', {
           platform: 'Facebook',
           broadcastStatus: cs.facebook?.broadcastStatus,
+          _instanceName: instanceName || null,
+          _roomId: roomId || null,
         }).catch(e => console.error('[BroadcastMonitor] FB alert error:', e.message));
       }
     }
@@ -313,11 +324,13 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
         alertEngine.sendAlert(dbChurch, 'fb_broadcast_offline', {
           platform: 'Facebook',
           pageName: cs.facebook?.pageName || '',
+          _instanceName: instanceName || null,
+          _roomId: roomId || null,
         }).catch(e => console.error('[BroadcastMonitor] FB offline alert error:', e.message));
       }
     }
     if (newHealth === 'good' && (prev === 'error' || prev === 'noData') && prev !== null) {
-      console.log(`[BroadcastMonitor] Facebook broadcast recovered for ${churchId}`);
+      console.log(`[BroadcastMonitor] Facebook broadcast recovered for ${churchId}${instanceName ? ' (' + instanceName + ')' : ''}`);
     }
   }
 
@@ -328,24 +341,29 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
 
     // Find churches with YouTube or Facebook tokens
     const connectedChurches = db.prepare(
-      'SELECT churchId FROM churches WHERE yt_access_token IS NOT NULL OR fb_access_token IS NOT NULL'
+      'SELECT churchId, room_id, room_name FROM churches WHERE yt_access_token IS NOT NULL OR fb_access_token IS NOT NULL'
     ).all();
 
-    for (const { churchId } of connectedChurches) {
+    for (const row of connectedChurches) {
+      const { churchId } = row;
       const church = churches.get(churchId);
+      // Derive instanceName from the church runtime (the connected client's instance)
+      const instanceName = church?.instanceName || null;
+      const roomId = row.room_id || church?.roomId || null;
+
       try {
-        await pollYouTube(churchId, church);
+        await pollYouTube(churchId, church, instanceName, roomId);
       } catch (e) {
         console.error(`[BroadcastMonitor] YT poll error for ${churchId}:`, e.message);
       }
       try {
-        await pollFacebook(churchId, church);
+        await pollFacebook(churchId, church, instanceName, roomId);
       } catch (e) {
         console.error(`[BroadcastMonitor] FB poll error for ${churchId}:`, e.message);
       }
 
       // Attach health data to church runtime so portal can read it
-      const cs = getState(churchId);
+      const cs = getState(churchId, instanceName);
       if (church) {
         church.broadcastHealth = {
           youtube: cs.youtube,
@@ -371,6 +389,7 @@ function setupBroadcastMonitor(db, relay, alertEngine, notifyUpdate) {
     pollYouTube,
     pollFacebook,
     getState,
+    _compositeKey,
     // Exposed for unit testing
     _deriveYouTubeHealth: deriveYouTubeHealth,
     _deriveFacebookHealth: deriveFacebookHealth,
