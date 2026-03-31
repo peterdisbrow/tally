@@ -3760,7 +3760,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             ORDER BY timestamp DESC LIMIT 20
           `).all(req.church.churchId);
 
-          const systemPrompt = `You are a church production diagnostic expert. Analyze the following system state and provide a root cause analysis.
+          const { buildBackgroundPrompt } = require('./tally-engineer');
+          const systemPrompt = `${buildBackgroundPrompt('support_triage')}
 
 ISSUE REPORTED: ${issueCategory} (${severity})
 USER DESCRIPTION: ${summary || 'No description provided'}
@@ -3794,7 +3795,7 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model: 'claude-sonnet-4-20250514',
+              model: 'claude-sonnet-4-6',
               system: systemPrompt,
               messages: [{ role: 'user', content: 'Analyze this issue and provide your diagnosis.' }],
               temperature: 0.3,

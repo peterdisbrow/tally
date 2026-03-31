@@ -291,7 +291,9 @@ class PostServiceReport {
   async _generateAiSummary(church, session, alerts, failoverEvents, recommendations) {
     if (!this.anthropicApiKey) return null;
 
-    const prompt = `You are a church AV production expert. Summarize this service session in 2-3 sentences for a non-technical pastor or church leader.
+    const { buildBackgroundPrompt } = require('./tally-engineer');
+
+    const prompt = `${buildBackgroundPrompt('post_service_report')}
 
 Church: ${church.name}
 Duration: ${session.durationMinutes} minutes
@@ -305,7 +307,7 @@ Peak viewers: ${session.peakViewers || 'unknown'}
 Top recommendations:
 ${recommendations.slice(0, 3).map(r => `- ${r.text}`).join('\n') || 'None — clean service'}
 
-Write a friendly, encouraging summary that: (1) states if the service went well or had issues, (2) notes the most important thing that happened, (3) gives one action item if needed. Keep it under 80 words. No technical jargon.`;
+Write the summary now:`;
 
     try {
       const res = await fetch('https://api.anthropic.com/v1/messages', {

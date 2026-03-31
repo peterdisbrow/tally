@@ -582,7 +582,11 @@ class SessionRecap {
 
     const timeline = this._buildTimeline(session);
 
-    const prompt = `You are Tally Engineer, an AI livestream technician assistant. Given this service session data, suggest exactly 3 specific, actionable steps this church should take to reduce future risk. Be concise (1 line each, max 15 words). Focus on their specific issues, not generic advice. Number them 1-3.
+    const { buildBackgroundPrompt } = require('./tally-engineer');
+
+    const prompt = `${buildBackgroundPrompt('session_recommendations')}
+
+Given this service session data, suggest exactly 3 specific, actionable steps this church should take to reduce future risk. Be concise (1 line each, max 15 words). Focus on their specific issues, not generic advice. Number them 1-3.
 
 Session data:
 - Duration: ${session.durationMinutes} min

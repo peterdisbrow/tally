@@ -244,7 +244,10 @@ class IncidentSummarizer {
     // Build lean context (NOT the full diagnostic context)
     const context = this._buildSummaryContext(churchId, stateSnapshot);
 
-    const prompt = `You are Tally, an AI livestream monitoring system for churches. Write a concise 1-3 sentence plain-English incident summary for a church technical director. Be specific about what happened and what it means for the livestream. No jargon. No markdown formatting.
+    const { buildBackgroundPrompt } = require('./tally-engineer');
+    const systemContent = buildBackgroundPrompt('incident_summary');
+
+    const prompt = `${systemContent}
 
 Church: ${churchName}
 State transition: ${from} → ${to}

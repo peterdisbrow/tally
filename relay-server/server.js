@@ -123,7 +123,7 @@ const { IncidentSummarizer } = require('./src/incidentSummarizer');
 const { AiRateLimiter } = require('./src/aiRateLimiter');
 const { WeeklyDigest } = require('./src/weeklyDigest');
 const { TallyBot, parseCommand } = require('./src/telegramBot');
-const { aiParseCommand, setAiUsageLogger: setParserLogger, setIncidentBypassCheck, getConfiguredDeviceTypes } = require('./src/ai-parser');
+const { aiParseCommand, setAiUsageLogger: setParserLogger, setIncidentBypassCheck, getConfiguredDeviceTypes, buildCommandConfirmation } = require('./src/ai-parser');
 const { smartParse } = require('./src/smart-parser');
 const { detectSetupIntent, detectIntentWithAttachment, parsePatchList, generateMixerSetup, parseCameraPlot, buildCameraCommands, setAiUsageLogger: setSetupLogger } = require('./src/ai-setup-assistant');
 const { isOnTopic, OFF_TOPIC_RESPONSE, containsSensitiveData, SENSITIVE_RESPONSE } = require('./src/chat-guard');
@@ -143,9 +143,11 @@ const { ResellerSystem } = require('./src/reseller');
 const { AutoPilot } = require('./src/autoPilot');
 const { ChatEngine } = require('./src/chatEngine');
 const { ensureTable: ensureOnboardingTable } = require('./src/onboardingChat');
-const { ENGINEER_SYSTEM_PROMPT } = require('./src/engineer-knowledge');
+const { ENGINEER_SYSTEM_PROMPT } = require('./src/engineer-knowledge'); // kept for backward compat — will deprecate
 const { classifyIntent } = require('./src/intent-classifier');
-const { buildDiagnosticContext } = require('./src/diagnostic-context');
+const { buildDiagnosticContext } = require('./src/diagnostic-context'); // kept for backward compat — tally-context.js wraps this
+const { buildDiagnosticPrompt, buildAdminPrompt } = require('./src/tally-engineer');
+const { buildContext } = require('./src/tally-context');
 const { LifecycleEmails } = require('./src/lifecycleEmails');
 const PostServiceReport = require('./src/postServiceReport');
 
@@ -2566,17 +2568,27 @@ async function callDiagnosticAI(churchId, question, roomCtx = {}) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return 'AI is not configured (ANTHROPIC_API_KEY missing).';
 
-  const diagnosticContext = buildDiagnosticContext(churchId, db, churches, signalFailover);
+  // Build Tier 2 (diagnostic) context via tally-context.js
+  const church = churches.get(churchId);
+  const diagnosticContextBlock = buildContext(church?.status || {}, 'diagnostic', {
+    churchId,
+    churchName: roomCtx.churchName || church?.name || '',
+    roomId: roomCtx.roomId || '',
+    roomName: roomCtx.roomName || '',
+    db,
+    churches,
+    signalFailover,
+  });
+
   const conversationHistory = chatEngine.getRecentConversation(churchId);
 
-  const systemPrompt = ENGINEER_SYSTEM_PROMPT
-    + '\n\n── DIAGNOSTIC CONTEXT ──\n' + diagnosticContext;
+  // Use unified diagnostic prompt from tally-engineer.js + full diagnostic context
+  const systemPrompt = buildDiagnosticPrompt()
+    + '\n\n── DIAGNOSTIC CONTEXT ──\n' + diagnosticContextBlock;
 
-  // Prepend church/room context so AI knows where it is
-  let ctxPrefix = '';
-  if (roomCtx.churchName) ctxPrefix += `Church: ${roomCtx.churchName}. `;
-  if (roomCtx.roomId) ctxPrefix += `Room ID: ${roomCtx.roomId}${roomCtx.roomName ? ` (${roomCtx.roomName})` : ''}. `;
-  const userContent = ctxPrefix ? `[${ctxPrefix.trim()}]\n${question}` : question;
+  const userContent = diagnosticContextBlock
+    ? question
+    : question; // context is in system prompt, not user message
 
   const startMs = Date.now();
 
@@ -3112,6 +3124,26 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     return;
   }
 
+  // ── Ambiguous intent: route directly to Sonnet (skip Haiku→fail→Sonnet double-hop) ──
+  if (classification.intent === 'ambiguous') {
+    const churchRow_a = stmtGet.get(churchId);
+    const tier_a = churchRow_a?.billing_tier || 'connect';
+    const limitCheck_a = aiRateLimiter.checkDiagnosticLimit(churchId, tier_a);
+
+    if (limitCheck_a.allowed) {
+      console.log(`[Router] Ambiguous → direct Sonnet for: "${rawMessage.slice(0, 50)}"`);
+      const reply = await callDiagnosticAI(churchId, rawMessage, { churchName: church?.name || '', roomId: roomId || '', roomName: resolvedRoomName });
+      postSystemChatMessage(churchId, reply, roomId);
+
+      if (limitCheck_a.warning80) {
+        postSystemChatMessage(churchId, `📊 AI Usage: ${limitCheck_a.usage}/${limitCheck_a.limit} this month. Upgrade for more → Settings > Billing`, roomId);
+      }
+      return;
+    }
+    // Over diagnostic limit — fall through to Haiku command parser as best effort
+    console.log(`[Router] Ambiguous but over diagnostic limit — falling through to Haiku for: "${rawMessage.slice(0, 50)}"`);
+  }
+
   // Resolve room-specific status: if roomId is provided and we have per-room status, use it
   const roomStatus = (roomId && church?.instanceStatus)
     ? (church.instanceStatus[church.roomInstanceMap?.[roomId]] || church?.status)
@@ -3293,25 +3325,9 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
   }
 
   if (aiResult.type === 'chat') {
-    // Ambiguous intent: Haiku couldn't resolve a command — escalate to Sonnet (with diagnostic limit check)
-    if (classification.intent === 'ambiguous') {
-      const tier_a = churchRow?.billing_tier || 'connect';
-      const limitCheck2 = aiRateLimiter.checkDiagnosticLimit(churchId, tier_a);
-
-      if (limitCheck2.allowed) {
-        console.log(`[Router] Ambiguous escalation to Sonnet for: "${rawMessage.slice(0, 50)}"`);
-        const reply = await callDiagnosticAI(churchId, rawMessage);
-        postSystemChatMessage(churchId, reply, roomId);
-
-        if (limitCheck2.warning80) {
-          postSystemChatMessage(churchId, `📊 AI Usage: ${limitCheck2.usage}/${limitCheck2.limit} this month. Upgrade for more → Settings > Billing`, roomId);
-        }
-      } else {
-        // Over diagnostic limit — show Haiku's chat response instead of escalating
-        postSystemChatMessage(churchId, aiResult.text || 'I could not map that to a command.', roomId);
-      }
-      return;
-    }
+    // Ambiguous intent is now handled upstream (direct Sonnet routing).
+    // If we reach here, it's Haiku's chat response for non-ambiguous intent, or
+    // ambiguous that fell through due to diagnostic rate limit.
     postSystemChatMessage(churchId, aiResult.text || 'I could not map that to a command.', roomId);
     return;
   }
@@ -3351,7 +3367,9 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
       postSystemChatMessage(churchId, `❌ ${friendlyError(step.command, executed.error)}`, roomId);
       return;
     }
-    postSystemChatMessage(churchId, `✅ ${step.command} ${formatResultForChat(executed.result)}`, roomId);
+    // Contextual confirmation: template-based, zero LLM cost
+    const contextual = buildCommandConfirmation(step.command, step.params || {}, executed.result, roomStatus || {});
+    postSystemChatMessage(churchId, contextual ? `✅ ${contextual}` : `✅ ${step.command} ${formatResultForChat(executed.result)}`, roomId);
   }
 }
 
@@ -4181,11 +4199,8 @@ app.post('/api/admin/chat', requireAdminJwt(), async (req, res) => {
   const { message, history, churchStates } = req.body;
   if (!message) return res.status(400).json({ error: 'message required' });
 
-  const systemPrompt = `You are Tally AI, an assistant for the Tally operations dashboard. You help admin users understand their church monitoring data, troubleshoot issues, and manage their connected churches.
-
-You have access to the current state of all connected churches provided as context. Use this data to answer questions about specific churches, their equipment status, connection health, and alerts.
-
-Be concise, helpful, and technical when needed. Format responses clearly.`;
+  // Unified admin prompt from tally-engineer.js
+  const systemPrompt = buildAdminPrompt();
 
   // Build context from church states
   let contextStr = '';
@@ -4220,7 +4235,7 @@ Be concise, helpful, and technical when needed. Format responses clearly.`;
         model: 'claude-haiku-4-5-20251001',
         system: systemPrompt,
         messages,
-        max_tokens: 500,
+        max_tokens: 1200,
         temperature: 0.5,
       }),
       signal: AbortSignal.timeout(15000),
