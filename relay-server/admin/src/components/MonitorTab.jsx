@@ -486,6 +486,70 @@ export default function MonitorTab({ token, api }) {
                 </div>
               ) : null;
             })()}
+
+            {/* ATEM Input Sources */}
+            {atem.inputSources && Object.keys(atem.inputSources).length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Input Sources
+                </div>
+                {Object.entries(atem.inputSources)
+                  .filter(([, src]) => src.isExternal !== false)
+                  .sort(([a], [b]) => Number(a) - Number(b))
+                  .map(([id, src]) => {
+                    const isPgm = Number(id) === atem.programInput;
+                    const isPvw = Number(id) === atem.previewInput;
+                    return (
+                      <div key={id} style={{
+                        display: 'flex', alignItems: 'center', gap: 6, fontSize: 11,
+                        padding: '3px 6px', borderRadius: 4, marginBottom: 2,
+                        background: isPgm ? 'rgba(239,68,68,0.12)' : isPvw ? 'rgba(34,197,94,0.08)' : 'transparent',
+                      }}>
+                        <span style={{ color: C.dim, minWidth: 14, textAlign: 'right' }}>{id}</span>
+                        <span style={{ color: isPgm ? C.red : isPvw ? C.green : C.white, fontWeight: isPgm || isPvw ? 600 : 400 }}>
+                          {src.longName || src.shortName}
+                        </span>
+                        {src.portType && (
+                          <span style={{ fontSize: 10, color: C.muted, padding: '0 4px', background: 'rgba(255,255,255,0.05)', borderRadius: 3 }}>
+                            {src.portType}
+                          </span>
+                        )}
+                        {isPgm && <span style={s.badge(C.red)}>PGM</span>}
+                        {isPvw && <span style={s.badge(C.green)}>PVW</span>}
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+
+            {/* Fallback: inputLabels only (older client that hasn't sent inputSources yet) */}
+            {!atem.inputSources && atem.inputLabels && Object.keys(atem.inputLabels).length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Input Sources
+                </div>
+                {Object.entries(atem.inputLabels)
+                  .sort(([a], [b]) => Number(a) - Number(b))
+                  .map(([id, name]) => {
+                    const isPgm = Number(id) === atem.programInput;
+                    const isPvw = Number(id) === atem.previewInput;
+                    return (
+                      <div key={id} style={{
+                        display: 'flex', alignItems: 'center', gap: 6, fontSize: 11,
+                        padding: '3px 6px', borderRadius: 4, marginBottom: 2,
+                        background: isPgm ? 'rgba(239,68,68,0.12)' : isPvw ? 'rgba(34,197,94,0.08)' : 'transparent',
+                      }}>
+                        <span style={{ color: C.dim, minWidth: 14, textAlign: 'right' }}>{id}</span>
+                        <span style={{ color: isPgm ? C.red : isPvw ? C.green : C.white, fontWeight: isPgm || isPvw ? 600 : 400 }}>
+                          {name}
+                        </span>
+                        {isPgm && <span style={s.badge(C.red)}>PGM</span>}
+                        {isPvw && <span style={s.badge(C.green)}>PVW</span>}
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </>)}
         </div>
       );
