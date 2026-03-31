@@ -3210,6 +3210,32 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     }
   } catch { /* non-fatal — AI will work without it */ }
 
+  // Fetch recent alerts so AI can see active/recent issues
+  let recentAlerts = [];
+  try {
+    recentAlerts = db.prepare(
+      `SELECT alert_type, severity, acknowledged_at, resolved
+       FROM alerts WHERE church_id = ? ORDER BY created_at DESC LIMIT 5`
+    ).all(churchId);
+  } catch { /* alerts table may not exist */ }
+
+  // Compute health score for situational awareness
+  let healthScore = null;
+  try {
+    const { computeHealthScore } = require('./src/healthScore');
+    const hs = computeHealthScore(db, churchId, 7);
+    healthScore = hs?.score ?? null;
+  } catch { /* non-fatal */ }
+
+  // Get signal failover state
+  let failoverState = null;
+  try {
+    if (signalFailover) {
+      const state = signalFailover.getState(churchId);
+      if (state?.state) failoverState = state.state;
+    }
+  } catch { /* non-fatal */ }
+
   const aiResult = await aiParseCommand(intent.prompt, {
     churchId,
     churchName: church?.name || '',
@@ -3223,6 +3249,9 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     diagnosticContext: diagnosticCtx,
     incidentChains: incidentChainCtx,
     configuredDevices,
+    recentAlerts,
+    healthScore,
+    failoverState,
   }, conversationHistory);
 
   if (aiResult.type === 'error' || aiResult.type === 'rate_limited') {
