@@ -193,7 +193,8 @@ function createTestDb() {
       name        TEXT NOT NULL,
       description TEXT DEFAULT '',
       created_at  TEXT NOT NULL,
-      deleted_at  TEXT
+      deleted_at  TEXT,
+      stream_key  TEXT
     )
   `);
   db.exec(`
