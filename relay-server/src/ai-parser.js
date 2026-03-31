@@ -90,6 +90,7 @@ const EQUIPMENT_TO_STATUS_KEY = {
   obs: 'obs',
   ecamm: 'ecamm',
   dante: 'dante',
+  ndi: 'ndi',
 };
 
 // Display names for status reporting
@@ -107,6 +108,7 @@ const DEVICE_DISPLAY_NAMES = {
   obs: 'OBS',
   ecamm: 'Ecamm',
   dante: 'Dante',
+  ndi: 'NDI',
 };
 
 /**
@@ -1278,12 +1280,28 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
   if (ctx.churchName) contextHint += `Church: ${ctx.churchName}. `;
   if (ctx.roomId) contextHint += `Room ID: ${ctx.roomId}${ctx.roomName ? ` (${ctx.roomName})` : ''}. `;
 
-  // ATEM switcher
-  if (ctx.status?.atem?.connected) {
+  // ── Multi-switcher status (preferred over legacy single-ATEM) ──
+  if (ctx.status?.switchers && Object.keys(ctx.status.switchers).length > 0) {
+    for (const [swId, sw] of Object.entries(ctx.status.switchers)) {
+      const typeLabel = (sw.type || 'switcher').toUpperCase();
+      let swInfo = `${typeLabel} "${sw.name || swId}" [${sw.role || 'primary'}]: ${sw.connected ? 'connected' : 'DISCONNECTED'}`;
+      if (sw.connected) {
+        if (sw.model) swInfo += ` (${sw.model})`;
+        swInfo += `, pgm=input ${sw.programInput || '?'}, pvw=input ${sw.previewInput || '?'}`;
+        if (sw.streaming) swInfo += ', streaming';
+        if (sw.recording) swInfo += ', recording';
+      }
+      contextHint += swInfo + '. ';
+    }
+  }
+
+  // ATEM switcher (legacy single-ATEM path — skipped if multi-switcher already reported)
+  if (ctx.status?.atem?.connected && !(ctx.status?.switchers && Object.keys(ctx.status.switchers).length > 0)) {
     const s = ctx.status.atem;
     let atemInfo = 'ATEM';
     if (s.model) atemInfo += ` (${s.model})`;
     atemInfo += `: pgm=cam${s.programInput || '?'}, pvw=cam${s.previewInput || '?'}`;
+    if (s.inTransition) atemInfo += ', IN TRANSITION';
     contextHint += atemInfo + '. ';
     if (s.inputLabels && Object.keys(s.inputLabels).length) {
       const labels = Object.entries(s.inputLabels).map(([k, v]) => `${k}=${v}`).join(', ');
@@ -1291,8 +1309,19 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     }
     if (s.streaming) contextHint += `ATEM streaming${s.streamingBitrate ? ` ${s.streamingBitrate}kbps` : ''}${s.streamingService ? ` (${s.streamingService})` : ''}. `;
     if (s.recording) contextHint += 'ATEM recording. ';
+  }
+  // ATEM extended state (always include if ATEM connected, regardless of multi-switcher)
+  if (ctx.status?.atem?.connected) {
+    const s = ctx.status.atem;
     // audio_via_atem flag for audio routing
-    if (ctx.status.audio_via_atem) contextHint += 'audio_via_atem=true. ';
+    if (ctx.status.audio_via_atem || ctx.status.audioViaAtem) contextHint += 'audio_via_atem=true. ';
+    // Input labels (if not already added above via legacy path)
+    if (ctx.status?.switchers && Object.keys(ctx.status.switchers).length > 0) {
+      if (s.inputLabels && Object.keys(s.inputLabels).length) {
+        const labels = Object.entries(s.inputLabels).map(([k, v]) => `${k}=${v}`).join(', ');
+        contextHint += `ATEM Labels: ${labels}. `;
+      }
+    }
   }
 
   // OBS
@@ -1328,6 +1357,12 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     contextHint += encInfo + '. ';
   }
 
+  // Backup encoder
+  if (ctx.status?.backupEncoder?.configured) {
+    const be = ctx.status.backupEncoder;
+    contextHint += `Backup encoder: ${be.type || 'unknown'}, ${be.connected ? 'connected' : 'DISCONNECTED'}${be.live ? ', live' : ''}. `;
+  }
+
   // Web Presenter extended info (platform, quality profile)
   const wpStatus = ctx.status?.webPresenter || (ctx.status?.encoder?.type?.toLowerCase() === 'blackmagic' ? ctx.status.encoder : null);
   if (wpStatus?.connected) {
@@ -1343,6 +1378,7 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     const pp = ctx.status.proPresenter;
     let ppInfo = `ProPresenter: slide ${pp.slideIndex != null ? pp.slideIndex + 1 : '?'}/${pp.slideTotal || '?'}`;
     if (pp.presentationName) ppInfo += ` ("${pp.presentationName}")`;
+    if (pp.activeLook) ppInfo += `, look="${pp.activeLook}"`;
     contextHint += ppInfo + '. ';
   }
 
@@ -1356,12 +1392,27 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     }
   }
 
+  // Audio silence detection
+  if (ctx.status?.audio?.silenceDetected) {
+    contextHint += '⚠ AUDIO SILENCE DETECTED. ';
+  }
+
   // PTZ cameras
   const ptzConnected = (ctx.status?.ptz || []).filter(c => c.connected);
   if (ptzConnected.length) contextHint += `PTZ: ${ptzConnected.length} camera${ptzConnected.length > 1 ? 's' : ''} connected. `;
 
-  // HyperDecks
-  if (ctx.status?.hyperdeck?.connected) {
+  // HyperDecks (array format)
+  const hyperdeckArr = ctx.status?.hyperdecks || [];
+  if (hyperdeckArr.length > 0) {
+    const hdParts = hyperdeckArr.map((hd, i) => {
+      if (!hd) return null;
+      let info = `deck${i + 1}=${hd.connected ? (hd.recording ? 'recording' : hd.playing ? 'playing' : 'idle') : 'disconnected'}`;
+      if (hd.connected && hd.diskPercent != null) info += ` disk=${hd.diskPercent}%`;
+      return info;
+    }).filter(Boolean);
+    if (hdParts.length) contextHint += `HyperDecks: ${hdParts.join(', ')}. `;
+  } else if (ctx.status?.hyperdeck?.connected) {
+    // Legacy single hyperdeck fallback
     const hd = ctx.status.hyperdeck;
     let hdInfo = `HyperDeck: ${hd.recording ? 'recording' : hd.playing ? 'playing' : 'idle'}`;
     if (hd.diskPercent != null) hdInfo += `, disk=${hd.diskPercent}%`;
@@ -1369,20 +1420,43 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     contextHint += hdInfo + '. ';
   }
 
-  // VideoHub
-  if (ctx.status?.videohub?.connected) {
+  // VideoHubs (array format)
+  const vhArr = ctx.status?.videoHubs || [];
+  if (vhArr.length > 0) {
+    const vhConnected = vhArr.filter(h => h?.connected).length;
+    contextHint += `VideoHub: ${vhConnected}/${vhArr.length} connected. `;
+  } else if (ctx.status?.videohub?.connected) {
     contextHint += 'VideoHub: connected. ';
   }
 
   // Resolume
   if (ctx.status?.resolume?.connected) {
-    contextHint += 'Resolume: connected. ';
+    let resInfo = 'Resolume: connected';
+    if (ctx.status.resolume.version) resInfo += ` (${ctx.status.resolume.version})`;
+    contextHint += resInfo + '. ';
   }
 
   // Ecamm
   if (ctx.status?.ecamm?.connected) {
     const ec = ctx.status.ecamm;
     contextHint += `Ecamm: ${ec.live ? 'live' : 'idle'}${ec.recording ? ', recording' : ''}. `;
+  }
+
+  // Dante
+  if (ctx.status?.dante?.connected) {
+    contextHint += 'Dante: connected. ';
+  }
+
+  // NDI
+  if (ctx.status?.ndi?.connected) {
+    contextHint += 'NDI: connected. ';
+  }
+
+  // Smart plugs (Shelly)
+  const plugs = ctx.status?.smartPlugs || [];
+  if (plugs.length > 0) {
+    const plugParts = plugs.map(p => `${p.name || p.ip}=${p.on ? 'ON' : 'OFF'}${p.power ? ` ${p.power}W` : ''}`);
+    contextHint += `Smart plugs: ${plugParts.join(', ')}. `;
   }
 
   // Companion
@@ -1402,6 +1476,43 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
         if (varParts.length) contextHint += `Companion vars: ${varParts.join('; ')}. `;
       }
     }
+  }
+
+  // ── Device health telemetry (latency, reconnects) ──
+  if (ctx.status?.health) {
+    const h = ctx.status.health;
+    const healthParts = [];
+    if (h.relay?.latencyMs != null) healthParts.push(`relay=${h.relay.latencyMs}ms`);
+    if (h.atem?.latencyMs != null) healthParts.push(`atem=${h.atem.latencyMs}ms`);
+    if (h.atem?.reconnects > 0) healthParts.push(`atem_reconnects=${h.atem.reconnects}`);
+    if (h.encoder?.reconnects > 0) healthParts.push(`encoder_reconnects=${h.encoder.reconnects}`);
+    if (h.obs?.reconnects > 0) healthParts.push(`obs_reconnects=${h.obs.reconnects}`);
+    if (healthParts.length) contextHint += `Device health: ${healthParts.join(', ')}. `;
+  }
+
+  // ── System info ──
+  if (ctx.status?.system) {
+    const sys = ctx.status.system;
+    if (sys.uptime > 0) contextHint += `System uptime: ${Math.floor(sys.uptime / 60)}min. `;
+  }
+
+  // ── Recent alerts (from DB, passed by server.js) ──
+  if (ctx.recentAlerts?.length > 0) {
+    const alertParts = ctx.recentAlerts.slice(0, 5).map(a => {
+      const status = a.resolved ? 'resolved' : a.acknowledged_at ? 'acked' : 'ACTIVE';
+      return `${a.alert_type}(${a.severity})[${status}]`;
+    });
+    contextHint += `Recent alerts: ${alertParts.join(', ')}. `;
+  }
+
+  // ── Health score (from DB, passed by server.js) ──
+  if (ctx.healthScore != null) {
+    contextHint += `Health score: ${ctx.healthScore}/100. `;
+  }
+
+  // ── Signal failover state (passed by server.js) ──
+  if (ctx.failoverState && ctx.failoverState !== 'HEALTHY') {
+    contextHint += `⚠ Failover state: ${ctx.failoverState}. `;
   }
 
   // Engineer profile (user-provided setup context)
@@ -1434,6 +1545,7 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     if (ctx.status?.resolume?.connected) connectedSet.add('resolume');
     if (ctx.status?.ecamm?.connected) connectedSet.add('ecamm');
     if (ctx.status?.dante?.connected) connectedSet.add('dante');
+    if (ctx.status?.ndi?.connected) connectedSet.add('ndi');
 
     const parts = configuredTypes.map(key => {
       const name = DEVICE_DISPLAY_NAMES[key] || key;
