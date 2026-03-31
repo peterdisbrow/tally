@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { C, s } from './adminStyles';
+import { C, s, ENCODER_TYPE_NAMES } from './adminStyles';
 
 export default function MonitorTab({ token, api }) {
   const [churches, setChurches] = useState([]);
@@ -14,6 +14,7 @@ export default function MonitorTab({ token, api }) {
   const [rooms, setRooms] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState('');
   const [copyFeedback, setCopyFeedback] = useState(null);
+  const [expandedDevices, setExpandedDevices] = useState({});
   const esRef = useRef(null);
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
@@ -173,6 +174,7 @@ export default function MonitorTab({ token, api }) {
       setEquipment(null);
       setRooms([]);
       setSelectedRoom('');
+      setExpandedDevices({});
       return;
     }
 
@@ -182,6 +184,7 @@ export default function MonitorTab({ token, api }) {
     setEquipment(null);
     setRooms([]);
     setSelectedRoom('');
+    setExpandedDevices({});
 
     if (!api) return;
 
@@ -328,11 +331,16 @@ export default function MonitorTab({ token, api }) {
   const withAlerts = churches.filter(c => c.connected && (c.activeAlerts || 0) > 0).length;
   const streaming = activeStreams.length;
 
-  // Equipment rendering
+  // Equipment rendering — expandable per-device sections
+  function toggleDevice(key) {
+    setExpandedDevices(prev => ({ ...prev, [key]: !prev[key] }));
+  }
+
   function renderEquipment() {
     if (!equipment) return null;
     let st = equipment.status || {};
     let devices = st.connectedDevices || {};
+    let details = st.deviceDetails || {};
     let eqOnline = st.online;
     let streamActive = st.streamActive;
 
@@ -341,10 +349,12 @@ export default function MonitorTab({ token, api }) {
       const instData = (equipment.instanceStatusMap || {})[instName];
       if (instData) {
         devices = instData.connectedDevices || {};
+        details = instData.deviceDetails || {};
         eqOnline = instData.online;
         streamActive = instData.streamActive;
       } else {
         devices = {};
+        details = {};
         eqOnline = false;
         streamActive = false;
       }
@@ -353,29 +363,388 @@ export default function MonitorTab({ token, api }) {
     const dot = (ok) => (
       <span style={{
         display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
-        background: ok ? C.green : '#555', marginRight: 8,
+        background: ok ? C.green : '#555', marginRight: 8, flexShrink: 0,
       }} />
     );
 
-    const items = [];
-    items.push({ label: `App ${eqOnline ? '(Connected)' : '(Offline)'}`, ok: eqOnline });
-    if (devices.atem !== undefined) items.push({ label: 'ATEM', ok: devices.atem });
-    if (devices.obs !== undefined) items.push({ label: 'OBS', ok: devices.obs });
-    if (devices.vmix !== undefined) items.push({ label: 'vMix', ok: devices.vmix });
-    if (devices.companion !== undefined) items.push({ label: 'Companion', ok: devices.companion });
-    if (devices.propresenter !== undefined) items.push({ label: 'ProPresenter', ok: devices.propresenter });
-    if (devices.resolume !== undefined) items.push({ label: 'Resolume', ok: devices.resolume });
-    if (devices.mixer !== undefined) items.push({ label: 'Mixer', ok: devices.mixer });
+    const detailRow = (label, value, color) => value != null && value !== '' ? (
+      <div style={{ display: 'flex', gap: 6, fontSize: 11, padding: '2px 0' }}>
+        <span style={{ color: C.muted, minWidth: 70, flexShrink: 0 }}>{label}:</span>
+        <span style={{ color: color || C.white, wordBreak: 'break-all' }}>{value}</span>
+      </div>
+    ) : null;
+
+    const deviceHeader = (key, label, connected, subtitle) => (
+      <div
+        onClick={() => toggleDevice(key)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+          padding: '6px 0', fontSize: 13, userSelect: 'none',
+        }}
+      >
+        <span style={{ fontSize: 10, color: C.muted, width: 14, textAlign: 'center', flexShrink: 0 }}>
+          {expandedDevices[key] ? '\u25BC' : '\u25B6'}
+        </span>
+        {dot(connected)}
+        <span style={{ fontWeight: 600 }}>{label}</span>
+        {subtitle && <span style={{ fontSize: 11, color: C.muted, marginLeft: 4 }}>{subtitle}</span>}
+      </div>
+    );
+
+    const deviceBody = (key, children) => expandedDevices[key] ? (
+      <div style={{
+        marginLeft: 30, padding: '4px 0 8px', borderLeft: `1px solid ${C.border}`,
+        paddingLeft: 12, marginBottom: 4,
+      }}>
+        {children}
+      </div>
+    ) : null;
+
+    const sections = [];
+
+    // App connection
+    sections.push(
+      <div key="app">
+        {deviceHeader('app', 'TallyConnect App', eqOnline, eqOnline ? 'Connected' : 'Offline')}
+        {deviceBody('app', <>
+          {detailRow('Hostname', details.system?.hostname)}
+          {detailRow('Platform', details.system?.platform)}
+          {detailRow('Room', details.system?.roomName)}
+          {detailRow('Timezone', details.system?.timezone)}
+          {details.system?.uptime > 0 && detailRow('Uptime', (() => {
+            const sec = details.system.uptime;
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            return h > 0 ? `${h}h ${m}m` : `${m}m`;
+          })())}
+        </>)}
+      </div>
+    );
+
+    // ATEM
+    const atem = details.atem;
+    if (atem) {
+      const atemLabel = atem.model || atem.productIdentifier || 'ATEM';
+      sections.push(
+        <div key="atem">
+          {deviceHeader('atem', 'ATEM', atem.connected, atem.connected ? atemLabel : null)}
+          {deviceBody('atem', <>
+            {detailRow('Model', atem.model || atem.productIdentifier)}
+            {detailRow('IP', atem.ip)}
+            {atem.protocolVersion && detailRow('Protocol', atem.protocolVersion)}
+
+            {/* Streaming / Recording status */}
+            {atem.streaming && (
+              <div style={{ marginTop: 4, marginBottom: 4 }}>
+                <span style={s.badge(C.red)}>Streaming</span>
+                {atem.streamingService && <span style={{ fontSize: 11, color: C.muted, marginLeft: 6 }}>{atem.streamingService}</span>}
+                {atem.streamingBitrate > 0 && <span style={{ fontSize: 11, color: C.muted, marginLeft: 6 }}>{Math.round(atem.streamingBitrate / 1000)} kbps</span>}
+              </div>
+            )}
+            {atem.recording && (
+              <div style={{ marginTop: 4, marginBottom: 4 }}>
+                <span style={s.badge(C.red)}>Recording</span>
+                {atem.recordingDuration && <span style={{ fontSize: 11, color: C.muted, marginLeft: 6 }}>{atem.recordingDuration}</span>}
+              </div>
+            )}
+
+            {/* ATEM Input Sources */}
+            {atem.inputSources && Object.keys(atem.inputSources).length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Input Sources
+                </div>
+                {Object.entries(atem.inputSources)
+                  .filter(([, src]) => src.isExternal !== false)
+                  .sort(([a], [b]) => Number(a) - Number(b))
+                  .map(([id, src]) => {
+                    const isPgm = Number(id) === atem.programInput;
+                    const isPvw = Number(id) === atem.previewInput;
+                    return (
+                      <div key={id} style={{
+                        display: 'flex', alignItems: 'center', gap: 6, fontSize: 11,
+                        padding: '3px 6px', borderRadius: 4, marginBottom: 2,
+                        background: isPgm ? 'rgba(239,68,68,0.12)' : isPvw ? 'rgba(34,197,94,0.08)' : 'transparent',
+                      }}>
+                        <span style={{ color: C.dim, minWidth: 14, textAlign: 'right' }}>{id}</span>
+                        <span style={{ color: isPgm ? C.red : isPvw ? C.green : C.white, fontWeight: isPgm || isPvw ? 600 : 400 }}>
+                          {src.longName || src.shortName}
+                        </span>
+                        {src.portType && (
+                          <span style={{ fontSize: 10, color: C.muted, padding: '0 4px', background: 'rgba(255,255,255,0.05)', borderRadius: 3 }}>
+                            {src.portType}
+                          </span>
+                        )}
+                        {isPgm && <span style={s.badge(C.red)}>PGM</span>}
+                        {isPvw && <span style={s.badge(C.green)}>PVW</span>}
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+
+            {/* Fallback: inputLabels only (older client that hasn't sent inputSources yet) */}
+            {!atem.inputSources && atem.inputLabels && Object.keys(atem.inputLabels).length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Input Sources
+                </div>
+                {Object.entries(atem.inputLabels)
+                  .sort(([a], [b]) => Number(a) - Number(b))
+                  .map(([id, name]) => {
+                    const isPgm = Number(id) === atem.programInput;
+                    const isPvw = Number(id) === atem.previewInput;
+                    return (
+                      <div key={id} style={{
+                        display: 'flex', alignItems: 'center', gap: 6, fontSize: 11,
+                        padding: '3px 6px', borderRadius: 4, marginBottom: 2,
+                        background: isPgm ? 'rgba(239,68,68,0.12)' : isPvw ? 'rgba(34,197,94,0.08)' : 'transparent',
+                      }}>
+                        <span style={{ color: C.dim, minWidth: 14, textAlign: 'right' }}>{id}</span>
+                        <span style={{ color: isPgm ? C.red : isPvw ? C.green : C.white, fontWeight: isPgm || isPvw ? 600 : 400 }}>
+                          {name}
+                        </span>
+                        {isPgm && <span style={s.badge(C.red)}>PGM</span>}
+                        {isPvw && <span style={s.badge(C.green)}>PVW</span>}
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+
+            {/* Blackmagic Cameras */}
+            {atem.cameras && Object.keys(atem.cameras).length > 0 && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Cameras (CCdP)
+                </div>
+                {Object.entries(atem.cameras).map(([src, cam]) => (
+                  <div key={src} style={{ fontSize: 11, padding: '2px 0' }}>
+                    <span style={{ color: C.white }}>Input {src}</span>
+                    {cam.model && <span style={{ color: C.muted, marginLeft: 6 }}>{cam.model}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>)}
+        </div>
+      );
+    }
+
+    // OBS
+    const obs = details.obs;
+    if (obs) {
+      sections.push(
+        <div key="obs">
+          {deviceHeader('obs', 'OBS', obs.connected, obs.connected && obs.version ? `v${obs.version}` : null)}
+          {deviceBody('obs', <>
+            {detailRow('App', obs.app)}
+            {detailRow('Version', obs.version)}
+            {detailRow('WebSocket', obs.websocketVersion)}
+            {obs.streaming && <div style={{ marginTop: 2 }}><span style={s.badge(C.red)}>Streaming</span></div>}
+            {obs.recording && <div style={{ marginTop: 2 }}><span style={s.badge(C.yellow)}>Recording</span></div>}
+            {obs.bitrate > 0 && detailRow('Bitrate', `${obs.bitrate} kbps`)}
+            {obs.fps > 0 && detailRow('FPS', obs.fps)}
+          </>)}
+        </div>
+      );
+    }
+
+    // vMix
+    const vmix = details.vmix;
+    if (vmix) {
+      sections.push(
+        <div key="vmix">
+          {deviceHeader('vmix', 'vMix', vmix.connected, vmix.connected && vmix.edition ? vmix.edition : null)}
+          {deviceBody('vmix', <>
+            {detailRow('Edition', vmix.edition)}
+            {detailRow('Version', vmix.version)}
+            {vmix.streaming && <div style={{ marginTop: 2 }}><span style={s.badge(C.red)}>Streaming</span></div>}
+            {vmix.recording && <div style={{ marginTop: 2 }}><span style={s.badge(C.yellow)}>Recording</span></div>}
+          </>)}
+        </div>
+      );
+    }
+
+    // Encoder
+    const enc = details.encoder;
+    if (enc && (enc.connected || enc.live || enc.type)) {
+      const encName = ENCODER_TYPE_NAMES[enc.type] || enc.type || 'Encoder';
+      sections.push(
+        <div key="encoder">
+          {deviceHeader('encoder', encName, enc.connected || enc.live, enc.live ? 'Live' : null)}
+          {deviceBody('encoder', <>
+            {detailRow('Type', encName)}
+            {enc.details && detailRow('Details', enc.details)}
+            {enc.bitrateKbps > 0 && detailRow('Bitrate', `${enc.bitrateKbps} kbps`)}
+            {enc.fps > 0 && detailRow('FPS', enc.fps)}
+            {enc.cpuUsage != null && detailRow('CPU', `${enc.cpuUsage}%`)}
+            {enc.congestion != null && detailRow('Congestion', `${enc.congestion}%`, enc.congestion > 50 ? C.red : C.white)}
+          </>)}
+        </div>
+      );
+    }
+
+    // Backup Encoder
+    const bkEnc = details.backupEncoder;
+    if (bkEnc && bkEnc.configured) {
+      const bkName = ENCODER_TYPE_NAMES[bkEnc.type] || bkEnc.type || 'Backup Encoder';
+      sections.push(
+        <div key="backupEncoder">
+          {deviceHeader('backupEncoder', `Backup: ${bkName}`, bkEnc.connected)}
+          {deviceBody('backupEncoder', <>
+            {detailRow('Type', bkName)}
+            {detailRow('Status', bkEnc.connected ? 'Connected' : 'Standby')}
+          </>)}
+        </div>
+      );
+    }
+
+    // Companion
+    const comp = details.companion;
+    if (comp) {
+      sections.push(
+        <div key="companion">
+          {deviceHeader('companion', 'Companion', comp.connected, comp.connected && comp.connectionCount > 0 ? `${comp.connectionCount} connection${comp.connectionCount !== 1 ? 's' : ''}` : null)}
+          {deviceBody('companion', <>
+            {detailRow('Endpoint', comp.endpoint)}
+            {detailRow('Connections', comp.connectionCount)}
+          </>)}
+        </div>
+      );
+    }
+
+    // Mixer
+    const mixer = details.mixer;
+    if (mixer && (mixer.connected || mixer.type)) {
+      sections.push(
+        <div key="mixer">
+          {deviceHeader('mixer', mixer.type ? `Mixer (${mixer.type})` : 'Mixer', mixer.connected, mixer.model || null)}
+          {deviceBody('mixer', <>
+            {detailRow('Type', mixer.type)}
+            {detailRow('Model', mixer.model)}
+            {detailRow('Firmware', mixer.firmware)}
+            {mixer.mainMuted && <div style={{ marginTop: 2 }}><span style={s.badge(C.red)}>Main Muted</span></div>}
+          </>)}
+        </div>
+      );
+    }
+
+    // ProPresenter
+    const pp = details.proPresenter;
+    if (pp && (pp.connected || pp.running)) {
+      sections.push(
+        <div key="propresenter">
+          {deviceHeader('propresenter', 'ProPresenter', pp.connected, pp.version ? `v${pp.version}` : null)}
+          {deviceBody('propresenter', <>
+            {detailRow('Version', pp.version)}
+            {pp.currentSlide && detailRow('Current Slide', pp.currentSlide)}
+            {pp.activeLook && detailRow('Active Look', pp.activeLook)}
+          </>)}
+        </div>
+      );
+    }
+
+    // Resolume
+    const res = details.resolume;
+    if (res && (res.connected || res.host)) {
+      sections.push(
+        <div key="resolume">
+          {deviceHeader('resolume', 'Resolume', res.connected, res.version || null)}
+          {deviceBody('resolume', <>
+            {detailRow('Host', res.host)}
+            {detailRow('Port', res.port)}
+            {detailRow('Version', res.version)}
+          </>)}
+        </div>
+      );
+    }
+
+    // HyperDecks
+    const hd = details.hyperdeck;
+    if (hd && (hd.connected || (details.hyperdecks || []).length > 0)) {
+      const decks = details.hyperdecks?.length > 0 ? details.hyperdecks : (hd.decks || []);
+      sections.push(
+        <div key="hyperdeck">
+          {deviceHeader('hyperdeck', 'HyperDeck', hd.connected, hd.recording ? 'Recording' : null)}
+          {deviceBody('hyperdeck', <>
+            {hd.recording && <div style={{ marginBottom: 4 }}><span style={s.badge(C.red)}>Recording</span></div>}
+            {decks.map((d, i) => (
+              <div key={i} style={{ fontSize: 11, padding: '2px 0' }}>
+                {detailRow(`Deck ${i + 1}`, d.name || d.ip || `Deck ${i + 1}`)}
+              </div>
+            ))}
+          </>)}
+        </div>
+      );
+    }
+
+    // Video Hubs
+    if ((details.videoHubs || []).length > 0) {
+      details.videoHubs.forEach((hub, i) => {
+        sections.push(
+          <div key={`videohub-${i}`}>
+            {deviceHeader(`videohub-${i}`, hub.name || `VideoHub ${i + 1}`, hub.connected, hub.model || null)}
+            {deviceBody(`videohub-${i}`, <>
+              {detailRow('Model', hub.model)}
+              {detailRow('IP', hub.ip || hub.host)}
+            </>)}
+          </div>
+        );
+      });
+    }
+
+    // PTZ Cameras
+    if ((details.ptz || []).length > 0) {
+      details.ptz.forEach((cam, i) => {
+        sections.push(
+          <div key={`ptz-${i}`}>
+            {deviceHeader(`ptz-${i}`, cam.name || `PTZ ${i + 1}`, cam.connected !== false, cam.protocol || null)}
+            {deviceBody(`ptz-${i}`, <>
+              {detailRow('IP', cam.ip || cam.host)}
+              {detailRow('Protocol', cam.protocol)}
+              {detailRow('Model', cam.model)}
+            </>)}
+          </div>
+        );
+      });
+    }
+
+    // Smart Plugs
+    if ((details.smartPlugs || []).length > 0) {
+      details.smartPlugs.forEach((plug, i) => {
+        sections.push(
+          <div key={`plug-${i}`}>
+            {deviceHeader(`plug-${i}`, plug.name || `Smart Plug ${i + 1}`, plug.connected !== false)}
+            {deviceBody(`plug-${i}`, <>
+              {detailRow('IP', plug.ip || plug.host)}
+              {detailRow('Status', plug.on ? 'On' : 'Off')}
+            </>)}
+          </div>
+        );
+      });
+    }
+
+    // Audio monitoring
+    const audio = details.audio;
+    if (audio && audio.monitoring) {
+      sections.push(
+        <div key="audio">
+          {deviceHeader('audio', 'Audio Monitor', audio.monitoring, audio.source || null)}
+          {deviceBody('audio', <>
+            {detailRow('Source', audio.source)}
+            {audio.lastLevelDb != null && detailRow('Level', `${audio.lastLevelDb} dB`, audio.silenceDetected ? C.red : C.green)}
+            {audio.silenceDetected && <div style={{ marginTop: 2 }}><span style={s.badge(C.red)}>Silence Detected</span></div>}
+          </>)}
+        </div>
+      );
+    }
 
     return (
       <div>
         <div style={s.sectionTitle}>Equipment Status</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {items.map((item, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', fontSize: 13 }}>
-              {dot(item.ok)}{item.label}
-            </div>
-          ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {sections}
         </div>
         {streamActive && (
           <div style={{ marginTop: 12 }}>
@@ -530,7 +899,7 @@ export default function MonitorTab({ token, api }) {
                               </div>
                             )}
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 20 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20 }}>
                               {/* Left: stream preview */}
                               <div>
                                 {displayStream?.active ? (

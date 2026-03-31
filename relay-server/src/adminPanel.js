@@ -1526,6 +1526,26 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       videoHubs: Array.isArray(deviceStatus.videoHubs) ? deviceStatus.videoHubs : [],
     };
 
+    // Full device details for the monitor panel
+    const deviceDetails = {
+      atem: deviceStatus.atem || null,
+      obs: deviceStatus.obs || null,
+      vmix: deviceStatus.vmix || null,
+      companion: deviceStatus.companion || null,
+      encoder: deviceStatus.encoder || null,
+      backupEncoder: deviceStatus.backupEncoder || null,
+      mixer: deviceStatus.mixer || null,
+      hyperdeck: deviceStatus.hyperdeck || null,
+      proPresenter: deviceStatus.proPresenter || null,
+      resolume: deviceStatus.resolume || null,
+      ptz: Array.isArray(deviceStatus.ptz) ? deviceStatus.ptz : [],
+      hyperdecks: Array.isArray(deviceStatus.hyperdecks) ? deviceStatus.hyperdecks : [],
+      videoHubs: Array.isArray(deviceStatus.videoHubs) ? deviceStatus.videoHubs : [],
+      smartPlugs: Array.isArray(deviceStatus.smartPlugs) ? deviceStatus.smartPlugs : [],
+      audio: deviceStatus.audio || null,
+      system: deviceStatus.system || null,
+    };
+
     let currentSession = null;
     try {
       const activeSession = db.prepare(
@@ -1547,6 +1567,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       online,
       lastHeartbeat: runtime?.lastHeartbeat || null,
       connectedDevices,
+      deviceDetails,
       currentSession,
       streamActive,
     };
@@ -1665,6 +1686,24 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
             ptz: Array.isArray(instStatus.ptz) ? instStatus.ptz : [],
             hyperdecks: Array.isArray(instStatus.hyperdecks) ? instStatus.hyperdecks : [],
             videoHubs: Array.isArray(instStatus.videoHubs) ? instStatus.videoHubs : [],
+          },
+          deviceDetails: {
+            atem: instStatus.atem || null,
+            obs: instStatus.obs || null,
+            vmix: instStatus.vmix || null,
+            companion: instStatus.companion || null,
+            encoder: instStatus.encoder || null,
+            backupEncoder: instStatus.backupEncoder || null,
+            mixer: instStatus.mixer || null,
+            hyperdeck: instStatus.hyperdeck || null,
+            proPresenter: instStatus.proPresenter || null,
+            resolume: instStatus.resolume || null,
+            ptz: Array.isArray(instStatus.ptz) ? instStatus.ptz : [],
+            hyperdecks: Array.isArray(instStatus.hyperdecks) ? instStatus.hyperdecks : [],
+            videoHubs: Array.isArray(instStatus.videoHubs) ? instStatus.videoHubs : [],
+            smartPlugs: Array.isArray(instStatus.smartPlugs) ? instStatus.smartPlugs : [],
+            audio: instStatus.audio || null,
+            system: instStatus.system || null,
           },
           streamActive: !!instStatus.streaming || !!instStatus.obs?.streaming,
         };

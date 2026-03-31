@@ -334,8 +334,10 @@ class ChurchAVAgent {
         streamingBitrate: null,
         streamingCacheUsed: null,
         streamingService: null,
+        inTransition: false,
         audioDelays: {},
         atemAudioSources: [],
+        inputSources: {}, // { inputId: { longName, shortName, portType, internalPortType, isExternal } }
         cameras: {}, // Blackmagic cameras detected via CCdP packets
       },
       audioViaAtem: false,
@@ -441,6 +443,7 @@ class ChurchAVAgent {
   /**
    * Extract and log ATEM input labels so Electron main.js can parse them.
    * Stores labels in status.atem.inputLabels as { inputId: "label", ... }
+   * Also stores status.atem.inputSources with port type info for each input.
    */
   _logInputLabels(state) {
     if (!state || typeof state !== 'object') return;
@@ -448,13 +451,22 @@ class ChurchAVAgent {
     if (!inputs || typeof inputs !== 'object') return;
 
     const labels = {};
+    const inputSources = {};
     for (const [id, input] of Object.entries(inputs)) {
       if (input && input.longName) {
         labels[id] = input.longName;
+        inputSources[id] = {
+          longName: input.longName,
+          shortName: input.shortName || '',
+          portType: PORT_TYPE_NAMES[input.externalPortType] || null,
+          internalPortType: input.internalPortType ?? null,
+          isExternal: input.internalPortType === 0 || input.isExternal === true,
+        };
       }
     }
     if (Object.keys(labels).length > 0) {
       this.status.atem.inputLabels = labels;
+      this.status.atem.inputSources = inputSources;
       console.log(`ATEM Labels: ${JSON.stringify(labels)}`);
     }
   }
