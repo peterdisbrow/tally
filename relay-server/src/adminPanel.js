@@ -1402,6 +1402,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         try { db.prepare('DELETE FROM room_equipment WHERE room_id = ?').run(roomId); } catch {}
         try { db.prepare('DELETE FROM alerts WHERE church_id = ? AND instance_name = ?').run(room.campus_id, roomId); } catch {}
         try { db.prepare('UPDATE churches SET room_id = NULL, room_name = NULL WHERE room_id = ?').run(roomId); } catch {}
+        try { db.prepare('DELETE FROM td_room_assignments WHERE room_id = ?').run(roomId); } catch {}
       });
       deleteRelated();
 
@@ -1414,6 +1415,59 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       }
 
       auditFromReq(req, 'room_deleted', 'room', roomId, { name: room.name, churchId: room.campus_id });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── TD Room Assignments (Admin) ──────────────────────────────────────────
+
+  // GET /api/admin/church/:churchId/td-room-assignments — all assignments for a church
+  app.get('/api/admin/church/:churchId/td-room-assignments', requireAdminSession, (req, res) => {
+    try {
+      const assignments = db.prepare(
+        `SELECT tra.id, tra.td_id, tra.room_id, tra.created_at,
+                t.name AS td_name, t.email AS td_email,
+                r.name AS room_name
+         FROM td_room_assignments tra
+         JOIN church_tds t ON t.id = tra.td_id
+         JOIN rooms r ON r.id = tra.room_id AND r.deleted_at IS NULL
+         WHERE tra.church_id = ?
+         ORDER BY t.name ASC, r.name ASC`
+      ).all(req.params.churchId);
+      res.json(assignments);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/admin/church/:churchId/td-room-assignments — assign TD to room
+  app.post('/api/admin/church/:churchId/td-room-assignments', requireAdminSession, (req, res) => {
+    try {
+      const { tdId, roomId } = req.body;
+      if (!tdId || !roomId) return res.status(400).json({ error: 'tdId and roomId required' });
+      const churchId = req.params.churchId;
+      try {
+        db.prepare('INSERT INTO td_room_assignments (td_id, room_id, church_id, created_at) VALUES (?, ?, ?, ?)')
+          .run(tdId, roomId, churchId, new Date().toISOString());
+      } catch (e) {
+        if (e.message && e.message.includes('UNIQUE')) return res.status(409).json({ error: 'Already assigned' });
+        throw e;
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // DELETE /api/admin/church/:churchId/td-room-assignments/:id — remove assignment
+  app.delete('/api/admin/church/:churchId/td-room-assignments/:id', requireAdminSession, (req, res) => {
+    try {
+      const result = db.prepare(
+        'DELETE FROM td_room_assignments WHERE id = ? AND church_id = ?'
+      ).run(req.params.id, req.params.churchId);
+      if (!result.changes) return res.status(404).json({ error: 'Assignment not found' });
       res.json({ ok: true });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });

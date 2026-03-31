@@ -258,6 +258,16 @@ function createTestDb() {
       updated_by TEXT
     )
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS td_room_assignments (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      td_id      INTEGER NOT NULL,
+      room_id    TEXT NOT NULL,
+      church_id  TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_td_room_unique ON td_room_assignments(td_id, room_id)');
   return db;
 }
 
@@ -1524,5 +1534,194 @@ describe('Church Portal API', () => {
       expect(res.body.name).toBe('TD Extra');
     });
 
+  });
+
+  // ── TD Room Assignments ──────────────────────────────────────────────────
+  describe('TD Room Assignments', () => {
+    let tdId;
+    let roomId;
+
+    beforeEach(() => {
+      // Create a TD with portal credentials
+      const { hashPassword } = require('../src/auth');
+      db.prepare(
+        "INSERT INTO church_tds (church_id, telegram_user_id, telegram_chat_id, name, registered_at, active, role, email, phone, password_hash, portal_enabled, access_level) VALUES (?, ?, ?, ?, ?, 1, 'td', ?, '', ?, 1, 'operator')"
+      ).run(CHURCH_A_ID, 'portal_td-room-1', 'portal_td-room-1', 'Room TD', new Date().toISOString(), 'roomtd@alpha.org', hashPassword('roompass123'));
+      const td = db.prepare("SELECT id FROM church_tds WHERE email = 'roomtd@alpha.org'").get();
+      tdId = td.id;
+
+      // Create a room
+      roomId = 'test-room-001';
+      db.prepare("INSERT INTO rooms (id, campus_id, name, description, created_at, stream_key) VALUES (?, ?, 'Main Sanctuary', '', ?, 'sk-main')")
+        .run(roomId, CHURCH_A_ID, new Date().toISOString());
+    });
+
+    afterEach(() => {
+      db.prepare('DELETE FROM td_room_assignments WHERE church_id = ?').run(CHURCH_A_ID);
+      db.prepare('DELETE FROM church_tds WHERE email = ?').run('roomtd@alpha.org');
+      db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId);
+    });
+
+    it('POST /api/church/tds/:tdId/rooms assigns TD to room', async () => {
+      const res = await client.post(`/api/church/tds/${tdId}/rooms`, {
+        ...authHeaders(tokenA),
+        body: { roomId },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+
+      const assignments = db.prepare('SELECT * FROM td_room_assignments WHERE td_id = ?').all(tdId);
+      expect(assignments).toHaveLength(1);
+      expect(assignments[0].room_id).toBe(roomId);
+    });
+
+    it('POST /api/church/tds/:tdId/rooms rejects duplicate assignment', async () => {
+      db.prepare('INSERT INTO td_room_assignments (td_id, room_id, church_id, created_at) VALUES (?, ?, ?, ?)')
+        .run(tdId, roomId, CHURCH_A_ID, new Date().toISOString());
+
+      const res = await client.post(`/api/church/tds/${tdId}/rooms`, {
+        ...authHeaders(tokenA),
+        body: { roomId },
+      });
+      expect(res.status).toBe(409);
+    });
+
+    it('DELETE /api/church/tds/:tdId/rooms/:roomId removes assignment', async () => {
+      db.prepare('INSERT INTO td_room_assignments (td_id, room_id, church_id, created_at) VALUES (?, ?, ?, ?)')
+        .run(tdId, roomId, CHURCH_A_ID, new Date().toISOString());
+
+      const res = await client.delete(`/api/church/tds/${tdId}/rooms/${roomId}`, authHeaders(tokenA));
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+
+      const remaining = db.prepare('SELECT * FROM td_room_assignments WHERE td_id = ?').all(tdId);
+      expect(remaining).toHaveLength(0);
+    });
+
+    it('GET /api/church/tds includes roomAssignments', async () => {
+      db.prepare('INSERT INTO td_room_assignments (td_id, room_id, church_id, created_at) VALUES (?, ?, ?, ?)')
+        .run(tdId, roomId, CHURCH_A_ID, new Date().toISOString());
+
+      const res = await client.get('/api/church/tds', authHeaders(tokenA));
+      expect(res.status).toBe(200);
+      const td = res.body.find(t => t.id === tdId);
+      expect(td).toBeTruthy();
+      expect(td.roomAssignments).toHaveLength(1);
+      expect(td.roomAssignments[0].room_id).toBe(roomId);
+    });
+
+    it('issueTdToken without roomId omits it from payload', () => {
+      // Verify token structure without going through login (avoids rate limit)
+      const token = jwt.sign(
+        { type: 'td_portal', tdId, churchId: CHURCH_A_ID, accessLevel: 'operator' },
+        JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+      const decoded = jwt.verify(token, JWT_SECRET);
+      expect(decoded.type).toBe('td_portal');
+      expect(decoded.roomId).toBeUndefined();
+    });
+
+    it('issueTdToken with roomId includes it in payload', () => {
+      const token = jwt.sign(
+        { type: 'td_portal', tdId, churchId: CHURCH_A_ID, accessLevel: 'operator', roomId },
+        JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+      const decoded = jwt.verify(token, JWT_SECRET);
+      expect(decoded.type).toBe('td_portal');
+      expect(decoded.roomId).toBe(roomId);
+    });
+
+    it('Room-scoped TD only sees assigned room in /api/church/rooms', async () => {
+      // Create a second room
+      db.prepare("INSERT INTO rooms (id, campus_id, name, description, created_at, stream_key) VALUES (?, ?, 'Youth Room', '', ?, 'sk-youth')")
+        .run('test-room-002', CHURCH_A_ID, new Date().toISOString());
+
+      // Assign TD to only room 1
+      db.prepare('INSERT INTO td_room_assignments (td_id, room_id, church_id, created_at) VALUES (?, ?, ?, ?)')
+        .run(tdId, roomId, CHURCH_A_ID, new Date().toISOString());
+
+      // Issue a room-scoped TD token
+      const tdToken = jwt.sign(
+        { type: 'td_portal', tdId, churchId: CHURCH_A_ID, accessLevel: 'operator', roomId },
+        JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      const res = await client.get('/api/church/rooms', {
+        headers: { cookie: `tally_church_session=${tdToken}` },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.rooms).toHaveLength(1);
+      expect(res.body.rooms[0].id).toBe(roomId);
+      expect(res.body.rooms[0].name).toBe('Main Sanctuary');
+
+      // Cleanup
+      db.prepare('DELETE FROM rooms WHERE id = ?').run('test-room-002');
+    });
+
+    it('Deleting a TD cascades room assignments', async () => {
+      db.prepare('INSERT INTO td_room_assignments (td_id, room_id, church_id, created_at) VALUES (?, ?, ?, ?)')
+        .run(tdId, roomId, CHURCH_A_ID, new Date().toISOString());
+
+      const res = await client.delete(`/api/church/tds/${tdId}`, authHeaders(tokenA));
+      expect(res.status).toBe(200);
+
+      const remaining = db.prepare('SELECT * FROM td_room_assignments WHERE td_id = ?').all(tdId);
+      expect(remaining).toHaveLength(0);
+    });
+
+    it('Deleting a room cascades TD assignments', async () => {
+      db.prepare('INSERT INTO td_room_assignments (td_id, room_id, church_id, created_at) VALUES (?, ?, ?, ?)')
+        .run(tdId, roomId, CHURCH_A_ID, new Date().toISOString());
+
+      const res = await client.delete(`/api/church/rooms/${roomId}`, authHeaders(tokenA));
+      expect(res.status).toBe(200);
+
+      const remaining = db.prepare('SELECT * FROM td_room_assignments WHERE room_id = ?').all(roomId);
+      expect(remaining).toHaveLength(0);
+    });
+
+    it('POST /api/td/select-room re-issues token scoped to room', async () => {
+      db.prepare('INSERT INTO td_room_assignments (td_id, room_id, church_id, created_at) VALUES (?, ?, ?, ?)')
+        .run(tdId, roomId, CHURCH_A_ID, new Date().toISOString());
+
+      // Issue a non-room-scoped TD token
+      const tdToken = jwt.sign(
+        { type: 'td_portal', tdId, churchId: CHURCH_A_ID, accessLevel: 'operator' },
+        JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      const res = await client.post('/api/td/select-room', {
+        headers: { cookie: `tally_church_session=${tdToken}` },
+        body: { roomId },
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.roomId).toBe(roomId);
+
+      // Verify re-issued cookie
+      const cookie = res.headers['set-cookie']?.[0] || '';
+      const tokenMatch = cookie.match(/tally_church_session=([^;]+)/);
+      expect(tokenMatch).toBeTruthy();
+      const decoded = jwt.verify(tokenMatch[1], JWT_SECRET);
+      expect(decoded.roomId).toBe(roomId);
+    });
+
+    it('POST /api/td/select-room rejects unassigned room', async () => {
+      const tdToken = jwt.sign(
+        { type: 'td_portal', tdId, churchId: CHURCH_A_ID, accessLevel: 'operator' },
+        JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      const res = await client.post('/api/td/select-room', {
+        headers: { cookie: `tally_church_session=${tdToken}` },
+        body: { roomId: 'some-unassigned-room' },
+      });
+      expect(res.status).toBe(403);
+    });
   });
 });

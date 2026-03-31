@@ -54,6 +54,8 @@ program
   .option('-c, --companion <url>', 'Companion HTTP API URL')
   .option('--preview-source <name>', 'OBS source name for preview screenshots', '')
   .option('--config <path>', 'Path to config file', path.join(os.homedir(), '.church-av', 'config.json'))
+  .option('--room-id <id>', 'Room ID to bind this instance to')
+  .option('--room-name <name>', 'Room display name (auto-resolved if --room-id is set)')
   .option('--watchdog', 'Enable watchdog monitoring (default: true)', true)
   .option('--no-watchdog', 'Disable watchdog monitoring')
   .parse();
@@ -192,6 +194,8 @@ function loadConfig() {
   if (opts.companion !== undefined) config.companionUrl = opts.companion;
   if (opts.previewSource) config.previewSource = opts.previewSource;
   if (opts.watchdog !== undefined) config.watchdog = opts.watchdog;
+  if (opts.roomId) config.roomId = opts.roomId;
+  if (opts.roomName) config.roomName = opts.roomName;
 
   // Preserve array fields from config file (hyperdecks, ptz)
   // These are set via the Equipment UI, not CLI args
@@ -2385,8 +2389,96 @@ class ChurchAVAgent {
 
 // ─── ENTRY POINT ─────────────────────────────────────────────────────────────
 
+/**
+ * Fetch available rooms from the relay server and let the user pick one.
+ * Used on first launch when no roomId is configured.
+ * In non-interactive mode (no TTY), skips room selection gracefully.
+ */
+async function fetchAndSelectRoom(config) {
+  const relayUrl = config.relay.replace(/^ws/, 'http');
+  try {
+    const https = relayUrl.startsWith('https') ? require('https') : require('http');
+    const url = new URL('/api/church/rooms', relayUrl);
+    const jwt = require('jsonwebtoken');
+    // We can't use the portal cookie here — use the app token as Bearer
+    const data = await new Promise((resolve, reject) => {
+      const req = https.get(url.toString(), {
+        headers: { 'Authorization': `Bearer ${config.token}` },
+      }, res => {
+        let body = '';
+        res.on('data', chunk => { body += chunk; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(body)); } catch { reject(new Error('Invalid response')); }
+        });
+      });
+      req.on('error', reject);
+      req.setTimeout(10000, () => { req.destroy(); reject(new Error('timeout')); });
+    });
+
+    const rooms = data.rooms || [];
+    if (rooms.length === 0) {
+      console.log('No rooms configured on the server. Running without room assignment.');
+      return config;
+    }
+    if (rooms.length === 1) {
+      console.log(`Auto-selecting room: ${rooms[0].name} (${rooms[0].id})`);
+      config.roomId = rooms[0].id;
+      config.roomName = rooms[0].name;
+      // Persist to config file
+      const configPath = opts.config;
+      const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      raw.roomId = config.roomId;
+      raw.roomName = config.roomName;
+      fs.writeFileSync(configPath, JSON.stringify(raw, null, 2));
+      return config;
+    }
+
+    // Multiple rooms — interactive selection if TTY is available
+    if (!process.stdin.isTTY) {
+      console.log(`Multiple rooms available but no TTY for selection. Use --room-id to specify.`);
+      console.log('Available rooms:');
+      rooms.forEach((r, i) => console.log(`  ${i + 1}. ${r.name} (${r.id})`));
+      return config;
+    }
+
+    console.log('\nAvailable rooms:');
+    rooms.forEach((r, i) => console.log(`  ${i + 1}. ${r.name}`));
+
+    const readline = require('readline');
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await new Promise(resolve => {
+      rl.question(`\nSelect room (1-${rooms.length}): `, resolve);
+    });
+    rl.close();
+
+    const idx = parseInt(answer, 10) - 1;
+    if (idx >= 0 && idx < rooms.length) {
+      config.roomId = rooms[idx].id;
+      config.roomName = rooms[idx].name;
+      console.log(`Selected: ${rooms[idx].name}`);
+      // Persist to config file
+      const configPath = opts.config;
+      const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      raw.roomId = config.roomId;
+      raw.roomName = config.roomName;
+      fs.writeFileSync(configPath, JSON.stringify(raw, null, 2));
+    } else {
+      console.log('Invalid selection. Running without room assignment.');
+    }
+  } catch (e) {
+    console.log(`Could not fetch rooms: ${e.message}. Running without room assignment.`);
+  }
+  return config;
+}
+
 async function main() {
   const config = loadConfig();
+
+  // If no roomId is configured, try to fetch and select one
+  if (!config.roomId) {
+    await fetchAndSelectRoom(config);
+  }
+
   const agent = new ChurchAVAgent(config);
 
   let shuttingDown = false;

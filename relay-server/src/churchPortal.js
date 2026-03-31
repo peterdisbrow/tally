@@ -47,14 +47,26 @@ function safeErrorMessage(err, fallback = 'Internal server error') {
 }
 
 /**
- * Resolve a ?roomId= query param to the instance name connected for that room.
- * Returns null if no roomId was provided, or the instance name (or undefined if offline).
+ * Resolve the room instance for this request.
+ *
+ * Priority:
+ *  1. req.tdRoomId — TD is locked to a specific room via their JWT
+ *  2. ?roomId= query param — explicit room filter from the frontend
+ *
+ * Returns null if no room filter, or the instance name (undefined if room is offline).
  */
 function resolveRoomInstance(req, churches) {
-  const roomId = req.query.roomId;
+  const roomId = req.tdRoomId || req.query.roomId;
   if (!roomId) return null; // no room filter — return all
   const runtime = churches.get(req.church.churchId);
   return runtime?.roomInstanceMap?.[roomId] || undefined; // undefined = room offline
+}
+
+/**
+ * Get the effective roomId for this request (TD-scoped or query param).
+ */
+function getEffectiveRoomId(req) {
+  return req.tdRoomId || req.query.roomId || null;
 }
 
 // ─── JWT helpers ───────────────────────────────────────────────────────────────
@@ -63,8 +75,10 @@ function issueChurchToken(churchId, jwtSecret) {
   return jwt.sign({ type: 'church_portal', churchId }, jwtSecret, { expiresIn: '7d' });
 }
 
-function issueTdToken(tdId, churchId, accessLevel, jwtSecret) {
-  return jwt.sign({ type: 'td_portal', tdId, churchId, accessLevel }, jwtSecret, { expiresIn: '7d' });
+function issueTdToken(tdId, churchId, accessLevel, jwtSecret, roomId) {
+  const payload = { type: 'td_portal', tdId, churchId, accessLevel };
+  if (roomId) payload.roomId = roomId;
+  return jwt.sign(payload, jwtSecret, { expiresIn: '7d' });
 }
 
 function generateRegistrationCode(db) {
@@ -124,6 +138,10 @@ function requirePortalAuth(db, jwtSecret) {
         req.church = church;
         req.td = td;
         req.tdAccessLevel = td.access_level || 'operator';
+        // Room scoping: if the token carries a roomId, lock this session to that room
+        if (payload.roomId) {
+          req.tdRoomId = payload.roomId;
+        }
         return next();
       }
       throw new Error('wrong type');
@@ -477,10 +495,25 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     "ALTER TABLE church_tds ADD COLUMN password_hash TEXT",
     "ALTER TABLE church_tds ADD COLUMN portal_enabled INTEGER DEFAULT 0",
     "ALTER TABLE church_tds ADD COLUMN last_portal_login TEXT",
+    "ALTER TABLE church_tds ADD COLUMN access_level TEXT DEFAULT 'operator'",
   ];
   for (const m of _portalMigrations) {
     try { db.exec(m); } catch { /* column already exists */ }
   }
+
+  // ── TD ↔ Room assignments (many-to-many) ──────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS td_room_assignments (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      td_id      INTEGER NOT NULL,
+      room_id    TEXT NOT NULL,
+      church_id  TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_td_room_td ON td_room_assignments(td_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_td_room_room ON td_room_assignments(room_id)');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_td_room_unique ON td_room_assignments(td_id, room_id)');
 
   // Telegram macros table
   db.exec(`
@@ -660,7 +693,12 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     // Try TD login
     const td = db.prepare('SELECT * FROM church_tds WHERE email = ? AND portal_enabled = 1').get(normalEmail);
     if (td && td.password_hash && verifyPassword(password, td.password_hash)) {
-      const token = issueTdToken(td.id, td.church_id, td.access_level || 'operator', jwtSecret);
+      // Check room assignments — if TD has exactly one room, auto-scope the token
+      const roomAssignments = db.prepare(
+        'SELECT room_id FROM td_room_assignments WHERE td_id = ? AND church_id = ?'
+      ).all(td.id, td.church_id);
+      const roomId = roomAssignments.length === 1 ? roomAssignments[0].room_id : null;
+      const token = issueTdToken(td.id, td.church_id, td.access_level || 'operator', jwtSecret, roomId);
       res.cookie('tally_church_session', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -669,6 +707,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       });
       db.prepare('UPDATE church_tds SET last_portal_login = ? WHERE id = ?').run(new Date().toISOString(), td.id);
       setCsrfCookie(res, generateCsrfToken());
+      // If TD has multiple rooms and no auto-scope, redirect to room picker
+      if (roomAssignments.length > 1) {
+        return res.redirect('/church-portal?pickRoom=1');
+      }
       return res.redirect('/church-portal');
     }
 
@@ -708,9 +750,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try { notifications = JSON.parse(c.notifications || '{}'); } catch {}
 
     // Resolve room/instance filtering:
+    //   req.tdRoomId → TD locked to a specific room via JWT
     //   ?roomId=  → look up instance via roomInstanceMap
     //   ?instance= → legacy direct instance filter
-    const requestedRoomId = req.query.roomId;
+    const requestedRoomId = req.tdRoomId || req.query.roomId;
     const requestedInstance = req.query.instance;
     let resolvedInstance = requestedInstance || null;
     let roomOffline = false;
@@ -754,6 +797,15 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       response.isTd = true;
       response.tdName = req.td.name;
       response.tdAccessLevel = req.tdAccessLevel;
+      response.tdRoomId = req.tdRoomId || null;
+      // Include assigned rooms for room picker
+      try {
+        response.tdRooms = db.prepare(
+          `SELECT r.id, r.name FROM td_room_assignments tra
+           JOIN rooms r ON r.id = tra.room_id AND r.deleted_at IS NULL
+           WHERE tra.td_id = ? AND tra.church_id = ? ORDER BY r.name ASC`
+        ).all(req.td.id, req.church.churchId);
+      } catch { response.tdRooms = []; }
     }
 
     res.json(response);
@@ -1002,10 +1054,15 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.get('/api/church/config/equipment', authMiddleware, (req, res) => {
     try {
       const churchId = req.church.churchId;
-      const requestedRoomId = req.query.roomId;
+      const requestedRoomId = req.tdRoomId || req.query.roomId;
 
-      // Get all rooms for this church (for the dropdown)
-      const rooms = db.prepare('SELECT id, name, campus_id FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name').all(churchId);
+      // Get rooms for dropdown — TD sees only assigned rooms, admin sees all
+      let rooms;
+      if (req.tdRoomId) {
+        rooms = db.prepare('SELECT id, name, campus_id FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').all(req.tdRoomId, churchId);
+      } else {
+        rooms = db.prepare('SELECT id, name, campus_id FROM rooms WHERE campus_id = ? AND deleted_at IS NULL ORDER BY name').all(churchId);
+      }
 
       // Also get room_equipment entries to show which rooms have config
       const equipRows = db.prepare('SELECT room_id, updated_at FROM room_equipment WHERE church_id = ?').all(churchId);
@@ -1217,10 +1274,35 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const churchId = req.church.churchId;
       const runtime = churches.get(churchId);
       const roomInstanceMap = runtime?.roomInstanceMap || {};
-      const rooms = db.prepare(`SELECT r.id, r.campus_id, r.name, r.description, r.created_at, r.stream_key
-        FROM rooms r
-        WHERE r.campus_id = ? AND r.deleted_at IS NULL
-        ORDER BY r.name ASC`).all(churchId);
+
+      let rooms;
+      if (req.tdRoomId) {
+        // TD is scoped to a specific room — only show that room
+        rooms = db.prepare(`SELECT r.id, r.campus_id, r.name, r.description, r.created_at, r.stream_key
+          FROM rooms r WHERE r.id = ? AND r.campus_id = ? AND r.deleted_at IS NULL`).all(req.tdRoomId, churchId);
+      } else if (req.td) {
+        // TD without room lock — show assigned rooms (or all if no assignments)
+        const assigned = db.prepare(
+          'SELECT room_id FROM td_room_assignments WHERE td_id = ? AND church_id = ?'
+        ).all(req.td.id, churchId);
+        if (assigned.length > 0) {
+          const placeholders = assigned.map(() => '?').join(',');
+          rooms = db.prepare(`SELECT r.id, r.campus_id, r.name, r.description, r.created_at, r.stream_key
+            FROM rooms r WHERE r.id IN (${placeholders}) AND r.campus_id = ? AND r.deleted_at IS NULL
+            ORDER BY r.name ASC`).all(...assigned.map(a => a.room_id), churchId);
+        } else {
+          // No assignments — show all rooms (backward compat for TDs without room scoping)
+          rooms = db.prepare(`SELECT r.id, r.campus_id, r.name, r.description, r.created_at, r.stream_key
+            FROM rooms r WHERE r.campus_id = ? AND r.deleted_at IS NULL
+            ORDER BY r.name ASC`).all(churchId);
+        }
+      } else {
+        // Admin — show all rooms
+        rooms = db.prepare(`SELECT r.id, r.campus_id, r.name, r.description, r.created_at, r.stream_key
+          FROM rooms r WHERE r.campus_id = ? AND r.deleted_at IS NULL
+          ORDER BY r.name ASC`).all(churchId);
+      }
+
       const result = rooms.map(r => {
         const assigned = db.prepare('SELECT churchId, name, room_name FROM churches WHERE room_id = ?').all(r.id);
         const instanceName = roomInstanceMap[r.id] || null;
@@ -1236,11 +1318,12 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           instanceName,
         };
       });
+      const allRoomCount = db.prepare('SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL').get(churchId)?.cnt || 0;
       const maxRooms = maxRoomsForTier(req.church.billing_tier);
       res.json({
         rooms: result,
         currentRoomId: db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId)?.room_id || null,
-        limits: { usedTotal: rooms.length, maxTotal: maxRooms },
+        limits: { usedTotal: allRoomCount, maxTotal: maxRooms },
       });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
@@ -1322,6 +1405,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         db.prepare('DELETE FROM room_equipment WHERE room_id = ? AND church_id = ?').run(roomId, churchId);
         // Unassign any desktop clients that were assigned to this room
         db.prepare('UPDATE churches SET room_id = NULL, room_name = NULL WHERE room_id = ? AND churchId = ?').run(roomId, churchId);
+        // Remove TD room assignments for the deleted room
+        db.prepare('DELETE FROM td_room_assignments WHERE room_id = ? AND church_id = ?').run(roomId, churchId);
       });
       deleteRelated();
 
@@ -1385,7 +1470,12 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.get('/api/church/smart-plugs', authMiddleware, (req, res) => {
     try {
       const churchId = req.church.churchId;
-      const saved = db.prepare('SELECT * FROM smart_plugs WHERE church_id = ? ORDER BY created_at').all(churchId);
+      let saved;
+      if (req.tdRoomId) {
+        saved = db.prepare('SELECT * FROM smart_plugs WHERE church_id = ? AND room_id = ? ORDER BY created_at').all(churchId, req.tdRoomId);
+      } else {
+        saved = db.prepare('SELECT * FROM smart_plugs WHERE church_id = ? ORDER BY created_at').all(churchId);
+      }
 
       // Merge with live status from the church client
       const runtime = churches.get(churchId);
@@ -1828,8 +1918,17 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     const runtime = churches.get(churchId);
     const openSockets = [];
     if (runtime?.sockets?.size) {
-      for (const sock of runtime.sockets.values()) {
-        if (sock.readyState === 1) openSockets.push(sock);
+      // If TD is room-scoped, only send to the socket for that room
+      if (req.tdRoomId && runtime.roomInstanceMap) {
+        const instName = runtime.roomInstanceMap[req.tdRoomId];
+        if (instName) {
+          const sock = runtime.sockets.get(instName);
+          if (sock && sock.readyState === 1) openSockets.push(sock);
+        }
+      } else {
+        for (const sock of runtime.sockets.values()) {
+          if (sock.readyState === 1) openSockets.push(sock);
+        }
       }
     }
     if (openSockets.length === 0) {
@@ -2020,11 +2119,22 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // ── GET /api/church/tds ───────────────────────────────────────────────────────
   app.get('/api/church/tds', authMiddleware, (req, res) => {
     let tds = [];
-    try { tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC').all(req.church.churchId); } catch {}
+    const churchId = req.church.churchId;
+    try { tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC').all(churchId); } catch {}
     // Strip actual password hash — send boolean flag instead
     res.json(tds.map(td => {
       const { password_hash, ...safe } = td;
       safe.has_password = !!password_hash;
+      // Include room assignments
+      try {
+        safe.roomAssignments = db.prepare(
+          `SELECT tra.room_id, r.name AS room_name
+           FROM td_room_assignments tra
+           JOIN rooms r ON r.id = tra.room_id AND r.deleted_at IS NULL
+           WHERE tra.td_id = ? AND tra.church_id = ?
+           ORDER BY r.name ASC`
+        ).all(td.id, churchId);
+      } catch { safe.roomAssignments = []; }
       return safe;
     }));
   });
@@ -2050,7 +2160,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
   // ── DELETE /api/church/tds/:tdId ──────────────────────────────────────────────
   app.delete('/api/church/tds/:tdId', adminMiddleware, (req, res) => {
-    db.prepare('DELETE FROM church_tds WHERE id = ? AND church_id = ?').run(req.params.tdId, req.church.churchId);
+    const churchId = req.church.churchId;
+    const tdId = req.params.tdId;
+    db.prepare('DELETE FROM td_room_assignments WHERE td_id = ? AND church_id = ?').run(tdId, churchId);
+    db.prepare('DELETE FROM church_tds WHERE id = ? AND church_id = ?').run(tdId, churchId);
     res.json({ ok: true });
   });
 
@@ -2281,6 +2394,107 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     db.prepare('UPDATE church_tds SET password_hash = ? WHERE id = ?')
       .run(hashPassword(newPassword), req.td.id);
     res.json({ ok: true });
+  });
+
+  // ── TD Room Assignments ────────────────────────────────────────────────────
+
+  // GET /api/church/tds/:tdId/rooms — list rooms assigned to a TD
+  app.get('/api/church/tds/:tdId/rooms', authMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const tdId = req.params.tdId;
+      const td = db.prepare('SELECT id FROM church_tds WHERE id = ? AND church_id = ?').get(tdId, churchId);
+      if (!td) return res.status(404).json({ error: 'TD not found' });
+      const assignments = db.prepare(
+        `SELECT tra.id, tra.room_id, tra.created_at, r.name AS room_name
+         FROM td_room_assignments tra
+         JOIN rooms r ON r.id = tra.room_id AND r.deleted_at IS NULL
+         WHERE tra.td_id = ? AND tra.church_id = ?
+         ORDER BY r.name ASC`
+      ).all(tdId, churchId);
+      res.json(assignments);
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/church/tds/:tdId/rooms — assign TD to a room
+  app.post('/api/church/tds/:tdId/rooms', adminMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const tdId = req.params.tdId;
+      const { roomId } = req.body;
+      if (!roomId) return res.status(400).json({ error: 'roomId required' });
+      const td = db.prepare('SELECT id FROM church_tds WHERE id = ? AND church_id = ?').get(tdId, churchId);
+      if (!td) return res.status(404).json({ error: 'TD not found' });
+      const room = db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
+      if (!room) return res.status(404).json({ error: 'Room not found' });
+      try {
+        db.prepare('INSERT INTO td_room_assignments (td_id, room_id, church_id, created_at) VALUES (?, ?, ?, ?)')
+          .run(tdId, roomId, churchId, new Date().toISOString());
+      } catch (e) {
+        if (e.message && e.message.includes('UNIQUE')) return res.status(409).json({ error: 'TD already assigned to this room' });
+        throw e;
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // DELETE /api/church/tds/:tdId/rooms/:roomId — unassign TD from a room
+  app.delete('/api/church/tds/:tdId/rooms/:roomId', adminMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const result = db.prepare(
+        'DELETE FROM td_room_assignments WHERE td_id = ? AND room_id = ? AND church_id = ?'
+      ).run(req.params.tdId, req.params.roomId, churchId);
+      if (!result.changes) return res.status(404).json({ error: 'Assignment not found' });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // POST /api/td/select-room — TD picks a room (for multi-room TDs)
+  // Re-issues the JWT with a specific roomId baked in.
+  app.post('/api/td/select-room', authMiddleware, (req, res) => {
+    if (!req.td) return res.status(403).json({ error: 'Only TD accounts can select a room' });
+    const { roomId } = req.body;
+    if (!roomId) return res.status(400).json({ error: 'roomId required' });
+    const churchId = req.church.churchId;
+    // Verify TD is assigned to this room
+    const assignment = db.prepare(
+      'SELECT 1 FROM td_room_assignments WHERE td_id = ? AND room_id = ? AND church_id = ?'
+    ).get(req.td.id, roomId, churchId);
+    if (!assignment) return res.status(403).json({ error: 'You are not assigned to this room' });
+    // Re-issue token scoped to the selected room
+    const token = issueTdToken(req.td.id, churchId, req.tdAccessLevel, jwtSecret, roomId);
+    res.cookie('tally_church_session', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'Strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+    res.json({ ok: true, roomId });
+  });
+
+  // GET /api/td/rooms — list rooms available to the current TD
+  app.get('/api/td/rooms', authMiddleware, (req, res) => {
+    if (!req.td) return res.status(403).json({ error: 'Only TD accounts' });
+    try {
+      const churchId = req.church.churchId;
+      const rooms = db.prepare(
+        `SELECT r.id, r.name, r.description
+         FROM td_room_assignments tra
+         JOIN rooms r ON r.id = tra.room_id AND r.deleted_at IS NULL
+         WHERE tra.td_id = ? AND tra.church_id = ?
+         ORDER BY r.name ASC`
+      ).all(req.td.id, churchId);
+      res.json({ rooms, currentRoomId: req.tdRoomId || null });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
   });
 
   // ── GET /api/church/billing ───────────────────────────────────────────────────
@@ -2717,6 +2931,11 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         exportData.tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ?').all(churchId);
       } catch { /* */ }
 
+      // TD Room Assignments
+      try {
+        exportData.tdRoomAssignments = db.prepare('SELECT * FROM td_room_assignments WHERE church_id = ?').all(churchId);
+      } catch { /* */ }
+
       // Schedule
       try {
         const sched = db.prepare('SELECT service_times FROM churches WHERE churchId = ?').get(churchId);
@@ -2789,6 +3008,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         { table: 'support_tickets', column: 'church_id' },
         { table: 'support_triage_runs', column: 'church_id' },
         { table: 'church_tds', column: 'church_id' },
+        { table: 'td_room_assignments', column: 'church_id' },
         { table: 'church_schedules', column: 'church_id' },
         { table: 'church_reviews', column: 'church_id' },
         { table: 'guest_tokens', column: 'churchId' },
