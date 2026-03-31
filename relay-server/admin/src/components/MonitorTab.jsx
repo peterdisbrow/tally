@@ -39,11 +39,11 @@ export default function MonitorTab({ token, api }) {
 
         if (data.type === 'initial' || data.type === 'snapshot') {
           setChurches(data.churches || []);
-        } else if (data.type === 'status') {
+        } else if (data.type === 'status' || data.type === 'status_update') {
           setChurches(prev => prev.map(c =>
             c.churchId === data.churchId ? { ...c, ...data } : c
           ));
-        } else if (data.type === 'connect') {
+        } else if (data.type === 'connect' || data.type === 'church_connected') {
           setChurches(prev => {
             const exists = prev.find(c => c.churchId === data.churchId);
             if (exists) {
@@ -51,7 +51,7 @@ export default function MonitorTab({ token, api }) {
             }
             return [...prev, { ...data, connected: true }];
           });
-        } else if (data.type === 'disconnect') {
+        } else if (data.type === 'disconnect' || data.type === 'church_disconnected') {
           setChurches(prev => prev.map(c =>
             c.churchId === data.churchId ? { ...c, connected: false } : c
           ));
@@ -244,7 +244,7 @@ export default function MonitorTab({ token, api }) {
     }
   }
 
-  function handleRoomSelect(roomId) {
+  async function handleRoomSelect(roomId) {
     destroyPlayer();
     setSelectedRoom(roomId);
     if (roomId && streamKey?.rooms) {
@@ -254,6 +254,13 @@ export default function MonitorTab({ token, api }) {
       }
     } else if (!roomId && streamKey?.active) {
       setTimeout(() => startPlayer(expandedId, streamKey.hlsUrl), 50);
+    }
+    // Re-fetch equipment so the sidebar reflects the correct room's devices
+    if (expandedId && api) {
+      try {
+        const data = await api(`/api/admin/church/${encodeURIComponent(expandedId)}/support-view`);
+        setEquipment(data);
+      } catch { /* ignore */ }
     }
   }
 
@@ -297,15 +304,15 @@ export default function MonitorTab({ token, api }) {
         const data = JSON.parse(event.data);
         if (data.type === 'initial' || data.type === 'snapshot') {
           setChurches(data.churches || []);
-        } else if (data.type === 'status') {
+        } else if (data.type === 'status' || data.type === 'status_update') {
           setChurches(prev => prev.map(c => c.churchId === data.churchId ? { ...c, ...data } : c));
-        } else if (data.type === 'connect') {
+        } else if (data.type === 'connect' || data.type === 'church_connected') {
           setChurches(prev => {
             const exists = prev.find(c => c.churchId === data.churchId);
             if (exists) return prev.map(c => c.churchId === data.churchId ? { ...c, connected: true, ...data } : c);
             return [...prev, { ...data, connected: true }];
           });
-        } else if (data.type === 'disconnect') {
+        } else if (data.type === 'disconnect' || data.type === 'church_disconnected') {
           setChurches(prev => prev.map(c => c.churchId === data.churchId ? { ...c, connected: false } : c));
         } else if (data.type === 'alert') {
           setChurches(prev => prev.map(c => c.churchId === data.churchId ? { ...c, activeAlerts: (c.activeAlerts || 0) + 1 } : c));
