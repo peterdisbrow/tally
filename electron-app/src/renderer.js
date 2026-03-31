@@ -1969,16 +1969,22 @@ function updateStatusUI(status) {
 
   // ── ATEM program/preview input display ──────────────────────────────────
   const inputLabels = atemData.inputLabels || {};
+  const programCard = document.getElementById('card-program');
+  const previewCard = document.getElementById('card-preview');
   if (atemData.programInput !== null && atemData.programInput !== undefined) {
     setStatusValue('val-program', getInputName(atemData.programInput, inputLabels), true);
+    if (programCard) programCard.classList.add('tally-active');
   } else {
     setStatusValue('val-program', atemConnected ? 'Detecting...' : '—', false);
+    if (programCard) programCard.classList.remove('tally-active');
   }
 
   if (atemData.previewInput !== null && atemData.previewInput !== undefined) {
     setStatusValue('val-preview', getInputName(atemData.previewInput, inputLabels), true);
+    if (previewCard) previewCard.classList.add('tally-active');
   } else {
     setStatusValue('val-preview', atemConnected ? 'Detecting...' : '—', false);
+    if (previewCard) previewCard.classList.remove('tally-active');
   }
 
   // ATEM recording status
@@ -1992,7 +1998,7 @@ function updateStatusUI(status) {
         const d = atemData.recordingDuration;
         parts.push(`${d.hours || 0}h ${d.minutes || 0}m ${d.seconds || 0}s`);
       }
-      if (atemData.recordingTimeAvailable > 0) {
+      if (isRec && atemData.recordingTimeAvailable > 0) {
         const mins = Math.floor(atemData.recordingTimeAvailable / 60);
         const hrs = Math.floor(mins / 60);
         parts.push(`${hrs}h ${mins % 60}m remaining`);
@@ -2009,10 +2015,27 @@ function updateStatusUI(status) {
     if (recDetail) recDetail.style.display = 'none';
   }
 
+  // ── Companion section (own top-level section) ───────────────────────────
+  const companionSection = document.getElementById('section-companion');
   if (typeof companionConnected === 'boolean') {
+    if (companionSection) companionSection.style.display = '';
     setStatusValue('val-companion', companionConnected ? 'Connected' : 'Disconnected', companionConnected);
+    // Show endpoint info if available
+    const compData = status.companion && typeof status.companion === 'object' ? status.companion : {};
+    const compEndpoint = compData.endpoint || compData.host || '';
+    if (compEndpoint) {
+      setStatusValue('val-companion-endpoint', String(compEndpoint), companionConnected);
+    } else {
+      const eq = window._savedEquipment || {};
+      if (eq.companionUrl) {
+        setStatusValue('val-companion-endpoint', eq.companionUrl.replace(/^https?:\/\//, ''), companionConnected);
+      } else {
+        setStatusValue('val-companion-endpoint', '—', false);
+      }
+    }
   } else if (!relayConnected) {
     setStatusValue('val-companion', '—', false);
+    if (companionSection) companionSection.style.display = 'none';
   }
 
   // ── Streaming encoder status cards (Stream Health Indicator) ────────────
@@ -2971,7 +2994,7 @@ function getEncoderStatus(status, enc, idx) {
     encData = status;
   }
   if (!encData) return result;
-  const br = encData.bitrate ?? null;
+  const br = encData.bitrateKbps ?? encData.bitrate ?? (idx === 0 ? (status.bitrate ?? null) : null);
   if (typeof br === 'number' && br > 0) {
     result.bitrate = br >= 1000 ? `${(br / 1000).toFixed(1)} Mbps` : `${br} Kbps`;
   }

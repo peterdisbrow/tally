@@ -363,6 +363,41 @@ body.is-mac .header .header-title {
 .info-card .value.muted { color: var(--dim); }
 .info-card .value.active { color: var(--green); }
 
+/* ── Tally-light Program/Preview cards ─────────────────────── */
+.info-card.tally-program,
+.info-card.tally-preview {
+  grid-column: span 1;
+  padding: 12px 14px;
+}
+.info-card.tally-program .value,
+.info-card.tally-preview .value {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.info-card.tally-program.tally-active {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.6);
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.25), inset 0 0 0 1px rgba(239, 68, 68, 0.1);
+}
+.info-card.tally-program.tally-active .label {
+  color: #fca5a5;
+}
+.info-card.tally-program.tally-active .value {
+  color: #ef4444;
+}
+.info-card.tally-preview.tally-active {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.6);
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.25), inset 0 0 0 1px rgba(34, 197, 94, 0.1);
+}
+.info-card.tally-preview.tally-active .label {
+  color: #86efac;
+}
+.info-card.tally-preview.tally-active .value {
+  color: #22c55e;
+}
+
 /* ── Activity Feed ─────────────────────────────────────────── */
 .activity-log {
   background: #060608;
