@@ -22,6 +22,7 @@ const deviceState = {
   hyperdeck:     [],  // [{ ip }]
   ptz:           [],  // [{ ip, name, protocol, port, username, password, profileToken }]
   videohub:      [],  // [{ ip, name }]
+  'smart-plug':  [],  // [{ ip, name }]
 };
 
 const expandedDevices = new Set();
@@ -42,6 +43,7 @@ function resetDeviceState() {
   deviceState.hyperdeck = [];
   deviceState.ptz = [];
   deviceState.videohub = [];
+  deviceState['smart-plug'] = [];
   expandedDevices.clear();
   window._encoderConfig = { _type: '' };
 }
@@ -83,6 +85,7 @@ function renderActiveSummary() {
   if (deviceState.vmix.configured) addChip('vmix', 'vMix', deviceState.vmix.host || 'localhost');
   if (deviceState.resolume.configured) addChip('resolume', 'Resolume', deviceState.resolume.host || 'localhost');
   deviceState.videohub.forEach((h, i) => { if (h.ip) addChip('videohub', h.name || `VHub${i + 1}`, h.ip); });
+  deviceState['smart-plug'].forEach((p, i) => { if (p.ip) addChip('smart-plug', p.name || `Plug${i + 1}`, p.ip); });
   if (deviceState.mixer.type) addChip('mixer', 'Mixer', deviceState.mixer.host || '');
 
   container.innerHTML = chips.length ? chips.join('') : '';

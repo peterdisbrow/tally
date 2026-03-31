@@ -230,6 +230,20 @@ async function testEquipmentConnection(params) {
             : `Cannot reach ${mixerType} console at ${ip}:${targetPort} — check IP and power`,
         };
       }
+      case 'smart-plug': {
+        // Shelly smart plugs expose HTTP APIs — try Gen2 first, then Gen1
+        const gen2 = await _tryHttpGet(`http://${ip}:${port || 80}/rpc/Shelly.GetDeviceInfo`, 3000);
+        if (gen2.success && gen2.data && gen2.data.id) {
+          const name = gen2.data.name || gen2.data.id;
+          return { success: true, details: `Shelly reachable (Gen2) — ${name}` };
+        }
+        const gen1 = await _tryHttpGet(`http://${ip}:${port || 80}/settings`, 3000);
+        if (gen1.success && gen1.data && gen1.data.device) {
+          const name = gen1.data.name || gen1.data.device.hostname || 'Shelly';
+          return { success: true, details: `Shelly reachable (Gen1) — ${name}` };
+        }
+        return { success: false, details: 'Cannot reach Shelly smart plug — check IP and power' };
+      }
       case 'encoder': {
         const et = (params.encoderType || '').toLowerCase();
         const source = String(params.source || '').trim();
