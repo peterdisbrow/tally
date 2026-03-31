@@ -351,9 +351,12 @@ export default function MonitorTab({ token, api }) {
     let eqOnline = st.online;
     let streamActive = st.streamActive;
 
-    if (selectedRoom && equipment.roomInstanceMap && equipment.roomInstanceMap[selectedRoom]) {
-      const instName = equipment.roomInstanceMap[selectedRoom];
-      const instData = (equipment.instanceStatusMap || {})[instName];
+    if (selectedRoom) {
+      // When a specific room is selected, only show that room's instance data.
+      // Never fall through to church-wide status — that would show the primary
+      // instance's equipment regardless of which room is selected.
+      const instName = (equipment.roomInstanceMap || {})[selectedRoom];
+      const instData = instName ? (equipment.instanceStatusMap || {})[instName] : null;
       if (instData) {
         devices = instData.connectedDevices || {};
         details = instData.deviceDetails || {};
