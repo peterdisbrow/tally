@@ -1,0 +1,25 @@
+{
+  "id": "tallyconnect",
+  "name": "Tally Connect",
+  "shortname": "TallyConnect",
+  "description": "Monitor and control Tally Connect church AV systems from Companion",
+  "version": "0.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/tallyconnect/companion-module-tallyconnect",
+  "bugs": "https://github.com/tallyconnect/companion-module-tallyconnect/issues",
+  "maintainers": [
+    {
+      "name": "Tally Connect",
+      "email": "support@tallyconnect.app"
+    }
+  ],
+  "manufacturer": "Tally Connect",
+  "products": ["Tally Connect"],
+  "keywords": ["tally", "church", "atem", "propresenter", "obs", "streaming"],
+  "runtime": {
+    "type": "node22",
+    "api": "nodejs-ipc",
+    "apiVersion": "0.0.0",
+    "entrypoint": "../dist/main.js"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "name": "companion-module-tallyconnect",
+  "version": "1.0.0",
+  "description": "Bitfocus Companion module for Tally Connect church AV monitoring and control",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "rimraf dist && tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "package": "yarn build && companion-module-build"
+  },
+  "engines": {
+    "node": "^22.20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tallyconnect/companion-module-tallyconnect"
+  },
+  "keywords": [
+    "companion",
+    "tally",
+    "church",
+    "atem",
+    "propresenter",
+    "obs",
+    "streaming",
+    "av"
+  ],
+  "author": "Tally Connect",
+  "license": "MIT",
+  "dependencies": {
+    "@companion-module/base": "~1.14.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@companion-module/tools": "^2.6.1",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.12",
+    "rimraf": "^6.0.0",
+    "typescript": "~5.7.0"
+  }
+}
