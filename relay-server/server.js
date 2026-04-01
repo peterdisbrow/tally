@@ -1631,7 +1631,7 @@ _intervals.push(setInterval(() => {
 // ─── DB BACKUP SCHEDULER ─────────────────────────────────────────────────────
 
 const _isProduction = process.env.NODE_ENV === 'production';
-const _defaultBackupMinutes = _isProduction ? 15 : 0; // 15-min default in production, off in dev
+const _defaultBackupMinutes = 0; // Backups are opt-in so fresh deployments do not silently exhaust volumes
 const DB_BACKUP_INTERVAL_MINUTES = Number(process.env.DB_BACKUP_INTERVAL_MINUTES || _defaultBackupMinutes);
 if (Number.isFinite(DB_BACKUP_INTERVAL_MINUTES) && DB_BACKUP_INTERVAL_MINUTES > 0) {
   log(`[Backup] Scheduled snapshots every ${DB_BACKUP_INTERVAL_MINUTES} minute(s)`);
@@ -2457,7 +2457,7 @@ function runManualDbSnapshot(label = 'manual') {
     dbPath: DB_PATH,
     backupDir,
     encryptionKey: process.env.BACKUP_ENCRYPTION_KEY || '',
-    retainCount: Number(process.env.BACKUP_RETAIN_COUNT || 96),
+    retainCount: Number(process.env.BACKUP_RETAIN_COUNT || 10),
     label,
   });
 }

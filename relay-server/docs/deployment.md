@@ -101,7 +101,7 @@ Without Redis, rate limiting falls back to in-process memory (not suitable for m
 |----------|---------|-------------|
 | `DB_BACKUP_INTERVAL_MINUTES` | `0` (disabled) | How often to auto-snapshot the database |
 | `BACKUP_DIR` | `./backups` | Where backups are written |
-| `BACKUP_RETAIN_COUNT` | `5` | Number of snapshots to keep |
+| `BACKUP_RETAIN_COUNT` | `10` | Number of snapshots to keep |
 | `BACKUP_ENCRYPTION_KEY` | — | AES key for encrypting backup files |
 
 ### Miscellaneous
@@ -291,7 +291,7 @@ Defaults to `./data/churches.db` — override with `DATABASE_PATH`. The `data/` 
 Automated backups (WAL checkpoints + file copy) are enabled via:
 
 ```
-DB_BACKUP_INTERVAL_MINUTES=60
+DB_BACKUP_INTERVAL_MINUTES=0
 BACKUP_DIR=./backups
 BACKUP_RETAIN_COUNT=10
 ```
