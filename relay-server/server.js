@@ -1469,6 +1469,84 @@ _intervals.push(setInterval(() => {
   } catch { /* ignore */ }
   try { aiTriageEngine.cleanup(90); } catch { /* ignore */ }
 }, 24 * 60 * 60 * 1000));
+
+// ─── DATA RETENTION PRUNING (daily, multiple tables) ─────────────────────────
+// These tables were previously growing unbounded and are the likely cause of
+// volume exhaustion on Railway.
+const _retentionRules = [
+  // High-volume event/log tables — 90 days
+  { table: 'alerts',                  col: 'created_at',  days: 180, label: 'Alerts' },
+  { table: 'health_alerts',           col: 'created_at',  days: 180, label: 'HealthAlerts' },
+  { table: 'service_events',          col: 'timestamp',   days: 180, label: 'ServiceEvents' },
+  { table: 'command_log',             col: 'timestamp',   days: 90,  label: 'CommandLog' },
+  { table: 'ai_usage_log',            col: 'created_at',  days: 90,  label: 'AIUsageLog' },
+  { table: 'ai_rate_limit_events',    col: 'created_at',  days: 90,  label: 'AIRateLimitEvents' },
+  { table: 'autopilot_session_fires', col: 'fired_at',    days: 90,  label: 'AutopilotFires' },
+  { table: 'processed_webhook_events',col: 'processed_at',days: 90,  label: 'WebhookEvents' },
+  // Reports & diagnostics — 90 days (contain large JSON blobs)
+  { table: 'diagnostic_bundles',      col: 'created_at',  days: 90,  label: 'DiagnosticBundles' },
+  { table: 'problem_finder_reports',  col: 'created_at',  days: 90,  label: 'ProblemFinderReports' },
+  { table: 'preservice_check_results',col: 'created_at',  days: 90,  label: 'PreserviceChecks' },
+  { table: 'support_triage_runs',     col: 'created_at',  days: 180, label: 'SupportTriageRuns' },
+  // Session & summary data — 365 days (lower volume, useful for trends)
+  { table: 'service_sessions',        col: 'started_at',  days: 365, label: 'ServiceSessions' },
+  { table: 'post_service_reports',    col: 'created_at',  days: 365, label: 'PostServiceReports' },
+  { table: 'incident_summaries',      col: 'created_at',  days: 180, label: 'IncidentSummaries' },
+  { table: 'incident_chains',         col: 'last_seen',   days: 180, label: 'IncidentChains' },
+  { table: 'email_sends',             col: 'sent_at',     days: 180, label: 'EmailSends' },
+  // Monthly aggregates — 12 months
+  { table: 'ai_diagnostic_usage',     col: 'month',       days: 365, label: 'AIDiagUsage', monthCol: true },
+];
+
+function runDataRetention() {
+  let totalPruned = 0;
+  for (const rule of _retentionRules) {
+    try {
+      let result;
+      if (rule.monthCol) {
+        // month column stores 'YYYY-MM' strings
+        const cutoff = new Date(Date.now() - rule.days * 86400000);
+        const cutoffMonth = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}`;
+        result = db.prepare(`DELETE FROM ${rule.table} WHERE ${rule.col} < ?`).run(cutoffMonth);
+      } else {
+        result = db.prepare(
+          `DELETE FROM ${rule.table} WHERE ${rule.col} < datetime('now', '-${rule.days} days')`
+        ).run();
+      }
+      if (result.changes > 0) {
+        log(`[DataRetention] ${rule.label}: pruned ${result.changes} rows older than ${rule.days} days`);
+        totalPruned += result.changes;
+      }
+    } catch { /* table may not exist yet */ }
+  }
+  // After large prunes, checkpoint WAL and reclaim disk space
+  if (totalPruned > 0) {
+    try {
+      db.pragma('wal_checkpoint(TRUNCATE)');
+      log(`[DataRetention] WAL checkpoint complete`);
+    } catch { /* ignore */ }
+  }
+  return totalPruned;
+}
+
+// Run on startup (immediate disk recovery)
+const _startupPruned = runDataRetention();
+if (_startupPruned > 100) {
+  // Only VACUUM after significant prunes to avoid blocking on small cleanups
+  try {
+    db.exec('VACUUM');
+    log(`[DataRetention] VACUUM complete after pruning ${_startupPruned} rows`);
+  } catch (e) { log(`[DataRetention] VACUUM skipped: ${e.message}`); }
+}
+
+// Run daily
+_intervals.push(setInterval(() => runDataRetention(), 24 * 60 * 60 * 1000));
+
+// Weekly WAL checkpoint (even without prunes, keeps WAL file from growing)
+_intervals.push(setInterval(() => {
+  try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch { /* ignore */ }
+}, 7 * 24 * 60 * 60 * 1000));
+
 billing.setLifecycleEmails(lifecycleEmails);
 sessionRecap.setLifecycleEmails(lifecycleEmails);
 weeklyDigest.setLifecycleEmails(lifecycleEmails);
