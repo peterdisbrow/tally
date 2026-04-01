@@ -2533,6 +2533,54 @@ function requireChurchAppAuth(req, res, next) {
   }
 }
 
+// Accepts EITHER a church_app Bearer token (Electron app) OR a portal session
+// cookie (church portal web UI). Used by endpoints shared between both clients.
+function requireChurchAppOrPortalAuth(req, res, next) {
+  // 1. Try Bearer token (Electron app / mobile)
+  const auth = req.headers.authorization;
+  if (auth && auth.startsWith('Bearer ')) {
+    try {
+      const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+      if (payload.type !== 'church_app') throw new Error('wrong token type');
+      const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
+      if (!church) return res.status(404).json({ error: 'Church not found' });
+      req.church = church;
+      req.churchReadonly = !!payload.readonly;
+      return next();
+    } catch (e) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+  }
+  // 2. Fall back to portal session cookie (church portal web UI)
+  const token = req.cookies?.tally_church_session;
+  if (!token) {
+    return res.status(401).json({ error: 'Authorization: Bearer <token> required' });
+  }
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (payload.type === 'church_portal') {
+      const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
+      if (!church) throw new Error('church not found');
+      req.church = church;
+      return next();
+    }
+    if (payload.type === 'td_portal') {
+      const td = db.prepare('SELECT * FROM church_tds WHERE id = ? AND church_id = ?').get(payload.tdId, payload.churchId);
+      if (!td || !td.portal_enabled) throw new Error('td not found or disabled');
+      const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
+      if (!church) throw new Error('church not found');
+      req.church = church;
+      req.td = td;
+      req.tdAccessLevel = td.access_level || 'operator';
+      if (payload.roomId) req.tdRoomId = payload.roomId;
+      return next();
+    }
+    throw new Error('wrong type');
+  } catch {
+    return res.status(401).json({ error: 'Session expired' });
+  }
+}
+
 // Rejects requests from readonly church_app tokens (staff view-only access).
 function requireChurchWriteAccess(req, res, next) {
   if (req.churchReadonly) {
@@ -4178,7 +4226,7 @@ function makeCommandSender(church, roomId) {
 
 // Chat endpoints (extracted)
 require('./src/routes/chat')(app, {
-  db, chatEngine, requireAdmin, requireChurchAppAuth, handleChatCommandMessage, rateLimit, log,
+  db, chatEngine, requireAdmin, requireChurchAppAuth: requireChurchAppOrPortalAuth, handleChatCommandMessage, rateLimit, log,
   churches, scheduleEngine,
 });
 
