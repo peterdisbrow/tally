@@ -83,12 +83,7 @@ export function useTallySocket() {
         }
         case 'church_disconnected': {
           const disc = msg as ChurchDisconnected;
-          if (disc.status) {
-            useStatusStore.getState().updateInstanceStatus(
-              { [disc.name]: disc.status },
-              {},
-            );
-          }
+          useStatusStore.getState().removeInstance(disc.name);
           break;
         }
       }
