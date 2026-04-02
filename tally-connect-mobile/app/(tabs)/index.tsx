@@ -131,6 +131,33 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
     });
   }
 
+  // ATEM Streaming Encoder (built-in encoder on ATEM Mini Extreme, etc.)
+  if (status.atem && isDevicePresent(status.atem) && (status.atem.streaming || status.atem.streamingBitrate || status.atem.streamingService)) {
+    const a = status.atem;
+    const bitrateKbps = a.streamingBitrate ? Math.round(a.streamingBitrate / 1000) : undefined;
+    const health = healthLabel(bitrateKbps);
+    const metrics: DeviceCard['metrics'] = [];
+    if (a.streamingService) metrics.push({ label: 'Platform', value: a.streamingService });
+    metrics.push({ label: 'Status', value: a.streaming ? 'LIVE' : 'Idle', color: a.streaming ? colors.online : colors.textMuted });
+    if (bitrateKbps != null) {
+      metrics.push({ label: 'Bitrate', value: formatBitrate(bitrateKbps), color: health.color });
+      metrics.push({ label: 'Health', value: health.text, color: health.color });
+    }
+    if (a.streamingCacheUsed != null) {
+      const cacheMB = (a.streamingCacheUsed / (1024 * 1024)).toFixed(1);
+      metrics.push({ label: 'Cache Used', value: `${cacheMB} MB` });
+    }
+    cards.push({
+      id: 'atem-encoder',
+      name: `${a.model || 'ATEM'} Encoder`,
+      category: 'streaming',
+      connected: a.connected,
+      statusLabel: streamStatusLabel(a.connected, a.streaming),
+      statusColor: streamStatusColor(a.connected, a.streaming),
+      metrics,
+    });
+  }
+
   // OBS Studio
   if (status.obs && isDevicePresent(status.obs)) {
     const o = status.obs;

@@ -80,6 +80,9 @@ export interface DeviceStatus {
     recording?: boolean;
     model?: string;
     inputs?: Record<string, { name: string; type: string }>;
+    streamingBitrate?: number | null;   // bps from ATEM SDK
+    streamingCacheUsed?: number | null;  // bytes
+    streamingService?: string | null;    // e.g. "YouTube", "Facebook"
   };
   obs?: {
     connected: boolean;
