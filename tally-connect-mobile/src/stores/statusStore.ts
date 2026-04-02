@@ -66,8 +66,23 @@ export const useStatusStore = create<StatusState>((set, get) => ({
 
   fetchDashboardStats: async () => {
     try {
-      const stats = await api<DashboardStats>('/api/church/dashboard/stats');
-      set({ dashboardStats: stats });
+      const data = await api<{
+        healthScore?: number;
+        alertsToday?: number;
+        activeSession?: ServiceSession;
+        instanceStatus?: Record<string, DeviceStatus>;
+        roomInstanceMap?: Record<string, string>;
+      }>('/api/church/mobile/summary');
+      set({
+        dashboardStats: {
+          healthScore: data.healthScore,
+          alertsToday: data.alertsToday,
+          activeSession: data.activeSession ?? undefined,
+        },
+      });
+      if (data.instanceStatus) {
+        get().updateInstanceStatus(data.instanceStatus, data.roomInstanceMap || {});
+      }
     } catch {
       // Non-critical — dashboard still works with device status
     }

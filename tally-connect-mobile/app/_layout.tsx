@@ -3,11 +3,13 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useAuthStore } from '../src/stores/authStore';
 import { useNotifications } from '../src/hooks/useNotifications';
+import { useTallySocket } from '../src/hooks/useTallySocket';
 import { colors } from '../src/theme/colors';
 
 export default function RootLayout() {
   const checkAuth = useAuthStore((s) => s.checkAuth);
   useNotifications();
+  useTallySocket();
 
   useEffect(() => {
     checkAuth();
