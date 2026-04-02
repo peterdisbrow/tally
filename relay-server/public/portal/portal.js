@@ -1205,19 +1205,28 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const hd = status.hyperdeck || status.hyperDeck;
         if (hd) {
           const hdSt = hd.recording ? 'recording' : (hd.connected ? 'connected' : 'unknown');
-          rows.push(['HyperDeck', hdSt, null, hd.lastSeen || null]);
+          var hdDetail = _formatDiskSpace(hd.diskSpace) || hd.lastSeen || null;
+          rows.push(['HyperDeck', hdSt, null, hdDetail]);
         }
         if (Array.isArray(status.hyperdecks || status.hyperDecks)) {
           (status.hyperdecks || status.hyperDecks).forEach(function(deck, i) {
             const hdSt = deck.recording ? 'recording' : (deck.connected ? 'connected' : 'unknown');
-            rows.push(['HyperDeck ' + (i + 1), hdSt, null, deck.lastSeen || null]);
+            var hdDetail = _formatDiskSpace(deck.diskSpace) || deck.lastSeen || null;
+            rows.push(['HyperDeck ' + (i + 1), hdSt, null, hdDetail]);
           });
         }
         const pp = status.proPresenter || status.propresenter;
         if (pp) {
           const ppSt = pp.connected ? 'connected' : 'unknown';
           const ppVer = pp.version || null;
-          rows.push(['ProPresenter', ppSt, verInfo(ppVer, 'proPresenter'), pp.lastSeen || null]);
+          var ppDetail = null;
+          if (pp.currentSlide && pp.currentSlide.presentationName) {
+            ppDetail = pp.currentSlide.presentationName;
+            if (pp.currentSlide.slideIndex != null && pp.currentSlide.slideCount != null) {
+              ppDetail += ' (' + pp.currentSlide.slideIndex + '/' + pp.currentSlide.slideCount + ')';
+            }
+          }
+          rows.push(['ProPresenter', ppSt, verInfo(ppVer, 'proPresenter'), ppDetail || pp.lastSeen || null]);
         }
         const res = status.resolume;
         if (res && res.host) {
@@ -1365,6 +1374,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // ── ATEM detail card ──────────────────────────────────────────────────
         updateAtemDetailCard(status);
 
+        // ── ProPresenter detail card ─────────────────────────────────────────
+        updateProPresenterDetailCard(status);
+
+        // ── VideoHub routing card ────────────────────────────────────────────
+        updateVideoHubRoutingCard(status);
+
         // ── Smart plugs card ──────────────────────────────────────────────
         updateSmartPlugsCard(status);
 
@@ -1439,6 +1454,152 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         toast('Smart plugs refreshed');
       } catch { toast('Refresh failed', true); }
       finally { if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; } }
+    }
+
+    // ── Helper: format seconds into HH:MM:SS ────────────────────────────────
+    function _formatDuration(totalSeconds) {
+      var s = Math.round(totalSeconds);
+      var h = Math.floor(s / 3600);
+      var m = Math.floor((s % 3600) / 60);
+      var sec = s % 60;
+      if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+      return m + ':' + String(sec).padStart(2, '0');
+    }
+
+    // ── Helper: format HyperDeck disk space ─────────────────────────────────
+    function _formatDiskSpace(ds) {
+      if (!ds || typeof ds !== 'object') return null;
+      var parts = [];
+      if (ds.percentUsed != null) parts.push(Math.round(ds.percentUsed) + '% used');
+      if (ds.freeGB != null) parts.push(ds.freeGB.toFixed(1) + ' GB free');
+      else if (ds.free != null) parts.push(ds.free);
+      if (ds.estimatedMinutesRemaining != null) {
+        var mins = Math.round(ds.estimatedMinutesRemaining);
+        parts.push('~' + (mins >= 60 ? Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm' : mins + 'm') + ' left');
+      }
+      return parts.length ? parts.join(' · ') : null;
+    }
+
+    // ── ProPresenter Detail Card ────────────────────────────────────────────
+    function updateProPresenterDetailCard(status) {
+      var card = document.getElementById('propresenter-detail-card');
+      if (!card) return;
+
+      var pp = status.proPresenter || status.propresenter;
+      if (!pp || !pp.connected) { card.style.display = 'none'; return; }
+      card.style.display = '';
+
+      var verEl = document.getElementById('pp-version-label');
+      if (verEl) verEl.textContent = pp.version || 'ProPresenter';
+
+      var slide = pp.currentSlide || {};
+      var nameEl = document.getElementById('pp-presentation-name');
+      if (nameEl) nameEl.textContent = slide.presentationName || 'No presentation';
+
+      var indexEl = document.getElementById('pp-slide-index');
+      if (indexEl) {
+        if (slide.slideIndex != null && slide.slideCount != null) {
+          indexEl.textContent = 'Slide ' + slide.slideIndex + ' of ' + slide.slideCount;
+        } else {
+          indexEl.textContent = '';
+        }
+      }
+
+      // Slide notes
+      var notesRow = document.getElementById('pp-slide-notes-row');
+      var notesEl = document.getElementById('pp-slide-notes');
+      if (notesRow && notesEl) {
+        if (slide.notes) {
+          notesRow.style.display = '';
+          notesEl.textContent = slide.notes;
+        } else {
+          notesRow.style.display = 'none';
+        }
+      }
+
+      // Active look
+      var lookEl = document.getElementById('pp-active-look');
+      if (lookEl) lookEl.textContent = (pp.activeLook && pp.activeLook.name) ? pp.activeLook.name : (typeof pp.activeLook === 'string' ? pp.activeLook : '—');
+
+      // Screens
+      var screens = pp.screens || {};
+      var audEl = document.getElementById('pp-audience-screen');
+      if (audEl) {
+        var audActive = screens.audience != null ? screens.audience : null;
+        audEl.textContent = audActive === true || audActive === 'active' ? 'Active' : audActive === false || audActive === 'inactive' ? 'Inactive' : '—';
+        audEl.style.color = audActive === true || audActive === 'active' ? '#22c55e' : '#94A3B8';
+      }
+      var stgEl = document.getElementById('pp-stage-screen');
+      if (stgEl) {
+        var stgActive = screens.stage != null ? screens.stage : null;
+        stgEl.textContent = stgActive === true || stgActive === 'active' ? 'Active' : stgActive === false || stgActive === 'inactive' ? 'Inactive' : '—';
+        stgEl.style.color = stgActive === true || stgActive === 'active' ? '#22c55e' : '#94A3B8';
+      }
+
+      // Timers
+      var timersRow = document.getElementById('pp-timers-row');
+      var timersList = document.getElementById('pp-timers-list');
+      if (timersRow && timersList) {
+        var timers = pp.timers;
+        if (Array.isArray(timers) && timers.length > 0) {
+          timersRow.style.display = '';
+          timersList.innerHTML = timers.map(function(t) {
+            var name = t.name || 'Timer';
+            var value = t.value || t.time || '—';
+            var running = t.running || t.isRunning;
+            var cls = running ? 'badge-green' : 'badge-gray';
+            return '<span class="badge ' + cls + '" style="font-size:13px;padding:6px 12px">'
+              + escapeHtml(name) + ': <strong>' + escapeHtml(String(value)) + '</strong></span>';
+          }).join('');
+        } else {
+          timersRow.style.display = 'none';
+        }
+      }
+    }
+
+    // ── VideoHub Routing Card ───────────────────────────────────────────────
+    function updateVideoHubRoutingCard(status) {
+      var card = document.getElementById('videohub-detail-card');
+      if (!card) return;
+
+      var hubs = Array.isArray(status.videoHubs) ? status.videoHubs : [];
+      // Find first connected hub with routes
+      var hub = null;
+      for (var i = 0; i < hubs.length; i++) {
+        if (hubs[i] && hubs[i].connected && hubs[i].routes) { hub = hubs[i]; break; }
+      }
+      if (!hub) { card.style.display = 'none'; return; }
+      card.style.display = '';
+
+      var nameEl = document.getElementById('vh-name-label');
+      if (nameEl) nameEl.textContent = hub.name || (hub.inputCount + '×' + hub.outputCount);
+
+      var tbody = document.getElementById('vh-routing-tbody');
+      if (!tbody) return;
+
+      var routes = hub.routes || {};
+      var inputLabels = hub.inputLabels || {};
+      var outputLabels = hub.outputLabels || {};
+      var keys = Object.keys(routes);
+
+      if (keys.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" style="color:#475569;text-align:center;padding:12px">No routes configured</td></tr>';
+        return;
+      }
+
+      // Sort numerically
+      keys.sort(function(a, b) { return parseInt(a) - parseInt(b); });
+
+      tbody.innerHTML = keys.map(function(outIdx) {
+        var inIdx = routes[outIdx];
+        var outName = outputLabels[outIdx] || ('Output ' + (parseInt(outIdx) + 1));
+        var inName = inputLabels[inIdx] || ('Input ' + (parseInt(inIdx) + 1));
+        return '<tr>'
+          + '<td style="font-weight:500;color:#F8FAFC">' + escapeHtml(outName) + '</td>'
+          + '<td style="text-align:center;color:#22c55e;font-size:16px">&#x2190;</td>'
+          + '<td style="color:#94A3B8">' + escapeHtml(inName) + '</td>'
+          + '</tr>';
+      }).join('');
     }
 
     var _streamStartedAt = null;
@@ -1632,6 +1793,50 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (!atem.recording && !atem.streaming) parts.push('<span class="badge badge-gray">Standby</span>');
         if (atem.streamingCacheUsed > 80) parts.push('<span class="badge badge-yellow">Cache ' + Math.round(atem.streamingCacheUsed) + '%</span>');
         badges.innerHTML = parts.join(' ');
+      }
+
+      // Recording progress
+      var recRow = document.getElementById('atem-recording-row');
+      if (recRow) {
+        if (atem.recording && (atem.recordingDuration != null || atem.recordingTimeAvailable != null)) {
+          recRow.style.display = '';
+          var durEl = document.getElementById('atem-rec-duration');
+          var remEl = document.getElementById('atem-rec-remaining');
+          if (durEl) durEl.textContent = atem.recordingDuration != null ? _formatDuration(atem.recordingDuration) : '—';
+          if (remEl) {
+            var remaining = atem.recordingTimeAvailable;
+            if (remEl && remaining != null) {
+              remEl.textContent = _formatDuration(remaining);
+              remEl.style.color = remaining < 600 ? '#ef4444' : remaining < 1800 ? '#eab308' : '#F8FAFC';
+            } else {
+              remEl.textContent = '—';
+            }
+          }
+        } else {
+          recRow.style.display = 'none';
+        }
+      }
+
+      // Audio delays
+      var delaysRow = document.getElementById('atem-audio-delays-row');
+      if (delaysRow) {
+        var delays = atem.audioDelays;
+        if (delays && typeof delays === 'object' && Object.keys(delays).length > 0) {
+          delaysRow.style.display = '';
+          var delaysList = document.getElementById('atem-audio-delays-list');
+          if (delaysList) {
+            var delayHtml = '';
+            for (var ch in delays) {
+              if (!delays.hasOwnProperty(ch)) continue;
+              var frames = delays[ch];
+              var cls = frames > 0 ? 'badge-yellow' : 'badge-gray';
+              delayHtml += '<span class="badge ' + cls + '">' + escapeHtml(ch) + ': ' + frames + 'f</span>';
+            }
+            delaysList.innerHTML = delayHtml;
+          }
+        } else {
+          delaysRow.style.display = 'none';
+        }
       }
     }
 
