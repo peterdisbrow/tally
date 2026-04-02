@@ -4,10 +4,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import Constants from 'expo-constants';
 import { useAuthStore } from '../../src/stores/authStore';
 import { useStatusStore } from '../../src/stores/statusStore';
 import { useChatStore } from '../../src/stores/chatStore';
-import { useNotifications } from '../../src/hooks/useNotifications';
+import { useNotificationStatus } from '../../src/hooks/useNotifications';
 import { api } from '../../src/api/client';
 import { colors } from '../../src/theme/colors';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
@@ -17,7 +18,7 @@ export default function MoreScreen() {
   const churchName = useAuthStore((s) => s.churchName);
   const email = useAuthStore((s) => s.email);
   const logout = useAuthStore((s) => s.logout);
-  const { pushToken, permission } = useNotifications();
+  const { pushToken, permission } = useNotificationStatus();
   const [session, setSession] = useState<ServiceSession | null>(null);
   const [reports, setReports] = useState<any[]>([]);
 
@@ -155,7 +156,7 @@ export default function MoreScreen() {
         <Text style={styles.logoutText}>Sign Out</Text>
       </Pressable>
 
-      <Text style={styles.version}>Tally Connect Mobile v1.0.0</Text>
+      <Text style={styles.version}>Tally Connect Mobile v{Constants.expoConfig?.version || '1.0.0'}</Text>
       <View style={{ height: spacing.xxxl }} />
     </ScrollView>
   );

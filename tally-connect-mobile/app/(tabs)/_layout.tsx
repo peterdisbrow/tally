@@ -1,13 +1,83 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Animated } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../../src/theme/colors';
 import { useAlertStore } from '../../src/stores/alertStore';
+import { useStatusStore } from '../../src/stores/statusStore';
+import { fontSize } from '../../src/theme/spacing';
+
+function ConnectionBanner() {
+  const wsConnected = useStatusStore((s) => s.wsConnected);
+  const insets = useSafeAreaInsets();
+  const [visible, setVisible] = useState(false);
+  const [showConnected, setShowConnected] = useState(false);
+  const pulseAnim = useRef(new Animated.Value(0.4)).current;
+  const wasDisconnected = useRef(false);
+
+  useEffect(() => {
+    if (!wsConnected) {
+      wasDisconnected.current = true;
+      setVisible(true);
+      setShowConnected(false);
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 0.4, duration: 800, useNativeDriver: true }),
+        ]),
+      ).start();
+    } else {
+      pulseAnim.stopAnimation();
+      pulseAnim.setValue(1);
+      if (wasDisconnected.current) {
+        setShowConnected(true);
+        setVisible(true);
+        const timer = setTimeout(() => {
+          setVisible(false);
+          setShowConnected(false);
+          wasDisconnected.current = false;
+        }, 2000);
+        return () => clearTimeout(timer);
+      } else {
+        setVisible(false);
+      }
+    }
+  }, [wsConnected]);
+
+  if (!visible) return null;
+
+  const bgColor = showConnected ? colors.online : '#d97706';
+  return (
+    <Animated.View style={[bannerStyles.banner, { paddingTop: insets.top + 4, backgroundColor: bgColor, opacity: showConnected ? 1 : pulseAnim }]}>
+      <Text style={bannerStyles.text}>{showConnected ? 'Connected' : 'Reconnecting...'}</Text>
+    </Animated.View>
+  );
+}
+
+const bannerStyles = StyleSheet.create({
+  banner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+    alignItems: 'center',
+    paddingBottom: 6,
+  },
+  text: {
+    color: colors.white,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+  },
+});
 
 export default function TabLayout() {
   const unreadCount = useAlertStore((s) => s.unreadCount);
 
   return (
+    <View style={{ flex: 1 }}>
+    <ConnectionBanner />
     <Tabs
       screenOptions={{
         tabBarStyle: {
@@ -69,5 +139,6 @@ export default function TabLayout() {
         }}
       />
     </Tabs>
+    </View>
   );
 }
