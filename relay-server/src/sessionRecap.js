@@ -23,6 +23,30 @@ class SessionRecap {
     return instanceName ? `${churchId}::${instanceName}` : churchId;
   }
 
+  _findSessionEntry(churchId, instanceName) {
+    const exactKey = this._compositeKey(churchId, instanceName);
+    if (instanceName && this.activeSessions.has(exactKey)) {
+      return { key: exactKey, session: this.activeSessions.get(exactKey) };
+    }
+    if (this.activeSessions.has(churchId)) {
+      return { key: churchId, session: this.activeSessions.get(churchId) };
+    }
+    const matches = [];
+    for (const [key, session] of this.activeSessions.entries()) {
+      if (session.churchId === churchId) matches.push({ key, session });
+    }
+    if (instanceName) return null;
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  _getSessionEntriesForChurch(churchId) {
+    const matches = [];
+    for (const [key, session] of this.activeSessions.entries()) {
+      if (session.churchId === churchId) matches.push({ key, session });
+    }
+    return matches;
+  }
+
   /**
    * Configure Telegram notification credentials.
    * Call this after construction (e.g. from server.js).
@@ -40,6 +64,11 @@ class SessionRecap {
   /** Attach post-service report generator */
   setPostServiceReport(engine) {
     this.postServiceReport = engine;
+  }
+
+  /** Attach room resolver for multi-room session attribution */
+  setRoomResolver(resolver) {
+    this.resolveRoomId = typeof resolver === 'function' ? resolver : null;
   }
 
   _ensureTable() {
@@ -74,10 +103,7 @@ class SessionRecap {
    * @returns {string|null} The session ID or null if no active session
    */
   getActiveSessionId(churchId, instanceName) {
-    // Try composite key first, fall back to churchId-only for single-room backward compat
-    const key = this._compositeKey(churchId, instanceName);
-    const session = this.activeSessions.get(key) || (instanceName ? this.activeSessions.get(churchId) : null);
-    return session?.sessionId || null;
+    return this._findSessionEntry(churchId, instanceName)?.session?.sessionId || null;
   }
 
   /**
@@ -144,11 +170,13 @@ class SessionRecap {
     const sessionId = uuidv4();
     const startedAt = new Date();
 
-    // Look up room_id from the churches table for this church
     let roomId = null;
     try {
-      const row = this.db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId);
-      roomId = row?.room_id || null;
+      roomId = this.resolveRoomId?.(churchId, instanceName) || null;
+      if (!roomId) {
+        const row = this.db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId);
+        roomId = row?.room_id || null;
+      }
     } catch { /* non-fatal */ }
 
     this.db.prepare(
@@ -176,24 +204,10 @@ class SessionRecap {
     console.log(`[SessionRecap] Session started — church ${churchId} (TD: ${tdName || 'unknown'})`);
   }
 
-  /**
-   * Finalize a session: compute grade, persist stats, send recap.
-   * Called by scheduleEngine onWindowClose callback.
-   * @param {string} churchId
-   * @returns {Promise<object|null>}
-   */
-  async endSession(churchId, instanceName) {
-    const sessionKey = this._compositeKey(churchId, instanceName);
-    const session = this.activeSessions.get(sessionKey) || this.activeSessions.get(churchId);
-    if (!session) {
-      console.warn(`[SessionRecap] No active session for church ${churchId}`);
-      return null;
-    }
-
-    // Delete using the actual key the session was stored under
-    const actualKey = this.activeSessions.has(sessionKey) ? sessionKey : churchId;
+  async _endSessionEntry(actualKey, session) {
     this.activeSessions.delete(actualKey);
 
+    const churchId = session.churchId;
     const endedAt = new Date();
     const durationMinutes = Math.round((endedAt - session.startedAt) / 60000);
 
@@ -277,6 +291,32 @@ class SessionRecap {
     return finalSession;
   }
 
+  /**
+   * Finalize a session: compute grade, persist stats, send recap.
+   * Called by scheduleEngine onWindowClose callback.
+   * @param {string} churchId
+   * @returns {Promise<object|null>}
+   */
+  async endSession(churchId, instanceName) {
+    const entry = this._findSessionEntry(churchId, instanceName);
+    if (!entry) {
+      console.warn(`[SessionRecap] No active session for church ${churchId}`);
+      return null;
+    }
+    return this._endSessionEntry(entry.key, entry.session);
+  }
+
+  async endSessionsForChurch(churchId) {
+    const entries = this._getSessionEntriesForChurch(churchId);
+    if (!entries.length) return [];
+    const results = [];
+    for (const entry of entries) {
+      const ended = await this._endSessionEntry(entry.key, entry.session);
+      if (ended) results.push(ended);
+    }
+    return results;
+  }
+
   // ─── EVENT RECORDING ─────────────────────────────────────────────────────────
 
   /**
@@ -288,8 +328,7 @@ class SessionRecap {
    * @param {boolean} escalated      Was this escalated to Andrew?
    */
   recordAlert(churchId, alertType, autoRecovered = false, escalated = false, instanceName) {
-    const key = this._compositeKey(churchId, instanceName);
-    const session = this.activeSessions.get(key) || this.activeSessions.get(churchId);
+    const session = this._findSessionEntry(churchId, instanceName)?.session;
     if (!session) return;
 
     session.alertCount++;
@@ -311,8 +350,7 @@ class SessionRecap {
    * @param {string} churchId
    */
   recordAudioSilence(churchId, instanceName) {
-    const key = this._compositeKey(churchId, instanceName);
-    const session = this.activeSessions.get(key) || this.activeSessions.get(churchId);
+    const session = this._findSessionEntry(churchId, instanceName)?.session;
     if (!session) return;
 
     session.audioSilenceCount++;
@@ -327,8 +365,7 @@ class SessionRecap {
    * @param {boolean} streaming
    */
   recordStreamStatus(churchId, streaming, instanceName) {
-    const key = this._compositeKey(churchId, instanceName);
-    const session = this.activeSessions.get(key) || this.activeSessions.get(churchId);
+    const session = this._findSessionEntry(churchId, instanceName)?.session;
     if (!session) return;
 
     const wasStreaming = session.streaming;
@@ -354,8 +391,7 @@ class SessionRecap {
    * @param {number} count
    */
   recordPeakViewers(churchId, count, instanceName) {
-    const key = this._compositeKey(churchId, instanceName);
-    const session = this.activeSessions.get(key) || this.activeSessions.get(churchId);
+    const session = this._findSessionEntry(churchId, instanceName)?.session;
     if (!session || typeof count !== 'number') return;
 
     if (session.peakViewers === null || count > session.peakViewers) {
@@ -370,8 +406,7 @@ class SessionRecap {
    * @param {string} churchId
    */
   recordRecordingConfirmed(churchId, instanceName) {
-    const key = this._compositeKey(churchId, instanceName);
-    const session = this.activeSessions.get(key) || this.activeSessions.get(churchId);
+    const session = this._findSessionEntry(churchId, instanceName)?.session;
     if (!session || session.recordingConfirmed) return;
 
     session.recordingConfirmed = true;

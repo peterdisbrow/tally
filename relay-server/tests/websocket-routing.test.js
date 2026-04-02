@@ -81,8 +81,10 @@ function buildTestServer(overrides = {}) {
     }
   });
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    httpServer.once('error', reject);
     httpServer.listen(0, '127.0.0.1', () => {
+      httpServer.removeListener('error', reject);
       const { port } = httpServer.address();
       const url = `ws://127.0.0.1:${port}`;
 

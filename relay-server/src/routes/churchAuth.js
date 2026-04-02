@@ -6,6 +6,7 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupChurchAuthRoutes(app, ctx) {
+  const { hasOpenSocket } = require('../runtimeSockets');
   const { db, churches, requireAdmin, requireChurchAppAuth, requireChurchWriteAccess, rateLimit,
           billing, hashPassword, verifyPassword, normalizeBillingInterval,
           issueChurchAppToken, checkChurchPaidAccess, generateRegistrationCode,
@@ -280,7 +281,7 @@ module.exports = function setupChurchAuthRoutes(app, ctx) {
     try { notifications = JSON.parse(c.notifications || '{}'); } catch (e) { console.warn('[churchAuth] Failed to parse notifications JSON:', e.message); }
     res.json({
       ...safe, notifications, tds,
-      connected: runtime?.ws?.readyState === 1,
+      connected: hasOpenSocket(runtime),
       status: runtime?.status || {},
       lastSeen: runtime?.lastSeen || null,
     });

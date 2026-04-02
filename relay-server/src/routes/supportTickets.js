@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const { WebSocket } = require('ws');
 const { isStreamActive, isRecordingActive } = require('../status-utils');
+const { hasOpenSocket } = require('../runtimeSockets');
 
 const supportCategories = new Set([
   'stream_down',
@@ -87,7 +88,7 @@ module.exports = function setupSupportTicketRoutes(app, ctx) {
       appVersion: options.appVersion || null,
       generatedAt: new Date().toISOString(),
       connection: {
-        churchClientConnected: runtime?.ws?.readyState === WebSocket.OPEN,
+        churchClientConnected: hasOpenSocket(runtime, WebSocket.OPEN),
         lastSeen: runtime?.lastSeen || null,
         lastHeartbeat: runtime?.lastHeartbeat || null,
         secondsSinceHeartbeat: runtime?.lastHeartbeat ? Math.floor((now - runtime.lastHeartbeat) / 1000) : null,

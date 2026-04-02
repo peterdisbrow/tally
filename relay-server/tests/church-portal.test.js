@@ -356,55 +356,8 @@ function buildApp() {
  * Builds a real HTTP request against the express app.
  */
 function request(app) {
-  const http = require('http');
-  const server = app.listen(0);
-  const port = server.address().port;
-
-  function makeRequest(method, path, { body, headers = {}, cookie } = {}) {
-    return new Promise((resolve, reject) => {
-      const url = new URL(`http://127.0.0.1:${port}${path}`);
-      const opts = {
-        method,
-        hostname: url.hostname,
-        port: url.port,
-        path: url.pathname + url.search,
-        headers: { ...headers },
-      };
-      if (cookie) opts.headers.cookie = cookie;
-      let payload;
-      if (body !== undefined) {
-        payload = typeof body === 'string' ? body : JSON.stringify(body);
-        opts.headers['content-type'] = opts.headers['content-type'] || 'application/json';
-        opts.headers['content-length'] = Buffer.byteLength(payload);
-      }
-      const req = http.request(opts, (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', () => {
-          let json;
-          try { json = JSON.parse(data); } catch { json = null; }
-          resolve({
-            status: res.statusCode,
-            headers: res.headers,
-            body: json,
-            text: data,
-          });
-        });
-      });
-      req.on('error', reject);
-      if (payload) req.write(payload);
-      req.end();
-    });
-  }
-
-  return {
-    get: (path, opts) => makeRequest('GET', path, opts || {}),
-    post: (path, opts) => makeRequest('POST', path, opts || {}),
-    put: (path, opts) => makeRequest('PUT', path, opts || {}),
-    patch: (path, opts) => makeRequest('PATCH', path, opts || {}),
-    delete: (path, opts) => makeRequest('DELETE', path, opts || {}),
-    close: () => server.close(),
-  };
+  const { createClient } = require('./helpers/expressTestClient');
+  return createClient(app);
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

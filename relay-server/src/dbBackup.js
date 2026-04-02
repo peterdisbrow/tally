@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const crypto = require('node:crypto');
+const Database = require('better-sqlite3');
 
 const BACKUP_MAGIC = Buffer.from('TALLYBK1', 'utf8');
 
@@ -36,6 +37,26 @@ function sanitizeLabel(label) {
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function escapeSqlitePath(filePath) {
+  return String(filePath).replace(/'/g, "''");
+}
+
+function createConsistentSqliteSnapshot(dbPath, workingDir) {
+  const snapshotPath = path.join(
+    workingDir,
+    `snapshot-${utcTimestamp()}-${crypto.randomBytes(6).toString('hex')}.sqlite`
+  );
+
+  const sourceDb = new Database(dbPath, { fileMustExist: true });
+  try {
+    sourceDb.pragma('busy_timeout = 5000');
+    sourceDb.exec(`VACUUM INTO '${escapeSqlitePath(snapshotPath)}'`);
+    return snapshotPath;
+  } finally {
+    sourceDb.close();
+  }
 }
 
 function encryptBuffer(buffer, key) {
@@ -101,31 +122,53 @@ function createBackupSnapshot(options) {
   if (!dbPath) throw new Error('dbPath is required');
   if (!fs.existsSync(dbPath)) throw new Error(`Database file not found: ${dbPath}`);
 
-  const dbBuffer = fs.readFileSync(dbPath);
-  const gzBuffer = zlib.gzipSync(dbBuffer, { level: 9 });
-  const key = parseEncryptionKey(encryptionKey);
-
   ensureDir(backupDir);
 
-  const baseName = `churches-${utcTimestamp()}-${sanitizeLabel(label)}.sqlite.gz`;
-  const fileName = key ? `${baseName}.enc` : baseName;
-  const fullPath = path.join(backupDir, fileName);
-  const tmpPath = `${fullPath}.tmp`;
+  const snapshotWorkingDir = path.join(backupDir, '.tmp');
+  ensureDir(snapshotWorkingDir);
 
-  const payload = key ? encryptBuffer(gzBuffer, key) : gzBuffer;
-  fs.writeFileSync(tmpPath, payload);
-  fs.renameSync(tmpPath, fullPath);
+  let sourcePath = dbPath;
+  let tempSnapshotPath = null;
+  try {
+    try {
+      tempSnapshotPath = createConsistentSqliteSnapshot(dbPath, snapshotWorkingDir);
+      sourcePath = tempSnapshotPath;
+    } catch (error) {
+      // Non-SQLite fixtures in tests still use the raw file path. Production
+      // databases should always take the consistent SQLite snapshot path above.
+      if (!/not a database|file is not a database|malformed/i.test(String(error?.message || ''))) {
+        throw error;
+      }
+    }
 
-  const removed = pruneBackups(backupDir, Number(retainCount));
+    const dbBuffer = fs.readFileSync(sourcePath);
+    const gzBuffer = zlib.gzipSync(dbBuffer, { level: 9 });
+    const key = parseEncryptionKey(encryptionKey);
 
-  return {
-    fullPath,
-    encrypted: !!key,
-    dbBytes: dbBuffer.length,
-    backupBytes: payload.length,
-    pruned: removed,
-    createdAt: new Date().toISOString(),
-  };
+    const baseName = `churches-${utcTimestamp()}-${sanitizeLabel(label)}.sqlite.gz`;
+    const fileName = key ? `${baseName}.enc` : baseName;
+    const fullPath = path.join(backupDir, fileName);
+    const tmpPath = `${fullPath}.tmp`;
+
+    const payload = key ? encryptBuffer(gzBuffer, key) : gzBuffer;
+    fs.writeFileSync(tmpPath, payload);
+    fs.renameSync(tmpPath, fullPath);
+
+    const removed = pruneBackups(backupDir, Number(retainCount));
+
+    return {
+      fullPath,
+      encrypted: !!key,
+      dbBytes: dbBuffer.length,
+      backupBytes: payload.length,
+      pruned: removed,
+      createdAt: new Date().toISOString(),
+    };
+  } finally {
+    if (tempSnapshotPath && fs.existsSync(tempSnapshotPath)) {
+      fs.unlinkSync(tempSnapshotPath);
+    }
+  }
 }
 
 function restoreBackupSnapshot(options) {

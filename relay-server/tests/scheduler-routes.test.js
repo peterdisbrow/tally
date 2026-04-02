@@ -12,7 +12,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'module';
 import Database from 'better-sqlite3';
-import http from 'http';
 
 const require = createRequire(import.meta.url);
 const express = require('express');
@@ -20,6 +19,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const { RundownEngine } = require('../src/rundownEngine');
 const setupSchedulerRoutes = require('../src/routes/scheduler');
+const { createClient } = require('./helpers/expressTestClient');
 
 const JWT_SECRET = 'test-scheduler-routes-secret';
 const ADMIN_API_KEY = 'test-admin-api-key-for-scheduler';
@@ -94,46 +94,20 @@ function buildApp(db, schedulerOverrides = {}) {
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 
 function makeClient(app) {
-  const server = app.listen(0);
-  const port = server.address().port;
-
-  function call(method, path, { body, apiKey, headers = {} } = {}) {
-    return new Promise((resolve, reject) => {
-      const opts = {
-        method: method.toUpperCase(),
-        hostname: '127.0.0.1',
-        port,
-        path,
-        headers: { ...headers },
-      };
-      if (apiKey) opts.headers['x-api-key'] = apiKey;
-      let payload;
-      if (body !== undefined) {
-        payload = JSON.stringify(body);
-        opts.headers['Content-Type'] = 'application/json';
-        opts.headers['Content-Length'] = Buffer.byteLength(payload);
-      }
-      const req = http.request(opts, (res) => {
-        let data = '';
-        res.on('data', c => { data += c; });
-        res.on('end', () => {
-          let json;
-          try { json = JSON.parse(data); } catch { json = data; }
-          resolve({ status: res.statusCode, body: json });
-        });
-      });
-      req.on('error', reject);
-      if (payload) req.write(payload);
-      req.end();
-    });
-  }
-
+  const client = createClient(app);
+  const withApiKey = (opts = {}) => {
+    if (!opts.apiKey) return opts;
+    return {
+      ...opts,
+      headers: { ...(opts.headers || {}), 'x-api-key': opts.apiKey },
+    };
+  };
   return {
-    get: (path, opts) => call('GET', path, opts),
-    post: (path, opts) => call('POST', path, opts),
-    put: (path, opts) => call('PUT', path, opts),
-    delete: (path, opts) => call('DELETE', path, opts),
-    close: () => new Promise(r => server.close(r)),
+    get: (path, opts) => client.get(path, withApiKey(opts)),
+    post: (path, opts) => client.post(path, withApiKey(opts)),
+    put: (path, opts) => client.put(path, withApiKey(opts)),
+    delete: (path, opts) => client.delete(path, withApiKey(opts)),
+    close: () => client.close(),
   };
 }
 

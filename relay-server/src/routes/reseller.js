@@ -9,6 +9,7 @@ module.exports = function setupResellerRoutes(app, ctx) {
           hashPassword, safeErrorMessage, stmtInsert, stmtFindByName,
           lifecycleEmails, jwt, JWT_SECRET, log } = ctx;
   const WebSocket = require('ws').WebSocket;
+  const { hasOpenSocket } = require('../runtimeSockets');
 
   // ─── ADMIN CRUD (requires admin JWT) ──────────────────────────────────────
 
@@ -135,7 +136,7 @@ module.exports = function setupResellerRoutes(app, ctx) {
         const runtime = churches.get(c.churchId);
         return {
           churchId: c.churchId, name: c.name,
-          connected: runtime?.ws?.readyState === WebSocket.OPEN,
+          connected: hasOpenSocket(runtime, WebSocket.OPEN),
           status: runtime?.status || null, lastSeen: runtime?.lastSeen || null,
         };
       });
@@ -150,7 +151,7 @@ module.exports = function setupResellerRoutes(app, ctx) {
     const runtime = churches.get(row.churchId);
     res.json({
       churchId: row.churchId, name: row.name,
-      connected: runtime?.ws?.readyState === WebSocket.OPEN,
+      connected: hasOpenSocket(runtime, WebSocket.OPEN),
       status: runtime?.status || null, lastSeen: runtime?.lastSeen || null,
     });
   });

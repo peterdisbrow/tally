@@ -34,6 +34,7 @@
 const crypto  = require('crypto');
 const jwt     = require('jsonwebtoken');
 const { createLogger } = require('./logger');
+const { hasOpenSocket, getSocketForInstance } = require('./runtimeSockets');
 const log = createLogger('portal');
 const { hashPassword, verifyPassword, generateRegistrationCode: _genRegCode } = require('./auth');
 const { createRateLimit } = require('./rateLimit');
@@ -67,6 +68,14 @@ function resolveRoomInstance(req, churches) {
  */
 function getEffectiveRoomId(req) {
   return req.tdRoomId || req.query.roomId || null;
+}
+
+function getRequestedRoomContext(req, churches) {
+  const roomId = getEffectiveRoomId(req);
+  return {
+    roomId,
+    instanceName: resolveRoomInstance(req, churches),
+  };
 }
 
 // ─── JWT helpers ───────────────────────────────────────────────────────────────
@@ -117,7 +126,16 @@ function requireChurchPortalAuth(db, jwtSecret) {
  */
 function requirePortalAuth(db, jwtSecret) {
   return (req, res, next) => {
-    const token = req.cookies?.tally_church_session;
+    // Accept token from cookie (portal) or Authorization: Bearer header (mobile app)
+    let token = req.cookies?.tally_church_session;
+    let fromBearer = false;
+    if (!token) {
+      const authHeader = req.headers.authorization || '';
+      if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7);
+        fromBearer = true;
+      }
+    }
     if (!token) {
       if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Not authenticated' });
       return res.redirect('/church-login');
@@ -144,9 +162,16 @@ function requirePortalAuth(db, jwtSecret) {
         }
         return next();
       }
+      // Mobile app tokens (from /api/church/mobile/login)
+      if (payload.type === 'church_app') {
+        const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
+        if (!church) throw new Error('church not found');
+        req.church = church;
+        return next();
+      }
       throw new Error('wrong type');
     } catch {
-      res.clearCookie('tally_church_session');
+      if (!fromBearer) res.clearCookie('tally_church_session');
       if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Session expired' });
       return res.redirect('/church-login');
     }
@@ -744,7 +769,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       tds = db.prepare('SELECT * FROM church_tds WHERE church_id = ? ORDER BY registered_at ASC').all(c.churchId)
         .map(td => { const { password_hash, ...s } = td; s.has_password = !!password_hash; return s; });
     } catch {}
-    const { portal_password_hash, token, ...safe } = c;
+    const { portal_password_hash, token, fb_access_token, yt_access_token, yt_refresh_token, ...safe } = c;
 
     let notifications = {};
     try { notifications = JSON.parse(c.notifications || '{}'); } catch {}
@@ -790,6 +815,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       lastSeen: runtime?.lastSeen || null,
       autoRecoveryEnabled: c.auto_recovery_enabled !== 0,
       broadcastHealth: runtime?.broadcastHealth || null,
+      facebookConnected: !!c.fb_access_token,
+      facebookPageName: c.fb_page_name || null,
     };
 
     // Attach TD session metadata so the frontend can scope the UI
@@ -1606,10 +1633,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       const churchId = req.church.churchId;
       const roomId = req.body?.roomId || null;
-      const roomName = req.body?.roomName || '';
       if (roomId) {
         // Verify the room exists and belongs to this church
-        const room = db.prepare('SELECT r.id, r.name FROM rooms r WHERE r.id = ?').get(roomId);
+        const room = db.prepare('SELECT r.id, r.name FROM rooms r WHERE r.id = ? AND r.campus_id = ? AND r.deleted_at IS NULL').get(roomId, churchId);
         if (!room) return res.status(404).json({ error: 'Room not found' });
         db.prepare('UPDATE churches SET room_id = ?, room_name = ? WHERE churchId = ?').run(roomId, room.name, churchId);
         res.json({ ok: true, roomId, roomName: room.name });
@@ -1628,7 +1654,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.get('/api/church/problems', authMiddleware, (req, res) => {
     try {
       const targetId = req.church.churchId;
-      const instanceName = resolveRoomInstance(req, churches);
+      const { roomId, instanceName } = getRequestedRoomContext(req, churches);
       let row;
       if (instanceName) {
         // Room-specific: prefer report with matching instance_name
@@ -1636,7 +1662,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           'SELECT * FROM problem_finder_reports WHERE church_id = ? AND instance_name = ? ORDER BY created_at DESC LIMIT 1'
         ).get(targetId, instanceName);
       }
-      if (!row) {
+      if (!row && !roomId) {
         // Fall back to latest church-level report
         row = db.prepare(
           'SELECT * FROM problem_finder_reports WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
@@ -1653,14 +1679,14 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // Returns the latest pre-service check result for the authenticated church.
   app.get('/api/church/preservice-check', supportAuthMiddleware, (req, res) => {
     try {
-      const instanceName = resolveRoomInstance(req, churches);
+      const { roomId, instanceName } = getRequestedRoomContext(req, churches);
       let row;
       if (instanceName) {
         row = db.prepare(
           'SELECT * FROM preservice_check_results WHERE church_id = ? AND instance_name = ? ORDER BY created_at DESC LIMIT 1'
         ).get(req.church.churchId, instanceName);
       }
-      if (!row) {
+      if (!row && !roomId) {
         row = db.prepare(
           'SELECT * FROM preservice_check_results WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
         ).get(req.church.churchId);
@@ -1694,11 +1720,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const churchRuntime = churches.get(churchId);
       const instanceName = resolveRoomInstance(req, churches) || null;
       // Pick the specific instance socket if requested, else fall back to default
-      let targetWs = churchRuntime?.ws;
-      if (instanceName && churchRuntime?.sockets) {
-        targetWs = churchRuntime.sockets.get(instanceName) || targetWs;
-      }
-      if (!targetWs || targetWs.readyState !== 1) {
+      const targetWs = getSocketForInstance(churchRuntime, instanceName);
+      if (!targetWs) {
         return res.json({ results: [], message: 'Client offline' });
       }
 
@@ -1763,7 +1786,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.get('/api/church/rundowns', authMiddleware, (req, res) => {
     try {
       if (!rundownEngine) return res.json([]);
-      res.json(rundownEngine.getRundowns(req.church.churchId));
+      const { roomId, instanceName } = getRequestedRoomContext(req, churches);
+      res.json(rundownEngine.getRundowns(req.church.churchId, { instanceName, roomId }));
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
@@ -1772,7 +1796,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
       const { name, steps } = req.body;
       if (!name || !name.trim()) return res.status(400).json({ error: 'Name required' });
-      const rundown = rundownEngine.createRundown(req.church.churchId, name.trim(), steps || []);
+      const { roomId, instanceName } = getRequestedRoomContext(req, churches);
+      const rundown = rundownEngine.createRundown(req.church.churchId, name.trim(), steps || [], { instanceName, roomId });
       res.json(rundown);
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
@@ -1809,7 +1834,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.post('/api/church/rundowns/:id/activate', authMiddleware, (req, res) => {
     try {
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
-      const result = rundownEngine.activateRundown(req.church.churchId, req.params.id);
+      const { instanceName } = getRequestedRoomContext(req, churches);
+      const result = rundownEngine.activateRundown(req.church.churchId, req.params.id, instanceName);
       if (!result) return res.status(404).json({ error: 'Rundown not found' });
       res.json(result);
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
@@ -1818,9 +1844,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.get('/api/church/rundown/active', supportAuthMiddleware, (req, res) => {
     try {
       if (!rundownEngine) return res.json({ active: false });
-      const active = rundownEngine.getActiveRundown(req.church.churchId);
+      const { instanceName } = getRequestedRoomContext(req, churches);
+      const active = rundownEngine.getActiveRundown(req.church.churchId, instanceName);
       if (!active) return res.json({ active: false });
-      const current = rundownEngine.getCurrentStep(req.church.churchId);
+      const current = rundownEngine.getCurrentStep(req.church.churchId, instanceName);
       res.json({ active: true, ...active, ...current });
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
@@ -1828,9 +1855,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.post('/api/church/rundown/advance', supportAuthMiddleware, (req, res) => {
     try {
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
-      const result = rundownEngine.advanceStep(req.church.churchId);
+      const { instanceName } = getRequestedRoomContext(req, churches);
+      const result = rundownEngine.advanceStep(req.church.churchId, instanceName);
       if (!result) return res.status(400).json({ error: 'Cannot advance — at last step or no active rundown' });
-      const current = rundownEngine.getCurrentStep(req.church.churchId);
+      const current = rundownEngine.getCurrentStep(req.church.churchId, instanceName);
       res.json({ ...result, ...current });
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
@@ -1838,7 +1866,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.post('/api/church/rundown/execute', supportAuthMiddleware, async (req, res) => {
     try {
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
-      const current = rundownEngine.getCurrentStep(req.church.churchId);
+      const { instanceName } = getRequestedRoomContext(req, churches);
+      const current = rundownEngine.getCurrentStep(req.church.churchId, instanceName);
       if (!current || !current.step) return res.status(400).json({ error: 'No active step' });
 
       const commands = current.step.commands || [];
@@ -1846,7 +1875,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       const churchId = req.church.churchId;
       const churchRuntime = churches.get(churchId);
-      if (!churchRuntime?.ws || churchRuntime.ws.readyState !== 1) {
+      const targetWs = getSocketForInstance(churchRuntime, instanceName);
+      if (!targetWs) {
         return res.status(503).json({ error: 'Church client offline' });
       }
 
@@ -1855,7 +1885,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       for (const cmd of commands) {
         const msgId = crypto.randomUUID();
         try {
-          churchRuntime.ws.send(JSON.stringify({
+          targetWs.send(JSON.stringify({
             type: 'command',
             command: cmd.command,
             params: cmd.params || {},
@@ -1874,7 +1904,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.post('/api/church/rundown/deactivate', supportAuthMiddleware, (req, res) => {
     try {
       if (!rundownEngine) return res.status(503).json({ error: 'Rundown engine not available' });
-      res.json(rundownEngine.deactivateRundown(req.church.churchId));
+      const { instanceName } = getRequestedRoomContext(req, churches);
+      res.json(rundownEngine.deactivateRundown(req.church.churchId, instanceName));
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
 
@@ -1887,9 +1918,10 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       if (stepIndex == null || typeof stepIndex !== 'number') {
         return res.status(400).json({ error: 'stepIndex (number) required' });
       }
-      const result = rundownEngine.goToStep(req.church.churchId, stepIndex);
+      const { instanceName } = getRequestedRoomContext(req, churches);
+      const result = rundownEngine.goToStep(req.church.churchId, stepIndex, instanceName);
       if (!result) return res.status(400).json({ error: 'Cannot jump — invalid step or no active rundown' });
-      const current = rundownEngine.getCurrentStep(req.church.churchId);
+      const current = rundownEngine.getCurrentStep(req.church.churchId, instanceName);
       res.json({ ...result, ...current });
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
   });
@@ -1901,11 +1933,12 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       if (!preServiceRundown) return res.json({ active: false });
       const churchId = req.church.churchId;
+      const { roomId, instanceName } = getRequestedRoomContext(req, churches);
 
       // Try in-memory first, then DB fallback
-      let rundown = preServiceRundown.getActiveRundown(churchId);
+      let rundown = preServiceRundown.getActiveRundown(churchId, instanceName, roomId);
       if (!rundown) {
-        rundown = preServiceRundown.getLatestRundown(churchId);
+        rundown = preServiceRundown.getLatestRundown(churchId, instanceName, roomId);
       }
       if (!rundown) return res.json({ active: false });
 
@@ -1918,10 +1951,11 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       if (!preServiceRundown) return res.status(503).json({ error: 'Pre-service rundown not available' });
       const churchId = req.church.churchId;
+      const { roomId, instanceName } = getRequestedRoomContext(req, churches);
       const confirmedBy = req.body.confirmedBy || req.church.churchName || 'portal';
       const confirmedVia = req.body.confirmedVia || 'portal';
 
-      const result = preServiceRundown.confirm(churchId, confirmedBy, confirmedVia);
+      const result = preServiceRundown.confirm(churchId, confirmedBy, confirmedVia, instanceName, roomId);
       if (!result) return res.status(404).json({ error: 'No active rundown to confirm' });
       res.json({ confirmed: true, confirmedBy, confirmedAt: result.confirmation.confirmedAt });
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
@@ -1932,11 +1966,12 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     try {
       if (!preServiceRundown) return res.status(503).json({ error: 'Pre-service rundown not available' });
       const churchId = req.church.churchId;
-      const rundown = await preServiceRundown.generate(churchId);
+      const { roomId, instanceName } = getRequestedRoomContext(req, churches);
+      const rundown = await preServiceRundown.generate(churchId, instanceName, roomId);
       if (!rundown) return res.status(500).json({ error: 'Failed to generate rundown' });
 
       // Generate AI summary in background
-      preServiceRundown.generateAISummary(churchId).catch(() => {});
+      preServiceRundown.generateAISummary(churchId, instanceName, roomId).catch(() => {});
 
       res.json(rundown);
     } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
@@ -2367,14 +2402,13 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // ── GET /api/church/sessions ──────────────────────────────────────────────────
   app.get('/api/church/sessions', authMiddleware, (req, res) => {
     try {
-      const instanceName = resolveRoomInstance(req, churches);
+      const { roomId, instanceName } = getRequestedRoomContext(req, churches);
       let sessions;
       if (instanceName) {
         sessions = db.prepare(
           'SELECT * FROM service_sessions WHERE church_id = ? AND instance_name = ? ORDER BY started_at DESC LIMIT 20'
         ).all(req.church.churchId, instanceName);
-        // Fall back to all if no room-specific sessions
-        if (!sessions.length) {
+        if (!sessions.length && !roomId) {
           sessions = db.prepare(
             'SELECT * FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 20'
           ).all(req.church.churchId);
@@ -2393,7 +2427,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   app.get('/api/church/service-reports', authMiddleware, (req, res) => {
     try {
       const limit = Math.min(parseInt(req.query.limit) || 10, 50);
-      const instanceName = resolveRoomInstance(req, churches);
+      const { roomId, instanceName } = getRequestedRoomContext(req, churches);
       let reports;
       if (instanceName) {
         reports = db.prepare(
@@ -2402,8 +2436,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
                   stream_runtime_minutes, recommendations, ai_summary
            FROM post_service_reports WHERE church_id = ? AND instance_name = ? ORDER BY created_at DESC LIMIT ?`
         ).all(req.church.churchId, instanceName, limit);
-        // Fall back to all if no room-specific reports
-        if (!reports.length) {
+        if (!reports.length && !roomId) {
           reports = db.prepare(
             `SELECT id, church_id, session_id, created_at, duration_minutes, uptime_pct,
                     grade, alert_count, auto_recovered_count, failover_count, peak_viewers,
@@ -3790,10 +3823,11 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       `).all(req.church.churchId, sinceIso);
 
       const checks = [];
+      const churchClientConnected = hasOpenSocket(runtime);
       checks.push({
         key: 'church_client_connection',
-        ok: runtime?.ws?.readyState === 1,
-        note: runtime?.ws?.readyState === 1 ? 'Church client connected' : 'Church client offline',
+        ok: churchClientConnected,
+        note: churchClientConnected ? 'Church client connected' : 'Church client offline',
       });
 
       const s = runtime?.status || {};
@@ -3843,7 +3877,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
         appVersion: String(req.body.appVersion || ''),
         generatedAt: new Date().toISOString(),
         connection: {
-          churchClientConnected: runtime?.ws?.readyState === 1,
+          churchClientConnected,
           lastSeen: runtime?.lastSeen || null,
           lastHeartbeat: runtime?.lastHeartbeat || null,
         },

@@ -1,3 +1,5 @@
+const { getPrimarySocket, getSocketForInstance } = require('./runtimeSockets');
+
 /**
  * Pre-Service Auto-Check
  * Every 5 min, check if any church has a service starting in 25–35 min
@@ -107,6 +109,17 @@ class PreServiceCheck {
     } catch { return null; }
   }
 
+  _resolveRoomId(churchId, instanceName) {
+    if (!instanceName) return null;
+    const churchRuntime = this.churches?.get(churchId);
+    const roomInstanceMap = churchRuntime?.roomInstanceMap || null;
+    if (!roomInstanceMap) return null;
+    for (const [roomId, mappedInstance] of Object.entries(roomInstanceMap)) {
+      if (mappedInstance === instanceName) return roomId;
+    }
+    return null;
+  }
+
   /**
    * Start the pre-service check timer.
    * Also runs an immediate startup sweep so checks missed during a relay
@@ -194,7 +207,8 @@ class PreServiceCheck {
     let failReason = 'offline'; // 'offline' | 'timeout' | 'error'
     const churchRuntime = this.churches?.get(church.churchId);
     try {
-      if (churchRuntime?.ws?.readyState === 1) {
+      const targetWs = getPrimarySocket(churchRuntime);
+      if (targetWs) {
         const crypto = require('crypto');
         const msgId = crypto.randomUUID();
         const resultPromise = new Promise((resolve) => {
@@ -212,7 +226,7 @@ class PreServiceCheck {
           };
           this._resultListeners.push(handler);
         });
-        churchRuntime.ws.send(JSON.stringify({ type: 'command', command: 'system.preServiceCheck', params: {}, id: msgId }));
+        targetWs.send(JSON.stringify({ type: 'command', command: 'system.preServiceCheck', params: {}, id: msgId }));
         const raw = await resultPromise;
         if (raw?._timeout) { failReason = 'timeout'; }
         else if (raw?._error) { failReason = 'error'; }
@@ -311,12 +325,8 @@ class PreServiceCheck {
    */
   async runManualCheck(churchId, instanceName = null) {
     const churchRuntime = this.churches?.get(churchId);
-    // Pick the specific instance socket if requested, else fall back to default
-    let targetWs = churchRuntime?.ws;
-    if (instanceName && churchRuntime?.sockets) {
-      targetWs = churchRuntime.sockets.get(instanceName) || targetWs;
-    }
-    if (!targetWs || targetWs.readyState !== 1) {
+    const targetWs = getSocketForInstance(churchRuntime, instanceName);
+    if (!targetWs) {
       return null;
     }
 
@@ -350,12 +360,7 @@ class PreServiceCheck {
       result.checks = this._enrichWithVersionChecks(result.checks || [], churchRuntime.status);
       result.pass = result.pass && !result.checks.some(c => !c.pass);
     }
-    // Look up room_id for this church
-    let roomId = null;
-    try {
-      const row = this.db.prepare('SELECT room_id FROM churches WHERE churchId = ?').get(churchId);
-      roomId = row?.room_id || null;
-    } catch { /* non-fatal */ }
+    const roomId = this._resolveRoomId(churchId, instanceName);
     this._persistResult(churchId, result, 'manual', instanceName, roomId);
     return result;
   }

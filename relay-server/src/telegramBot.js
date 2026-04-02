@@ -14,6 +14,7 @@ const { classifyIntent } = require('./intent-classifier');
 const { checkStreamSafety, checkWorkflowSafety, hasForceBypass } = require('./stream-guard');
 const { parseRundownDescription, editRundownCues, formatRundownPreview } = require('./rundown-ai');
 const { bt, churchLocale } = require('./botI18n');
+const { hasOpenSocket, getPrimarySocket } = require('./runtimeSockets');
 
 const _log = createLogger('TallyBot');
 
@@ -1500,12 +1501,20 @@ class TallyBot {
       }
     }
 
+    let tdRoomId = null;
+    let tdRoomName = '';
+    try {
+      const resolved = this._resolveRoomForChat(church, chatId);
+      tdRoomId = resolved.roomId || null;
+      tdRoomName = resolved.roomName || '';
+    } catch {}
+
     // ── Intent classification: route diagnostics to Sonnet, commands to Haiku ──
     const classification = classifyIntent(text);
 
     // Diagnostic intent → Sonnet (deep reasoning with full context)
     if (classification.intent === 'diagnostic' && this.relay?.callDiagnosticAI) {
-      const reply = await this.relay.callDiagnosticAI(church.churchId, text);
+      const reply = await this.relay.callDiagnosticAI(church.churchId, text, { roomId: tdRoomId || '', roomName: tdRoomName });
       return this.sendMessage(chatId, reply, { parse_mode: 'Markdown' });
     }
 
@@ -1513,7 +1522,6 @@ class TallyBot {
     // Look up configured devices for this TD's room so AI only reports on real equipment
     let configuredDevices = [];
     try {
-      const { roomId: tdRoomId } = this._resolveRoomForChat(church, chatId);
       const eqRow = tdRoomId
         ? this.db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ?').get(tdRoomId)
         : this.db.prepare('SELECT equipment FROM room_equipment WHERE church_id = ? LIMIT 1').get(church.churchId);
@@ -1530,9 +1538,17 @@ class TallyBot {
       tier: church.billing_tier || 'connect',
       configuredDevices,
     };
-    const conversationHistory = this.chatEngine?.getRecentConversation(church.churchId) || [];
+    const conversationHistory = this.chatEngine?.getRecentConversation(church.churchId, { roomId: tdRoomId }) || [];
 
     const aiResult = await aiParseCommand(text, ctx, conversationHistory);
+
+    if (this.relay?.logAiChatInteraction) {
+      const aiResponseText = aiResult.type === 'chat' ? aiResult.text
+        : aiResult.type === 'command' ? `[command] ${aiResult.command}`
+        : aiResult.type === 'commands' ? `[commands] ${(aiResult.steps || []).map((s) => s.command).join(', ')}`
+        : `[${aiResult.type}]`;
+      this.relay.logAiChatInteraction({ churchId: church.churchId, roomId: tdRoomId, source: 'telegram', userMessage: text, aiResponse: aiResponseText, intent: classification.intent, model: 'claude-haiku-4-5-20251001' });
+    }
 
     // Single command
     if (aiResult.type === 'command') {
@@ -1580,7 +1596,7 @@ class TallyBot {
     if (aiResult.type === 'chat') {
       // Ambiguous intent: Haiku couldn't resolve a command — escalate to Sonnet
       if (classification.intent === 'ambiguous' && this.relay?.callDiagnosticAI) {
-        const reply = await this.relay.callDiagnosticAI(church.churchId, text);
+        const reply = await this.relay.callDiagnosticAI(church.churchId, text, { roomId: tdRoomId || '', roomName: tdRoomName });
         return this.sendMessage(chatId, reply, { parse_mode: 'Markdown' });
       }
       return this.sendMessage(chatId, aiResult.text);
@@ -1803,7 +1819,7 @@ class TallyBot {
       const lines = [];
       for (const c of churches) {
         const churchRuntime = this.relay.churches.get(c.churchId);
-        const connected = churchRuntime?.ws?.readyState === 1;
+        const connected = hasOpenSocket(churchRuntime);
         lines.push(`${connected ? '🟢' : '⚫'} *${c.name}*`);
       }
       return this.sendMessage(chatId, lines.join('\n') || 'No churches registered.', { parse_mode: 'Markdown' });
@@ -2237,7 +2253,7 @@ class TallyBot {
       summary,
       generatedAt: new Date().toISOString(),
       connection: {
-        churchClientConnected: runtime?.ws?.readyState === 1,
+        churchClientConnected: hasOpenSocket(runtime),
         lastSeen: runtime?.lastSeen || null,
         lastHeartbeat: runtime?.lastHeartbeat || null,
       },
@@ -2958,7 +2974,7 @@ class TallyBot {
         connected = false;
       }
     } else {
-      connected = churchRuntime.ws?.readyState === 1;
+      connected = hasOpenSocket(churchRuntime);
       s = churchRuntime.status || {};
     }
 
@@ -3020,7 +3036,7 @@ class TallyBot {
       const instanceName = churchRuntime.roomInstanceMap[roomId];
       targetSock = churchRuntime.sockets?.get(instanceName);
     } else {
-      targetSock = churchRuntime.ws;
+      targetSock = getPrimarySocket(churchRuntime);
     }
 
     if (!targetSock || targetSock.readyState !== 1) {

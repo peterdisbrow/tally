@@ -55,9 +55,9 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],    // portal uses inline styles
       imgSrc: ["'self'", 'data:', 'https:'],
       connectSrc: ["'self'", 'wss:', 'ws:'],
-      mediaSrc: ["'self'", "blob:"],
+      mediaSrc: ["'self'", "blob:", "https://*.facebook.com", "https://*.fbcdn.net"],
       fontSrc: ["'self'"],
-      frameSrc: ["'none'"],
+      frameSrc: ["https://www.facebook.com", "https://web.facebook.com"],
       frameAncestors: ["'none'"],
     },
   },
@@ -83,7 +83,17 @@ const { csrfMiddleware } = require('./src/csrf');
 app.use(csrfMiddleware);
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, maxPayload: 256 * 1024 }); // 256 KB max message
+const wss = new WebSocketServer({
+  server,
+  maxPayload: 256 * 1024, // 256 KB max message
+  perMessageDeflate: {
+    zlibDeflateOptions: { chunkSize: 1024, memLevel: 7, level: 3 },
+    zlibInflateOptions: { chunkSize: 10 * 1024 },
+    threshold: 128,
+    concurrencyLimit: 10,
+    serverNoContextTakeover: true,
+  },
+}); // WebSocket compression via permessage-deflate
 
 // ─── GLOBAL HEARTBEAT ─────────────────────────────────────────────────────────
 // Ping every connected client every 30s. Any client that fails to pong within
@@ -170,6 +180,8 @@ const { escapeHtml } = require('./src/escapeHtml');
 const { createBackupSnapshot } = require('./src/dbBackup');
 const { createRateLimit, consumeRateLimit, logRateLimitStatus } = require('./src/rateLimit');
 const { createWebSocketHandlers } = require('./src/websocketRouter');
+const { createDeltaTracker } = require('./src/deltaUpdates');
+const { createStatusBatcher } = require('./src/statusBatcher');
 const relayPackage = require('./package.json');
 const { initRtmpIngest, shutdownRtmpIngest, getActiveStreams, getStreamMeta, getStreamInfo, isStreamActive: isIngestActive, disconnectStream, getHlsDir, generateStreamKey } = require('./src/rtmpIngest');
 
@@ -734,6 +746,8 @@ const controllers = new Set();
 const sseClients = new Set();
 // SSE clients for church portal live status (churchId → Set of res objects)
 const portalSseClients = new Map();
+// WebSocket clients for church portal live status (churchId → Set of ws)
+const portalWsClients = new Map();
 
 // Stats
 let totalMessagesRelayed = 0;
@@ -927,6 +941,34 @@ db.exec(`
 `);
 db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_church ON ai_usage_log(church_id, created_at DESC)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_date ON ai_usage_log(created_at)');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_chat_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    church_id TEXT,
+    room_id TEXT,
+    source TEXT NOT NULL,
+    user_message TEXT NOT NULL,
+    ai_response TEXT,
+    intent TEXT,
+    model TEXT,
+    latency_ms INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_ai_chat_log_church ON ai_chat_log(church_id, timestamp DESC)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_ai_chat_log_source ON ai_chat_log(source, timestamp DESC)');
+
+function logAiChatInteraction({ churchId, roomId, source, userMessage, aiResponse, intent, model, latencyMs }) {
+  try {
+    db.prepare(
+      'INSERT INTO ai_chat_log (timestamp, church_id, room_id, source, user_message, ai_response, intent, model, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(new Date().toISOString(), churchId || null, roomId || null, source || 'unknown', userMessage || '', aiResponse || null, intent || null, model || null, latencyMs || null);
+  } catch (err) {
+    console.error('[AI Chat Log] Failed to log:', err.message);
+  }
+}
 
 // ─── AUDIT LOG TABLE ──────────────────────────────────────────────────────────
 db.exec(`
@@ -1153,6 +1195,16 @@ weeklyDigest.churchMemory = churchMemory;
 const churchDocuments = new ChurchDocuments(db);
 churchDocuments.setAiUsageLogger((opts) => logAiUsage({ churchId: opts.churchId || null, ...opts }));
 const sessionRecap = new SessionRecap(db);
+sessionRecap.setRoomResolver((churchId, instanceName) => {
+  if (!instanceName) return null;
+  const runtime = churches.get(churchId);
+  const roomInstanceMap = runtime?.roomInstanceMap || null;
+  if (!roomInstanceMap) return null;
+  for (const [roomId, mappedInstance] of Object.entries(roomInstanceMap)) {
+    if (mappedInstance === instanceName) return roomId;
+  }
+  return null;
+});
 sessionRecap.churchMemory = churchMemory;
 sessionRecap.setNotificationConfig(
   process.env.ALERT_BOT_TOKEN,
@@ -1183,15 +1235,18 @@ scheduleEngine.addPreServiceCallback(async (churchId, nextService) => {
 });
 
 // Hook schedule engine window transitions → session lifecycle
+function getConnectedSessionInstances(churchId) {
+  const church = churches.get(churchId);
+  if (!church?.sockets?.size) return [null];
+  return Array.from(church.sockets.keys());
+}
+
 scheduleEngine.addWindowOpenCallback((churchId) => {
   try {
     const onCallTd = onCallRotation.getOnCallTD(churchId);
-    // Resolve the connected instance name for room-based session tracking
-    const church = churches.get(churchId);
-    const instanceName = church?.sockets?.size === 1
-      ? church.sockets.keys().next().value
-      : null; // multi-instance: leave null (church-wide session)
-    sessionRecap.startSession(churchId, onCallTd?.name || null, instanceName);
+    for (const instanceName of getConnectedSessionInstances(churchId)) {
+      sessionRecap.startSession(churchId, onCallTd?.name || null, instanceName);
+    }
   } catch (e) {
     console.error(`[SessionRecap] onWindowOpen error for ${churchId}:`, e.message);
   }
@@ -1201,11 +1256,11 @@ scheduleEngine.addWindowCloseCallback(async (churchId) => {
   try {
     // Clear auto-recovery attempt counts for the ended session
     autoRecovery.clearAllAttempts(churchId);
-    const sessionData = await sessionRecap.endSession(churchId);
-    if (sessionData) {
+    const sessions = await sessionRecap.endSessionsForChurch(churchId);
+    for (const sessionData of sessions) {
       // Fire-and-forget post-service narrative (never blocks session end)
       incidentSummarizer.generatePostServiceNarrative(churchId, sessionData).then(narrative => {
-        if (narrative) postSystemChatMessage(churchId, `📋 Post-Service Summary\n${narrative}`);
+        if (narrative) postSystemChatMessage(churchId, `📋 Post-Service Summary\n${narrative}`, sessionData.roomId || null);
       }).catch(e => console.error(`[IncidentSummarizer] Narrative error for ${churchId}:`, e.message));
 
       // Write production notes back to Planning Center
@@ -1470,6 +1525,17 @@ _intervals.push(setInterval(() => {
   try { aiTriageEngine.cleanup(90); } catch { /* ignore */ }
 }, 24 * 60 * 60 * 1000));
 
+try {
+  const pruned = db.prepare("DELETE FROM ai_chat_log WHERE timestamp < datetime('now', '-90 days')").run();
+  if (pruned.changes > 0) log(`[AiChatLog] Pruned ${pruned.changes} entries older than 90 days`);
+} catch { /* table may not exist yet */ }
+_intervals.push(setInterval(() => {
+  try {
+    const pruned = db.prepare("DELETE FROM ai_chat_log WHERE timestamp < datetime('now', '-90 days')").run();
+    if (pruned.changes > 0) log(`[AiChatLog] Pruned ${pruned.changes} entries older than 90 days`);
+  } catch { /* ignore */ }
+}, 24 * 60 * 60 * 1000));
+
 // ─── DATA RETENTION PRUNING (daily, multiple tables) ─────────────────────────
 // These tables were previously growing unbounded and are the likely cause of
 // volume exhaustion on Railway.
@@ -1583,7 +1649,7 @@ if (TALLY_BOT_TOKEN) {
     botToken: TALLY_BOT_TOKEN,
     adminChatId: ANDREW_TELEGRAM_CHAT_ID,
     db,
-    relay: { churches, callDiagnosticAI, makeCommandSender },
+    relay: { churches, callDiagnosticAI, makeCommandSender, logAiChatInteraction },
     onCallRotation,
     guestTdMode,
     presetLibrary,
@@ -1908,13 +1974,37 @@ app.get('/api/church/stream', (req, res) => {
   });
 });
 
-// Helper: push an event to all portal SSE clients for a given church
-function broadcastToPortal(churchId, data) {
+function _sendToPortalClients(churchId, data) {
   const clients = portalSseClients.get(churchId);
-  if (!clients || clients.size === 0) return;
-  const payload = `data: ${JSON.stringify(data)}\n\n`;
-  for (const res of clients) {
-    try { res.write(payload); } catch {}
+  if (clients && clients.size > 0) {
+    const payload = `data: ${JSON.stringify(data)}\n\n`;
+    for (const res of clients) {
+      try { res.write(payload); } catch {}
+    }
+  }
+
+  const wsClients = portalWsClients.get(churchId);
+  if (wsClients && wsClients.size > 0) {
+    const payload = JSON.stringify(data);
+    for (const ws of wsClients) {
+      try {
+        if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+      } catch {}
+    }
+  }
+}
+
+const _portalBatcher = createStatusBatcher(
+  (churchId, event) => _sendToPortalClients(churchId, event),
+  { windowMs: 100 }
+);
+
+// Helper: push an event to all portal clients for a given church
+function broadcastToPortal(churchId, data) {
+  if (data?.type === 'status_update') {
+    _portalBatcher.enqueue(churchId, data);
+  } else {
+    _sendToPortalClients(churchId, data);
   }
 }
 console.log('[Server] ✓ Church Portal SSE stream registered');
@@ -2859,6 +2949,7 @@ async function callDiagnosticAI(churchId, question, roomCtx = {}) {
     }
 
     console.log(`[DiagnosticAI] Sonnet responded in ${latencyMs}ms (${(data?.usage?.input_tokens || 0) + (data?.usage?.output_tokens || 0)} tokens)`);
+    logAiChatInteraction({ churchId, roomId: roomCtx.roomId, source: 'diagnostic', userMessage: question, aiResponse: reply, intent: 'diagnostic', model: DIAGNOSTIC_MODEL, latencyMs });
     return reply;
   } catch (err) {
     console.error(`[DiagnosticAI] Error: ${err.message}`);
@@ -3182,7 +3273,7 @@ async function handleSetupRequest(churchId, rawMessage, attachment) {
   }
 }
 
-async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId) {
+async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId, source) {
   // If there's an attachment or a setup intent, route through the setup assistant
   if (attachment?.data || detectSetupIntent(rawMessage)) {
     return handleSetupRequest(churchId, rawMessage, attachment);
@@ -3506,6 +3597,24 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
     planningCenter,
   }, conversationHistory);
 
+  {
+    const aiResponseText = aiResult.type === 'chat' ? aiResult.text
+      : aiResult.type === 'command' ? `[command] ${aiResult.command} ${JSON.stringify(aiResult.params || {})}`
+      : aiResult.type === 'commands' ? `[commands] ${(aiResult.steps || []).map((s) => s.command).join(', ')}`
+      : aiResult.type === 'error' ? `[error] ${aiResult.message || ''}`
+      : aiResult.type === 'rate_limited' ? '[rate_limited]'
+      : '[unknown]';
+    logAiChatInteraction({
+      churchId,
+      roomId,
+      source: source || 'portal',
+      userMessage: rawMessage,
+      aiResponse: aiResponseText,
+      intent: classification.intent,
+      model: 'claude-haiku-4-5-20251001',
+    });
+  }
+
   if (aiResult.type === 'error' || aiResult.type === 'rate_limited') {
     // Before giving up, try the regex + smart parsers one more time on the raw message
     // (they may not have matched earlier due to intent classification routing)
@@ -3766,12 +3875,14 @@ require('./src/routes/telegram')(app, {
 
 // Build the WebSocket routing handlers from the factory so the logic is
 // importable and testable independently of the full server bootstrap.
+const _deltaTracker = createDeltaTracker();
 const _wsHandlers = createWebSocketHandlers({
   churches,
   controllers,
   jwt,
   jwtSecret: JWT_SECRET,
   wsOpen: WebSocket.OPEN,
+  deltaTracker: _deltaTracker,
   // Inject the hoisted function declarations — they must stay as hoisted
   // `function` declarations because they're referenced at line ~2176 before
   // this factory call runs.
@@ -4043,6 +4154,8 @@ wss.on('connection', (ws, req) => {
     handleChurchConnection(ws, url, clientIp);
   } else if (role === 'controller') {
     handleControllerConnection(ws, url, req);
+  } else if (role === 'portal') {
+    handlePortalWsConnection(ws, url);
   } else if (role === 'mobile') {
     _mobileWsHandler.handleMobileConnection(ws, url);
   } else {
@@ -4056,6 +4169,50 @@ function handleChurchConnection(ws, url, clientIp) {
 
 function handleControllerConnection(ws, url, req) {
   return _wsHandlers.handleControllerConnection(ws, url, req);
+}
+
+function handlePortalWsConnection(ws, url) {
+  const token = url.searchParams.get('token');
+  if (!token) return ws.close(1008, 'token required');
+
+  let churchId;
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (payload.type !== 'church_portal' && payload.type !== 'church_td') {
+      throw new Error('wrong token type');
+    }
+    churchId = payload.churchId;
+  } catch {
+    return ws.close(1008, 'invalid or expired token');
+  }
+
+  const church = churches.get(churchId);
+  safeSend(ws, {
+    type: 'status_snapshot',
+    connected: church ? !!(church.sockets?.size && [...church.sockets.values()].some(s => s.readyState === WebSocket.OPEN)) : false,
+    status: church ? church.status : {},
+    instanceStatus: church?.instanceStatus || {},
+    roomInstanceMap: church?.roomInstanceMap || {},
+    lastSeen: church ? church.lastSeen : null,
+  });
+
+  if (!portalWsClients.has(churchId)) portalWsClients.set(churchId, new Set());
+  portalWsClients.get(churchId).add(ws);
+
+  const pingInterval = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) ws.ping();
+  }, 25_000);
+
+  ws.on('close', () => {
+    clearInterval(pingInterval);
+    const clients = portalWsClients.get(churchId);
+    if (clients) {
+      clients.delete(ws);
+      if (clients.size === 0) portalWsClients.delete(churchId);
+    }
+  });
+
+  ws.on('error', () => {});
 }
 
 // ── Device version check helper (fires once per device per WS session) ───────
@@ -4503,6 +4660,7 @@ app.post('/api/admin/chat', requireAdminJwt(), async (req, res) => {
       });
     }
 
+    logAiChatInteraction({ churchId: null, roomId: null, source: 'admin', userMessage: message, aiResponse: reply, intent: 'admin_chat', model: 'claude-haiku-4-5-20251001' });
     res.json({ reply });
   } catch (err) {
     console.error('[AdminChat] Error:', err.message);
@@ -4913,6 +5071,33 @@ function gracefulShutdown(signal, exitCode = 0) {
     }
   }
   log(`Closed ${controllerWsClosed} controller WebSocket connection(s)`, { event: 'shutdown_controller_ws_closed', count: controllerWsClosed });
+
+  // Explicitly end long-lived SSE responses so server.close() can complete.
+  let sseClosed = 0;
+  for (const res of sseClients) {
+    try {
+      res.end();
+      sseClosed++;
+    } catch {}
+  }
+  sseClients.clear();
+
+  let portalSseClosed = 0;
+  for (const clients of portalSseClients.values()) {
+    for (const res of clients) {
+      try {
+        res.end();
+        portalSseClosed++;
+      } catch {}
+    }
+    clients.clear();
+  }
+  portalSseClients.clear();
+  log('Closed SSE clients', {
+    event: 'shutdown_sse_closed',
+    dashboardCount: sseClosed,
+    portalCount: portalSseClosed,
+  });
 
   // Stop accepting new WebSocket connections
   wss.close(() => {

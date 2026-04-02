@@ -147,39 +147,8 @@ function seedChurch(db, schedule = '{}') {
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 
 function request(app) {
-  const http = require('http');
-  const server = app.listen(0);
-  const port = server.address().port;
-
-  function makeRequest(method, path, { headers = {}, cookie } = {}) {
-    return new Promise((resolve, reject) => {
-      const url = new URL(`http://127.0.0.1:${port}${path}`);
-      const opts = {
-        method,
-        hostname: url.hostname,
-        port: url.port,
-        path: url.pathname + url.search,
-        headers: { ...headers },
-      };
-      if (cookie) opts.headers.cookie = cookie;
-      const req = http.request(opts, (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', () => {
-          let json;
-          try { json = JSON.parse(data); } catch { json = null; }
-          resolve({ status: res.statusCode, body: json, text: data });
-        });
-      });
-      req.on('error', reject);
-      req.end();
-    });
-  }
-
-  return {
-    get: (path, opts) => makeRequest('GET', path, opts || {}),
-    close: () => server.close(),
-  };
+  const { createClient } = require('./helpers/expressTestClient');
+  return createClient(app);
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────

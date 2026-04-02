@@ -24,6 +24,7 @@ const jwt    = require('jsonwebtoken');
 const { createRateLimit } = require('./rateLimit');
 const { escapeHtml } = require('./escapeHtml');
 const { generateCsrfToken, setCsrfCookie } = require('./csrf');
+const { hasOpenSocket } = require('./runtimeSockets');
 
 // ─── password helpers ──────────────────────────────────────────────────────────
 
@@ -1434,7 +1435,7 @@ function setupResellerPortal(app, db, churches, resellerSystem, jwtSecret, requi
       const { token, portal_password_hash, ...safe } = c;
       return {
         ...safe,
-        connected: runtime?.ws?.readyState === 1,
+        connected: hasOpenSocket(runtime),
         lastSeen: runtime?.lastSeen || null,
       };
     });

@@ -13,7 +13,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'module';
 import Database from 'better-sqlite3';
-import http from 'http';
 
 const require = createRequire(import.meta.url);
 const express = require('express');
@@ -21,6 +20,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const { hashPassword } = require('../src/auth');
 const setupTelegramRoutes = require('../src/routes/telegram');
+const { createClient } = require('./helpers/expressTestClient');
 
 const JWT_SECRET = 'test-telegram-routes-secret';
 const WEBHOOK_SECRET = 'super-secret-webhook-token';
@@ -127,48 +127,7 @@ function buildApp(db, opts = {}) {
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 
-function makeClient(app) {
-  const server = app.listen(0);
-  const port = server.address().port;
-
-  function call(method, path, { body, token, headers = {} } = {}) {
-    return new Promise((resolve, reject) => {
-      const opts = {
-        method: method.toUpperCase(),
-        hostname: '127.0.0.1',
-        port,
-        path,
-        headers: { ...headers },
-      };
-      if (token) opts.headers['Authorization'] = `Bearer ${token}`;
-      let payload;
-      if (body !== undefined) {
-        payload = JSON.stringify(body);
-        opts.headers['Content-Type'] = 'application/json';
-        opts.headers['Content-Length'] = Buffer.byteLength(payload);
-      }
-      const req = http.request(opts, (res) => {
-        let data = '';
-        res.on('data', c => { data += c; });
-        res.on('end', () => {
-          let json;
-          try { json = JSON.parse(data); } catch { json = data; }
-          resolve({ status: res.statusCode, body: json });
-        });
-      });
-      req.on('error', reject);
-      if (payload) req.write(payload);
-      req.end();
-    });
-  }
-
-  return {
-    get: (path, opts) => call('GET', path, opts),
-    post: (path, opts) => call('POST', path, opts),
-    delete: (path, opts) => call('DELETE', path, opts),
-    close: () => new Promise(r => server.close(r)),
-  };
-}
+const makeClient = createClient;
 
 function issueAdminToken(userId) {
   return jwt.sign({ type: 'admin', userId, role: 'super_admin' }, JWT_SECRET, { expiresIn: '8h' });

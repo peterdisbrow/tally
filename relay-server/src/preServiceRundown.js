@@ -20,6 +20,7 @@
 
 const crypto = require('crypto');
 const { buildBackgroundPrompt } = require('./tally-engineer');
+const { hasOpenSocket } = require('./runtimeSockets');
 
 // ─── ESCALATION LEVELS ──────────────────────────────────────────────────────
 
@@ -76,6 +77,38 @@ class PreServiceRundown {
     this._ensureTables();
   }
 
+  _compositeKey(churchId, instanceName = null, roomId = null) {
+    const resolvedRoomId = roomId || this._resolveRoomId(churchId, instanceName);
+    if (resolvedRoomId) return `${churchId}::room:${resolvedRoomId}`;
+    if (instanceName) return `${churchId}::instance:${instanceName}`;
+    return churchId;
+  }
+
+  _getRundown(churchId, instanceName = null, roomId = null) {
+    const key = this._compositeKey(churchId, instanceName, roomId);
+    return this._active.get(key) || null;
+  }
+
+  _setRundown(rundown) {
+    const key = this._compositeKey(rundown.churchId, rundown.instanceName, rundown.roomId);
+    this._active.set(key, rundown);
+    return key;
+  }
+
+  _getChurchKeys(churchId) {
+    return Array.from(this._active.keys()).filter(key => key === churchId || key.startsWith(`${churchId}::`));
+  }
+
+  _getConnectedContexts(churchId) {
+    const runtime = this.churches?.get(churchId);
+    const instances = runtime?.sockets?.size ? Array.from(runtime.sockets.keys()) : [];
+    if (!instances.length) return [{ instanceName: null, roomId: null }];
+    return instances.map(instanceName => ({
+      instanceName,
+      roomId: this._resolveRoomId(churchId, instanceName),
+    }));
+  }
+
   _ensureTables() {
     if (!this.db) return;
 
@@ -129,6 +162,17 @@ class PreServiceRundown {
     try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_escalation_contacts_church ON escalation_contacts(church_id, active)'); } catch {}
   }
 
+  _resolveRoomId(churchId, instanceName) {
+    if (!instanceName) return null;
+    const churchRuntime = this.churches?.get(churchId);
+    const roomInstanceMap = churchRuntime?.roomInstanceMap || null;
+    if (!roomInstanceMap) return null;
+    for (const [roomId, mappedInstance] of Object.entries(roomInstanceMap)) {
+      if (mappedInstance === instanceName) return roomId;
+    }
+    return null;
+  }
+
   // ─── RUNDOWN GENERATION ──────────────────────────────────────────────────────
 
   /**
@@ -139,12 +183,12 @@ class PreServiceRundown {
    * @param {string} [instanceName]
    * @returns {object} The complete rundown object
    */
-  async generate(churchId, instanceName) {
+  async generate(churchId, instanceName, roomIdOverride = null) {
     const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
     if (!church) return null;
 
     const churchRuntime = this.churches?.get(churchId);
-    const roomId = church.room_id || churchRuntime?.roomId || null;
+    const roomId = roomIdOverride || this._resolveRoomId(churchId, instanceName) || church.room_id || churchRuntime?.roomId || null;
 
     // ── Timing ──────────────────────────────────────────────────────────────
     const nextService = this.scheduleEngine.getNextService(churchId);
@@ -206,7 +250,7 @@ class PreServiceRundown {
     // ── Active cue rundown (from rundownEngine) ────────────────────────────
     let activeRundown = null;
     if (this.rundownEngine) {
-      const active = this.rundownEngine.getActiveRundown(churchId);
+      const active = this.rundownEngine.getActiveRundown(churchId, instanceName);
       if (active) {
         activeRundown = {
           name: active.rundown.name,
@@ -217,7 +261,7 @@ class PreServiceRundown {
     }
 
     // ── Existing confirmation state ─────────────────────────────────────────
-    const existing = this._active.get(churchId);
+    const existing = this._getRundown(churchId, instanceName, roomId);
     const confirmation = existing?.confirmation || {
       confirmed: false,
       confirmedBy: null,
@@ -245,7 +289,7 @@ class PreServiceRundown {
     };
 
     // Cache in memory
-    this._active.set(churchId, rundown);
+    this._setRundown(rundown);
 
     // Persist snapshot to DB
     this._persistRundown(rundown);
@@ -261,15 +305,16 @@ class PreServiceRundown {
   /**
    * Refresh an existing rundown (re-check without regenerating AI summary).
    */
-  async refresh(churchId) {
-    const existing = this._active.get(churchId);
-    const instanceName = existing?.instanceName || null;
-    const rundown = await this.generate(churchId, instanceName);
+  async refresh(churchId, instanceName = null, roomId = null) {
+    const existing = this._getRundown(churchId, instanceName, roomId);
+    const nextInstanceName = instanceName ?? existing?.instanceName ?? null;
+    const nextRoomId = roomId ?? existing?.roomId ?? null;
+    const rundown = await this.generate(churchId, nextInstanceName, nextRoomId);
 
     // Preserve AI summary from previous generation
     if (rundown && existing?.aiSummary && !rundown.aiSummary) {
       rundown.aiSummary = existing.aiSummary;
-      this._active.set(churchId, rundown);
+      this._setRundown(rundown);
     }
 
     return rundown;
@@ -279,8 +324,8 @@ class PreServiceRundown {
    * Generate the AI summary for a rundown (Claude Haiku).
    * Called separately so the initial rundown can broadcast without waiting for AI.
    */
-  async generateAISummary(churchId) {
-    const rundown = this._active.get(churchId);
+  async generateAISummary(churchId, instanceName = null, roomId = null) {
+    const rundown = this._getRundown(churchId, instanceName, roomId);
     if (!rundown) return null;
 
     try {
@@ -343,7 +388,7 @@ class PreServiceRundown {
 
       if (summary) {
         rundown.aiSummary = summary;
-        this._active.set(churchId, rundown);
+        this._setRundown(rundown);
 
         // Broadcast update with summary
         if (this.broadcastToPortal) {
@@ -598,8 +643,7 @@ class PreServiceRundown {
     const items = [];
 
     // WebSocket connection status
-    const connected = churchRuntime?.ws?.readyState === 1 ||
-      (churchRuntime?.sockets?.size > 0);
+    const connected = hasOpenSocket(churchRuntime);
     items.push({
       name: 'Relay Connection',
       pass: connected,
@@ -724,8 +768,8 @@ class PreServiceRundown {
    * @param {string} confirmedVia - portal | electron | telegram | companion
    * @returns {object|null}
    */
-  confirm(churchId, confirmedBy, confirmedVia = 'portal') {
-    const rundown = this._active.get(churchId);
+  confirm(churchId, confirmedBy, confirmedVia = 'portal', instanceName = null, roomId = null) {
+    const rundown = this._getRundown(churchId, instanceName, roomId);
     if (!rundown) return null;
 
     const now = new Date().toISOString();
@@ -736,7 +780,7 @@ class PreServiceRundown {
       confirmedAt: now,
       escalationLevel: rundown.confirmation.escalationLevel,
     };
-    this._active.set(churchId, rundown);
+    this._setRundown(rundown);
 
     // Persist confirmation audit trail
     try {
@@ -756,7 +800,7 @@ class PreServiceRundown {
     }
 
     // Cancel escalation timer
-    this._clearEscalationTimer(churchId);
+    this._clearEscalationTimer(churchId, rundown.instanceName, rundown.roomId);
 
     // Broadcast confirmation
     if (this.broadcastToPortal) {
@@ -776,25 +820,36 @@ class PreServiceRundown {
   /**
    * Check if a church has confirmed their rundown.
    */
-  isConfirmed(churchId) {
-    return this._active.get(churchId)?.confirmation?.confirmed === true;
+  isConfirmed(churchId, instanceName = null, roomId = null) {
+    return this._getRundown(churchId, instanceName, roomId)?.confirmation?.confirmed === true;
   }
 
   /**
    * Get the active rundown for a church (from memory cache).
    */
-  getActiveRundown(churchId) {
-    return this._active.get(churchId) || null;
+  getActiveRundown(churchId, instanceName = null, roomId = null) {
+    return this._getRundown(churchId, instanceName, roomId);
   }
 
   /**
    * Get the latest persisted rundown from DB (for cold reads).
    */
-  getLatestRundown(churchId) {
+  getLatestRundown(churchId, instanceName = null, roomId = null) {
     try {
-      const row = this.db.prepare(
-        'SELECT * FROM preservice_rundowns WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
-      ).get(churchId);
+      let row;
+      if (roomId) {
+        row = this.db.prepare(
+          'SELECT * FROM preservice_rundowns WHERE church_id = ? AND room_id = ? ORDER BY created_at DESC LIMIT 1'
+        ).get(churchId, roomId);
+      } else if (instanceName) {
+        row = this.db.prepare(
+          'SELECT * FROM preservice_rundowns WHERE church_id = ? AND instance_name = ? ORDER BY created_at DESC LIMIT 1'
+        ).get(churchId, instanceName);
+      } else {
+        row = this.db.prepare(
+          'SELECT * FROM preservice_rundowns WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
+        ).get(churchId);
+      }
       if (!row) return null;
       return {
         ...row,
@@ -816,56 +871,53 @@ class PreServiceRundown {
     const church = this.db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId);
     if (!church) return;
 
-    const churchRuntime = this.churches?.get(churchId);
-    const instanceName = churchRuntime?.instanceName || null;
+    for (const context of this._getConnectedContexts(churchId)) {
+      const { instanceName, roomId } = context;
 
-    // Auto-activate any scheduled cue-based rundown from rundownEngine
-    if (this.rundownEngine) {
-      try {
-        const dayOfWeek = new Date().getDay();
-        const autoRundown = this.rundownEngine.getAutoActivateRundown(churchId, dayOfWeek);
-        if (autoRundown && !this.rundownEngine.getActiveRundown(churchId)) {
-          this.rundownEngine.activateRundownForScheduler(churchId, autoRundown.id, new Date().toISOString());
-          console.log(`[PreServiceRundown] Auto-activated cue rundown "${autoRundown.name}" for ${church.name}`);
+      // Auto-activate any scheduled cue-based rundown from rundownEngine
+      if (this.rundownEngine) {
+        try {
+          const dayOfWeek = new Date().getDay();
+          const autoRundown = this.rundownEngine.getAutoActivateRundown(churchId, dayOfWeek, instanceName);
+          if (autoRundown && !this.rundownEngine.getActiveRundown(churchId, instanceName)) {
+            this.rundownEngine.activateRundownForScheduler(churchId, autoRundown.id, new Date().toISOString(), instanceName);
+            console.log(`[PreServiceRundown] Auto-activated cue rundown "${autoRundown.name}" for ${church.name}${roomId ? ` (${roomId})` : ''}`);
+          }
+        } catch (e) {
+          console.error(`[PreServiceRundown] Auto-activate cue rundown error:`, e.message);
         }
-      } catch (e) {
-        console.error(`[PreServiceRundown] Auto-activate cue rundown error:`, e.message);
       }
+
+      // Generate initial rundown
+      const rundown = await this.generate(churchId, instanceName, roomId);
+      if (!rundown) continue;
+
+      // Generate AI summary in background
+      this.generateAISummary(churchId, instanceName, roomId).then(summary => {
+        if (summary) {
+          this.postSystemChatMessage(
+            churchId,
+            `📋 Pre-Service Rundown\n\n${summary}\n\nTap "All Clear" in the portal when you've confirmed everything.`,
+            roomId || null,
+          );
+        }
+      }).catch(e => console.error(`[PreServiceRundown] AI summary error:`, e.message));
+
+      this._sendTelegramRundown(churchId, rundown);
+      this._setCompanionVariable(churchId, rundown.overallStatus === 'clear' ? 'green' : rundown.overallStatus === 'warning' ? 'yellow' : 'red');
+
+      this._clearTimer(churchId, instanceName, roomId);
+      const timer = setInterval(async () => {
+        if (this.isConfirmed(churchId, instanceName, roomId) || !this.scheduleEngine.isServiceWindow(churchId)) {
+          this._clearTimer(churchId, instanceName, roomId);
+          return;
+        }
+        await this.refresh(churchId, instanceName, roomId);
+      }, 5 * 60 * 1000);
+      this._timers.set(this._compositeKey(churchId, instanceName, roomId), timer);
+
+      this._startEscalation(churchId, instanceName, roomId);
     }
-
-    // Generate initial rundown
-    const rundown = await this.generate(churchId, instanceName);
-    if (!rundown) return;
-
-    // Generate AI summary in background
-    this.generateAISummary(churchId).then(summary => {
-      if (summary) {
-        // Post AI summary to chat
-        this.postSystemChatMessage(churchId,
-          `📋 Pre-Service Rundown\n\n${summary}\n\nTap "All Clear" in the portal when you've confirmed everything.`
-        );
-      }
-    }).catch(e => console.error(`[PreServiceRundown] AI summary error:`, e.message));
-
-    // Send enhanced Telegram notification
-    this._sendTelegramRundown(churchId, rundown);
-
-    // Set Companion variable based on status
-    this._setCompanionVariable(churchId, rundown.overallStatus === 'clear' ? 'green' : rundown.overallStatus === 'warning' ? 'yellow' : 'red');
-
-    // Start re-check interval (every 5 minutes)
-    this._clearTimer(churchId);
-    const timer = setInterval(async () => {
-      if (this.isConfirmed(churchId) || !this.scheduleEngine.isServiceWindow(churchId)) {
-        this._clearTimer(churchId);
-        return;
-      }
-      await this.refresh(churchId);
-    }, 5 * 60 * 1000);
-    this._timers.set(churchId, timer);
-
-    // Start escalation timer
-    this._startEscalation(churchId);
   }
 
   /**
@@ -873,14 +925,24 @@ class PreServiceRundown {
    */
   onServiceWindowClose(churchId) {
     console.log(`[PreServiceRundown] Service window closed for ${churchId} — cleaning up`);
-    this._clearTimer(churchId);
-    this._clearEscalationTimer(churchId);
+    const keys = this._getChurchKeys(churchId);
+    if (!keys.length) {
+      this._clearTimer(churchId);
+      this._clearEscalationTimer(churchId);
+    }
 
-    const rundown = this._active.get(churchId);
-    if (rundown) {
+    for (const key of keys) {
+      const rundown = this._active.get(key);
+      if (!rundown) continue;
+      this._clearTimer(churchId, rundown.instanceName, rundown.roomId);
+      this._clearEscalationTimer(churchId, rundown.instanceName, rundown.roomId);
       rundown.phase = 'post-service';
+      this._setRundown(rundown);
       if (this.broadcastToPortal) {
-        this.broadcastToPortal(churchId, { type: 'rundown_phase_change', data: { phase: 'post-service' } });
+        this.broadcastToPortal(churchId, {
+          type: 'rundown_phase_change',
+          data: { phase: 'post-service', roomId: rundown.roomId || null },
+        });
       }
     }
 
@@ -890,10 +952,10 @@ class PreServiceRundown {
 
   // ─── ESCALATION PATH ────────────────────────────────────────────────────────
 
-  _startEscalation(churchId) {
-    this._clearEscalationTimer(churchId);
+  _startEscalation(churchId, instanceName = null, roomId = null) {
+    this._clearEscalationTimer(churchId, instanceName, roomId);
 
-    const rundown = this._active.get(churchId);
+    const rundown = this._getRundown(churchId, instanceName, roomId);
     if (!rundown || !rundown.minutesUntilService) return;
 
     // Load escalation timing config
@@ -909,12 +971,12 @@ class PreServiceRundown {
 
     // Schedule escalation checks every minute
     const timer = setInterval(() => {
-      if (this.isConfirmed(churchId)) {
-        this._clearEscalationTimer(churchId);
+      if (this.isConfirmed(churchId, instanceName, roomId)) {
+        this._clearEscalationTimer(churchId, instanceName, roomId);
         return;
       }
 
-      const current = this._active.get(churchId);
+      const current = this._getRundown(churchId, instanceName, roomId);
       if (!current) return;
 
       const nextService = this.scheduleEngine.getNextService(churchId);
@@ -923,31 +985,31 @@ class PreServiceRundown {
       if (minutesUntil <= timing.unconfirmed && current.confirmation.escalationLevel < ESCALATION_LEVELS.UNCONFIRMED) {
         current.confirmation.escalationLevel = ESCALATION_LEVELS.UNCONFIRMED;
         console.log(`[PreServiceRundown] ${current.churchName} — T-${Math.round(minutesUntil)}: UNCONFIRMED START`);
-        this._broadcastEscalation(churchId, ESCALATION_LEVELS.UNCONFIRMED);
+        this._broadcastEscalation(churchId, ESCALATION_LEVELS.UNCONFIRMED, current.roomId);
       } else if (minutesUntil <= timing.pastor && current.confirmation.escalationLevel < ESCALATION_LEVELS.PASTOR) {
         current.confirmation.escalationLevel = ESCALATION_LEVELS.PASTOR;
         this._notifyEscalationContact(churchId, 'pastor', current);
-        this._broadcastEscalation(churchId, ESCALATION_LEVELS.PASTOR);
+        this._broadcastEscalation(churchId, ESCALATION_LEVELS.PASTOR, current.roomId);
       } else if (minutesUntil <= timing.backup && current.confirmation.escalationLevel < ESCALATION_LEVELS.BACKUP_TD) {
         current.confirmation.escalationLevel = ESCALATION_LEVELS.BACKUP_TD;
         this._notifyEscalationContact(churchId, 'backup_td', current);
-        this._broadcastEscalation(churchId, ESCALATION_LEVELS.BACKUP_TD);
+        this._broadcastEscalation(churchId, ESCALATION_LEVELS.BACKUP_TD, current.roomId);
       } else if (minutesUntil <= timing.remind && current.confirmation.escalationLevel < ESCALATION_LEVELS.TD_REMINDER) {
         current.confirmation.escalationLevel = ESCALATION_LEVELS.TD_REMINDER;
         this._sendTdReminder(churchId, current);
-        this._broadcastEscalation(churchId, ESCALATION_LEVELS.TD_REMINDER);
+        this._broadcastEscalation(churchId, ESCALATION_LEVELS.TD_REMINDER, current.roomId);
       }
     }, 60 * 1000);
 
-    this._escalationTimers.set(churchId, timer);
+    this._escalationTimers.set(this._compositeKey(churchId, instanceName, roomId), timer);
   }
 
-  _broadcastEscalation(churchId, level) {
+  _broadcastEscalation(churchId, level, roomId = null) {
     const levelNames = { 1: 'TD Reminder', 2: 'Backup TD', 3: 'Pastor', 4: 'Unconfirmed Start' };
     if (this.broadcastToPortal) {
       this.broadcastToPortal(churchId, {
         type: 'rundown_escalation',
-        data: { level, levelName: levelNames[level] || 'Unknown' },
+        data: { level, levelName: levelNames[level] || 'Unknown', roomId },
       });
     }
   }
@@ -1118,19 +1180,21 @@ class PreServiceRundown {
 
   // ─── TIMER MANAGEMENT ────────────────────────────────────────────────────────
 
-  _clearTimer(churchId) {
-    const timer = this._timers.get(churchId);
+  _clearTimer(churchId, instanceName = null, roomId = null) {
+    const key = this._compositeKey(churchId, instanceName, roomId);
+    const timer = this._timers.get(key);
     if (timer) {
       clearInterval(timer);
-      this._timers.delete(churchId);
+      this._timers.delete(key);
     }
   }
 
-  _clearEscalationTimer(churchId) {
-    const timer = this._escalationTimers.get(churchId);
+  _clearEscalationTimer(churchId, instanceName = null, roomId = null) {
+    const key = this._compositeKey(churchId, instanceName, roomId);
+    const timer = this._escalationTimers.get(key);
     if (timer) {
       clearInterval(timer);
-      this._escalationTimers.delete(churchId);
+      this._escalationTimers.delete(key);
     }
   }
 

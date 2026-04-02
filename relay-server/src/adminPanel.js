@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 const { WebSocket } = require('ws');
+const { hasOpenSocket } = require('./runtimeSockets');
 
 const COOKIE_NAME = 'tally_session';
 const COOKIE_MAX_AGE = 7200; // 2 hours in seconds
@@ -721,7 +722,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
         reseller_id:      row.reseller_id || null,
         audio_via_atem:   row.audio_via_atem || 0,
         registeredAt:     row.registeredAt,
-        connected:        runtime?.ws?.readyState === WebSocket.OPEN,
+        connected:        hasOpenSocket(runtime, WebSocket.OPEN),
         status:           runtime?.status || { connected: false },
         lastSeen:         runtime?.lastSeen || null,
         registrationCode: row.registration_code || null,
@@ -2171,7 +2172,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       return {
         churchId:         row.churchId,
         name:             row.name,
-        connected:        runtime?.ws?.readyState === WebSocket.OPEN,
+        connected:        hasOpenSocket(runtime, WebSocket.OPEN),
         status:           runtime?.status || null,
         lastSeen:         runtime?.lastSeen || null,
         registrationCode: row.registration_code || null,

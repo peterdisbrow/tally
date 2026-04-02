@@ -11,7 +11,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'module';
 import Database from 'better-sqlite3';
-import http from 'http';
 
 // Hoist mock for onboardingChat so it is applied before chat.js is imported
 vi.mock('../src/onboardingChat', () => ({
@@ -26,6 +25,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const { hashPassword } = require('../src/auth');
 const setupChatRoutes = require('../src/routes/chat');
+const { createClient } = require('./helpers/expressTestClient');
 
 const JWT_SECRET = 'test-chat-routes-secret';
 
@@ -166,47 +166,7 @@ function buildApp(db, overrides = {}) {
 
 // ─── HTTP helper ──────────────────────────────────────────────────────────────
 
-function makeClient(app) {
-  const server = app.listen(0);
-  const port = server.address().port;
-
-  function call(method, path, { body, token, headers = {} } = {}) {
-    return new Promise((resolve, reject) => {
-      const opts = {
-        method: method.toUpperCase(),
-        hostname: '127.0.0.1',
-        port,
-        path,
-        headers: { ...headers },
-      };
-      if (token) opts.headers['Authorization'] = `Bearer ${token}`;
-      let payload;
-      if (body !== undefined) {
-        payload = JSON.stringify(body);
-        opts.headers['Content-Type'] = 'application/json';
-        opts.headers['Content-Length'] = Buffer.byteLength(payload);
-      }
-      const req = http.request(opts, (res) => {
-        let data = '';
-        res.on('data', c => { data += c; });
-        res.on('end', () => {
-          let json;
-          try { json = JSON.parse(data); } catch { json = data; }
-          resolve({ status: res.statusCode, body: json });
-        });
-      });
-      req.on('error', reject);
-      if (payload) req.write(payload);
-      req.end();
-    });
-  }
-
-  return {
-    get: (path, opts) => call('GET', path, opts),
-    post: (path, opts) => call('POST', path, opts),
-    close: () => new Promise(r => server.close(r)),
-  };
-}
+const makeClient = createClient;
 
 function issueChurchToken(churchId) {
   return jwt.sign({ type: 'church_app', churchId }, JWT_SECRET, { expiresIn: '1h' });
