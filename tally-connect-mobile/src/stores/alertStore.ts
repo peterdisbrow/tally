@@ -29,10 +29,23 @@ export const useAlertStore = create<AlertState>((set, get) => ({
     try {
       const roomId = useStatusStore.getState().activeRoomId;
       const query = roomId ? `?roomId=${encodeURIComponent(roomId)}` : '';
-      const data = await api<{ alerts?: Alert[] } | Alert[]>(`/api/church/alerts${query}`);
+      const data = await api<Record<string, unknown>[] | { alerts?: Record<string, unknown>[] }>(`/api/church/alerts${query}`);
       // Server may return an array directly or { alerts: [...] }
-      const raw = Array.isArray(data) ? data : (data.alerts || []);
-      const alerts = raw.slice(0, 100);
+      const raw: Record<string, unknown>[] = Array.isArray(data) ? data : ((data as { alerts?: Record<string, unknown>[] }).alerts || []);
+      // Map server DB fields to mobile Alert shape
+      const alerts: Alert[] = raw.slice(0, 100).map((a) => {
+        const context = (a.context && typeof a.context === 'object' ? a.context : {}) as Record<string, unknown>;
+        const alertType = String(a.alert_type || a.alertType || '').replace(/_/g, ' ');
+        return {
+          id: String(a.id || ''),
+          severity: (a.severity as Alert['severity']) || 'INFO',
+          message: String(context.message || a.message || alertType || 'Alert'),
+          timestamp: String(a.created_at || a.createdAt || a.timestamp || new Date().toISOString()),
+          roomId: (a.room_id ?? a.roomId ?? null) as string | null,
+          roomName: (a.roomName ?? context.roomName ?? '') as string,
+          acknowledged: !!(a.acknowledged_at || a.acknowledgedAt),
+        };
+      });
       set({ alerts, isLoading: false });
     } catch {
       set({ isLoading: false });

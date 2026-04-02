@@ -2859,11 +2859,88 @@ function checkBillingAccessForCommand(churchId, command) {
 function formatResultForChat(result) {
   if (result === null || result === undefined) return 'OK';
   if (typeof result === 'string') return result.slice(0, 300);
+  if (typeof result !== 'object') return String(result).slice(0, 300);
+
   try {
-    return JSON.stringify(result).slice(0, 300);
+    // Format device status objects as human-readable summaries
+    return _formatStatusObject(result);
   } catch {
     return 'OK';
   }
+}
+
+/** Convert a status/result object into a readable multi-line summary. */
+function _formatStatusObject(obj) {
+  const lines = [];
+
+  // If it's a full device status object (has atem, obs, etc.)
+  if (obj.atem || obj.obs || obj.encoder || obj.mixer || obj.propresenter || obj.system) {
+    if (obj.atem) {
+      const a = obj.atem;
+      lines.push(`ATEM: ${a.connected ? '🟢 Connected' : '🔴 Disconnected'}${a.model ? ` (${a.model})` : ''}`);
+      if (a.connected) {
+        if (a.ip) lines.push(`  IP: ${a.ip}`);
+        if (a.programInput != null) lines.push(`  Program: Input ${a.programInput}${a.previewInput != null ? ` | Preview: Input ${a.previewInput}` : ''}`);
+        if (a.streaming != null) lines.push(`  Streaming: ${a.streaming ? 'Yes' : 'No'}${a.recording != null ? ` | Recording: ${a.recording ? 'Yes' : 'No'}` : ''}`);
+      }
+    }
+    if (obj.obs) {
+      const o = obj.obs;
+      lines.push(`OBS: ${o.connected ? '🟢 Connected' : '🔴 Disconnected'}`);
+      if (o.connected) {
+        if (o.currentScene) lines.push(`  Scene: ${o.currentScene}`);
+        if (o.streaming != null) lines.push(`  Streaming: ${o.streaming ? 'Yes' : 'No'}${o.recording != null ? ` | Recording: ${o.recording ? 'Yes' : 'No'}` : ''}`);
+        if (o.fps) lines.push(`  FPS: ${o.fps}${o.bitrate ? ` | Bitrate: ${o.bitrate} kbps` : ''}`);
+      }
+    }
+    if (obj.encoder) {
+      const e = obj.encoder;
+      lines.push(`Encoder: ${e.connected ? '🟢 Connected' : '🔴 Disconnected'}${e.type ? ` (${e.type})` : ''}`);
+      if (e.connected && e.streaming != null) lines.push(`  Streaming: ${e.streaming ? 'Yes' : 'No'}${e.bitrateKbps ? ` | ${e.bitrateKbps} kbps` : ''}`);
+    }
+    if (obj.mixer) {
+      const m = obj.mixer;
+      lines.push(`Mixer: ${m.connected ? '🟢 Connected' : '🔴 Disconnected'}${m.model ? ` (${m.model})` : ''}`);
+    }
+    if (obj.propresenter) {
+      const p = obj.propresenter;
+      lines.push(`ProPresenter: ${p.connected ? '🟢 Connected' : '🔴 Disconnected'}`);
+      if (p.connected && p.currentSlide) lines.push(`  Slide: ${p.currentSlide}`);
+    }
+    if (obj.hyperdeck) {
+      const h = obj.hyperdeck;
+      lines.push(`HyperDeck: ${h.connected ? '🟢 Connected' : '🔴 Disconnected'}${h.recording ? ' (Recording)' : ''}`);
+    }
+    if (obj.system) {
+      const s = obj.system;
+      const cpu = typeof s.cpu === 'object' ? s.cpu?.usage : s.cpu;
+      const mem = typeof s.memory === 'object' ? s.memory?.usage : s.memory;
+      const disk = typeof s.disk === 'object' ? s.disk?.usage : s.disk;
+      if (cpu != null || mem != null) {
+        lines.push(`System: CPU ${cpu != null ? cpu + '%' : '--'} | RAM ${mem != null ? mem + '%' : '--'} | Disk ${disk != null ? disk + '%' : '--'}`);
+      }
+    }
+    return lines.length > 0 ? lines.join('\n') : 'OK';
+  }
+
+  // For pre-service check results
+  if (obj.checks && Array.isArray(obj.checks)) {
+    const checkLines = obj.checks.map(c => `${c.pass ? '✅' : '❌'} ${c.name}: ${c.detail || ''}`);
+    const summary = obj.pass ? '🟢 All systems go!' : '⚠️ Issues detected';
+    return `${summary}\n${checkLines.join('\n')}`;
+  }
+
+  // Generic: flatten key-value pairs
+  const kvLines = [];
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'object') {
+      kvLines.push(`${key}: ${JSON.stringify(value)}`);
+    } else {
+      kvLines.push(`${key}: ${value}`);
+    }
+  }
+  return kvLines.length > 0 ? kvLines.join('\n').slice(0, 500) : 'OK';
 }
 
 // ─── DIAGNOSTIC AI (Sonnet) — deep troubleshooting + question answering ──────

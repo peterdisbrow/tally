@@ -138,15 +138,26 @@ export default function DashboardScreen() {
       {/* System Info */}
       {status?.system && (
         <View style={styles.systemRow}>
-          <SystemStat label="CPU" value={status.system.cpu} unit="%" />
-          <SystemStat label="RAM" value={status.system.memory} unit="%" />
-          <SystemStat label="Disk" value={status.system.disk} unit="%" />
+          <SystemStat label="CPU" value={extractUsage(status.system.cpu)} unit="%" />
+          <SystemStat label="RAM" value={extractUsage(status.system.memory)} unit="%" />
+          <SystemStat label="Disk" value={extractUsage(status.system.disk)} unit="%" />
         </View>
       )}
 
       <View style={{ height: spacing.xxxl }} />
     </ScrollView>
   );
+}
+
+/** Extract a numeric usage value — handles both `42` (number) and `{usage: 42}` (object from church-client). */
+function extractUsage(val: unknown): number | undefined {
+  if (val == null) return undefined;
+  if (typeof val === 'number') return val;
+  if (typeof val === 'object' && 'usage' in (val as Record<string, unknown>)) {
+    const u = (val as Record<string, unknown>).usage;
+    return typeof u === 'number' ? u : undefined;
+  }
+  return undefined;
 }
 
 function SystemStat({ label, value, unit }: { label: string; value?: number; unit: string }) {

@@ -100,9 +100,12 @@ export const useStatusStore = create<StatusState>((set, get) => ({
       }>('/api/church/mobile/summary');
       set({
         dashboardStats: {
-          healthScore: data.healthScore,
+          healthScore: data.healthScore ?? undefined,
           alertsToday: data.alertsToday,
-          activeSession: data.activeSession ?? undefined,
+          // Server sends {id, grade, duration, incidents} without 'active' flag — add it
+          activeSession: data.activeSession
+            ? { ...data.activeSession, active: true }
+            : undefined,
         },
       });
       if (data.instanceStatus) {

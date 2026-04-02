@@ -1436,6 +1436,12 @@ function buildCommandConfirmation(command, params, result, status) {
     case 'ptz.preset':
       return params?.preset != null ? `Camera ${params.camera || 1} to preset ${params.preset}.` : null;
 
+    case 'status':
+    case 'preServiceCheck':
+    case 'system.preServiceCheck':
+      // These return complex objects — let formatResultForChat handle them with its human-readable formatter
+      return null;
+
     default:
       return null; // Use default "✅ command result" formatting
   }

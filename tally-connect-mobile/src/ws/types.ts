@@ -134,9 +134,12 @@ export interface DeviceStatus {
     }>;
   };
   system?: {
-    cpu?: number;
-    memory?: number;
-    disk?: number;
+    cpu?: number | { usage: number; cores?: number };
+    memory?: number | { usage: number; total?: number; used?: number; free?: number };
+    disk?: number | { usage: number; total?: number; used?: number; free?: number };
+    hostname?: string;
+    platform?: string;
+    uptime?: number;
     roomId?: string;
     roomName?: string;
     appVersion?: string;
