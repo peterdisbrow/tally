@@ -1,4 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
+import { Alert } from 'react-native';
 
 const RELAY_URL_KEY = 'relay_url';
 const AUTH_TOKEN_KEY = 'auth_token';
@@ -44,6 +45,7 @@ export async function setChurchId(id: string): Promise<void> {
 export async function clearAuth(): Promise<void> {
   cachedToken = null;
   cachedChurchId = null;
+  cachedUrl = null;
   await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
   await SecureStore.deleteItemAsync(CHURCH_ID_KEY);
 }
@@ -75,7 +77,12 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
   });
 
   if (response.status === 401) {
-    await clearAuth();
+    // Force logout through Zustand store so isLoggedIn becomes false
+    // and the root layout redirects to login. Import is deferred to
+    // avoid circular dependency (authStore imports from client).
+    const { useAuthStore } = await import('../stores/authStore');
+    const { forceLogout } = useAuthStore.getState();
+    await forceLogout();
     throw new AuthError('Session expired');
   }
 

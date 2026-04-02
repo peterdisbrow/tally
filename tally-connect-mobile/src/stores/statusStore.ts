@@ -19,6 +19,7 @@ interface StatusState {
   fetchRooms: () => Promise<void>;
   fetchDashboardStats: () => Promise<void>;
   refreshAll: () => Promise<void>;
+  reset: () => void;
 }
 
 export const useStatusStore = create<StatusState>((set, get) => ({
@@ -94,6 +95,17 @@ export const useStatusStore = create<StatusState>((set, get) => ({
     await Promise.all([fetchRooms(), fetchDashboardStats()]);
     set({ isRefreshing: false });
   },
+
+  reset: () => set({
+    rooms: [],
+    activeRoomId: null,
+    instanceStatus: {},
+    roomInstanceMap: {},
+    dashboardStats: {},
+    wsConnected: false,
+    lastUpdate: 0,
+    isRefreshing: false,
+  }),
 }));
 
 // Helper to get the active room's status

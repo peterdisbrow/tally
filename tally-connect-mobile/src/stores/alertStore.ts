@@ -10,6 +10,7 @@ interface AlertState {
   fetchAlerts: () => Promise<void>;
   addAlert: (alert: Alert) => void;
   markAllRead: () => void;
+  reset: () => void;
 }
 
 export const useAlertStore = create<AlertState>((set, get) => ({
@@ -36,4 +37,6 @@ export const useAlertStore = create<AlertState>((set, get) => ({
   },
 
   markAllRead: () => set({ unreadCount: 0 }),
+
+  reset: () => set({ alerts: [], unreadCount: 0, isLoading: false }),
 }));
