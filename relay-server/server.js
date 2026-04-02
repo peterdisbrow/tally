@@ -3941,13 +3941,13 @@ const _wsHandlers = createWebSocketHandlers({
       console.error('[branding] lookup error:', e.message);
     }
     broadcastToPortal(church.churchId, { type: 'connected', status: church.status, lastSeen: church.lastSeen, instanceStatus: church.instanceStatus, roomInstanceMap: church.roomInstanceMap });
-    _mobileWsHandler.sendConnectionChange(church.churchId, null, true);
+    _mobileWsHandler.sendConnectionChange(church, null, true);
     aiTriageEngine.recordReconnection(church.churchId);
     log(`Church "${church.name}" connected`, { event: 'church_connect', churchId: church.churchId, church: church.name });
     // (WS-level ping interval is managed by the factory via wsPingIntervalMs)
   },
   onChurchDisconnected(church) {
-    _mobileWsHandler.sendConnectionChange(church.churchId, null, false);
+    _mobileWsHandler.sendConnectionChange(church, null, false);
     log(`Church "${church.name}" disconnected`, { event: 'church_disconnect', churchId: church.churchId, church: church.name });
   },
   onStatusUpdate(church, msg, statusEvent) {
@@ -3993,7 +3993,7 @@ const _wsHandlers = createWebSocketHandlers({
     }
     signalFailover.onStatusUpdate(church.churchId, church.status, statusEvent?.instance || null);
     // Send delta updates to mobile WebSocket clients
-    _mobileWsHandler.sendStatusDelta(church.churchId, msg.status || {}, statusEvent?.roomId || null);
+    _mobileWsHandler.sendStatusUpdate(church);
     totalMessagesRelayed++;
   },
   onAlert(church, msg, alertEvent) {
