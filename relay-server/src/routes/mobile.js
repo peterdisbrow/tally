@@ -254,8 +254,10 @@ module.exports = function setupMobileRoutes(app, ctx) {
 
   function _getRoomStatus(runtime, roomId) {
     if (!runtime?.instanceStatus) return {};
-    for (const [instance, status] of Object.entries(runtime.instanceStatus)) {
-      if (instance.includes(roomId)) return status;
+    // Use roomInstanceMap to find the correct instance for this room
+    const instanceName = runtime.roomInstanceMap?.[roomId];
+    if (instanceName && runtime.instanceStatus[instanceName]) {
+      return runtime.instanceStatus[instanceName];
     }
     return {};
   }

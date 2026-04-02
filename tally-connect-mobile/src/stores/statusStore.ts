@@ -96,6 +96,7 @@ export const useStatusStore = create<StatusState>((set, get) => ({
         activeSession?: ServiceSession;
         instanceStatus?: Record<string, DeviceStatus>;
         roomInstanceMap?: Record<string, string>;
+        rooms?: Array<{ id: string; name: string; connected?: boolean; status?: DeviceStatus }>;
       }>('/api/church/mobile/summary');
       set({
         dashboardStats: {
@@ -106,6 +107,19 @@ export const useStatusStore = create<StatusState>((set, get) => ({
       });
       if (data.instanceStatus) {
         get().updateInstanceStatus(data.instanceStatus, data.roomInstanceMap || {});
+      }
+      // Merge per-room status from summary so fallback path in useActiveRoomStatus works
+      if (data.rooms?.length) {
+        set((state) => {
+          const updated = state.rooms.map((r) => {
+            const summaryRoom = data.rooms!.find((sr) => sr.id === r.id);
+            if (summaryRoom) {
+              return { ...r, connected: summaryRoom.connected, status: summaryRoom.status };
+            }
+            return r;
+          });
+          return { rooms: updated };
+        });
       }
     } catch {
       // Non-critical — dashboard still works with device status

@@ -10,7 +10,6 @@ import { DeviceRow } from '../../src/components/DeviceRow';
 import { StreamStats } from '../../src/components/StreamStats';
 import { colors } from '../../src/theme/colors';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
-import { api } from '../../src/api/client';
 import type { DeviceStatus } from '../../src/ws/types';
 
 export default function DashboardScreen() {
@@ -19,9 +18,6 @@ export default function DashboardScreen() {
   const dashboardStats = useStatusStore((s) => s.dashboardStats);
   const activeRoomId = useStatusStore((s) => s.activeRoomId);
   const rooms = useStatusStore((s) => s.rooms);
-  const instanceStatus = useStatusStore((s) => s.instanceStatus);
-  const roomInstanceMap = useStatusStore((s) => s.roomInstanceMap);
-  const updateInstanceStatus = useStatusStore((s) => s.updateInstanceStatus);
 
   const status = useActiveRoomStatus();
 
@@ -30,26 +26,9 @@ export default function DashboardScreen() {
     refreshAll();
   }, []);
 
-  // Poll mobile summary every 5 seconds
-  usePolling(async () => {
-    try {
-      const data = await api<{
-        rooms: Array<{ id: string; name: string; connected: boolean }>;
-        healthScore: number;
-        alertsToday: number;
-        activeSession: { active: boolean; grade?: string; duration?: number; incidents?: number; startedAt?: string } | null;
-        instanceStatus: Record<string, DeviceStatus>;
-        roomInstanceMap: Record<string, string>;
-      }>('/api/church/mobile/summary');
-      if (data.instanceStatus) {
-        updateInstanceStatus(data.instanceStatus, data.roomInstanceMap || {});
-      }
-      // Also update dashboard stats from the same endpoint
-      useStatusStore.getState().fetchDashboardStats();
-    } catch {
-      // Will retry next poll
-    }
-  }, 5000);
+  // Poll mobile summary every 5 seconds — fetchDashboardStats handles
+  // instanceStatus, roomInstanceMap, AND per-room status in one call
+  usePolling(() => useStatusStore.getState().fetchDashboardStats(), 5000);
 
   const healthScore = dashboardStats.healthScore;
   const healthColor = healthScore != null
