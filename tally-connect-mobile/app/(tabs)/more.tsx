@@ -146,7 +146,7 @@ export default function MoreScreen() {
         <MenuItem icon="document-text-outline" label="Service Reports" onPress={() => router.push('/service-reports')} />
         <MenuItem icon="settings-outline" label="Settings" onPress={() => router.push('/settings')} />
         <MenuItem icon="help-circle-outline" label="Help & Support" onPress={() => {
-          Linking.openURL('https://tallyconnect.com/docs');
+          Linking.openURL('https://tallyconnect.app/docs');
         }} />
       </View>
 
