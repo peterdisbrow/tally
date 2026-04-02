@@ -4,6 +4,22 @@
  * @param {import('express').Express} app
  * @param {object} ctx - Shared server context
  */
+/**
+ * Build an HTML page for OAuth callback results that auto-closes the tab.
+ */
+function oauthResultPage(message, success) {
+  const icon = success ? '&#10003;' : '&#10007;';
+  const color = success ? '#22c55e' : '#ef4444';
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Tally — ${success ? 'Connected' : 'Error'}</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#e2e8f0;}
+.card{text-align:center;padding:40px;border-radius:12px;background:#1e293b;max-width:360px;}
+h2{color:${color};margin:0 0 8px;font-size:24px;} p{margin:0;font-size:14px;color:#94a3b8;}</style></head>
+<body><div class="card"><h2>${icon} ${message}</h2><p id="msg">This window will close automatically…</p></div>
+<script>setTimeout(function(){try{window.close()}catch(e){}document.getElementById("msg").textContent="You can close this tab and return to Tally."},1500);</script>
+</body></html>`;
+}
+
 module.exports = function setupStreamPlatformRoutes(app, ctx) {
   const { requireChurchAppAuth, streamOAuth, safeErrorMessage } = ctx;
 
@@ -11,10 +27,10 @@ module.exports = function setupStreamPlatformRoutes(app, ctx) {
   app.get('/api/oauth/youtube/callback', (req, res) => {
     const { code, state, error } = req.query;
     if (error || !code || !state) {
-      return res.status(400).send('<html><body><h2>Authorization failed</h2><p>You can close this window.</p></body></html>');
+      return res.status(400).send(oauthResultPage('Authorization failed', false));
     }
     streamOAuth.storeYouTubePendingCode(state, code);
-    res.send('<html><body><h2>&#10003; Connected to YouTube</h2><p>You can close this window and return to Tally.</p></body></html>');
+    res.send(oauthResultPage('Connected to YouTube', true));
   });
 
   // Poll for pending YouTube auth code (Electron polls this)
@@ -30,10 +46,10 @@ module.exports = function setupStreamPlatformRoutes(app, ctx) {
   app.get('/api/oauth/facebook/callback', (req, res) => {
     const { code, state, error } = req.query;
     if (error || !code || !state) {
-      return res.status(400).send('<html><body><h2>Authorization failed</h2><p>You can close this window.</p></body></html>');
+      return res.status(400).send(oauthResultPage('Authorization failed', false));
     }
     streamOAuth.storeFacebookPendingCode(state, code);
-    res.send('<html><body><h2>&#10003; Connected to Facebook</h2><p>You can close this window and return to Tally.</p></body></html>');
+    res.send(oauthResultPage('Connected to Facebook', true));
   });
 
   // Poll for pending Facebook auth code (Electron polls this)

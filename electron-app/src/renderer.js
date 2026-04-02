@@ -3728,7 +3728,6 @@ async function loadEquipment() {
 
   // ── Streaming keys (static DOM — not in catalog) ──
   document.getElementById('equip-youtube-key').placeholder = eq.youtubeKeySet ? '(saved \u2014 enter new to change)' : 'AIzaSy\u2026';
-  document.getElementById('equip-facebook-token').placeholder = eq.facebookTokenSet ? '(saved \u2014 enter new to change)' : 'EAAxxxxxx\u2026';
   document.getElementById('equip-rtmp-url').value = eq.rtmpUrl || '';
   document.getElementById('equip-rtmp-key').placeholder = eq.rtmpKeySet ? '(saved \u2014 enter new to change)' : 'live_xxxxxxxx';
 
@@ -3908,6 +3907,9 @@ async function updateOAuthUI() {
     // Facebook
     const fbStatus = document.getElementById('oauth-fb-status');
     const fbBtn = document.getElementById('btn-oauth-fb');
+    const fbExpiryWarning = document.getElementById('fb-token-expiry-warning');
+    const fbExpiryText = document.getElementById('fb-token-expiry-text');
+    const fbReconnectBtn = document.getElementById('btn-fb-reconnect');
     if (status?.facebook?.connected) {
       const name = status.facebook.pageName || 'Connected';
       fbStatus.textContent = name + (status.facebook.streamKeySet ? ' — key ready' : '');
@@ -3918,6 +3920,29 @@ async function updateOAuthUI() {
       // Show "Change" button
       _ensureChangeBtn('btn-oauth-fb', 'fb', changeFbPage);
       _ensureChangeBtn('btn-oauth-fb-simple', 'fb-simple', changeFbPage);
+      // Token expiration warning
+      if (fbExpiryWarning && status.facebook.expiresAt) {
+        const daysLeft = Math.floor((new Date(status.facebook.expiresAt).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+        if (daysLeft <= 7 && daysLeft > 0) {
+          fbExpiryWarning.style.display = 'flex';
+          fbExpiryWarning.style.borderColor = 'var(--yellow, #eab308)';
+          fbExpiryText.textContent = `Facebook token expires in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} — reconnect to renew.`;
+          fbExpiryText.style.color = 'var(--yellow, #eab308)';
+          fbReconnectBtn.onclick = connectFacebook;
+        } else if (daysLeft <= 0) {
+          fbExpiryWarning.style.display = 'flex';
+          fbExpiryWarning.style.borderColor = 'var(--red, #ef4444)';
+          fbExpiryText.textContent = 'Facebook token has expired — reconnect to restore stream monitoring.';
+          fbExpiryText.style.color = 'var(--red, #ef4444)';
+          fbReconnectBtn.onclick = connectFacebook;
+          fbStatus.textContent = name + ' — token expired';
+          fbStatus.style.color = 'var(--red, #ef4444)';
+        } else {
+          fbExpiryWarning.style.display = 'none';
+        }
+      } else if (fbExpiryWarning) {
+        fbExpiryWarning.style.display = 'none';
+      }
     } else {
       fbStatus.textContent = 'Not connected';
       fbStatus.style.color = 'var(--muted)';
@@ -3927,6 +3952,7 @@ async function updateOAuthUI() {
       // Remove "Change" buttons
       document.getElementById('btn-change-fb')?.remove();
       document.getElementById('btn-change-fb-simple')?.remove();
+      if (fbExpiryWarning) fbExpiryWarning.style.display = 'none';
     }
     // Sync to simple mode
     const fbSimple = document.getElementById('oauth-fb-status-simple');
@@ -4125,7 +4151,6 @@ async function _doSaveEquipment() {
       : null,
     // Streaming keys (read from static DOM section)
     youtubeApiKey: document.getElementById('equip-youtube-key').value.trim(),
-    facebookAccessToken: document.getElementById('equip-facebook-token').value.trim(),
     vimeoAccessToken: document.getElementById('equip-vimeo-token').value.trim(),
     rtmpUrl: document.getElementById('equip-rtmp-url').value.trim(),
     rtmpStreamKey: document.getElementById('equip-rtmp-key').value.trim(),

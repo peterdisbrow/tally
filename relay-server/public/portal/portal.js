@@ -2595,6 +2595,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         document.getElementById('equipment-loading').style.display = 'none';
         document.getElementById('equipment-form').style.display = '';
         _equipmentLoaded = true;
+        portalUpdateOAuthStatus();
       } catch (e) {
         document.getElementById('equipment-loading').textContent = 'Failed to load equipment config.';
         toast('Failed to load equipment: ' + e.message, true);
@@ -2737,6 +2738,130 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       } finally {
         btn.disabled = false;
       }
+    }
+
+    // ── Stream Platform OAuth (Facebook) ──────────────────────────────────────
+    var _portalFbPollTimer = null;
+
+    async function portalFbConnect() {
+      var btn = document.getElementById('btn-portal-fb-connect');
+      var status = document.getElementById('portal-oauth-fb-status');
+      if (btn) { btn.disabled = true; btn.textContent = 'Connecting…'; }
+      if (status) { status.textContent = 'Opening Facebook…'; status.style.color = '#eab308'; }
+      try {
+        var d = await api('POST', '/api/church/oauth/facebook/start');
+        // Open popup for Facebook auth
+        var popup = window.open(d.authUrl, 'fb_oauth', 'width=600,height=700,scrollbars=yes');
+        // Poll for the auth code
+        var state = d.state;
+        var redirectUri = d.redirectUri;
+        var polls = 0;
+        var maxPolls = 60;
+        clearInterval(_portalFbPollTimer);
+        _portalFbPollTimer = setInterval(async function() {
+          polls++;
+          if (polls > maxPolls) {
+            clearInterval(_portalFbPollTimer);
+            if (status) { status.textContent = 'Timed out — try again'; status.style.color = '#ef4444'; }
+            if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
+            return;
+          }
+          try {
+            var pending = await api('GET', '/api/church/oauth/facebook/pending?state=' + encodeURIComponent(state));
+            if (pending.ready && pending.code) {
+              clearInterval(_portalFbPollTimer);
+              if (status) { status.textContent = 'Exchanging token…'; }
+              var result = await api('POST', '/api/church/oauth/facebook/exchange', { code: pending.code, redirectUri: redirectUri });
+              if (result.success && result.pages && result.pages.length) {
+                var sel = document.getElementById('portal-fb-page-select');
+                sel.innerHTML = result.pages.map(function(p) { return '<option value="' + p.id + '">' + (p.name || p.id) + '</option>'; }).join('');
+                document.getElementById('portal-fb-page-selector').style.display = 'block';
+                if (status) { status.textContent = 'Select a page below'; status.style.color = '#eab308'; }
+              } else if (result.success) {
+                if (status) { status.textContent = 'No Facebook Pages found'; status.style.color = '#ef4444'; }
+              } else {
+                if (status) { status.textContent = result.error || 'Connection failed'; status.style.color = '#ef4444'; }
+              }
+              if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
+            }
+          } catch (e) { /* keep polling */ }
+        }, 2000);
+      } catch (e) {
+        if (status) { status.textContent = e.message || 'Failed to start'; status.style.color = '#ef4444'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
+      }
+    }
+    window.portalFbConnect = portalFbConnect;
+
+    async function portalFbSelectPage() {
+      var sel = document.getElementById('portal-fb-page-select');
+      var pageId = sel ? sel.value : '';
+      if (!pageId) return;
+      var status = document.getElementById('portal-oauth-fb-status');
+      if (status) { status.textContent = 'Setting up…'; status.style.color = '#eab308'; }
+      try {
+        var result = await api('POST', '/api/church/oauth/facebook/select-page', { pageId: pageId });
+        if (result.success) {
+          document.getElementById('portal-fb-page-selector').style.display = 'none';
+          portalUpdateOAuthStatus();
+          toast('Facebook connected');
+        } else {
+          if (status) { status.textContent = result.error || 'Failed'; status.style.color = '#ef4444'; }
+        }
+      } catch (e) {
+        if (status) { status.textContent = e.message; status.style.color = '#ef4444'; }
+      }
+    }
+    window.portalFbSelectPage = portalFbSelectPage;
+
+    async function portalFbDisconnect() {
+      if (!confirm('Disconnect Facebook? Stream keys will be removed.')) return;
+      try {
+        await api('DELETE', '/api/church/oauth/facebook');
+        portalUpdateOAuthStatus();
+        toast('Facebook disconnected');
+      } catch (e) { toast('Failed: ' + e.message, true); }
+    }
+    window.portalFbDisconnect = portalFbDisconnect;
+
+    async function portalUpdateOAuthStatus() {
+      try {
+        var d = await api('GET', '/api/church/oauth/status');
+        var status = document.getElementById('portal-oauth-fb-status');
+        var btn = document.getElementById('btn-portal-fb-connect');
+        var expiryDiv = document.getElementById('portal-oauth-fb-expiry');
+        var expiryText = document.getElementById('portal-oauth-fb-expiry-text');
+        if (d.facebook && d.facebook.connected) {
+          var name = d.facebook.pageName || 'Connected';
+          status.textContent = name + (d.facebook.streamKeySet ? ' — key ready' : '');
+          status.style.color = '#22c55e';
+          btn.textContent = 'Disconnect';
+          btn.onclick = portalFbDisconnect;
+          // Show expiration warning if within 7 days
+          if (d.facebook.expiresAt) {
+            var daysLeft = Math.floor((new Date(d.facebook.expiresAt).getTime() - Date.now()) / (24*60*60*1000));
+            if (daysLeft <= 7 && daysLeft > 0) {
+              expiryDiv.style.display = 'block';
+              expiryText.textContent = 'Facebook token expires in ' + daysLeft + ' day' + (daysLeft !== 1 ? 's' : '') + '.';
+            } else if (daysLeft <= 0) {
+              expiryDiv.style.display = 'block';
+              expiryDiv.style.borderColor = '#dc2626';
+              expiryText.textContent = 'Facebook token has expired.';
+              expiryText.style.color = '#fca5a5';
+            } else {
+              expiryDiv.style.display = 'none';
+            }
+          } else {
+            expiryDiv.style.display = 'none';
+          }
+        } else {
+          status.textContent = 'Not connected';
+          status.style.color = '#64748b';
+          btn.textContent = 'Connect Facebook';
+          btn.onclick = portalFbConnect;
+          expiryDiv.style.display = 'none';
+        }
+      } catch (e) { /* relay may be unreachable */ }
     }
 
     // ── Profile ─────────────────────────────────────────────────────────────────
