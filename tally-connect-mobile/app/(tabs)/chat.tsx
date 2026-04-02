@@ -26,6 +26,8 @@ export default function ChatScreen() {
 
   const clearMessages = useChatStore((s) => s.clearMessages);
 
+  const clearMessages = useChatStore((s) => s.clearMessages);
+
   useEffect(() => {
     fetchMessages();
   }, []);
