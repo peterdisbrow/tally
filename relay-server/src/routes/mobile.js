@@ -218,6 +218,8 @@ module.exports = function setupMobileRoutes(app, ctx) {
         upcomingService,
         connected: !!(runtime && _hasLiveSocket(runtime)),
         status: runtime?.status || {},
+        instanceStatus: runtime?.instanceStatus || {},
+        roomInstanceMap: runtime?.roomInstanceMap || {},
         pushDevices: pushStats.deviceCount,
       });
     } catch (e) {

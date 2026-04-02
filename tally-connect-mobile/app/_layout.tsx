@@ -32,9 +32,9 @@ export default function RootLayout() {
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="room-picker" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="analytics" options={{ title: 'Analytics' }} />
-        <Stack.Screen name="service-reports" options={{ title: 'Service Reports' }} />
-        <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+        <Stack.Screen name="analytics" options={{ title: 'Analytics', headerBackTitle: 'More' }} />
+        <Stack.Screen name="service-reports" options={{ title: 'Service Reports', headerBackTitle: 'More' }} />
+        <Stack.Screen name="settings" options={{ title: 'Settings', headerBackTitle: 'More' }} />
       </Stack>
     </>
   );
