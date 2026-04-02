@@ -20,7 +20,7 @@ export default function Index() {
     return <Redirect href="/login" />;
   }
 
-  return <Redirect href="/(tabs)" />;
+  return <Redirect href="/room-picker" />;
 }
 
 const styles = StyleSheet.create({

@@ -5,7 +5,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
-import { api } from '../../src/api/client';
+import { tallySocket } from '../../src/ws/TallySocket';
 import { colors } from '../../src/theme/colors';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
 import { TallyIndicator } from '../../src/components/TallyIndicator';
@@ -42,9 +42,15 @@ export default function ActionsScreen() {
     setPending(command);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
-      await api('/api/church/app/send-command', {
-        method: 'POST',
-        body: { command, params, roomId: activeRoomId },
+      if (!tallySocket.isConnected) {
+        throw new Error('Not connected to server');
+      }
+      tallySocket.send({
+        type: 'command',
+        command,
+        params,
+        roomId: activeRoomId,
+        messageId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {

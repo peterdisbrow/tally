@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import type { EventSubscription } from 'expo-modules-core';
+import { api } from '../api/client';
+import { useAuthStore } from '../stores/authStore';
 
 // Configure how notifications are displayed when app is in foreground
 Notifications.setNotificationHandler({
@@ -20,6 +23,8 @@ export function useNotifications() {
   const [permission, setPermission] = useState<string | null>(null);
   const notificationListener = useRef<EventSubscription | null>(null);
   const responseListener = useRef<EventSubscription | null>(null);
+  const registeredTokenRef = useRef<string | null>(null);
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
 
   useEffect(() => {
     registerForPushNotifications().then(({ token, status }) => {
@@ -43,6 +48,38 @@ export function useNotifications() {
       responseListener.current?.remove();
     };
   }, []);
+
+  // Register/unregister push token with relay server
+  useEffect(() => {
+    if (!pushToken) return;
+
+    if (isLoggedIn && registeredTokenRef.current !== pushToken) {
+      api('/api/church/mobile/register-device', {
+        method: 'POST',
+        body: {
+          pushToken,
+          platform: Platform.OS,
+          deviceName: Device.deviceName || `${Platform.OS} device`,
+        },
+      })
+        .then(() => {
+          registeredTokenRef.current = pushToken;
+        })
+        .catch(() => {
+          // Will retry on next app launch
+        });
+    }
+
+    if (!isLoggedIn && registeredTokenRef.current) {
+      api('/api/church/mobile/unregister-device', {
+        method: 'DELETE',
+        body: { pushToken: registeredTokenRef.current },
+      }).catch(() => {
+        // Best-effort unregister
+      });
+      registeredTokenRef.current = null;
+    }
+  }, [pushToken, isLoggedIn]);
 
   return { pushToken, permission };
 }

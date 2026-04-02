@@ -4,7 +4,6 @@ import {
 } from 'react-native';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
 import { usePolling } from '../../src/hooks/usePolling';
-import { RoomSelector } from '../../src/components/RoomSelector';
 import { StatusCard } from '../../src/components/StatusCard';
 import { TallyIndicator } from '../../src/components/TallyIndicator';
 import { DeviceRow } from '../../src/components/DeviceRow';
@@ -31,10 +30,17 @@ export default function DashboardScreen() {
     refreshAll();
   }, []);
 
-  // Poll dashboard stats and status every 5 seconds
+  // Poll mobile summary every 5 seconds
   usePolling(async () => {
     try {
-      const data = await api<{ status: any; instanceStatus: Record<string, DeviceStatus>; roomInstanceMap: Record<string, string> }>('/api/church/dashboard/stats');
+      const data = await api<{
+        rooms: Array<{ id: string; name: string; connected: boolean }>;
+        healthScore: number;
+        alertsToday: number;
+        activeSession: { active: boolean; grade?: string; duration?: number; incidents?: number; startedAt?: string } | null;
+        instanceStatus: Record<string, DeviceStatus>;
+        roomInstanceMap: Record<string, string>;
+      }>('/api/church/mobile/summary');
       if (data.instanceStatus) {
         updateInstanceStatus(data.instanceStatus, data.roomInstanceMap || {});
       }
@@ -79,9 +85,11 @@ export default function DashboardScreen() {
         />
       }
     >
-      {/* Room Selector */}
+      {/* Room Name + Connection Status */}
       <View style={styles.roomRow}>
-        <RoomSelector />
+        <Text style={styles.roomLabel}>
+          {rooms.find((r) => r.id === activeRoomId)?.name || 'No Room Selected'}
+        </Text>
         <View style={[
           styles.connectionDot,
           { backgroundColor: status?.connected !== false ? colors.online : colors.offline },
@@ -267,6 +275,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.lg,
+  },
+  roomLabel: {
+    fontSize: fontSize.lg,
+    fontWeight: '700',
+    color: colors.text,
   },
   connectionDot: {
     width: 12,

@@ -10,6 +10,7 @@ interface ChatState {
   fetchMessages: () => Promise<void>;
   sendMessage: (text: string, roomId?: string) => Promise<void>;
   addMessage: (msg: ChatMessage) => void;
+  clearMessages: () => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -47,5 +48,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => ({
       messages: [...state.messages, msg],
     }));
+  },
+
+  clearMessages: () => {
+    set({ messages: [], isLoading: false, isSending: false });
   },
 }));

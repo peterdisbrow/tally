@@ -21,9 +21,17 @@ export default function ChatScreen() {
   const [text, setText] = useState('');
   const listRef = useRef<FlatList>(null);
 
+  const clearMessages = useChatStore((s) => s.clearMessages);
+
   useEffect(() => {
     fetchMessages();
   }, []);
+
+  // Clear and re-fetch when room changes
+  useEffect(() => {
+    clearMessages();
+    fetchMessages();
+  }, [activeRoomId]);
 
   // Poll for new messages every 3 seconds
   usePolling(() => fetchMessages(), 3000);

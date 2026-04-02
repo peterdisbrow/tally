@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { api, setAuthToken, setChurchId, clearAuth, getAuthToken, getChurchId, setRelayUrl, getRelayUrl } from '../api/client';
+import { tallySocket } from '../ws/TallySocket';
+import { useChatStore } from './chatStore';
 
 interface AuthState {
   isLoggedIn: boolean;
@@ -46,16 +48,11 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
 
       const body = await response.json();
-      if (body.token) {
-        await setAuthToken(body.token);
-      } else {
-        // Fallback: extract JWT from set-cookie header
-        const cookies = response.headers.get('set-cookie') || '';
-        const tokenMatch = cookies.match(/tally_church_session=([^;]+)/);
-        if (tokenMatch) {
-          await setAuthToken(tokenMatch[1]);
-        }
+      if (!body.token) {
+        set({ isLoading: false, error: 'No token in login response' });
+        return false;
       }
+      await setAuthToken(body.token);
 
       if (body.churchId) {
         await setChurchId(body.churchId);
@@ -70,6 +67,10 @@ export const useAuthStore = create<AuthState>((set) => ({
         role: body.role || 'admin',
         error: null,
       });
+
+      // Connect WebSocket after successful login
+      tallySocket.connect();
+
       return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
@@ -79,12 +80,14 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
+    tallySocket.disconnect();
     try {
       await api('/api/church/logout', { method: 'POST' });
     } catch {
       // Logout may fail if token already expired
     }
     await clearAuth();
+    useChatStore.getState().clearMessages();
     set({
       isLoggedIn: false,
       isLoading: false,
