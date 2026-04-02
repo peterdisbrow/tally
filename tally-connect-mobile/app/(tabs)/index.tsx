@@ -83,12 +83,28 @@ function streamStatusLabel(connected: boolean, streaming?: boolean, recording?: 
 
 // ─── Device Card Builder ─────────────────────────────────────────────────────
 
+/** Check if a device object represents an actually-configured device vs a default placeholder.
+ *  The church-client sends all device keys with { connected: false } even when unconfigured.
+ *  A configured device is either connected or has identifying data (model, name, type, etc). */
+function isDevicePresent(device: Record<string, unknown> | undefined | null): boolean {
+  if (!device) return false;
+  if (device.connected) return true;
+  for (const [key, val] of Object.entries(device)) {
+    if (key === 'connected') continue;
+    if (val == null || val === false || val === 0 || val === '') continue;
+    if (Array.isArray(val) && val.length === 0) continue;
+    if (typeof val === 'object' && !Array.isArray(val) && Object.keys(val as Record<string, unknown>).length === 0) continue;
+    return true;
+  }
+  return false;
+}
+
 function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   if (!status) return [];
   const cards: DeviceCard[] = [];
 
   // ATEM Switcher
-  if (status.atem) {
+  if (status.atem && isDevicePresent(status.atem)) {
     const a = status.atem;
     const inputs = a.inputs || {};
     const pgmName = a.programInput != null ? (inputs[a.programInput]?.name || `Input ${a.programInput}`) : '--';
@@ -116,7 +132,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   }
 
   // OBS Studio
-  if (status.obs) {
+  if (status.obs && isDevicePresent(status.obs)) {
     const o = status.obs;
     const health = healthLabel(o.bitrate);
     const metrics: DeviceCard['metrics'] = [];
@@ -146,7 +162,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   }
 
   // vMix
-  if (status.vmix) {
+  if (status.vmix && isDevicePresent(status.vmix)) {
     const v = status.vmix;
     const metrics: DeviceCard['metrics'] = [];
     if (v.streaming != null || v.recording != null) {
@@ -167,7 +183,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   }
 
   // Generic Encoder (when OBS not present)
-  if (status.encoder && !status.obs) {
+  if (status.encoder && isDevicePresent(status.encoder) && !isDevicePresent(status.obs)) {
     const e = status.encoder;
     const health = healthLabel(e.bitrate);
     const metrics: DeviceCard['metrics'] = [];
@@ -231,7 +247,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   }
 
   // HyperDeck
-  if (status.hyperdeck) {
+  if (status.hyperdeck && isDevicePresent(status.hyperdeck)) {
     const h = status.hyperdeck;
     const metrics: DeviceCard['metrics'] = [];
     if (h.recording != null) {
@@ -253,7 +269,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   }
 
   // ATEM Recording (separate card when no HyperDeck)
-  if (status.atem?.recording && !status.hyperdeck) {
+  if (status.atem?.recording && !isDevicePresent(status.hyperdeck)) {
     cards.push({
       id: 'atem-recording',
       name: 'ATEM Recording',
@@ -266,7 +282,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   }
 
   // ProPresenter
-  if (status.propresenter) {
+  if (status.propresenter && isDevicePresent(status.propresenter)) {
     const p = status.propresenter;
     const metrics: DeviceCard['metrics'] = [];
     if (p.currentPresentation) metrics.push({ label: 'Presentation', value: p.currentPresentation });
@@ -283,7 +299,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   }
 
   // Audio Mixer
-  if (status.mixer) {
+  if (status.mixer && isDevicePresent(status.mixer)) {
     const m = status.mixer;
     const metrics: DeviceCard['metrics'] = [];
     if (m.model) metrics.push({ label: 'Model', value: m.model });
@@ -306,7 +322,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   }
 
   // PTZ Cameras
-  if (status.ptz) {
+  if (status.ptz && isDevicePresent(status.ptz)) {
     const p = status.ptz;
     const cameras = p.cameras || [];
     const connectedCount = cameras.filter(c => c.connected).length;
@@ -333,7 +349,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   }
 
   // Companion
-  if (status.companion) {
+  if (status.companion && isDevicePresent(status.companion)) {
     const c = status.companion;
     cards.push({
       id: 'companion',

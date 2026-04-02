@@ -2437,6 +2437,18 @@ class ChurchAVAgent {
     if (this.switcherManager && this.switcherManager.size > 0) {
       fullStatus.switchers = this.switcherManager.getSwitchersStatus();
     }
+    // Strip unconfigured devices so mobile/portal don't show phantom entries
+    const cfg = this.config;
+    if (!cfg.atemIp) delete fullStatus.atem;
+    if (!this.isObsMonitoringEnabled()) delete fullStatus.obs;
+    if (!cfg.vmix?.host) delete fullStatus.vmix;
+    if (!cfg.encoder?.type) delete fullStatus.encoder;
+    if (!cfg.mixer?.host) delete fullStatus.mixer;
+    if (!cfg.proPresenter?.host) delete fullStatus.proPresenter;
+    if (!this.isCompanionMonitoringEnabled()) delete fullStatus.companion;
+    if (!cfg.hyperdecks?.some(d => d.host)) { delete fullStatus.hyperdeck; delete fullStatus.hyperdecks; }
+    if (!cfg.resolume?.host) delete fullStatus.resolume;
+    if (!cfg.ptz?.some(c => c.ip)) delete fullStatus.ptz;
     this.sendToRelay({ type: 'status_update', status: fullStatus });
     setTimeout(() => {
       this._statusDebounce = false;
