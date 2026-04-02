@@ -151,9 +151,7 @@
     </div>
     <p class="sub" id="church-name">by Tally Connect</p>
     <div id="room-picker" class="room-picker" style="display:none;">
-      <select id="room-picker-select" onchange="assignRoomFromPicker(this.value)">
-        <option value="">Select a room…</option>
-      </select>
+      <button id="change-room-btn" onclick="changeRoom()">Change Room</button>
     </div>
     <button id="theme-toggle" onclick="toggleTheme()" style="position:absolute;top:12px;right:16px;background:none;border:none;cursor:pointer;font-size:16px;-webkit-app-region:no-drag;padding:4px;opacity:0.6;" title="Toggle light/dark theme">☀️</button>
   </div>

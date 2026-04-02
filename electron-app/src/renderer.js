@@ -634,7 +634,7 @@ async function showDashboard() {
   // Restore collapsible section states + theme
   restoreCollapsibleStates();
   restoreTheme();
-  loadRoomPicker();
+  showChangeRoomButton();
 }
 
 // ─── ROOM SELECTOR ─────────────��────────────────────────────────────────────
@@ -3459,110 +3459,53 @@ async function sendChatMessage() {
 
 // Equipment state is managed by deviceState in equipment-ui.js
 
-// ─── ROOM PICKER (header) ──────────────────────────────────────────
-async function loadRoomPicker() {
+// ─── CHANGE ROOM (header button) ───────────────────────────────────
+// Show the "Change Room" button in the dashboard header.
+function showChangeRoomButton() {
   const picker = document.getElementById('room-picker');
-  const select = document.getElementById('room-picker-select');
-  if (!picker || !select) return;
-
-  try {
-    const config = await api.getConfig();
-    if (!config.token) return; // not signed in
-    const relayUrl = (config.relay || DEFAULT_RELAY_URL).replace('wss://', 'https://').replace('ws://', 'http://');
-    const resp = await fetch(`${relayUrl}/api/church/app/rooms`, {
-      headers: { Authorization: `Bearer ${config.token}` },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!resp.ok) return;
-    const data = await resp.json();
-
-    if (!data.rooms || data.rooms.length === 0) {
-      picker.style.display = 'none';
-      return;
-    }
-
-    select.innerHTML = '<option value="">Select a room\u2026</option>';
-    for (const room of data.rooms) {
-      const opt = document.createElement('option');
-      opt.value = room.id;
-      opt.textContent = room.name;
-      if (room.id === data.currentRoomId) opt.selected = true;
-      select.appendChild(opt);
-    }
-
-    picker.style.display = '';
-  } catch (e) {
-    console.warn('[Room] Failed to load room picker:', e.message);
-  }
+  if (picker) picker.style.display = '';
 }
 
-async function assignRoomFromPicker(roomId) {
-  if (!roomId) return;
-  const config = await api.getConfig();
-  const oldRoom = config.roomName || '';
-
-  // Find the new room name from the picker select
-  const select = document.getElementById('room-picker-select');
-  const newRoom = select ? (select.options[select.selectedIndex]?.textContent || '') : '';
-
-  if (oldRoom === newRoom) return; // same room, no-op
-
-  // Confirm before switching — this restarts the agent
-  if (!(await asyncConfirm(`Switch to room "${newRoom}"? This will restart monitoring.`))) {
-    // Reset the dropdown to the previous value
-    if (select) {
-      for (const opt of select.options) {
-        if (opt.textContent === oldRoom) { opt.selected = true; break; }
-      }
-    }
-    return;
-  }
-
-  addAlert(`Switching to room: ${newRoom}...`);
-
+// Navigate back to the room selector, clearing all monitoring state.
+async function changeRoom() {
+  // Stop the monitoring agent and disconnect WebSocket
   try {
-    // Full room switch: stop agent → swap equipment → reassign → clear status → restart
-    const result = await api.fullRoomSwitch(oldRoom, newRoom, roomId);
-
-    if (result.ok) {
-      isRunning = true;
-      updateToggleBtn();
-
-      // Update header
-      const nameEl = document.getElementById('church-name');
-      if (nameEl) {
-        const baseName = nameEl.textContent.split(' \u00b7 ')[0];
-        nameEl.textContent = baseName + ' \u00b7 ' + (result.roomName || newRoom);
-      }
-
-      // Show connecting (yellow pulse) while agent reconnects to new room
-      setAllDotsConnecting();
-
-      // Clear ALL in-memory device state before reloading new room's equipment
-      if (typeof resetDeviceState === 'function') resetDeviceState();
-      _cachedStatus = null;
-      _failoverConfigLoaded = false;
-      _failoverSources = { atem: [], videohub: [], obs: [] };
-
-      // Reload equipment from config (now reflects new room's data)
-      if (typeof loadEquipment === 'function') {
-        try { await loadEquipment(); } catch { /* ignore */ }
-      }
-
-      // Reset chat for new room context
-      chatMessages = [];
-      chatLastTimestamp = null;
-      _chatRenderedCount = 0;
-      _chatIdSet.clear();
-      renderChat();
-      loadChatHistory(); // reload room-scoped history
-
-      addAlert(`Now monitoring room: ${result.roomName || newRoom}`);
+    if (isRunning) {
+      _monitoringStoppedByUser = true;
+      await api.stopAgent();
+      isRunning = false;
     }
   } catch (e) {
-    console.warn('[Room] Failed to switch room:', e.message);
-    addAlert('Failed to switch room: ' + e.message);
+    console.warn('[Room] Error stopping agent during room change:', e.message);
   }
+
+  // Clear relay/connection state
+  _relayDisconnectedAt = null;
+  _reconnectAttempt = 0;
+  if (typeof clearReconnectCountdown === 'function') clearReconnectCountdown();
+  _cachedStatus = null;
+
+  // Clear chat state
+  chatMessages = [];
+  chatLastTimestamp = null;
+  _chatRenderedCount = 0;
+  _chatIdSet.clear();
+
+  // Clear device/equipment state
+  if (typeof resetDeviceState === 'function') resetDeviceState();
+  _failoverConfigLoaded = false;
+  _failoverSources = { atem: [], videohub: [], obs: [] };
+
+  // Hide offline banners
+  const offlineBanner = document.getElementById('offline-banner');
+  if (offlineBanner) offlineBanner.style.display = 'none';
+  const offlineBannerStale = document.getElementById('offline-banner-stale');
+  if (offlineBannerStale) offlineBannerStale.style.display = 'none';
+  document.getElementById('dashboard')?.classList.remove('dashboard-stale');
+
+  // Navigate back to room selector
+  const config = await api.getConfig();
+  await showRoomSelector(config.name);
 }
 
 async function confirmFactoryReset() {
