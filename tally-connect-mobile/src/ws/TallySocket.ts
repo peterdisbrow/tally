@@ -15,6 +15,11 @@ export class TallySocket {
   private pingInterval: ReturnType<typeof setInterval> | null = null;
 
   async connect(): Promise<void> {
+    // Guard: skip if already connected or connecting
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
     this.intentionallyClosed = false;
     this.backoffMs = 1000;
 

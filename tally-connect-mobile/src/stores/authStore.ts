@@ -1,7 +1,10 @@
 import { create } from 'zustand';
+import { Alert } from 'react-native';
 import { api, setAuthToken, setChurchId, clearAuth, getAuthToken, getChurchId, setRelayUrl, getRelayUrl } from '../api/client';
 import { tallySocket } from '../ws/TallySocket';
 import { useChatStore } from './chatStore';
+import { useStatusStore } from './statusStore';
+import { useAlertStore } from './alertStore';
 
 interface AuthState {
   isLoggedIn: boolean;
@@ -14,6 +17,7 @@ interface AuthState {
 
   login: (email: string, password: string, serverUrl?: string) => Promise<boolean>;
   logout: () => Promise<void>;
+  forceLogout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
 
@@ -68,8 +72,8 @@ export const useAuthStore = create<AuthState>((set) => ({
         error: null,
       });
 
-      // Connect WebSocket after successful login
-      tallySocket.connect();
+      // WebSocket connection is managed by useTallySocket hook
+      // which reacts to isLoggedIn changing to true
 
       return true;
     } catch (err) {
@@ -88,6 +92,26 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
     await clearAuth();
     useChatStore.getState().clearMessages();
+    useStatusStore.getState().reset();
+    useAlertStore.getState().reset();
+    set({
+      isLoggedIn: false,
+      isLoading: false,
+      churchId: null,
+      churchName: null,
+      email: null,
+      role: null,
+      error: null,
+    });
+  },
+
+  forceLogout: async () => {
+    tallySocket.disconnect();
+    await clearAuth();
+    useChatStore.getState().clearMessages();
+    useStatusStore.getState().reset();
+    useAlertStore.getState().reset();
+    Alert.alert('Session Expired', 'Your session has expired. Please log in again.');
     set({
       isLoggedIn: false,
       isLoading: false,
