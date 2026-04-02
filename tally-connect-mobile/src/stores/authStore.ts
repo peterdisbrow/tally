@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { api, setAuthToken, setChurchId, clearAuth, getAuthToken, getChurchId, setRelayUrl, getRelayUrl } from '../api/client';
 import { tallySocket } from '../ws/TallySocket';
+import { useChatStore } from './chatStore';
 
 interface AuthState {
   isLoggedIn: boolean;
@@ -86,6 +87,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       // Logout may fail if token already expired
     }
     await clearAuth();
+    useChatStore.getState().clearMessages();
     set({
       isLoggedIn: false,
       isLoading: false,

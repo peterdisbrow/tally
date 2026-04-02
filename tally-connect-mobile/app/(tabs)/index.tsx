@@ -4,7 +4,6 @@ import {
 } from 'react-native';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
 import { usePolling } from '../../src/hooks/usePolling';
-import { RoomSelector } from '../../src/components/RoomSelector';
 import { StatusCard } from '../../src/components/StatusCard';
 import { TallyIndicator } from '../../src/components/TallyIndicator';
 import { DeviceRow } from '../../src/components/DeviceRow';
@@ -86,9 +85,11 @@ export default function DashboardScreen() {
         />
       }
     >
-      {/* Room Selector */}
+      {/* Room Name + Connection Status */}
       <View style={styles.roomRow}>
-        <RoomSelector />
+        <Text style={styles.roomLabel}>
+          {rooms.find((r) => r.id === activeRoomId)?.name || 'No Room Selected'}
+        </Text>
         <View style={[
           styles.connectionDot,
           { backgroundColor: status?.connected !== false ? colors.online : colors.offline },
@@ -274,6 +275,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.lg,
+  },
+  roomLabel: {
+    fontSize: fontSize.lg,
+    fontWeight: '700',
+    color: colors.text,
   },
   connectionDot: {
     width: 12,

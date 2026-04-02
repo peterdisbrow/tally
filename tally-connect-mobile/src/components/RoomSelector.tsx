@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   roomRowActive: {
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
   },
   roomDot: {
     width: 10,
