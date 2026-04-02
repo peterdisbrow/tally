@@ -6545,27 +6545,53 @@ document.addEventListener('DOMContentLoaded', function() {
 
   async function loadAiTriagePage() {
     _aiTriageEventsOffset = 0;
+    document.getElementById('ai-triage-error-banner').style.display = 'none';
+
+    var results = await Promise.allSettled([
+      api('GET', '/api/church/ai-triage/stats?days=7'),
+      api('GET', '/api/church/ai-triage/settings'),
+      api('GET', '/api/church/ai-triage/context'),
+      api('GET', '/api/church/ai-triage/windows'),
+    ]);
+
+    var labels = ['stats', 'settings', 'context', 'windows'];
+    var failures = [];
+    var values = results.map(function(r, i) {
+      if (r.status === 'fulfilled') return r.value;
+      failures.push(labels[i]);
+      console.error('[AI Triage] Failed to load ' + labels[i] + ':', r.reason);
+      return {};
+    });
+
+    var statsRes = values[0];
+    var settingsRes = values[1];
+    var contextRes = values[2];
+    var windowsRes = values[3];
+
+    _aiTriageSettings = settingsRes;
+    renderAiTriageStats(statsRes);
+    renderAiTriageContext(contextRes);
+    renderAiTriageSettings(settingsRes);
+    renderAiTriageSeverityChart(statsRes);
+    renderAiTriageWindows(windowsRes);
+    renderAiTriageDailyChart(statsRes);
+
+    if (failures.length) {
+      var banner = document.getElementById('ai-triage-error-banner');
+      document.getElementById('ai-triage-error-message').textContent =
+        'Failed to load: ' + failures.join(', ') + '. Some sections may show incomplete data.';
+      banner.style.display = 'flex';
+    }
+
     try {
-      var [statsRes, settingsRes, contextRes, windowsRes] = await Promise.all([
-        api('GET', '/api/church/ai-triage/stats?days=7'),
-        api('GET', '/api/church/ai-triage/settings'),
-        api('GET', '/api/church/ai-triage/context'),
-        api('GET', '/api/church/ai-triage/windows'),
-      ]);
-      _aiTriageSettings = settingsRes;
-      renderAiTriageStats(statsRes);
-      renderAiTriageContext(contextRes);
-      renderAiTriageSettings(settingsRes);
-      renderAiTriageSeverityChart(statsRes);
-      renderAiTriageWindows(windowsRes);
-      renderAiTriageDailyChart(statsRes);
       await refreshAiTriageEvents();
     } catch (err) {
-      console.error('[AI Triage] Load error:', err);
+      console.error('[AI Triage] Events load error:', err);
     }
   }
 
   function renderAiTriageStats(stats) {
+    if (!stats) stats = {};
     var el = function(id) { return document.getElementById(id); };
     el('ai-triage-stat-total').textContent = stats.total_events || 0;
     var critCount = 0;
@@ -6574,9 +6600,15 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     el('ai-triage-stat-critical').textContent = critCount;
     el('ai-triage-stat-resolution').textContent = (stats.resolution_rate || 0) + '%';
+
+    var onboarding = document.getElementById('ai-triage-onboarding');
+    if (onboarding) {
+      onboarding.style.display = (!stats.total_events) ? 'block' : 'none';
+    }
   }
 
   function renderAiTriageContext(ctx) {
+    if (!ctx) ctx = {};
     var banner = document.getElementById('ai-triage-context-banner');
     var iconEl = document.getElementById('ai-triage-context-icon');
     var labelEl = document.getElementById('ai-triage-context-label');
@@ -6613,6 +6645,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function renderAiTriageSettings(settings) {
+    if (!settings) settings = {};
     var mode = settings.ai_mode || 'recommend_only';
     document.getElementById('ai-triage-stat-mode').textContent =
       mode === 'full_auto' ? 'Full Auto' : mode === 'recommend_only' ? 'Recommend' : 'Monitor';
@@ -6673,6 +6706,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function renderAiTriageSeverityChart(stats) {
+    if (!stats) stats = {};
     var container = document.getElementById('ai-triage-severity-chart');
     var legend = document.getElementById('ai-triage-severity-legend');
     var dist = stats.severity_distribution || [];
@@ -6703,6 +6737,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function renderAiTriageWindows(data) {
+    if (!data) data = {};
     var container = document.getElementById('ai-triage-windows');
     var noWindows = document.getElementById('ai-triage-no-windows');
     var windows = data.windows || [];
@@ -6747,6 +6782,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function renderAiTriageDailyChart(stats) {
+    if (!stats) stats = {};
     var container = document.getElementById('ai-triage-daily-chart');
     var labels = document.getElementById('ai-triage-daily-labels');
     var trend = stats.daily_trend || [];
@@ -6814,6 +6850,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function renderAiTriageEvents(events, append) {
+    if (!events) events = [];
     var tbody = document.getElementById('ai-triage-events-tbody');
     if (!append) tbody.innerHTML = '';
 
@@ -6823,24 +6860,24 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     events.forEach(function(ev) {
+      if (!ev) return;
       var tr = document.createElement('tr');
       var time = new Date(ev.created_at);
-      var timeStr = time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
-        time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      var timeStr = isNaN(time.getTime())
+        ? '—'
+        : time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
+          time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-      var alertLabel = _portalFriendlyAlertType(ev.alert_type);
-
-      var severityLabel = _portalFriendlySeverity(ev.triage_severity);
-
-      var contextLabel = _portalFriendlyTimeContext(ev.time_context);
-
+      var alertLabel = _portalFriendlyAlertType(ev.alert_type || '');
+      var severityLabel = _portalFriendlySeverity(ev.triage_severity || '');
+      var contextLabel = _portalFriendlyTimeContext(ev.time_context || '');
       var actionText = ev.resolution_id ? '✅ Auto-fixed' : '—';
 
       tr.innerHTML =
         '<td style="font-size:12px;white-space:nowrap;color:#94A3B8">' + timeStr + '</td>' +
         '<td style="font-size:12px;font-weight:500">' + alertLabel + '</td>' +
-        '<td><span class="severity-badge ' + ev.triage_severity + '">' + severityLabel + '</span></td>' +
-        '<td><span class="context-badge ' + ev.time_context + '">' + contextLabel + '</span></td>' +
+        '<td><span class="severity-badge ' + (ev.triage_severity || '') + '">' + severityLabel + '</span></td>' +
+        '<td><span class="context-badge ' + (ev.time_context || '') + '">' + contextLabel + '</span></td>' +
         '<td style="font-size:12px;color:' + (ev.resolution_id ? '#22c55e' : '#475569') + '">' + actionText + '</td>';
 
       tbody.appendChild(tr);
