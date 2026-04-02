@@ -455,8 +455,10 @@ class AtemSwitcher extends Switcher {
     const streaming = state.streaming;
     if (streaming === undefined) return;
     const wasStreaming = this._streaming;
-    const isStreaming = streaming?.status?.state?.toString() === 'Streaming'
-      || streaming?.status?.state === 2;
+    const streamState = streaming?.status?.state;
+    const isStreaming = streamState === 4
+      || streamState === 'Streaming'
+      || String(streamState).toLowerCase() === 'streaming';
     this._streaming = isStreaming;
 
     if (streaming?.stats) {

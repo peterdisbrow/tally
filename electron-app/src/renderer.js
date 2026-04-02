@@ -1949,9 +1949,10 @@ function updateStatusUI(status) {
   const obsData = status.obs && typeof status.obs === 'object' ? status.obs : {};
   const atemData = status.atem && typeof status.atem === 'object' ? status.atem : {};
   const encoderData = status.encoder && typeof status.encoder === 'object' ? status.encoder : {};
-  const streaming = status.streaming ?? encoderData.live ?? encoderData.streaming ?? obsData.streaming;
+  const streaming = status.streaming ?? encoderData.live ?? encoderData.streaming ?? obsData.streaming ?? atemData.streaming;
   const fps = status.fps ?? encoderData.fps ?? obsData.fps;
-  const bitrate = status.bitrate ?? encoderData.bitrateKbps ?? obsData.bitrate ?? null;
+  const atemBitrateKbps = atemData.streaming && atemData.streamingBitrate > 0 ? Math.round(atemData.streamingBitrate / 1000) : null;
+  const bitrate = status.bitrate ?? encoderData.bitrateKbps ?? obsData.bitrate ?? atemBitrateKbps ?? null;
 
   // Keep rolling history for the sparkline graph
   _pushBitrateHistory(bitrate, streaming);
