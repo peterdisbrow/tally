@@ -297,7 +297,12 @@
             <div class="label">Endpoint</div>
             <div class="value muted" id="val-companion-endpoint">—</div>
           </div>
+          <div class="info-card" title="Number of active Companion connections">
+            <div class="label">Connections</div>
+            <div class="value muted" id="val-companion-connections">—</div>
+          </div>
         </div>
+        <div id="companion-connection-list" style="display:none; margin-top:8px; padding:6px 10px; background:rgba(34,197,94,0.06); border:1px solid rgba(34,197,94,0.15); border-radius:6px; font-size:11px; font-family:var(--mono); color:var(--muted);"></div>
       </div>
     </div>
 
@@ -326,6 +331,25 @@
         <div class="info-card" title="Audio feed status: checks for mute, silence, and active signal">
           <div class="label">Audio</div>
           <div class="value muted" id="val-audio">—</div>
+        </div>
+        <div class="info-card" title="Encoder firmware version">
+          <div class="label">Firmware</div>
+          <div class="value muted" id="val-encoder-firmware">—</div>
+        </div>
+      </div>
+      <!-- Stream quality details (resolution, framerate, ingest health) -->
+      <div id="stream-quality-row" class="info-grid" style="display:none; margin-top:6px;">
+        <div class="info-card" title="Stream output resolution">
+          <div class="label">Resolution</div>
+          <div class="value muted" id="val-stream-resolution">—</div>
+        </div>
+        <div class="info-card" title="Stream output framerate">
+          <div class="label">Framerate</div>
+          <div class="value muted" id="val-stream-framerate">—</div>
+        </div>
+        <div class="info-card" title="CDN ingest health status">
+          <div class="label">Ingest Health</div>
+          <div class="value muted" id="val-ingest-health">—</div>
         </div>
       </div>
       <!-- CDN verification status (shown after stream starts) -->
@@ -366,6 +390,26 @@
       </div>
     </div>
 
+
+    <!-- HyperDeck Status (hidden when no hyperdecks configured) -->
+    <div class="section collapsible-section" id="section-hyperdeck" style="display:none;">
+      <div class="section-toggle" onclick="toggleCollapsible('section-hyperdeck')">
+        <h2>HyperDeck</h2>
+      </div>
+      <div class="section-body">
+        <div class="info-grid" id="hyperdeck-info-grid"></div>
+      </div>
+    </div>
+
+    <!-- Smart Plug Live Status (hidden when no plugs configured) -->
+    <div class="section collapsible-section" id="section-smart-plugs" style="display:none;">
+      <div class="section-toggle" onclick="toggleCollapsible('section-smart-plugs')">
+        <h2>Smart Plugs</h2>
+      </div>
+      <div class="section-body">
+        <div class="info-grid" id="smart-plug-info-grid"></div>
+      </div>
+    </div>
 
     <!-- Device Identity (collapsed by default) -->
     <div class="section collapsible-section collapsed" id="section-device-identity">

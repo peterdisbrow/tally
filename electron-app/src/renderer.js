@@ -28,6 +28,8 @@ function restoreCollapsibleStates() {
     'encoder-status-section': false,
     'failover-status-section': false,
     'section-propresenter': false,
+    'section-hyperdeck': false,
+    'section-smart-plugs': false,
     'rundown-panel': false,
   };
   const merged = { ...defaults, ...states };
@@ -2034,8 +2036,31 @@ function updateStatusUI(status) {
         setStatusValue('val-companion-endpoint', '—', false);
       }
     }
+    // Connection count & list
+    const connCount = compData.connectionCount;
+    if (typeof connCount === 'number') {
+      setStatusValue('val-companion-connections', String(connCount), connCount > 0);
+    } else {
+      setStatusValue('val-companion-connections', '—', false);
+    }
+    const connListEl = document.getElementById('companion-connection-list');
+    if (connListEl) {
+      const conns = compData.connections;
+      if (Array.isArray(conns) && conns.length > 0) {
+        connListEl.innerHTML = conns.map(c => {
+          const label = c.name || c.id || c.host || 'Unknown';
+          return `<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);border-radius:4px;color:var(--green);">${label}</span>`;
+        }).join('');
+        connListEl.style.display = '';
+      } else {
+        connListEl.style.display = 'none';
+      }
+    }
   } else if (!relayConnected) {
     setStatusValue('val-companion', '—', false);
+    setStatusValue('val-companion-connections', '—', false);
+    const connListEl = document.getElementById('companion-connection-list');
+    if (connListEl) connListEl.style.display = 'none';
     if (companionSection) companionSection.style.display = 'none';
   }
 
@@ -2125,6 +2150,30 @@ function updateStatusUI(status) {
     }
   }
 
+  // ── Stream quality details (resolution, framerate, ingest health) ───────
+  {
+    const sv = status.streamVerification || {};
+    const qualityRow = document.getElementById('stream-quality-row');
+    const ytRes = sv.youtube?.resolution || sv.facebook?.resolution;
+    const ytFr = sv.youtube?.framerate || sv.facebook?.framerate;
+    const ytIngest = sv.youtube?.ingestHealth || sv.facebook?.ingestHealth;
+    if (qualityRow) {
+      if (streaming && (ytRes || ytFr || ytIngest)) {
+        qualityRow.style.display = '';
+        setStatusValue('val-stream-resolution', ytRes || '—', ytRes ? true : false);
+        setStatusValue('val-stream-framerate', ytFr ? `${ytFr} fps` : '—', ytFr ? true : false);
+        if (ytIngest) {
+          const healthOk = ytIngest.toLowerCase() === 'good' || ytIngest.toLowerCase() === 'ok' || ytIngest.toLowerCase() === 'excellent';
+          setStatusValue('val-ingest-health', ytIngest, healthOk ? true : false);
+        } else {
+          setStatusValue('val-ingest-health', '—', false);
+        }
+      } else {
+        qualityRow.style.display = 'none';
+      }
+    }
+  }
+
   // Audio status card
   const audio = status.audio || {};
   const mixerData = status.mixer && typeof status.mixer === 'object' ? status.mixer : {};
@@ -2166,6 +2215,12 @@ function updateStatusUI(status) {
   else if (encoderConnected) setStatusValue('val-id-encoder', encoderLabel || 'Connected', true);
   else setStatusValue('val-id-encoder', '—', false);
 
+  // ── Encoder firmware version ────────────────────────────────────────────
+  const fwVersion = encoderData.firmwareVersion || '';
+  if (fwVersion) setStatusValue('val-encoder-firmware', fwVersion, true);
+  else if (encoderConnected) setStatusValue('val-encoder-firmware', '—', null);
+  else setStatusValue('val-encoder-firmware', '—', false);
+
   const ppIdentity = (status.proPresenter && typeof status.proPresenter === 'object' && status.proPresenter.version)
     ? `ProPresenter ${status.proPresenter.version}`
     : '';
@@ -2198,6 +2253,60 @@ function updateStatusUI(status) {
   const companionIdentity = companionData.endpoint ? String(companionData.endpoint) : '';
   if (companionIdentity) setStatusValue('val-id-companion', companionIdentity, getStatusActive(companionData));
   else setStatusValue('val-id-companion', '—', false);
+
+  // ── HyperDeck disk space ─────────────────────────────────────────────────
+  {
+    const hdSection = document.getElementById('section-hyperdeck');
+    const hdGrid = document.getElementById('hyperdeck-info-grid');
+    const hdData = status.hyperdeck && typeof status.hyperdeck === 'object' ? status.hyperdeck : {};
+    const hyperdecks = Array.isArray(hdData.hyperdecks) ? hdData.hyperdecks : [];
+    if (hdSection && hdGrid) {
+      if (hyperdecks.length > 0) {
+        hdSection.style.display = '';
+        hdGrid.innerHTML = hyperdecks.map((hd, i) => {
+          const ds = hd.diskSpace || {};
+          const pctUsed = typeof ds.percentUsed === 'number' ? ds.percentUsed : null;
+          const freeSpace = ds.freeSpace || '';
+          const minsLeft = typeof ds.minutesRemaining === 'number' ? ds.minutesRemaining : null;
+          const pctOk = pctUsed !== null ? pctUsed < 90 : true;
+          const label = hd.name || `HD ${i + 1}`;
+          let detail = '';
+          if (pctUsed !== null) detail += `<span style="color:${pctOk ? 'var(--green)' : 'var(--danger)'};font-weight:700;">${pctUsed}% used</span>`;
+          if (freeSpace) detail += `${detail ? ' · ' : ''}<span style="color:var(--muted);">${freeSpace} free</span>`;
+          if (minsLeft !== null) detail += `${detail ? ' · ' : ''}<span style="color:var(--muted);">${minsLeft}m remaining</span>`;
+          return `<div class="info-card" title="Disk space for ${label}"><div class="label">${label}</div><div class="value${pctOk ? ' active' : ' err'}" style="font-size:12px;">${detail || '—'}</div></div>`;
+        }).join('');
+      } else {
+        hdSection.style.display = 'none';
+      }
+    }
+  }
+
+  // ── Smart Plug live monitoring ──────────────────────────────────────────
+  {
+    const spSection = document.getElementById('section-smart-plugs');
+    const spGrid = document.getElementById('smart-plug-info-grid');
+    const smartPlugs = Array.isArray(status.smartPlugs) ? status.smartPlugs : [];
+    if (spSection && spGrid) {
+      if (smartPlugs.length > 0) {
+        spSection.style.display = '';
+        spGrid.innerHTML = smartPlugs.map((plug, i) => {
+          const label = plug.name || `Plug ${i + 1}`;
+          const isOn = plug.powerOn === true;
+          const watts = typeof plug.powerWatts === 'number' ? plug.powerWatts.toFixed(1) : null;
+          const volts = typeof plug.voltage === 'number' ? plug.voltage.toFixed(0) : null;
+          const stateText = plug.powerOn === true ? 'ON' : plug.powerOn === false ? 'OFF' : '—';
+          const stateColor = plug.powerOn === true ? 'var(--green)' : plug.powerOn === false ? 'var(--danger)' : 'var(--muted)';
+          let detail = `<span style="color:${stateColor};font-weight:700;">${stateText}</span>`;
+          if (watts !== null) detail += ` · <span style="color:var(--muted);">${watts}W</span>`;
+          if (volts !== null) detail += ` · <span style="color:var(--muted);">${volts}V</span>`;
+          return `<div class="info-card" title="Live power status for ${label}"><div class="label">${label}</div><div class="value${isOn ? ' active' : ''}" style="font-size:12px;">${detail}</div></div>`;
+        }).join('');
+      } else {
+        spSection.style.display = 'none';
+      }
+    }
+  }
 
   // Signal Failover status
   if (status.failover) updateFailoverUI(status.failover);
