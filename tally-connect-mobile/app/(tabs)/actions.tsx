@@ -119,16 +119,25 @@ export default function ActionsScreen() {
             label="Start Stream"
             icon="play-circle-outline"
             color={colors.online}
-            onPress={() => sendCommand('obs.startStream')}
-            pending={pending === 'obs.startStream'}
+            onPress={() => {
+              const cmd = status?.obs?.connected ? 'obs.startStream' : 'atem.startStream';
+              sendCommand(cmd);
+            }}
+            pending={pending === 'obs.startStream' || pending === 'atem.startStream'}
             disabled={isStreaming}
           />
           <ActionButton
             label="Stop Stream"
             icon="stop-circle-outline"
             color={colors.critical}
-            onPress={() => sendCommand('obs.stopStream', {}, true)}
-            pending={pending === 'obs.stopStream'}
+            onPress={() => {
+              const cmd = status?.obs?.streaming ? 'obs.stopStream'
+                : status?.atem?.streaming ? 'atem.stopStream'
+                : status?.encoder?.streaming ? 'encoder.stopStream'
+                : 'obs.stopStream';
+              sendCommand(cmd, {}, true);
+            }}
+            pending={pending === 'obs.stopStream' || pending === 'atem.stopStream' || pending === 'encoder.stopStream'}
             disabled={!isStreaming}
           />
         </View>

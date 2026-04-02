@@ -15,6 +15,7 @@ interface StatusState {
   setActiveRoom: (roomId: string) => void;
   updateRoomStatus: (roomId: string, status: DeviceStatus) => void;
   updateInstanceStatus: (instanceStatus: Record<string, DeviceStatus>, roomInstanceMap: Record<string, string>) => void;
+  removeInstance: (instanceName: string) => void;
   setWsConnected: (connected: boolean) => void;
   fetchRooms: () => Promise<void>;
   fetchDashboardStats: () => Promise<void>;
@@ -43,8 +44,19 @@ export const useStatusStore = create<StatusState>((set, get) => ({
     });
   },
 
-  updateInstanceStatus: (instanceStatus, roomInstanceMap) => {
-    set({ instanceStatus, roomInstanceMap, lastUpdate: Date.now() });
+  updateInstanceStatus: (newStatus, newRoomMap) => {
+    set((state) => ({
+      instanceStatus: { ...state.instanceStatus, ...newStatus },
+      roomInstanceMap: { ...state.roomInstanceMap, ...newRoomMap },
+      lastUpdate: Date.now(),
+    }));
+  },
+
+  removeInstance: (instanceName) => {
+    set((state) => {
+      const { [instanceName]: _, ...remainingStatus } = state.instanceStatus;
+      return { instanceStatus: remainingStatus, lastUpdate: Date.now() };
+    });
   },
 
   setWsConnected: (connected) => set({ wsConnected: connected }),

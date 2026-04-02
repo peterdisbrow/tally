@@ -44,6 +44,8 @@ export default function DashboardScreen() {
       if (data.instanceStatus) {
         updateInstanceStatus(data.instanceStatus, data.roomInstanceMap || {});
       }
+      // Also update dashboard stats from the same endpoint
+      useStatusStore.getState().fetchDashboardStats();
     } catch {
       // Will retry next poll
     }
@@ -220,9 +222,9 @@ function buildDeviceList(status: DeviceStatus | null): DeviceInfo[] {
       connected: status.vmix.connected,
     });
   }
-  if (status.encoder && !status.obs) {
+  if (status.encoder) {
     devices.push({
-      name: status.encoder.name || status.encoder.type || 'Encoder',
+      name: status.encoder.name || status.encoder.type || 'Hardware Encoder',
       type: 'encoder',
       connected: status.encoder.connected,
       detail: status.encoder.streaming ? 'Streaming' : undefined,
@@ -257,6 +259,23 @@ function buildDeviceList(status: DeviceStatus | null): DeviceInfo[] {
       connected: status.hyperdeck.connected,
       detail: status.hyperdeck.recording ? 'Recording' : undefined,
     });
+  }
+  if (status.ptz) {
+    if (status.ptz.cameras?.length) {
+      for (const cam of status.ptz.cameras) {
+        devices.push({
+          name: cam.name || 'PTZ Camera',
+          type: 'ptz',
+          connected: cam.connected,
+        });
+      }
+    } else {
+      devices.push({
+        name: 'PTZ Controller',
+        type: 'ptz',
+        connected: status.ptz.connected,
+      });
+    }
   }
 
   return devices;
