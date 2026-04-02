@@ -22,6 +22,7 @@ const jwt = require('jsonwebtoken');
  * @param {string} opts.jwtSecret - JWT signing secret
  * @param {object} [opts.pushNotifications] - PushNotificationService instance
  * @param {Function} [opts.log] - Logging function
+ * @param {Function} [opts.checkCommandRateLimit] - Rate limiter for commands
  * @returns {{ handleMobileConnection, broadcastToMobile, getMobileClientCount }}
  */
 function createMobileWebSocketHandler({
@@ -30,6 +31,7 @@ function createMobileWebSocketHandler({
   jwtSecret,
   pushNotifications = null,
   log = console.log,
+  checkCommandRateLimit = async () => ({ ok: true }),
 }) {
   // Track mobile clients: Map<churchId, Set<ws>>
   const mobileClients = new Map();
@@ -101,7 +103,7 @@ function createMobileWebSocketHandler({
     }, heartbeatMs);
 
     // Handle incoming messages from mobile client
-    ws.on('message', (raw) => {
+    ws.on('message', async (raw) => {
       let msg;
       try {
         msg = JSON.parse(raw);
@@ -130,6 +132,63 @@ function createMobileWebSocketHandler({
             _safeSend(ws, { type: 'ack_received', alertId: msg.alertId });
           }
           break;
+
+        case 'command': {
+          // Route command from mobile client to the correct church instance
+          if (!msg.command) break;
+
+          const runtime = churches.get(churchId);
+          if (!runtime) {
+            _safeSend(ws, { type: 'command_result', messageId: msg.messageId, error: 'Church not connected' });
+            break;
+          }
+
+          // Rate limit
+          const rateCheck = await checkCommandRateLimit(churchId);
+          if (!rateCheck.ok) {
+            _safeSend(ws, { type: 'command_result', messageId: msg.messageId, error: 'Rate limit exceeded' });
+            break;
+          }
+
+          // Build the command payload matching what controllers send
+          const cmdPayload = {
+            type: 'command',
+            command: msg.command,
+            params: msg.params || {},
+            messageId: msg.messageId,
+          };
+
+          // If roomId is specified, find the instance serving that room
+          const roomId = msg.roomId;
+          let sent = false;
+          if (roomId && runtime.roomInstanceMap) {
+            const targetInstance = runtime.roomInstanceMap[roomId];
+            const targetSocket = targetInstance && runtime.sockets?.get(targetInstance);
+            if (targetSocket?.readyState === 1) {
+              _safeSend(targetSocket, cmdPayload);
+              sent = true;
+            }
+          }
+
+          // Fallback: broadcast to all instances (same as controller behavior)
+          if (!sent) {
+            if (runtime.sockets?.size) {
+              for (const sock of runtime.sockets.values()) {
+                if (sock.readyState === 1) {
+                  _safeSend(sock, cmdPayload);
+                  sent = true;
+                }
+              }
+            }
+          }
+
+          if (!sent) {
+            _safeSend(ws, { type: 'command_result', messageId: msg.messageId, error: 'Church not connected' });
+          }
+
+          log(`[MobileWS] Command ${msg.command} routed for ${church.name}${roomId ? ` room=${roomId}` : ''} (sent=${sent})`);
+          break;
+        }
 
         default:
           break;

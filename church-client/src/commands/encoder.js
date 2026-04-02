@@ -26,6 +26,14 @@ function encoderBrandName(type) {
 
 async function encoderStartStream(agent) {
   const bridge = ensureEncoderBridge(agent);
+  // ATEM Mini's built-in encoder uses ATEM protocol, not generic encoder API
+  if (bridge.type === 'atem-streaming') {
+    if (typeof agent.atem?.startStreaming === 'function') {
+      await agent.atem.startStreaming();
+      return 'ATEM streaming started';
+    }
+    throw new Error('ATEM streaming start is not supported by this switcher');
+  }
   const result = await bridge.startStream();
   if (result == null) throw new Error(`Encoder "${agent.status.encoder?.type || 'unknown'}" does not support remote stream start`);
   return 'Encoder stream started';
@@ -33,6 +41,14 @@ async function encoderStartStream(agent) {
 
 async function encoderStopStream(agent) {
   const bridge = ensureEncoderBridge(agent);
+  // ATEM Mini's built-in encoder uses ATEM protocol, not generic encoder API
+  if (bridge.type === 'atem-streaming') {
+    if (typeof agent.atem?.stopStreaming === 'function') {
+      await agent.atem.stopStreaming();
+      return 'ATEM streaming stopped';
+    }
+    throw new Error('ATEM streaming stop is not supported by this switcher');
+  }
   const result = await bridge.stopStream();
   if (result == null) throw new Error(`Encoder "${agent.status.encoder?.type || 'unknown'}" does not support remote stream stop`);
   return 'Encoder stream stopped';

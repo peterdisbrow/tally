@@ -4135,6 +4135,12 @@ const _wsHandlers = createWebSocketHandlers({
   onCommandResult(church, cmdResultMsg) {
     if (tallyBot) tallyBot.onCommandResult(cmdResultMsg);
     if (preServiceCheck) preServiceCheck.onCommandResult(cmdResultMsg);
+    _mobileWsHandler.broadcastToMobile(church.churchId, {
+      type: 'command_result',
+      messageId: cmdResultMsg.messageId,
+      result: cmdResultMsg.result,
+      error: cmdResultMsg.error,
+    });
     totalMessagesRelayed++;
   },
   onChurchMessage(church, msg) {
@@ -4212,6 +4218,7 @@ const _mobileWsHandler = createMobileWebSocketHandler({
   jwtSecret: JWT_SECRET,
   pushNotifications,
   log,
+  checkCommandRateLimit,
 });
 
 wss.on('connection', (ws, req) => {
