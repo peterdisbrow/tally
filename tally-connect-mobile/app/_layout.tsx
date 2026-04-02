@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { router } from 'expo-router';
 import { useAuthStore } from '../src/stores/authStore';
 import { useChatStore } from '../src/stores/chatStore';
 import { useNotifications } from '../src/hooks/useNotifications';
@@ -9,6 +10,8 @@ import { colors } from '../src/theme/colors';
 
 export default function RootLayout() {
   const checkAuth = useAuthStore((s) => s.checkAuth);
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const isLoading = useAuthStore((s) => s.isLoading);
   useNotifications();
   useTallySocket();
 
@@ -17,6 +20,13 @@ export default function RootLayout() {
     useChatStore.getState().clearMessages();
     checkAuth();
   }, []);
+
+  // Redirect to login when auth state becomes logged-out (e.g. 401 forceLogout)
+  useEffect(() => {
+    if (!isLoading && !isLoggedIn) {
+      router.replace('/login');
+    }
+  }, [isLoggedIn, isLoading]);
 
   return (
     <>
