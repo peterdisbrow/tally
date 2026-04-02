@@ -31,10 +31,17 @@ export default function DashboardScreen() {
     refreshAll();
   }, []);
 
-  // Poll dashboard stats and status every 5 seconds
+  // Poll mobile summary every 5 seconds
   usePolling(async () => {
     try {
-      const data = await api<{ status: any; instanceStatus: Record<string, DeviceStatus>; roomInstanceMap: Record<string, string> }>('/api/church/dashboard/stats');
+      const data = await api<{
+        rooms: Array<{ id: string; name: string; connected: boolean }>;
+        healthScore: number;
+        alertsToday: number;
+        activeSession: { active: boolean; grade?: string; duration?: number; incidents?: number; startedAt?: string } | null;
+        instanceStatus: Record<string, DeviceStatus>;
+        roomInstanceMap: Record<string, string>;
+      }>('/api/church/mobile/summary');
       if (data.instanceStatus) {
         updateInstanceStatus(data.instanceStatus, data.roomInstanceMap || {});
       }

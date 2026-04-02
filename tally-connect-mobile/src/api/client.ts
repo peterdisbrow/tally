@@ -65,8 +65,7 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
   };
 
   if (token) {
-    // Send as cookie header to match portal auth pattern
-    headers['Cookie'] = `tally_church_session=${token}`;
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
   const response = await fetch(`${baseUrl}${path}`, {
