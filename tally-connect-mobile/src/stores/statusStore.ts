@@ -11,6 +11,7 @@ interface StatusState {
   wsConnected: boolean;
   lastUpdate: number;
   isRefreshing: boolean;
+  roomsError: string | null;
 
   setActiveRoom: (roomId: string) => void;
   updateRoomStatus: (roomId: string, status: DeviceStatus) => void;
@@ -32,6 +33,7 @@ export const useStatusStore = create<StatusState>((set, get) => ({
   wsConnected: false,
   lastUpdate: 0,
   isRefreshing: false,
+  roomsError: null,
 
   setActiveRoom: (roomId) => set({ activeRoomId: roomId }),
 
@@ -71,9 +73,10 @@ export const useStatusStore = create<StatusState>((set, get) => ({
       set((state) => ({
         rooms,
         activeRoomId: state.activeRoomId || rooms[0]?.id || null,
+        roomsError: null,
       }));
-    } catch {
-      // Will retry on next refresh
+    } catch (e) {
+      set({ roomsError: e instanceof Error ? e.message : 'Failed to load rooms' });
     }
   },
 

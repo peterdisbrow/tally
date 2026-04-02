@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStatusStore } from '../src/stores/statusStore';
 import { useChatStore } from '../src/stores/chatStore';
 import { useAuthStore } from '../src/stores/authStore';
@@ -24,8 +25,10 @@ function roomIcon(name: string): string {
 export default function RoomPickerScreen() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const churchName = useAuthStore((s) => s.churchName);
   const setActiveRoom = useStatusStore((s) => s.setActiveRoom);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     loadRooms();
@@ -33,11 +36,12 @@ export default function RoomPickerScreen() {
 
   async function loadRooms() {
     setLoading(true);
+    setError(null);
     try {
       const data = await api<{ rooms: Array<{ id: string; name: string; is_default?: boolean }> }>('/api/church/rooms');
       setRooms((data.rooms || []).map((r) => ({ id: r.id, name: r.name })));
-    } catch {
-      // Retry silently
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load rooms. Check your connection and try again.');
     }
     setLoading(false);
   }
@@ -54,7 +58,7 @@ export default function RoomPickerScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <Text style={styles.churchName}>{churchName || 'Tally Connect'}</Text>
         <Text style={styles.subtitle}>Select a room to monitor</Text>
       </View>
@@ -63,6 +67,16 @@ export default function RoomPickerScreen() {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.accent} />
           <Text style={styles.loadingText}>Loading rooms...</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="cloud-offline-outline" size={48} color={colors.critical} />
+          <Text style={styles.emptyTitle}>Connection Error</Text>
+          <Text style={styles.emptyText}>{error}</Text>
+          <Pressable style={styles.retryButton} onPress={loadRooms}>
+            <Ionicons name="refresh" size={18} color={colors.white} />
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
         </View>
       ) : rooms.length === 0 ? (
         <View style={styles.emptyContainer}>
@@ -111,7 +125,6 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: spacing.xxl,
-    paddingTop: 60,
     paddingBottom: spacing.xxl,
   },
   churchName: {

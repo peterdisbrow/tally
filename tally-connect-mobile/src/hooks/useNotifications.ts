@@ -18,6 +18,19 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// Shared notification state — written by useNotifications, read by useNotificationStatus
+let _pushToken: string | null = null;
+let _permission: string | null = null;
+const _listeners = new Set<() => void>();
+
+function _notify() {
+  _listeners.forEach((fn) => fn());
+}
+
+/**
+ * Full notification hook — registers for push, sets up listeners, syncs token
+ * with relay server. Call this ONCE in the root layout.
+ */
 export function useNotifications() {
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [permission, setPermission] = useState<string | null>(null);
@@ -30,6 +43,9 @@ export function useNotifications() {
     registerForPushNotifications().then(({ token, status }) => {
       setPushToken(token);
       setPermission(status);
+      _pushToken = token;
+      _permission = status;
+      _notify();
     });
 
     // Listen for incoming notifications while app is foregrounded
@@ -82,6 +98,22 @@ export function useNotifications() {
   }, [pushToken, isLoggedIn]);
 
   return { pushToken, permission };
+}
+
+/**
+ * Lightweight status-only hook — reads current push token and permission
+ * without registering or setting up listeners. Safe to call from any screen.
+ */
+export function useNotificationStatus() {
+  const [, forceUpdate] = useState(0);
+
+  useEffect(() => {
+    const listener = () => forceUpdate((n) => n + 1);
+    _listeners.add(listener);
+    return () => { _listeners.delete(listener); };
+  }, []);
+
+  return { pushToken: _pushToken, permission: _permission };
 }
 
 async function registerForPushNotifications(): Promise<{ token: string | null; status: string }> {
