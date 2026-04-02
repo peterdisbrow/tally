@@ -23,7 +23,7 @@ interface ChatState {
   isSending: boolean;
 
   fetchMessages: () => Promise<void>;
-  sendMessage: (text: string, roomId?: string) => Promise<void>;
+  sendMessage: (text: string, roomId?: string) => Promise<boolean>;
   addMessage: (msg: ChatMessage) => void;
   clearMessages: () => void;
 }
@@ -34,7 +34,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isSending: false,
 
   fetchMessages: async () => {
-    set({ isLoading: true });
+    const wasEmpty = get().messages.length === 0;
+    if (wasEmpty) set({ isLoading: true });
     try {
       const roomId = useStatusStore.getState().activeRoomId;
       const params = new URLSearchParams({ latest: 'true' });
@@ -42,10 +43,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const data = await api<{ messages: Record<string, unknown>[] }>(
         `/api/church/chat?${params.toString()}`,
       );
-      set({
-        messages: (data.messages || []).map(normalizeMessage),
-        isLoading: false,
-      });
+      const incoming = (data.messages || []).map(normalizeMessage);
+      const existing = get().messages;
+
+      // Only update state if messages actually changed (avoids flicker)
+      if (
+        incoming.length !== existing.length ||
+        (incoming.length > 0 && existing.length > 0 &&
+          incoming[incoming.length - 1]?.id !== existing[existing.length - 1]?.id)
+      ) {
+        set({ messages: incoming, isLoading: false });
+      } else if (wasEmpty) {
+        set({ messages: incoming, isLoading: false });
+      } else {
+        set({ isLoading: false });
+      }
     } catch {
       set({ isLoading: false });
     }
@@ -62,8 +74,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages: [...state.messages, normalizeMessage(saved)],
         isSending: false,
       }));
+      return true;
     } catch {
       set({ isSending: false });
+      return false;
     }
   },
 
