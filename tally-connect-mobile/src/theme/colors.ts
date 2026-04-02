@@ -29,8 +29,8 @@ export const colors = {
   infoAlert: '#3b82f6',
 
   // Brand
-  accent: '#6366f1',
-  accentLight: '#818cf8',
+  accent: '#22c55e',
+  accentLight: '#4ade80',
 
   // Stream
   live: '#ef4444',

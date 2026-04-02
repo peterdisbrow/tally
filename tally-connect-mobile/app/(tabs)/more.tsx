@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Pressable, Alert,
+  View, Text, ScrollView, StyleSheet, Pressable, Alert, Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuthStore } from '../../src/stores/authStore';
 import { useStatusStore } from '../../src/stores/statusStore';
+import { useChatStore } from '../../src/stores/chatStore';
 import { useNotifications } from '../../src/hooks/useNotifications';
 import { api } from '../../src/api/client';
 import { colors } from '../../src/theme/colors';
@@ -136,10 +137,16 @@ export default function MoreScreen() {
 
       {/* Menu Items */}
       <View style={styles.section}>
-        <MenuItem icon="analytics-outline" label="Analytics" onPress={() => {}} />
-        <MenuItem icon="document-text-outline" label="Service Reports" onPress={() => {}} />
-        <MenuItem icon="settings-outline" label="Settings" onPress={() => {}} />
-        <MenuItem icon="help-circle-outline" label="Help & Support" onPress={() => {}} />
+        <MenuItem icon="swap-horizontal-outline" label="Switch Room" onPress={() => {
+          useChatStore.getState().clearMessages();
+          router.replace('/room-picker');
+        }} />
+        <MenuItem icon="analytics-outline" label="Analytics" onPress={() => router.push('/analytics')} />
+        <MenuItem icon="document-text-outline" label="Service Reports" onPress={() => router.push('/service-reports')} />
+        <MenuItem icon="settings-outline" label="Settings" onPress={() => router.push('/settings')} />
+        <MenuItem icon="help-circle-outline" label="Help & Support" onPress={() => {
+          Linking.openURL('https://tallyconnect.com/docs');
+        }} />
       </View>
 
       {/* Sign Out */}

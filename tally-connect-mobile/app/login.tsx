@@ -21,7 +21,7 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     const success = await login(email, password, serverUrl || undefined);
     if (success) {
-      router.replace('/(tabs)');
+      router.replace('/room-picker');
     }
   };
 
