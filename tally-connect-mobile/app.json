@@ -16,11 +16,8 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.tallyconnect.mobile",
-      "buildNumber": "1",
       "infoPlist": {
         "UIBackgroundModes": [
-          "fetch",
-          "remote-notification",
           "fetch",
           "remote-notification"
         ],

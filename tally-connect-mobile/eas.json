@@ -12,13 +12,20 @@
       }
     },
     "preview": {
-      "distribution": "internal",
+      "distribution": "store",
       "ios": {
         "buildConfiguration": "Release"
       }
     },
     "production": {
       "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleTeamId": "HVSJPZDLZF"
+      }
     }
   }
 }
