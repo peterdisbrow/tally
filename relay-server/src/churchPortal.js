@@ -461,7 +461,7 @@ function _escapeHtml(str) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine, preServiceRundown, viewerBaseline } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine, preServiceRundown, viewerBaseline, streamOAuth } = {}) {
   const express = require('express');
   log.info('Setup started');
 
@@ -1173,6 +1173,72 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       res.status(500).json({ error: safeErrorMessage(e) });
     }
   });
+
+  // ── Stream Platform OAuth (portal-initiated) ──────────────────────────────────
+  // These mirror the Electron app's /api/church/app/oauth/* routes but use portal auth.
+  if (streamOAuth) {
+    const FACEBOOK_AUTH_URL = 'https://www.facebook.com/v19.0/dialog/oauth';
+
+    // Initiate Facebook OAuth from portal (returns the auth URL for the browser popup)
+    app.post('/api/church/oauth/facebook/start', adminMiddleware, (req, res) => {
+      const appId = process.env.FACEBOOK_APP_ID || '';
+      if (!appId) return res.status(500).json({ error: 'Facebook app not configured' });
+      const state = require('crypto').randomBytes(16).toString('hex');
+      const redirectUri = `${req.protocol}://${req.get('host')}/api/oauth/facebook/callback`;
+      const authUrl = `${FACEBOOK_AUTH_URL}?` + new URLSearchParams({
+        client_id: appId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: 'pages_show_list,pages_read_engagement,publish_video',
+        state,
+      }).toString();
+      res.json({ authUrl, state, redirectUri });
+    });
+
+    // Poll for pending Facebook auth code
+    app.get('/api/church/oauth/facebook/pending', adminMiddleware, (req, res) => {
+      const { state } = req.query;
+      if (!state) return res.status(400).json({ error: 'state required' });
+      const pending = streamOAuth.getFacebookPendingCode(state);
+      if (!pending) return res.json({ ready: false });
+      res.json({ ready: true, code: pending.code });
+    });
+
+    // Exchange Facebook auth code for tokens
+    app.post('/api/church/oauth/facebook/exchange', adminMiddleware, async (req, res) => {
+      try {
+        const result = await streamOAuth.exchangeFacebookCode(req.church.churchId, req.body.code, req.body.redirectUri);
+        res.json(result);
+      } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+    });
+
+    // List Facebook pages
+    app.get('/api/church/oauth/facebook/pages', adminMiddleware, async (req, res) => {
+      try {
+        const result = await streamOAuth.listFacebookDestinations(req.church.churchId);
+        res.json(result);
+      } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+    });
+
+    // Select Facebook page
+    app.post('/api/church/oauth/facebook/select-page', adminMiddleware, async (req, res) => {
+      try {
+        const result = await streamOAuth.selectFacebookPage(req.church.churchId, req.body.pageId);
+        res.json(result);
+      } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+    });
+
+    // Disconnect Facebook
+    app.delete('/api/church/oauth/facebook', adminMiddleware, (req, res) => {
+      streamOAuth.disconnectFacebook(req.church.churchId);
+      res.json({ disconnected: true });
+    });
+
+    // OAuth status (both platforms)
+    app.get('/api/church/oauth/status', authMiddleware, (req, res) => {
+      res.json(streamOAuth.getStatus(req.church.churchId));
+    });
+  }
 
   // ── POST /api/church/config/ingest-key/regenerate ─────────────────────────────
   // Legacy church-level key regeneration (kept for backward compat)

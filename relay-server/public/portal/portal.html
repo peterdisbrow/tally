@@ -654,6 +654,27 @@
           </div>
         </div>
 
+        <!-- Stream Platforms (OAuth) -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title">Stream Platforms</div>
+          <p style="font-size:13px;color:#94A3B8;margin:0 0 12px">Connect your streaming platforms for viewer count monitoring and stream health checks.</p>
+          <div id="portal-oauth-fb-row" style="display:flex;align-items:center;gap:10px;padding:10px;background:#0f172a;border-radius:8px;">
+            <span style="font-size:16px;">&#9673;</span>
+            <span style="font-weight:600;font-size:13px;">Facebook</span>
+            <span id="portal-oauth-fb-status" style="font-size:12px;color:#64748b;flex:1">Not connected</span>
+            <button class="btn-primary" id="btn-portal-fb-connect" onclick="portalFbConnect()" style="font-size:12px;padding:6px 14px;">Connect Facebook</button>
+          </div>
+          <div id="portal-fb-page-selector" style="display:none;margin-top:10px;padding:10px;background:#0f172a;border-radius:8px;">
+            <label style="font-size:12px;color:#94a3b8;">Select your Facebook Page:</label>
+            <select id="portal-fb-page-select" style="width:100%;margin-top:4px;padding:6px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:12px;"></select>
+            <button class="btn-primary" onclick="portalFbSelectPage()" style="margin-top:8px;font-size:12px;padding:6px 14px;">Use This Page</button>
+          </div>
+          <div id="portal-oauth-fb-expiry" style="display:none;margin-top:8px;padding:8px 10px;background:#78350f22;border:1px solid #92400e;border-radius:6px;font-size:12px;color:#fbbf24;">
+            <span id="portal-oauth-fb-expiry-text"></span>
+            <button class="btn-primary" onclick="portalFbConnect()" style="margin-left:8px;font-size:11px;padding:4px 10px;">Reconnect</button>
+          </div>
+        </div>
+
         <!-- PTZ Cameras -->
         <div class="card" style="margin-bottom:16px">
           <div class="card-title">PTZ Cameras</div>

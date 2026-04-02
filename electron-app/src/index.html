@@ -600,6 +600,12 @@
             <button class="btn-oauth" id="btn-oauth-fb" onclick="connectFacebook()">Connect Facebook</button>
           </div>
 
+          <!-- Facebook token expiration warning (hidden until needed) -->
+          <div id="fb-token-expiry-warning" style="display:none; margin-top:8px; padding:8px 12px; background:rgba(234,179,8,0.1); border:1px solid var(--yellow, #eab308); border-radius:6px; font-size:11px; font-family:var(--mono); color:var(--yellow, #eab308); align-items:center; gap:8px;">
+            <span id="fb-token-expiry-text"></span>
+            <button class="btn-oauth" id="btn-fb-reconnect" style="font-size:10px; padding:3px 10px; margin-left:8px;">Reconnect</button>
+          </div>
+
           <!-- Facebook page selector (hidden until OAuth completes) -->
           <div id="fb-page-selector" style="display:none; margin-top:10px; padding:10px; background:var(--card); border-radius:6px;">
             <label style="font-size:11px; color:var(--muted);">Select your Facebook Page:</label>
@@ -615,11 +621,6 @@
               <div class="equip-row">
                 <input type="password" id="equip-youtube-key" placeholder="AIzaSy..." autocomplete="new-password">
                 <button class="btn-test" onclick="showHideKey('equip-youtube-key')">&#x1F441;</button>
-              </div>
-              <label style="margin-top:10px;">Facebook Access Token (for stream health monitoring)</label>
-              <div class="equip-row">
-                <input type="password" id="equip-facebook-token" placeholder="EAAxxxxxx..." autocomplete="new-password">
-                <button class="btn-test" onclick="showHideKey('equip-facebook-token')">&#x1F441;</button>
               </div>
               <label style="margin-top:10px;">Vimeo Access Token (Enterprise — for stream health monitoring)</label>
               <div class="equip-row">
