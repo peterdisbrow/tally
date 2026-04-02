@@ -223,6 +223,8 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
       metrics.push({ label: 'Health', value: health.text, color: health.color });
     }
     if (e.fps != null) metrics.push({ label: 'FPS', value: `${Math.round(e.fps)}` });
+    if (e.cpuUsage != null) metrics.push({ label: 'CPU', value: formatPercent(e.cpuUsage), color: percentColor(e.cpuUsage) });
+    if (e.congestion != null && e.congestion > 0) metrics.push({ label: 'Congestion', value: formatPercent(e.congestion), color: percentColor(e.congestion) });
     cards.push({
       id: 'encoder',
       name: e.name || e.type || 'Encoder',
@@ -242,7 +244,12 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
       { label: 'Status', value: isLive ? 'LIVE' : yt.status || 'Unknown', color: isLive ? colors.online : colors.textMuted },
     ];
     if (yt.viewers != null) metrics.push({ label: 'Viewers', value: yt.viewers.toLocaleString() });
-    if (yt.healthStatus) metrics.push({ label: 'Health', value: yt.healthStatus });
+    if (yt.healthStatus) {
+      const hColor = yt.healthStatus === 'good' ? colors.online : yt.healthStatus === 'ok' ? colors.warning : colors.critical;
+      metrics.push({ label: 'Health', value: yt.healthStatus, color: hColor });
+    }
+    if (yt.resolution) metrics.push({ label: 'Resolution', value: yt.resolution });
+    if (yt.framerate != null) metrics.push({ label: 'Framerate', value: `${yt.framerate} fps` });
     cards.push({
       id: 'youtube',
       name: 'YouTube Live',
@@ -262,6 +269,12 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
       { label: 'Status', value: isLive ? 'LIVE' : fb.status || 'Unknown', color: isLive ? colors.online : colors.textMuted },
     ];
     if (fb.viewers != null) metrics.push({ label: 'Viewers', value: fb.viewers.toLocaleString() });
+    if (fb.healthStatus) {
+      const hColor = fb.healthStatus === 'good' ? colors.online : fb.healthStatus === 'ok' ? colors.warning : colors.critical;
+      metrics.push({ label: 'Health', value: fb.healthStatus, color: hColor });
+    }
+    if (fb.resolution) metrics.push({ label: 'Resolution', value: fb.resolution });
+    if (fb.framerate != null) metrics.push({ label: 'Framerate', value: `${fb.framerate} fps` });
     cards.push({
       id: 'facebook',
       name: 'Facebook Live',
@@ -273,26 +286,49 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
     });
   }
 
-  // HyperDeck
+  // HyperDeck(s)
   if (status.hyperdeck && isDevicePresent(status.hyperdeck)) {
     const h = status.hyperdeck;
-    const metrics: DeviceCard['metrics'] = [];
-    if (h.recording != null) {
-      metrics.push({ label: 'Status', value: h.recording ? 'Recording' : 'Idle', color: h.recording ? colors.critical : colors.textMuted });
+    if (h.hyperdecks && h.hyperdecks.length > 0) {
+      h.hyperdecks.forEach((deck, i) => {
+        const metrics: DeviceCard['metrics'] = [];
+        if (deck.recording != null) {
+          metrics.push({ label: 'Status', value: deck.recording ? 'Recording' : 'Idle', color: deck.recording ? colors.critical : colors.textMuted });
+        }
+        if (deck.diskSpace) {
+          if (deck.diskSpace.percentUsed != null) metrics.push({ label: 'Disk Used', value: `${Math.round(deck.diskSpace.percentUsed)}%`, color: percentColor(deck.diskSpace.percentUsed) });
+          if (deck.diskSpace.freeGB != null) metrics.push({ label: 'Free', value: `${deck.diskSpace.freeGB.toFixed(1)} GB` });
+          if (deck.diskSpace.minutesRemaining != null) metrics.push({ label: 'Time Left', value: `${Math.round(deck.diskSpace.minutesRemaining)} min`, color: deck.diskSpace.minutesRemaining < 30 ? colors.warning : colors.online });
+        }
+        cards.push({
+          id: `hyperdeck-${i}`,
+          name: deck.name || `HyperDeck ${i + 1}`,
+          category: 'recording',
+          connected: deck.connected,
+          statusLabel: deck.connected ? (deck.recording ? 'Recording' : 'Connected') : 'Offline',
+          statusColor: deck.connected ? (deck.recording ? colors.critical : colors.online) : colors.offline,
+          metrics,
+        });
+      });
+    } else {
+      const metrics: DeviceCard['metrics'] = [];
+      if (h.recording != null) {
+        metrics.push({ label: 'Status', value: h.recording ? 'Recording' : 'Idle', color: h.recording ? colors.critical : colors.textMuted });
+      }
+      if (h.diskRemaining != null) {
+        const gb = (h.diskRemaining / (1024 * 1024 * 1024)).toFixed(1);
+        metrics.push({ label: 'Disk Free', value: `${gb} GB`, color: h.diskRemaining < 5e9 ? colors.warning : colors.online });
+      }
+      cards.push({
+        id: 'hyperdeck',
+        name: 'HyperDeck',
+        category: 'recording',
+        connected: h.connected,
+        statusLabel: h.connected ? (h.recording ? 'Recording' : 'Connected') : 'Offline',
+        statusColor: h.connected ? (h.recording ? colors.critical : colors.online) : colors.offline,
+        metrics,
+      });
     }
-    if (h.diskRemaining != null) {
-      const gb = (h.diskRemaining / (1024 * 1024 * 1024)).toFixed(1);
-      metrics.push({ label: 'Disk Free', value: `${gb} GB`, color: h.diskRemaining < 5e9 ? colors.warning : colors.online });
-    }
-    cards.push({
-      id: 'hyperdeck',
-      name: 'HyperDeck',
-      category: 'recording',
-      connected: h.connected,
-      statusLabel: h.connected ? (h.recording ? 'Recording' : 'Connected') : 'Offline',
-      statusColor: h.connected ? (h.recording ? colors.critical : colors.online) : colors.offline,
-      metrics,
-    });
   }
 
   // ATEM Recording (separate card when no HyperDeck)
@@ -313,7 +349,17 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
     const p = status.propresenter;
     const metrics: DeviceCard['metrics'] = [];
     if (p.currentPresentation) metrics.push({ label: 'Presentation', value: p.currentPresentation });
-    if (p.currentSlide) metrics.push({ label: 'Slide', value: p.currentSlide });
+    if (p.slideIndex != null && p.totalSlides != null) {
+      metrics.push({ label: 'Slide', value: `${p.slideIndex + 1} / ${p.totalSlides}` });
+    } else if (p.currentSlide) {
+      metrics.push({ label: 'Slide', value: p.currentSlide });
+    }
+    if (p.activeLook) metrics.push({ label: 'Active Look', value: p.activeLook });
+    if (p.timers && p.timers.length > 0) {
+      p.timers.forEach(t => {
+        metrics.push({ label: t.name || 'Timer', value: t.value, color: t.state === 'running' ? colors.online : colors.textMuted });
+      });
+    }
     cards.push({
       id: 'propresenter',
       name: 'ProPresenter',
@@ -328,13 +374,16 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   // Audio Mixer
   if (status.mixer && isDevicePresent(status.mixer)) {
     const m = status.mixer;
+    const hasWarning = m.mainMuted || status.audio?.silenceDetected;
     const metrics: DeviceCard['metrics'] = [];
     if (m.model) metrics.push({ label: 'Model', value: m.model });
+    if (m.mainMuted) metrics.push({ label: 'Main Bus', value: 'MUTED', color: colors.warning });
+    if (status.audio?.silenceDetected) metrics.push({ label: 'Audio', value: 'SILENCE DETECTED', color: colors.critical });
     if (m.channels && m.channels.length > 0) {
       const mutedCount = m.channels.filter(c => c.muted).length;
       metrics.push({ label: 'Channels', value: `${m.channels.length}` });
       if (mutedCount > 0) {
-        metrics.push({ label: 'Muted', value: `${mutedCount}`, color: colors.warning });
+        metrics.push({ label: 'Ch. Muted', value: `${mutedCount}`, color: colors.warning });
       }
     }
     cards.push({
@@ -342,19 +391,18 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
       name: m.model || 'Audio Mixer',
       category: 'audio',
       connected: m.connected,
-      statusLabel: m.connected ? 'Connected' : 'Offline',
-      statusColor: m.connected ? colors.online : colors.offline,
+      statusLabel: hasWarning ? (m.mainMuted ? 'MUTED' : 'Silence') : (m.connected ? 'Connected' : 'Offline'),
+      statusColor: hasWarning ? colors.warning : (m.connected ? colors.online : colors.offline),
       metrics,
     });
   }
 
-  // PTZ Cameras
-  if (status.ptz && isDevicePresent(status.ptz)) {
-    const p = status.ptz;
-    const cameras = p.cameras || [];
-    const connectedCount = cameras.filter(c => c.connected).length;
-    const metrics: DeviceCard['metrics'] = [];
+  // PTZ Cameras (support both ptz.cameras and top-level ptzCameras)
+  {
+    const cameras = (status.ptz?.cameras || []).concat(status.ptzCameras || []);
     if (cameras.length > 0) {
+      const connectedCount = cameras.filter(c => c.connected).length;
+      const metrics: DeviceCard['metrics'] = [];
       metrics.push({ label: 'Cameras', value: `${connectedCount}/${cameras.length} online` });
       cameras.forEach(cam => {
         metrics.push({
@@ -363,16 +411,26 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
           color: cam.connected ? colors.online : colors.offline,
         });
       });
+      cards.push({
+        id: 'ptz',
+        name: 'PTZ Cameras',
+        category: 'network',
+        connected: connectedCount > 0,
+        statusLabel: `${connectedCount}/${cameras.length}`,
+        statusColor: connectedCount > 0 ? colors.online : colors.offline,
+        metrics,
+      });
+    } else if (status.ptz && isDevicePresent(status.ptz)) {
+      cards.push({
+        id: 'ptz',
+        name: 'PTZ Cameras',
+        category: 'network',
+        connected: status.ptz.connected,
+        statusLabel: status.ptz.connected ? 'Connected' : 'Offline',
+        statusColor: status.ptz.connected ? colors.online : colors.offline,
+        metrics: [],
+      });
     }
-    cards.push({
-      id: 'ptz',
-      name: 'PTZ Cameras',
-      category: 'network',
-      connected: p.connected,
-      statusLabel: cameras.length > 0 ? `${connectedCount}/${cameras.length}` : (p.connected ? 'Connected' : 'Offline'),
-      statusColor: p.connected ? colors.online : colors.offline,
-      metrics,
-    });
   }
 
   // Companion
@@ -389,15 +447,95 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
     });
   }
 
+  // Smart Plugs
+  if (status.smartPlugs && status.smartPlugs.length > 0) {
+    status.smartPlugs.forEach((plug, i) => {
+      const metrics: DeviceCard['metrics'] = [
+        { label: 'Power', value: plug.on ? 'ON' : 'OFF', color: plug.on ? colors.online : colors.offline },
+      ];
+      if (plug.watts != null) metrics.push({ label: 'Watts', value: `${plug.watts} W` });
+      cards.push({
+        id: `smartplug-${i}`,
+        name: plug.name || `Smart Plug ${i + 1}`,
+        category: 'network',
+        connected: plug.on,
+        statusLabel: plug.on ? 'ON' : 'OFF',
+        statusColor: plug.on ? colors.online : colors.offline,
+        metrics,
+      });
+    });
+  }
+
+  // VideoHubs
+  if (status.videohubs && status.videohubs.length > 0) {
+    status.videohubs.forEach((vh, i) => {
+      const metrics: DeviceCard['metrics'] = [];
+      if (vh.inputs != null && vh.outputs != null) {
+        metrics.push({ label: 'I/O', value: `${vh.inputs} in / ${vh.outputs} out` });
+      }
+      cards.push({
+        id: `videohub-${i}`,
+        name: vh.name || `VideoHub ${i + 1}`,
+        category: 'switching',
+        connected: vh.connected,
+        statusLabel: vh.connected ? 'Connected' : 'Offline',
+        statusColor: vh.connected ? colors.online : colors.offline,
+        metrics,
+      });
+    });
+  }
+
+  // Resolume
+  if (status.resolume && isDevicePresent(status.resolume)) {
+    const r = status.resolume;
+    const metrics: DeviceCard['metrics'] = [];
+    if (r.version) metrics.push({ label: 'Version', value: r.version });
+    cards.push({
+      id: 'resolume',
+      name: 'Resolume',
+      category: 'presentation',
+      connected: r.connected,
+      statusLabel: r.connected ? 'Connected' : 'Offline',
+      statusColor: r.connected ? colors.online : colors.offline,
+      metrics,
+    });
+  }
+
+  // Backup Encoder
+  if (status.backupEncoder && isDevicePresent(status.backupEncoder)) {
+    const b = status.backupEncoder;
+    const health = healthLabel(b.bitrate);
+    const metrics: DeviceCard['metrics'] = [];
+    if (b.type) metrics.push({ label: 'Type', value: b.type });
+    if (b.streaming != null) {
+      metrics.push({ label: 'Status', value: b.streaming ? 'LIVE' : 'Standby', color: b.streaming ? colors.online : colors.textMuted });
+    }
+    if (b.bitrate != null) {
+      metrics.push({ label: 'Bitrate', value: formatBitrate(b.bitrate), color: health.color });
+    }
+    cards.push({
+      id: 'backup-encoder',
+      name: b.name || 'Backup Encoder',
+      category: 'streaming',
+      connected: b.connected,
+      statusLabel: streamStatusLabel(b.connected, b.streaming),
+      statusColor: streamStatusColor(b.connected, b.streaming),
+      metrics,
+    });
+  }
+
   // System
   if (status.system) {
     const s = status.system;
     const metrics: DeviceCard['metrics'] = [];
     if (s.appVersion) metrics.push({ label: 'Version', value: s.appVersion });
     if (s.roomName) metrics.push({ label: 'Room', value: s.roomName });
-    if (s.cpu != null) metrics.push({ label: 'CPU', value: formatPercent(s.cpu), color: percentColor(s.cpu) });
-    if (s.memory != null) metrics.push({ label: 'RAM', value: formatPercent(s.memory), color: percentColor(s.memory) });
-    if (s.disk != null) metrics.push({ label: 'Disk', value: formatPercent(s.disk), color: percentColor(s.disk) });
+    const cpuVal = typeof s.cpu === 'object' ? s.cpu?.usage : s.cpu;
+    const memVal = typeof s.memory === 'object' ? s.memory?.usage : s.memory;
+    const diskVal = typeof s.disk === 'object' ? s.disk?.usage : s.disk;
+    if (cpuVal != null) metrics.push({ label: 'CPU', value: formatPercent(cpuVal), color: percentColor(cpuVal) });
+    if (memVal != null) metrics.push({ label: 'RAM', value: formatPercent(memVal), color: percentColor(memVal) });
+    if (diskVal != null) metrics.push({ label: 'Disk', value: formatPercent(diskVal), color: percentColor(diskVal) });
     cards.push({
       id: 'system',
       name: 'System',

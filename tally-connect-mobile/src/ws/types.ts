@@ -106,20 +106,34 @@ export interface DeviceStatus {
     fps?: number;
     type?: string;
     name?: string;
+    cpuUsage?: number;
+    congestion?: number;
   };
   mixer?: {
     connected: boolean;
     model?: string;
+    mainMuted?: boolean;
     channels?: Array<{
       name: string;
       level: number;
       muted: boolean;
     }>;
   };
+  audio?: {
+    silenceDetected?: boolean;
+  };
   propresenter?: {
     connected: boolean;
     currentSlide?: string;
     currentPresentation?: string;
+    slideIndex?: number;
+    totalSlides?: number;
+    timers?: Array<{
+      name: string;
+      value: string;
+      state: string;
+    }>;
+    activeLook?: string;
   };
   companion?: {
     connected: boolean;
@@ -128,6 +142,16 @@ export interface DeviceStatus {
     connected: boolean;
     recording?: boolean;
     diskRemaining?: number;
+    hyperdecks?: Array<{
+      name?: string;
+      connected: boolean;
+      recording?: boolean;
+      diskSpace?: {
+        percentUsed?: number;
+        freeGB?: number;
+        minutesRemaining?: number;
+      };
+    }>;
   };
   ptz?: {
     connected: boolean;
@@ -135,6 +159,32 @@ export interface DeviceStatus {
       name: string;
       connected: boolean;
     }>;
+  };
+  ptzCameras?: Array<{
+    name: string;
+    connected: boolean;
+  }>;
+  smartPlugs?: Array<{
+    name: string;
+    on: boolean;
+    watts?: number;
+  }>;
+  videohubs?: Array<{
+    name: string;
+    connected: boolean;
+    inputs?: number;
+    outputs?: number;
+  }>;
+  resolume?: {
+    connected: boolean;
+    version?: string;
+  };
+  backupEncoder?: {
+    connected: boolean;
+    streaming?: boolean;
+    bitrate?: number;
+    name?: string;
+    type?: string;
   };
   system?: {
     cpu?: number | { usage: number; cores?: number };
@@ -152,10 +202,15 @@ export interface DeviceStatus {
       status: string;
       viewers?: number;
       healthStatus?: string;
+      resolution?: string;
+      framerate?: number;
     };
     facebook?: {
       status: string;
       viewers?: number;
+      healthStatus?: string;
+      resolution?: string;
+      framerate?: number;
     };
   };
 }
