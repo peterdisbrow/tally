@@ -4,7 +4,7 @@
  *
  * Key differences from the portal SSE and church agent WebSocket:
  * - JWT auth via query param (no cookies)
- * - Delta updates only (not full status objects)
+ * - Full status updates (instanceStatus + roomInstanceMap)
  * - Configurable heartbeat interval
  * - Receives alerts, status changes, chat, and command results
  */
@@ -34,8 +34,6 @@ function createMobileWebSocketHandler({
   // Track mobile clients: Map<churchId, Set<ws>>
   const mobileClients = new Map();
 
-  // Track last status per church for delta computation
-  const lastStatus = new Map();
 
   /**
    * Handle a new mobile WebSocket connection.
@@ -180,23 +178,20 @@ function createMobileWebSocketHandler({
   }
 
   /**
-   * Send a status delta to mobile clients.
-   * Computes diff from last known status and sends only changed fields.
+   * Send a full status_update to mobile clients.
+   * Sends instanceStatus and roomInstanceMap so the mobile app can render
+   * per-room device status.
+   *
+   * @param {object} church - Runtime church object with instanceStatus, roomInstanceMap, etc.
    */
-  function sendStatusDelta(churchId, newStatus, roomId = null) {
-    const key = roomId ? `${churchId}::${roomId}` : churchId;
-    const prev = lastStatus.get(key) || {};
-    const delta = _computeDelta(prev, newStatus);
-
-    if (Object.keys(delta).length === 0) return;
-
-    lastStatus.set(key, { ...newStatus });
-
-    broadcastToMobile(churchId, {
-      type: 'status_delta',
-      roomId,
-      delta,
-      timestamp: Date.now(),
+  function sendStatusUpdate(church) {
+    broadcastToMobile(church.churchId, {
+      type: 'status_update',
+      churchId: church.churchId,
+      name: church.name,
+      instanceStatus: church.instanceStatus || {},
+      roomInstanceMap: church.roomInstanceMap || {},
+      timestamp: new Date().toISOString(),
     });
   }
 
@@ -221,14 +216,39 @@ function createMobileWebSocketHandler({
 
   /**
    * Send a connection state change to mobile clients.
+   * Sends church_connected or church_disconnected with the data shape
+   * the mobile app expects.
+   *
+   * @param {object} church - Runtime church object
+   * @param {string|null} roomId - Room ID (unused currently, reserved)
+   * @param {boolean} connected - Whether the church client connected or disconnected
    */
-  function sendConnectionChange(churchId, roomId, connected) {
-    broadcastToMobile(churchId, {
-      type: 'connection',
-      roomId,
-      connected,
-      timestamp: Date.now(),
-    });
+  function sendConnectionChange(church, roomId, connected) {
+    if (connected) {
+      // Determine the instance name — use the first key in instanceStatus if available
+      const instanceKeys = Object.keys(church.instanceStatus || {});
+      const instance = instanceKeys[0] || church.name;
+
+      broadcastToMobile(church.churchId, {
+        type: 'church_connected',
+        churchId: church.churchId,
+        name: church.name,
+        instance,
+        roomId: roomId || null,
+        timestamp: new Date().toISOString(),
+        connected: true,
+        status: church.instanceStatus?.[instance] || church.status || {},
+        roomInstanceMap: church.roomInstanceMap || {},
+      });
+    } else {
+      broadcastToMobile(church.churchId, {
+        type: 'church_disconnected',
+        churchId: church.churchId,
+        name: church.name,
+        connected: false,
+        status: church.status || {},
+      });
+    }
   }
 
   /**
@@ -244,7 +264,7 @@ function createMobileWebSocketHandler({
   return {
     handleMobileConnection,
     broadcastToMobile,
-    sendStatusDelta,
+    sendStatusUpdate,
     sendAlertToMobile,
     sendConnectionChange,
     getMobileClientCount,
@@ -262,33 +282,5 @@ function _safeSend(ws, data) {
   }
 }
 
-/**
- * Compute a shallow delta between two status objects.
- * Returns only keys that differ (added, changed, or removed).
- */
-function _computeDelta(prev, next) {
-  const delta = {};
-  const allKeys = new Set([...Object.keys(prev), ...Object.keys(next)]);
-
-  for (const key of allKeys) {
-    const prevVal = prev[key];
-    const nextVal = next[key];
-
-    if (prevVal === undefined && nextVal !== undefined) {
-      delta[key] = nextVal;
-    } else if (nextVal === undefined && prevVal !== undefined) {
-      delta[key] = null; // Signal removal
-    } else if (typeof nextVal === 'object' && nextVal !== null) {
-      // Deep compare for device sub-objects (atem, obs, mixer, etc.)
-      if (JSON.stringify(prevVal) !== JSON.stringify(nextVal)) {
-        delta[key] = nextVal;
-      }
-    } else if (prevVal !== nextVal) {
-      delta[key] = nextVal;
-    }
-  }
-
-  return delta;
-}
 
 module.exports = { createMobileWebSocketHandler };
