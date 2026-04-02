@@ -4,7 +4,8 @@ import { tallySocket } from '../ws/TallySocket';
 import { useAuthStore } from '../stores/authStore';
 import { useStatusStore } from '../stores/statusStore';
 import { useAlertStore } from '../stores/alertStore';
-import type { StatusUpdate, AlertMessage, ChurchConnected, ChurchDisconnected } from '../ws/types';
+import { useCommandResultStore } from '../stores/commandResultStore';
+import type { StatusUpdate, AlertMessage, CommandResult, ChurchConnected, ChurchDisconnected } from '../ws/types';
 
 /**
  * Manages the TallySocket lifecycle: connects when authenticated,
@@ -62,12 +63,25 @@ export function useTallySocket() {
         }
         case 'alert': {
           const alert = msg as AlertMessage;
-          useAlertStore.getState().addAlert({
-            id: `${alert.timestamp}-${alert.severity}`,
-            severity: alert.severity,
-            message: alert.message,
-            roomId: alert.roomId,
-            timestamp: alert.timestamp,
+          const activeRoomId = useStatusStore.getState().activeRoomId;
+          // Only add if alert matches active room or is church-wide (null roomId)
+          if (alert.roomId === null || !activeRoomId || alert.roomId === activeRoomId) {
+            useAlertStore.getState().addAlert({
+              id: `${alert.timestamp}-${alert.severity}-${Math.random().toString(36).substr(2, 5)}`,
+              severity: alert.severity,
+              message: alert.message,
+              roomId: alert.roomId,
+              timestamp: alert.timestamp,
+            });
+          }
+          break;
+        }
+        case 'command_result': {
+          const result = msg as CommandResult;
+          useCommandResultStore.getState().addResult(result.messageId, {
+            success: !result.error,
+            error: result.error || undefined,
+            data: result.result,
           });
           break;
         }

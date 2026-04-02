@@ -5,6 +5,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
+import { useCommandResultStore } from '../../src/stores/commandResultStore';
 import { tallySocket } from '../../src/ws/TallySocket';
 import { colors } from '../../src/theme/colors';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
@@ -45,14 +46,35 @@ export default function ActionsScreen() {
       if (!tallySocket.isConnected) {
         throw new Error('Not connected to server');
       }
+      const messageId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       tallySocket.send({
         type: 'command',
         command,
         params,
         roomId: activeRoomId,
-        messageId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        messageId,
       });
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // Wait up to 3 seconds for a result from the server
+      const result = await new Promise<{ success: boolean; error?: string } | null>((resolve) => {
+        const timeout = setTimeout(() => resolve(null), 3000);
+        const check = setInterval(() => {
+          const r = useCommandResultStore.getState().getResult(messageId);
+          if (r) {
+            clearTimeout(timeout);
+            clearInterval(check);
+            useCommandResultStore.getState().clearResult(messageId);
+            resolve(r);
+          }
+        }, 100);
+      });
+
+      if (result && !result.success) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        Alert.alert('Command Failed', result.error || 'The command was not executed successfully.');
+      } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert('Command Failed', err instanceof Error ? err.message : 'Unknown error');

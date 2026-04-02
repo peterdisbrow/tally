@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, FlatList, StyleSheet,
   Pressable, KeyboardAvoidingView, Platform,
+  Alert as RNAlert, NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -19,7 +20,9 @@ export default function ChatScreen() {
   const sendMessage = useChatStore((s) => s.sendMessage);
   const activeRoomId = useStatusStore((s) => s.activeRoomId);
   const [text, setText] = useState('');
+  const [sendError, setSendError] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
+  const isAtBottom = useRef(true);
 
   const clearMessages = useChatStore((s) => s.clearMessages);
 
@@ -36,18 +39,34 @@ export default function ChatScreen() {
   // Poll for new messages every 3 seconds
   usePolling(() => fetchMessages(), 3000);
 
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const distanceFromBottom = contentSize.height - contentOffset.y - layoutMeasurement.height;
+    isAtBottom.current = distanceFromBottom < 50;
+  }, []);
+
+  const handleContentSizeChange = useCallback(() => {
+    if (isAtBottom.current) {
+      listRef.current?.scrollToEnd({ animated: false });
+    }
+  }, []);
+
   const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed || isSending) return;
 
-    setText('');
+    setSendError(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await sendMessage(trimmed, activeRoomId || undefined);
+    const success = await sendMessage(trimmed, activeRoomId || undefined);
+    if (success) {
+      setText('');
+    } else {
+      setSendError('Failed to send message. Please try again.');
+    }
   };
 
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isUser = item.senderRole === 'td';
-    const isAI = item.senderRole === 'ai' || item.senderRole === 'system';
 
     return (
       <View style={[
@@ -69,7 +88,10 @@ export default function ChatScreen() {
           ]}>
             {item.message}
           </Text>
-          <Text style={msgStyles.time}>
+          <Text style={[
+            msgStyles.time,
+            isUser ? msgStyles.timeUser : msgStyles.timeAI,
+          ]}>
             {formatTime(item.timestamp)}
           </Text>
         </View>
@@ -89,7 +111,9 @@ export default function ChatScreen() {
         keyExtractor={(item, idx) => item.id || `${idx}`}
         renderItem={renderMessage}
         contentContainerStyle={styles.list}
-        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+        onScroll={handleScroll}
+        scrollEventThrottle={100}
+        onContentSizeChange={handleContentSizeChange}
         ListEmptyComponent={
           <View style={styles.empty}>
             <Ionicons name="chatbubble-ellipses-outline" size={48} color={colors.textMuted} />
@@ -101,6 +125,15 @@ export default function ChatScreen() {
           </View>
         }
       />
+
+      {sendError && (
+        <View style={styles.errorBar}>
+          <Text style={styles.errorText}>{sendError}</Text>
+          <Pressable onPress={() => setSendError(null)}>
+            <Ionicons name="close-circle" size={18} color={colors.critical} />
+          </Pressable>
+        </View>
+      )}
 
       <View style={styles.inputBar}>
         <TextInput
@@ -166,6 +199,21 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  errorBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderTopWidth: 1,
+    borderTopColor: colors.critical,
+  },
+  errorText: {
+    fontSize: fontSize.sm,
+    color: colors.critical,
+    flex: 1,
   },
   inputBar: {
     flexDirection: 'row',
@@ -245,8 +293,13 @@ const msgStyles = StyleSheet.create({
   },
   time: {
     fontSize: 10,
-    color: 'rgba(255,255,255,0.5)',
     marginTop: 4,
     alignSelf: 'flex-end',
+  },
+  timeUser: {
+    color: 'rgba(255,255,255,0.5)',
+  },
+  timeAI: {
+    color: colors.textMuted,
   },
 });

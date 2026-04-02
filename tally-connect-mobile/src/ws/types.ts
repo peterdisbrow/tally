@@ -179,6 +179,7 @@ export interface Alert {
   roomId?: string | null;
   roomName?: string;
   timestamp: string;
+  acknowledged?: boolean;
   diagnosis?: {
     likely_cause: string;
     confidence: number;
