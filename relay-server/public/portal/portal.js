@@ -15,7 +15,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try {
         var payload = await api('GET', '/api/church/rooms');
         _roomListCache = (payload && payload.rooms) || [];
-      } catch { _roomListCache = []; }
+        _roomListCache._fetched = true;
+      } catch { _roomListCache = []; _roomListCache._fetched = false; }
       return _roomListCache;
     }
 
@@ -1142,22 +1143,30 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           }
           return 0;
         }
+        function _extractVersion(ver) {
+          if (!ver) return ver;
+          var s = String(ver).trim();
+          // Strip leading text like "ProPresenter " to get just the version number
+          var m = s.match(/(\d[\d.]*\d|\d+)$/);
+          return m ? m[1] : s;
+        }
         function verInfo(ver,type){
           if(!ver)return null;
+          var clean = _extractVersion(ver);
           var min=MIN_VERS[type];
-          var outdated=min?cmpVer(ver,min)<0:false;
-          return {text:'v'+ver,outdated:outdated};
+          var outdated=min?cmpVer(clean,min)<0:false;
+          return {text:'v'+clean,outdated:outdated};
         }
 
         // Extract version strings for each device
-        var atemVer = status.atem && (status.atem.protocolVersion || status.atem.model) ? (status.atem.protocolVersion || status.atem.model) : null;
+        var atemVer = status.atem && status.atem.protocolVersion ? status.atem.protocolVersion : null;
         var encVer = null, encVerType = null;
         if (enc.type === 'obs' || (!enc.type && status.obs)) {
           encVer = status.obs && status.obs.version; encVerType = 'obs';
         } else if (enc.type === 'vmix') {
           encVer = status.vmix && status.vmix.version; encVerType = 'vmix';
         } else if (enc.type) {
-          encVer = enc.firmwareVersion || enc.version; encVerType = 'encoder_' + enc.type;
+          encVer = enc.firmwareVersion || enc.softwareVersion || enc.version || enc.details || null; encVerType = 'encoder_' + enc.type;
         }
         var mixerVer = status.mixer && status.mixer.firmware ? status.mixer.firmware : null;
         var mixerVerType = status.mixer && status.mixer.type ? 'mixer_' + status.mixer.type : null;
@@ -1212,7 +1221,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const hd = status.hyperdeck || status.hyperDeck;
         if (hd) {
           const hdSt = hd.recording ? 'recording' : (hd.connected ? 'connected' : 'disconnected');
-          var hdVer = hd.model || hd.protocolVersion || null;
+          var hdVer = hd.protocolVersion || null;
           var hdDetail = _formatDiskSpace(hd.diskSpace) || hd.lastSeen || null;
           rows.push(['HyperDeck', hdSt, hdVer ? verInfo(hdVer, null) : null, hdDetail]);
         }
@@ -1229,10 +1238,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           const ppSt = pp.connected ? 'connected' : 'disconnected';
           const ppVer = pp.version || null;
           var ppDetail = null;
-          if (pp.currentSlide && pp.currentSlide.presentationName) {
-            ppDetail = pp.currentSlide.presentationName;
-            if (pp.currentSlide.slideIndex != null && pp.currentSlide.slideCount != null) {
-              ppDetail += ' (' + pp.currentSlide.slideIndex + '/' + pp.currentSlide.slideCount + ')';
+          var _ppSlide = pp.currentSlide || {};
+          var _ppPresName = _ppSlide.presentationName || pp.currentPresentation || pp.presentationName || null;
+          if (_ppPresName) {
+            ppDetail = _ppPresName;
+            if (_ppSlide.slideIndex != null && _ppSlide.slideCount != null) {
+              ppDetail += ' (' + _ppSlide.slideIndex + '/' + _ppSlide.slideCount + ')';
             }
           }
           rows.push(['ProPresenter', ppSt, verInfo(ppVer, 'proPresenter'), ppDetail || pp.lastSeen || null]);
@@ -1322,9 +1333,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           stalenessEl.style.color = ago > 300 ? '#f59e0b' : '#475569';
         }
 
-        tbody.innerHTML = rows.map(([name, st, ver, ts]) => {
-          let badgeCls = 'badge-gray';
-          let label = st;
+        // Sort: connected/active devices first, disconnected/off-air last
+        var _activeStates = ['connected','ok','live','streaming','recording','warning','muted'];
+        var connectedRows = rows.filter(function(r) { return _activeStates.indexOf(r[1]) !== -1; });
+        var disconnectedRows = rows.filter(function(r) { return _activeStates.indexOf(r[1]) === -1; });
+
+        function _renderEquipRow(row, dimmed) {
+          var name = row[0], st = row[1], ver = row[2], ts = row[3];
+          var badgeCls = 'badge-gray';
+          var label = st;
           if (st === 'connected' || st === 'ok') { badgeCls = 'badge-green'; label = 'Connected'; }
           else if (st === 'live' || st === 'streaming') { badgeCls = 'badge-green'; label = st === 'live' ? '<span style="color:#ef4444">&#9679;</span> Live' : 'Streaming'; }
           else if (st === 'recording') { badgeCls = 'badge-green'; label = 'Recording'; }
@@ -1338,6 +1355,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             verHtml = ver.outdated
               ? '<span style="color:#f59e0b">! ' + ver.text + '</span>'
               : '<span style="color:#22c55e">' + ver.text + '</span>';
+          } else if (st === 'connected' || st === 'ok' || st === 'live' || st === 'streaming' || st === 'recording') {
+            verHtml = '<span style="color:#22c55e">Connected</span>';
           }
           var detailHtml = '—';
           if (typeof ts === 'string' && ts.length > 0 && isNaN(Date.parse(ts))) {
@@ -1345,13 +1364,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           } else if (ts) {
             detailHtml = new Date(ts).toLocaleTimeString();
           }
-          return `<tr>
-            <td>${name}</td>
-            <td><span class="badge ${badgeCls}">${label}</span></td>
-            <td style="font-size:12px">${verHtml}</td>
-            <td style="color:#475569;font-size:12px">${detailHtml}</td>
-          </tr>`;
-        }).join('');
+          var opacity = dimmed ? ' style="opacity:0.45"' : '';
+          return '<tr' + opacity + '>'
+            + '<td>' + name + '</td>'
+            + '<td><span class="badge ' + badgeCls + '">' + label + '</span></td>'
+            + '<td style="font-size:12px">' + verHtml + '</td>'
+            + '<td style="color:#475569;font-size:12px">' + detailHtml + '</td>'
+            + '</tr>';
+        }
+
+        var tableHtml = connectedRows.map(function(r) { return _renderEquipRow(r, false); }).join('');
+        if (disconnectedRows.length > 0) {
+          if (connectedRows.length > 0) {
+            tableHtml += '<tr><td colspan="4" style="padding:4px 0;border:none"><div style="border-top:1px solid rgba(255,255,255,0.06);margin:4px 0"></div></td></tr>';
+          }
+          tableHtml += disconnectedRows.map(function(r) { return _renderEquipRow(r, true); }).join('');
+        }
+        tbody.innerHTML = tableHtml;
 
         // ── Live Stream Stats card ──────────────────────────────────────────
         updateStreamStats(status, enc);
@@ -1373,6 +1402,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // ── Review prompt (after onboarding, after upgrade banner) ───────────
         checkReviewEligibility();
         loadReferralCard();
+
+        // ── Sessions count for overview stat ─────────────────────────────────
+        (async function() {
+          try {
+            var sessions = await api('GET', '/api/church/sessions' + roomParam());
+            var el = document.getElementById('stat-sessions');
+            if (el) el.textContent = Array.isArray(sessions) ? sessions.length : '—';
+          } catch {}
+        })();
 
         // ── Schedule summary on overview ──────────────────────────────────────
         loadScheduleOverview();
@@ -1454,7 +1492,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try {
         var data = await api('GET', '/api/church/rooms/' + encodeURIComponent(_selectedRoomId) + '/roles');
         _rolesData = data;
-        _rolesEdited = Object.assign({}, data.roles || {});
+        // If server returned empty roles but we have live equipment status, auto-detect client-side
+        var serverRoles = data.roles || {};
+        if (Object.keys(serverRoles).length === 0 && profileData && profileData.status) {
+          var st = profileData.status;
+          if (st.atem && (st.atem === true || st.atem.connected)) serverRoles.primary_switcher = 'atem';
+          else if (st.vmix && st.vmix.connected) serverRoles.primary_switcher = 'vmix';
+          else if (st.obs && st.obs.connected) serverRoles.primary_switcher = 'obs';
+          var enc = st.encoder || {};
+          if (enc.connected || enc.live || enc.streaming || (st.obs && st.obs.streaming)) serverRoles.streaming_device = enc.type === 'vmix' ? 'vmix' : enc.type === 'obs' || (!enc.type && st.obs) ? 'obs' : 'encoder';
+          if (st.hyperdeck || st.hyperDeck) serverRoles.recording_device = 'hyperdeck';
+          else if (st.atem && (st.atem === true || st.atem.connected)) serverRoles.recording_device = serverRoles.recording_device || 'atem';
+          var pp = st.proPresenter || st.propresenter;
+          if (pp && pp.connected) serverRoles.presentation = 'proPresenter';
+          if (st.mixer && st.mixer.connected) serverRoles.audio_mixer = 'mixer';
+          if (data.autoDetected == null) data.autoDetected = true;
+        }
+        _rolesEdited = Object.assign({}, serverRoles);
         card.style.display = '';
         var roomLabel = document.getElementById('roles-room-label');
         var equipLabel = document.getElementById('equip-room-label');
@@ -1626,8 +1680,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (verEl) verEl.textContent = pp.version || 'ProPresenter';
 
       var slide = pp.currentSlide || {};
+      var presName = slide.presentationName || pp.currentPresentation || pp.presentationName || null;
       var nameEl = document.getElementById('pp-presentation-name');
-      if (nameEl) nameEl.textContent = slide.presentationName || 'No presentation';
+      if (nameEl) nameEl.textContent = presName || 'No presentation';
 
       var indexEl = document.getElementById('pp-slide-index');
       if (indexEl) {
@@ -2093,6 +2148,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       for (var i = 0; i < ids.length; i++) {
         var sw = switchers[ids[i]];
         if (!sw) continue;
+
+        // Merge live data from status.atem if this is the primary ATEM and fields are missing
+        if (sw.type === 'atem' && status.atem && typeof status.atem === 'object') {
+          if (sw.programInput == null && status.atem.programInput != null) sw.programInput = status.atem.programInput;
+          if (sw.previewInput == null && status.atem.previewInput != null) sw.previewInput = status.atem.previewInput;
+          if (!sw.inputLabels && status.atem.inputLabels) sw.inputLabels = status.atem.inputLabels;
+          if (!sw.model && status.atem.model) sw.model = status.atem.model;
+          if (sw.connected == null && status.atem.connected != null) sw.connected = status.atem.connected;
+          if (sw.streaming == null && status.atem.streaming) sw.streaming = status.atem.streaming;
+          if (sw.recording == null && status.atem.recording) sw.recording = status.atem.recording;
+        }
 
         var typeIcon = sw.type === 'atem' ? '\uD83C\uDF9B' : sw.type === 'obs' ? '\uD83D\uDCF9' : sw.type === 'vmix' ? '\uD83C\uDFAC' : '\uD83D\uDD00';
         var typeLabel = sw.type === 'atem' ? 'ATEM' : sw.type === 'obs' ? 'OBS' : sw.type === 'vmix' ? 'vMix' : sw.type;
@@ -2627,6 +2693,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Two-column grid of checks
         var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px">';
         html += checks.map(function(c) {
+          // Skip camera input check if it shows 0/0 (no data available)
+          if (c.name === 'Camera Inputs' && c.detail && c.detail.indexOf('0/0') !== -1) {
+            return '';
+          }
           var icon = c.pass ? '\u2713' : '!';
           var borderColor = c.pass ? '#16a34a' : '#d97706';
           var bg = c.pass ? 'rgba(34,197,94,0.05)' : 'rgba(245,158,11,0.08)';
@@ -2713,7 +2783,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function renderProblems(data, body, badge) {
       if (!data || !data.status) {
-        body.innerHTML = '<div style="color:#475569;text-align:center;padding:20px;font-size:13px">No diagnostics data yet — connect the Tally desktop app to see results.</div>';
+        // Check if equipment is actually connected — show appropriate message
+        var hasEquipment = profileData && profileData.connected;
+        var msg = hasEquipment
+          ? 'No diagnostics scan has run yet. Tally will scan automatically, or run a pre-service check.'
+          : 'No diagnostics data yet — connect the Tally desktop app to see results.';
+        body.innerHTML = '<div style="color:#475569;text-align:center;padding:20px;font-size:13px">' + msg + '</div>';
         if (badge) { badge.className = 'badge badge-gray'; badge.textContent = '—'; }
         return;
       }
@@ -4104,7 +4179,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           </tr>`;
         }).join('');
         document.getElementById('stat-tds').textContent = tds.length;
-      } catch(e) { toast('Failed to load TDs', true); }
+      } catch(e) {
+        var tbody = document.getElementById('tds-tbody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="color:#475569;text-align:center;padding:20px">No tech directors yet.</td></tr>';
+      }
     }
 
     async function addTd() {
@@ -4721,7 +4799,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             <td><button class="btn-danger" onclick="revokeToken('${t.token}')">Revoke</button></td>
           </tr>`;
         }).join('');
-      } catch(e) { toast('Failed to load tokens', true); }
+      } catch(e) {
+        var tbody = document.getElementById('guests-tbody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No guest tokens.</td></tr>';
+      }
     }
 
     async function generateGuestToken() {
@@ -5006,7 +5087,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           }).join('');
           document.getElementById('stat-sessions').textContent = sessions.length;
         }
-      } catch(e) { toast('Failed to load sessions', true); }
+      } catch(e) {
+        var tbody = document.getElementById('sessions-tbody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">No sessions recorded yet.</td></tr>';
+      }
       // Also load AI reports
       loadServiceReports();
     }
@@ -5986,7 +6070,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '</div>';
         container.innerHTML = html;
       } catch(e) {
-        document.getElementById('alerts-content').innerHTML = '<p style="color:#ef4444">' + escapeHtml(e.message) + '</p>';
+        document.getElementById('alerts-content').innerHTML = '<p style="color:#475569;text-align:center;padding:20px">No alerts yet. Alerts will appear here during and after your services.</p>';
       }
     }
 
@@ -6135,8 +6219,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         renderSessionStats(data);
         renderEquipmentPerf(data);
       } catch (e) {
-        document.getElementById('a-health-content').innerHTML =
-          '<p style="color:#ef4444">' + escapeHtml(e.message) + '</p>';
+        var ahEl = document.getElementById('a-health-content');
+        if (ahEl) ahEl.innerHTML = '<p style="color:#475569;text-align:center;padding:20px">No analytics data yet. Data will appear after your first streaming session.</p>';
       }
       // Load platform-specific audience data in parallel
       loadAudienceAnalytics();
@@ -6834,7 +6918,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     (async function checkZeroRoomsGate() {
       try {
         var rooms = await fetchRoomList(true);
-        if (rooms.length === 0) {
+        if (rooms.length === 0 && rooms._fetched) {
           var gate = document.getElementById('zero-rooms-gate');
           if (gate) gate.style.display = 'flex';
           return; // Don't load overview until a room is created
@@ -7758,7 +7842,8 @@ document.addEventListener('DOMContentLoaded', function() {
         bars.innerHTML = '<span style="color:#475569;font-size:13px">No uptime data yet for this period.</span>';
       }
     } catch (err) {
-      document.getElementById('rpt-summary-body').innerHTML = '<span style="color:#ef4444">Failed to load summary</span>';
+      var rptBody = document.getElementById('rpt-summary-body');
+      if (rptBody) rptBody.innerHTML = '<span style="color:#475569;font-size:13px">No report data yet. Reports will appear after your first streaming session.</span>';
     }
   }
 
