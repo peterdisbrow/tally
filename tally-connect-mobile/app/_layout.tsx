@@ -6,10 +6,12 @@ import { useAuthStore } from '../src/stores/authStore';
 import { useChatStore } from '../src/stores/chatStore';
 import { useNotifications } from '../src/hooks/useNotifications';
 import { useTallySocket } from '../src/hooks/useTallySocket';
+import { useNetworkStatus } from '../src/hooks/useNetworkStatus';
 import { useUpdateCheck } from '../src/hooks/useUpdateCheck';
 import { ThemeProvider, useThemeColors } from '../src/theme/ThemeContext';
 import { initSentry } from '../src/lib/sentry';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
+import { NetworkBanner } from '../src/components/NetworkBanner';
 
 initSentry();
 
@@ -21,6 +23,7 @@ function RootNavigator() {
   useNotifications();
   useTallySocket();
   useUpdateCheck();
+  const isConnected = useNetworkStatus();
 
   useEffect(() => {
     useChatStore.getState().clearMessages();
@@ -36,6 +39,7 @@ function RootNavigator() {
   return (
     <>
       <StatusBar style={colors.statusBarStyle} />
+      <NetworkBanner isConnected={isConnected} />
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: colors.bg },
