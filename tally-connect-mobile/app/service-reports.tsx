@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, FlatList, ActivityIndicator,
+  View, Text, FlatList, ActivityIndicator, Pressable,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { api } from '../src/api/client';
 import { useThemeColors } from '../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../src/theme/spacing';
@@ -15,10 +16,25 @@ interface ServiceReport {
   incidents?: number;
 }
 
+type SortField = 'date' | 'grade';
+type SortDir = 'asc' | 'desc';
+type DateRange = 30 | 90 | 365 | 0; // 0 = all time
+
+const GRADE_ORDER = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D', 'F'];
+
+function gradeScore(grade?: string): number {
+  if (!grade) return GRADE_ORDER.length;
+  const idx = GRADE_ORDER.indexOf(grade);
+  return idx === -1 ? GRADE_ORDER.length : idx;
+}
+
 export default function ServiceReportsScreen() {
   const [reports, setReports] = useState<ServiceReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [sortField, setSortField] = useState<SortField>('date');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [dateRange, setDateRange] = useState<DateRange>(30);
   const colors = useThemeColors();
 
   const load = (signal?: AbortSignal) => {
@@ -48,6 +64,39 @@ export default function ServiceReportsScreen() {
     return colors.critical;
   }
 
+  const filtered = useMemo(() => {
+    let result = reports;
+    if (dateRange > 0) {
+      const cutoff = Date.now() - dateRange * 24 * 60 * 60 * 1000;
+      result = result.filter((r) => new Date(r.date).getTime() >= cutoff);
+    }
+    return [...result].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'date') {
+        cmp = new Date(a.date).getTime() - new Date(b.date).getTime();
+      } else {
+        cmp = gradeScore(a.grade) - gradeScore(b.grade);
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [reports, sortField, sortDir, dateRange]);
+
+  function toggleSort(field: SortField) {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDir(field === 'date' ? 'desc' : 'asc');
+    }
+  }
+
+  const DATE_RANGE_LABELS: { value: DateRange; label: string }[] = [
+    { value: 30, label: '30d' },
+    { value: 90, label: '90d' },
+    { value: 365, label: '1yr' },
+    { value: 0, label: 'All' },
+  ];
+
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg }}>
@@ -57,12 +106,78 @@ export default function ServiceReportsScreen() {
     );
   }
 
+  function SortButton({ field, label }: { field: SortField; label: string }) {
+    const active = sortField === field;
+    return (
+      <Pressable
+        onPress={() => toggleSort(field)}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.sm,
+          borderRadius: borderRadius.full,
+          borderWidth: 1,
+          borderColor: active ? colors.accent : colors.border,
+          backgroundColor: active ? `${colors.accent}20` : colors.surface,
+          gap: 4,
+        }}
+      >
+        <Text style={{ fontSize: fontSize.xs, fontWeight: '600', color: active ? colors.accent : colors.textSecondary }}>
+          {label}
+        </Text>
+        {active && (
+          <Ionicons
+            name={sortDir === 'asc' ? 'arrow-up' : 'arrow-down'}
+            size={12}
+            color={colors.accent}
+          />
+        )}
+      </Pressable>
+    );
+  }
+
   return (
     <FlatList
       style={{ flex: 1, backgroundColor: colors.bg }}
-      data={reports}
+      data={filtered}
       keyExtractor={(r) => r.id}
       contentContainerStyle={{ padding: spacing.lg }}
+      ListHeaderComponent={(
+        <View style={{ marginBottom: spacing.lg }}>
+          {/* Date range filter */}
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm }}>
+            {DATE_RANGE_LABELS.map(({ value, label }) => {
+              const active = dateRange === value;
+              return (
+                <Pressable
+                  key={label}
+                  onPress={() => setDateRange(value)}
+                  style={{
+                    paddingHorizontal: spacing.md,
+                    paddingVertical: spacing.sm,
+                    borderRadius: borderRadius.full,
+                    borderWidth: 1,
+                    borderColor: active ? colors.accent : colors.border,
+                    backgroundColor: active ? `${colors.accent}20` : colors.surface,
+                  }}
+                >
+                  <Text style={{ fontSize: fontSize.xs, fontWeight: '600', color: active ? colors.accent : colors.textSecondary }}>
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Sort controls */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+            <Text style={{ fontSize: fontSize.xs, color: colors.textMuted, marginRight: 2 }}>Sort:</Text>
+            <SortButton field="date" label="Date" />
+            <SortButton field="grade" label="Grade" />
+          </View>
+        </View>
+      )}
       renderItem={({ item }) => (
         <View style={{
           backgroundColor: colors.surface,
@@ -106,7 +221,9 @@ export default function ServiceReportsScreen() {
               <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.accent }} onPress={() => load()}>Try Again</Text>
             </>
           ) : (
-            <Text style={{ fontSize: fontSize.md, color: colors.textMuted }}>No service reports yet</Text>
+            <Text style={{ fontSize: fontSize.md, color: colors.textMuted }}>
+              {dateRange > 0 ? `No reports in the last ${dateRange} days` : 'No service reports yet'}
+            </Text>
           )}
         </View>
       }
