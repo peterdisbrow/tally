@@ -3267,6 +3267,9 @@ api.onStatus((status) => {
   // Multi-encoder update
   updateMultiEncoderUI(status);
 
+  // Commands panel — update device section visibility & dropdowns
+  updateCommandsPanelVisibility(status);
+
   // Trigger auto-run after first successful relay connection
   if (getStatusActive(status.relay) && !_pfAutoRunDone && isRunning) {
     // Delay to let all devices connect before scanning for issues
@@ -3463,6 +3466,8 @@ async function switchTab(name) {
     _pfAutoRunIssueCount = 0;
     updatePfBadge();
   }
+  // Refresh commands panel visibility when switching to it
+  if (name === 'commands') { updateCommandsPanelVisibility(_lastCommandsStatus); }
 }
 
 // ─── CHAT ───────────────────────────────────────────────────────────────────
@@ -4688,6 +4693,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '1') { e.preventDefault(); switchTab('status'); }
   else if (e.key === '2') { e.preventDefault(); switchTab('equipment'); }
   else if (e.key === '3') { e.preventDefault(); switchTab('engineer'); }
+  else if (e.key === '4') { e.preventDefault(); switchTab('commands'); }
 });
 
 // External link handler
@@ -4695,6 +4701,177 @@ document.addEventListener('click', (e) => {
   const link = e.target.closest('.ext-link');
   if (link) { e.preventDefault(); api.openExternal(link.dataset.url); }
 });
+
+// ─── COMMANDS PANEL ─────────────────────────────────────────────────────────
+
+let _lastCommandsStatus = {};
+let _cmdToastTimer = null;
+
+function updateCommandsPanelVisibility(status) {
+  _lastCommandsStatus = status || {};
+  const atemConnected = getStatusActive(status.atem);
+  const obsConnected = getStatusActive(status.obs);
+  const vmixConnected = getStatusActive(status.vmix);
+  const ppConnected = getStatusActive(status.proPresenter);
+  const companionConnected = getStatusActive(status.companion);
+  const encoderConnected = getStatusActive(status.encoder) || obsConnected;
+  const hasSmartPlugs = Array.isArray(status.smartPlugs) && status.smartPlugs.length > 0;
+  const anyConnected = atemConnected || obsConnected || vmixConnected || ppConnected || companionConnected || encoderConnected || hasSmartPlugs;
+
+  const empty = document.getElementById('cmd-empty');
+  if (empty) empty.style.display = anyConnected ? 'none' : '';
+
+  // Show/hide device sections
+  const show = (id, visible) => { const el = document.getElementById(id); if (el) el.style.display = visible ? '' : 'none'; };
+  show('cmd-atem', atemConnected);
+  show('cmd-obs', obsConnected);
+  show('cmd-vmix', vmixConnected);
+  show('cmd-propresenter', ppConnected);
+  show('cmd-companion', companionConnected);
+  show('cmd-encoder', encoderConnected);
+  show('cmd-shelly', hasSmartPlugs);
+  show('cmd-recovery', anyConnected);
+
+  // Populate ATEM input dropdowns from status data
+  if (atemConnected) {
+    const atemData = status.atem && typeof status.atem === 'object' ? status.atem : {};
+    const inputLabels = atemData.inputLabels || {};
+    updateAtemInputDropdowns(inputLabels, atemData.programInput, atemData.previewInput);
+  }
+
+  // Populate OBS scene dropdown from status data
+  if (obsConnected) {
+    const obsData = status.obs && typeof status.obs === 'object' ? status.obs : {};
+    updateObsSceneDropdown(obsData.scenes, obsData.currentScene);
+  }
+
+  // Populate smart plug dropdown
+  if (hasSmartPlugs) {
+    updateSmartPlugDropdown(status.smartPlugs);
+  }
+}
+
+function updateAtemInputDropdowns(inputLabels, currentPgm, currentPvw) {
+  const pgmSelect = document.getElementById('cmd-atem-pgm');
+  const pvwSelect = document.getElementById('cmd-atem-pvw');
+  if (!pgmSelect || !pvwSelect) return;
+
+  // Build sorted list of inputs
+  const entries = Object.entries(inputLabels).sort((a, b) => +a[0] - +b[0]);
+  // Only rebuild if inputs changed
+  const key = entries.map(e => e.join(':')).join(',');
+  if (pgmSelect.dataset.key === key) {
+    // Just update selection
+    if (currentPgm != null) pgmSelect.value = String(currentPgm);
+    if (currentPvw != null) pvwSelect.value = String(currentPvw);
+    return;
+  }
+  pgmSelect.dataset.key = key;
+
+  const buildOptions = (select, current) => {
+    select.innerHTML = '';
+    if (entries.length === 0) {
+      const opt = document.createElement('option');
+      opt.textContent = 'No inputs';
+      opt.disabled = true;
+      select.appendChild(opt);
+      return;
+    }
+    for (const [id, label] of entries) {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = `${label} (${id})`;
+      select.appendChild(opt);
+    }
+    if (current != null) select.value = String(current);
+  };
+  buildOptions(pgmSelect, currentPgm);
+  buildOptions(pvwSelect, currentPvw);
+}
+
+function updateObsSceneDropdown(scenes, currentScene) {
+  const select = document.getElementById('cmd-obs-scene');
+  if (!select) return;
+  const sceneList = Array.isArray(scenes) ? scenes : [];
+  const key = sceneList.join(',');
+  if (select.dataset.key === key) {
+    if (currentScene) select.value = currentScene;
+    return;
+  }
+  select.dataset.key = key;
+  select.innerHTML = '';
+  if (sceneList.length === 0) {
+    const opt = document.createElement('option');
+    opt.textContent = 'No scenes';
+    opt.disabled = true;
+    select.appendChild(opt);
+    return;
+  }
+  for (const scene of sceneList) {
+    const opt = document.createElement('option');
+    opt.value = scene;
+    opt.textContent = scene;
+    select.appendChild(opt);
+  }
+  if (currentScene) select.value = currentScene;
+}
+
+function updateSmartPlugDropdown(plugs) {
+  const select = document.getElementById('cmd-shelly-plug');
+  if (!select) return;
+  const key = plugs.map(p => p.id || p.name).join(',');
+  if (select.dataset.key === key) return;
+  select.dataset.key = key;
+  select.innerHTML = '';
+  plugs.forEach((plug, i) => {
+    const opt = document.createElement('option');
+    opt.value = plug.id || String(i);
+    opt.textContent = plug.name || `Plug ${i + 1}`;
+    select.appendChild(opt);
+  });
+}
+
+async function sendCmd(command, params) {
+  showCmdToast('Sending...', 'success');
+  try {
+    const result = await api.sendCommand(command, params || {});
+    if (result && result.error) {
+      showCmdToast(`Error: ${result.error}`, 'error');
+    } else {
+      const msg = (result && result.result) ? String(result.result) : 'OK';
+      showCmdToast(msg.length > 60 ? msg.slice(0, 60) + '...' : msg, 'success');
+    }
+  } catch (e) {
+    showCmdToast(`Failed: ${e.message}`, 'error');
+  }
+}
+
+async function sendPlugCmd(action) {
+  const select = document.getElementById('cmd-shelly-plug');
+  const plugId = select ? select.value : '';
+  if (!plugId && plugId !== '0') { showCmdToast('Select a plug first', 'error'); return; }
+  showCmdToast('Sending...', 'success');
+  try {
+    const result = await api.sendCommand('shelly.' + (action === 'turn_on' ? 'turnOn' : action === 'turn_off' ? 'turnOff' : action === 'power_cycle' ? 'powerCycle' : action), { plugId });
+    if (result && result.error) {
+      showCmdToast(`Error: ${result.error}`, 'error');
+    } else {
+      showCmdToast('OK', 'success');
+    }
+  } catch (e) {
+    showCmdToast(`Failed: ${e.message}`, 'error');
+  }
+}
+
+function showCmdToast(msg, type) {
+  const toast = document.getElementById('cmd-toast');
+  if (!toast) return;
+  if (_cmdToastTimer) { clearTimeout(_cmdToastTimer); _cmdToastTimer = null; }
+  toast.textContent = msg;
+  toast.className = 'cmd-toast ' + (type || 'success');
+  toast.style.display = '';
+  _cmdToastTimer = setTimeout(() => { toast.style.display = 'none'; }, 3000);
+}
 
 // ─── CLEANUP ON UNLOAD ──────────────────────────────────────────────────────
 window.addEventListener('beforeunload', () => {

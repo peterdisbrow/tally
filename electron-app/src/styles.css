@@ -2376,3 +2376,138 @@ body.light-theme .section-label {
   color: #64748B;
 }
 
+/* ── Commands Panel ────────────────────────────────────────── */
+.cmd-device-section h2 {
+  font-size: 11px;
+  font-weight: 700;
+  color: #86efac;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+}
+.cmd-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cmd-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cmd-label {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  min-width: 52px;
+  flex-shrink: 0;
+}
+.cmd-btn {
+  background: var(--card);
+  color: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.cmd-btn:hover {
+  border-color: var(--green);
+  background: rgba(34,197,94,0.08);
+}
+.cmd-btn:active {
+  background: rgba(34,197,94,0.18);
+}
+.cmd-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.cmd-btn.cmd-btn-sm {
+  padding: 5px 10px;
+  font-size: 10px;
+}
+.cmd-btn.cmd-btn-danger {
+  border-color: rgba(239,68,68,0.5);
+  color: #fca5a5;
+}
+.cmd-btn.cmd-btn-danger:hover {
+  border-color: var(--danger);
+  background: rgba(239,68,68,0.12);
+}
+.cmd-btn.cmd-sending {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.cmd-select, .cmd-input {
+  background: var(--card);
+  color: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-family: var(--mono);
+  outline: none;
+  min-width: 0;
+}
+.cmd-select { flex: 1; max-width: 180px; }
+.cmd-input { width: 70px; }
+.cmd-select:focus, .cmd-input:focus {
+  border-color: var(--green);
+}
+.cmd-toast {
+  position: fixed;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 600;
+  z-index: 9999;
+  pointer-events: none;
+  animation: cmdToastIn 0.2s ease-out;
+}
+.cmd-toast.success {
+  background: rgba(34,197,94,0.2);
+  border: 1px solid rgba(34,197,94,0.4);
+  color: #86efac;
+}
+.cmd-toast.error {
+  background: rgba(239,68,68,0.2);
+  border: 1px solid rgba(239,68,68,0.4);
+  color: #fca5a5;
+}
+@keyframes cmdToastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* Light theme overrides for commands panel */
+body.light-theme .cmd-btn {
+  background: #FFFFFF;
+  color: #1E293B;
+  border-color: #CBD5E1;
+}
+body.light-theme .cmd-btn:hover {
+  background: #F0FDF4;
+  border-color: #22c55e;
+}
+body.light-theme .cmd-btn.cmd-btn-danger {
+  border-color: #FCA5A5;
+  color: #DC2626;
+}
+body.light-theme .cmd-select,
+body.light-theme .cmd-input {
+  background: #FFFFFF;
+  color: #1E293B;
+  border-color: #CBD5E1;
+}
+body.light-theme .cmd-device-section h2 {
+  color: #16a34a;
+}
+

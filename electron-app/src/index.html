@@ -185,6 +185,7 @@
     <button class="tab-btn active" onclick="switchTab('status')" title="Status (Ctrl+1 / ⌘1)">Status <span class="tab-badge" id="status-issue-badge" style="display:none;"></span></button>
     <button class="tab-btn" onclick="switchTab('equipment')" title="Equipment (Ctrl+2 / ⌘2)">Equipment</button>
     <button class="tab-btn" onclick="switchTab('engineer')" title="Tally Engineer (Ctrl+3 / ⌘3)">Tally Engineer</button>
+    <button class="tab-btn" onclick="switchTab('commands')" title="Commands (Ctrl+4 / ⌘4)">Commands</button>
   </div>
 
   <!-- ══════════ STATUS TAB ══════════ -->
@@ -934,6 +935,229 @@
       </button>
     </div>
   </div><!-- /tab-engineer -->
+
+  <!-- ══════════ COMMANDS TAB ══════════ -->
+  <div class="content tab-content" id="tab-commands" style="flex:1; overflow-y:auto;">
+
+    <!-- No devices connected message -->
+    <div id="cmd-empty" style="text-align:center; padding:40px 20px; color:var(--muted); font-size:12px;">
+      No devices connected. Start monitoring and connect equipment to send commands.
+    </div>
+
+    <!-- ATEM Commands -->
+    <div class="section cmd-device-section" id="cmd-atem" style="display:none;">
+      <h2>ATEM Switcher</h2>
+      <div class="cmd-group">
+        <div class="cmd-row">
+          <button class="cmd-btn cmd-btn-danger" onclick="sendCmd('atem.cut')">Cut</button>
+          <button class="cmd-btn" onclick="sendCmd('atem.auto')">Auto</button>
+          <button class="cmd-btn" onclick="sendCmd('atem.fadeToBlack')">FTB</button>
+        </div>
+        <div class="cmd-row">
+          <label class="cmd-label">Program</label>
+          <select class="cmd-select" id="cmd-atem-pgm"></select>
+          <button class="cmd-btn cmd-btn-sm" onclick="sendCmd('atem.setProgram', {input: +document.getElementById('cmd-atem-pgm').value})">Set</button>
+        </div>
+        <div class="cmd-row">
+          <label class="cmd-label">Preview</label>
+          <select class="cmd-select" id="cmd-atem-pvw"></select>
+          <button class="cmd-btn cmd-btn-sm" onclick="sendCmd('atem.setPreview', {input: +document.getElementById('cmd-atem-pvw').value})">Set</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('atem.startRecording')">Start Rec</button>
+          <button class="cmd-btn" onclick="sendCmd('atem.stopRecording')">Stop Rec</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('atem.startStreaming')">Start Stream</button>
+          <button class="cmd-btn" onclick="sendCmd('atem.stopStreaming')">Stop Stream</button>
+        </div>
+        <div class="cmd-row">
+          <label class="cmd-label">Transition</label>
+          <select class="cmd-select" id="cmd-atem-trans">
+            <option value="0">Mix</option>
+            <option value="1">Dip</option>
+            <option value="2">Wipe</option>
+            <option value="3">DVE</option>
+            <option value="4">Stinger</option>
+          </select>
+          <button class="cmd-btn cmd-btn-sm" onclick="sendCmd('atem.setTransitionStyle', {style: +document.getElementById('cmd-atem-trans').value})">Set</button>
+        </div>
+        <div class="cmd-row">
+          <label class="cmd-label">DSK 1</label>
+          <button class="cmd-btn cmd-btn-sm" onclick="sendCmd('atem.setDskOnAir', {key: 0, onAir: true})">On Air</button>
+          <button class="cmd-btn cmd-btn-sm" onclick="sendCmd('atem.setDskOnAir', {key: 0, onAir: false})">Off Air</button>
+          <button class="cmd-btn cmd-btn-sm" onclick="sendCmd('atem.autoDsk', {key: 0})">Auto</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- OBS Commands -->
+    <div class="section cmd-device-section" id="cmd-obs" style="display:none;">
+      <h2>OBS Studio</h2>
+      <div class="cmd-group">
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('obs.startStream')">Start Stream</button>
+          <button class="cmd-btn" onclick="sendCmd('obs.stopStream')">Stop Stream</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('obs.startRecording')">Start Rec</button>
+          <button class="cmd-btn" onclick="sendCmd('obs.stopRecording')">Stop Rec</button>
+        </div>
+        <div class="cmd-row">
+          <label class="cmd-label">Scene</label>
+          <select class="cmd-select" id="cmd-obs-scene"></select>
+          <button class="cmd-btn cmd-btn-sm" onclick="sendCmd('obs.setScene', {scene: document.getElementById('cmd-obs-scene').value})">Switch</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('obs.triggerTransition')">Trigger Transition</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('obs.pauseRecording')">Pause Rec</button>
+          <button class="cmd-btn" onclick="sendCmd('obs.resumeRecording')">Resume Rec</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('obs.startReplayBuffer')">Start Replay</button>
+          <button class="cmd-btn" onclick="sendCmd('obs.stopReplayBuffer')">Stop Replay</button>
+          <button class="cmd-btn" onclick="sendCmd('obs.saveReplayBuffer')">Save Replay</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- vMix Commands -->
+    <div class="section cmd-device-section" id="cmd-vmix" style="display:none;">
+      <h2>vMix</h2>
+      <div class="cmd-group">
+        <div class="cmd-row">
+          <button class="cmd-btn cmd-btn-danger" onclick="sendCmd('vmix.cut')">Cut</button>
+          <button class="cmd-btn" onclick="sendCmd('vmix.fade')">Fade</button>
+        </div>
+        <div class="cmd-row">
+          <label class="cmd-label">Program</label>
+          <input class="cmd-input" id="cmd-vmix-pgm" type="number" min="1" placeholder="Input #">
+          <button class="cmd-btn cmd-btn-sm" onclick="sendCmd('vmix.setProgram', {input: +document.getElementById('cmd-vmix-pgm').value})">Set</button>
+        </div>
+        <div class="cmd-row">
+          <label class="cmd-label">Preview</label>
+          <input class="cmd-input" id="cmd-vmix-pvw" type="number" min="1" placeholder="Input #">
+          <button class="cmd-btn cmd-btn-sm" onclick="sendCmd('vmix.setPreview', {input: +document.getElementById('cmd-vmix-pvw').value})">Set</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('vmix.startStream')">Start Stream</button>
+          <button class="cmd-btn" onclick="sendCmd('vmix.stopStream')">Stop Stream</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('vmix.startRecording')">Start Rec</button>
+          <button class="cmd-btn" onclick="sendCmd('vmix.stopRecording')">Stop Rec</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ProPresenter Commands -->
+    <div class="section cmd-device-section" id="cmd-propresenter" style="display:none;">
+      <h2>ProPresenter</h2>
+      <div class="cmd-group">
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('propresenter.next')">Next Slide</button>
+          <button class="cmd-btn" onclick="sendCmd('propresenter.previous')">Prev Slide</button>
+        </div>
+        <div class="cmd-row">
+          <label class="cmd-label">Go to Slide</label>
+          <input class="cmd-input" id="cmd-pp-slide" type="number" min="0" placeholder="#">
+          <button class="cmd-btn cmd-btn-sm" onclick="sendCmd('propresenter.goToSlide', {index: +document.getElementById('cmd-pp-slide').value})">Go</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('propresenter.nextAnnouncement')">Next Announce</button>
+          <button class="cmd-btn" onclick="sendCmd('propresenter.previousAnnouncement')">Prev Announce</button>
+        </div>
+        <div class="cmd-row">
+          <label class="cmd-label">Macro</label>
+          <input class="cmd-input" id="cmd-pp-macro" type="text" placeholder="Macro ID">
+          <button class="cmd-btn cmd-btn-sm" onclick="sendCmd('propresenter.triggerMacro', {id: document.getElementById('cmd-pp-macro').value})">Trigger</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('propresenter.clearProps')">Clear Props</button>
+          <button class="cmd-btn" onclick="sendCmd('propresenter.clearMessage')">Clear Message</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Companion Commands -->
+    <div class="section cmd-device-section" id="cmd-companion" style="display:none;">
+      <h2>Companion</h2>
+      <div class="cmd-group">
+        <div class="cmd-row">
+          <label class="cmd-label">Page</label>
+          <input class="cmd-input" id="cmd-comp-page" type="number" min="1" value="1" style="width:50px;">
+          <label class="cmd-label">Row</label>
+          <input class="cmd-input" id="cmd-comp-row" type="number" min="0" value="0" style="width:50px;">
+          <label class="cmd-label">Col</label>
+          <input class="cmd-input" id="cmd-comp-col" type="number" min="0" value="0" style="width:50px;">
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('companion.press', {page: +document.getElementById('cmd-comp-page').value, row: +document.getElementById('cmd-comp-row').value, column: +document.getElementById('cmd-comp-col').value})">Press Button</button>
+        </div>
+        <div class="cmd-row">
+          <label class="cmd-label">Named</label>
+          <input class="cmd-input" id="cmd-comp-named" type="text" placeholder="Button name" style="flex:1;">
+          <button class="cmd-btn cmd-btn-sm" onclick="sendCmd('companion.pressNamed', {name: document.getElementById('cmd-comp-named').value})">Press</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Encoder Commands -->
+    <div class="section cmd-device-section" id="cmd-encoder" style="display:none;">
+      <h2>Encoder</h2>
+      <div class="cmd-group">
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('encoder.startStream')">Start Stream</button>
+          <button class="cmd-btn" onclick="sendCmd('encoder.stopStream')">Stop Stream</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('encoder.startRecording')">Start Rec</button>
+          <button class="cmd-btn" onclick="sendCmd('encoder.stopRecording')">Stop Rec</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Smart Plug Commands -->
+    <div class="section cmd-device-section" id="cmd-shelly" style="display:none;">
+      <h2>Smart Plugs</h2>
+      <div class="cmd-group">
+        <div class="cmd-row">
+          <label class="cmd-label">Plug</label>
+          <select class="cmd-select" id="cmd-shelly-plug"></select>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendPlugCmd('turn_on')">Turn On</button>
+          <button class="cmd-btn" onclick="sendPlugCmd('turn_off')">Turn Off</button>
+          <button class="cmd-btn" onclick="sendPlugCmd('toggle')">Toggle</button>
+          <button class="cmd-btn cmd-btn-danger" onclick="sendPlugCmd('power_cycle')">Power Cycle</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recovery / System Commands -->
+    <div class="section cmd-device-section" id="cmd-recovery" style="display:none;">
+      <h2>Recovery</h2>
+      <div class="cmd-group">
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('recovery.restartStream')">Restart Stream</button>
+          <button class="cmd-btn" onclick="sendCmd('recovery.restartRecording')">Restart Recording</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('recovery.reconnectDevice')">Reconnect Device</button>
+          <button class="cmd-btn" onclick="sendCmd('recovery.restartEncoder')">Restart Encoder</button>
+        </div>
+        <div class="cmd-row">
+          <button class="cmd-btn" onclick="sendCmd('recovery.resetAudio')">Reset Audio</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Command result toast -->
+    <div id="cmd-toast" class="cmd-toast" style="display:none;"></div>
+
+  </div><!-- /tab-commands -->
 
 
   <div class="branding">
