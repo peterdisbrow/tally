@@ -116,6 +116,8 @@ export default function ServiceReportsScreen() {
           alignItems: 'center',
           paddingHorizontal: spacing.md,
           paddingVertical: spacing.sm,
+          minHeight: 44,
+          justifyContent: 'center',
           borderRadius: borderRadius.full,
           borderWidth: 1,
           borderColor: active ? colors.accent : colors.border,
@@ -156,6 +158,8 @@ export default function ServiceReportsScreen() {
                   style={{
                     paddingHorizontal: spacing.md,
                     paddingVertical: spacing.sm,
+                    minHeight: 44,
+                    justifyContent: 'center',
                     borderRadius: borderRadius.full,
                     borderWidth: 1,
                     borderColor: active ? colors.accent : colors.border,

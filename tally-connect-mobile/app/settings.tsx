@@ -80,11 +80,13 @@ export default function SettingsScreen() {
                 style={{
                   flex: 1,
                   paddingVertical: spacing.sm,
+                  minHeight: 44,
                   borderRadius: borderRadius.sm,
                   borderWidth: 1,
                   borderColor: preference === opt ? colors.accent : colors.border,
                   backgroundColor: preference === opt ? colors.accent + '22' : colors.surfaceElevated,
                   alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
                 <Text style={{

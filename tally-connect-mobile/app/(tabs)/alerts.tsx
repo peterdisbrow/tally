@@ -73,7 +73,9 @@ export default function AlertsScreen() {
           <Pressable
             style={{
               paddingHorizontal: spacing.md,
-              paddingVertical: 4,
+              paddingVertical: spacing.sm,
+              minHeight: 44,
+              justifyContent: 'center',
               borderRadius: borderRadius.sm,
               backgroundColor: colors.surface,
               borderWidth: 1,
@@ -128,6 +130,8 @@ export default function AlertsScreen() {
                 {
                   paddingHorizontal: spacing.md,
                   paddingVertical: spacing.sm,
+                  minHeight: 44,
+                  justifyContent: 'center',
                   borderRadius: borderRadius.full,
                   backgroundColor: colors.surface,
                   borderWidth: 1,
