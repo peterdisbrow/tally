@@ -1150,14 +1150,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
 
         // Extract version strings for each device
-        var atemVer = status.atem && status.atem.protocolVersion ? status.atem.protocolVersion : null;
+        var atemVer = status.atem && (status.atem.protocolVersion || status.atem.model) ? (status.atem.protocolVersion || status.atem.model) : null;
         var encVer = null, encVerType = null;
         if (enc.type === 'obs' || (!enc.type && status.obs)) {
           encVer = status.obs && status.obs.version; encVerType = 'obs';
         } else if (enc.type === 'vmix') {
           encVer = status.vmix && status.vmix.version; encVerType = 'vmix';
         } else if (enc.type) {
-          encVer = enc.firmwareVersion; encVerType = 'encoder_' + enc.type;
+          encVer = enc.firmwareVersion || enc.version; encVerType = 'encoder_' + enc.type;
         }
         var mixerVer = status.mixer && status.mixer.firmware ? status.mixer.firmware : null;
         var mixerVerType = status.mixer && status.mixer.type ? 'mixer_' + status.mixer.type : null;
@@ -1212,14 +1212,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const hd = status.hyperdeck || status.hyperDeck;
         if (hd) {
           const hdSt = hd.recording ? 'recording' : (hd.connected ? 'connected' : 'disconnected');
+          var hdVer = hd.model || hd.protocolVersion || null;
           var hdDetail = _formatDiskSpace(hd.diskSpace) || hd.lastSeen || null;
-          rows.push(['HyperDeck', hdSt, null, hdDetail]);
+          rows.push(['HyperDeck', hdSt, hdVer ? verInfo(hdVer, null) : null, hdDetail]);
         }
         if (Array.isArray(status.hyperdecks || status.hyperDecks)) {
           (status.hyperdecks || status.hyperDecks).forEach(function(deck, i) {
             const hdSt = deck.recording ? 'recording' : (deck.connected ? 'connected' : 'disconnected');
+            var hdVer = deck.model || deck.protocolVersion || null;
             var hdDetail = _formatDiskSpace(deck.diskSpace) || deck.lastSeen || null;
-            rows.push(['HyperDeck ' + (i + 1), hdSt, null, hdDetail]);
+            rows.push(['HyperDeck ' + (i + 1), hdSt, hdVer ? verInfo(hdVer, null) : null, hdDetail]);
           });
         }
         const pp = status.proPresenter || status.propresenter;
@@ -1235,12 +1237,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           }
           rows.push(['ProPresenter', ppSt, verInfo(ppVer, 'proPresenter'), ppDetail || pp.lastSeen || null]);
         }
-        const res = status.resolume;
-        if (res && res.host) {
-          const resSt = res.connected ? 'connected' : 'disconnected';
-          const resVer = res.version || null;
-          rows.push(['Resolume Arena', resSt, resVer ? verInfo(resVer, null) : null, null]);
-        }
+        // Resolume is handled below after VideoHubs to avoid duplicates
         if (status.ptz || status.cameras) {
           const cams = status.cameras || (status.ptz ? [status.ptz] : []);
           (Array.isArray(cams) ? cams : [cams]).forEach(function(cam, i) {
@@ -1271,7 +1268,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             rows.push([vhLabel, vhSt, null, vhDetail]);
           });
         }
-        if (status.resolume && typeof status.resolume === 'object') {
+        if (status.resolume && typeof status.resolume === 'object' && (status.resolume.host || status.resolume.connected != null)) {
           const rs = status.resolume;
           const rsSt = rs.connected ? 'connected' : 'disconnected';
           const rsDetail = rs.currentColumn != null ? 'Column: ' + rs.currentColumn : null;
@@ -1395,6 +1392,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // ── Smart plugs card ──────────────────────────────────────────────
         updateSmartPlugsCard(status);
 
+        // ── Equipment roles card ─────────────────────────────────────────
+        loadEquipmentRoles();
+
         // ── Audio health card ────────────────────────────────────────────────
         updateAudioHealthCard(status, audioViaAtem);
 
@@ -1423,6 +1423,127 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       } catch { toast('Refresh failed', true); }
       finally { if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; } }
     }
+
+    // ── Equipment Roles Card ─────────────────────────────────────────────────
+    var _rolesData = null; // cached roles response
+    var _rolesEdited = {}; // user edits
+
+    var ROLE_ICONS = {
+      primary_switcher: '🎛', recording_device: '⏺', streaming_device: '📡',
+      presentation: '📊', audio_mixer: '🔊', backup_encoder: '💾',
+    };
+    var ROLE_ROUTING = {
+      primary_switcher: 'Switching commands (cut, auto, set preview)',
+      recording_device: 'Record start/stop',
+      streaming_device: 'Stream start/stop, go live',
+      presentation: 'Slide next/prev/goto',
+      audio_mixer: 'Audio levels, mute/unmute',
+      backup_encoder: 'Backup recording/stream failover',
+    };
+    var DEVICE_NAMES = {
+      atem:'ATEM', encoder:'Encoder', obs:'OBS', vmix:'vMix',
+      hyperdeck:'HyperDeck', proPresenter:'ProPresenter', mixer:'Audio Mixer',
+      companion:'Companion', ptz:'PTZ', videohub:'VideoHub',
+      resolume:'Resolume', ecamm:'Ecamm', dante:'Dante', ndi:'NDI',
+    };
+
+    async function loadEquipmentRoles() {
+      if (!_selectedRoomId) return;
+      var card = document.getElementById('equipment-roles-card');
+      if (!card) return;
+      try {
+        var data = await api('GET', '/api/church/rooms/' + encodeURIComponent(_selectedRoomId) + '/roles');
+        _rolesData = data;
+        _rolesEdited = Object.assign({}, data.roles || {});
+        card.style.display = '';
+        var roomLabel = document.getElementById('roles-room-label');
+        var equipLabel = document.getElementById('equip-room-label');
+        if (roomLabel && equipLabel) roomLabel.textContent = equipLabel.textContent;
+
+        var autoBadge = document.getElementById('roles-auto-badge');
+        if (autoBadge) autoBadge.style.display = data.autoDetected ? '' : 'none';
+
+        renderRolesBody();
+        renderRolesRouting();
+      } catch {
+        card.style.display = 'none';
+      }
+    }
+
+    function renderRolesBody() {
+      var body = document.getElementById('roles-body');
+      if (!body || !_rolesData) return;
+      var defs = _rolesData.roleDefinitions || {};
+      var html = '';
+      for (var roleKey in defs) {
+        if (!defs.hasOwnProperty(roleKey)) continue;
+        var def = defs[roleKey];
+        var icon = ROLE_ICONS[roleKey] || '⚙';
+        var desc = ROLE_ROUTING[roleKey] || '';
+        var options = '<option value="">— None —</option>';
+        (def.compatible || []).forEach(function(devType) {
+          var sel = _rolesEdited[roleKey] === devType ? ' selected' : '';
+          options += '<option value="' + devType + '"' + sel + '>' + (DEVICE_NAMES[devType] || devType) + '</option>';
+        });
+        html += '<div style="display:flex;align-items:center;gap:12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 14px">'
+          + '<span style="font-size:18px;width:28px;text-align:center">' + icon + '</span>'
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-size:13px;font-weight:600;color:#F8FAFC">' + def.label + '</div>'
+          + '<div style="font-size:11px;color:#64748B">' + desc + '</div>'
+          + '</div>'
+          + '<select style="background:#0F172A;color:#F8FAFC;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;width:150px" '
+          + 'onchange="onRoleChange(\'' + roleKey + '\', this.value)">'
+          + options
+          + '</select>'
+          + '</div>';
+      }
+      body.innerHTML = html;
+    }
+
+    function renderRolesRouting() {
+      var container = document.getElementById('roles-routing');
+      var body = document.getElementById('roles-routing-body');
+      if (!container || !body || !_rolesData) return;
+      var defs = _rolesData.roleDefinitions || {};
+      var html = '';
+      for (var roleKey in defs) {
+        if (!defs.hasOwnProperty(roleKey)) continue;
+        var def = defs[roleKey];
+        var assigned = _rolesEdited[roleKey];
+        var deviceName = assigned ? (DEVICE_NAMES[assigned] || assigned) : null;
+        html += '<div style="display:flex;justify-content:space-between;padding:3px 0">'
+          + '<span style="color:#94A3B8">' + (ROLE_ROUTING[roleKey] || def.label) + '</span>'
+          + '<span style="font-weight:600;color:' + (assigned ? '#22c55e' : '#64748B') + '">'
+          + (assigned ? '→ ' + deviceName : 'Fallback (auto)') + '</span>'
+          + '</div>';
+      }
+      body.innerHTML = html;
+      container.style.display = html ? '' : 'none';
+    }
+
+    window.onRoleChange = function(roleKey, value) {
+      if (value) _rolesEdited[roleKey] = value;
+      else delete _rolesEdited[roleKey];
+      renderRolesRouting();
+    };
+
+    window.saveEquipmentRoles = async function() {
+      if (!_selectedRoomId) return;
+      var btn = document.getElementById('btn-save-roles');
+      var msg = document.getElementById('roles-msg');
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+      try {
+        await api('PUT', '/api/church/rooms/' + encodeURIComponent(_selectedRoomId) + '/roles', { roles: _rolesEdited });
+        if (msg) { msg.style.display = ''; msg.style.color = '#22c55e'; msg.textContent = 'Roles saved successfully'; }
+        var autoBadge = document.getElementById('roles-auto-badge');
+        if (autoBadge) autoBadge.style.display = 'none';
+        setTimeout(function() { if (msg) msg.style.display = 'none'; }, 3000);
+      } catch (e) {
+        if (msg) { msg.style.display = ''; msg.style.color = '#ef4444'; msg.textContent = e.message || 'Save failed'; }
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save Roles'; }
+      }
+    };
 
     // ── Smart Plugs Card ──────────────────────────────────────────────────────
     function updateSmartPlugsCard(status) {
