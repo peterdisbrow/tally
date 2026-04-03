@@ -32,13 +32,24 @@ export function useTallySocket() {
     };
   }, [isLoggedIn, isLoading]);
 
-  // Reconnect when app comes to foreground
+  // Validate token and reconnect when app comes to foreground
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active' && useAuthStore.getState().isLoggedIn) {
-        if (!tallySocket.isConnected) {
-          tallySocket.connect();
-        }
+    const subscription = AppState.addEventListener('change', async (nextState) => {
+      if (nextState !== 'active') return;
+      const authStore = useAuthStore.getState();
+      if (!authStore.isLoggedIn) return;
+
+      // Silently re-validate the session; forceLogout fires on 401 via the API
+      // client's registered auth handler, so we only need to catch other errors.
+      try {
+        await authStore.checkAuth();
+      } catch {
+        // checkAuth handles its own errors — swallow anything unexpected here
+      }
+
+      // Reconnect the WebSocket if the session is still valid
+      if (useAuthStore.getState().isLoggedIn && !tallySocket.isConnected) {
+        tallySocket.connect();
       }
     });
     return () => subscription.remove();
