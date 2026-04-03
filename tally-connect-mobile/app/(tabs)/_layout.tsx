@@ -121,6 +121,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="checks"
+        options={{
+          title: 'Checks',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="clipboard-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="chat"
         options={{
           title: 'Engineer',
