@@ -21,20 +21,23 @@ export default function ServiceReportsScreen() {
   const [error, setError] = useState(false);
   const colors = useThemeColors();
 
-  const load = () => {
+  const load = (signal?: AbortSignal) => {
     setLoading(true);
     setError(false);
-    api<{ reports: ServiceReport[] }>('/api/church/service-reports')
+    api<{ reports: ServiceReport[] }>('/api/church/service-reports', { signal })
       .then((d) => setReports(d.reports || []))
       .catch((err) => {
+        if (err.name === 'AbortError') return;
         console.error('Failed to load service reports:', err);
         setError(true);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!signal?.aborted) setLoading(false); });
   };
 
   useEffect(() => {
-    load();
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
   }, []);
 
   function gradeColor(grade?: string): string {
@@ -100,7 +103,7 @@ export default function ServiceReportsScreen() {
             <>
               <Text style={{ fontSize: fontSize.md, fontWeight: '700', color: colors.text, textAlign: 'center', marginBottom: 8 }}>Failed to Load Reports</Text>
               <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', marginBottom: 16 }}>Could not fetch service reports.</Text>
-              <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.accent }} onPress={load}>Try Again</Text>
+              <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.accent }} onPress={() => load()}>Try Again</Text>
             </>
           ) : (
             <Text style={{ fontSize: fontSize.md, color: colors.textMuted }}>No service reports yet</Text>

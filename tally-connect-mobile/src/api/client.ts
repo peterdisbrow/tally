@@ -54,6 +54,7 @@ interface ApiOptions {
   method?: string;
   body?: unknown;
   headers?: Record<string, string>;
+  signal?: AbortSignal;
 }
 
 export async function api<T = unknown>(path: string, options: ApiOptions = {}): Promise<T> {
@@ -74,6 +75,7 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
     method: options.method || 'GET',
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: options.signal,
   });
 
   if (response.status === 401) {

@@ -70,15 +70,20 @@ export default function MoreScreen() {
   }, [setUpdateReady]);
 
   useEffect(() => {
-    api<{ session: ServiceSession }>('/api/church/session/active')
-      .then((d) => setSession(d.session || d as any))
-      .catch((err) => console.error('Failed to load active session:', err))
-      .finally(() => setSessionLoading(false));
+    const controller = new AbortController();
+    const { signal } = controller;
 
-    api<{ reports: any[] }>('/api/church/service-reports')
+    api<{ session: ServiceSession }>('/api/church/session/active', { signal })
+      .then((d) => setSession(d.session || d as any))
+      .catch((err) => { if (err.name !== 'AbortError') console.error('Failed to load active session:', err); })
+      .finally(() => { if (!signal.aborted) setSessionLoading(false); });
+
+    api<{ reports: any[] }>('/api/church/service-reports', { signal })
       .then((d) => setReports((d.reports || []).slice(0, 5)))
-      .catch((err) => console.error('Failed to load recent reports:', err))
-      .finally(() => setReportsLoading(false));
+      .catch((err) => { if (err.name !== 'AbortError') console.error('Failed to load recent reports:', err); })
+      .finally(() => { if (!signal.aborted) setReportsLoading(false); });
+
+    return () => controller.abort();
   }, []);
 
   const handleLogout = () => {

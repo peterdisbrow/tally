@@ -23,20 +23,23 @@ export default function AnalyticsScreen() {
   const [error, setError] = useState(false);
   const colors = useThemeColors();
 
-  const load = () => {
+  const load = (signal?: AbortSignal) => {
     setLoading(true);
     setError(false);
-    api<AnalyticsData>('/api/church/analytics?days=30')
+    api<AnalyticsData>('/api/church/analytics?days=30', { signal })
       .then(setData)
       .catch((err) => {
+        if (err.name === 'AbortError') return;
         console.error('Failed to load analytics:', err);
         setError(true);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!signal?.aborted) setLoading(false); });
   };
 
   useEffect(() => {
-    load();
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
   }, []);
 
   if (loading) {
@@ -53,7 +56,7 @@ export default function AnalyticsScreen() {
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg, padding: 32 }}>
         <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: colors.text, textAlign: 'center', marginBottom: 8 }}>Failed to Load Analytics</Text>
         <Text style={{ fontSize: fontSize.md, color: colors.textSecondary, textAlign: 'center', marginBottom: 24 }}>Could not fetch analytics data.</Text>
-        <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.accent }} onPress={load}>Try Again</Text>
+        <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.accent }} onPress={() => load()}>Try Again</Text>
       </View>
     );
   }

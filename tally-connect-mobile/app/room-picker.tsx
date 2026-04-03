@@ -32,19 +32,22 @@ export default function RoomPickerScreen() {
   const colors = useThemeColors();
 
   useEffect(() => {
-    loadRooms();
+    const controller = new AbortController();
+    loadRooms(controller.signal);
+    return () => controller.abort();
   }, []);
 
-  async function loadRooms() {
+  async function loadRooms(signal?: AbortSignal) {
     setLoading(true);
     setError(null);
     try {
-      const data = await api<{ rooms: Array<{ id: string; name: string; is_default?: boolean }> }>('/api/church/rooms');
+      const data = await api<{ rooms: Array<{ id: string; name: string; is_default?: boolean }> }>('/api/church/rooms', { signal });
       setRooms((data.rooms || []).map((r) => ({ id: r.id, name: r.name })));
     } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return;
       setError(e instanceof Error ? e.message : 'Failed to load rooms. Check your connection and try again.');
     }
-    setLoading(false);
+    if (!signal?.aborted) setLoading(false);
   }
 
   function selectRoom(room: Room) {
@@ -71,7 +74,7 @@ export default function RoomPickerScreen() {
           <Ionicons name="cloud-offline-outline" size={48} color={colors.critical} />
           <Text style={{ fontSize: fontSize.xl, fontWeight: '700', color: colors.text, marginTop: spacing.lg, marginBottom: spacing.sm }}>Connection Error</Text>
           <Text style={{ fontSize: fontSize.md, color: colors.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: spacing.xxl }}>{error}</Text>
-          <Pressable style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingHorizontal: spacing.xxl, paddingVertical: spacing.md }} onPress={loadRooms}>
+          <Pressable style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingHorizontal: spacing.xxl, paddingVertical: spacing.md }} onPress={() => loadRooms()}>
             <Ionicons name="refresh" size={18} color="#ffffff" />
             <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: '#ffffff', marginLeft: spacing.sm }}>Retry</Text>
           </Pressable>
@@ -83,7 +86,7 @@ export default function RoomPickerScreen() {
           <Text style={{ fontSize: fontSize.md, color: colors.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: spacing.xxl }}>
             Add rooms in the Tally Connect portal, then pull to refresh.
           </Text>
-          <Pressable style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingHorizontal: spacing.xxl, paddingVertical: spacing.md }} onPress={loadRooms}>
+          <Pressable style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingHorizontal: spacing.xxl, paddingVertical: spacing.md }} onPress={() => loadRooms()}>
             <Ionicons name="refresh" size={18} color="#ffffff" />
             <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: '#ffffff', marginLeft: spacing.sm }}>Retry</Text>
           </Pressable>

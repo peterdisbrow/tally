@@ -56,7 +56,7 @@ export default function RundownScreen() {
   const [plan, setPlan] = useState<ServicePlan | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (signal?: AbortSignal) => {
     try {
       const churchId = await getChurchId();
       if (!churchId) {
@@ -66,7 +66,8 @@ export default function RundownScreen() {
 
       // Check PCO connection status first
       const status = await api<{ connected: boolean }>(
-        `/api/churches/${churchId}/planning-center`
+        `/api/churches/${churchId}/planning-center`,
+        { signal }
       );
 
       if (!status.connected) {
@@ -76,7 +77,8 @@ export default function RundownScreen() {
 
       // Fetch next service
       const data = await api<{ plan: ServicePlan | null }>(
-        `/api/churches/${churchId}/planning-center/next-service`
+        `/api/churches/${churchId}/planning-center/next-service`,
+        { signal }
       );
 
       if (!data.plan) {
@@ -87,13 +89,16 @@ export default function RundownScreen() {
       setPlan(data.plan);
       setState('ready');
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
       console.error('Failed to load service rundown:', err);
       setState('error');
     }
   }, []);
 
   useEffect(() => {
-    loadData();
+    const controller = new AbortController();
+    loadData(controller.signal);
+    return () => controller.abort();
   }, [loadData]);
 
   const onRefresh = useCallback(async () => {

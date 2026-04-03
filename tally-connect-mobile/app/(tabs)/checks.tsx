@@ -272,25 +272,28 @@ export default function PreServiceChecksScreen() {
 
   const roomQuery = activeRoomId ? `?roomId=${activeRoomId}` : '';
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
       const [checkRes, rundownRes] = await Promise.all([
-        api<PreServiceResult | null>(`/api/church/preservice-check${roomQuery}`).catch(() => null),
-        api<RundownStatus>(`/api/church/rundown/status${roomQuery}`).catch(() => ({ active: false })),
+        api<PreServiceResult | null>(`/api/church/preservice-check${roomQuery}`, { signal }).catch((e) => { if (e.name === 'AbortError') throw e; return null; }),
+        api<RundownStatus>(`/api/church/rundown/status${roomQuery}`, { signal }).catch((e) => { if (e.name === 'AbortError') throw e; return { active: false }; }),
       ]);
       setCheckResult(checkRes);
       setRundown(rundownRes);
       setLastFetched(new Date().toISOString());
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
       console.error('Failed to fetch pre-service check data:', err);
     } finally {
-      setIsLoading(false);
+      if (!signal?.aborted) setIsLoading(false);
     }
   }, [roomQuery]);
 
   useEffect(() => {
+    const controller = new AbortController();
     setIsLoading(true);
-    fetchData();
+    fetchData(controller.signal);
+    return () => controller.abort();
   }, [activeRoomId]);
 
   usePolling(fetchData, 30000);
