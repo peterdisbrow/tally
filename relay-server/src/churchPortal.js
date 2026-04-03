@@ -1177,7 +1177,54 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
   // ── Stream Platform OAuth (portal-initiated) ──────────────────────────────────
   // These mirror the Electron app's /api/church/app/oauth/* routes but use portal auth.
   if (streamOAuth) {
+    const YOUTUBE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+    const YOUTUBE_SCOPES = 'https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube';
     const FACEBOOK_AUTH_URL = 'https://www.facebook.com/v19.0/dialog/oauth';
+
+    // ── YouTube ──
+
+    // Initiate YouTube OAuth from portal (returns the auth URL for the browser popup)
+    app.post('/api/church/oauth/youtube/start', adminMiddleware, (req, res) => {
+      const clientId = process.env.YOUTUBE_CLIENT_ID || '';
+      if (!clientId) return res.status(500).json({ error: 'YouTube OAuth not configured' });
+      const state = require('crypto').randomBytes(16).toString('hex');
+      const redirectUri = `${req.protocol}://${req.get('host')}/api/oauth/youtube/callback`;
+      const authUrl = `${YOUTUBE_AUTH_URL}?` + new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: YOUTUBE_SCOPES,
+        access_type: 'offline',
+        prompt: 'consent',
+        state,
+      }).toString();
+      res.json({ authUrl, state, redirectUri });
+    });
+
+    // Poll for pending YouTube auth code
+    app.get('/api/church/oauth/youtube/pending', adminMiddleware, (req, res) => {
+      const { state } = req.query;
+      if (!state) return res.status(400).json({ error: 'state required' });
+      const pending = streamOAuth.getYouTubePendingCode(state);
+      if (!pending) return res.json({ ready: false });
+      res.json({ ready: true, code: pending.code });
+    });
+
+    // Exchange YouTube auth code for tokens + stream key
+    app.post('/api/church/oauth/youtube/exchange', adminMiddleware, async (req, res) => {
+      try {
+        const result = await streamOAuth.exchangeYouTubeCode(req.church.churchId, req.body.code, req.body.redirectUri);
+        res.json(result);
+      } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+    });
+
+    // Disconnect YouTube
+    app.delete('/api/church/oauth/youtube', adminMiddleware, (req, res) => {
+      streamOAuth.disconnectYouTube(req.church.churchId);
+      res.json({ disconnected: true });
+    });
+
+    // ── Facebook ──
 
     // Initiate Facebook OAuth from portal (returns the auth URL for the browser popup)
     app.post('/api/church/oauth/facebook/start', adminMiddleware, (req, res) => {
@@ -1233,6 +1280,8 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       streamOAuth.disconnectFacebook(req.church.churchId);
       res.json({ disconnected: true });
     });
+
+    // ── Shared ──
 
     // OAuth status (both platforms)
     app.get('/api/church/oauth/status', authMiddleware, (req, res) => {

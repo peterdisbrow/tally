@@ -47,6 +47,9 @@
     <button class="nav-item" data-page="automation" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z"/></svg></span> <span data-i18n="nav.automation">Automation</span>
     </button>
+    <button class="nav-item" data-page="connections" data-action="showPage">
+      <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"/></svg></span> <span data-i18n="nav.connections">Connections</span>
+    </button>
     <button class="nav-item" data-page="analytics" data-action="showPage">
       <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg></span> <span data-i18n="nav.analytics">Analytics</span>
     </button>
@@ -1975,6 +1978,83 @@
         </div>
         <div style="text-align:center;margin-top:12px">
           <button class="btn-secondary" id="btn-load-more-triage" data-action="loadMoreTriageEvents" style="font-size:12px;padding:4px 16px;display:none">Load More</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONNECTIONS -->
+    <div class="page" id="page-connections">
+      <div class="page-header">
+        <div class="page-header-text">
+          <div class="page-title" data-i18n="page.connections">Streaming Connections</div>
+          <div class="page-sub" data-i18n="connections.sub">Connect YouTube and Facebook for live stream monitoring and viewer analytics</div>
+        </div>
+      </div>
+
+      <!-- YouTube -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="28" height="28" rx="6" fill="#FF0000"/><path d="M19.58 10.3a1.63 1.63 0 0 0-1.14-1.15C17.26 8.85 14 8.85 14 8.85s-3.26 0-4.44.3A1.63 1.63 0 0 0 8.42 10.3 17.1 17.1 0 0 0 8.12 14a17.1 17.1 0 0 0 .3 3.7 1.63 1.63 0 0 0 1.14 1.15c1.18.3 4.44.3 4.44.3s3.26 0 4.44-.3a1.63 1.63 0 0 0 1.14-1.15c.2-1.22.3-2.46.3-3.7a17.1 17.1 0 0 0-.3-3.7Z" fill="#fff"/><path d="M12.6 16.4l2.96-2.4-2.96-2.4v4.8Z" fill="#FF0000"/></svg>
+          <div>
+            <div style="font-weight:600;font-size:15px;color:#F8FAFC">YouTube</div>
+            <div id="conn-yt-channel" style="font-size:12px;color:#64748b;margin-top:2px"></div>
+          </div>
+          <div style="flex:1"></div>
+          <span id="conn-yt-badge" class="conn-badge conn-badge-off">Not connected</span>
+        </div>
+        <div id="conn-yt-details" style="display:none;margin-bottom:12px">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:#94A3B8">
+            <div>Channel: <span id="conn-yt-channel-name" style="color:#F8FAFC;font-weight:500"></span></div>
+            <div>Stream key: <span id="conn-yt-key-status" style="color:#F8FAFC;font-weight:500"></span></div>
+          </div>
+        </div>
+        <div id="conn-yt-expiry" style="display:none;margin-bottom:12px;padding:8px 12px;background:#78350f22;border:1px solid #92400e;border-radius:6px;font-size:12px;color:#fbbf24;">
+          <span id="conn-yt-expiry-text"></span>
+          <button class="btn-primary" id="btn-conn-yt-reconnect" data-action="connYtConnect" style="margin-left:8px;font-size:11px;padding:4px 10px;">Reconnect</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-primary" id="btn-conn-yt" data-action="connYtConnect" style="font-size:13px;padding:8px 18px;">Connect YouTube</button>
+          <span id="conn-yt-status-msg" style="font-size:12px;color:#64748b"></span>
+        </div>
+      </div>
+
+      <!-- Facebook -->
+      <div class="card" style="margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="28" height="28" rx="6" fill="#1877F2"/><path d="M19.23 18.14l.59-3.86h-3.7v-2.5c0-1.06.52-2.09 2.18-2.09h1.69V6.35S18.42 6 16.94 6c-3.1 0-5.13 1.88-5.13 5.29v2.94H8.38v3.86h3.43V28h4.22V18.14h3.2Z" fill="#fff"/></svg>
+          <div>
+            <div style="font-weight:600;font-size:15px;color:#F8FAFC">Facebook</div>
+            <div id="conn-fb-page" style="font-size:12px;color:#64748b;margin-top:2px"></div>
+          </div>
+          <div style="flex:1"></div>
+          <span id="conn-fb-badge" class="conn-badge conn-badge-off">Not connected</span>
+        </div>
+        <div id="conn-fb-details" style="display:none;margin-bottom:12px">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:#94A3B8">
+            <div>Page: <span id="conn-fb-page-name" style="color:#F8FAFC;font-weight:500"></span></div>
+            <div>Stream key: <span id="conn-fb-key-status" style="color:#F8FAFC;font-weight:500"></span></div>
+          </div>
+        </div>
+        <div id="conn-fb-expiry" style="display:none;margin-bottom:12px;padding:8px 12px;background:#78350f22;border:1px solid #92400e;border-radius:6px;font-size:12px;color:#fbbf24;">
+          <span id="conn-fb-expiry-text"></span>
+          <button class="btn-primary" id="btn-conn-fb-reconnect" data-action="connFbConnect" style="margin-left:8px;font-size:11px;padding:4px 10px;">Reconnect</button>
+        </div>
+        <div id="conn-fb-page-selector" style="display:none;margin-bottom:12px;padding:10px 12px;background:#0f172a;border-radius:8px;">
+          <label style="font-size:12px;color:#94a3b8;">Select your Facebook Page:</label>
+          <select id="conn-fb-page-select" style="width:100%;margin-top:4px;padding:6px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:12px;"></select>
+          <button class="btn-primary" data-action="connFbSelectPage" style="margin-top:8px;font-size:12px;padding:6px 14px;">Use This Page</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-primary" id="btn-conn-fb" data-action="connFbConnect" style="font-size:13px;padding:8px 18px;">Connect Facebook</button>
+          <span id="conn-fb-status-msg" style="font-size:12px;color:#64748b"></span>
+        </div>
+      </div>
+
+      <div class="card" style="border-color:#1a2e1f33">
+        <div style="font-size:13px;color:#64748b;line-height:1.6">
+          <strong style="color:#94A3B8">How it works:</strong> Connecting a streaming platform lets Tally monitor your live stream health, track viewer counts, and detect issues in real time. Stream keys are managed automatically &mdash; you just need to authorize access once.
+          <br><br>
+          <strong style="color:#94A3B8">Admin only:</strong> Only church admin accounts can connect or disconnect streaming platforms. Tech directors can view connection status but cannot modify connections.
         </div>
       </div>
     </div>

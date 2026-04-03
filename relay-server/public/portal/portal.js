@@ -89,6 +89,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'nav.alerts': 'Alerts',
         'nav.engineer': 'Tally Engineer',
         'nav.automation': 'Automation',
+        'nav.connections': 'Connections',
         'nav.analytics': 'Analytics',
         'nav.billing': 'Billing',
         'nav.support': 'Help & Support',
@@ -127,10 +128,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'page.analytics': 'Analytics',
         'page.engineer': 'Train Your Tally Engineer',
         'page.automation': 'Automation',
+        'page.connections': 'Streaming Connections',
         'page.equipment': 'Equipment',
         'team.sub': 'Manage tech directors and guest access',
         'alerts.sub': 'Notification preferences and alert history',
         'automation.sub': 'Macros, rules, and automated workflows',
+        'connections.sub': 'Connect YouTube and Facebook for live stream monitoring and viewer analytics',
         'analytics.sub': 'Sessions, stream health, and performance data',
         'equipment.sub': 'Configure your production equipment',
         // Overview
@@ -445,6 +448,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'nav.alerts': 'Alertas',
         'nav.engineer': 'Tally Engineer',
         'nav.automation': 'Automatizaci\u00f3n',
+        'nav.connections': 'Conexiones',
         'nav.analytics': 'Anal\u00edticas',
         'nav.billing': 'Facturaci\u00f3n',
         'nav.support': 'Ayuda y Soporte',
@@ -485,10 +489,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'page.analytics': 'Anal\u00edticas',
         'page.engineer': 'Entrena tu Tally Engineer',
         'page.automation': 'Automatizaci\u00f3n',
+        'page.connections': 'Conexiones de Streaming',
         'page.equipment': 'Equipos',
         'team.sub': 'Gestiona directores t\u00e9cnicos y acceso de invitados',
         'alerts.sub': 'Preferencias de notificaci\u00f3n e historial de alertas',
         'automation.sub': 'Macros, reglas y flujos automatizados',
+        'connections.sub': 'Conecta YouTube y Facebook para monitoreo de transmisi\u00f3n en vivo y anal\u00edticas de espectadores',
         'analytics.sub': 'Sesiones, salud del stream y datos de rendimiento',
         'equipment.sub': 'Configura tu equipo de producci\u00f3n',
         // Overview
@@ -927,6 +933,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id === 'billing') { loadBilling(); loadReferralsPage(); }
       if (id === 'support') { loadSupportInfo(); initMigrationWizard(); }
       if (id === 'reports') loadReports();
+      if (id === 'connections') loadConnections();
       if (id === 'ai-triage') loadAiTriagePage();
       if (id === 'engineer') startEngineerChatPoll(); else stopEngineerChatPoll();
     }
@@ -3172,6 +3179,251 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       } catch (e) { /* relay may be unreachable */ }
     }
 
+    // ── Connections page (YouTube + Facebook OAuth) ───────────────────────────
+    var _connYtPollTimer = null;
+
+    async function loadConnections() {
+      try {
+        var d = await api('GET', '/api/church/oauth/status');
+        updateConnectionsUI(d);
+      } catch (e) { /* relay may not support oauth yet */ }
+    }
+
+    function updateConnectionsUI(d) {
+      // YouTube
+      var ytBadge = document.getElementById('conn-yt-badge');
+      var ytDetails = document.getElementById('conn-yt-details');
+      var ytChannel = document.getElementById('conn-yt-channel');
+      var ytChannelName = document.getElementById('conn-yt-channel-name');
+      var ytKeyStatus = document.getElementById('conn-yt-key-status');
+      var ytBtn = document.getElementById('btn-conn-yt');
+      var ytExpiry = document.getElementById('conn-yt-expiry');
+      var ytExpiryText = document.getElementById('conn-yt-expiry-text');
+      var ytMsg = document.getElementById('conn-yt-status-msg');
+      if (ytMsg) ytMsg.textContent = '';
+
+      if (d.youtube && d.youtube.connected) {
+        ytBadge.className = 'conn-badge conn-badge-on';
+        ytBadge.textContent = 'Connected';
+        ytDetails.style.display = 'block';
+        ytChannel.textContent = d.youtube.channelName || '';
+        ytChannelName.textContent = d.youtube.channelName || '—';
+        ytKeyStatus.textContent = d.youtube.streamKeySet ? 'Ready' : 'Not set';
+        ytBtn.textContent = 'Disconnect';
+        ytBtn.className = 'btn-secondary';
+        ytBtn.setAttribute('data-action', 'connYtDisconnect');
+        // Token expiry warning
+        if (d.youtube.expiresAt) {
+          var hrs = Math.floor((new Date(d.youtube.expiresAt).getTime() - Date.now()) / (60*60*1000));
+          if (hrs <= 0) {
+            ytExpiry.style.display = 'block';
+            ytExpiry.style.borderColor = '#dc2626';
+            ytExpiryText.textContent = 'YouTube token has expired.';
+            ytExpiryText.style.color = '#fca5a5';
+          } else {
+            ytExpiry.style.display = 'none';
+          }
+        } else {
+          ytExpiry.style.display = 'none';
+        }
+      } else {
+        ytBadge.className = 'conn-badge conn-badge-off';
+        ytBadge.textContent = 'Not connected';
+        ytDetails.style.display = 'none';
+        ytChannel.textContent = '';
+        ytBtn.textContent = 'Connect YouTube';
+        ytBtn.className = 'btn-primary';
+        ytBtn.setAttribute('data-action', 'connYtConnect');
+        ytExpiry.style.display = 'none';
+      }
+
+      // Facebook
+      var fbBadge = document.getElementById('conn-fb-badge');
+      var fbDetails = document.getElementById('conn-fb-details');
+      var fbPage = document.getElementById('conn-fb-page');
+      var fbPageName = document.getElementById('conn-fb-page-name');
+      var fbKeyStatus = document.getElementById('conn-fb-key-status');
+      var fbBtn = document.getElementById('btn-conn-fb');
+      var fbExpiry = document.getElementById('conn-fb-expiry');
+      var fbExpiryText = document.getElementById('conn-fb-expiry-text');
+      var fbMsg = document.getElementById('conn-fb-status-msg');
+      if (fbMsg) fbMsg.textContent = '';
+
+      if (d.facebook && d.facebook.connected) {
+        var pageName = d.facebook.pageName || 'Connected';
+        fbBadge.className = 'conn-badge conn-badge-on';
+        fbBadge.textContent = 'Connected';
+        fbDetails.style.display = 'block';
+        fbPage.textContent = pageName;
+        fbPageName.textContent = pageName;
+        fbKeyStatus.textContent = d.facebook.streamKeySet ? 'Ready' : 'Not set';
+        fbBtn.textContent = 'Disconnect';
+        fbBtn.className = 'btn-secondary';
+        fbBtn.setAttribute('data-action', 'connFbDisconnect');
+        // Token expiry warning
+        if (d.facebook.expiresAt) {
+          var daysLeft = Math.floor((new Date(d.facebook.expiresAt).getTime() - Date.now()) / (24*60*60*1000));
+          if (daysLeft <= 7 && daysLeft > 0) {
+            fbExpiry.style.display = 'block';
+            fbExpiry.style.borderColor = '#92400e';
+            fbExpiryText.textContent = 'Facebook token expires in ' + daysLeft + ' day' + (daysLeft !== 1 ? 's' : '') + '. Reconnect to refresh.';
+            fbExpiryText.style.color = '#fbbf24';
+          } else if (daysLeft <= 0) {
+            fbExpiry.style.display = 'block';
+            fbExpiry.style.borderColor = '#dc2626';
+            fbExpiryText.textContent = 'Facebook token has expired.';
+            fbExpiryText.style.color = '#fca5a5';
+          } else {
+            fbExpiry.style.display = 'none';
+          }
+        } else {
+          fbExpiry.style.display = 'none';
+        }
+      } else {
+        fbBadge.className = 'conn-badge conn-badge-off';
+        fbBadge.textContent = 'Not connected';
+        fbDetails.style.display = 'none';
+        fbPage.textContent = '';
+        fbBtn.textContent = 'Connect Facebook';
+        fbBtn.className = 'btn-primary';
+        fbBtn.setAttribute('data-action', 'connFbConnect');
+        fbExpiry.style.display = 'none';
+      }
+
+      // Also sync the equipment page's legacy FB OAuth status
+      portalUpdateOAuthStatus();
+    }
+
+    async function connYtConnect() {
+      var btn = document.getElementById('btn-conn-yt');
+      var msg = document.getElementById('conn-yt-status-msg');
+      if (btn) { btn.disabled = true; btn.textContent = 'Connecting\u2026'; }
+      if (msg) { msg.textContent = 'Opening YouTube\u2026'; msg.style.color = '#eab308'; }
+      try {
+        var d = await api('POST', '/api/church/oauth/youtube/start');
+        var popup = window.open(d.authUrl, 'yt_oauth', 'width=600,height=700,scrollbars=yes');
+        var state = d.state;
+        var redirectUri = d.redirectUri;
+        var polls = 0;
+        var maxPolls = 60;
+        clearInterval(_connYtPollTimer);
+        _connYtPollTimer = setInterval(async function() {
+          polls++;
+          if (polls > maxPolls) {
+            clearInterval(_connYtPollTimer);
+            if (msg) { msg.textContent = 'Timed out \u2014 try again'; msg.style.color = '#ef4444'; }
+            if (btn) { btn.disabled = false; btn.textContent = 'Connect YouTube'; }
+            return;
+          }
+          try {
+            var pending = await api('GET', '/api/church/oauth/youtube/pending?state=' + encodeURIComponent(state));
+            if (pending.ready && pending.code) {
+              clearInterval(_connYtPollTimer);
+              if (msg) { msg.textContent = 'Exchanging token\u2026'; }
+              var result = await api('POST', '/api/church/oauth/youtube/exchange', { code: pending.code, redirectUri: redirectUri });
+              if (result.success) {
+                toast('YouTube connected' + (result.channelName ? ' \u2014 ' + result.channelName : ''));
+                loadConnections();
+              } else {
+                if (msg) { msg.textContent = result.error || 'Connection failed'; msg.style.color = '#ef4444'; }
+              }
+              if (btn) { btn.disabled = false; }
+            }
+          } catch (e) { /* keep polling */ }
+        }, 2000);
+      } catch (e) {
+        if (msg) { msg.textContent = e.message || 'Failed to start'; msg.style.color = '#ef4444'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Connect YouTube'; }
+      }
+    }
+
+    async function connYtDisconnect() {
+      if (!confirm('Disconnect YouTube? Stream keys will be removed.')) return;
+      try {
+        await api('DELETE', '/api/church/oauth/youtube');
+        loadConnections();
+        toast('YouTube disconnected');
+      } catch (e) { toast('Failed: ' + e.message, true); }
+    }
+
+    var _connFbPollTimer = null;
+
+    async function connFbConnect() {
+      var btn = document.getElementById('btn-conn-fb');
+      var msg = document.getElementById('conn-fb-status-msg');
+      if (btn) { btn.disabled = true; btn.textContent = 'Connecting\u2026'; }
+      if (msg) { msg.textContent = 'Opening Facebook\u2026'; msg.style.color = '#eab308'; }
+      try {
+        var d = await api('POST', '/api/church/oauth/facebook/start');
+        var popup = window.open(d.authUrl, 'fb_oauth', 'width=600,height=700,scrollbars=yes');
+        var state = d.state;
+        var redirectUri = d.redirectUri;
+        var polls = 0;
+        var maxPolls = 60;
+        clearInterval(_connFbPollTimer);
+        _connFbPollTimer = setInterval(async function() {
+          polls++;
+          if (polls > maxPolls) {
+            clearInterval(_connFbPollTimer);
+            if (msg) { msg.textContent = 'Timed out \u2014 try again'; msg.style.color = '#ef4444'; }
+            if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
+            return;
+          }
+          try {
+            var pending = await api('GET', '/api/church/oauth/facebook/pending?state=' + encodeURIComponent(state));
+            if (pending.ready && pending.code) {
+              clearInterval(_connFbPollTimer);
+              if (msg) { msg.textContent = 'Exchanging token\u2026'; }
+              var result = await api('POST', '/api/church/oauth/facebook/exchange', { code: pending.code, redirectUri: redirectUri });
+              if (result.success && result.pages && result.pages.length) {
+                var sel = document.getElementById('conn-fb-page-select');
+                sel.innerHTML = result.pages.map(function(p) { return '<option value="' + p.id + '">' + (p.name || p.id) + '</option>'; }).join('');
+                document.getElementById('conn-fb-page-selector').style.display = 'block';
+                if (msg) { msg.textContent = 'Select a page below'; msg.style.color = '#eab308'; }
+              } else if (result.success) {
+                if (msg) { msg.textContent = 'No Facebook Pages found'; msg.style.color = '#ef4444'; }
+              } else {
+                if (msg) { msg.textContent = result.error || 'Connection failed'; msg.style.color = '#ef4444'; }
+              }
+              if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
+            }
+          } catch (e) { /* keep polling */ }
+        }, 2000);
+      } catch (e) {
+        if (msg) { msg.textContent = e.message || 'Failed to start'; msg.style.color = '#ef4444'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
+      }
+    }
+
+    async function connFbSelectPage() {
+      var sel = document.getElementById('conn-fb-page-select');
+      var pageId = sel ? sel.value : '';
+      if (!pageId) return;
+      var msg = document.getElementById('conn-fb-status-msg');
+      if (msg) { msg.textContent = 'Setting up\u2026'; msg.style.color = '#eab308'; }
+      try {
+        var result = await api('POST', '/api/church/oauth/facebook/select-page', { pageId: pageId });
+        if (result.success) {
+          document.getElementById('conn-fb-page-selector').style.display = 'none';
+          loadConnections();
+          toast('Facebook connected');
+        } else {
+          if (msg) { msg.textContent = result.error || 'Failed'; msg.style.color = '#ef4444'; }
+        }
+      } catch (e) {
+        if (msg) { msg.textContent = e.message; msg.style.color = '#ef4444'; }
+      }
+    }
+
+    async function connFbDisconnect() {
+      if (!confirm('Disconnect Facebook? Stream keys will be removed.')) return;
+      try {
+        await api('DELETE', '/api/church/oauth/facebook');
+        loadConnections();
+        toast('Facebook disconnected');
+      } catch (e) { toast('Failed: ' + e.message, true); }
+    }
+
     // ── Profile ─────────────────────────────────────────────────────────────────
     async function loadProfile() {
       try {
@@ -3248,7 +3500,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
      */
     function applyTdAccessRestrictions(level, name) {
       // Pages hidden per access level
-      var hiddenPages = { viewer: ['engineer','profile','rooms','team','automation','billing','support'], operator: ['profile','rooms','team','billing','support'], admin: ['billing'] };
+      var hiddenPages = { viewer: ['engineer','profile','rooms','team','automation','connections','billing','support'], operator: ['profile','rooms','team','connections','billing','support'], admin: ['billing'] };
       var hidden = hiddenPages[level] || hiddenPages.viewer;
       document.querySelectorAll('.nav-item[data-page]').forEach(function(btn) {
         if (hidden.indexOf(btn.dataset.page) !== -1) btn.style.display = 'none';
@@ -6683,6 +6935,23 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'refreshSmartPlugs':
         if (typeof refreshSmartPlugs === 'function') refreshSmartPlugs();
+        break;
+
+      // Connections (OAuth)
+      case 'connYtConnect':
+        if (typeof connYtConnect === 'function') connYtConnect();
+        break;
+      case 'connYtDisconnect':
+        if (typeof connYtDisconnect === 'function') connYtDisconnect();
+        break;
+      case 'connFbConnect':
+        if (typeof connFbConnect === 'function') connFbConnect();
+        break;
+      case 'connFbDisconnect':
+        if (typeof connFbDisconnect === 'function') connFbDisconnect();
+        break;
+      case 'connFbSelectPage':
+        if (typeof connFbSelectPage === 'function') connFbSelectPage();
         break;
 
       // Profile
