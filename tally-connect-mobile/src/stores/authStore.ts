@@ -21,6 +21,30 @@ interface AuthState {
   checkAuth: () => Promise<void>;
 }
 
+function normalizeLoginError(err: unknown, status?: number): string {
+  console.error('[Login error]', status !== undefined ? `HTTP ${status}:` : '', err);
+
+  if (status !== undefined) {
+    if (status === 401 || status === 403) return 'Invalid email or password.';
+    if (status === 404) return 'Server not found. Check your server URL.';
+    if (status === 429) return 'Too many attempts. Please wait a moment and try again.';
+    if (status >= 500) return 'Something went wrong on our end. Please try again later.';
+  }
+
+  const message = typeof err === 'string' ? err : err instanceof Error ? err.message : '';
+  const lower = message.toLowerCase();
+  if (
+    lower.includes('econnrefused') ||
+    lower.includes('timeout') ||
+    lower.includes('fetch failed') ||
+    lower.includes('network request failed')
+  ) {
+    return 'Unable to reach the server. Check your internet connection and try again.';
+  }
+
+  return 'Login failed. Please try again.';
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   isLoggedIn: false,
   isLoading: true,
@@ -47,7 +71,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       if (!response.ok) {
         const text = await response.text();
-        set({ isLoading: false, error: text || 'Login failed' });
+        set({ isLoading: false, error: normalizeLoginError(text, response.status) });
         return false;
       }
 
@@ -77,8 +101,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Login failed';
-      set({ isLoading: false, error: message });
+      set({ isLoading: false, error: normalizeLoginError(err) });
       return false;
     }
   },
