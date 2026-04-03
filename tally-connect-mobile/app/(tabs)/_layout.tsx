@@ -1,7 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, Pressable } from 'react-native';
-import { Tabs } from 'expo-router';
+import { Tabs, usePathname, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Updates from 'expo-updates';
 import { colors } from '../../src/theme/colors';
@@ -112,10 +114,50 @@ const updateBannerStyles = StyleSheet.create({
   },
 });
 
+const TAB_ORDER = ['alerts', 'actions', 'index', 'checks', 'chat', 'more'] as const;
+const SWIPE_THRESHOLD = 50;
+const SWIPE_VELOCITY_THRESHOLD = 800;
+
+function SwipeableTabView({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const currentSegment = pathname.split('/').pop() || 'alerts';
+  const currentIndex = TAB_ORDER.indexOf(currentSegment as (typeof TAB_ORDER)[number]);
+
+  const navigateToTab = useCallback(
+    (tabName: string) => {
+      router.replace(`/(tabs)/${tabName}` as any);
+    },
+    [router],
+  );
+
+  const swipeGesture = Gesture.Pan()
+    .activeOffsetX([-25, 25])
+    .failOffsetY([-15, 15])
+    .onEnd((event) => {
+      const { translationX, velocityX } = event;
+      const triggered =
+        Math.abs(translationX) > SWIPE_THRESHOLD ||
+        Math.abs(velocityX) > SWIPE_VELOCITY_THRESHOLD;
+
+      if (!triggered || currentIndex === -1) return;
+
+      if (translationX < 0 && currentIndex < TAB_ORDER.length - 1) {
+        runOnJS(navigateToTab)(TAB_ORDER[currentIndex + 1]);
+      } else if (translationX > 0 && currentIndex > 0) {
+        runOnJS(navigateToTab)(TAB_ORDER[currentIndex - 1]);
+      }
+    });
+
+  return <GestureDetector gesture={swipeGesture}>{children}</GestureDetector>;
+}
+
 export default function TabLayout() {
   const unreadCount = useAlertStore((s) => s.unreadCount);
 
   return (
+    <SwipeableTabView>
     <View style={{ flex: 1 }}>
     <ConnectionBanner />
     <UpdateBanner />
@@ -190,5 +232,6 @@ export default function TabLayout() {
       />
     </Tabs>
     </View>
+    </SwipeableTabView>
   );
 }
