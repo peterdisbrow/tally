@@ -1,23 +1,15 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, FlatList, StyleSheet, RefreshControl, Pressable, AppState,
+  View, Text, FlatList, RefreshControl, Pressable, AppState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAlertStore } from '../../src/stores/alertStore';
 import { AlertBadge } from '../../src/components/AlertBadge';
-import { colors } from '../../src/theme/colors';
+import { useThemeColors } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
 import type { Alert } from '../../src/ws/types';
 
 type SeverityFilter = 'ALL' | 'EMERGENCY' | 'CRITICAL' | 'WARNING' | 'INFO';
-
-const FILTER_COLORS: Record<SeverityFilter, string> = {
-  ALL: colors.accent,
-  EMERGENCY: colors.emergency,
-  CRITICAL: colors.critical,
-  WARNING: colors.warningAlert,
-  INFO: colors.infoAlert,
-};
 
 export default function AlertsScreen() {
   const alerts = useAlertStore((s) => s.alerts);
@@ -27,13 +19,21 @@ export default function AlertsScreen() {
   const dismissAlert = useAlertStore((s) => s.dismissAlert);
   const acknowledgeAlert = useAlertStore((s) => s.acknowledgeAlert);
   const [filter, setFilter] = useState<SeverityFilter>('ALL');
+  const colors = useThemeColors();
+
+  const FILTER_COLORS: Record<SeverityFilter, string> = {
+    ALL: colors.accent,
+    EMERGENCY: colors.emergency,
+    CRITICAL: colors.critical,
+    WARNING: colors.warningAlert,
+    INFO: colors.infoAlert,
+  };
 
   useEffect(() => {
     fetchAlerts();
     markAllRead();
   }, []);
 
-  // Mark alerts as read when screen mounts or app returns to foreground
   useEffect(() => {
     markAllRead();
     const sub = AppState.addEventListener('change', (state) => {
@@ -49,37 +49,52 @@ export default function AlertsScreen() {
   const filterButtons: SeverityFilter[] = ['ALL', 'EMERGENCY', 'CRITICAL', 'WARNING', 'INFO'];
 
   const renderAlert = useCallback(({ item }: { item: Alert }) => (
-    <View style={alertCardStyles.wrapper}>
+    <View style={{ marginBottom: spacing.sm }}>
       <AlertBadge alert={item} onPress={() => acknowledgeAlert(item.id)} />
-      <View style={alertCardStyles.actions}>
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: spacing.sm, paddingTop: 4, paddingHorizontal: 4 }}>
         {!item.acknowledged && (
           <Pressable
-            style={alertCardStyles.ackButton}
+            style={{
+              paddingHorizontal: spacing.md,
+              paddingVertical: 4,
+              borderRadius: borderRadius.sm,
+              backgroundColor: colors.surface,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
             onPress={() => acknowledgeAlert(item.id)}
           >
-            <Text style={alertCardStyles.ackText}>Acknowledge</Text>
+            <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' }}>Acknowledge</Text>
           </Pressable>
         )}
         {item.acknowledged && (
-          <View style={alertCardStyles.ackedRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
             <Ionicons name="checkmark-circle" size={14} color={colors.online} />
-            <Text style={alertCardStyles.ackedLabel}>Acknowledged</Text>
+            <Text style={{ fontSize: fontSize.xs, color: colors.online, fontWeight: '600' }}>Acknowledged</Text>
           </View>
         )}
         <Pressable
-          style={alertCardStyles.dismissButton}
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 14,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.border,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
           onPress={() => dismissAlert(item.id)}
         >
           <Ionicons name="close" size={16} color={colors.textMuted} />
         </Pressable>
       </View>
     </View>
-  ), [acknowledgeAlert, dismissAlert]);
+  ), [acknowledgeAlert, dismissAlert, colors]);
 
   return (
-    <View style={styles.container}>
-      {/* Filter bar */}
-      <View style={styles.filterBar}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ flexDirection: 'row', paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.sm }}>
         {filterButtons.map((f) => {
           const isActive = filter === f;
           const filterColor = FILTER_COLORS[f];
@@ -87,7 +102,14 @@ export default function AlertsScreen() {
             <Pressable
               key={f}
               style={[
-                styles.filterButton,
+                {
+                  paddingHorizontal: spacing.md,
+                  paddingVertical: spacing.sm,
+                  borderRadius: borderRadius.full,
+                  backgroundColor: colors.surface,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                },
                 isActive && {
                   backgroundColor: `${filterColor}20`,
                   borderColor: filterColor,
@@ -96,7 +118,7 @@ export default function AlertsScreen() {
               onPress={() => setFilter(f)}
             >
               <Text style={[
-                styles.filterText,
+                { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
                 isActive && { color: filterColor },
               ]}>
                 {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
@@ -110,7 +132,7 @@ export default function AlertsScreen() {
         data={filtered}
         keyExtractor={(item, idx) => item.id || `${item.timestamp}-${idx}`}
         renderItem={renderAlert}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={{ padding: spacing.lg }}
         refreshControl={
           <RefreshControl
             refreshing={isLoading}
@@ -119,9 +141,9 @@ export default function AlertsScreen() {
           />
         }
         ListEmptyComponent={
-          <View style={styles.empty}>
+          <View style={{ paddingVertical: 60, alignItems: 'center' }}>
             <Ionicons name="notifications-outline" size={36} color={colors.textMuted} style={{ marginBottom: spacing.md }} />
-            <Text style={styles.emptyText}>
+            <Text style={{ fontSize: fontSize.md, color: colors.textMuted }}>
               {isLoading ? 'Loading alerts...' : 'No alerts'}
             </Text>
           </View>
@@ -130,87 +152,3 @@ export default function AlertsScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  filterBar: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    gap: spacing.sm,
-  },
-  filterButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: borderRadius.full,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  filterText: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    fontWeight: '600',
-  },
-  list: {
-    padding: spacing.lg,
-  },
-  empty: {
-    paddingVertical: 60,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: fontSize.md,
-    color: colors.textMuted,
-  },
-});
-
-const alertCardStyles = StyleSheet.create({
-  wrapper: {
-    marginBottom: spacing.sm,
-  },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingTop: 4,
-    paddingHorizontal: 4,
-  },
-  ackButton: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 4,
-    borderRadius: borderRadius.sm,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  ackText: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    fontWeight: '600',
-  },
-  ackedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  ackedLabel: {
-    fontSize: fontSize.xs,
-    color: colors.online,
-    fontWeight: '600',
-  },
-  dismissButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-});

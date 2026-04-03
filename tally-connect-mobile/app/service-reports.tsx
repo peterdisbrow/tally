@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, FlatList, StyleSheet, ActivityIndicator,
+  View, Text, FlatList, ActivityIndicator,
 } from 'react-native';
 import { api } from '../src/api/client';
-import { colors } from '../src/theme/colors';
+import { useThemeColors } from '../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../src/theme/spacing';
 
 interface ServiceReport {
@@ -18,6 +18,7 @@ interface ServiceReport {
 export default function ServiceReportsScreen() {
   const [reports, setReports] = useState<ServiceReport[]>([]);
   const [loading, setLoading] = useState(true);
+  const colors = useThemeColors();
 
   useEffect(() => {
     api<{ reports: ServiceReport[] }>('/api/church/service-reports')
@@ -26,9 +27,17 @@ export default function ServiceReportsScreen() {
       .finally(() => setLoading(false));
   }, []);
 
+  function gradeColor(grade?: string): string {
+    if (!grade) return colors.textMuted;
+    if (grade.startsWith('A')) return colors.online;
+    if (grade.startsWith('B')) return colors.accentLight;
+    if (grade.startsWith('C')) return colors.warning;
+    return colors.critical;
+  }
+
   if (loading) {
     return (
-      <View style={styles.centered}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg }}>
         <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
@@ -36,31 +45,38 @@ export default function ServiceReportsScreen() {
 
   return (
     <FlatList
-      style={styles.container}
+      style={{ flex: 1, backgroundColor: colors.bg }}
       data={reports}
       keyExtractor={(r) => r.id}
-      contentContainerStyle={styles.list}
+      contentContainerStyle={{ padding: spacing.lg }}
       renderItem={({ item }) => (
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.date}>
+        <View style={{
+          backgroundColor: colors.surface,
+          borderRadius: borderRadius.md,
+          padding: spacing.lg,
+          marginBottom: spacing.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+        }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+            <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary }}>
               {new Date(item.date).toLocaleDateString(undefined, {
                 weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
               })}
             </Text>
-            <Text style={[styles.grade, { color: gradeColor(item.grade) }]}>
+            <Text style={{ fontSize: fontSize.xl, fontWeight: '800', color: gradeColor(item.grade) }}>
               {item.grade || '--'}
             </Text>
           </View>
-          <Text style={styles.name}>{item.name || 'Service'}</Text>
-          <View style={styles.meta}>
+          <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: colors.text, marginBottom: spacing.sm }}>{item.name || 'Service'}</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.lg }}>
             {item.duration != null && (
-              <Text style={styles.metaText}>
+              <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary }}>
                 {Math.floor(item.duration / 3600)}h {Math.floor((item.duration % 3600) / 60)}m
               </Text>
             )}
             {item.incidents != null && (
-              <Text style={[styles.metaText, item.incidents > 0 && { color: colors.warning }]}>
+              <Text style={[{ fontSize: fontSize.sm, color: colors.textSecondary }, item.incidents > 0 && { color: colors.warning }]}>
                 {item.incidents} incident{item.incidents !== 1 ? 's' : ''}
               </Text>
             )}
@@ -68,45 +84,10 @@ export default function ServiceReportsScreen() {
         </View>
       )}
       ListEmptyComponent={
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No service reports yet</Text>
+        <View style={{ paddingVertical: 60, alignItems: 'center' }}>
+          <Text style={{ fontSize: fontSize.md, color: colors.textMuted }}>No service reports yet</Text>
         </View>
       }
     />
   );
 }
-
-function gradeColor(grade?: string): string {
-  if (!grade) return colors.textMuted;
-  if (grade.startsWith('A')) return colors.online;
-  if (grade.startsWith('B')) return colors.accentLight;
-  if (grade.startsWith('C')) return colors.warning;
-  return colors.critical;
-}
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg },
-  list: { padding: spacing.lg },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  date: { fontSize: fontSize.sm, color: colors.textSecondary },
-  grade: { fontSize: fontSize.xl, fontWeight: '800' },
-  name: { fontSize: fontSize.lg, fontWeight: '700', color: colors.text, marginBottom: spacing.sm },
-  meta: { flexDirection: 'row', gap: spacing.lg },
-  metaText: { fontSize: fontSize.sm, color: colors.textSecondary },
-  emptyContainer: { paddingVertical: 60, alignItems: 'center' },
-  emptyText: { fontSize: fontSize.md, color: colors.textMuted },
-});

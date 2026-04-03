@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Pressable, Alert, Switch,
+  View, Text, ScrollView, Pressable, Alert, Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
 import { useCommandResultStore } from '../../src/stores/commandResultStore';
 import { tallySocket } from '../../src/ws/TallySocket';
-import { colors } from '../../src/theme/colors';
+import { useThemeColors } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
 import { TallyIndicator } from '../../src/components/TallyIndicator';
 import { GlassCard } from '../../src/components/GlassCard';
@@ -17,6 +17,7 @@ export default function ActionsScreen() {
   const status = useActiveRoomStatus();
   const activeRoomId = useStatusStore((s) => s.activeRoomId);
   const [pending, setPending] = useState<string | null>(null);
+  const colors = useThemeColors();
 
   const sendCommand = async (command: string, params: Record<string, unknown> = {}, destructive = false) => {
     if (destructive) {
@@ -57,7 +58,6 @@ export default function ActionsScreen() {
         messageId,
       });
 
-      // Wait up to 3 seconds for a result from the server
       const result = await new Promise<{ success: boolean; error?: string } | null>((resolve) => {
         const timeout = setTimeout(() => resolve(null), 3000);
         const check = setInterval(() => {
@@ -100,7 +100,6 @@ export default function ActionsScreen() {
 
   const isStreaming = status?.encoder?.streaming || status?.obs?.streaming || status?.atem?.streaming;
 
-  // Stream Protection state
   const sp = (status as any)?.streamProtection;
   const spEnabled = sp?.enabled ?? false;
   const spState = sp?.state ?? 'idle';
@@ -128,11 +127,11 @@ export default function ActionsScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.lg }}>
       {/* Camera Switching */}
       {atem?.connected && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>CAMERAS</Text>
+        <View style={{ marginBottom: spacing.xxl }}>
+          <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '600', marginBottom: spacing.md }}>CAMERAS</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {tallyInputs.map((input) => (
               <TallyIndicator
@@ -145,8 +144,9 @@ export default function ActionsScreen() {
               />
             ))}
           </ScrollView>
-          <View style={styles.transitionRow}>
+          <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.lg }}>
             <GradientButton
+              colors={colors}
               label="CUT"
               icon="cut-outline"
               gradientBg="rgba(239, 68, 68, 0.25)"
@@ -155,6 +155,7 @@ export default function ActionsScreen() {
               pending={pending === 'atem.cut'}
             />
             <GradientButton
+              colors={colors}
               label="AUTO"
               icon="swap-horizontal-outline"
               gradientBg="rgba(245, 158, 11, 0.2)"
@@ -167,10 +168,11 @@ export default function ActionsScreen() {
       )}
 
       {/* Stream Control */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>STREAM</Text>
-        <View style={styles.actionRow}>
+      <View style={{ marginBottom: spacing.xxl }}>
+        <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '600', marginBottom: spacing.md }}>STREAM</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.md }}>
           <GradientButton
+            colors={colors}
             label="Start Stream"
             icon="play-circle-outline"
             gradientBg="rgba(34, 197, 94, 0.2)"
@@ -184,6 +186,7 @@ export default function ActionsScreen() {
             disabled={isStreaming}
           />
           <GradientButton
+            colors={colors}
             label="Stop Stream"
             icon="stop-circle-outline"
             gradientBg="rgba(239, 68, 68, 0.2)"
@@ -203,13 +206,19 @@ export default function ActionsScreen() {
       </View>
 
       {/* Stream Protection */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>STREAM PROTECTION</Text>
-        <View style={spStyles.card}>
-          <View style={spStyles.headerRow}>
-            <View style={spStyles.statusRow}>
+      <View style={{ marginBottom: spacing.xxl }}>
+        <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '600', marginBottom: spacing.md }}>STREAM PROTECTION</Text>
+        <View style={{
+          backgroundColor: colors.surface,
+          borderRadius: borderRadius.md,
+          padding: spacing.lg,
+          borderWidth: 1,
+          borderColor: colors.border,
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
               <PulseDot color={stateColors[spState] || colors.textMuted} size={8} />
-              <Text style={spStyles.statusLabel}>
+              <Text style={{ fontSize: fontSize.md, color: colors.text, fontWeight: '600' }}>
                 {spEnabled ? (stateLabels[spState] || spState) : 'Disabled'}
               </Text>
             </View>
@@ -217,23 +226,39 @@ export default function ActionsScreen() {
               value={spEnabled}
               onValueChange={(val) => sendCommand(val ? 'streamProtection.enable' : 'streamProtection.disable')}
               trackColor={{ false: colors.border, true: colors.accent }}
-              thumbColor={colors.white}
+              thumbColor="#ffffff"
             />
           </View>
           {spCdnHealth && spEnabled && (
-            <View style={[spStyles.cdnRow, {
-              backgroundColor: spCdnHealth === 'healthy' ? 'rgba(34,197,94,0.1)' : spCdnHealth === 'mismatch' ? 'rgba(245,158,11,0.1)' : 'rgba(148,163,184,0.08)',
-            }]}>
-              <View style={[spStyles.cdnDot, {
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              marginTop: spacing.md,
+              paddingVertical: 5,
+              paddingHorizontal: spacing.md,
+              borderRadius: borderRadius.sm,
+              backgroundColor: spCdnHealth === 'healthy'
+                ? (colors.isDark ? 'rgba(34,197,94,0.1)' : 'rgba(22,163,74,0.06)')
+                : spCdnHealth === 'mismatch'
+                  ? (colors.isDark ? 'rgba(245,158,11,0.1)' : 'rgba(217,119,6,0.06)')
+                  : (colors.isDark ? 'rgba(148,163,184,0.08)' : 'rgba(107,114,128,0.06)'),
+            }}>
+              <View style={{
+                width: 6,
+                height: 6,
+                borderRadius: 3,
+                marginRight: 5,
                 backgroundColor: spCdnHealth === 'healthy' ? colors.online : spCdnHealth === 'mismatch' ? colors.warning : colors.textMuted,
-              }]} />
-              <Text style={[spStyles.cdnLabel, {
+              }} />
+              <Text style={{
+                fontSize: fontSize.sm,
+                fontWeight: '600',
                 color: spCdnHealth === 'healthy' ? colors.online : spCdnHealth === 'mismatch' ? colors.warning : colors.textMuted,
-              }]}>
+              }}>
                 {spCdnHealth === 'healthy' ? 'CDN: Healthy' : spCdnHealth === 'mismatch' ? 'CDN: Not Receiving' : 'CDN: Checking...'}
               </Text>
               {spCdnPlatforms && (
-                <Text style={spStyles.cdnDetails}>
+                <Text style={{ fontSize: 11, color: colors.textSecondary, marginLeft: spacing.sm }}>
                   {[
                     spCdnPlatforms.youtube && `YT: ${spCdnPlatforms.youtube.live ? 'Live' : 'Down'}`,
                     spCdnPlatforms.facebook && `FB: ${spCdnPlatforms.facebook.live ? 'Live' : 'Down'}`,
@@ -243,25 +268,36 @@ export default function ActionsScreen() {
             </View>
           )}
           {spLastEvent && spEnabled && (
-            <Text style={spStyles.eventText}>{spLastEvent}</Text>
+            <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary, marginTop: spacing.md }}>{spLastEvent}</Text>
           )}
           {spCanRestart && (
             <Pressable
-              style={spStyles.restartBtn}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: spacing.sm,
+                marginTop: spacing.md,
+                backgroundColor: colors.warning,
+                borderRadius: borderRadius.md,
+                paddingVertical: spacing.sm,
+                paddingHorizontal: spacing.lg,
+              }}
               onPress={() => sendCommand('streamProtection.restart')}
             >
-              <Ionicons name="refresh-outline" size={16} color={colors.white} />
-              <Text style={spStyles.restartLabel}>Restart Stream</Text>
+              <Ionicons name="refresh-outline" size={16} color="#ffffff" />
+              <Text style={{ fontSize: fontSize.sm, color: '#ffffff', fontWeight: '600' }}>Restart Stream</Text>
             </Pressable>
           )}
         </View>
       </View>
 
       {/* Recording */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>RECORDING</Text>
-        <View style={styles.actionRow}>
+      <View style={{ marginBottom: spacing.xxl }}>
+        <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '600', marginBottom: spacing.md }}>RECORDING</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.md }}>
           <GradientButton
+            colors={colors}
             label="Start Rec"
             icon="radio-button-on-outline"
             gradientBg="rgba(239, 68, 68, 0.2)"
@@ -271,6 +307,7 @@ export default function ActionsScreen() {
             pending={pending === 'obs.startRecording'}
           />
           <GradientButton
+            colors={colors}
             label="Stop Rec"
             icon="square-outline"
             gradientBg={colors.surface}
@@ -283,19 +320,20 @@ export default function ActionsScreen() {
 
       {/* ProPresenter */}
       {status?.propresenter?.connected && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>PROPRESENTER</Text>
+        <View style={{ marginBottom: spacing.xxl }}>
+          <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '600', marginBottom: spacing.md }}>PROPRESENTER</Text>
           <GlassCard glowColor={colors.accent}>
             {status.propresenter.currentSlide && (
-              <View style={styles.currentSlideRow}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md }}>
                 <Ionicons name="tv-outline" size={14} color={colors.textSecondary} />
-                <Text style={styles.currentSlide}>
+                <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary }}>
                   {status.propresenter.currentSlide}
                 </Text>
               </View>
             )}
-            <View style={styles.actionRow}>
+            <View style={{ flexDirection: 'row', gap: spacing.md }}>
               <GradientButton
+                colors={colors}
                 label="Previous"
                 icon="chevron-back"
                 gradientBg="rgba(34, 197, 94, 0.15)"
@@ -304,6 +342,7 @@ export default function ActionsScreen() {
                 pending={pending === 'propresenter.previousSlide'}
               />
               <GradientButton
+                colors={colors}
                 label="Next"
                 icon="chevron-forward"
                 gradientBg="rgba(34, 197, 94, 0.15)"
@@ -330,15 +369,25 @@ interface GradientButtonProps {
   onPress: () => void;
   pending?: boolean;
   disabled?: boolean;
+  colors: any;
 }
 
-function GradientButton({ label, icon, gradientBg, borderColor, color, onPress, pending, disabled }: GradientButtonProps) {
+function GradientButton({ label, icon, gradientBg, borderColor, color, onPress, pending, disabled, colors }: GradientButtonProps) {
   return (
     <Pressable
       style={[
-        actionStyles.button,
-        { backgroundColor: gradientBg, borderColor },
-        disabled && actionStyles.buttonDisabled,
+        {
+          flex: 1,
+          borderRadius: borderRadius.md,
+          padding: spacing.lg,
+          alignItems: 'center' as const,
+          justifyContent: 'center' as const,
+          borderWidth: 1,
+          minHeight: 72,
+          backgroundColor: gradientBg,
+          borderColor,
+        },
+        disabled && { opacity: 0.4 },
         pending && { borderColor: colors.accent },
       ]}
       onPress={onPress}
@@ -350,7 +399,7 @@ function GradientButton({ label, icon, gradientBg, borderColor, color, onPress, 
         color={disabled ? colors.textMuted : color || colors.text}
       />
       <Text style={[
-        actionStyles.label,
+        { fontSize: fontSize.sm, color: colors.text, fontWeight: '600', marginTop: spacing.sm },
         disabled && { color: colors.textMuted },
       ]}>
         {pending ? 'Sending...' : label}
@@ -358,133 +407,3 @@ function GradientButton({ label, icon, gradientBg, borderColor, color, onPress, 
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  content: {
-    padding: spacing.lg,
-  },
-  section: {
-    marginBottom: spacing.xxl,
-  },
-  sectionTitle: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    fontWeight: '600',
-    marginBottom: spacing.md,
-  },
-  transitionRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing.lg,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  currentSlideRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  currentSlide: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-  },
-});
-
-const actionStyles = StyleSheet.create({
-  button: {
-    flex: 1,
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    minHeight: 72,
-  },
-  buttonDisabled: {
-    opacity: 0.4,
-  },
-  label: {
-    fontSize: fontSize.sm,
-    color: colors.text,
-    fontWeight: '600',
-    marginTop: spacing.sm,
-  },
-});
-
-const spStyles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  statusLabel: {
-    fontSize: fontSize.md,
-    color: colors.text,
-    fontWeight: '600',
-  },
-  eventText: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-    marginTop: spacing.md,
-  },
-  restartBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.md,
-    backgroundColor: colors.warning,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-  },
-  restartLabel: {
-    fontSize: fontSize.sm,
-    color: colors.white,
-    fontWeight: '600',
-  },
-  cdnRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.md,
-    paddingVertical: 5,
-    paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.sm,
-  },
-  cdnDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 5,
-  },
-  cdnLabel: {
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-  },
-  cdnDetails: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginLeft: spacing.sm,
-  },
-});

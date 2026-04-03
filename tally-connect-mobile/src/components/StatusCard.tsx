@@ -1,6 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { colors } from '../theme/colors';
+import { View, Text } from 'react-native';
+import { useThemeColors } from '../theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../theme/spacing';
 
 interface StatusCardProps {
@@ -12,41 +12,35 @@ interface StatusCardProps {
 }
 
 export function StatusCard({ title, value, subtitle, color, icon }: StatusCardProps) {
+  const colors = useThemeColors();
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>{title}</Text>
-      <Text style={[styles.value, color ? { color } : null]}>
+    <View style={{
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderRadius: borderRadius.md,
+      padding: spacing.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+    }}>
+      <Text style={{
+        fontSize: fontSize.xs,
+        color: colors.textSecondary,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+        marginBottom: spacing.xs,
+      }}>{title}</Text>
+      <Text style={[{
+        fontSize: fontSize.xxl,
+        fontWeight: '700',
+        color: colors.text,
+      }, color ? { color } : null]}>
         {icon ? `${icon} ` : ''}{value}
       </Text>
-      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+      {subtitle ? <Text style={{
+        fontSize: fontSize.xs,
+        color: colors.textMuted,
+        marginTop: spacing.xs,
+      }}>{subtitle}</Text> : null}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  title: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: spacing.xs,
-  },
-  value: {
-    fontSize: fontSize.xxl,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  subtitle: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-    marginTop: spacing.xs,
-  },
-});

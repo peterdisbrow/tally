@@ -7,23 +7,22 @@ import { useChatStore } from '../src/stores/chatStore';
 import { useNotifications } from '../src/hooks/useNotifications';
 import { useTallySocket } from '../src/hooks/useTallySocket';
 import { useUpdateCheck } from '../src/hooks/useUpdateCheck';
-import { colors } from '../src/theme/colors';
+import { ThemeProvider, useThemeColors } from '../src/theme/ThemeContext';
 
-export default function RootLayout() {
+function RootNavigator() {
   const checkAuth = useAuthStore((s) => s.checkAuth);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const colors = useThemeColors();
   useNotifications();
   useTallySocket();
   useUpdateCheck();
 
   useEffect(() => {
-    // Clear chat history on app boot — don't persist between sessions
     useChatStore.getState().clearMessages();
     checkAuth();
   }, []);
 
-  // Redirect to login when auth state becomes logged-out (e.g. 401 forceLogout)
   useEffect(() => {
     if (!isLoading && !isLoggedIn) {
       router.replace('/login');
@@ -32,7 +31,7 @@ export default function RootLayout() {
 
   return (
     <>
-      <StatusBar style="light" />
+      <StatusBar style={colors.statusBarStyle} />
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: colors.bg },
@@ -51,5 +50,13 @@ export default function RootLayout() {
         <Stack.Screen name="rundown" options={{ title: 'Service Rundown', headerBackTitle: 'More' }} />
       </Stack>
     </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <ThemeProvider>
+      <RootNavigator />
+    </ThemeProvider>
   );
 }

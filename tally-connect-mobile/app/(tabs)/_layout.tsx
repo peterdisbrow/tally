@@ -6,7 +6,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Updates from 'expo-updates';
-import { colors } from '../../src/theme/colors';
+import { useThemeColors } from '../../src/theme/ThemeContext';
 import { useAlertStore } from '../../src/stores/alertStore';
 import { useStatusStore } from '../../src/stores/statusStore';
 import { useUpdateStore } from '../../src/stores/updateStore';
@@ -14,6 +14,7 @@ import { fontSize } from '../../src/theme/spacing';
 
 function ConnectionBanner() {
   const wsConnected = useStatusStore((s) => s.wsConnected);
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const [visible, setVisible] = useState(false);
   const [showConnected, setShowConnected] = useState(false);
@@ -70,7 +71,7 @@ const bannerStyles = StyleSheet.create({
     paddingBottom: 6,
   },
   text: {
-    color: colors.white,
+    color: '#ffffff',
     fontSize: fontSize.sm,
     fontWeight: '700',
   },
@@ -78,16 +79,17 @@ const bannerStyles = StyleSheet.create({
 
 function UpdateBanner() {
   const updateReady = useUpdateStore((s) => s.updateReady);
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
 
   if (!updateReady) return null;
 
   return (
     <Pressable
-      style={[updateBannerStyles.banner, { paddingTop: insets.top + 4 }]}
+      style={[updateBannerStyles.banner, { paddingTop: insets.top + 4, backgroundColor: colors.accent }]}
       onPress={() => Updates.reloadAsync()}
     >
-      <Ionicons name="arrow-down-circle" size={16} color={colors.white} />
+      <Ionicons name="arrow-down-circle" size={16} color="#ffffff" />
       <Text style={updateBannerStyles.text}>Update available — tap to restart</Text>
     </Pressable>
   );
@@ -104,11 +106,10 @@ const updateBannerStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: colors.accent,
     paddingBottom: 6,
   },
   text: {
-    color: colors.white,
+    color: '#ffffff',
     fontSize: fontSize.sm,
     fontWeight: '700',
   },
@@ -155,10 +156,11 @@ function SwipeableTabView({ children }: { children: React.ReactNode }) {
 
 export default function TabLayout() {
   const unreadCount = useAlertStore((s) => s.unreadCount);
+  const colors = useThemeColors();
 
   return (
     <SwipeableTabView>
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
     <ConnectionBanner />
     <UpdateBanner />
     <Tabs

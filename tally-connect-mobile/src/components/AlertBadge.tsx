@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { colors } from '../theme/colors';
+import { useThemeColors, type ThemeColors } from '../theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../theme/spacing';
 import type { Alert } from '../ws/types';
 
@@ -10,12 +10,14 @@ interface AlertBadgeProps {
   onPress?: () => void;
 }
 
-const SEVERITY_CONFIG = {
-  EMERGENCY: { color: colors.emergency, bg: 'rgba(220, 38, 38, 0.15)', icon: 'alarm-light-outline' as const, lib: 'mci' as const },
-  CRITICAL: { color: colors.critical, bg: 'rgba(239, 68, 68, 0.12)', icon: 'warning-outline' as const, lib: 'ion' as const },
-  WARNING: { color: colors.warningAlert, bg: 'rgba(245, 158, 11, 0.10)', icon: 'flash-outline' as const, lib: 'ion' as const },
-  INFO: { color: colors.infoAlert, bg: 'rgba(59, 130, 246, 0.10)', icon: 'information-circle-outline' as const, lib: 'ion' as const },
-};
+function getSeverityConfig(colors: ThemeColors) {
+  return {
+    EMERGENCY: { color: colors.emergency, bg: colors.isDark ? 'rgba(220, 38, 38, 0.15)' : 'rgba(220, 38, 38, 0.08)', icon: 'alarm-light-outline' as const, lib: 'mci' as const },
+    CRITICAL: { color: colors.critical, bg: colors.isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(220, 38, 38, 0.06)', icon: 'warning-outline' as const, lib: 'ion' as const },
+    WARNING: { color: colors.warningAlert, bg: colors.isDark ? 'rgba(245, 158, 11, 0.10)' : 'rgba(217, 119, 6, 0.06)', icon: 'flash-outline' as const, lib: 'ion' as const },
+    INFO: { color: colors.infoAlert, bg: colors.isDark ? 'rgba(59, 130, 246, 0.10)' : 'rgba(37, 99, 235, 0.06)', icon: 'information-circle-outline' as const, lib: 'ion' as const },
+  };
+}
 
 function timeAgo(timestamp: string): string {
   const diff = Date.now() - new Date(timestamp).getTime();
@@ -29,87 +31,47 @@ function timeAgo(timestamp: string): string {
 }
 
 export function AlertBadge({ alert, onPress }: AlertBadgeProps) {
-  const config = SEVERITY_CONFIG[alert.severity] || SEVERITY_CONFIG.INFO;
+  const colors = useThemeColors();
+  const severityConfig = getSeverityConfig(colors);
+  const config = severityConfig[alert.severity] || severityConfig.INFO;
 
   return (
     <Pressable onPress={onPress}>
       <View style={[
-        styles.container,
         {
+          borderTopLeftRadius: 4,
+          borderTopRightRadius: borderRadius.lg,
+          borderBottomRightRadius: borderRadius.lg,
+          borderBottomLeftRadius: 4,
+          padding: spacing.lg,
+          marginBottom: spacing.sm,
+          borderLeftWidth: 3,
+          borderWidth: 1,
+          borderColor: colors.border,
           backgroundColor: config.bg,
           borderLeftColor: config.color,
           shadowColor: config.color,
-          shadowOpacity: 0.15,
+          shadowOpacity: colors.isDark ? 0.15 : 0.08,
           shadowRadius: 8,
           shadowOffset: { width: 0, height: 2 },
         },
       ]}>
-        <View style={styles.header}>
-          <View style={styles.badgeRow}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
             {config.lib === 'mci'
               ? <MaterialCommunityIcons name={config.icon as any} size={14} color={config.color} />
               : <Ionicons name={config.icon as any} size={14} color={config.color} />}
-            <View style={[styles.badge, { backgroundColor: config.color }]}>
-              <Text style={styles.badgeText}>{alert.severity}</Text>
+            <View style={{ backgroundColor: config.color, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: borderRadius.sm }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', color: '#ffffff', letterSpacing: 0.5 }}>{alert.severity}</Text>
             </View>
           </View>
-          <Text style={styles.time}>{timeAgo(alert.timestamp)}</Text>
+          <Text style={{ fontSize: fontSize.xs, color: colors.textMuted }}>{timeAgo(alert.timestamp)}</Text>
         </View>
-        <Text style={styles.message}>{alert.message}</Text>
+        <Text style={{ fontSize: fontSize.md, color: colors.text, lineHeight: 20 }}>{alert.message}</Text>
         {alert.roomName ? (
-          <Text style={styles.room}>{alert.roomName}</Text>
+          <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, marginTop: spacing.xs }}>{alert.roomName}</Text>
         ) : null}
       </View>
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: borderRadius.lg,
-    borderBottomRightRadius: borderRadius.lg,
-    borderBottomLeftRadius: 4,
-    padding: spacing.lg,
-    marginBottom: spacing.sm,
-    borderLeftWidth: 3,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  badge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: borderRadius.sm,
-  },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.white,
-    letterSpacing: 0.5,
-  },
-  time: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-  },
-  message: {
-    fontSize: fontSize.md,
-    color: colors.text,
-    lineHeight: 20,
-  },
-  room: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-});

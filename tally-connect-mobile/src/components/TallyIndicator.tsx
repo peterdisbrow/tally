@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { colors } from '../theme/colors';
+import { useThemeColors } from '../theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../theme/spacing';
 
 interface TallyIndicatorProps {
@@ -13,6 +13,7 @@ interface TallyIndicatorProps {
 }
 
 export function TallyIndicator({ inputNumber, inputName, isProgram, isPreview, onPress }: TallyIndicatorProps) {
+  const colors = useThemeColors();
   const label = isProgram ? 'PGM' : isPreview ? 'PVW' : '';
 
   const handlePress = () => {
@@ -25,66 +26,40 @@ export function TallyIndicator({ inputNumber, inputName, isProgram, isPreview, o
   return (
     <Pressable onPress={handlePress} disabled={!onPress}>
       <View style={[
-        styles.indicator,
-        isProgram && styles.pgm,
-        isPreview && styles.pvw,
-        !isProgram && !isPreview && styles.off,
+        {
+          width: 76,
+          height: 84,
+          borderRadius: borderRadius.md,
+          alignItems: 'center' as const,
+          justifyContent: 'center' as const,
+          marginRight: spacing.sm,
+        },
+        isProgram && {
+          backgroundColor: 'rgba(239, 68, 68, 0.85)',
+          shadowColor: colors.tallyProgram,
+          shadowOpacity: 0.6,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 4 },
+          elevation: 8,
+        },
+        isPreview && {
+          backgroundColor: 'rgba(34, 197, 94, 0.7)',
+          shadowColor: colors.tallyPreview,
+          shadowOpacity: 0.4,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 4 },
+          elevation: 6,
+        },
+        !isProgram && !isPreview && {
+          backgroundColor: colors.surface,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
       ]}>
-        <Text style={styles.number}>{inputNumber}</Text>
-        <Text style={styles.name} numberOfLines={1}>{inputName}</Text>
-        {label ? <Text style={styles.label}>{label}</Text> : null}
+        <Text style={{ fontSize: fontSize.xl, fontWeight: '800', color: isProgram || isPreview ? '#ffffff' : colors.text }}>{inputNumber}</Text>
+        <Text style={{ fontSize: fontSize.xs, color: isProgram || isPreview ? 'rgba(255,255,255,0.8)' : colors.textSecondary, marginTop: 2, maxWidth: 64, textAlign: 'center' }} numberOfLines={1}>{inputName}</Text>
+        {label ? <Text style={{ fontSize: 9, fontWeight: '700', color: 'rgba(255,255,255,0.9)', marginTop: 2, letterSpacing: 1 }}>{label}</Text> : null}
       </View>
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  indicator: {
-    width: 76,
-    height: 84,
-    borderRadius: borderRadius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.sm,
-  },
-  pgm: {
-    backgroundColor: 'rgba(239, 68, 68, 0.85)',
-    shadowColor: colors.tallyProgram,
-    shadowOpacity: 0.6,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
-  },
-  pvw: {
-    backgroundColor: 'rgba(34, 197, 94, 0.7)',
-    shadowColor: colors.tallyPreview,
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  off: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  number: {
-    fontSize: fontSize.xl,
-    fontWeight: '800',
-    color: colors.white,
-  },
-  name: {
-    fontSize: fontSize.xs,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 2,
-    maxWidth: 64,
-    textAlign: 'center',
-  },
-  label: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.9)',
-    marginTop: 2,
-    letterSpacing: 1,
-  },
-});

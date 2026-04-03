@@ -1,16 +1,16 @@
-import { useEffect } from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { Redirect } from 'expo-router';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
 import { useAuthStore } from '../src/stores/authStore';
-import { colors } from '../src/theme/colors';
+import { useThemeColors } from '../src/theme/ThemeContext';
 
 export default function Index() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const colors = useThemeColors();
 
   if (isLoading) {
     return (
-      <View style={styles.container}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg }}>
         <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
@@ -22,12 +22,3 @@ export default function Index() {
 
   return <Redirect href="/room-picker" />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: colors.bg,
-  },
-});

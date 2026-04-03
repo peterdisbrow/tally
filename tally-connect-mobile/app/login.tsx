@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, TextInput, Pressable, StyleSheet,
+  View, Text, TextInput, Pressable,
   KeyboardAvoidingView, Platform, ActivityIndicator, Animated,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthStore } from '../src/stores/authStore';
-import { colors } from '../src/theme/colors';
+import { useThemeColors } from '../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../src/theme/spacing';
 
 export default function LoginScreen() {
@@ -13,12 +13,12 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [serverUrl, setServerUrl] = useState('');
   const [showServer, setShowServer] = useState(false);
+  const colors = useThemeColors();
 
   const login = useAuthStore((s) => s.login);
   const isLoading = useAuthStore((s) => s.isLoading);
   const error = useAuthStore((s) => s.error);
 
-  // Animated glow for logo
   const glowAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -49,29 +49,53 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={{ flex: 1, backgroundColor: colors.bg }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.inner}>
-        <View style={styles.logoArea}>
-          <Animated.View style={[styles.logoMark, {
+      <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: spacing.xxl }}>
+        <View style={{ alignItems: 'center', marginBottom: 48 }}>
+          <Animated.View style={{
+            width: 80,
+            height: 80,
+            borderRadius: 20,
+            backgroundColor: 'rgba(34, 197, 94, 0.85)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            marginBottom: spacing.lg,
+            shadowColor: colors.accent,
             shadowRadius: glowRadius,
             shadowOpacity: glowOpacity,
-          }]}>
-            <Text style={styles.logoMarkText}>T</Text>
+          }}>
+            <Text style={{ fontSize: 42, fontWeight: '900', color: '#ffffff' }}>T</Text>
           </Animated.View>
-          <Text style={styles.logoTitle}>TALLY CONNECT</Text>
-          <Text style={styles.logoSubtitle}>Broadcast Intelligence Platform</Text>
+          <Text style={{ fontSize: 24, fontWeight: '800', color: colors.text, letterSpacing: 3 }}>TALLY CONNECT</Text>
+          <Text style={{ fontSize: fontSize.sm, fontWeight: '400', color: colors.textSecondary, letterSpacing: 1, marginTop: spacing.xs }}>Broadcast Intelligence Platform</Text>
         </View>
 
         {error ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{error}</Text>
+          <View style={{
+            backgroundColor: colors.isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(220, 38, 38, 0.08)',
+            borderRadius: borderRadius.sm,
+            padding: spacing.md,
+            marginBottom: spacing.lg,
+            borderWidth: 1,
+            borderColor: colors.isDark ? 'rgba(239, 68, 68, 0.3)' : 'rgba(220, 38, 38, 0.2)',
+          }}>
+            <Text style={{ fontSize: fontSize.sm, color: colors.critical }}>{error}</Text>
           </View>
         ) : null}
 
         <TextInput
-          style={styles.input}
+          style={{
+            backgroundColor: colors.surface,
+            borderRadius: borderRadius.md,
+            padding: spacing.lg,
+            fontSize: fontSize.md,
+            color: colors.text,
+            marginBottom: spacing.md,
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
           placeholder="Email"
           placeholderTextColor={colors.textMuted}
           value={email}
@@ -82,7 +106,16 @@ export default function LoginScreen() {
         />
 
         <TextInput
-          style={styles.input}
+          style={{
+            backgroundColor: colors.surface,
+            borderRadius: borderRadius.md,
+            padding: spacing.lg,
+            fontSize: fontSize.md,
+            color: colors.text,
+            marginBottom: spacing.md,
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
           placeholder="Password"
           placeholderTextColor={colors.textMuted}
           value={password}
@@ -93,7 +126,16 @@ export default function LoginScreen() {
 
         {showServer ? (
           <TextInput
-            style={styles.input}
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: borderRadius.md,
+              padding: spacing.lg,
+              fontSize: fontSize.md,
+              color: colors.text,
+              marginBottom: spacing.md,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
             placeholder="Server URL (optional)"
             placeholderTextColor={colors.textMuted}
             value={serverUrl}
@@ -103,114 +145,36 @@ export default function LoginScreen() {
           />
         ) : (
           <Pressable onPress={() => setShowServer(true)}>
-            <Text style={styles.serverToggle}>Custom server?</Text>
+            <Text style={{ fontSize: fontSize.sm, color: colors.accent, marginBottom: spacing.lg, textAlign: 'center' }}>Custom server?</Text>
           </Pressable>
         )}
 
         <Pressable
-          style={[styles.button, isLoading && styles.buttonDisabled]}
+          style={[
+            {
+              backgroundColor: 'rgba(34, 197, 94, 0.85)',
+              borderRadius: borderRadius.md,
+              padding: spacing.lg,
+              alignItems: 'center',
+              marginTop: spacing.md,
+              shadowColor: colors.accent,
+              shadowOpacity: 0.4,
+              shadowRadius: 12,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 6,
+            },
+            isLoading && { opacity: 0.6 },
+          ]}
           onPress={handleLogin}
           disabled={isLoading || !email || !password}
         >
           {isLoading ? (
-            <ActivityIndicator color={colors.white} />
+            <ActivityIndicator color="#ffffff" />
           ) : (
-            <Text style={styles.buttonText}>Sign In</Text>
+            <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: '#ffffff' }}>Sign In</Text>
           )}
         </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  inner: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.xxl,
-  },
-  logoArea: {
-    alignItems: 'center',
-    marginBottom: 48,
-  },
-  logoMark: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    backgroundColor: 'rgba(34, 197, 94, 0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-    shadowColor: colors.accent,
-  },
-  logoMarkText: {
-    fontSize: 42,
-    fontWeight: '900',
-    color: colors.white,
-  },
-  logoTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: colors.text,
-    letterSpacing: 3,
-  },
-  logoSubtitle: {
-    fontSize: fontSize.sm,
-    fontWeight: '400',
-    color: colors.textSecondary,
-    letterSpacing: 1,
-    marginTop: spacing.xs,
-  },
-  errorBox: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderRadius: borderRadius.sm,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-  },
-  errorText: {
-    fontSize: fontSize.sm,
-    color: colors.critical,
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    fontSize: fontSize.md,
-    color: colors.text,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  serverToggle: {
-    fontSize: fontSize.sm,
-    color: colors.accent,
-    marginBottom: spacing.lg,
-    textAlign: 'center',
-  },
-  button: {
-    backgroundColor: 'rgba(34, 197, 94, 0.85)',
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    alignItems: 'center',
-    marginTop: spacing.md,
-    shadowColor: colors.accent,
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    fontSize: fontSize.lg,
-    fontWeight: '700',
-    color: colors.white,
-  },
-});
