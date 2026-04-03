@@ -209,6 +209,6 @@ The ATEM can take 30–60 seconds to become network-accessible after booting. If
 
 ## Getting Help
 
-- **Email:** support@atemschool.com
+- **Email:** support@tallyconnect.app
 - **Documentation:** tallyconnect.app/docs
 - **Telegram quick fix:** Send `/fix atem` to @TallyConnectBot for an inline troubleshooting guide

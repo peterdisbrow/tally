@@ -52,7 +52,7 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 1. Paste it into the **Connection Token** field
 2. Click **Next**
 
-> **Don't have a token?** Visit tallyconnect.app or email support@atemschool.com
+> **Don't have a token?** Visit tallyconnect.app or email support@tallyconnect.app
 
 ---
 
@@ -243,7 +243,7 @@ Tally is designed to run continuously in the background. A few things to know:
 - Text Andrew if you can't recover in 2 minutes
 
 ### Token expired or invalid
-- Contact support@atemschool.com for a new token
+- Contact support@tallyconnect.app for a new token
 - Your settings are preserved — just paste the new token in the Settings tab
 
 ---
@@ -256,7 +256,7 @@ Tally updates automatically in the background. When an update is ready, you'll s
 
 ## Getting Help
 
-- **Email:** support@atemschool.com
+- **Email:** support@tallyconnect.app
 - **Phone (production emergencies):** Contact Andrew directly — your account includes a support number
 - **Documentation:** tallyconnect.app/docs
 

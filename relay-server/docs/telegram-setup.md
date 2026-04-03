@@ -297,7 +297,7 @@ TDs can also swap shifts themselves. When a swap is pending, the incoming TD rec
 
 ### "You're not registered yet"
 
-Send `/register YOUR_CODE` where `YOUR_CODE` is the 6-character code from your welcome email. If you don't have a code, ask your church administrator or email support@atemschool.com.
+Send `/register YOUR_CODE` where `YOUR_CODE` is the 6-character code from your welcome email. If you don't have a code, ask your church administrator or email support@tallyconnect.app.
 
 ### Registration code not working
 
@@ -320,6 +320,6 @@ Stop stream, stop recording, fade to black, and similar commands require an inli
 
 ## Getting Help
 
-- **Email:** support@atemschool.com
+- **Email:** support@tallyconnect.app
 - **Telegram:** Send `/help` to @TallyConnectBot for the full command reference
 - **Documentation:** tallyconnect.app/docs

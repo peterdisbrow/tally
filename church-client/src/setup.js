@@ -390,7 +390,7 @@ async function stepSave(config) {
   printGray('  ⚫ Grey   = not connected');
   printGray('  🔴 Red    = issue detected');
   print();
-  printGray('For help: support@atemschool.com | tallyconnect.app/docs');
+  printGray('For help: support@tallyconnect.app | tallyconnect.app/docs');
   print();
 }
 
