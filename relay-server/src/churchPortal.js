@@ -448,11 +448,17 @@ function buildChurchLoginHtml(error = '') {
 // Portal HTML is served from separate static files (public/portal/)
 const _portalHtmlTemplate = require('fs').readFileSync(require('path').join(__dirname, '../public/portal/portal.html'), 'utf8');
 
-function buildChurchPortalHtml(church) {
+function buildChurchPortalHtml(church, { roomCount = 0 } = {}) {
   const name = church.name || 'Your Church';
-  return _portalHtmlTemplate
+  let html = _portalHtmlTemplate
     .replace(/\{\{CHURCH_ID\}\}/g, church.churchId)
     .replace(/\{\{CHURCH_NAME\}\}/g, _escapeHtml(name));
+  // Server-side: strip the zero-rooms gate entirely when the church already has rooms.
+  // This prevents any client-side race condition from briefly flashing the overlay.
+  if (roomCount > 0) {
+    html = html.replace(/<div id="zero-rooms-gate"[\s\S]*?<!--\s*\/zero-rooms-gate\s*-->/, '');
+  }
+  return html;
 }
 
 function _escapeHtml(str) {
@@ -756,8 +762,14 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     if (!req.cookies?.tally_csrf) {
       setCsrfCookie(res, generateCsrfToken());
     }
+    // Count rooms server-side so we can strip the zero-rooms gate from HTML
+    // when the church already has rooms (prevents any client-side flash).
+    let roomCount = 0;
+    try {
+      roomCount = db.prepare('SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ? AND deleted_at IS NULL').get(req.church.churchId)?.cnt || 0;
+    } catch {}
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(buildChurchPortalHtml(req.church));
+    res.send(buildChurchPortalHtml(req.church, { roomCount }));
   });
 
   // ── GET /api/church/me ────────────────────────────────────────────────────────
