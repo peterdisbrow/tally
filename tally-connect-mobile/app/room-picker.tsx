@@ -127,7 +127,7 @@ export default function RoomPickerScreen() {
                 <Ionicons name={roomIcon(item.name) as any} size={28} color={colors.accent} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: colors.text }}>{item.name}</Text>
+                <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: colors.text }} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
             </Pressable>

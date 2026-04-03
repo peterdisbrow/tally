@@ -28,8 +28,8 @@ export function DeviceRow({ name, type, connected, detail }: DeviceRowProps) {
         backgroundColor: connected ? colors.online : colors.offline,
       }} />
       <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: fontSize.md, color: colors.text, fontWeight: '500' }}>{name}</Text>
-        {detail ? <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 }}>{detail}</Text> : null}
+        <Text style={{ fontSize: fontSize.md, color: colors.text, fontWeight: '500' }} numberOfLines={1} ellipsizeMode="tail">{name}</Text>
+        {detail ? <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 }} numberOfLines={1} ellipsizeMode="tail">{detail}</Text> : null}
       </View>
       <Text style={{ fontSize: fontSize.sm, fontWeight: '600', color: connected ? colors.online : colors.offline }}>
         {connected ? 'Connected' : 'Disconnected'}

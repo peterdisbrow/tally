@@ -69,7 +69,7 @@ export function AlertBadge({ alert, onPress }: AlertBadgeProps) {
         </View>
         <Text style={{ fontSize: fontSize.md, color: colors.text, lineHeight: 20 }}>{alert.message}</Text>
         {alert.roomName ? (
-          <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, marginTop: spacing.xs }}>{alert.roomName}</Text>
+          <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, marginTop: spacing.xs }} numberOfLines={1} ellipsizeMode="tail">{alert.roomName}</Text>
         ) : null}
       </View>
     </Pressable>

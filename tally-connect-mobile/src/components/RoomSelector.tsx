@@ -15,7 +15,7 @@ export function RoomSelector() {
 
   if (rooms.length <= 1) {
     return (
-      <Text style={{ fontSize: fontSize.md, color: colors.text, fontWeight: '600' }}>{activeRoom?.name || 'Default Room'}</Text>
+      <Text style={{ fontSize: fontSize.md, color: colors.text, fontWeight: '600', flexShrink: 1 }} numberOfLines={1} ellipsizeMode="tail">{activeRoom?.name || 'Default Room'}</Text>
     );
   }
 
@@ -31,7 +31,7 @@ export function RoomSelector() {
         borderWidth: 1,
         borderColor: colors.border,
       }}>
-        <Text style={{ fontSize: fontSize.md, color: colors.text, fontWeight: '600', marginRight: spacing.sm }}>{activeRoom?.name || 'Select Room'}</Text>
+        <Text style={{ fontSize: fontSize.md, color: colors.text, fontWeight: '600', marginRight: spacing.sm, flexShrink: 1 }} numberOfLines={1} ellipsizeMode="tail">{activeRoom?.name || 'Select Room'}</Text>
         <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary }}>{'>'}</Text>
       </Pressable>
 
@@ -76,7 +76,7 @@ export function RoomSelector() {
                     marginRight: spacing.md,
                     backgroundColor: item.connected !== false ? colors.online : colors.offline,
                   }} />
-                  <Text style={{ flex: 1, fontSize: fontSize.lg, color: colors.text }}>{item.name}</Text>
+                  <Text style={{ flex: 1, fontSize: fontSize.lg, color: colors.text }} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
                   {item.id === activeRoomId && <Text style={{ fontSize: fontSize.md, color: colors.accent, fontWeight: '700' }}>{'OK'}</Text>}
                 </Pressable>
               )}
