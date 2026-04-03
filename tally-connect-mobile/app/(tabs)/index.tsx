@@ -5,12 +5,12 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
+import { useAlertStore } from '../../src/stores/alertStore';
 import { usePolling } from '../../src/hooks/usePolling';
 import { useThemeColors, type ThemeColors } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
 import { api } from '../../src/api/client';
 import { PulseDot } from '../../src/components/PulseDot';
-import { RingGauge } from '../../src/components/RingGauge';
 import { GlassCard } from '../../src/components/GlassCard';
 import type { DeviceStatus } from '../../src/ws/types';
 
@@ -710,6 +710,66 @@ function ResourceBar({ label, value, color, colors }: { label: string; value: nu
   );
 }
 
+// ─── Mini Dashboard Components ──────────────────────────────────────────────
+
+function MetricCard({ label, value, unit, valueColor, colors }: {
+  label: string; value: string; unit: string; valueColor: string; colors: ThemeColors;
+}) {
+  return (
+    <View style={[styles.metricCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <Text style={[styles.metricCardLabel, { color: colors.textMuted }]}>{label}</Text>
+      <Text style={[styles.metricCardValue, { color: valueColor }]}>{value}</Text>
+      {unit ? <Text style={[styles.metricCardUnit, { color: colors.textMuted }]}>{unit}</Text> : null}
+    </View>
+  );
+}
+
+function timeAgo(timestamp: string): string {
+  const diff = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function AlertBar({ alerts, colors }: { alerts: Array<{ id: string; severity: string; message: string; timestamp: string; roomName?: string }>; colors: ThemeColors }) {
+  // Show the most recent unacknowledged alert, or "All Systems Normal"
+  const activeAlerts = alerts.filter(a => a.severity === 'CRITICAL' || a.severity === 'EMERGENCY' || a.severity === 'WARNING').slice(0, 1);
+
+  if (activeAlerts.length === 0) {
+    return (
+      <View style={[styles.alertBar, {
+        backgroundColor: colors.isDark ? 'rgba(34,197,94,0.06)' : 'rgba(22,163,74,0.06)',
+        borderColor: colors.isDark ? 'rgba(34,197,94,0.15)' : 'rgba(22,163,74,0.15)',
+      }]}>
+        <Ionicons name="checkmark-circle" size={14} color={colors.online} />
+        <Text style={[styles.alertBarText, { color: colors.online }]}>All Systems Normal</Text>
+      </View>
+    );
+  }
+
+  const alert = activeAlerts[0];
+  const isCritical = alert.severity === 'CRITICAL' || alert.severity === 'EMERGENCY';
+  const dotColor = isCritical ? colors.critical : colors.warning;
+
+  return (
+    <View style={[styles.alertBar, {
+      backgroundColor: isCritical
+        ? (colors.isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.06)')
+        : (colors.isDark ? 'rgba(245,158,11,0.06)' : 'rgba(245,158,11,0.05)'),
+      borderColor: isCritical
+        ? (colors.isDark ? 'rgba(239,68,68,0.2)' : 'rgba(239,68,68,0.15)')
+        : (colors.isDark ? 'rgba(245,158,11,0.15)' : 'rgba(245,158,11,0.12)'),
+    }]}>
+      <View style={[styles.alertDot, { backgroundColor: dotColor }]} />
+      <Text style={[styles.alertBarText, { color: colors.text }]} numberOfLines={1}>
+        {alert.message}
+      </Text>
+      <Text style={[styles.alertBarTime, { color: colors.textMuted }]}>{timeAgo(alert.timestamp)}</Text>
+    </View>
+  );
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function DashboardScreen() {
@@ -723,6 +783,7 @@ export default function DashboardScreen() {
   const updateInstanceStatus = useStatusStore((s) => s.updateInstanceStatus);
 
   const status = useActiveRoomStatus();
+  const alerts = useAlertStore((s) => s.alerts);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => { refreshAll(); }, []);
@@ -767,29 +828,10 @@ export default function DashboardScreen() {
     }))
     .filter(g => g.cards.length > 0);
 
-  const healthScore = dashboardStats.healthScore;
-  const healthColor = healthScore != null
-    ? healthScore >= 80 ? colors.online
-      : healthScore >= 50 ? colors.warning
-        : colors.critical
-    : colors.textMuted;
-
   const session = dashboardStats.activeSession;
   const sessionDuration = session?.duration != null
     ? `${Math.floor(session.duration / 3600)}h ${Math.floor((session.duration % 3600) / 60)}m`
     : null;
-  const sessionGradeValue = session?.grade
-    ? session.grade.startsWith('A') ? 95
-      : session.grade.startsWith('B') ? 80
-        : session.grade.startsWith('C') ? 65
-          : 40
-    : 0;
-  const sessionGradeColor = session?.grade
-    ? session.grade.startsWith('A') ? colors.online
-      : session.grade.startsWith('B') ? colors.accentLight
-        : session.grade.startsWith('C') ? colors.warning
-          : colors.critical
-    : colors.textMuted;
 
   // Stream stats
   const encoder = status?.encoder || status?.obs;
@@ -846,29 +888,48 @@ export default function DashboardScreen() {
         {summary.isStreaming && <LiveBadge startedAt={session?.startedAt} colors={colors} />}
       </View>
 
-      {/* Ring Gauges Row */}
-      <View style={styles.gaugeRow}>
-        <GlassCard style={styles.gaugeCard}>
-          <RingGauge
-            value={healthScore ?? 0}
-            color={healthColor}
-            label="Health"
-            valueText={healthScore != null ? `${healthScore}` : '--'}
-            size={96}
-            strokeWidth={7}
-          />
-        </GlassCard>
-        <GlassCard style={styles.gaugeCard}>
-          <RingGauge
-            value={sessionGradeValue}
-            color={sessionGradeColor}
-            label="Grade"
-            valueText={session?.grade || '--'}
-            size={96}
-            strokeWidth={7}
-          />
-        </GlassCard>
+      {/* Mini Dashboard */}
+      <View style={styles.metricRow}>
+        <MetricCard
+          label="DEVICES"
+          value={summary.totalDevices > 0 ? `${summary.onlineDevices} / ${summary.totalDevices}` : '--'}
+          unit={summary.totalDevices > 0 ? 'online' : ''}
+          valueColor={
+            summary.totalDevices === 0 ? colors.textMuted
+              : summary.onlineDevices === summary.totalDevices ? colors.online
+                : colors.warning
+          }
+          colors={colors}
+        />
+        <MetricCard
+          label="STREAM"
+          value={bitrate != null ? (bitrate / 1000).toFixed(1) : '--'}
+          unit={bitrate != null ? 'Mbps' : ''}
+          valueColor={
+            bitrate == null ? colors.textMuted
+              : bitrate >= 4000 ? colors.online
+                : bitrate >= 2000 ? colors.warning
+                  : colors.critical
+          }
+          colors={colors}
+        />
+        <MetricCard
+          label="UPTIME"
+          value={(() => {
+            const dur = session?.duration;
+            if (dur == null || !session?.active) return '--';
+            const h = Math.floor(dur / 3600);
+            const m = Math.floor((dur % 3600) / 60);
+            return `${h}:${m.toString().padStart(2, '0')}`;
+          })()}
+          unit={session?.active && session?.duration != null ? 'hrs' : ''}
+          valueColor={session?.active ? colors.online : colors.textMuted}
+          colors={colors}
+        />
       </View>
+
+      {/* Alert Bar */}
+      <AlertBar alerts={alerts} colors={colors} />
 
       {/* Session + Viewers Row */}
       {(session?.active || summary.totalViewers > 0) && (
@@ -1046,100 +1107,6 @@ export default function DashboardScreen() {
   );
 }
 
-function SystemStat({ label, value, unit, colors }: { label: string; value?: number; unit: string; colors: ThemeColors }) {
-  const v = value != null ? Math.round(value) : null;
-  const color = v != null
-    ? v >= 85 ? colors.critical
-      : v >= 70 ? colors.warning
-        : colors.online
-    : colors.textMuted;
-
-  return (
-    <View style={{ alignItems: 'center' }}>
-      <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' }}>{label}</Text>
-      <Text style={{ fontSize: fontSize.md, fontWeight: '700', color }}>
-        {v != null ? `${v}${unit}` : '--'}
-      </Text>
-    </View>
-  );
-}
-
-interface DeviceInfo {
-  name: string;
-  type: string;
-  connected: boolean;
-  detail?: string;
-}
-
-function buildDeviceList(status: DeviceStatus | null): DeviceInfo[] {
-  if (!status) return [];
-  const devices: DeviceInfo[] = [];
-
-  if (status.atem) {
-    devices.push({
-      name: status.atem.model || 'ATEM Switcher',
-      type: 'atem',
-      connected: status.atem.connected,
-      detail: status.atem.streaming ? 'Streaming' : undefined,
-    });
-  }
-  if (status.obs) {
-    devices.push({
-      name: 'OBS Studio',
-      type: 'obs',
-      connected: status.obs.connected,
-      detail: status.obs.streaming ? `Streaming ${status.obs.currentScene ? `- ${status.obs.currentScene}` : ''}` : status.obs.currentScene,
-    });
-  }
-  if (status.vmix) {
-    devices.push({
-      name: 'vMix',
-      type: 'vmix',
-      connected: status.vmix.connected,
-    });
-  }
-  if (status.encoder && !status.obs) {
-    devices.push({
-      name: status.encoder.name || status.encoder.type || 'Streaming Encoder',
-      type: 'encoder',
-      connected: status.encoder.connected,
-      detail: status.encoder.streaming ? 'Streaming' : undefined,
-    });
-  }
-  if (status.mixer) {
-    devices.push({
-      name: status.mixer.model || 'Audio Mixer',
-      type: 'mixer',
-      connected: status.mixer.connected,
-    });
-  }
-  if (status.propresenter) {
-    devices.push({
-      name: 'ProPresenter',
-      type: 'propresenter',
-      connected: status.propresenter.connected,
-      detail: status.propresenter.currentSlide,
-    });
-  }
-  if (status.companion) {
-    devices.push({
-      name: 'Companion',
-      type: 'companion',
-      connected: status.companion.connected,
-    });
-  }
-  if (status.hyperdeck) {
-    devices.push({
-      name: 'HyperDeck',
-      type: 'hyperdeck',
-      connected: status.hyperdeck.connected,
-      detail: status.hyperdeck.recording ? 'Recording' : undefined,
-    });
-  }
-
-  return devices;
-}
-
 // ─── Static styles (no color references) ────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -1162,16 +1129,56 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // Ring Gauges
-  gaugeRow: {
+  // Mini Dashboard
+  metricRow: {
     flexDirection: 'row',
-    gap: spacing.md,
-    marginBottom: spacing.lg,
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
   },
-  gaugeCard: {
+  metricCard: {
     flex: 1,
+    borderRadius: 12,
+    padding: spacing.md,
+    borderWidth: 1,
+  },
+  metricCardLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  metricCardValue: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  metricCardUnit: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  // Alert Bar
+  alertBar: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.xl,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
+  },
+  alertDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  alertBarText: {
+    fontSize: fontSize.xs,
+    fontWeight: '600',
+    flex: 1,
+  },
+  alertBarTime: {
+    fontSize: 10,
   },
 
   // Stream Stats
