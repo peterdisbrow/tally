@@ -8,7 +8,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useChatStore } from '../../src/stores/chatStore';
 import { useStatusStore } from '../../src/stores/statusStore';
-import { usePolling } from '../../src/hooks/usePolling';
 import { colors } from '../../src/theme/colors';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
 import type { ChatMessage } from '../../src/ws/types';
@@ -16,7 +15,6 @@ import type { ChatMessage } from '../../src/ws/types';
 export default function ChatScreen() {
   const messages = useChatStore((s) => s.messages);
   const isSending = useChatStore((s) => s.isSending);
-  const fetchMessages = useChatStore((s) => s.fetchMessages);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const activeRoomId = useStatusStore((s) => s.activeRoomId);
   const [text, setText] = useState('');
@@ -26,18 +24,10 @@ export default function ChatScreen() {
 
   const clearMessages = useChatStore((s) => s.clearMessages);
 
-  useEffect(() => {
-    fetchMessages();
-  }, []);
-
-  // Clear and re-fetch when room changes
+  // Clear stale messages when room changes; new messages arrive via WebSocket
   useEffect(() => {
     clearMessages();
-    fetchMessages();
   }, [activeRoomId]);
-
-  // Poll for new messages every 3 seconds
-  usePolling(() => fetchMessages(), 3000);
 
   const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
