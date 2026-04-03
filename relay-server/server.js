@@ -1724,6 +1724,7 @@ chatEngine.setBroadcasters({
     }
   },
   broadcastToControllers: (msg) => broadcastToControllers(msg),
+  broadcastToMobile: (churchId, msg) => _mobileWsHandler.broadcastToMobile(churchId, msg),
   notifyTelegram: (churchId, savedMsg) => {
     if (!tallyBot) return;
     const sourceIcon = { app: '💻', dashboard: '🌐', telegram: '📱' }[savedMsg.source] || '💬';

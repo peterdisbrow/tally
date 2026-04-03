@@ -27,9 +27,10 @@ class ChatEngine {
   /**
    * Wire broadcast functions after all systems are initialized.
    */
-  setBroadcasters({ broadcastToChurch, broadcastToControllers, notifyTelegram }) {
+  setBroadcasters({ broadcastToChurch, broadcastToControllers, broadcastToMobile, notifyTelegram }) {
     if (broadcastToChurch) this._broadcastToChurch = broadcastToChurch;
     if (broadcastToControllers) this._broadcastToControllers = broadcastToControllers;
+    if (broadcastToMobile) this._broadcastToMobile = broadcastToMobile;
     if (notifyTelegram) this._notifyTelegram = notifyTelegram;
   }
 
@@ -259,7 +260,14 @@ class ChatEngine {
       }
     }
 
-    // 3. Notify via Telegram (unless it came from Telegram)
+    // 3. Send to mobile clients via WebSocket (unless it came from the app)
+    if (savedMessage.source !== 'app' && this._broadcastToMobile) {
+      try { this._broadcastToMobile(savedMessage.church_id, wsMsg); } catch (e) {
+        console.warn('[ChatEngine] Failed to broadcast to mobile:', e.message);
+      }
+    }
+
+    // 4. Notify via Telegram (unless it came from Telegram)
     if (savedMessage.source !== 'telegram' && this._notifyTelegram) {
       try { this._notifyTelegram(savedMessage.church_id, savedMessage); } catch (e) {
         console.warn('[ChatEngine] Failed to notify Telegram:', e.message);
