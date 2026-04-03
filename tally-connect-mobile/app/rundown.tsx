@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, ActivityIndicator,
+  View, Text, ScrollView, SectionList, StyleSheet, ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -173,100 +173,99 @@ export default function RundownScreen() {
     teamGroups[group].push(member);
   }
 
+  // Build sections for plan items
+  const mainItems = serviceItems.length > 0 ? serviceItems : plan!.items;
+  const rundownSections: Array<{ key: string; title: string; data: PlanItem[] }> = [];
+  if (preServiceItems.length > 0) {
+    rundownSections.push({ key: 'pre', title: 'PRE-SERVICE', data: preServiceItems });
+  }
+  rundownSections.push({ key: 'service', title: 'SERVICE RUNDOWN', data: mainItems });
+  if (postServiceItems.length > 0) {
+    rundownSections.push({ key: 'post', title: 'POST-SERVICE', data: postServiceItems });
+  }
+
   return (
-    <ScrollView
+    <SectionList
       style={[styles.container, { backgroundColor: colors.bg }]}
       contentContainerStyle={styles.content}
+      stickySectionHeadersEnabled={false}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
-    >
-      {/* Service Header */}
-      <View style={[styles.headerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Text style={[styles.serviceTitle, { color: colors.text }]}>{plan!.title}</Text>
-        {serviceTime?.startsAt && (
-          <View style={styles.timeRow}>
-            <Ionicons name="time-outline" size={16} color={colors.accent} />
-            <Text style={[styles.timeText, { color: colors.accent }]}>
-              {formatServiceDate(serviceTime.startsAt)}
-            </Text>
-          </View>
-        )}
-        {!serviceTime?.startsAt && plan!.sortDate && (
-          <View style={styles.timeRow}>
-            <Ionicons name="calendar-outline" size={16} color={colors.accent} />
-            <Text style={[styles.timeText, { color: colors.accent }]}>
-              {new Date(plan!.sortDate).toLocaleDateString(undefined, {
-                weekday: 'long', month: 'long', day: 'numeric',
-              })}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* Pre-Service Items */}
-      {preServiceItems.length > 0 && (
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>PRE-SERVICE</Text>
-          {preServiceItems.map((item, i) => (
-            <RundownItem key={item.id} item={item} isLast={i === preServiceItems.length - 1} colors={colors} />
-          ))}
-        </View>
+      sections={rundownSections}
+      keyExtractor={(item) => item.id}
+      renderSectionHeader={({ section }) => (
+        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>{section.title}</Text>
       )}
-
-      {/* Service Rundown */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>SERVICE RUNDOWN</Text>
-        {serviceItems.length === 0 && plan!.items.length > 0 && (
-          // If no items have servicePosition='during', show all items
-          plan!.items.map((item, i) => (
-            <RundownItem key={item.id} item={item} isLast={i === plan!.items.length - 1} colors={colors} />
-          ))
-        )}
-        {serviceItems.length > 0 && serviceItems.map((item, i) => (
-          <RundownItem key={item.id} item={item} isLast={i === serviceItems.length - 1} colors={colors} />
-        ))}
-        {plan!.items.length === 0 && (
-          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.emptyCardText, { color: colors.textMuted }]}>No items in this service plan</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Post-Service Items */}
-      {postServiceItems.length > 0 && (
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>POST-SERVICE</Text>
-          {postServiceItems.map((item, i) => (
-            <RundownItem key={item.id} item={item} isLast={i === postServiceItems.length - 1} colors={colors} />
-          ))}
-        </View>
+      renderSectionFooter={({ section }) => {
+        if (section.key === 'service' && section.data.length === 0) {
+          return (
+            <View>
+              <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.emptyCardText, { color: colors.textMuted }]}>No items in this service plan</Text>
+              </View>
+              <View style={{ marginBottom: spacing.xxl }} />
+            </View>
+          );
+        }
+        return <View style={{ marginBottom: spacing.xxl }} />;
+      }}
+      renderItem={({ item, index, section }) => (
+        <RundownItem
+          item={item}
+          isLast={index === section.data.length - 1}
+          colors={colors}
+        />
       )}
-
-      {/* Service Team */}
-      {plan!.team.length > 0 && (
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>SERVICE TEAM</Text>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            {Object.entries(teamGroups).map(([groupName, members], gi) => (
-              <View key={groupName}>
-                {gi > 0 && <View style={[styles.teamDivider, { backgroundColor: colors.border }]} />}
-                <Text style={[styles.teamGroupName, { color: colors.accent }]}>{groupName}</Text>
-                {members.map((member) => (
-                  <View key={member.id} style={styles.teamRow}>
-                    <View style={styles.teamInfo}>
-                      <Text style={[styles.teamMemberName, { color: colors.text }]}>{member.name}</Text>
-                      <Text style={[styles.teamPosition, { color: colors.textSecondary }]}>{member.position}</Text>
-                    </View>
-                    <StatusBadge status={member.status} label={member.statusLabel} colors={colors} />
+      ListHeaderComponent={
+        <View style={[styles.headerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.serviceTitle, { color: colors.text }]}>{plan!.title}</Text>
+          {serviceTime?.startsAt && (
+            <View style={styles.timeRow}>
+              <Ionicons name="time-outline" size={16} color={colors.accent} />
+              <Text style={[styles.timeText, { color: colors.accent }]}>
+                {formatServiceDate(serviceTime.startsAt)}
+              </Text>
+            </View>
+          )}
+          {!serviceTime?.startsAt && plan!.sortDate && (
+            <View style={styles.timeRow}>
+              <Ionicons name="calendar-outline" size={16} color={colors.accent} />
+              <Text style={[styles.timeText, { color: colors.accent }]}>
+                {new Date(plan!.sortDate).toLocaleDateString(undefined, {
+                  weekday: 'long', month: 'long', day: 'numeric',
+                })}
+              </Text>
+            </View>
+          )}
+        </View>
+      }
+      ListFooterComponent={
+        <View>
+          {plan!.team.length > 0 && (
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>SERVICE TEAM</Text>
+              <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                {Object.entries(teamGroups).map(([groupName, members], gi) => (
+                  <View key={groupName}>
+                    {gi > 0 && <View style={[styles.teamDivider, { backgroundColor: colors.border }]} />}
+                    <Text style={[styles.teamGroupName, { color: colors.accent }]}>{groupName}</Text>
+                    {members.map((member) => (
+                      <View key={member.id} style={styles.teamRow}>
+                        <View style={styles.teamInfo}>
+                          <Text style={[styles.teamMemberName, { color: colors.text }]}>{member.name}</Text>
+                          <Text style={[styles.teamPosition, { color: colors.textSecondary }]}>{member.position}</Text>
+                        </View>
+                        <StatusBadge status={member.status} label={member.statusLabel} colors={colors} />
+                      </View>
+                    ))}
                   </View>
                 ))}
               </View>
-            ))}
-          </View>
+            </View>
+          )}
+          <View style={{ height: spacing.xxxl }} />
         </View>
-      )}
-
-      <View style={{ height: spacing.xxxl }} />
-    </ScrollView>
+      }
+    />
   );
 }
 

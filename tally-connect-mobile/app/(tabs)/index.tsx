@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, RefreshControl,
+  View, Text, FlatList, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, LayoutAnimation, Platform, UIManager, Animated, ActivityIndicator,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -1022,13 +1022,16 @@ export default function DashboardScreen() {
       {tallyCards.length > 0 && (
         <View style={styles.categorySection}>
           <Text style={[styles.categoryTitle, { color: colors.textSecondary }]}>Camera Tally</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {tallyCards.map((input) => {
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={tallyCards}
+            keyExtractor={(item) => String(item.number)}
+            renderItem={({ item: input }) => {
               const isPgm = input.isProgram;
               const isPvw = input.isPreview;
               return (
                 <View
-                  key={input.number}
                   style={[
                     styles.tallyCard,
                     isPgm && {
@@ -1061,8 +1064,8 @@ export default function DashboardScreen() {
                   )}
                 </View>
               );
-            })}
-          </ScrollView>
+            }}
+          />
         </View>
       )}
 

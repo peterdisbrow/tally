@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  View, Text, ScrollView, RefreshControl,
+  View, Text, SectionList, RefreshControl,
   TouchableOpacity, Animated, ActivityIndicator, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -334,127 +334,134 @@ export default function PreServiceChecksScreen() {
   const failCount = displayChecks.filter(c => c.status === 'fail').length;
   const warnCount = displayChecks.filter(c => c.status === 'warn').length;
 
+  const checkSections = (!isLoading && displayChecks.length > 0)
+    ? grouped.map(group => ({ key: group.key, label: group.label, icon: group.icon, data: group.checks }))
+    : [];
+
   return (
-    <ScrollView
+    <SectionList
       style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={{ padding: spacing.lg }}
+      stickySectionHeadersEnabled={false}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
       }
-    >
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg }}>
-        <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: colors.text }}>{roomName}</Text>
-        {checkTime && <Text style={{ fontSize: fontSize.xs, color: colors.textMuted }}>Last check: {checkTime}</Text>}
-      </View>
-
-      <View style={{
-        backgroundColor: colors.surface,
-        borderRadius: borderRadius.lg,
-        borderWidth: 1,
-        borderColor: `${statusColor(overall, colors)}40`,
-        padding: spacing.xl,
-        marginBottom: spacing.lg,
-      }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.lg }}>
-          <StatusRing status={isLoading ? 'unknown' : overall} colors={colors} />
+      sections={checkSections}
+      keyExtractor={(item, index) => `${item.name}-${index}`}
+      renderSectionHeader={({ section }) => (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm, marginTop: spacing.lg }}>
+          <Ionicons name={(section as any).icon as any} size={16} color={colors.textSecondary} />
+          <Text style={{ flex: 1, fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '600' }}>{(section as any).label}</Text>
+          <CategoryBadge checks={section.data} colors={colors} />
+        </View>
+      )}
+      renderItem={({ item: check }) => (
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'flex-start',
+          gap: spacing.md,
+          backgroundColor: colors.surface,
+          borderRadius: borderRadius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: spacing.md,
+          marginBottom: spacing.xs,
+        }}>
+          <Ionicons
+            name={statusIcon(check.status) as any}
+            size={20}
+            color={statusColor(check.status, colors)}
+          />
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: fontSize.xl, fontWeight: '800', color: statusColor(isLoading ? 'unknown' : overall, colors) }}>
-              {isLoading ? 'Loading...' : overallLabel(overall)}
+            <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.text }}>{check.name}</Text>
+            <Text style={{ fontSize: fontSize.sm, color: check.status === 'fail' ? colors.offline : colors.textSecondary, marginTop: 2 }}>
+              {check.detail}
             </Text>
-            <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 4 }}>
-              {isLoading ? 'Fetching check results' : `${passCount} passed${warnCount > 0 ? ` \u00b7 ${warnCount} warning${warnCount !== 1 ? 's' : ''}` : ''}${failCount > 0 ? ` \u00b7 ${failCount} failed` : ''}`}
-            </Text>
-            {rundown?.active && rundown.confirmation && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: spacing.sm }}>
-                <Ionicons name="shield-checkmark" size={12} color={colors.online} />
-                <Text style={{ fontSize: fontSize.xs, color: colors.online, fontWeight: '600' }}>
-                  Confirmed by {rundown.confirmation.confirmedBy}
+          </View>
+        </View>
+      )}
+      ListHeaderComponent={
+        <View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg }}>
+            <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: colors.text }}>{roomName}</Text>
+            {checkTime && <Text style={{ fontSize: fontSize.xs, color: colors.textMuted }}>Last check: {checkTime}</Text>}
+          </View>
+
+          <View style={{
+            backgroundColor: colors.surface,
+            borderRadius: borderRadius.lg,
+            borderWidth: 1,
+            borderColor: `${statusColor(overall, colors)}40`,
+            padding: spacing.xl,
+            marginBottom: spacing.lg,
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.lg }}>
+              <StatusRing status={isLoading ? 'unknown' : overall} colors={colors} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: fontSize.xl, fontWeight: '800', color: statusColor(isLoading ? 'unknown' : overall, colors) }}>
+                  {isLoading ? 'Loading...' : overallLabel(overall)}
                 </Text>
+                <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 4 }}>
+                  {isLoading ? 'Fetching check results' : `${passCount} passed${warnCount > 0 ? ` \u00b7 ${warnCount} warning${warnCount !== 1 ? 's' : ''}` : ''}${failCount > 0 ? ` \u00b7 ${failCount} failed` : ''}`}
+                </Text>
+                {rundown?.active && rundown.confirmation && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: spacing.sm }}>
+                    <Ionicons name="shield-checkmark" size={12} color={colors.online} />
+                    <Text style={{ fontSize: fontSize.xs, color: colors.online, fontWeight: '600' }}>
+                      Confirmed by {rundown.confirmation.confirmedBy}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            {rundown?.active && rundown.ai_summary && (
+              <View style={{ marginTop: spacing.lg, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
+                  <Ionicons name="sparkles" size={14} color={colors.accent} />
+                  <Text style={{ fontSize: fontSize.xs, color: colors.accent, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>AI Summary</Text>
+                </View>
+                <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 20 }}>{rundown.ai_summary}</Text>
               </View>
             )}
           </View>
-        </View>
 
-        {rundown?.active && rundown.ai_summary && (
-          <View style={{ marginTop: spacing.lg, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
-              <Ionicons name="sparkles" size={14} color={colors.accent} />
-              <Text style={{ fontSize: fontSize.xs, color: colors.accent, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>AI Summary</Text>
+          <TouchableOpacity
+            style={[
+              { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingVertical: spacing.md, marginBottom: spacing.xl },
+              isRunning && { opacity: 0.6 },
+            ]}
+            onPress={runManualCheck}
+            disabled={isRunning}
+            activeOpacity={0.7}
+          >
+            {isRunning ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <Ionicons name="refresh" size={18} color="#ffffff" />
+            )}
+            <Text style={{ fontSize: fontSize.md, fontWeight: '700', color: '#ffffff' }}>
+              {isRunning ? 'Running Checks...' : 'Run Check Now'}
+            </Text>
+          </TouchableOpacity>
+
+          {isLoading && (
+            <View style={{ paddingVertical: spacing.xxxl * 2, alignItems: 'center', gap: spacing.md }}>
+              <ActivityIndicator size="large" color={colors.accent} />
+              <Text style={{ fontSize: fontSize.md, color: colors.textMuted, textAlign: 'center' }}>Loading pre-service checks...</Text>
             </View>
-            <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 20 }}>{rundown.ai_summary}</Text>
-          </View>
-        )}
-      </View>
-
-      <TouchableOpacity
-        style={[
-          { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingVertical: spacing.md, marginBottom: spacing.xl },
-          isRunning && { opacity: 0.6 },
-        ]}
-        onPress={runManualCheck}
-        disabled={isRunning}
-        activeOpacity={0.7}
-      >
-        {isRunning ? (
-          <ActivityIndicator size="small" color="#ffffff" />
-        ) : (
-          <Ionicons name="refresh" size={18} color="#ffffff" />
-        )}
-        <Text style={{ fontSize: fontSize.md, fontWeight: '700', color: '#ffffff' }}>
-          {isRunning ? 'Running Checks...' : 'Run Check Now'}
-        </Text>
-      </TouchableOpacity>
-
-      {isLoading ? (
-        <View style={{ paddingVertical: spacing.xxxl * 2, alignItems: 'center', gap: spacing.md }}>
-          <ActivityIndicator size="large" color={colors.accent} />
-          <Text style={{ fontSize: fontSize.md, color: colors.textMuted, textAlign: 'center' }}>Loading pre-service checks...</Text>
-        </View>
-      ) : displayChecks.length === 0 ? (
-        <View style={{ paddingVertical: spacing.xxxl * 2, alignItems: 'center', gap: spacing.md }}>
-          <Ionicons name="clipboard-outline" size={48} color={colors.textMuted} />
-          <Text style={{ fontSize: fontSize.md, color: colors.textMuted, textAlign: 'center' }}>No check data available</Text>
-          <Text style={{ fontSize: fontSize.sm, color: colors.textMuted, textAlign: 'center' }}>Tap "Run Check Now" to check readiness</Text>
-        </View>
-      ) : (
-        grouped.map(group => (
-          <View key={group.key} style={{ marginBottom: spacing.lg }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
-              <Ionicons name={group.icon as any} size={16} color={colors.textSecondary} />
-              <Text style={{ flex: 1, fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '600' }}>{group.label}</Text>
-              <CategoryBadge checks={group.checks} colors={colors} />
+          )}
+          {!isLoading && displayChecks.length === 0 && (
+            <View style={{ paddingVertical: spacing.xxxl * 2, alignItems: 'center', gap: spacing.md }}>
+              <Ionicons name="clipboard-outline" size={48} color={colors.textMuted} />
+              <Text style={{ fontSize: fontSize.md, color: colors.textMuted, textAlign: 'center' }}>No check data available</Text>
+              <Text style={{ fontSize: fontSize.sm, color: colors.textMuted, textAlign: 'center' }}>Tap "Run Check Now" to check readiness</Text>
             </View>
-            {group.checks.map((check, i) => (
-              <View key={`${group.key}-${i}`} style={{
-                flexDirection: 'row',
-                alignItems: 'flex-start',
-                gap: spacing.md,
-                backgroundColor: colors.surface,
-                borderRadius: borderRadius.md,
-                borderWidth: 1,
-                borderColor: colors.border,
-                padding: spacing.md,
-                marginBottom: spacing.xs,
-              }}>
-                <Ionicons
-                  name={statusIcon(check.status) as any}
-                  size={20}
-                  color={statusColor(check.status, colors)}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.text }}>{check.name}</Text>
-                  <Text style={{ fontSize: fontSize.sm, color: check.status === 'fail' ? colors.offline : colors.textSecondary, marginTop: 2 }}>
-                    {check.detail}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        ))
-      )}
-
-      <View style={{ height: spacing.xxxl }} />
-    </ScrollView>
+          )}
+        </View>
+      }
+      ListFooterComponent={<View style={{ height: spacing.xxxl }} />}
+    />
   );
 }
 

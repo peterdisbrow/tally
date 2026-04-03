@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, Pressable, Alert, Switch,
+  View, Text, FlatList, ScrollView, Pressable, Alert, Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -149,18 +149,21 @@ export default function ActionsScreen() {
       {atem?.connected && (
         <View style={{ marginBottom: spacing.xxl }}>
           <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '600', marginBottom: spacing.md }}>CAMERAS</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {tallyInputs.map((input) => (
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={tallyInputs}
+            keyExtractor={(item) => String(item.number)}
+            renderItem={({ item }) => (
               <TallyIndicator
-                key={input.number}
-                inputNumber={input.number}
-                inputName={input.name}
-                isProgram={input.isProgram}
-                isPreview={input.isPreview}
-                onPress={() => sendCommand('atem.setProgram', { input: input.number })}
+                inputNumber={item.number}
+                inputName={item.name}
+                isProgram={item.isProgram}
+                isPreview={item.isPreview}
+                onPress={() => sendCommand('atem.setProgram', { input: item.number })}
               />
-            ))}
-          </ScrollView>
+            )}
+          />
           <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.lg }}>
             <GradientButton
               colors={colors}
