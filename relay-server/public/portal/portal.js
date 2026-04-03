@@ -1660,7 +1660,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (healthEl) {
         if (bitrate !== null && bitrate < 1000) { healthEl.textContent = 'Low'; healthEl.style.color = '#ef4444'; }
         else if (fps !== null && fps < 24) { healthEl.textContent = 'FPS'; healthEl.style.color = '#f59e0b'; }
-        else if (bitrate !== null || fps !== null) { healthEl.textContent = '✓ Good'; healthEl.style.color = '#22c55e'; }
+        else if (bitrate !== null || fps !== null) { healthEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Good'; healthEl.style.color = '#22c55e'; }
         else { healthEl.textContent = '—'; healthEl.style.color = '#F8FAFC'; }
       }
 
@@ -2039,12 +2039,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var silEl = document.getElementById('audio-silence-status');
       if (silEl) {
         if (audio.silenceDetected) { silEl.textContent = 'Silence'; silEl.style.color = '#eab308'; }
-        else { silEl.textContent = '✓ Signal'; silEl.style.color = '#22c55e'; }
+        else { silEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Signal'; silEl.style.color = '#22c55e'; }
       }
 
       var monEl = document.getElementById('audio-monitoring-status');
       if (monEl) {
-        if (audio.monitoring) { monEl.textContent = '✓ Active'; monEl.style.color = '#22c55e'; }
+        if (audio.monitoring) { monEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Active'; monEl.style.color = '#22c55e'; }
         else { monEl.textContent = '— Off'; monEl.style.color = '#94A3B8'; }
       }
 
@@ -2114,7 +2114,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var bg = isCurrent ? 'rgba(34,197,94,0.1)' : '#09090B';
         var border = isCurrent ? '1px solid rgba(34,197,94,0.3)' : '1px solid transparent';
         var nameColor = isCurrent ? '#22c55e' : (isPast ? '#475569' : '#94A3B8');
-        var icon = isPast ? '✓' : (isCurrent ? '▶' : (i + 1));
+        var icon = isPast ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : (isCurrent ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>' : (i + 1));
         var iconColor = isPast ? '#22c55e' : (isCurrent ? '#22c55e' : '#475569');
         var stepName = step.label || step.name || ('Cue ' + (i + 1));
         var trigger = step.trigger || { type: 'manual' };
@@ -2615,7 +2615,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       html += '<div style="margin-bottom:16px">';
       html += '<div style="font-size:12px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">What Tally Found</div>';
       if (issues.length === 0) {
-        html += '<div style="color:#22c55e;font-size:13px">✓ No issues detected</div>';
+        html += '<div style="color:#22c55e;font-size:13px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> No issues detected</div>';
       } else {
         var sevCounts = { critical: 0, high: 0, medium: 0, low: 0 };
         issues.forEach(function(i) { if (sevCounts[i.severity] !== undefined) sevCounts[i.severity]++; });
@@ -2639,12 +2639,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (autoFixed.length > 0) {
           autoFixed.forEach(function(f) {
             html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:13px">';
-            html += '<span style="color:#22c55e">✓</span>';
+            html += '<span style="color:#22c55e"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg></span>';
             html += '<span style="color:#F8FAFC">' + escapeHtml(f.title || f.id) + '</span>';
             html += '</div>';
           });
         } else {
-          html += '<div style="color:#22c55e;font-size:13px">✓ ' + data.auto_fixed_count + ' item(s) auto-resolved</div>';
+          html += '<div style="color:#22c55e;font-size:13px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> ' + data.auto_fixed_count + ' item(s) auto-resolved</div>';
         }
       }
       html += '</div>';
@@ -2655,7 +2655,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       html += '<div style="margin-bottom:16px">';
       html += '<div style="font-size:12px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Needs TD Attention</div>';
       if (needsAttention.length === 0 && data.blocker_count === 0) {
-        html += '<div style="color:#22c55e;font-size:13px">✓ Nothing needs attention</div>';
+        html += '<div style="color:#22c55e;font-size:13px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Nothing needs attention</div>';
       } else {
         needsAttention.forEach(function(item) {
           var sevCls = item.severity === 'critical' ? 'badge-red' : 'badge-yellow';
@@ -2761,7 +2761,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       itemsEl.innerHTML = steps.map((s, i) => {
         const icon = s.done
-          ? '<div style="width:24px;height:24px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;color:#000;font-size:13px;font-weight:700;flex-shrink:0;animation:onboardCheckPop 0.4s ease-out">✓</div>'
+          ? '<div style="width:24px;height:24px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;color:#000;font-size:13px;font-weight:700;flex-shrink:0;animation:onboardCheckPop 0.4s ease-out"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>'
           : '<div style="width:24px;height:24px;border-radius:50%;border:2px solid #334155;display:flex;align-items:center;justify-content:center;color:#64748B;font-size:12px;font-weight:700;flex-shrink:0;">' + (i + 1) + '</div>';
         var actionHtml = (!s.done && s.action) ? '<div style="margin-top:4px">' + s.action + '</div>' : '';
         return '<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;' + (i < steps.length - 1 ? 'border-bottom:1px solid #1a2e1f;' : '') + '">'
@@ -2952,13 +2952,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             '<option value="onvif"' + (item.protocol === 'onvif' ? ' selected' : '') + '>ONVIF</option>' +
           '</select>' +
           '<input type="number" class="eq-ptz-port" placeholder="Port" value="' + (item.port || '') + '" style="flex:0 0 80px" min="1" max="65535">' +
-          '<button class="btn-secondary" style="flex:0 0 auto;padding:4px 8px;font-size:11px" onclick="this.parentElement.remove()">✕</button>';
+          '<button class="btn-secondary" style="flex:0 0 auto;padding:4px 8px;font-size:11px" onclick="this.parentElement.remove()"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
       } else {
         // HyperDeck or VideoHub — just name + IP
         row.innerHTML =
           '<input type="text" class="eq-' + type + '-name" placeholder="Name" value="' + _escAttr(item.name || item.label || '') + '" style="flex:1">' +
           '<input type="text" class="eq-' + type + '-ip" placeholder="IP address" value="' + _escAttr(item.ip || item.host || '') + '" style="flex:1">' +
-          '<button class="btn-secondary" style="flex:0 0 auto;padding:4px 8px;font-size:11px" onclick="this.parentElement.remove()">✕</button>';
+          '<button class="btn-secondary" style="flex:0 0 auto;padding:4px 8px;font-size:11px" onclick="this.parentElement.remove()"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>';
       }
       container.appendChild(row);
     }
@@ -4675,7 +4675,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         inner.style.cssText = 'background:#1a2433;border-radius:12px;width:100%;max-width:640px;max-height:85vh;overflow-y:auto';
         inner.innerHTML = '<div style="position:sticky;top:0;background:#1a2433;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.08)">'
           + '<span style="font-weight:600;color:#F8FAFC">Service Report</span>'
-          + '<button onclick="this.closest(\'[style*=position]\').remove()" style="background:none;border:none;color:#94A3B8;font-size:18px;cursor:pointer">✕</button>'
+          + '<button onclick="this.closest(\'[style*=position]\').remove()" style="background:none;border:none;color:#94A3B8;font-size:18px;cursor:pointer;display:flex;align-items:center"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>'
           + '</div>'
           + '<div style="padding:16px">'
           + (r.ai_summary ? '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:14px;margin-bottom:16px"><div style="font-size:11px;font-weight:700;color:#22c55e;text-transform:uppercase;margin-bottom:6px">AI Summary</div><div style="font-size:13px;color:#F8FAFC;line-height:1.6">' + escapeHtml(r.ai_summary) + '</div></div>' : '')
@@ -5642,7 +5642,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var cc = comp.connectionCount || 0;
           var labels = (comp.connections || []).map(function(c) { return c.label; }).filter(Boolean);
           statusEl.innerHTML = '<div style="padding:10px 14px;background:#0c2818;border:1px solid #16532e;border-radius:8px;font-size:13px">' +
-            '<span style="color:#22c55e;font-weight:700">✓ Companion Connected</span>' +
+            '<span style="color:#22c55e;font-weight:700"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Companion Connected</span>' +
             (cc > 0 ? ' — ' + cc + ' module' + (cc !== 1 ? 's' : '') + (labels.length ? ': ' + labels.join(', ') : '') : '') +
             '</div>';
         } else {
@@ -5657,38 +5657,38 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (btnEl) {
         var suggestions = [];
         // Core buttons every church needs
-        suggestions.push({ name: 'Start Stream', module: 'OBS / vMix / Encoder', icon: '🔴' });
-        suggestions.push({ name: 'Stop Stream', module: 'OBS / vMix / Encoder', icon: '⏹' });
-        suggestions.push({ name: 'Start Recording', module: 'OBS / HyperDeck', icon: '⏺' });
-        suggestions.push({ name: 'Stop Recording', module: 'OBS / HyperDeck', icon: '⏹' });
+        suggestions.push({ name: 'Start Stream', module: 'OBS / vMix / Encoder', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="#ef4444" stroke="none"><circle cx="12" cy="12" r="8"/></svg>' });
+        suggestions.push({ name: 'Stop Stream', module: 'OBS / vMix / Encoder', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>' });
+        suggestions.push({ name: 'Start Recording', module: 'OBS / HyperDeck', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="#ef4444"/></svg>' });
+        suggestions.push({ name: 'Stop Recording', module: 'OBS / HyperDeck', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>' });
 
         // ATEM-specific
         if (status.atem) {
-          suggestions.push({ name: 'Camera 1', module: 'ATEM', icon: '📷' });
-          suggestions.push({ name: 'Camera 2', module: 'ATEM', icon: '📷' });
-          suggestions.push({ name: 'Camera 3', module: 'ATEM', icon: '📷' });
-          suggestions.push({ name: 'Media Player 1', module: 'ATEM', icon: '🖼' });
-          suggestions.push({ name: 'Fade to Black', module: 'ATEM', icon: '⬛' });
+          suggestions.push({ name: 'Camera 1', module: 'ATEM', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>' });
+          suggestions.push({ name: 'Camera 2', module: 'ATEM', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>' });
+          suggestions.push({ name: 'Camera 3', module: 'ATEM', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>' });
+          suggestions.push({ name: 'Media Player 1', module: 'ATEM', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18M17 3v18M3 7h4M3 12h18M3 17h4M17 7h4M17 17h4"/></svg>' });
+          suggestions.push({ name: 'Fade to Black', module: 'ATEM', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 17H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v6"/><path d="M8 21h8M12 17v4M2 2l20 20"/></svg>' });
         }
 
         // ProPresenter
         if (status.proPresenter || status.propresenter) {
-          suggestions.push({ name: 'Next Slide', module: 'ProPresenter', icon: '▶' });
-          suggestions.push({ name: 'Previous Slide', module: 'ProPresenter', icon: '◀' });
-          suggestions.push({ name: 'Clear All', module: 'ProPresenter', icon: '🗑' });
+          suggestions.push({ name: 'Next Slide', module: 'ProPresenter', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>' });
+          suggestions.push({ name: 'Previous Slide', module: 'ProPresenter', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>' });
+          suggestions.push({ name: 'Clear All', module: 'ProPresenter', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>' });
         }
 
         // Audio
         if (status.mixer) {
-          suggestions.push({ name: 'Mute Audience Mics', module: 'Audio Mixer', icon: '🔇' });
-          suggestions.push({ name: 'Worship Preset', module: 'Audio Mixer', icon: '🎵' });
-          suggestions.push({ name: 'Speaking Preset', module: 'Audio Mixer', icon: '🎤' });
+          suggestions.push({ name: 'Mute Audience Mics', module: 'Audio Mixer', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" x2="22" y1="2" y2="22"/><path d="M18.89 13.23A7.12 7.12 0 0 0 19 12v-2"/><path d="M5 10v2a7 7 0 0 0 12 5"/><path d="M15 9.34V5a3 3 0 0 0-5.68-1.33"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12"/><line x1="12" x2="12" y1="19" y2="22"/></svg>' });
+          suggestions.push({ name: 'Worship Preset', module: 'Audio Mixer', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>' });
+          suggestions.push({ name: 'Speaking Preset', module: 'Audio Mixer', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>' });
         }
 
         // Lighting
-        suggestions.push({ name: 'House Lights Up', module: 'Lighting / ArtNet', icon: '💡' });
-        suggestions.push({ name: 'House Lights Down', module: 'Lighting / ArtNet', icon: '🌑' });
-        suggestions.push({ name: 'Stage Look: Worship', module: 'Lighting / ArtNet', icon: '✨' });
+        suggestions.push({ name: 'House Lights Up', module: 'Lighting / ArtNet', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>' });
+        suggestions.push({ name: 'House Lights Down', module: 'Lighting / ArtNet', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>' });
+        suggestions.push({ name: 'Stage Look: Worship', module: 'Lighting / ArtNet', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/><path d="M5 3v4M19 17v4M3 5h4M17 19h4"/></svg>' });
 
         btnEl.innerHTML = suggestions.map(function(s) {
           return '<div style="background:#0F1613;border:1px solid #1a2e1f;border-radius:8px;padding:10px 12px;font-size:12px">' +
@@ -6182,7 +6182,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           // Suggested AutoPilot rule
           if (ai.suggestedRule) {
             html += '<div style="margin-top:12px;padding:10px;background:#0c2818;border:1px solid #16532e;border-radius:8px">';
-            html += '<div style="font-size:12px;color:#22c55e;font-weight:600;margin-bottom:4px">💡 Suggested AutoPilot Rule</div>';
+            html += '<div style="font-size:12px;color:#22c55e;font-weight:600;margin-bottom:4px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg> Suggested AutoPilot Rule</div>';
             html += '<div style="font-size:13px;color:#F8FAFC;font-weight:600">' + escapeHtml(ai.suggestedRule.name) + '</div>';
             html += '<div style="font-size:12px;color:#94A3B8">' + escapeHtml(ai.suggestedRule.description) + '</div>';
             html += '</div>';
@@ -7304,7 +7304,7 @@ document.addEventListener('DOMContentLoaded', function() {
       var alertLabel = _portalFriendlyAlertType(ev.alert_type || '');
       var severityLabel = _portalFriendlySeverity(ev.triage_severity || '');
       var contextLabel = _portalFriendlyTimeContext(ev.time_context || '');
-      var actionText = ev.resolution_id ? '✅ Auto-fixed' : '—';
+      var actionText = ev.resolution_id ? '<span style="display:inline-flex;align-items:center;gap:4px;color:#22c55e;font-weight:600"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>Auto-fixed</span>' : '—';
 
       tr.innerHTML =
         '<td style="font-size:12px;white-space:nowrap;color:#94A3B8">' + timeStr + '</td>' +
@@ -7440,7 +7440,7 @@ document.addEventListener('DOMContentLoaded', function() {
           var timeStr = time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
             time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
           var resText = ev.resolution
-            ? '<span class="rpt-ai-action-result ' + (ev.resolution.success ? 'success' : 'failed') + '">' + (ev.resolution.success ? '✓ Fixed' : '✗ Failed') + '</span>'
+            ? '<span class="rpt-ai-action-result ' + (ev.resolution.success ? 'success' : 'failed') + '">' + (ev.resolution.success ? '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Fixed' : '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M18 6 6 18M6 6l12 12"/></svg> Failed') + '</span>'
             : '<span style="color:#475569">—</span>';
           var contextLabel = (ev.timeContext || '').replace(/_/g, ' ');
           tr.innerHTML =
@@ -7618,7 +7618,7 @@ document.addEventListener('DOMContentLoaded', function() {
             '<td style="font-size:12px;white-space:nowrap;color:#94A3B8">' + timeStr + '</td>' +
             '<td style="font-size:12px"><span class="severity-badge ' + a.severity + '">' + a.severity + '</span> ' + escapeHtml(a.alertType) + '</td>' +
             '<td style="font-size:12px;color:#F8FAFC">' + escapeHtml(a.action || '—') + '</td>' +
-            '<td><span class="rpt-ai-action-result ' + (a.success ? 'success' : 'failed') + '">' + (a.success ? '✓ Success' : '✗ Failed') + '</span></td>' +
+            '<td><span class="rpt-ai-action-result ' + (a.success ? 'success' : 'failed') + '">' + (a.success ? '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Success' : '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M18 6 6 18M6 6l12 12"/></svg> Failed') + '</span></td>' +
             '<td style="font-size:12px;color:#94A3B8">' + (a.durationMs ? (a.durationMs / 1000).toFixed(1) + 's' : '—') + '</td>';
           tbody.appendChild(tr);
         });
@@ -7631,7 +7631,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // Pending issues
       var pendEl = document.getElementById('rpt-ai-pending-list');
       if (!data.pendingIssues || !data.pendingIssues.length) {
-        pendEl.innerHTML = '<span style="color:#22c55e;font-size:13px">✓ No unresolved issues — all clear!</span>';
+        pendEl.innerHTML = '<span style="color:#22c55e;font-size:13px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> No unresolved issues — all clear!</span>';
       } else {
         var html = '';
         data.pendingIssues.forEach(function(p) {
