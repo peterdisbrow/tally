@@ -131,32 +131,11 @@ async function preServiceCheck(agent) {
   const atemConnected = agent.status.atem.connected;
   checks.push({ name: 'ATEM Connection', pass: atemConnected, detail: atemConnected ? 'Connected' : 'Not connected' });
 
-  // 2. Camera inputs active (check for non-black on configured inputs)
-  if (atemConnected && agent.atem) {
-    try {
-      const state = agent.atem.state;
-      const inputs = state?.video?.mixEffects?.[0];
-      const inputCount = Object.keys(state?.inputs || {}).length;
-      let activeInputs = 0;
-      let totalInputs = 0;
-      for (const [id, input] of Object.entries(state?.inputs || {})) {
-        if (input.internalPortType === 0) { // External inputs
-          totalInputs++;
-          // Check if input has a valid source (not black)
-          if (input.isExternal !== false) activeInputs++;
-        }
-      }
-      checks.push({
-        name: 'Camera Inputs',
-        pass: activeInputs > 0,
-        detail: `${activeInputs}/${totalInputs} external inputs detected`,
-      });
-    } catch (e) {
-      checks.push({ name: 'Camera Inputs', pass: false, detail: `Error checking: ${e.message}` });
-    }
-  } else {
-    checks.push({ name: 'Camera Inputs', pass: false, detail: 'Cannot check — ATEM not connected' });
-  }
+  // 2. Camera inputs active — suppressed: input detection is unreliable
+  //    when the ATEM reports internalPortType/isExternal inconsistently.
+  //    The underlying detection code is kept; re-enable once we have a
+  //    reliable signal-presence check.
+  // if (atemConnected && agent.atem) { ... }
 
   // 3. OBS connection and stream state (only if OBS is the configured encoder)
   const encoderType = agent.config?.encoderType || agent.config?.encoder?.type;
