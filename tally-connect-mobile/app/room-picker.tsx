@@ -43,7 +43,15 @@ export default function RoomPickerScreen() {
     setError(null);
     try {
       const data = await api<{ rooms: Array<{ id: string; name: string; is_default?: boolean }> }>('/api/church/rooms', { signal });
-      setRooms((data.rooms || []).map((r) => ({ id: r.id, name: r.name })));
+      const loaded = (data.rooms || []).map((r) => ({ id: r.id, name: r.name }));
+      setRooms(loaded);
+
+      // If the user was previously in a room that still exists, skip the picker
+      const previousRoomId = useStatusStore.getState().activeRoomId;
+      if (previousRoomId && loaded.some((r) => r.id === previousRoomId)) {
+        router.replace('/(tabs)');
+        return;
+      }
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return;
       Sentry.captureException(e, { extra: { context: 'loadRooms' } });
