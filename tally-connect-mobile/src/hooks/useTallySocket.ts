@@ -64,14 +64,18 @@ export function useTallySocket() {
         }
         case 'alert': {
           const alert = msg as AlertMessage;
-          const activeRoomId = useStatusStore.getState().activeRoomId;
+          const { activeRoomId, rooms } = useStatusStore.getState();
           // Only add if alert matches active room or is church-wide (null roomId)
           if (alert.roomId === null || !activeRoomId || alert.roomId === activeRoomId) {
+            const roomName = alert.roomId
+              ? (rooms.find((r) => r.id === alert.roomId)?.name ?? undefined)
+              : undefined;
             useAlertStore.getState().addAlert({
               id: `${alert.timestamp}-${alert.severity}-${Math.random().toString(36).substr(2, 5)}`,
               severity: alert.severity,
               message: alert.message,
               roomId: alert.roomId,
+              roomName,
               timestamp: alert.timestamp,
             });
           }
