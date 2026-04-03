@@ -20,8 +20,8 @@ export function useUpdateCheck() {
             useUpdateStore.getState().setUpdateReady(true);
           }
         }
-      } catch {
-        // Silent fail — don't block the app for update checks
+      } catch (err) {
+        console.warn('[OTA] Update check failed:', err instanceof Error ? err.message : err);
       }
     })();
   }, []);

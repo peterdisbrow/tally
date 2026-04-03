@@ -52,8 +52,9 @@ export default function MoreScreen() {
       } else {
         setUpdateStatus('up-to-date');
       }
-    } catch {
-      Alert.alert('Update Check Failed', 'Could not check for updates. Please try again later.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      Alert.alert('Update Check Failed', message);
     } finally {
       setUpdateChecking(false);
     }
