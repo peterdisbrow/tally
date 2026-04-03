@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, ScrollView, Pressable, Alert, Switch,
 } from 'react-native';
@@ -13,13 +13,51 @@ import { TallyIndicator } from '../../src/components/TallyIndicator';
 import { GlassCard } from '../../src/components/GlassCard';
 import { PulseDot } from '../../src/components/PulseDot';
 
+interface QueuedCommand {
+  command: string;
+  params: Record<string, unknown>;
+  label: string;
+}
+
 export default function ActionsScreen() {
   const status = useActiveRoomStatus();
   const activeRoomId = useStatusStore((s) => s.activeRoomId);
+  const wsConnected = useStatusStore((s) => s.wsConnected);
   const [pending, setPending] = useState<string | null>(null);
+  const [commandQueue, setCommandQueue] = useState<QueuedCommand[]>([]);
   const colors = useThemeColors();
+  const prevConnected = useRef(wsConnected);
 
-  const sendCommand = async (command: string, params: Record<string, unknown> = {}, destructive = false) => {
+  // When the socket reconnects, offer to flush any queued commands
+  useEffect(() => {
+    if (!prevConnected.current && wsConnected && commandQueue.length > 0) {
+      const summary = commandQueue.map((c) => `• ${c.label}`).join('\n');
+      Alert.alert(
+        'Connection Restored',
+        `You have ${commandQueue.length} queued command${commandQueue.length !== 1 ? 's' : ''}:\n\n${summary}\n\nSend them now?`,
+        [
+          {
+            text: 'Discard',
+            style: 'destructive',
+            onPress: () => setCommandQueue([]),
+          },
+          {
+            text: 'Send All',
+            onPress: async () => {
+              const queued = commandQueue;
+              setCommandQueue([]);
+              for (const item of queued) {
+                await executeCommand(item.command, item.params);
+              }
+            },
+          },
+        ],
+      );
+    }
+    prevConnected.current = wsConnected;
+  }, [wsConnected]);
+
+  const sendCommand = async (command: string, params: Record<string, unknown> = {}, destructive = false, label?: string) => {
     if (destructive) {
       return new Promise<void>((resolve) => {
         Alert.alert(
@@ -31,7 +69,7 @@ export default function ActionsScreen() {
               text: 'Confirm',
               style: 'destructive',
               onPress: async () => {
-                await executeCommand(command, params);
+                await executeCommand(command, params, label);
                 resolve();
               },
             },
@@ -39,15 +77,27 @@ export default function ActionsScreen() {
         );
       });
     }
-    await executeCommand(command, params);
+    await executeCommand(command, params, label);
   };
 
-  const executeCommand = async (command: string, params: Record<string, unknown>) => {
+  const executeCommand = async (command: string, params: Record<string, unknown>, label?: string) => {
     setPending(command);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     try {
       if (!tallySocket.isConnected) {
-        throw new Error('Not connected to server');
+        // Queue the command for retry on reconnect
+        const displayLabel = label || command;
+        setCommandQueue((q) => {
+          // Avoid duplicates of the same command
+          if (q.some((c) => c.command === command)) return q;
+          return [...q, { command, params, label: displayLabel }];
+        });
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Alert.alert(
+          'Offline — Command Queued',
+          `"${displayLabel}" will be sent automatically when the connection is restored.`,
+        );
+        return;
       }
       const messageId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       tallySocket.send({
@@ -152,6 +202,29 @@ export default function ActionsScreen() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.lg }}>
+      {/* Queued commands banner */}
+      {commandQueue.length > 0 && (
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: `${colors.warning}20`,
+          borderRadius: borderRadius.md,
+          borderWidth: 1,
+          borderColor: colors.warning,
+          padding: spacing.md,
+          marginBottom: spacing.lg,
+          gap: spacing.sm,
+        }}>
+          <Ionicons name="time-outline" size={16} color={colors.warning} />
+          <Text style={{ flex: 1, fontSize: fontSize.sm, color: colors.warning, fontWeight: '600' }}>
+            {commandQueue.length} command{commandQueue.length !== 1 ? 's' : ''} queued — waiting for reconnect
+          </Text>
+          <Pressable onPress={() => setCommandQueue([])}>
+            <Ionicons name="close" size={16} color={colors.warning} />
+          </Pressable>
+        </View>
+      )}
+
       {/* Camera Switching */}
       {atem?.connected && (
         <View style={{ marginBottom: spacing.xxl }}>
