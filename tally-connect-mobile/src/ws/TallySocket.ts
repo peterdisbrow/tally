@@ -31,7 +31,7 @@ export class TallySocket {
       // Convert HTTP URL to WebSocket URL
       const wsUrl = baseUrl.replace(/^http/, 'ws');
 
-      this.ws = new WebSocket(`${wsUrl}/mobile?token=${encodeURIComponent(token)}`);
+      this.ws = new WebSocket(`${wsUrl}/mobile`, [`token.${token}`]);
 
       this.ws.onopen = () => {
         this.backoffMs = 1000;

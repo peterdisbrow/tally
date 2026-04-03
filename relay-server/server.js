@@ -86,6 +86,15 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({
   server,
   maxPayload: 256 * 1024, // 256 KB max message
+  handleProtocols: (protocols, req) => {
+    // For mobile clients that send auth via Sec-WebSocket-Protocol, echo it back.
+    // The WebSocket spec requires the server to acknowledge the chosen subprotocol.
+    const url = new URL(req.url, 'http://localhost');
+    if (url.pathname.replace(/^\//, '') === 'mobile') {
+      return _mobileWsHandler.getMobileSubprotocol(protocols);
+    }
+    return false;
+  },
   perMessageDeflate: {
     zlibDeflateOptions: { chunkSize: 1024, memLevel: 7, level: 3 },
     zlibInflateOptions: { chunkSize: 10 * 1024 },
@@ -4242,7 +4251,7 @@ wss.on('connection', (ws, req) => {
   } else if (role === 'portal') {
     handlePortalWsConnection(ws, url);
   } else if (role === 'mobile') {
-    _mobileWsHandler.handleMobileConnection(ws, url);
+    _mobileWsHandler.handleMobileConnection(ws, url, req);
   } else {
     ws.close(1008, 'Unknown role');
   }

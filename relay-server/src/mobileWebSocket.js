@@ -23,7 +23,7 @@ const jwt = require('jsonwebtoken');
  * @param {object} [opts.pushNotifications] - PushNotificationService instance
  * @param {Function} [opts.log] - Logging function
  * @param {Function} [opts.checkCommandRateLimit] - Rate limiter for commands
- * @returns {{ handleMobileConnection, broadcastToMobile, getMobileClientCount }}
+ * @returns {{ handleMobileConnection, broadcastToMobile, getMobileClientCount, getMobileSubprotocol }}
  */
 function createMobileWebSocketHandler({
   churches,
@@ -38,11 +38,52 @@ function createMobileWebSocketHandler({
 
 
   /**
-   * Handle a new mobile WebSocket connection.
-   * URL: /mobile?token=<JWT>
+   * Extract the auth token from a mobile upgrade request.
+   * Prefers the Sec-WebSocket-Protocol subprotocol (token.<JWT>) over the
+   * legacy query string (?token=<JWT>) for security — tokens in URLs appear
+   * in server logs.
+   *
+   * @param {URL} url - Parsed request URL
+   * @param {object} req - Raw HTTP upgrade request (has headers)
+   * @returns {string|null} Raw JWT string, or null if absent
    */
-  function handleMobileConnection(ws, url) {
-    const token = url.searchParams.get('token');
+  function _extractToken(url, req) {
+    // Prefer subprotocol header: "token.<JWT>"
+    const protocolHeader = req?.headers?.['sec-websocket-protocol'] || '';
+    for (const proto of protocolHeader.split(',').map(p => p.trim())) {
+      if (proto.startsWith('token.')) {
+        return proto.slice('token.'.length);
+      }
+    }
+    // Fall back to query string for backward compatibility
+    return url.searchParams.get('token');
+  }
+
+  /**
+   * Return the subprotocol to echo back for a mobile upgrade request.
+   * The WebSocket spec requires the server to echo the chosen subprotocol.
+   * Called from the WebSocketServer handleProtocols callback.
+   *
+   * @param {Set<string>} protocols - Requested subprotocols
+   * @returns {string|false} The chosen protocol, or false if none
+   */
+  function getMobileSubprotocol(protocols) {
+    for (const p of protocols) {
+      if (p.startsWith('token.')) return p;
+    }
+    return false;
+  }
+
+  /**
+   * Handle a new mobile WebSocket connection.
+   * Accepts token via Sec-WebSocket-Protocol (preferred) or ?token= query string.
+   *
+   * @param {object} ws - WebSocket instance
+   * @param {URL} url - Parsed request URL
+   * @param {object} req - Raw HTTP upgrade request
+   */
+  function handleMobileConnection(ws, url, req) {
+    const token = _extractToken(url, req);
     if (!token) {
       ws.close(4001, 'Token required');
       return;
@@ -339,6 +380,7 @@ function createMobileWebSocketHandler({
     sendAlertToMobile,
     sendConnectionChange,
     getMobileClientCount,
+    getMobileSubprotocol,
   };
 }
 
