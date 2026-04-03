@@ -173,7 +173,7 @@ export default function ChatScreen() {
           borderTopColor: colors.critical,
         }}>
           <Text style={{ fontSize: fontSize.sm, color: colors.critical, flex: 1 }}>{sendError}</Text>
-          <Pressable onPress={() => setSendError(null)}>
+          <Pressable onPress={() => setSendError(null)} accessibilityLabel="Dismiss error" accessibilityRole="button">
             <Ionicons name="close-circle" size={18} color={colors.critical} />
           </Pressable>
         </View>
@@ -231,6 +231,8 @@ export default function ChatScreen() {
           ]}
           onPress={handleSend}
           disabled={!text.trim() || isSending}
+          accessibilityLabel="Send message"
+          accessibilityRole="button"
         >
           <Ionicons
             name="send"

@@ -174,6 +174,8 @@ export default function MoreScreen() {
                   borderRightColor: colors.border,
                 }}
                 onPress={() => setPreference(opt.value)}
+                accessibilityLabel={`Theme: ${opt.label}${isActive ? ', selected' : ''}`}
+                accessibilityRole="radio"
               >
                 <Ionicons
                   name={opt.icon as any}
@@ -366,6 +368,8 @@ export default function MoreScreen() {
                   padding: spacing.md,
                 }}
                 onPress={() => Updates.reloadAsync()}
+                accessibilityLabel="Restart to apply update"
+                accessibilityRole="button"
               >
                 <Ionicons name="refresh" size={18} color="#ffffff" />
                 <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: '#ffffff' }}>Restart to Apply Update</Text>
@@ -385,6 +389,8 @@ export default function MoreScreen() {
                 }}
                 onPress={handleCheckForUpdate}
                 disabled={updateChecking}
+                accessibilityLabel={updateChecking ? 'Checking for updates' : 'Check for updates'}
+                accessibilityRole="button"
               >
                 {updateChecking ? (
                   <ActivityIndicator size="small" color={colors.accent} />
@@ -432,7 +438,7 @@ export default function MoreScreen() {
         borderWidth: 1,
         borderColor: colors.isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(220, 38, 38, 0.15)',
         marginBottom: spacing.xxl,
-      }} onPress={handleLogout}>
+      }} onPress={handleLogout} accessibilityLabel="Sign out" accessibilityRole="button">
         <Ionicons name="log-out-outline" size={20} color={colors.critical} />
         <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.critical, marginLeft: spacing.sm }}>Sign Out</Text>
       </Pressable>
@@ -450,7 +456,7 @@ function MenuItem({ icon, label, onPress, isLast, colors }: { icon: string; labe
     <Pressable style={[
       { flexDirection: 'row', alignItems: 'center', padding: spacing.lg },
       !isLast && { borderBottomWidth: 1, borderBottomColor: colors.border },
-    ]} onPress={onPress}>
+    ]} onPress={onPress} accessibilityLabel={label} accessibilityRole="button">
       <Ionicons name={icon as any} size={20} color={colors.textSecondary} style={{ width: 28, textAlign: 'center', marginRight: spacing.md }} />
       <Text style={{ flex: 1, fontSize: fontSize.md, color: colors.text }}>{label}</Text>
       <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />

@@ -247,6 +247,8 @@ export default function ActionsScreen() {
               onValueChange={(val) => sendCommand(val ? 'streamProtection.enable' : 'streamProtection.disable')}
               trackColor={{ false: colors.border, true: colors.accent }}
               thumbColor="#ffffff"
+              accessibilityLabel="Stream protection"
+              accessibilityRole="switch"
             />
           </View>
           {spCdnHealth && spEnabled && (
@@ -304,6 +306,8 @@ export default function ActionsScreen() {
                 paddingHorizontal: spacing.lg,
               }}
               onPress={() => sendCommand('streamProtection.restart')}
+              accessibilityLabel="Restart stream protection"
+              accessibilityRole="button"
             >
               <Ionicons name="refresh-outline" size={16} color="#ffffff" />
               <Text style={{ fontSize: fontSize.sm, color: '#ffffff', fontWeight: '600' }}>Restart Stream</Text>
@@ -390,9 +394,10 @@ interface GradientButtonProps {
   pending?: boolean;
   disabled?: boolean;
   colors: any;
+  accessibilityLabel?: string;
 }
 
-function GradientButton({ label, icon, gradientBg, borderColor, color, onPress, pending, disabled, colors }: GradientButtonProps) {
+function GradientButton({ label, icon, gradientBg, borderColor, color, onPress, pending, disabled, colors, accessibilityLabel }: GradientButtonProps) {
   return (
     <Pressable
       style={[
@@ -412,6 +417,8 @@ function GradientButton({ label, icon, gradientBg, borderColor, color, onPress, 
       ]}
       onPress={onPress}
       disabled={disabled || pending}
+      accessibilityLabel={accessibilityLabel || label}
+      accessibilityRole="button"
     >
       <Ionicons
         name={icon as any}

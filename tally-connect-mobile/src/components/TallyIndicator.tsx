@@ -24,7 +24,12 @@ export function TallyIndicator({ inputNumber, inputName, isProgram, isPreview, o
   };
 
   return (
-    <Pressable onPress={handlePress} disabled={!onPress}>
+    <Pressable
+      onPress={handlePress}
+      disabled={!onPress}
+      accessibilityLabel={`Input ${inputNumber}: ${inputName}${isProgram ? ', Program' : isPreview ? ', Preview' : ''}`}
+      accessibilityRole="button"
+    >
       <View style={[
         {
           width: 76,

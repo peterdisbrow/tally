@@ -21,7 +21,7 @@ export function RoomSelector() {
 
   return (
     <>
-      <Pressable onPress={() => setShowPicker(true)} style={{
+      <Pressable onPress={() => setShowPicker(true)} accessibilityLabel={`Select room, currently ${activeRoom?.name || 'none selected'}`} accessibilityRole="button" style={{
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: colors.surface,
@@ -36,7 +36,7 @@ export function RoomSelector() {
       </Pressable>
 
       <Modal visible={showPicker} transparent animationType="slide">
-        <Pressable style={{ flex: 1, backgroundColor: colors.overlayBg, justifyContent: 'flex-end' }} onPress={() => setShowPicker(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: colors.overlayBg, justifyContent: 'flex-end' }} onPress={() => setShowPicker(false)} accessibilityLabel="Close room selector" accessibilityRole="button">
           <View style={{
             backgroundColor: colors.surfaceElevated,
             borderTopLeftRadius: borderRadius.xl,
@@ -66,6 +66,8 @@ export function RoomSelector() {
                     setActiveRoom(item.id);
                     setShowPicker(false);
                   }}
+                  accessibilityLabel={`${item.name}${item.id === activeRoomId ? ', selected' : ''}${item.connected === false ? ', offline' : ''}`}
+                  accessibilityRole="radio"
                 >
                   <View style={{
                     width: 10,

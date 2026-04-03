@@ -1093,6 +1093,8 @@ export default function DashboardScreen() {
                   key={card.id}
                   activeOpacity={0.7}
                   onPress={() => toggleExpanded(card.id)}
+                  accessibilityLabel={`${card.name}, ${expandedIds.has(card.id) ? 'collapse' : 'expand'}`}
+                  accessibilityRole="button"
                 >
                   <View style={[styles.deviceRow, idx < group.cards.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
                     {/* Card Header */}

@@ -36,7 +36,7 @@ export function AlertBadge({ alert, onPress }: AlertBadgeProps) {
   const config = severityConfig[alert.severity] || severityConfig.INFO;
 
   return (
-    <Pressable onPress={onPress}>
+    <Pressable onPress={onPress} accessibilityLabel={`${alert.severity} alert: ${alert.message}`} accessibilityRole="button">
       <View style={[
         {
           borderTopLeftRadius: 4,

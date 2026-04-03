@@ -434,6 +434,8 @@ export default function PreServiceChecksScreen() {
             onPress={runManualCheck}
             disabled={isRunning}
             activeOpacity={0.7}
+            accessibilityLabel={isRunning ? 'Running checks' : 'Run check now'}
+            accessibilityRole="button"
           >
             {isRunning ? (
               <ActivityIndicator size="small" color="#ffffff" />
