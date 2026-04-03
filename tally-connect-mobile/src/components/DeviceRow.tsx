@@ -19,7 +19,7 @@ export function DeviceRow({ name, type, connected, detail }: DeviceRowProps) {
         {detail ? <Text style={styles.detail}>{detail}</Text> : null}
       </View>
       <Text style={[styles.status, { color: connected ? colors.online : colors.offline }]}>
-        {connected ? 'Online' : 'Offline'}
+        {connected ? 'Connected' : 'Disconnected'}
       </Text>
     </View>
   );

@@ -23,7 +23,7 @@ export function StreamStats({ status }: StreamStatsProps) {
       <View style={styles.header}>
         <Text style={styles.title}>STREAM</Text>
         <View style={[styles.liveTag, { backgroundColor: isStreaming ? colors.live : colors.offline }]}>
-          <Text style={styles.liveText}>{isStreaming ? 'LIVE' : 'OFFLINE'}</Text>
+          <Text style={styles.liveText}>{isStreaming ? 'LIVE' : 'OFF AIR'}</Text>
         </View>
       </View>
 

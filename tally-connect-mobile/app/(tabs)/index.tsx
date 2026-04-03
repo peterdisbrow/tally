@@ -805,7 +805,99 @@ export default function DashboardScreen() {
   );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
+function SystemStat({ label, value, unit }: { label: string; value?: number; unit: string }) {
+  const v = value != null ? Math.round(value) : null;
+  const color = v != null
+    ? v >= 85 ? colors.critical
+      : v >= 70 ? colors.warning
+        : colors.online
+    : colors.textMuted;
+
+  return (
+    <View style={systemStyles.stat}>
+      <Text style={systemStyles.label}>{label}</Text>
+      <Text style={[systemStyles.value, { color }]}>
+        {v != null ? `${v}${unit}` : '--'}
+      </Text>
+    </View>
+  );
+}
+
+interface DeviceInfo {
+  name: string;
+  type: string;
+  connected: boolean;
+  detail?: string;
+}
+
+function buildDeviceList(status: DeviceStatus | null): DeviceInfo[] {
+  if (!status) return [];
+  const devices: DeviceInfo[] = [];
+
+  if (status.atem) {
+    devices.push({
+      name: status.atem.model || 'ATEM Switcher',
+      type: 'atem',
+      connected: status.atem.connected,
+      detail: status.atem.streaming ? 'Streaming' : undefined,
+    });
+  }
+  if (status.obs) {
+    devices.push({
+      name: 'OBS Studio',
+      type: 'obs',
+      connected: status.obs.connected,
+      detail: status.obs.streaming ? `Streaming ${status.obs.currentScene ? `- ${status.obs.currentScene}` : ''}` : status.obs.currentScene,
+    });
+  }
+  if (status.vmix) {
+    devices.push({
+      name: 'vMix',
+      type: 'vmix',
+      connected: status.vmix.connected,
+    });
+  }
+  if (status.encoder && !status.obs) {
+    devices.push({
+      name: status.encoder.name || status.encoder.type || 'Streaming Encoder',
+      type: 'encoder',
+      connected: status.encoder.connected,
+      detail: status.encoder.streaming ? 'Streaming' : undefined,
+    });
+  }
+  if (status.mixer) {
+    devices.push({
+      name: status.mixer.model || 'Audio Mixer',
+      type: 'mixer',
+      connected: status.mixer.connected,
+    });
+  }
+  if (status.propresenter) {
+    devices.push({
+      name: 'ProPresenter',
+      type: 'propresenter',
+      connected: status.propresenter.connected,
+      detail: status.propresenter.currentSlide,
+    });
+  }
+  if (status.companion) {
+    devices.push({
+      name: 'Companion',
+      type: 'companion',
+      connected: status.companion.connected,
+    });
+  }
+  if (status.hyperdeck) {
+    devices.push({
+      name: 'HyperDeck',
+      type: 'hyperdeck',
+      connected: status.hyperdeck.connected,
+      detail: status.hyperdeck.recording ? 'Recording' : undefined,
+    });
+  }
+
+  return devices;
+}
 
 const styles = StyleSheet.create({
   container: {

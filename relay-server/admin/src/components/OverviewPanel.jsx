@@ -167,17 +167,17 @@ export default function OverviewPanel({ churchId, api }) {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, fontSize: 12 }}>
-            {filteredDevices.atem && <div><span style={{ color: C.muted }}>ATEM:</span> <span style={{ color: C.white }}>{typeof filteredDevices.atem === 'object' ? (filteredDevices.atem.model || 'Connected') : (filteredDevices.atem ? 'Connected' : 'Not connected')}</span></div>}
+            {filteredDevices.atem && <div><span style={{ color: C.muted }}>ATEM:</span> <span style={{ color: C.white }}>{typeof filteredDevices.atem === 'object' ? (filteredDevices.atem.model || 'Connected') : (filteredDevices.atem ? 'Connected' : 'Disconnected')}</span></div>}
             {(filteredDevices.obs !== undefined || filteredDevices.vmix !== undefined || !selectedRoom) && (
-              <div><span style={{ color: C.muted }}>{selectedRoom ? (filteredDevices.obs ? 'OBS' : filteredDevices.vmix ? 'vMix' : encoderName) : encoderName}:</span> <span style={{ color: selectedRoom ? (filteredDevices.obs || filteredDevices.vmix ? C.green : C.muted) : (encoderConnected ? C.green : C.muted) }}>{selectedRoom ? (filteredDevices.obs || filteredDevices.vmix ? 'Connected' : 'Not connected') : (encoderConnected ? 'Connected' : 'Not connected')}</span></div>
+              <div><span style={{ color: C.muted }}>{selectedRoom ? (filteredDevices.obs ? 'OBS' : filteredDevices.vmix ? 'vMix' : encoderName) : encoderName}:</span> <span style={{ color: selectedRoom ? (filteredDevices.obs || filteredDevices.vmix ? C.green : C.muted) : (encoderConnected ? C.green : C.muted) }}>{selectedRoom ? (filteredDevices.obs || filteredDevices.vmix ? 'Connected' : 'Disconnected') : (encoderConnected ? 'Connected' : 'Disconnected')}</span></div>
             )}
-            {!selectedRoom && <div><span style={{ color: C.muted }}>Stream:</span> <span style={{ color: encoderLive ? C.red : C.muted }}>{encoderLive ? 'Live' : 'Off-air'}</span></div>}
-            {selectedRoom && filteredDevices.streamActive !== undefined && <div><span style={{ color: C.muted }}>Stream:</span> <span style={{ color: filteredDevices.streamActive ? C.red : C.muted }}>{filteredDevices.streamActive ? 'Live' : 'Off-air'}</span></div>}
-            {filteredDevices.companion !== undefined && <div><span style={{ color: C.muted }}>Companion:</span> <span style={{ color: filteredDevices.companion ? C.green : C.muted }}>{filteredDevices.companion ? 'Connected' : 'Not connected'}</span></div>}
+            {!selectedRoom && <div><span style={{ color: C.muted }}>Stream:</span> <span style={{ color: encoderLive ? C.red : C.muted }}>{encoderLive ? 'Live' : 'Off Air'}</span></div>}
+            {selectedRoom && filteredDevices.streamActive !== undefined && <div><span style={{ color: C.muted }}>Stream:</span> <span style={{ color: filteredDevices.streamActive ? C.red : C.muted }}>{filteredDevices.streamActive ? 'Live' : 'Off Air'}</span></div>}
+            {filteredDevices.companion !== undefined && <div><span style={{ color: C.muted }}>Companion:</span> <span style={{ color: filteredDevices.companion ? C.green : C.muted }}>{filteredDevices.companion ? 'Connected' : 'Disconnected'}</span></div>}
             {Array.isArray(filteredDevices.encoders) && filteredDevices.encoders.length > 0 && <div><span style={{ color: C.muted }}>Encoders:</span> <span style={{ color: C.white }}>{filteredDevices.encoders.length}</span></div>}
             {Array.isArray(filteredDevices.ptz) && filteredDevices.ptz.length > 0 && <div><span style={{ color: C.muted }}>PTZ Cameras:</span> <span style={{ color: C.white }}>{filteredDevices.ptz.length}</span></div>}
             {Array.isArray(filteredDevices.hyperdecks) && filteredDevices.hyperdecks.length > 0 && <div><span style={{ color: C.muted }}>HyperDecks:</span> <span style={{ color: C.white }}>{filteredDevices.hyperdecks.length}</span></div>}
-            {!selectedRoom && eq.propresenter !== undefined && <div><span style={{ color: C.muted }}>ProPresenter:</span> <span style={{ color: eq.propresenter ? C.green : C.muted }}>{eq.propresenter ? 'Connected' : 'Not connected'}</span></div>}
+            {!selectedRoom && eq.propresenter !== undefined && <div><span style={{ color: C.muted }}>ProPresenter:</span> <span style={{ color: eq.propresenter ? C.green : C.muted }}>{eq.propresenter ? 'Connected' : 'Disconnected'}</span></div>}
             {!selectedRoom && eq.audio && <div><span style={{ color: C.muted }}>Audio Inputs:</span> <span style={{ color: C.white }}>{Array.isArray(eq.audio) ? eq.audio.length : eq.audio}</span></div>}
           </div>
         )}
