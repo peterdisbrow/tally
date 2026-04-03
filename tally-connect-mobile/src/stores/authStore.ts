@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Alert } from 'react-native';
-import { api, setAuthToken, setChurchId, clearAuth, getAuthToken, getChurchId, setRelayUrl, getRelayUrl } from '../api/client';
+import { api, setAuthToken, setChurchId, clearAuth, getAuthToken, getChurchId, setRelayUrl, getRelayUrl, registerAuthHandler } from '../api/client';
 import { tallySocket } from '../ws/TallySocket';
 import { useChatStore } from './chatStore';
 import { useStatusStore } from './statusStore';
@@ -180,3 +180,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 }));
+
+// Register forceLogout with the API client so 401 responses can trigger it
+// without a dynamic import (avoids flicker) and with built-in debouncing.
+registerAuthHandler(() => useAuthStore.getState().forceLogout());

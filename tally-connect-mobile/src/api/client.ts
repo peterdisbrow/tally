@@ -9,6 +9,14 @@ let cachedUrl: string | null = null;
 let cachedToken: string | null = null;
 let cachedChurchId: string | null = null;
 
+// Registered by authStore at startup to avoid circular-import dynamic loading on 401.
+let _forceLogout: (() => Promise<void>) | null = null;
+let _logoutInProgress = false;
+
+export function registerAuthHandler(fn: () => Promise<void>): void {
+  _forceLogout = fn;
+}
+
 export async function getRelayUrl(): Promise<string> {
   if (cachedUrl) return cachedUrl;
   cachedUrl = await SecureStore.getItemAsync(RELAY_URL_KEY);
@@ -79,12 +87,22 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
   });
 
   if (response.status === 401) {
-    // Force logout through Zustand store so isLoggedIn becomes false
-    // and the root layout redirects to login. Import is deferred to
-    // avoid circular dependency (authStore imports from client).
-    const { useAuthStore } = await import('../stores/authStore');
-    const { forceLogout } = useAuthStore.getState();
-    await forceLogout();
+    // Debounce: only one logout call at a time to prevent race conditions
+    // when multiple requests 401 simultaneously.
+    if (!_logoutInProgress) {
+      _logoutInProgress = true;
+      try {
+        if (_forceLogout) {
+          await _forceLogout();
+        } else {
+          // Fallback for the rare case registerAuthHandler hasn't been called yet.
+          const { useAuthStore } = await import('../stores/authStore');
+          await useAuthStore.getState().forceLogout();
+        }
+      } finally {
+        _logoutInProgress = false;
+      }
+    }
     throw new AuthError('Session expired');
   }
 
