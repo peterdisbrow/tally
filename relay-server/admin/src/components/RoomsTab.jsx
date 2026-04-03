@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { C, s, canWrite } from './adminStyles';
+import EquipmentRoles from './EquipmentRoles';
 
 function fmtDate(d) { return d ? new Date(d).toLocaleDateString() : '—'; }
 
@@ -18,6 +19,7 @@ export default function RoomsTab({ api, role }) {
   const [formErr, setFormErr] = useState('');
   const [formOk, setFormOk] = useState('');
   const [saving, setSaving] = useState(false);
+  const [rolesRoomId, setRolesRoomId] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -141,20 +143,33 @@ export default function RoomsTab({ api, role }) {
               </thead>
               <tbody>
                 {filtered.map(r => (
-                  <tr key={r.id}>
-                    <td style={{ ...s.td, fontWeight: 600, color: C.white }}>{r.name}</td>
-                    <td style={s.td}>{r.church_name || churchMap[r.campus_id] || r.campus_id}</td>
-                    <td style={{ ...s.td, color: C.muted, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {r.description || '—'}
-                    </td>
-                    <td style={s.td}>{fmtDate(r.created_at)}</td>
-                    {canWrite(role) && (
-                      <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
-                        <button style={{ ...s.btn('secondary'), fontSize: 11, padding: '5px 10px', marginRight: 6 }} onClick={() => openEdit(r)}>Edit</button>
-                        <button style={{ ...s.btn('danger'), fontSize: 11, padding: '5px 10px' }} onClick={() => deleteRoom(r)}>Delete</button>
+                  <React.Fragment key={r.id}>
+                    <tr>
+                      <td style={{ ...s.td, fontWeight: 600, color: C.white }}>{r.name}</td>
+                      <td style={s.td}>{r.church_name || churchMap[r.campus_id] || r.campus_id}</td>
+                      <td style={{ ...s.td, color: C.muted, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {r.description || '—'}
                       </td>
+                      <td style={s.td}>{fmtDate(r.created_at)}</td>
+                      {canWrite(role) && (
+                        <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
+                          <button
+                            style={{ ...s.btn(rolesRoomId === r.id ? 'primary' : 'secondary'), fontSize: 11, padding: '5px 10px', marginRight: 6 }}
+                            onClick={() => setRolesRoomId(rolesRoomId === r.id ? null : r.id)}
+                          >Roles</button>
+                          <button style={{ ...s.btn('secondary'), fontSize: 11, padding: '5px 10px', marginRight: 6 }} onClick={() => openEdit(r)}>Edit</button>
+                          <button style={{ ...s.btn('danger'), fontSize: 11, padding: '5px 10px' }} onClick={() => deleteRoom(r)}>Delete</button>
+                        </td>
+                      )}
+                    </tr>
+                    {rolesRoomId === r.id && (
+                      <tr>
+                        <td colSpan={canWrite(role) ? 5 : 4} style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.01)', borderBottom: `1px solid ${C.border}` }}>
+                          <EquipmentRoles api={api} roomId={r.id} onClose={() => setRolesRoomId(null)} />
+                        </td>
+                      </tr>
                     )}
-                  </tr>
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

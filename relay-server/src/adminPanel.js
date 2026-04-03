@@ -1422,6 +1422,93 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     }
   });
 
+  // ── Equipment Roles (Admin) ──────────────────────────────────────────────
+
+  const { ROLE_DEFINITIONS, autoDetectRoles } = require('./routes/roomEquipment');
+
+  // GET /api/admin/rooms/:roomId/roles — role assignments for a room
+  app.get('/api/admin/rooms/:roomId/roles', requireAdminSession, (req, res) => {
+    const { roomId } = req.params;
+    const room = db.prepare('SELECT id, campus_id FROM rooms WHERE id = ? AND deleted_at IS NULL').get(roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    try {
+      const row = db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ?').get(roomId);
+      let equipment = {};
+      try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
+
+      const savedRoles = equipment._roles || null;
+      const autoRoles = autoDetectRoles(equipment);
+
+      res.json({
+        roles: savedRoles || autoRoles,
+        autoDetected: !savedRoles,
+        defaults: autoRoles,
+        equipment,
+        roleDefinitions: ROLE_DEFINITIONS,
+      });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // PUT /api/admin/rooms/:roomId/roles — save role assignments
+  app.put('/api/admin/rooms/:roomId/roles', requireAdminSession, (req, res) => {
+    const { roomId } = req.params;
+    const room = db.prepare('SELECT id, campus_id FROM rooms WHERE id = ? AND deleted_at IS NULL').get(roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    const roles = req.body?.roles;
+    if (!roles || typeof roles !== 'object') {
+      return res.status(400).json({ error: 'Missing or invalid roles object' });
+    }
+
+    const validKeys = Object.keys(ROLE_DEFINITIONS);
+    for (const key of Object.keys(roles)) {
+      if (!validKeys.includes(key)) return res.status(400).json({ error: `Invalid role key: ${key}` });
+    }
+
+    try {
+      const row = db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ?').get(roomId);
+      let equipment = {};
+      try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
+
+      equipment._roles = roles;
+      const now = new Date().toISOString();
+
+      db.prepare(`
+        INSERT INTO room_equipment (room_id, church_id, equipment, updated_at, updated_by)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(room_id) DO UPDATE SET
+          equipment = excluded.equipment,
+          updated_at = excluded.updated_at,
+          updated_by = excluded.updated_by
+      `).run(roomId, room.campus_id, JSON.stringify(equipment), now, 'admin');
+
+      auditFromReq(req, 'equipment_roles_updated', 'room', roomId, { roles });
+      res.json({ ok: true, roles, updatedAt: now });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // GET /api/admin/rooms/:roomId/equipment — equipment config for a room (admin view)
+  app.get('/api/admin/rooms/:roomId/equipment', requireAdminSession, (req, res) => {
+    const { roomId } = req.params;
+    const room = db.prepare('SELECT id FROM rooms WHERE id = ? AND deleted_at IS NULL').get(roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    try {
+      const row = db.prepare('SELECT equipment, updated_at FROM room_equipment WHERE room_id = ?').get(roomId);
+      if (!row) return res.json({ equipment: {}, updatedAt: null });
+      let equipment = {};
+      try { equipment = JSON.parse(row.equipment); } catch { }
+      res.json({ equipment, updatedAt: row.updated_at });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
   // ── TD Room Assignments (Admin) ──────────────────────────────────────────
 
   // GET /api/admin/church/:churchId/td-room-assignments — all assignments for a church
