@@ -1,13 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Pressable, Alert, Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
 import { useAuthStore } from '../../src/stores/authStore';
 import { useStatusStore } from '../../src/stores/statusStore';
 import { useChatStore } from '../../src/stores/chatStore';
+import { useUpdateStore } from '../../src/stores/updateStore';
 import { useNotificationStatus } from '../../src/hooks/useNotifications';
 import { api } from '../../src/api/client';
 import { colors } from '../../src/theme/colors';
@@ -20,8 +23,41 @@ export default function MoreScreen() {
   const email = useAuthStore((s) => s.email);
   const logout = useAuthStore((s) => s.logout);
   const { pushToken, permission } = useNotificationStatus();
+  const updateReady = useUpdateStore((s) => s.updateReady);
+  const setUpdateReady = useUpdateStore((s) => s.setUpdateReady);
   const [session, setSession] = useState<ServiceSession | null>(null);
   const [reports, setReports] = useState<any[]>([]);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'up-to-date' | 'ready'>('idle');
+  const [lastChecked, setLastChecked] = useState<Date | null>(null);
+
+  const handleCheckForUpdate = useCallback(async () => {
+    if (__DEV__) {
+      Alert.alert('Dev Mode', 'OTA updates are not available in development builds.');
+      return;
+    }
+    setUpdateChecking(true);
+    setUpdateStatus('idle');
+    try {
+      const check = await Updates.checkForUpdateAsync();
+      setLastChecked(new Date());
+      if (check.isAvailable) {
+        const result = await Updates.fetchUpdateAsync();
+        if (result.isNew) {
+          setUpdateReady(true);
+          setUpdateStatus('ready');
+        } else {
+          setUpdateStatus('up-to-date');
+        }
+      } else {
+        setUpdateStatus('up-to-date');
+      }
+    } catch {
+      Alert.alert('Update Check Failed', 'Could not check for updates. Please try again later.');
+    } finally {
+      setUpdateChecking(false);
+    }
+  }, [setUpdateReady]);
 
   useEffect(() => {
     // Fetch active session
@@ -134,6 +170,55 @@ export default function MoreScreen() {
               Token: {pushToken.slice(0, 30)}...
             </Text>
           )}
+        </View>
+      </View>
+
+      {/* App Updates */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>APP UPDATES</Text>
+        <View style={styles.card}>
+          <View style={styles.notifRow}>
+            <Text style={styles.notifLabel}>Version</Text>
+            <Text style={styles.notifValue}>
+              {Constants.expoConfig?.version || '1.0.0'}
+            </Text>
+          </View>
+          {lastChecked && (
+            <Text style={styles.tokenText}>
+              Last checked: {lastChecked.toLocaleTimeString()}
+            </Text>
+          )}
+          <View style={{ marginTop: spacing.md }}>
+            {updateReady || updateStatus === 'ready' ? (
+              <Pressable
+                style={[styles.updateButton, { backgroundColor: colors.accent }]}
+                onPress={() => Updates.reloadAsync()}
+              >
+                <Ionicons name="refresh" size={18} color={colors.white} />
+                <Text style={styles.updateButtonText}>Restart to Apply Update</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={styles.updateButton}
+                onPress={handleCheckForUpdate}
+                disabled={updateChecking}
+              >
+                {updateChecking ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                ) : (
+                  <Ionicons name="cloud-download-outline" size={18} color={colors.accent} />
+                )}
+                <Text style={[styles.updateButtonText, { color: colors.accent }]}>
+                  {updateChecking ? 'Checking...' : 'Check for Updates'}
+                </Text>
+              </Pressable>
+            )}
+            {updateStatus === 'up-to-date' && !updateChecking && (
+              <Text style={[styles.tokenText, { color: colors.online, marginTop: spacing.sm }]}>
+                You're up to date
+              </Text>
+            )}
+          </View>
         </View>
       </View>
 
@@ -316,6 +401,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     overflow: 'hidden',
+  },
+  updateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  updateButtonText: {
+    fontSize: fontSize.md,
+    fontWeight: '600',
+    color: colors.text,
   },
   logoutButton: {
     flexDirection: 'row',

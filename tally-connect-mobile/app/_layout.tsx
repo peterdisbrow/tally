@@ -6,6 +6,7 @@ import { useAuthStore } from '../src/stores/authStore';
 import { useChatStore } from '../src/stores/chatStore';
 import { useNotifications } from '../src/hooks/useNotifications';
 import { useTallySocket } from '../src/hooks/useTallySocket';
+import { useUpdateCheck } from '../src/hooks/useUpdateCheck';
 import { colors } from '../src/theme/colors';
 
 export default function RootLayout() {
@@ -14,6 +15,7 @@ export default function RootLayout() {
   const isLoading = useAuthStore((s) => s.isLoading);
   useNotifications();
   useTallySocket();
+  useUpdateCheck();
 
   useEffect(() => {
     // Clear chat history on app boot — don't persist between sessions
