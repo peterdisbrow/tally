@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Animated } from 'react-native';
+import { View, Text, StyleSheet, Animated, Pressable } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Updates from 'expo-updates';
 import { colors } from '../../src/theme/colors';
 import { useAlertStore } from '../../src/stores/alertStore';
 import { useStatusStore } from '../../src/stores/statusStore';
+import { useUpdateStore } from '../../src/stores/updateStore';
 import { fontSize } from '../../src/theme/spacing';
 
 function ConnectionBanner() {
@@ -72,12 +74,51 @@ const bannerStyles = StyleSheet.create({
   },
 });
 
+function UpdateBanner() {
+  const updateReady = useUpdateStore((s) => s.updateReady);
+  const insets = useSafeAreaInsets();
+
+  if (!updateReady) return null;
+
+  return (
+    <Pressable
+      style={[updateBannerStyles.banner, { paddingTop: insets.top + 4 }]}
+      onPress={() => Updates.reloadAsync()}
+    >
+      <Ionicons name="arrow-down-circle" size={16} color={colors.white} />
+      <Text style={updateBannerStyles.text}>Update available — tap to restart</Text>
+    </Pressable>
+  );
+}
+
+const updateBannerStyles = StyleSheet.create({
+  banner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 99,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.accent,
+    paddingBottom: 6,
+  },
+  text: {
+    color: colors.white,
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+  },
+});
+
 export default function TabLayout() {
   const unreadCount = useAlertStore((s) => s.unreadCount);
 
   return (
     <View style={{ flex: 1 }}>
     <ConnectionBanner />
+    <UpdateBanner />
     <Tabs
       screenOptions={{
         tabBarStyle: {
