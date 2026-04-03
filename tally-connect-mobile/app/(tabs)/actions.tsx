@@ -114,10 +114,17 @@ export default function ActionsScreen() {
   const stateLabels: Record<string, string> = {
     idle: 'Off',
     protecting: 'Active',
-    encoder_disconnected: 'Encoder Down',
+    encoder_disconnected: 'Encoder Offline',
     restarting: 'Restarting',
-    alert_sent: 'Alert',
-    cdn_mismatch: 'CDN Issue',
+    alert_sent: 'Alert Active',
+    cdn_mismatch: 'CDN Mismatch',
+  };
+
+  const stateDescriptions: Record<string, string> = {
+    encoder_disconnected: 'Check encoder connection and cables',
+    restarting: 'Stream restart in progress — standby',
+    alert_sent: 'Alert sent to engineering — monitoring for recovery',
+    cdn_mismatch: 'Stream not reaching CDN — viewers may be affected',
   };
 
   const stateColors: Record<string, string> = {
@@ -236,11 +243,18 @@ export default function ActionsScreen() {
           borderColor: colors.border,
         }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-              <PulseDot color={stateColors[spState] || colors.textMuted} size={8} />
-              <Text style={{ fontSize: fontSize.md, color: colors.text, fontWeight: '600' }}>
-                {spEnabled ? (stateLabels[spState] || spState) : 'Disabled'}
-              </Text>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginRight: spacing.md }}>
+              <PulseDot color={stateColors[spState] || colors.textMuted} size={8} style={{ marginTop: 3 }} />
+              <View>
+                <Text style={{ fontSize: fontSize.md, color: colors.text, fontWeight: '600' }}>
+                  {spEnabled ? (stateLabels[spState] ?? 'Unknown') : 'Disabled'}
+                </Text>
+                {spEnabled && stateDescriptions[spState] && (
+                  <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 }}>
+                    {stateDescriptions[spState]}
+                  </Text>
+                )}
+              </View>
             </View>
             <Switch
               value={spEnabled}
