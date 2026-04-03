@@ -142,6 +142,7 @@ export default function MoreScreen() {
           useChatStore.getState().clearMessages();
           router.replace('/room-picker');
         }} />
+        <MenuItem icon="construct-outline" label="Equipment Config" onPress={() => router.push('/equipment-config')} />
         <MenuItem icon="analytics-outline" label="Analytics" onPress={() => router.push('/analytics')} />
         <MenuItem icon="document-text-outline" label="Service Reports" onPress={() => router.push('/service-reports')} />
         <MenuItem icon="settings-outline" label="Settings" onPress={() => router.push('/settings')} />
