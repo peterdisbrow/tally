@@ -99,7 +99,7 @@ export default function ChatScreen() {
       {/* Chat Header */}
       <View style={styles.chatHeader}>
         <View style={styles.headerAvatar}>
-          <Text style={styles.headerAvatarText}>🤖</Text>
+          <Ionicons name="hardware-chip-outline" size={20} color={colors.accent} />
         </View>
         <View style={styles.headerInfo}>
           <Text style={styles.headerTitle}>Tally Engineer</Text>
@@ -121,7 +121,7 @@ export default function ChatScreen() {
         onContentSizeChange={handleContentSizeChange}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyEmoji}>💬</Text>
+            <Ionicons name="chatbubbles-outline" size={48} color={colors.textMuted} style={{ marginBottom: spacing.md }} />
             <Text style={styles.emptyTitle}>Tally Engineer</Text>
             <Text style={styles.emptyText}>
               Ask questions, send commands, or get diagnostics.{'\n'}
@@ -204,9 +204,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(34, 197, 94, 0.3)',
   },
-  headerAvatarText: {
-    fontSize: 20,
-  },
   headerInfo: {
     flex: 1,
   },
@@ -235,10 +232,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 80,
-  },
-  emptyEmoji: {
-    fontSize: 48,
-    marginBottom: spacing.md,
   },
   emptyTitle: {
     fontSize: fontSize.xl,

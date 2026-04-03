@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 import { spacing, borderRadius, fontSize } from '../theme/spacing';
 import type { Alert } from '../ws/types';
@@ -10,10 +11,10 @@ interface AlertBadgeProps {
 }
 
 const SEVERITY_CONFIG = {
-  EMERGENCY: { color: colors.emergency, bg: 'rgba(220, 38, 38, 0.15)', emoji: '🚨' },
-  CRITICAL: { color: colors.critical, bg: 'rgba(239, 68, 68, 0.12)', emoji: '⚠️' },
-  WARNING: { color: colors.warningAlert, bg: 'rgba(245, 158, 11, 0.10)', emoji: '⚡' },
-  INFO: { color: colors.infoAlert, bg: 'rgba(59, 130, 246, 0.10)', emoji: 'ℹ️' },
+  EMERGENCY: { color: colors.emergency, bg: 'rgba(220, 38, 38, 0.15)', icon: 'alarm-light-outline' as const, lib: 'mci' as const },
+  CRITICAL: { color: colors.critical, bg: 'rgba(239, 68, 68, 0.12)', icon: 'warning-outline' as const, lib: 'ion' as const },
+  WARNING: { color: colors.warningAlert, bg: 'rgba(245, 158, 11, 0.10)', icon: 'flash-outline' as const, lib: 'ion' as const },
+  INFO: { color: colors.infoAlert, bg: 'rgba(59, 130, 246, 0.10)', icon: 'information-circle-outline' as const, lib: 'ion' as const },
 };
 
 function timeAgo(timestamp: string): string {
@@ -45,7 +46,9 @@ export function AlertBadge({ alert, onPress }: AlertBadgeProps) {
       ]}>
         <View style={styles.header}>
           <View style={styles.badgeRow}>
-            <Text style={styles.emoji}>{config.emoji}</Text>
+            {config.lib === 'mci'
+              ? <MaterialCommunityIcons name={config.icon as any} size={14} color={config.color} />
+              : <Ionicons name={config.icon as any} size={14} color={config.color} />}
             <View style={[styles.badge, { backgroundColor: config.color }]}>
               <Text style={styles.badgeText}>{alert.severity}</Text>
             </View>
@@ -83,9 +86,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-  },
-  emoji: {
-    fontSize: 14,
   },
   badge: {
     paddingHorizontal: spacing.sm,

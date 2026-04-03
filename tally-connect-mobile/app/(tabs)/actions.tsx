@@ -287,9 +287,12 @@ export default function ActionsScreen() {
           <Text style={styles.sectionTitle}>PROPRESENTER</Text>
           <GlassCard glowColor={colors.accent}>
             {status.propresenter.currentSlide && (
-              <Text style={styles.currentSlide}>
-                📺 {status.propresenter.currentSlide}
-              </Text>
+              <View style={styles.currentSlideRow}>
+                <Ionicons name="tv-outline" size={14} color={colors.textSecondary} />
+                <Text style={styles.currentSlide}>
+                  {status.propresenter.currentSlide}
+                </Text>
+              </View>
             )}
             <View style={styles.actionRow}>
               <GradientButton
@@ -384,10 +387,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.md,
   },
+  currentSlideRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
   currentSlide: {
     fontSize: fontSize.sm,
     color: colors.textSecondary,
-    marginBottom: spacing.md,
   },
 });
 
