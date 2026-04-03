@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, Pressable, StyleSheet,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Animated,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthStore } from '../src/stores/authStore';
@@ -18,6 +18,28 @@ export default function LoginScreen() {
   const isLoading = useAuthStore((s) => s.isLoading);
   const error = useAuthStore((s) => s.error);
 
+  // Animated glow for logo
+  const glowAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowAnim, { toValue: 1, duration: 2000, useNativeDriver: false }),
+        Animated.timing(glowAnim, { toValue: 0, duration: 2000, useNativeDriver: false }),
+      ]),
+    ).start();
+  }, [glowAnim]);
+
+  const glowRadius = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [12, 24],
+  });
+
+  const glowOpacity = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.3, 0.6],
+  });
+
   const handleLogin = async () => {
     const success = await login(email, password, serverUrl || undefined);
     if (success) {
@@ -32,14 +54,15 @@ export default function LoginScreen() {
     >
       <View style={styles.inner}>
         <View style={styles.logoArea}>
-          <Text style={styles.logo}>TALLY</Text>
-          <Text style={styles.logoSub}>CONNECT</Text>
+          <Animated.View style={[styles.logoMark, {
+            shadowRadius: glowRadius,
+            shadowOpacity: glowOpacity,
+          }]}>
+            <Text style={styles.logoMarkText}>T</Text>
+          </Animated.View>
+          <Text style={styles.logoTitle}>TALLY CONNECT</Text>
+          <Text style={styles.logoSubtitle}>Broadcast Intelligence Platform</Text>
         </View>
-
-        <Text style={styles.title}>Sign In</Text>
-        <Text style={styles.subtitle}>
-          Use your Tally Connect portal credentials
-        </Text>
 
         {error ? (
           <View style={styles.errorBox}>
@@ -112,31 +135,35 @@ const styles = StyleSheet.create({
   },
   logoArea: {
     alignItems: 'center',
-    marginBottom: spacing.xxxl,
+    marginBottom: 48,
   },
-  logo: {
+  logoMark: {
+    width: 80,
+    height: 80,
+    borderRadius: 20,
+    backgroundColor: 'rgba(34, 197, 94, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+    shadowColor: colors.accent,
+  },
+  logoMarkText: {
     fontSize: 42,
     fontWeight: '900',
-    color: colors.accent,
-    letterSpacing: 4,
+    color: colors.white,
   },
-  logoSub: {
-    fontSize: fontSize.lg,
-    fontWeight: '300',
-    color: colors.textSecondary,
-    letterSpacing: 8,
-    marginTop: -4,
-  },
-  title: {
-    fontSize: fontSize.xxl,
-    fontWeight: '700',
+  logoTitle: {
+    fontSize: 24,
+    fontWeight: '800',
     color: colors.text,
-    marginBottom: spacing.sm,
+    letterSpacing: 3,
   },
-  subtitle: {
-    fontSize: fontSize.md,
+  logoSubtitle: {
+    fontSize: fontSize.sm,
+    fontWeight: '400',
     color: colors.textSecondary,
-    marginBottom: spacing.xxl,
+    letterSpacing: 1,
+    marginTop: spacing.xs,
   },
   errorBox: {
     backgroundColor: 'rgba(239, 68, 68, 0.15)',
@@ -167,11 +194,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   button: {
-    backgroundColor: colors.accent,
+    backgroundColor: 'rgba(34, 197, 94, 0.85)',
     borderRadius: borderRadius.md,
     padding: spacing.lg,
     alignItems: 'center',
     marginTop: spacing.md,
+    shadowColor: colors.accent,
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
   },
   buttonDisabled: {
     opacity: 0.6,

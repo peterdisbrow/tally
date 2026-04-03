@@ -1,15 +1,15 @@
 export const colors = {
   // Backgrounds
-  bg: '#0a0a0a',
-  surface: '#1a1a1a',
-  surfaceElevated: '#222222',
-  border: '#2a2a2a',
-  borderLight: '#333333',
+  bg: '#050508',
+  surface: '#111116',
+  surfaceElevated: '#1a1a22',
+  border: '#222230',
+  borderLight: '#333344',
 
   // Text
   text: '#ffffff',
-  textSecondary: '#999999',
-  textMuted: '#666666',
+  textSecondary: '#8888a0',
+  textMuted: '#555568',
 
   // Tally
   tallyProgram: '#ef4444',

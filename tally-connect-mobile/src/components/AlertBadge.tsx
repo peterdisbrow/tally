@@ -10,10 +10,10 @@ interface AlertBadgeProps {
 }
 
 const SEVERITY_CONFIG = {
-  EMERGENCY: { color: colors.emergency, icon: '!!!', bg: 'rgba(220, 38, 38, 0.15)' },
-  CRITICAL: { color: colors.critical, icon: '!!', bg: 'rgba(239, 68, 68, 0.12)' },
-  WARNING: { color: colors.warningAlert, icon: '!', bg: 'rgba(245, 158, 11, 0.10)' },
-  INFO: { color: colors.infoAlert, icon: 'i', bg: 'rgba(59, 130, 246, 0.10)' },
+  EMERGENCY: { color: colors.emergency, bg: 'rgba(220, 38, 38, 0.15)', emoji: '🚨' },
+  CRITICAL: { color: colors.critical, bg: 'rgba(239, 68, 68, 0.12)', emoji: '⚠️' },
+  WARNING: { color: colors.warningAlert, bg: 'rgba(245, 158, 11, 0.10)', emoji: '⚡' },
+  INFO: { color: colors.infoAlert, bg: 'rgba(59, 130, 246, 0.10)', emoji: 'ℹ️' },
 };
 
 function timeAgo(timestamp: string): string {
@@ -32,10 +32,23 @@ export function AlertBadge({ alert, onPress }: AlertBadgeProps) {
 
   return (
     <Pressable onPress={onPress}>
-      <View style={[styles.container, { backgroundColor: config.bg }]}>
+      <View style={[
+        styles.container,
+        {
+          backgroundColor: config.bg,
+          borderLeftColor: config.color,
+          shadowColor: config.color,
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 2 },
+        },
+      ]}>
         <View style={styles.header}>
-          <View style={[styles.badge, { backgroundColor: config.color }]}>
-            <Text style={styles.badgeText}>{alert.severity}</Text>
+          <View style={styles.badgeRow}>
+            <Text style={styles.emoji}>{config.emoji}</Text>
+            <View style={[styles.badge, { backgroundColor: config.color }]}>
+              <Text style={styles.badgeText}>{alert.severity}</Text>
+            </View>
           </View>
           <Text style={styles.time}>{timeAgo(alert.timestamp)}</Text>
         </View>
@@ -50,9 +63,13 @@ export function AlertBadge({ alert, onPress }: AlertBadgeProps) {
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: borderRadius.md,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: borderRadius.lg,
+    borderBottomRightRadius: borderRadius.lg,
+    borderBottomLeftRadius: 4,
     padding: spacing.lg,
     marginBottom: spacing.sm,
+    borderLeftWidth: 3,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -61,6 +78,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.sm,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  emoji: {
+    fontSize: 14,
   },
   badge: {
     paddingHorizontal: spacing.sm,

@@ -1,13 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, LayoutAnimation, Platform, UIManager,
+  TouchableOpacity, LayoutAnimation, Platform, UIManager, Animated,
 } from 'react-native';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
 import { usePolling } from '../../src/hooks/usePolling';
 import { colors } from '../../src/theme/colors';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
 import { api } from '../../src/api/client';
+import { PulseDot } from '../../src/components/PulseDot';
+import { RingGauge } from '../../src/components/RingGauge';
+import { GlassCard } from '../../src/components/GlassCard';
 import type { DeviceStatus } from '../../src/ws/types';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -594,6 +597,132 @@ function buildSummary(status: DeviceStatus | null, cards: DeviceCard[]): Summary
   return { totalDevices, onlineDevices, isStreaming, isRecording, streamPlatforms, totalViewers };
 }
 
+// ─── Emoji Icons for Device Categories ──────────────────────────────────────
+
+const DEVICE_EMOJI: Record<string, string> = {
+  atem: '🎛️',
+  'atem-encoder': '📡',
+  obs: '🖥️',
+  vmix: '🎬',
+  encoder: '📡',
+  youtube: '▶️',
+  facebook: '📘',
+  hyperdeck: '💾',
+  'atem-recording': '⏺️',
+  propresenter: '📺',
+  resolume: '🎨',
+  mixer: '🔊',
+  ptz: '📷',
+  companion: '🎮',
+  system: '⚙️',
+};
+
+function getDeviceEmoji(id: string): string {
+  if (id.startsWith('smartplug')) return '🔌';
+  if (id.startsWith('videohub')) return '🔀';
+  if (id.startsWith('hyperdeck')) return '💾';
+  return DEVICE_EMOJI[id] || '📟';
+}
+
+// ─── LIVE Badge Component ───────────────────────────────────────────────────
+
+function LiveBadge({ startedAt }: { startedAt?: string }) {
+  const pulseAnim = useRef(new Animated.Value(0.7)).current;
+  const [elapsed, setElapsed] = useState('');
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.7, duration: 800, useNativeDriver: true }),
+      ]),
+    ).start();
+  }, [pulseAnim]);
+
+  useEffect(() => {
+    if (!startedAt) return;
+    const update = () => {
+      const diff = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
+      const h = Math.floor(diff / 3600);
+      const m = Math.floor((diff % 3600) / 60);
+      const s = diff % 60;
+      setElapsed(`${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [startedAt]);
+
+  return (
+    <Animated.View style={[liveBadgeStyles.badge, { opacity: pulseAnim }]}>
+      <View style={liveBadgeStyles.dot} />
+      <Text style={liveBadgeStyles.text}>LIVE</Text>
+      {elapsed ? <Text style={liveBadgeStyles.timer}>{elapsed}</Text> : null}
+    </Animated.View>
+  );
+}
+
+const liveBadgeStyles = StyleSheet.create({
+  badge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.9)',
+    borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    gap: 4,
+    shadowColor: colors.live,
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.white,
+  },
+  text: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.white,
+    letterSpacing: 1,
+  },
+  timer: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.8)',
+  },
+});
+
+// ─── System Resource Bar ────────────────────────────────────────────────────
+
+function ResourceBar({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <View style={resourceStyles.item}>
+      <View style={resourceStyles.labelRow}>
+        <Text style={resourceStyles.label}>{label}</Text>
+        <Text style={[resourceStyles.value, { color }]}>{Math.round(value)}%</Text>
+      </View>
+      <View style={resourceStyles.track}>
+        <View style={[resourceStyles.fill, { width: `${Math.min(value, 100)}%`, backgroundColor: color }]} />
+      </View>
+    </View>
+  );
+}
+
+const resourceStyles = StyleSheet.create({
+  item: { marginBottom: spacing.sm },
+  labelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  label: { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
+  value: { fontSize: fontSize.xs, fontWeight: '700' },
+  track: { height: 4, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' },
+  fill: { height: 4, borderRadius: 2 },
+});
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function DashboardScreen() {
@@ -660,6 +789,47 @@ export default function DashboardScreen() {
   const sessionDuration = session?.duration != null
     ? `${Math.floor(session.duration / 3600)}h ${Math.floor((session.duration % 3600) / 60)}m`
     : null;
+  const sessionGradeValue = session?.grade
+    ? session.grade.startsWith('A') ? 95
+      : session.grade.startsWith('B') ? 80
+        : session.grade.startsWith('C') ? 65
+          : 40
+    : 0;
+  const sessionGradeColor = session?.grade
+    ? session.grade.startsWith('A') ? colors.online
+      : session.grade.startsWith('B') ? colors.accentLight
+        : session.grade.startsWith('C') ? colors.warning
+          : colors.critical
+    : colors.textMuted;
+
+  // Stream stats
+  const encoder = status?.encoder || status?.obs;
+  const isStreaming = encoder?.streaming || status?.atem?.streaming;
+  const bitrate = encoder?.bitrate;
+  const fps = encoder?.fps;
+  const ytViewers = status?.streamHealth?.youtube?.viewers;
+  const fbViewers = status?.streamHealth?.facebook?.viewers;
+  const totalViewers = (ytViewers || 0) + (fbViewers || 0);
+
+  // System resources
+  const sys = status?.system;
+  const cpuVal = sys ? (typeof sys.cpu === 'object' ? sys.cpu?.usage : sys.cpu) : null;
+  const memVal = sys ? (typeof sys.memory === 'object' ? sys.memory?.usage : sys.memory) : null;
+  const diskVal = sys ? (typeof sys.disk === 'object' ? sys.disk?.usage : sys.disk) : null;
+
+  // Tally cards from ATEM
+  const atem = status?.atem;
+  const atemInputs = atem?.inputs || {};
+  const tallyCards = Object.entries(atemInputs)
+    .filter(([, v]) => v.type === 'external')
+    .map(([key, v]) => ({
+      number: parseInt(key, 10),
+      name: v.name || `Input ${key}`,
+      isProgram: atem?.programInput === parseInt(key, 10),
+      isPreview: atem?.previewInput === parseInt(key, 10),
+    }))
+    .sort((a, b) => a.number - b.number)
+    .slice(0, 8);
 
   return (
     <ScrollView
@@ -673,60 +843,42 @@ export default function DashboardScreen() {
         />
       }
     >
-      {/* Room Header */}
+      {/* Room Header with LIVE badge */}
       <View style={styles.roomRow}>
-        <Text style={styles.roomLabel}>
-          {rooms.find((r) => r.id === activeRoomId)?.name || 'No Room Selected'}
-        </Text>
-        <View style={[
-          styles.connectionDot,
-          { backgroundColor: status?.connected !== false ? colors.online : colors.offline },
-        ]} />
+        <View style={styles.roomLeft}>
+          <Text style={styles.roomLabel}>
+            {rooms.find((r) => r.id === activeRoomId)?.name || 'No Room Selected'}
+          </Text>
+          <PulseDot
+            color={status?.connected !== false ? colors.online : colors.offline}
+            size={10}
+          />
+        </View>
+        {summary.isStreaming && <LiveBadge startedAt={session?.startedAt} />}
       </View>
 
-      {/* Summary Bar */}
-      <View style={styles.summaryBar}>
-        <View style={styles.summaryItem}>
-          <Text style={[styles.summaryValue, { color: summary.onlineDevices === summary.totalDevices ? colors.online : colors.warning }]}>
-            {summary.onlineDevices}/{summary.totalDevices}
-          </Text>
-          <Text style={styles.summaryLabel}>Devices</Text>
-        </View>
-
-        <View style={styles.summaryDivider} />
-
-        <View style={styles.summaryItem}>
-          {summary.isStreaming ? (
-            <View style={styles.liveTag}>
-              <Text style={styles.liveText}>LIVE</Text>
-            </View>
-          ) : (
-            <Text style={[styles.summaryValue, { color: colors.textMuted }]}>OFF</Text>
-          )}
-          <Text style={styles.summaryLabel}>Stream</Text>
-        </View>
-
-        <View style={styles.summaryDivider} />
-
-        <View style={styles.summaryItem}>
-          {summary.isRecording ? (
-            <View style={[styles.liveTag, { backgroundColor: colors.critical }]}>
-              <Text style={styles.liveText}>REC</Text>
-            </View>
-          ) : (
-            <Text style={[styles.summaryValue, { color: colors.textMuted }]}>--</Text>
-          )}
-          <Text style={styles.summaryLabel}>Record</Text>
-        </View>
-
-        <View style={styles.summaryDivider} />
-
-        <View style={styles.summaryItem}>
-          <Text style={[styles.summaryValue, { color: healthColor }]}>
-            {healthScore != null ? healthScore : '--'}
-          </Text>
-          <Text style={styles.summaryLabel}>Health</Text>
-        </View>
+      {/* Ring Gauges Row */}
+      <View style={styles.gaugeRow}>
+        <GlassCard style={styles.gaugeCard}>
+          <RingGauge
+            value={healthScore ?? 0}
+            color={healthColor}
+            label="Health"
+            valueText={healthScore != null ? `${healthScore}` : '--'}
+            size={96}
+            strokeWidth={7}
+          />
+        </GlassCard>
+        <GlassCard style={styles.gaugeCard}>
+          <RingGauge
+            value={sessionGradeValue}
+            color={sessionGradeColor}
+            label="Grade"
+            valueText={session?.grade || '--'}
+            size={96}
+            strokeWidth={7}
+          />
+        </GlassCard>
       </View>
 
       {/* Session + Viewers Row */}
@@ -734,26 +886,92 @@ export default function DashboardScreen() {
         <View style={styles.infoRow}>
           {session?.active && (
             <View style={styles.infoPill}>
-              <View style={styles.infoDot} />
+              <PulseDot color={colors.online} size={6} />
               <Text style={styles.infoText}>
-                {session.grade ? `Grade: ${session.grade}` : 'Session Active'}
-                {sessionDuration ? ` \u00b7 ${sessionDuration}` : ''}
-                {session.incidents ? ` \u00b7 ${session.incidents} alert${session.incidents !== 1 ? 's' : ''}` : ''}
+                {sessionDuration || 'Active'}
+                {session.incidents ? ` · ${session.incidents} alert${session.incidents !== 1 ? 's' : ''}` : ''}
               </Text>
             </View>
           )}
           {summary.totalViewers > 0 && (
             <View style={styles.infoPill}>
               <Text style={styles.infoText}>
-                {summary.totalViewers.toLocaleString()} viewer{summary.totalViewers !== 1 ? 's' : ''}
-                {summary.streamPlatforms.length > 0 ? ` on ${summary.streamPlatforms.join(', ')}` : ''}
+                👁 {summary.totalViewers.toLocaleString()} viewer{summary.totalViewers !== 1 ? 's' : ''}
               </Text>
             </View>
           )}
         </View>
       )}
 
-      {/* Device Categories */}
+      {/* Stream Stats Card */}
+      {isStreaming && (
+        <GlassCard glowColor={colors.live} style={styles.streamCard}>
+          <View style={styles.streamStatsRow}>
+            {bitrate != null && (
+              <View style={styles.streamStat}>
+                <Text style={styles.streamStatValue}>{(bitrate / 1000).toFixed(1)}</Text>
+                <Text style={styles.streamStatLabel}>BITRATE</Text>
+              </View>
+            )}
+            {fps != null && (
+              <View style={styles.streamStat}>
+                <Text style={styles.streamStatValue}>{Math.round(fps)}</Text>
+                <Text style={styles.streamStatLabel}>FPS</Text>
+              </View>
+            )}
+            {totalViewers > 0 && (
+              <View style={styles.streamStat}>
+                <Text style={styles.streamStatValue}>{totalViewers.toLocaleString()}</Text>
+                <Text style={styles.streamStatLabel}>VIEWERS</Text>
+              </View>
+            )}
+            <View style={styles.platformTags}>
+              {ytViewers != null && (
+                <View style={[styles.platformTag, { backgroundColor: 'rgba(239,68,68,0.15)' }]}>
+                  <Text style={[styles.platformTagText, { color: '#ef4444' }]}>YT</Text>
+                </View>
+              )}
+              {fbViewers != null && (
+                <View style={[styles.platformTag, { backgroundColor: 'rgba(59,130,246,0.15)' }]}>
+                  <Text style={[styles.platformTagText, { color: '#3b82f6' }]}>FB</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </GlassCard>
+      )}
+
+      {/* Camera Tally Cards */}
+      {tallyCards.length > 0 && (
+        <View style={styles.categorySection}>
+          <Text style={styles.categoryTitle}>Camera Tally</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {tallyCards.map((input) => {
+              const isPgm = input.isProgram;
+              const isPvw = input.isPreview;
+              return (
+                <View
+                  key={input.number}
+                  style={[
+                    styles.tallyCard,
+                    isPgm && styles.tallyPgm,
+                    isPvw && styles.tallyPvw,
+                    !isPgm && !isPvw && styles.tallyOff,
+                  ]}
+                >
+                  <Text style={styles.tallyNumber}>{input.number}</Text>
+                  <Text style={styles.tallyName} numberOfLines={1}>{input.name}</Text>
+                  {(isPgm || isPvw) && (
+                    <Text style={styles.tallyLabel}>{isPgm ? 'PGM' : 'PVW'}</Text>
+                  )}
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Device List — single card with dividers */}
       {grouped.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyText}>
@@ -764,40 +982,56 @@ export default function DashboardScreen() {
         grouped.map(group => (
           <View key={group.key} style={styles.categorySection}>
             <Text style={styles.categoryTitle}>{group.label}</Text>
-            {group.cards.map(card => (
-              <TouchableOpacity
-                key={card.id}
-                activeOpacity={0.7}
-                onPress={() => toggleExpanded(card.id)}
-                style={styles.deviceCard}
-              >
-                {/* Card Header */}
-                <View style={styles.cardHeader}>
-                  <View style={[styles.statusDot, { backgroundColor: card.statusColor }]} />
-                  <Text style={styles.cardName} numberOfLines={1}>{card.name}</Text>
-                  <Text style={[styles.cardStatus, { color: card.statusColor }]}>
-                    {card.statusLabel}
-                  </Text>
-                  <Text style={styles.chevron}>{expandedIds.has(card.id) ? '\u25B2' : '\u25BC'}</Text>
-                </View>
+            <View style={styles.deviceListCard}>
+              {group.cards.map((card, idx) => (
+                <TouchableOpacity
+                  key={card.id}
+                  activeOpacity={0.7}
+                  onPress={() => toggleExpanded(card.id)}
+                >
+                  <View style={[styles.deviceRow, idx < group.cards.length - 1 && styles.deviceRowBorder]}>
+                    {/* Card Header */}
+                    <View style={styles.cardHeader}>
+                      <Text style={styles.deviceEmoji}>{getDeviceEmoji(card.id)}</Text>
+                      <PulseDot color={card.statusColor} size={8} />
+                      <Text style={styles.cardName} numberOfLines={1}>{card.name}</Text>
+                      <Text style={[styles.cardStatus, { color: card.statusColor }]}>
+                        {card.statusLabel}
+                      </Text>
+                      <Text style={styles.chevron}>{expandedIds.has(card.id) ? '▲' : '▼'}</Text>
+                    </View>
 
-                {/* Expanded Metrics */}
-                {expandedIds.has(card.id) && card.metrics.length > 0 && (
-                  <View style={styles.metricsGrid}>
-                    {card.metrics.map((m, i) => (
-                      <View key={i} style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>{m.label}</Text>
-                        <Text style={[styles.metricValue, m.color ? { color: m.color } : null]} numberOfLines={1}>
-                          {m.value}
-                        </Text>
+                    {/* Expanded Metrics */}
+                    {expandedIds.has(card.id) && card.metrics.length > 0 && (
+                      <View style={styles.metricsGrid}>
+                        {card.metrics.map((m, i) => (
+                          <View key={i} style={styles.metricItem}>
+                            <Text style={styles.metricLabel}>{m.label}</Text>
+                            <Text style={[styles.metricValue, m.color ? { color: m.color } : null]} numberOfLines={1}>
+                              {m.value}
+                            </Text>
+                          </View>
+                        ))}
                       </View>
-                    ))}
+                    )}
                   </View>
-                )}
-              </TouchableOpacity>
-            ))}
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
         ))
+      )}
+
+      {/* System Resources */}
+      {(cpuVal != null || memVal != null || diskVal != null) && (
+        <View style={styles.categorySection}>
+          <Text style={styles.categoryTitle}>System Resources</Text>
+          <GlassCard>
+            {cpuVal != null && <ResourceBar label="CPU" value={cpuVal} color={percentColor(cpuVal)} />}
+            {memVal != null && <ResourceBar label="RAM" value={memVal} color={percentColor(memVal)} />}
+            {diskVal != null && <ResourceBar label="Disk" value={diskVal} color={percentColor(diskVal)} />}
+          </GlassCard>
+        </View>
       )}
 
       <View style={{ height: spacing.xxxl }} />
@@ -821,57 +1055,117 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.lg,
   },
+  roomLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   roomLabel: {
     fontSize: fontSize.lg,
     fontWeight: '700',
     color: colors.text,
   },
-  connectionDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
 
-  // Summary Bar
-  summaryBar: {
+  // Ring Gauges
+  gaugeRow: {
     flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: spacing.md,
-    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
   },
-  summaryItem: {
+  gaugeCard: {
     flex: 1,
     alignItems: 'center',
+    paddingVertical: spacing.xl,
   },
-  summaryValue: {
+
+  // Stream Stats
+  streamCard: {
+    marginBottom: spacing.lg,
+  },
+  streamStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xl,
+  },
+  streamStat: {
+    alignItems: 'center',
+  },
+  streamStatValue: {
     fontSize: fontSize.xl,
     fontWeight: '700',
     color: colors.text,
   },
-  summaryLabel: {
-    fontSize: fontSize.xs,
+  streamStatLabel: {
+    fontSize: 9,
     color: colors.textSecondary,
-    marginTop: 4,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginTop: 2,
   },
-  summaryDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: colors.border,
+  platformTags: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginLeft: 'auto',
   },
-  liveTag: {
-    backgroundColor: colors.live,
+  platformTag: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 3,
     borderRadius: borderRadius.sm,
   },
-  liveText: {
+  platformTagText: {
     fontSize: 10,
     fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+
+  // Camera Tally
+  tallyCard: {
+    width: 76,
+    height: 84,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.sm,
+    overflow: 'hidden',
+  },
+  tallyPgm: {
+    backgroundColor: 'rgba(239, 68, 68, 0.85)',
+    shadowColor: colors.tallyProgram,
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  tallyPvw: {
+    backgroundColor: 'rgba(34, 197, 94, 0.7)',
+    shadowColor: colors.tallyPreview,
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  tallyOff: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  tallyNumber: {
+    fontSize: fontSize.xl,
+    fontWeight: '800',
     color: colors.white,
+  },
+  tallyName: {
+    fontSize: fontSize.xs,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 2,
+    maxWidth: 64,
+    textAlign: 'center',
+  },
+  tallyLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.9)',
+    marginTop: 2,
     letterSpacing: 1,
   },
 
@@ -891,13 +1185,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderWidth: 1,
     borderColor: colors.border,
-  },
-  infoDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.online,
-    marginRight: spacing.sm,
+    gap: spacing.sm,
   },
   infoText: {
     fontSize: fontSize.xs,
@@ -917,25 +1205,29 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
 
-  // Device Card
-  deviceCard: {
+  // Device List (single card with dividers)
+  deviceListCard: {
     backgroundColor: colors.surface,
     borderRadius: borderRadius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    marginBottom: spacing.sm,
     overflow: 'hidden',
+  },
+  deviceRow: {},
+  deviceRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: spacing.md,
+    gap: spacing.sm,
   },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: spacing.md,
+  deviceEmoji: {
+    fontSize: 16,
+    width: 24,
+    textAlign: 'center',
   },
   cardName: {
     flex: 1,
