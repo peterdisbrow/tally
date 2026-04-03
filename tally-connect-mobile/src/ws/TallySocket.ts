@@ -4,6 +4,9 @@ import type { ServerMessage } from './types';
 type MessageHandler = (msg: ServerMessage) => void;
 type ConnectionHandler = (connected: boolean) => void;
 
+const PING_INTERVAL_MS = 25000;
+const PONG_TIMEOUT_MS = 35000;
+
 export class TallySocket {
   private ws: WebSocket | null = null;
   private messageHandlers: Set<MessageHandler> = new Set();
@@ -13,6 +16,7 @@ export class TallySocket {
   private maxBackoffMs = 30000;
   private intentionallyClosed = false;
   private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private lastPongAt = 0;
 
   async connect(): Promise<void> {
     // Guard: skip if already connected or connecting
@@ -35,6 +39,9 @@ export class TallySocket {
 
       this.ws.onopen = () => {
         this.backoffMs = 1000;
+        // Treat the connection open itself as an implicit pong so the first
+        // staleness check doesn't fire before the server has had a chance to respond.
+        this.lastPongAt = Date.now();
         this.notifyConnection(true);
         this.startPing();
       };
@@ -42,6 +49,11 @@ export class TallySocket {
       this.ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data as string) as ServerMessage;
+          // Intercept pong internally — not an app-level message
+          if ((msg as { type: string }).type === 'pong') {
+            this.lastPongAt = Date.now();
+            return;
+          }
           this.notifyMessage(msg);
         } catch {
           // Malformed JSON — ignore
@@ -95,8 +107,14 @@ export class TallySocket {
 
   private startPing(): void {
     this.pingInterval = setInterval(() => {
+      // If the server hasn't responded within PONG_TIMEOUT_MS, the TCP
+      // connection is stale. Close it so onclose triggers a reconnect.
+      if (Date.now() - this.lastPongAt > PONG_TIMEOUT_MS) {
+        this.ws?.close(4000, 'pong timeout');
+        return;
+      }
       this.send({ type: 'ping', ts: Date.now() });
-    }, 25000);
+    }, PING_INTERVAL_MS);
   }
 
   private cleanup(): void {
