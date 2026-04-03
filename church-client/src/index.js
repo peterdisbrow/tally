@@ -1400,9 +1400,10 @@ class ChurchAVAgent {
   }
 
   async atemCommand(fn, timeoutMs = 10000) {
-    // Support both legacy this.atem and switcher-managed ATEMs
-    const atem = this.atem;
-    const connected = this.switcherManager?.getPrimary()?.connected ?? this.status.atem.connected;
+    // Use switcherManager's live reference to avoid stale socket after reconnect
+    const primary = this.switcherManager?.getPrimary();
+    const atem = (primary && primary.type === 'atem') ? primary.raw : this.atem;
+    const connected = primary?.connected ?? this.status.atem.connected;
     if (!atem || !connected) throw new Error('ATEM not connected');
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('ATEM command timed out after ' + (timeoutMs / 1000) + 's')), timeoutMs);
