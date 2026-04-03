@@ -104,6 +104,8 @@ export default function ActionsScreen() {
   const spState = sp?.state ?? 'idle';
   const spLastEvent = sp?.lastEvent;
   const spCanRestart = sp?.canManualRestart ?? false;
+  const spCdnHealth = sp?.cdnHealth as string | null;
+  const spCdnPlatforms = sp?.cdnPlatforms as Record<string, { live: boolean; viewerCount: number }> | null;
 
   const stateLabels: Record<string, string> = {
     idle: 'Off',
@@ -208,6 +210,28 @@ export default function ActionsScreen() {
               thumbColor={colors.white}
             />
           </View>
+          {spCdnHealth && spEnabled && (
+            <View style={[spStyles.cdnRow, {
+              backgroundColor: spCdnHealth === 'healthy' ? 'rgba(34,197,94,0.1)' : spCdnHealth === 'mismatch' ? 'rgba(245,158,11,0.1)' : 'rgba(148,163,184,0.08)',
+            }]}>
+              <View style={[spStyles.cdnDot, {
+                backgroundColor: spCdnHealth === 'healthy' ? colors.online : spCdnHealth === 'mismatch' ? colors.warning : colors.textMuted,
+              }]} />
+              <Text style={[spStyles.cdnLabel, {
+                color: spCdnHealth === 'healthy' ? colors.online : spCdnHealth === 'mismatch' ? colors.warning : colors.textMuted,
+              }]}>
+                {spCdnHealth === 'healthy' ? 'CDN: Healthy' : spCdnHealth === 'mismatch' ? 'CDN: Not Receiving' : 'CDN: Checking...'}
+              </Text>
+              {spCdnPlatforms && (
+                <Text style={spStyles.cdnDetails}>
+                  {[
+                    spCdnPlatforms.youtube && `YT: ${spCdnPlatforms.youtube.live ? 'Live' : 'Down'}`,
+                    spCdnPlatforms.facebook && `FB: ${spCdnPlatforms.facebook.live ? 'Live' : 'Down'}`,
+                  ].filter(Boolean).join(' · ')}
+                </Text>
+              )}
+            </View>
+          )}
           {spLastEvent && spEnabled && (
             <Text style={spStyles.eventText}>{spLastEvent}</Text>
           )}
@@ -418,5 +442,28 @@ const spStyles = StyleSheet.create({
     fontSize: fontSize.sm,
     color: colors.white,
     fontWeight: '600',
+  },
+  cdnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.md,
+    paddingVertical: 5,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.sm,
+  },
+  cdnDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 5,
+  },
+  cdnLabel: {
+    fontSize: fontSize.sm,
+    fontWeight: '600',
+  },
+  cdnDetails: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginLeft: spacing.sm,
   },
 });

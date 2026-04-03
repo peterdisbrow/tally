@@ -71,6 +71,7 @@ export interface TallyState {
 	streamProtectionState: string | null
 	streamProtectionLastEvent: string | null
 	streamProtectionCanRestart: boolean
+	streamProtectionCdnHealth: string | null
 }
 
 function createDefaultTallyState(): TallyState {
@@ -109,6 +110,7 @@ function createDefaultTallyState(): TallyState {
 		streamProtectionState: null,
 		streamProtectionLastEvent: null,
 		streamProtectionCanRestart: false,
+		streamProtectionCdnHealth: null,
 	}
 }
 
@@ -466,6 +468,7 @@ export class TallyConnectInstance extends InstanceBase<TallyConnectConfig> {
 		s.streamProtectionState = sp.state != null ? String(sp.state) : null
 		s.streamProtectionLastEvent = sp.lastEvent != null ? String(sp.lastEvent) : null
 		s.streamProtectionCanRestart = sp.canManualRestart === true
+		s.streamProtectionCdnHealth = sp.cdnHealth != null ? String(sp.cdnHealth) : null
 	}
 
 	/**
@@ -486,6 +489,8 @@ export class TallyConnectInstance extends InstanceBase<TallyConnectConfig> {
 			'audio_silence',
 			'stream_protection_active',
 			'stream_protection_alert',
+			'cdn_health_ok',
+			'cdn_health_mismatch',
 		)
 	}
 

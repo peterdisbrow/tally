@@ -20,7 +20,9 @@ const ENCODER_DISCONNECT_GRACE_MS = 3000;
 // CDN validation: how long to wait after stream starts before checking CDN (let CDN stabilize)
 const CDN_CHECK_DELAY_MS = 30000;
 // CDN validation: how often to re-check CDN health while streaming
-const CDN_CHECK_INTERVAL_MS = 60000;
+const CDN_CHECK_INTERVAL_MS = 20000;
+// CDN validation: how many consecutive failures before alerting (20s * 2 = 40s > 30s threshold)
+const CDN_MISMATCH_THRESHOLD = 2;
 
 class StreamProtectionManager extends EventEmitter {
   constructor(agent) {
@@ -43,6 +45,8 @@ class StreamProtectionManager extends EventEmitter {
     this._cdnCheckTimer = null;          // initial delay timer
     this._cdnCheckInterval = null;       // periodic CDN check interval
     this._cdnMismatchAlerted = false;    // prevent duplicate CDN alerts per stream session
+    this._cdnMismatchCount = 0;          // consecutive mismatch results (must reach threshold before alerting)
+    this._cdnLastResult = null;          // last CDN verification result for health display
 
     // Public status
     this.status = {
@@ -52,6 +56,8 @@ class StreamProtectionManager extends EventEmitter {
       lastEvent: null,         // last protection event description
       lastEventAt: null,       // timestamp
       canManualRestart: false, // true when case 4 or CDN mismatch: manual restart available
+      cdnHealth: null,         // null | 'checking' | 'healthy' | 'mismatch' — CDN health indicator
+      cdnPlatforms: null,      // { youtube: { live, viewerCount }, facebook: { live, viewerCount } } — per-platform status
     };
   }
 
@@ -77,6 +83,9 @@ class StreamProtectionManager extends EventEmitter {
       this._waitingForReconnect = false;
       this._restartInProgress = false;
       this.status.canManualRestart = false;
+      this.status.cdnHealth = null;
+      this.status.cdnPlatforms = null;
+      this._cdnMismatchCount = 0;
       this._stopCdnChecks();
     }
     this._emitStatus();
@@ -132,8 +141,33 @@ class StreamProtectionManager extends EventEmitter {
    * @param {object} verification — { youtube: { live, viewerCount }, facebook: { live, viewerCount } }
    */
   onCdnVerificationResult(verification) {
-    if (!this.enabled || !this.status.active || this.status.state !== 'protecting') return;
+    if (!this.enabled || !this.status.active) return;
     if (!verification) return;
+
+    // Store last result for health display
+    this._cdnLastResult = verification;
+
+    // Build per-platform status for UI
+    const cdnPlatforms = {};
+    if (verification.youtube?.checked) {
+      cdnPlatforms.youtube = { live: !!verification.youtube.live, viewerCount: verification.youtube.viewerCount || 0 };
+    }
+    if (verification.facebook?.checked) {
+      cdnPlatforms.facebook = { live: !!verification.facebook.live, viewerCount: verification.facebook.viewerCount || 0 };
+    }
+    this.status.cdnPlatforms = Object.keys(cdnPlatforms).length > 0 ? cdnPlatforms : null;
+
+    // Only evaluate mismatch if still in protecting state
+    if (this.status.state !== 'protecting') {
+      // Even in non-protecting states, update health display if we get results
+      if (this.status.cdnPlatforms) {
+        const allLive = Object.values(cdnPlatforms).every(p => p.live);
+        this.status.cdnHealth = allLive ? 'healthy' : 'mismatch';
+      }
+      this._emitStatus();
+      return;
+    }
+
     if (this._cdnMismatchAlerted) return;
 
     // Only check after sufficient time has passed since stream started
@@ -141,23 +175,34 @@ class StreamProtectionManager extends EventEmitter {
     if (elapsed < CDN_CHECK_DELAY_MS) return;
 
     // Check if any platform was checked and reports NOT live
-    const platforms = [];
+    const failedPlatforms = [];
     if (verification.youtube?.checked && !verification.youtube.live) {
-      platforms.push('YouTube');
+      failedPlatforms.push('YouTube');
     }
     if (verification.facebook?.checked && !verification.facebook.live) {
-      platforms.push('Facebook');
+      failedPlatforms.push('Facebook');
     }
 
-    if (platforms.length > 0) {
-      this._cdnMismatchAlerted = true;
-      this.status.state = 'cdn_mismatch';
-      this.status.canManualRestart = true;
-      const platformStr = platforms.join(' and ');
-      this._setEvent(`Stream appears active locally but not reaching ${platformStr}. Check network connection.`);
-      this._emitAlert('warning', `Stream appears active locally but not reaching ${platformStr}. Check network connection.`);
-      this._emitStatus();
+    if (failedPlatforms.length > 0) {
+      // Increment consecutive mismatch counter — only alert after threshold
+      this._cdnMismatchCount++;
+      this.status.cdnHealth = 'mismatch';
+
+      if (this._cdnMismatchCount >= CDN_MISMATCH_THRESHOLD) {
+        this._cdnMismatchAlerted = true;
+        this.status.state = 'cdn_mismatch';
+        this.status.canManualRestart = true;
+        const platformStr = failedPlatforms.join(' and ');
+        this._setEvent(`Stream appears active locally but not reaching ${platformStr}. Check network connection to streaming service.`);
+        this._emitAlert('warning', `Stream appears active locally but not reaching ${platformStr}. Check network connection to streaming service.`);
+      }
+    } else {
+      // CDN confirms stream is live — reset mismatch counter
+      this._cdnMismatchCount = 0;
+      this.status.cdnHealth = 'healthy';
     }
+
+    this._emitStatus();
   }
 
   /**
@@ -178,9 +223,13 @@ class StreamProtectionManager extends EventEmitter {
     this._restartInProgress = false;
     this._cacheSamples = [];
     this._cdnMismatchAlerted = false;
+    this._cdnMismatchCount = 0;
+    this._cdnLastResult = null;
     this.status.active = true;
     this.status.state = 'protecting';
     this.status.canManualRestart = false;
+    this.status.cdnHealth = 'checking';
+    this.status.cdnPlatforms = null;
     this._setEvent('Stream started — protection active.');
     this._emitStatus();
 
@@ -190,6 +239,9 @@ class StreamProtectionManager extends EventEmitter {
 
   _onStreamStopped(context) {
     this._stopCdnChecks();
+    this.status.cdnHealth = null;
+    this.status.cdnPlatforms = null;
+    this._cdnMismatchCount = 0;
 
     if (!this.enabled) {
       this.status.active = false;
@@ -207,6 +259,8 @@ class StreamProtectionManager extends EventEmitter {
       this.status.active = false;
       this.status.state = 'idle';
       this.status.canManualRestart = false;
+      this.status.cdnHealth = null;
+      this.status.cdnPlatforms = null;
       this._setEvent('Stream stopped via Tally Connect.');
       this._emitAlert('info', 'Stream stopped.');
       this._emitStatus();

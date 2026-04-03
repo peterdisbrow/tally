@@ -1726,6 +1726,35 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         label.style.color = stateColors[sp.state] || '#94A3B8';
       }
 
+      // CDN health indicator
+      var cdnRow = document.getElementById('sp-cdn-row');
+      var cdnDot = document.getElementById('sp-cdn-dot');
+      var cdnLabel = document.getElementById('sp-cdn-label');
+      var cdnDetails = document.getElementById('sp-cdn-details');
+      if (cdnRow && sp.cdnHealth) {
+        cdnRow.style.display = '';
+        var cdnColors = { checking: '#94A3B8', healthy: '#22c55e', mismatch: '#f59e0b' };
+        var cdnLabels = { checking: 'CDN: Checking...', healthy: 'CDN: Healthy', mismatch: 'CDN: Not Receiving' };
+        var cdnBgs = { checking: 'rgba(148,163,184,0.08)', healthy: 'rgba(34,197,94,0.08)', mismatch: 'rgba(245,158,11,0.1)' };
+        if (cdnDot) cdnDot.style.background = cdnColors[sp.cdnHealth] || '#94A3B8';
+        if (cdnLabel) {
+          cdnLabel.textContent = cdnLabels[sp.cdnHealth] || sp.cdnHealth;
+          cdnLabel.style.color = cdnColors[sp.cdnHealth] || '#94A3B8';
+        }
+        cdnRow.style.background = cdnBgs[sp.cdnHealth] || 'transparent';
+        // Per-platform details
+        if (cdnDetails && sp.cdnPlatforms) {
+          var parts = [];
+          if (sp.cdnPlatforms.youtube) parts.push('YT: ' + (sp.cdnPlatforms.youtube.live ? 'Live' : 'Down'));
+          if (sp.cdnPlatforms.facebook) parts.push('FB: ' + (sp.cdnPlatforms.facebook.live ? 'Live' : 'Down'));
+          cdnDetails.textContent = parts.length ? parts.join(' · ') : '';
+        } else if (cdnDetails) {
+          cdnDetails.textContent = '';
+        }
+      } else if (cdnRow) {
+        cdnRow.style.display = 'none';
+      }
+
       // Last event
       if (eventRow && sp.lastEvent) {
         eventRow.style.display = '';

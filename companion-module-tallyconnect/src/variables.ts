@@ -72,6 +72,7 @@ export function getVariableDefinitions(): CompanionVariableDefinition[] {
 		{ variableId: 'sp_enabled', name: 'Stream Protection Enabled (true/false)' },
 		{ variableId: 'sp_state', name: 'Stream Protection State' },
 		{ variableId: 'sp_last_event', name: 'Stream Protection Last Event' },
+		{ variableId: 'sp_cdn_health', name: 'CDN Health (checking/healthy/mismatch)' },
 
 		// ── Connection ────────────────────────────────────────────────────────────
 		{ variableId: 'connection_status', name: 'Module Connection Status' },
@@ -149,6 +150,7 @@ export function getVariableValues(self: TallyConnectInstance): Record<string, st
 		sp_enabled: String(s.streamProtectionEnabled ?? false),
 		sp_state: s.streamProtectionState ?? 'idle',
 		sp_last_event: s.streamProtectionLastEvent ?? '',
+		sp_cdn_health: s.streamProtectionCdnHealth ?? '',
 
 		connection_status: self.connectionStatus,
 		church_name: self.churchName,

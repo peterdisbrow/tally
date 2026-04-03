@@ -252,5 +252,33 @@ export function getFeedbacks(self: TallyConnectInstance): CompanionFeedbackDefin
 				return st === 'encoder_disconnected' || st === 'alert_sent' || st === 'restarting' || st === 'cdn_mismatch'
 			},
 		},
+
+		cdn_health_ok: {
+			type: 'boolean',
+			name: 'CDN Health: Healthy',
+			description: 'True when CDN confirms the stream is reaching viewers',
+			defaultStyle: {
+				bgcolor: combineRgb(0, 128, 0),
+				color: combineRgb(255, 255, 255),
+			},
+			options: [],
+			callback: () => {
+				return self.tallyState.streamProtectionCdnHealth === 'healthy'
+			},
+		},
+
+		cdn_health_mismatch: {
+			type: 'boolean',
+			name: 'CDN Health: Mismatch',
+			description: 'True when CDN reports the stream is NOT reaching viewers despite encoder being active',
+			defaultStyle: {
+				bgcolor: combineRgb(255, 191, 0),
+				color: combineRgb(0, 0, 0),
+			},
+			options: [],
+			callback: () => {
+				return self.tallyState.streamProtectionCdnHealth === 'mismatch'
+			},
+		},
 	}
 }

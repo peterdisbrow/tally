@@ -508,10 +508,10 @@ function createWebSocketHandlers({
       }
 
       case 'stream_verification_request': {
-        // Church agent requests CDN verification after encoder goes live
+        // Church agent requests CDN verification — check immediately (church-client
+        // already applies its own 30s initial delay before the first request)
         if (streamOAuth) {
-          // Wait 15 seconds for CDN to stabilize, then check
-          setTimeout(async () => {
+          (async () => {
             try {
               const verification = await streamOAuth.verifyStreamOnPlatforms(church.churchId);
               if (!verification || (!verification.youtube && !verification.facebook)) return;
@@ -519,42 +519,51 @@ function createWebSocketHandlers({
               // Store in church status for SSE clients
               church.status = { ...church.status, streamVerification: verification };
 
-              // Push result back to the church agent
-              safeSend(ws, JSON.stringify({ type: 'stream_verification_result', verification }));
+              // Push result back to the church agent (for stream protection CDN validation)
+              safeSend(senderWs || church.ws, JSON.stringify({ type: 'stream_verification_result', verification }));
 
               // Broadcast to controllers + portal
               broadcastToControllers({ type: 'stream_verification', churchId: church.churchId, verification });
               broadcastToPortal(church.churchId, { type: 'stream_verification', verification });
 
-              // Send alert with results
-              const parts = [];
-              if (verification.youtube?.checked) {
-                parts.push(verification.youtube.live
-                  ? `YouTube: LIVE${verification.youtube.viewerCount ? ` (${verification.youtube.viewerCount} viewers)` : ''}`
-                  : 'YouTube: NOT receiving stream');
+              // Send alert only on first check or status changes (not every 20s poll)
+              const prevVerification = church._lastStreamVerification;
+              const allLive = (!verification.youtube?.checked || verification.youtube.live) &&
+                              (!verification.facebook?.checked || verification.facebook.live);
+              const prevAllLive = prevVerification &&
+                (!prevVerification.youtube?.checked || prevVerification.youtube.live) &&
+                (!prevVerification.facebook?.checked || prevVerification.facebook.live);
+
+              // Only alert when status changes or on first check
+              if (!prevVerification || allLive !== prevAllLive) {
+                const parts = [];
+                if (verification.youtube?.checked) {
+                  parts.push(verification.youtube.live
+                    ? `YouTube: LIVE${verification.youtube.viewerCount ? ` (${verification.youtube.viewerCount} viewers)` : ''}`
+                    : 'YouTube: NOT receiving stream');
+                }
+                if (verification.facebook?.checked) {
+                  parts.push(verification.facebook.live
+                    ? `Facebook: LIVE${verification.facebook.viewerCount ? ` (${verification.facebook.viewerCount} viewers)` : ''}`
+                    : 'Facebook: NOT receiving stream');
+                }
+                if (parts.length > 0) {
+                  const alertMsg = `CDN Check: ${parts.join(' · ')}`;
+                  const alertEvent = {
+                    type: 'alert', churchId: church.churchId, name: church.name,
+                    severity: allLive ? 'info' : 'critical',
+                    message: alertMsg, timestamp: new Date().toISOString(),
+                  };
+                  broadcastToControllers(alertEvent);
+                  broadcastToSSE(alertEvent);
+                  onAlert(church, { message: alertMsg, severity: allLive ? 'info' : 'critical' }, alertEvent);
+                }
               }
-              if (verification.facebook?.checked) {
-                parts.push(verification.facebook.live
-                  ? `Facebook: LIVE${verification.facebook.viewerCount ? ` (${verification.facebook.viewerCount} viewers)` : ''}`
-                  : 'Facebook: NOT receiving stream');
-              }
-              if (parts.length > 0) {
-                const allLive = (!verification.youtube?.checked || verification.youtube.live) &&
-                                (!verification.facebook?.checked || verification.facebook.live);
-                const alertMsg = `CDN Check: ${parts.join(' · ')}`;
-                const alertEvent = {
-                  type: 'alert', churchId: church.churchId, name: church.name,
-                  severity: allLive ? 'info' : 'critical',
-                  message: alertMsg, timestamp: new Date().toISOString(),
-                };
-                broadcastToControllers(alertEvent);
-                broadcastToSSE(alertEvent);
-                onAlert(church, { message: alertMsg, severity: allLive ? 'info' : 'critical' }, alertEvent);
-              }
+              church._lastStreamVerification = verification;
             } catch (e) {
               console.warn(`[StreamVerify] Error checking platforms for ${church.churchId}:`, e.message);
             }
-          }, 15_000);
+          })();
         }
         break;
       }
