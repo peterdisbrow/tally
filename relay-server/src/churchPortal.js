@@ -1302,6 +1302,77 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     }
   });
 
+  // ── GET /api/church/rooms/:roomId/roles ─────────────────────────────────────
+  app.get('/api/church/rooms/:roomId/roles', authMiddleware, (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const roomId = String(req.params.roomId || '').trim();
+      const room = db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
+      if (!room) return res.status(404).json({ error: 'Room not found' });
+
+      const row = db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ?').get(roomId);
+      let equipment = {};
+      try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
+
+      const { ROLE_DEFINITIONS, autoDetectRoles } = require('./routes/roomEquipment');
+      const savedRoles = equipment._roles || null;
+      const autoRoles = autoDetectRoles(equipment);
+      const roles = savedRoles || autoRoles;
+
+      res.json({
+        roles,
+        autoDetected: !savedRoles,
+        defaults: autoRoles,
+        roleDefinitions: ROLE_DEFINITIONS,
+        equipment,
+      });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
+  // ── PUT /api/church/rooms/:roomId/roles ─────────────────────────────────────
+  app.put('/api/church/rooms/:roomId/roles', adminMiddleware, express.json(), (req, res) => {
+    try {
+      const churchId = req.church.churchId;
+      const roomId = String(req.params.roomId || '').trim();
+      const room = db.prepare('SELECT id FROM rooms WHERE id = ? AND campus_id = ? AND deleted_at IS NULL').get(roomId, churchId);
+      if (!room) return res.status(404).json({ error: 'Room not found' });
+
+      const roles = req.body?.roles;
+      if (!roles || typeof roles !== 'object') {
+        return res.status(400).json({ error: 'Missing or invalid roles object' });
+      }
+
+      const { VALID_ROLE_KEYS } = require('./routes/roomEquipment');
+      for (const key of Object.keys(roles)) {
+        if (!VALID_ROLE_KEYS.includes(key)) {
+          return res.status(400).json({ error: `Invalid role key: ${key}` });
+        }
+      }
+
+      const row = db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ?').get(roomId);
+      let equipment = {};
+      try { equipment = JSON.parse(row?.equipment || '{}'); } catch { }
+
+      equipment._roles = roles;
+      const now = new Date().toISOString();
+
+      db.prepare(`
+        INSERT INTO room_equipment (room_id, church_id, equipment, updated_at, updated_by)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(room_id) DO UPDATE SET
+          equipment = excluded.equipment,
+          updated_at = excluded.updated_at,
+          updated_by = excluded.updated_by
+      `).run(roomId, churchId, JSON.stringify(equipment), now, churchId);
+
+      res.json({ ok: true, roles, updatedAt: now });
+    } catch (e) {
+      res.status(500).json({ error: safeErrorMessage(e) });
+    }
+  });
+
   // ── POST /api/church/rooms/:roomId/stream-key/regenerate ──────────────────────
   app.post('/api/church/rooms/:roomId/stream-key/regenerate', adminMiddleware, (req, res) => {
     try {
