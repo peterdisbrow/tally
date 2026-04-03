@@ -51,13 +51,17 @@ export function useNotifications() {
 
     // Listen for incoming notifications while app is foregrounded
     notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
-      console.log('[Notification received]', notification.request.content.title);
+      if (__DEV__) {
+        console.log('[Notification received]', notification.request.content.title);
+      }
     });
 
     // Listen for when user interacts with a notification
     responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data;
-      console.log('[Notification tapped]', data);
+      if (__DEV__) {
+        console.log('[Notification tapped]', data);
+      }
     });
 
     return () => {
