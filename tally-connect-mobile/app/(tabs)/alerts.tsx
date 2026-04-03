@@ -19,6 +19,7 @@ export default function AlertsScreen() {
   const dismissAlert = useAlertStore((s) => s.dismissAlert);
   const acknowledgeAlert = useAlertStore((s) => s.acknowledgeAlert);
   const [filter, setFilter] = useState<SeverityFilter>('ALL');
+  const [error, setError] = useState<string | null>(null);
   const colors = useThemeColors();
 
   const FILTER_COLORS: Record<SeverityFilter, string> = {
@@ -29,13 +30,22 @@ export default function AlertsScreen() {
     INFO: colors.infoAlert,
   };
 
+  const loadAlerts = useCallback(() => {
+    setError(null);
+    fetchAlerts()
+      .then(() => {
+        setTimeout(() => markAllRead(), 1500);
+      })
+      .catch(() => {
+        setError('Could not load alerts. Tap to retry.');
+      });
+  }, [fetchAlerts, markAllRead]);
+
   useEffect(() => {
-    fetchAlerts();
-    markAllRead();
+    loadAlerts();
   }, []);
 
   useEffect(() => {
-    markAllRead();
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') markAllRead();
     });
@@ -128,6 +138,28 @@ export default function AlertsScreen() {
         })}
       </View>
 
+      {error && (
+        <Pressable
+          onPress={loadAlerts}
+          style={{
+            marginHorizontal: spacing.lg,
+            marginBottom: spacing.sm,
+            padding: spacing.md,
+            borderRadius: borderRadius.sm,
+            backgroundColor: `${colors.critical}20`,
+            borderWidth: 1,
+            borderColor: colors.critical,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: spacing.sm,
+          }}
+        >
+          <Ionicons name="alert-circle-outline" size={16} color={colors.critical} />
+          <Text style={{ flex: 1, fontSize: fontSize.sm, color: colors.critical }}>{error}</Text>
+          <Ionicons name="refresh-outline" size={16} color={colors.critical} />
+        </Pressable>
+      )}
+
       <FlatList
         data={filtered}
         keyExtractor={(item, idx) => item.id || `${item.timestamp}-${idx}`}
@@ -136,7 +168,7 @@ export default function AlertsScreen() {
         refreshControl={
           <RefreshControl
             refreshing={isLoading}
-            onRefresh={fetchAlerts}
+            onRefresh={loadAlerts}
             tintColor={colors.accent}
           />
         }
