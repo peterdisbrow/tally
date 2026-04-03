@@ -54,7 +54,12 @@ export default function MoreScreen() {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
-      Alert.alert('Update Check Failed', message);
+      const channel = Updates.channel ?? 'none';
+      const rtVersion = Updates.runtimeVersion ?? 'unknown';
+      Alert.alert(
+        'Update Check Failed',
+        `${message}\n\nChannel: ${channel}\nRuntime: ${rtVersion}`,
+      );
     } finally {
       setUpdateChecking(false);
     }

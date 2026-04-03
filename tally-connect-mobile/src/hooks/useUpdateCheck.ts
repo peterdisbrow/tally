@@ -21,7 +21,12 @@ export function useUpdateCheck() {
           }
         }
       } catch (err) {
-        console.warn('[OTA] Update check failed:', err instanceof Error ? err.message : err);
+        console.warn(
+          '[OTA] Update check failed:',
+          err instanceof Error ? err.message : err,
+          '| channel:', Updates.channel ?? 'none',
+          '| runtime:', Updates.runtimeVersion ?? 'unknown',
+        );
       }
     })();
   }, []);
