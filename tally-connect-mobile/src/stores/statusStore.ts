@@ -59,7 +59,10 @@ export const useStatusStore = create<StatusState>((set, get) => ({
   removeInstance: (instanceName) => {
     set((state) => {
       const { [instanceName]: _, ...remainingStatus } = state.instanceStatus;
-      return { instanceStatus: remainingStatus, lastUpdate: Date.now() };
+      const remainingRoomMap = Object.fromEntries(
+        Object.entries(state.roomInstanceMap).filter(([, v]) => v !== instanceName)
+      );
+      return { instanceStatus: remainingStatus, roomInstanceMap: remainingRoomMap, lastUpdate: Date.now() };
     });
   },
 
