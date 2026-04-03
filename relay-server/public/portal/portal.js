@@ -8,6 +8,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     // Shared across Overview, Engineer, and other room-scoped pages.
     var _selectedRoomId = new URLSearchParams(window.location.search).get('room') || '';
     var _roomListCache = null; // [{id, name, connected}, ...]
+    var _totalRoomCount = -1; // total rooms for the church (not filtered by TD scope), -1 = unknown
 
     /** Fetch rooms from API (cached). Force refresh with skipCache=true. */
     async function fetchRoomList(skipCache) {
@@ -16,6 +17,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var payload = await api('GET', '/api/church/rooms');
         _roomListCache = (payload && payload.rooms) || [];
         _roomListCache._fetched = true;
+        if (payload && payload.limits && typeof payload.limits.usedTotal === 'number') {
+          _totalRoomCount = payload.limits.usedTotal;
+        }
       } catch { _roomListCache = []; _roomListCache._fetched = false; }
       return _roomListCache;
     }
@@ -1057,6 +1061,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     async function loadOverview() {
       try {
+        // Safety net: hide the zero-rooms gate once overview loads (rooms exist)
+        var gateEl = document.getElementById('zero-rooms-gate');
+        if (gateEl) gateEl.style.display = 'none';
+
         await loadOverviewRoomSelector();
         const d = await api('GET', '/api/church/me' + roomParam());
         profileData = d;
@@ -1166,7 +1174,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         } else if (enc.type === 'vmix') {
           encVer = status.vmix && status.vmix.version; encVerType = 'vmix';
         } else if (enc.type) {
-          encVer = enc.firmwareVersion || enc.softwareVersion || enc.version || enc.details || null; encVerType = 'encoder_' + enc.type;
+          encVer = enc.firmwareVersion || enc.softwareVersion || enc.version || null; encVerType = 'encoder_' + enc.type;
         }
         var mixerVer = status.mixer && status.mixer.firmware ? status.mixer.firmware : null;
         var mixerVerType = status.mixer && status.mixer.type ? 'mixer_' + status.mixer.type : null;
@@ -1238,12 +1246,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           const ppSt = pp.connected ? 'connected' : 'disconnected';
           const ppVer = pp.version || null;
           var ppDetail = null;
-          var _ppSlide = pp.currentSlide || {};
-          var _ppPresName = _ppSlide.presentationName || pp.currentPresentation || pp.presentationName || null;
+          var _ppSlide = pp.currentSlide;
+          var _ppPresName = (typeof _ppSlide === 'string' ? _ppSlide : (_ppSlide && _ppSlide.presentationName)) || pp.currentPresentation || pp.presentationName || null;
           if (_ppPresName) {
             ppDetail = _ppPresName;
-            if (_ppSlide.slideIndex != null && _ppSlide.slideCount != null) {
-              ppDetail += ' (' + _ppSlide.slideIndex + '/' + _ppSlide.slideCount + ')';
+            var _sIdx = (typeof _ppSlide === 'object' && _ppSlide) ? _ppSlide.slideIndex : pp.slideIndex;
+            var _sCnt = (typeof _ppSlide === 'object' && _ppSlide) ? _ppSlide.slideCount : pp.slideTotal;
+            if (_sIdx != null && _sCnt != null) {
+              ppDetail += ' (' + _sIdx + '/' + _sCnt + ')';
             }
           }
           rows.push(['ProPresenter', ppSt, verInfo(ppVer, 'proPresenter'), ppDetail || pp.lastSeen || null]);
@@ -1449,7 +1459,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         loadProblems();
 
         // Room selector is now populated from DB in loadOverviewRoomSelector()
-      } catch(e) { console.error(e); }
+      } catch(e) {
+        console.error(e);
+        var eqTbody = document.getElementById('equipment-tbody');
+        if (eqTbody) eqTbody.innerHTML = '<tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">Could not load equipment status.</td></tr>';
+        var statusText = document.getElementById('stat-status-text');
+        if (statusText) { statusText.textContent = '—'; statusText.style.color = '#94A3B8'; }
+        var schedBody = document.getElementById('schedule-overview-body');
+        if (schedBody) schedBody.textContent = 'Could not load schedule.';
+      }
     }
 
     async function refreshEquipmentStatus() {
@@ -1492,22 +1510,51 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try {
         var data = await api('GET', '/api/church/rooms/' + encodeURIComponent(_selectedRoomId) + '/roles');
         _rolesData = data;
-        // If server returned empty roles but we have live equipment status, auto-detect client-side
         var serverRoles = data.roles || {};
-        if (Object.keys(serverRoles).length === 0 && profileData && profileData.status) {
-          var st = profileData.status;
-          if (st.atem && (st.atem === true || st.atem.connected)) serverRoles.primary_switcher = 'atem';
-          else if (st.vmix && st.vmix.connected) serverRoles.primary_switcher = 'vmix';
-          else if (st.obs && st.obs.connected) serverRoles.primary_switcher = 'obs';
-          var enc = st.encoder || {};
-          if (enc.connected || enc.live || enc.streaming || (st.obs && st.obs.streaming)) serverRoles.streaming_device = enc.type === 'vmix' ? 'vmix' : enc.type === 'obs' || (!enc.type && st.obs) ? 'obs' : 'encoder';
-          if (st.hyperdeck || st.hyperDeck) serverRoles.recording_device = 'hyperdeck';
-          else if (st.atem && (st.atem === true || st.atem.connected)) serverRoles.recording_device = serverRoles.recording_device || 'atem';
-          var pp = st.proPresenter || st.propresenter;
-          if (pp && pp.connected) serverRoles.presentation = 'proPresenter';
-          if (st.mixer && st.mixer.connected) serverRoles.audio_mixer = 'mixer';
-          if (data.autoDetected == null) data.autoDetected = true;
+
+        // Layer 1: merge server-provided auto-detect defaults for any unset roles
+        var defaults = data.defaults || {};
+        for (var dk in defaults) {
+          if (defaults.hasOwnProperty(dk) && !serverRoles[dk]) {
+            serverRoles[dk] = defaults[dk];
+            if (data.autoDetected == null) data.autoDetected = true;
+          }
         }
+
+        // Layer 2: fill remaining gaps from live equipment status (profileData)
+        if (profileData && profileData.status) {
+          var st = profileData.status;
+          var hadGap = false;
+          if (!serverRoles.primary_switcher) {
+            if (st.atem && (st.atem === true || st.atem.connected)) { serverRoles.primary_switcher = 'atem'; hadGap = true; }
+            else if (st.vmix && (st.vmix === true || st.vmix.connected)) { serverRoles.primary_switcher = 'vmix'; hadGap = true; }
+            else if (st.obs && (st.obs === true || st.obs.connected)) { serverRoles.primary_switcher = 'obs'; hadGap = true; }
+          }
+          if (!serverRoles.streaming_device) {
+            var enc = st.encoder || {};
+            if (enc.connected || enc.live || enc.streaming) {
+              serverRoles.streaming_device = enc.type === 'vmix' ? 'vmix' : enc.type === 'obs' ? 'obs' : 'encoder'; hadGap = true;
+            } else if (st.obs && st.obs.streaming) {
+              serverRoles.streaming_device = 'obs'; hadGap = true;
+            } else if (st.atem && (st.atem === true || st.atem.connected) && (st.atem.streaming || st.atem.streamingService)) {
+              serverRoles.streaming_device = 'atem'; hadGap = true;
+            }
+          }
+          if (!serverRoles.recording_device) {
+            if (st.hyperdeck || st.hyperDeck) { serverRoles.recording_device = 'hyperdeck'; hadGap = true; }
+            else if (st.atem && (st.atem === true || st.atem.connected)) { serverRoles.recording_device = 'atem'; hadGap = true; }
+          }
+          if (!serverRoles.presentation) {
+            var pp = st.proPresenter || st.propresenter;
+            if (pp && (pp === true || pp.connected)) { serverRoles.presentation = 'proPresenter'; hadGap = true; }
+          }
+          if (!serverRoles.audio_mixer) {
+            if (st.mixer && (st.mixer === true || st.mixer.connected)) { serverRoles.audio_mixer = 'mixer'; hadGap = true; }
+            else if (st.atem && (st.atem === true || st.atem.connected) && st.atem.atemAudioSources) { serverRoles.audio_mixer = 'atem'; hadGap = true; }
+          }
+          if (hadGap && data.autoDetected == null) data.autoDetected = true;
+        }
+
         _rolesEdited = Object.assign({}, serverRoles);
         card.style.display = '';
         var roomLabel = document.getElementById('roles-room-label');
@@ -1679,15 +1726,19 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var verEl = document.getElementById('pp-version-label');
       if (verEl) verEl.textContent = pp.version || 'ProPresenter';
 
-      var slide = pp.currentSlide || {};
-      var presName = slide.presentationName || pp.currentPresentation || pp.presentationName || null;
+      var slide = pp.currentSlide;
+      // pp.currentSlide is a string (the presentation name) from the church-client,
+      // not an object. Handle both for backward compat.
+      var presName = (typeof slide === 'string' ? slide : (slide && slide.presentationName)) || pp.currentPresentation || pp.presentationName || null;
       var nameEl = document.getElementById('pp-presentation-name');
       if (nameEl) nameEl.textContent = presName || 'No presentation';
 
       var indexEl = document.getElementById('pp-slide-index');
       if (indexEl) {
-        if (slide.slideIndex != null && slide.slideCount != null) {
-          indexEl.textContent = 'Slide ' + slide.slideIndex + ' of ' + slide.slideCount;
+        var sIdx = (typeof slide === 'object' && slide) ? slide.slideIndex : pp.slideIndex;
+        var sCnt = (typeof slide === 'object' && slide) ? slide.slideCount : pp.slideTotal;
+        if (sIdx != null && sCnt != null) {
+          indexEl.textContent = 'Slide ' + sIdx + ' of ' + sCnt;
         } else {
           indexEl.textContent = '';
         }
@@ -1697,9 +1748,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var notesRow = document.getElementById('pp-slide-notes-row');
       var notesEl = document.getElementById('pp-slide-notes');
       if (notesRow && notesEl) {
-        if (slide.notes) {
+        var sNotes = (typeof slide === 'object' && slide) ? slide.notes : pp.slideNotes;
+        if (sNotes) {
           notesRow.style.display = '';
-          notesEl.textContent = slide.notes;
+          notesEl.textContent = sNotes;
         } else {
           notesRow.style.display = 'none';
         }
@@ -2149,15 +2201,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var sw = switchers[ids[i]];
         if (!sw) continue;
 
-        // Merge live data from status.atem if this is the primary ATEM and fields are missing
+        // Merge live data from status.atem — the legacy status.atem object is the
+        // authoritative source for the primary ATEM (it's what the equipment table
+        // row and stream widget read).  Always prefer its values over the switcher
+        // object, which may lag behind or arrive with null fields.
         if (sw.type === 'atem' && status.atem && typeof status.atem === 'object') {
-          if (sw.programInput == null && status.atem.programInput != null) sw.programInput = status.atem.programInput;
-          if (sw.previewInput == null && status.atem.previewInput != null) sw.previewInput = status.atem.previewInput;
-          if (!sw.inputLabels && status.atem.inputLabels) sw.inputLabels = status.atem.inputLabels;
-          if (!sw.model && status.atem.model) sw.model = status.atem.model;
-          if (sw.connected == null && status.atem.connected != null) sw.connected = status.atem.connected;
-          if (sw.streaming == null && status.atem.streaming) sw.streaming = status.atem.streaming;
-          if (sw.recording == null && status.atem.recording) sw.recording = status.atem.recording;
+          if (status.atem.programInput != null) sw.programInput = status.atem.programInput;
+          if (status.atem.previewInput != null) sw.previewInput = status.atem.previewInput;
+          if (status.atem.inputLabels) sw.inputLabels = status.atem.inputLabels;
+          if (status.atem.model) sw.model = status.atem.model;
+          if (status.atem.connected != null) sw.connected = status.atem.connected;
+          if (status.atem.streaming != null) sw.streaming = status.atem.streaming;
+          if (status.atem.recording != null) sw.recording = status.atem.recording;
+          if (status.atem.recordingDuration != null) sw.recordingDuration = status.atem.recordingDuration;
+          if (status.atem.recordingTimeAvailable != null) sw.recordingTimeAvailable = status.atem.recordingTimeAvailable;
+          if (status.atem.streamingBitrate != null) sw.streamingBitrate = status.atem.streamingBitrate;
+          if (status.atem.streamingCacheUsed != null) sw.streamingCacheUsed = status.atem.streamingCacheUsed;
+          if (status.atem.audioDelays) sw.audioDelays = status.atem.audioDelays;
         }
 
         var typeIcon = sw.type === 'atem' ? '\uD83C\uDF9B' : sw.type === 'obs' ? '\uD83D\uDCF9' : sw.type === 'vmix' ? '\uD83C\uDFAC' : '\uD83D\uDD00';
@@ -2199,6 +2259,24 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             + '<div style="font-size:22px;font-weight:700;color:#22c55e">' + _escHtml(pvwName) + '</div>'
             + '<div style="font-size:12px;color:#94A3B8;margin-top:4px">' + _escHtml(pvwLabel) + '</div>'
             + '</div></div>';
+
+          // Recording duration / time remaining (ATEM only)
+          if (sw.recording && (sw.recordingDuration != null || sw.recordingTimeAvailable != null)) {
+            var recDur = sw.recordingDuration != null ? _formatDuration(sw.recordingDuration) : '\u2014';
+            var recRem = sw.recordingTimeAvailable != null ? _formatDuration(sw.recordingTimeAvailable) : '\u2014';
+            var remColor = sw.recordingTimeAvailable != null
+              ? (sw.recordingTimeAvailable < 600 ? '#ef4444' : sw.recordingTimeAvailable < 1800 ? '#eab308' : '#F8FAFC')
+              : '#F8FAFC';
+            html += '<div class="grid-2col" style="gap:12px;margin-bottom:14px">'
+              + '<div style="background:#09090B;border-radius:8px;padding:12px;text-align:center">'
+              + '<div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Recording Duration</div>'
+              + '<div style="font-size:18px;font-weight:700;color:#22c55e">' + _escHtml(recDur) + '</div>'
+              + '</div>'
+              + '<div style="background:#09090B;border-radius:8px;padding:12px;text-align:center">'
+              + '<div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Time Remaining</div>'
+              + '<div style="font-size:18px;font-weight:700;color:' + remColor + '">' + _escHtml(recRem) + '</div>'
+              + '</div></div>';
+          }
         }
 
         html += '<div style="display:flex;gap:8px;flex-wrap:wrap">' + badgeParts.join(' ') + '</div>';
@@ -2479,7 +2557,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     async function refreshOverviewData() {
       try {
-        var d = await api('GET', '/api/church/me');
+        var d = await api('GET', '/api/church/me' + roomParam());
         var status = d.status || {};
         var enc = (status.encoder && typeof status.encoder === 'object') ? status.encoder : {};
         var audioViaAtem = !!(d.audio_via_atem);
@@ -5971,7 +6049,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
       } catch(e) {
         var pc = document.getElementById('ref-progress-content');
-        if (pc) { pc.innerHTML = '<p style="color:#ef4444;font-size:12px">Failed to load referral data.</p>'; pc.style.opacity = '1'; }
+        if (pc) { pc.innerHTML = '<p style="color:#475569;font-size:12px">Referral data unavailable.</p>'; pc.style.opacity = '1'; }
+        var hc = document.getElementById('ref-history-content');
+        if (hc) { hc.innerHTML = '<p style="color:#475569;font-size:12px">No referral history yet.</p>'; hc.style.opacity = '1'; }
       }
     }
 
@@ -6219,8 +6299,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         renderSessionStats(data);
         renderEquipmentPerf(data);
       } catch (e) {
+        var noData = '<p style="color:#475569;text-align:center;padding:20px">No analytics data yet. Data will appear after your first streaming session.</p>';
         var ahEl = document.getElementById('a-health-content');
-        if (ahEl) ahEl.innerHTML = '<p style="color:#475569;text-align:center;padding:20px">No analytics data yet. Data will appear after your first streaming session.</p>';
+        if (ahEl) ahEl.innerHTML = noData;
+        var vcEl = document.getElementById('a-viewer-chart');
+        if (vcEl) vcEl.innerHTML = noData;
+        var ssEl = document.getElementById('a-session-stats');
+        if (ssEl) ssEl.innerHTML = noData;
+        var eqEl = document.getElementById('a-equipment-content');
+        if (eqEl) eqEl.innerHTML = noData;
+        // Clear KPI values
+        var kpiIds = ['a-uptime', 'a-sessions-count', 'a-avg-viewers', 'a-recovery-rate'];
+        kpiIds.forEach(function(id) { var el = document.getElementById(id); if (el) el.textContent = '—'; });
       }
       // Load platform-specific audience data in parallel
       loadAudienceAnalytics();
@@ -6298,8 +6388,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         renderPlatformChart(d);
         renderLiveChart(d);
       } catch (e) {
-        document.getElementById('aud-platform-chart').innerHTML =
-          '<p style="color:#ef4444">' + escapeHtml(e.message) + '</p>';
+        var noAud = '<p style="color:#475569;text-align:center;padding:20px">No audience data yet. Viewer counts are collected during live streams when platform API keys are configured.</p>';
+        var pcEl = document.getElementById('aud-platform-chart');
+        if (pcEl) pcEl.innerHTML = noAud;
+        // Clear audience KPI values
+        ['aud-yt-peak', 'aud-fb-peak', 'aud-vim-peak', 'aud-total-avg'].forEach(function(id) {
+          var el = document.getElementById(id); if (el) el.textContent = '—';
+        });
+        // Hide live chart
+        var liveContainer = document.getElementById('aud-live-chart');
+        if (liveContainer) liveContainer.style.display = 'none';
       }
     }
 
@@ -6918,7 +7016,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     (async function checkZeroRoomsGate() {
       try {
         var rooms = await fetchRoomList(true);
-        if (rooms.length === 0 && rooms._fetched) {
+        // Only show the "Create Your First Room" gate when the church truly has
+        // zero rooms (using the unfiltered total from the API), not when a TD user
+        // simply has no rooms assigned to them.
+        var churchHasZeroRooms = _totalRoomCount === 0 || (rooms.length === 0 && _totalRoomCount === -1);
+        if (churchHasZeroRooms && rooms._fetched) {
           var gate = document.getElementById('zero-rooms-gate');
           if (gate) gate.style.display = 'flex';
           return; // Don't load overview until a room is created
@@ -7842,8 +7944,15 @@ document.addEventListener('DOMContentLoaded', function() {
         bars.innerHTML = '<span style="color:#475569;font-size:13px">No uptime data yet for this period.</span>';
       }
     } catch (err) {
+      var noRpt = '<span style="color:#475569;font-size:13px">No report data yet. Reports will appear after your first streaming session.</span>';
       var rptBody = document.getElementById('rpt-summary-body');
-      if (rptBody) rptBody.innerHTML = '<span style="color:#475569;font-size:13px">No report data yet. Reports will appear after your first streaming session.</span>';
+      if (rptBody) rptBody.innerHTML = noRpt;
+      var rptBars = document.getElementById('rpt-uptime-bars');
+      if (rptBars) rptBars.innerHTML = noRpt;
+      // Clear KPI values
+      ['rpt-sessions', 'rpt-events', 'rpt-recovery', 'rpt-uptime'].forEach(function(id) {
+        var el = document.getElementById(id); if (el) el.textContent = '—';
+      });
     }
   }
 
@@ -7886,7 +7995,10 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch {}
       }
       fetchReportEvents();
-    } catch {}
+    } catch {
+      var evtTbody = document.getElementById('rpt-events-tbody');
+      if (evtTbody) evtTbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No event data yet.</td></tr>';
+    }
   }
 
   async function fetchReportEvents() {
@@ -8003,7 +8115,13 @@ document.addEventListener('DOMContentLoaded', function() {
         });
       }
     } catch (err) {
-      document.getElementById('rpt-windows-schedule').innerHTML = '<span style="color:#ef4444">Failed to load</span>';
+      var noWin = '<span style="color:#475569;font-size:13px">No data yet.</span>';
+      var wsEl = document.getElementById('rpt-windows-schedule');
+      if (wsEl) wsEl.innerHTML = noWin;
+      var wcEl = document.getElementById('rpt-windows-context-chart');
+      if (wcEl) wcEl.innerHTML = noWin;
+      var wsTbody = document.getElementById('rpt-sessions-tbody');
+      if (wsTbody) wsTbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No sessions yet.</td></tr>';
     }
   }
 
@@ -8056,7 +8174,11 @@ document.addEventListener('DOMContentLoaded', function() {
         devEl.innerHTML = '<span style="color:#475569;font-size:13px">No device incidents in this period.</span>';
       }
     } catch (err) {
-      document.getElementById('rpt-health-devices').innerHTML = '<span style="color:#ef4444">Failed to load device health</span>';
+      var noHealth = '<span style="color:#475569;font-size:13px">No device health data yet.</span>';
+      var hdEl = document.getElementById('rpt-health-devices');
+      if (hdEl) hdEl.innerHTML = noHealth;
+      var huEl = document.getElementById('rpt-health-uptime');
+      if (huEl) huEl.innerHTML = '<div class="card"><div style="color:#475569;text-align:center;padding:20px;font-size:13px">No uptime data available yet.</div></div>';
     }
   }
 
@@ -8124,8 +8246,20 @@ document.addEventListener('DOMContentLoaded', function() {
         pendEl.innerHTML = html;
       }
     } catch (err) {
-      document.getElementById('rpt-ai-content').style.display = 'block';
-      document.getElementById('rpt-ai-actions-tbody').innerHTML = '<tr><td colspan="5" style="color:#ef4444;text-align:center;padding:20px">Failed to load AI activity</td></tr>';
+      var aiContent = document.getElementById('rpt-ai-content');
+      if (aiContent) aiContent.style.display = 'block';
+      var aiDisabled = document.getElementById('rpt-ai-disabled');
+      if (aiDisabled) aiDisabled.style.display = 'none';
+      var aiTbody = document.getElementById('rpt-ai-actions-tbody');
+      if (aiTbody) aiTbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">No AI activity data yet.</td></tr>';
+      var aiPending = document.getElementById('rpt-ai-pending-list');
+      if (aiPending) aiPending.innerHTML = '<span style="color:#475569;font-size:13px">No data yet.</span>';
+      // Clear KPI values
+      ['rpt-ai-total', 'rpt-ai-success', 'rpt-ai-pending', 'rpt-ai-avg-time'].forEach(function(id) {
+        var el = document.getElementById(id); if (el) el.textContent = '—';
+      });
+      var aiLoadMore = document.getElementById('rpt-ai-load-more');
+      if (aiLoadMore) aiLoadMore.style.display = 'none';
     }
   }
 
