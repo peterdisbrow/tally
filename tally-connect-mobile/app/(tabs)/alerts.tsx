@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, FlatList, RefreshControl, Pressable, AppState,
+  View, Text, FlatList, RefreshControl, Pressable, AppState, TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -20,6 +20,7 @@ export default function AlertsScreen() {
   const dismissAlert = useAlertStore((s) => s.dismissAlert);
   const acknowledgeAlert = useAlertStore((s) => s.acknowledgeAlert);
   const [filter, setFilter] = useState<SeverityFilter>('ALL');
+  const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const colors = useThemeColors();
 
@@ -53,9 +54,17 @@ export default function AlertsScreen() {
     return () => sub.remove();
   }, [markAllRead]);
 
-  const filtered = filter === 'ALL'
-    ? alerts
-    : alerts.filter((a) => a.severity === filter);
+  const filtered = alerts.filter((a) => {
+    if (filter !== 'ALL' && a.severity !== filter) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      return (
+        a.message.toLowerCase().includes(q) ||
+        (a.roomName?.toLowerCase().includes(q) ?? false)
+      );
+    }
+    return true;
+  });
 
   const filterButtons: SeverityFilter[] = ['ALL', 'EMERGENCY', 'CRITICAL', 'WARNING', 'INFO'];
 
@@ -156,6 +165,30 @@ export default function AlertsScreen() {
             </Pressable>
           );
         })}
+      </View>
+
+      <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: colors.surface,
+          borderRadius: borderRadius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: spacing.md,
+          height: 44,
+        }}>
+          <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: spacing.sm }} />
+          <TextInput
+            style={{ flex: 1, fontSize: fontSize.sm, color: colors.text }}
+            placeholder="Search alerts..."
+            placeholderTextColor={colors.textMuted}
+            value={search}
+            onChangeText={setSearch}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+          />
+        </View>
       </View>
 
       {error && (
