@@ -79,6 +79,28 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  // TODO(security): Certificate pinning (MITM protection)
+  // The plain fetch() below is vulnerable to MITM attacks on compromised
+  // WiFi networks (e.g. a church guest network). Implementing SSL pinning
+  // requires a native module and cannot be done as a JS-only change.
+  //
+  // Recommended approach:
+  //   1. Add `expo-ssl-pinning` (or `react-native-ssl-pinning`)
+  //      and run `expo prebuild` to apply native changes.
+  //   2. Replace fetch() calls with the library's `fetch` wrapper,
+  //      supplying the server's expected certificate hashes:
+  //
+  //      import { fetch as pinnedFetch } from 'expo-ssl-pinning';
+  //      pinnedFetch(`${baseUrl}${path}`, {
+  //        ...options,
+  //        sslPinning: { certs: ['cert-hash-1', 'cert-hash-2'] },
+  //      });
+  //
+  //   3. Rotate pinned certs before they expire and ship a new build.
+  //
+  // References:
+  //   - https://github.com/MaxToyberman/react-native-ssl-pinning
+  //   - https://owasp.org/www-community/controls/Certificate_and_Public_Key_Pinning
   const response = await fetch(`${baseUrl}${path}`, {
     method: options.method || 'GET',
     headers,
