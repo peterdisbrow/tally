@@ -225,6 +225,55 @@ export default function ActionsScreen() {
         </View>
       )}
 
+      {/* Quick Actions — always-visible pinned commands */}
+      <View style={{ marginBottom: spacing.xxl }}>
+        <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '600', marginBottom: spacing.md }}>QUICK ACTIONS</Text>
+        <View style={{ flexDirection: 'row', gap: spacing.md }}>
+          <GradientButton
+            colors={colors}
+            label="Start Stream"
+            icon="play-circle-outline"
+            gradientBg="rgba(34, 197, 94, 0.2)"
+            borderColor="rgba(34, 197, 94, 0.35)"
+            color={colors.online}
+            onPress={() => {
+              const cmd = status?.obs?.connected ? 'obs.startStream' : 'atem.startStream';
+              sendCommand(cmd, {}, false, 'Start Stream');
+            }}
+            pending={pending === 'obs.startStream' || pending === 'atem.startStream'}
+            disabled={isStreaming}
+          />
+          <GradientButton
+            colors={colors}
+            label="Stop Stream"
+            icon="stop-circle-outline"
+            gradientBg="rgba(239, 68, 68, 0.2)"
+            borderColor="rgba(239, 68, 68, 0.35)"
+            color={colors.critical}
+            onPress={() => {
+              const cmd = status?.obs?.streaming ? 'obs.stopStream'
+                : status?.atem?.streaming ? 'atem.stopStream'
+                : status?.encoder?.streaming ? 'encoder.stopStream'
+                : 'obs.stopStream';
+              sendCommand(cmd, {}, true, 'Stop Stream');
+            }}
+            pending={pending === 'obs.stopStream' || pending === 'atem.stopStream' || pending === 'encoder.stopStream'}
+            disabled={!isStreaming}
+          />
+          {atem?.connected && (
+            <GradientButton
+              colors={colors}
+              label="CUT"
+              icon="cut-outline"
+              gradientBg="rgba(239, 68, 68, 0.25)"
+              borderColor="rgba(239, 68, 68, 0.4)"
+              onPress={() => sendCommand('atem.cut', {}, false, 'ATEM Cut')}
+              pending={pending === 'atem.cut'}
+            />
+          )}
+        </View>
+      </View>
+
       {/* Camera Switching */}
       {atem?.connected && (
         <View style={{ marginBottom: spacing.xxl }}>
