@@ -52,7 +52,10 @@ function ConnectionBanner() {
 
   const bgColor = showConnected ? colors.online : '#d97706';
   return (
-    <Animated.View style={[bannerStyles.banner, { paddingTop: insets.top + 4, backgroundColor: bgColor, opacity: showConnected ? 1 : pulseAnim }]}>
+    <Animated.View
+      pointerEvents="none"
+      style={[bannerStyles.banner, { paddingTop: insets.top + 4, backgroundColor: bgColor, opacity: showConnected ? 1 : pulseAnim }]}
+    >
       <Text style={bannerStyles.text}>{showConnected ? 'Connected' : 'Reconnecting...'}</Text>
     </Animated.View>
   );
