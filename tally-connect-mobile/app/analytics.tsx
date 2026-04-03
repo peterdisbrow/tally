@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, ActivityIndicator,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { api } from '../src/api/client';
 import { useThemeColors } from '../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../src/theme/spacing';
@@ -53,6 +54,20 @@ export default function AnalyticsScreen() {
         <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: colors.text, textAlign: 'center', marginBottom: 8 }}>Failed to Load Analytics</Text>
         <Text style={{ fontSize: fontSize.md, color: colors.textSecondary, textAlign: 'center', marginBottom: 24 }}>Could not fetch analytics data.</Text>
         <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.accent }} onPress={load}>Try Again</Text>
+      </View>
+    );
+  }
+
+  if (!data?.totalServices) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg, padding: 32 }}>
+        <Ionicons name="bar-chart-outline" size={48} color={colors.textMuted} />
+        <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: colors.text, textAlign: 'center', marginTop: 16, marginBottom: 8 }}>
+          No Analytics Data Yet
+        </Text>
+        <Text style={{ fontSize: fontSize.md, color: colors.textSecondary, textAlign: 'center' }}>
+          Service stats will appear here after your first service is logged.
+        </Text>
       </View>
     );
   }

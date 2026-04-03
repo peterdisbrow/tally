@@ -129,6 +129,20 @@ export default function ActionsScreen() {
     cdn_mismatch: colors.warning,
   };
 
+  if (!activeRoomId) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg, padding: 32 }}>
+        <Ionicons name="hardware-chip-outline" size={48} color={colors.textMuted} />
+        <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: colors.text, textAlign: 'center', marginTop: 16, marginBottom: 8 }}>
+          No Room Connected
+        </Text>
+        <Text style={{ fontSize: fontSize.md, color: colors.textSecondary, textAlign: 'center' }}>
+          Select a room to access stream controls and commands.
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.lg }}>
       {/* Camera Switching */}
