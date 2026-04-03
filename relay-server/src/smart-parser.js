@@ -29,8 +29,13 @@ function stopStreamCmd(device) {
   return device === 'atem' ? 'atem.stopStreaming' : `${device}.stopStream`;
 }
 
-/** Pick the best streaming device from connected status. */
-function pickStreamDevice(status) {
+/** Pick the best streaming device — check role assignments first, then fallback to priority. */
+function pickStreamDevice(status, roles) {
+  if (roles?.streaming_device) {
+    const rd = roles.streaming_device;
+    if (status[rd]?.connected) return rd;
+    // Role assigned but device disconnected — fall through to priority
+  }
   if (status.encoder?.connected) return 'encoder';
   if (status.obs?.connected)     return 'obs';
   if (status.vmix?.connected)    return 'vmix';
@@ -38,8 +43,13 @@ function pickStreamDevice(status) {
   return null;
 }
 
-/** Pick the best recording device from connected status. */
-function pickRecordDevice(status) {
+/** Pick the best recording device — check role assignments first, then fallback to priority. */
+function pickRecordDevice(status, roles) {
+  if (roles?.recording_device) {
+    const rd = roles.recording_device;
+    if (status[rd]?.connected) return rd;
+    // Role assigned but device disconnected — fall through to priority
+  }
   if (status.hyperdeck?.connected) return 'hyperdeck';
   if (status.atem?.connected)      return 'atem';
   if (status.encoder?.connected)   return 'encoder';
@@ -125,9 +135,10 @@ const UNMUTE_HEADPHONE_RE = /^unmute\s+(?:the\s+)?(?:headphone(?:s)?|monitor)(?:
  *
  * @param {string} text — raw message from the user (already trimmed by caller)
  * @param {object} status — church device status from churches.get(id).status
+ * @param {object} [roles] — optional equipment role assignments (from room_equipment._roles)
  * @returns {object|null} — parsed result or null to fall through to AI
  */
-function smartParse(text, status = {}) {
+function smartParse(text, status = {}, roles = null) {
   if (!text || typeof text !== 'string') return null;
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -162,25 +173,25 @@ function smartParse(text, status = {}) {
 
   // ─── C. Generic streaming start/stop ────────────────────────────────────
   if (START_STREAM_RE.test(trimmed)) {
-    const device = pickStreamDevice(status) || 'encoder'; // fallback to encoder if status unavailable
+    const device = pickStreamDevice(status, roles) || 'encoder';
     return { type: 'command', command: startStreamCmd(device), params: {} };
   }
 
   if (STOP_STREAM_RE.test(trimmed)) {
-    const device = pickStreamDevice(status) || 'encoder'; // fallback to encoder if status unavailable
+    const device = pickStreamDevice(status, roles) || 'encoder';
     return { type: 'command', command: stopStreamCmd(device), params: {} };
   }
 
   // ─── D. Generic recording start/stop ────────────────────────────────────
   if (START_RECORD_RE.test(trimmed)) {
-    const device = pickRecordDevice(status);
+    const device = pickRecordDevice(status, roles);
     if (!device) return null;
     const cmd = device === 'hyperdeck' ? 'hyperdeck.record' : `${device}.startRecording`;
     return { type: 'command', command: cmd, params: {} };
   }
 
   if (STOP_RECORD_RE.test(trimmed)) {
-    const device = pickRecordDevice(status);
+    const device = pickRecordDevice(status, roles);
     if (!device) return null;
     const cmd = device === 'hyperdeck' ? 'hyperdeck.stop' : `${device}.stopRecording`;
     return { type: 'command', command: cmd, params: {} };

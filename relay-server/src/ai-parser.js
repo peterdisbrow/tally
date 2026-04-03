@@ -1166,6 +1166,7 @@ async function aiParseCommand(text, ctx = {}, conversationHistory = []) {
     failoverState: ctx.failoverState,
     engineerProfile: ctx.engineerProfile,
     configuredDevices: ctx.configuredDevices,
+    equipmentRoles: ctx.equipmentRoles,
     memorySummary: ctx.memorySummary,
     documentContext: ctx.documentContext,
     planningCenter: ctx.planningCenter,

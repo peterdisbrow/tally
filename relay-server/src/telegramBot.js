@@ -1411,7 +1411,19 @@ class TallyBot {
     }
 
     // ── Smart parser: device-aware routing (no AI needed) ───────────────────
-    const smartResult = smartParse(text, liveStatus);
+    // Look up equipment roles for room-aware device routing
+    let _equipRoles = null;
+    try {
+      const _tdRoomId = this.tdRoomAssignments?.get(chatId);
+      const _eqRow = _tdRoomId
+        ? this.db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ?').get(_tdRoomId)
+        : this.db.prepare('SELECT equipment FROM room_equipment WHERE church_id = ? LIMIT 1').get(church.churchId);
+      if (_eqRow?.equipment) {
+        const _eq = JSON.parse(_eqRow.equipment);
+        _equipRoles = _eq._roles || null;
+      }
+    } catch { /* non-fatal */ }
+    const smartResult = smartParse(text, liveStatus, _equipRoles);
 
     if (smartResult) {
       if (smartResult.type === 'command') {
@@ -1521,6 +1533,7 @@ class TallyBot {
     // ── AI fallback: Anthropic parser (Haiku — lean command context) ─────────
     // Look up configured devices for this TD's room so AI only reports on real equipment
     let configuredDevices = [];
+    let equipmentRoles = null;
     try {
       const eqRow = tdRoomId
         ? this.db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ?').get(tdRoomId)
@@ -1528,6 +1541,7 @@ class TallyBot {
       if (eqRow?.equipment) {
         const equipment = JSON.parse(eqRow.equipment);
         configuredDevices = getConfiguredDeviceTypes(equipment);
+        equipmentRoles = equipment._roles || null;
       }
     } catch { /* non-fatal */ }
 
@@ -1537,6 +1551,7 @@ class TallyBot {
       status: liveStatus,
       tier: church.billing_tier || 'connect',
       configuredDevices,
+      equipmentRoles,
     };
     const conversationHistory = this.chatEngine?.getRecentConversation(church.churchId, { roomId: tdRoomId }) || [];
 
@@ -1754,7 +1769,13 @@ class TallyBot {
     if (!parsed && targetChurch) {
       const adminChurchRuntime = this.relay.churches.get(targetChurch.churchId);
       const adminLiveStatus = adminChurchRuntime?.status || {};
-      const smartResult = smartParse(commandText, adminLiveStatus);
+      // Look up roles for admin context
+      let _adminRoles = null;
+      try {
+        const _aRow = this.db.prepare('SELECT equipment FROM room_equipment WHERE church_id = ? LIMIT 1').get(targetChurch.churchId);
+        if (_aRow?.equipment) _adminRoles = JSON.parse(_aRow.equipment)?._roles || null;
+      } catch { }
+      const smartResult = smartParse(commandText, adminLiveStatus, _adminRoles);
       if (smartResult) {
         if (smartResult.type === 'command') {
           parsed = { command: smartResult.command, params: smartResult.params };

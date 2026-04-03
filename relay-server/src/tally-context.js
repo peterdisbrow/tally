@@ -314,6 +314,25 @@ function _buildOperationalContext(status, opts) {
     }
   }
 
+  // ── Equipment role assignments ──
+  if (opts.equipmentRoles && typeof opts.equipmentRoles === 'object' && Object.keys(opts.equipmentRoles).length > 0) {
+    const ROLE_LABELS = {
+      primary_switcher: 'Primary Switcher', recording_device: 'Recording Device',
+      streaming_device: 'Streaming Device', presentation: 'Presentation',
+      audio_mixer: 'Audio Mixer', backup_encoder: 'Backup Encoder',
+    };
+    const DEVICE_NAMES = {
+      atem: 'ATEM', encoder: 'Encoder', obs: 'OBS', vmix: 'vMix',
+      hyperdeck: 'HyperDeck', proPresenter: 'ProPresenter', mixer: 'Audio Mixer',
+    };
+    const roleParts = Object.entries(opts.equipmentRoles).map(([role, device]) => {
+      const label = ROLE_LABELS[role] || role;
+      const devName = DEVICE_NAMES[device] || device;
+      return `${label}=${devName}`;
+    });
+    sections.push(`EQUIPMENT ROLES (user-configured device routing): ${roleParts.join(', ')}`);
+  }
+
   // ── Church memory summary ──
   if (opts.memorySummary) sections.push(opts.memorySummary);
 
