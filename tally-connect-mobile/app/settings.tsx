@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, Switch, Linking, Platform, TouchableOpacity,
+  View, Text, ScrollView, Switch, Linking, Platform, TouchableOpacity, Alert,
 } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import { useNotificationStatus } from '../src/hooks/useNotifications';
 import { useSettingsStore } from '../src/stores/settingsStore';
@@ -18,12 +19,15 @@ export default function SettingsScreen() {
   const setAlertSounds = useSettingsStore((s) => s.setAlertSounds);
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const [serverUrl, setServerUrl] = useState<string>(DEFAULT_URL);
+  const [serverUrlError, setServerUrlError] = useState(false);
   const colors = useThemeColors();
   const { preference, setPreference } = useTheme();
 
   useEffect(() => {
     loadSettings();
-    getRelayUrl().then(setServerUrl);
+    getRelayUrl()
+      .then(setServerUrl)
+      .catch(() => setServerUrlError(true));
   }, []);
 
   const version = Constants.expoConfig?.version || '1.0.0';
@@ -34,6 +38,25 @@ export default function SettingsScreen() {
 
   const handleNotificationToggle = () => {
     Linking.openSettings();
+  };
+
+  const handleResetServerUrl = () => {
+    Alert.alert(
+      'Reset Server URL',
+      'This will clear the saved server URL and use the default Tally Connect Cloud server. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            await SecureStore.deleteItemAsync('relay_url');
+            setServerUrl(DEFAULT_URL);
+            setServerUrlError(false);
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -97,13 +120,36 @@ export default function SettingsScreen() {
         fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase',
         letterSpacing: 1, fontWeight: '600', marginBottom: spacing.md, marginTop: spacing.xxl,
       }}>CONNECTION</Text>
-      <View style={{ backgroundColor: colors.surface, borderRadius: borderRadius.md, borderWidth: 1, borderColor: colors.border }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-          <Text style={{ fontSize: fontSize.md, color: colors.textSecondary }}>Server</Text>
-          <Text style={{ fontSize: fontSize.md, color: colors.text, fontWeight: '600', flexShrink: 1 }} numberOfLines={1}>
-            {serverUrl === DEFAULT_URL ? 'Default (Tally Connect Cloud)' : serverUrl}
-          </Text>
-        </View>
+      <View style={{ backgroundColor: colors.surface, borderRadius: borderRadius.md, borderWidth: 1, borderColor: serverUrlError ? colors.critical : colors.border }}>
+        {serverUrlError ? (
+          <View style={{ padding: spacing.lg }}>
+            <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.critical, marginBottom: spacing.xs }}>
+              Could not load server settings
+            </Text>
+            <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary, marginBottom: spacing.md }}>
+              The saved server URL may be corrupted.
+            </Text>
+            <TouchableOpacity
+              onPress={handleResetServerUrl}
+              style={{
+                backgroundColor: colors.critical,
+                borderRadius: borderRadius.sm,
+                paddingVertical: spacing.sm,
+                paddingHorizontal: spacing.md,
+                alignSelf: 'flex-start',
+              }}
+            >
+              <Text style={{ fontSize: fontSize.sm, fontWeight: '600', color: '#ffffff' }}>Reset to Default</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <Text style={{ fontSize: fontSize.md, color: colors.textSecondary }}>Server</Text>
+            <Text style={{ fontSize: fontSize.md, color: colors.text, fontWeight: '600', flexShrink: 1 }} numberOfLines={1}>
+              {serverUrl === DEFAULT_URL ? 'Default (Tally Connect Cloud)' : serverUrl}
+            </Text>
+          </View>
+        )}
       </View>
 
       <Text style={{
