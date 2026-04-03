@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, RefreshControl, Pressable, AppState,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAlertStore } from '../../src/stores/alertStore';
 import { AlertBadge } from '../../src/components/AlertBadge';
 import { colors } from '../../src/theme/colors';
@@ -60,13 +61,16 @@ export default function AlertsScreen() {
           </Pressable>
         )}
         {item.acknowledged && (
-          <Text style={alertCardStyles.ackedLabel}>✓ Acknowledged</Text>
+          <View style={alertCardStyles.ackedRow}>
+            <Ionicons name="checkmark-circle" size={14} color={colors.online} />
+            <Text style={alertCardStyles.ackedLabel}>Acknowledged</Text>
+          </View>
         )}
         <Pressable
           style={alertCardStyles.dismissButton}
           onPress={() => dismissAlert(item.id)}
         >
-          <Text style={alertCardStyles.dismissText}>✕</Text>
+          <Ionicons name="close" size={16} color={colors.textMuted} />
         </Pressable>
       </View>
     </View>
@@ -116,7 +120,7 @@ export default function AlertsScreen() {
         }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={styles.emptyEmoji}>🔔</Text>
+            <Ionicons name="notifications-outline" size={36} color={colors.textMuted} style={{ marginBottom: spacing.md }} />
             <Text style={styles.emptyText}>
               {isLoading ? 'Loading alerts...' : 'No alerts'}
             </Text>
@@ -158,10 +162,6 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
     alignItems: 'center',
   },
-  emptyEmoji: {
-    fontSize: 36,
-    marginBottom: spacing.md,
-  },
   emptyText: {
     fontSize: fontSize.md,
     color: colors.textMuted,
@@ -193,6 +193,11 @@ const alertCardStyles = StyleSheet.create({
     color: colors.textSecondary,
     fontWeight: '600',
   },
+  ackedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   ackedLabel: {
     fontSize: fontSize.xs,
     color: colors.online,
@@ -207,10 +212,5 @@ const alertCardStyles = StyleSheet.create({
     borderColor: colors.border,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  dismissText: {
-    fontSize: fontSize.sm,
-    color: colors.textMuted,
-    fontWeight: '600',
   },
 });

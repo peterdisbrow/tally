@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, LayoutAnimation, Platform, UIManager, Animated,
 } from 'react-native';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
 import { usePolling } from '../../src/hooks/usePolling';
 import { colors } from '../../src/theme/colors';
@@ -597,31 +598,36 @@ function buildSummary(status: DeviceStatus | null, cards: DeviceCard[]): Summary
   return { totalDevices, onlineDevices, isStreaming, isRecording, streamPlatforms, totalViewers };
 }
 
-// ─── Emoji Icons for Device Categories ──────────────────────────────────────
+// ─── Icons for Device Categories ────────────────────────────────────────────
 
-const DEVICE_EMOJI: Record<string, string> = {
-  atem: '🎛️',
-  'atem-encoder': '📡',
-  obs: '🖥️',
-  vmix: '🎬',
-  encoder: '📡',
-  youtube: '▶️',
-  facebook: '📘',
-  hyperdeck: '💾',
-  'atem-recording': '⏺️',
-  propresenter: '📺',
-  resolume: '🎨',
-  mixer: '🔊',
-  ptz: '📷',
-  companion: '🎮',
-  system: '⚙️',
+const DEVICE_ICONS: Record<string, { lib: 'ion' | 'mci'; name: string }> = {
+  atem: { lib: 'mci', name: 'tune-variant' },
+  'atem-encoder': { lib: 'ion', name: 'radio-outline' },
+  obs: { lib: 'ion', name: 'desktop-outline' },
+  vmix: { lib: 'mci', name: 'movie-open-outline' },
+  encoder: { lib: 'ion', name: 'radio-outline' },
+  youtube: { lib: 'ion', name: 'play-circle-outline' },
+  facebook: { lib: 'ion', name: 'logo-facebook' },
+  hyperdeck: { lib: 'mci', name: 'harddisk' },
+  'atem-recording': { lib: 'mci', name: 'record-circle-outline' },
+  propresenter: { lib: 'ion', name: 'tv-outline' },
+  resolume: { lib: 'ion', name: 'color-palette-outline' },
+  mixer: { lib: 'ion', name: 'volume-high-outline' },
+  ptz: { lib: 'ion', name: 'camera-outline' },
+  companion: { lib: 'ion', name: 'game-controller-outline' },
+  system: { lib: 'ion', name: 'settings-outline' },
 };
 
-function getDeviceEmoji(id: string): string {
-  if (id.startsWith('smartplug')) return '🔌';
-  if (id.startsWith('videohub')) return '🔀';
-  if (id.startsWith('hyperdeck')) return '💾';
-  return DEVICE_EMOJI[id] || '📟';
+function DeviceIcon({ id, size = 16, color = colors.textSecondary }: { id: string; size?: number; color?: string }) {
+  let icon = DEVICE_ICONS[id];
+  if (!icon) {
+    if (id.startsWith('smartplug')) icon = { lib: 'mci', name: 'power-plug-outline' };
+    else if (id.startsWith('videohub')) icon = { lib: 'mci', name: 'swap-horizontal' };
+    else if (id.startsWith('hyperdeck')) icon = { lib: 'mci', name: 'harddisk' };
+    else icon = { lib: 'ion', name: 'hardware-chip-outline' };
+  }
+  if (icon.lib === 'mci') return <MaterialCommunityIcons name={icon.name as any} size={size} color={color} />;
+  return <Ionicons name={icon.name as any} size={size} color={color} />;
 }
 
 // ─── LIVE Badge Component ───────────────────────────────────────────────────
@@ -896,7 +902,7 @@ export default function DashboardScreen() {
           {summary.totalViewers > 0 && (
             <View style={styles.infoPill}>
               <Text style={styles.infoText}>
-                👁 {summary.totalViewers.toLocaleString()} viewer{summary.totalViewers !== 1 ? 's' : ''}
+                <Ionicons name="eye-outline" size={14} color={colors.textSecondary} /> {summary.totalViewers.toLocaleString()} viewer{summary.totalViewers !== 1 ? 's' : ''}
               </Text>
             </View>
           )}
@@ -992,13 +998,13 @@ export default function DashboardScreen() {
                   <View style={[styles.deviceRow, idx < group.cards.length - 1 && styles.deviceRowBorder]}>
                     {/* Card Header */}
                     <View style={styles.cardHeader}>
-                      <Text style={styles.deviceEmoji}>{getDeviceEmoji(card.id)}</Text>
+                      <DeviceIcon id={card.id} size={16} color={colors.textSecondary} />
                       <PulseDot color={card.statusColor} size={8} />
                       <Text style={styles.cardName} numberOfLines={1}>{card.name}</Text>
                       <Text style={[styles.cardStatus, { color: card.statusColor }]}>
                         {card.statusLabel}
                       </Text>
-                      <Text style={styles.chevron}>{expandedIds.has(card.id) ? '▲' : '▼'}</Text>
+                      <Ionicons name={expandedIds.has(card.id) ? 'chevron-up' : 'chevron-down'} size={14} color={colors.textMuted} />
                     </View>
 
                     {/* Expanded Metrics */}
@@ -1316,11 +1322,6 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
   },
-  deviceEmoji: {
-    fontSize: 16,
-    width: 24,
-    textAlign: 'center',
-  },
   cardName: {
     flex: 1,
     fontSize: fontSize.md,
@@ -1332,11 +1333,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginRight: spacing.sm,
   },
-  chevron: {
-    fontSize: 10,
-    color: colors.textMuted,
-  },
-
   // Metrics Grid
   metricsGrid: {
     flexDirection: 'row',
