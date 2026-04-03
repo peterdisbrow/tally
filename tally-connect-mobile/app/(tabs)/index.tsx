@@ -115,9 +115,12 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
     const pvwName = a.previewInput != null ? (inputs[a.previewInput]?.name || `Input ${a.previewInput}`) : '--';
     const metrics: DeviceCard['metrics'] = [
       { label: 'Model', value: a.model || 'ATEM' },
+    ];
+    if (a.protocolVersion) metrics.push({ label: 'Firmware', value: `v${a.protocolVersion}` });
+    metrics.push(
       { label: 'Program', value: pgmName, color: colors.tallyProgram },
       { label: 'Preview', value: pvwName, color: colors.tallyPreview },
-    ];
+    );
     if (a.streaming != null) {
       metrics.push({ label: 'Streaming', value: a.streaming ? 'LIVE' : 'Off', color: a.streaming ? colors.online : colors.textMuted });
     }
@@ -141,6 +144,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
     const bitrateKbps = a.streamingBitrate ? Math.round(a.streamingBitrate / 1000) : undefined;
     const health = healthLabel(bitrateKbps);
     const metrics: DeviceCard['metrics'] = [];
+    if (a.protocolVersion) metrics.push({ label: 'Firmware', value: `v${a.protocolVersion}` });
     if (a.streamingService) metrics.push({ label: 'Platform', value: a.streamingService });
     metrics.push({ label: 'Status', value: a.streaming ? 'LIVE' : 'Idle', color: a.streaming ? colors.online : colors.textMuted });
     if (bitrateKbps != null) {
@@ -167,6 +171,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
     const o = status.obs;
     const health = healthLabel(o.bitrate);
     const metrics: DeviceCard['metrics'] = [];
+    if (o.version) metrics.push({ label: 'Version', value: `v${o.version}` });
     if (o.currentScene) metrics.push({ label: 'Scene', value: o.currentScene });
     if (o.streaming != null || o.recording != null) {
       const parts: string[] = [];
@@ -196,6 +201,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   if (status.vmix && isDevicePresent(status.vmix)) {
     const v = status.vmix;
     const metrics: DeviceCard['metrics'] = [];
+    if (v.version) metrics.push({ label: 'Version', value: `${v.edition ? v.edition + ' ' : ''}v${v.version}` });
     if (v.streaming != null || v.recording != null) {
       const parts: string[] = [];
       if (v.streaming) parts.push('LIVE');
@@ -219,6 +225,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
     const health = healthLabel(e.bitrate);
     const metrics: DeviceCard['metrics'] = [];
     if (e.type) metrics.push({ label: 'Type', value: e.type });
+    if (e.firmwareVersion) metrics.push({ label: 'Firmware', value: `v${e.firmwareVersion}` });
     if (e.streaming != null) {
       metrics.push({ label: 'Status', value: e.streaming ? 'LIVE' : 'Idle', color: e.streaming ? colors.online : colors.textMuted });
     }
@@ -352,6 +359,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   if (status.propresenter && isDevicePresent(status.propresenter)) {
     const p = status.propresenter;
     const metrics: DeviceCard['metrics'] = [];
+    if (p.version) metrics.push({ label: 'Version', value: `v${p.version}` });
     if (p.currentPresentation) metrics.push({ label: 'Presentation', value: p.currentPresentation });
     if (p.slideIndex != null && p.totalSlides != null) {
       metrics.push({ label: 'Slide', value: `${p.slideIndex + 1} / ${p.totalSlides}` });
@@ -381,6 +389,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
     const hasWarning = m.mainMuted || status.audio?.silenceDetected;
     const metrics: DeviceCard['metrics'] = [];
     if (m.model) metrics.push({ label: 'Model', value: m.model });
+    if (m.firmware) metrics.push({ label: 'Firmware', value: `v${m.firmware}` });
     if (m.mainMuted) metrics.push({ label: 'Main Bus', value: 'MUTED', color: colors.warning });
     if (status.audio?.silenceDetected) metrics.push({ label: 'Audio', value: 'SILENCE DETECTED', color: colors.critical });
     if (m.channels && m.channels.length > 0) {
@@ -511,6 +520,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
     const health = healthLabel(b.bitrate);
     const metrics: DeviceCard['metrics'] = [];
     if (b.type) metrics.push({ label: 'Type', value: b.type });
+    if (b.firmwareVersion) metrics.push({ label: 'Firmware', value: `v${b.firmwareVersion}` });
     if (b.streaming != null) {
       metrics.push({ label: 'Status', value: b.streaming ? 'LIVE' : 'Standby', color: b.streaming ? colors.online : colors.textMuted });
     }
