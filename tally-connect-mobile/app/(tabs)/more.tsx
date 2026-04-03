@@ -22,6 +22,7 @@ export default function MoreScreen() {
   const churchName = useAuthStore((s) => s.churchName);
   const email = useAuthStore((s) => s.email);
   const logout = useAuthStore((s) => s.logout);
+  const activeRoomName = useStatusStore((s) => s.rooms.find((r) => r.id === s.activeRoomId)?.name);
   const { pushToken, permission } = useNotificationStatus();
   const updateReady = useUpdateStore((s) => s.updateReady);
   const setUpdateReady = useUpdateStore((s) => s.setUpdateReady);
@@ -414,8 +415,23 @@ export default function MoreScreen() {
       {/* Menu Items */}
       <View style={{ marginBottom: spacing.xxl }}>
         <MenuItem colors={colors} icon="swap-horizontal-outline" label="Switch Room" onPress={() => {
-          useChatStore.getState().clearMessages();
-          router.replace('/room-picker');
+          Alert.alert(
+            'Switch Room',
+            activeRoomName
+              ? `This will disconnect from ${activeRoomName}. Continue?`
+              : 'This will disconnect from your current room. Continue?',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Switch Room',
+                style: 'destructive',
+                onPress: () => {
+                  useChatStore.getState().clearMessages();
+                  router.replace('/room-picker');
+                },
+              },
+            ],
+          );
         }} />
         <MenuItem colors={colors} icon="construct-outline" label="Equipment Config" onPress={() => router.push('/equipment-config')} />
         <MenuItem colors={colors} icon="list-outline" label="Service Rundown" onPress={() => router.push('/rundown')} />
