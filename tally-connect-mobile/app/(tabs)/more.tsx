@@ -139,18 +139,17 @@ export default function MoreScreen() {
 
       {/* Menu Items */}
       <View style={styles.section}>
-        <View style={styles.menuCard}>
-          <MenuItem emoji="🔄" label="Switch Room" onPress={() => {
-            useChatStore.getState().clearMessages();
-            router.replace('/room-picker');
-          }} isFirst />
-          <MenuItem emoji="📊" label="Analytics" onPress={() => router.push('/analytics')} />
-          <MenuItem emoji="📋" label="Service Reports" onPress={() => router.push('/service-reports')} />
-          <MenuItem emoji="⚙️" label="Settings" onPress={() => router.push('/settings')} />
-          <MenuItem emoji="❓" label="Help & Support" onPress={() => {
-            Linking.openURL('https://tallyconnect.app/docs');
-          }} isLast />
-        </View>
+        <MenuItem icon="swap-horizontal-outline" label="Switch Room" onPress={() => {
+          useChatStore.getState().clearMessages();
+          router.replace('/room-picker');
+        }} />
+        <MenuItem icon="construct-outline" label="Equipment Config" onPress={() => router.push('/equipment-config')} />
+        <MenuItem icon="analytics-outline" label="Analytics" onPress={() => router.push('/analytics')} />
+        <MenuItem icon="document-text-outline" label="Service Reports" onPress={() => router.push('/service-reports')} />
+        <MenuItem icon="settings-outline" label="Settings" onPress={() => router.push('/settings')} />
+        <MenuItem icon="help-circle-outline" label="Help & Support" onPress={() => {
+          Linking.openURL('https://tallyconnect.app/docs');
+        }} />
       </View>
 
       {/* Sign Out */}
