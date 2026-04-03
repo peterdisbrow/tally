@@ -59,6 +59,12 @@ function csrfMiddleware(req, res, next) {
   if (SAFE_METHODS.has(req.method)) return next();
   if (CSRF_EXEMPT.has(req.path)) return next();
 
+  // Requests that authenticate via Authorization header or x-api-key are not
+  // vulnerable to CSRF (an attacker cannot set custom headers cross-origin).
+  // Skip enforcement even if session cookies happen to be present (e.g. user
+  // is logged into the church portal AND using the admin SPA simultaneously).
+  if (req.headers['authorization'] || req.headers['x-api-key']) return next();
+
   // Only enforce when the request carries a browser session cookie.
   const hasSessionCookie = SESSION_COOKIES.some(name => req.cookies && req.cookies[name]);
   if (!hasSessionCookie) return next();

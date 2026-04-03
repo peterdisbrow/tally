@@ -123,6 +123,34 @@ describe('csrfMiddleware — API key / bearer token requests skip CSRF', () => {
     csrfMiddleware(req, res, next);
     expect(next).toHaveBeenCalled();
   });
+
+  it('skips CSRF when Authorization header present even with session cookie', () => {
+    const req = makeReq({
+      method: 'POST',
+      path: '/api/churches/register',
+      cookies: { tally_church_session: 'sess' }, // session cookie from another portal
+      headers: { authorization: 'Bearer some-jwt-token' },
+    });
+    const res = makeRes();
+    const next = vi.fn();
+    csrfMiddleware(req, res, next);
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('skips CSRF when x-api-key header present even with session cookie', () => {
+    const req = makeReq({
+      method: 'POST',
+      path: '/api/admin/churches',
+      cookies: { tally_church_session: 'sess', tally_reseller_session: 'sess2' },
+      headers: { 'x-api-key': 'admin-key-123' },
+    });
+    const res = makeRes();
+    const next = vi.fn();
+    csrfMiddleware(req, res, next);
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
 });
 
 describe('csrfMiddleware — enforcement with session cookie', () => {
