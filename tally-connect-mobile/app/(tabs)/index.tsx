@@ -732,6 +732,15 @@ function timeAgo(timestamp: string): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+function statusTimeAgo(ts: number): string {
+  if (!ts) return '';
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 5) return 'just now';
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  return `${Math.floor(diff / 3600)}h ago`;
+}
+
 function AlertBar({ alerts, colors }: { alerts: Array<{ id: string; severity: string; message: string; timestamp: string; roomName?: string }>; colors: ThemeColors }) {
   // Show the most recent unacknowledged alert, or "All Systems Normal"
   const activeAlerts = alerts.filter(a => a.severity === 'CRITICAL' || a.severity === 'EMERGENCY' || a.severity === 'WARNING').slice(0, 1);
@@ -781,6 +790,14 @@ export default function DashboardScreen() {
   const activeRoomId = useStatusStore((s) => s.activeRoomId);
   const rooms = useStatusStore((s) => s.rooms);
   const updateInstanceStatus = useStatusStore((s) => s.updateInstanceStatus);
+  const lastUpdate = useStatusStore((s) => s.lastUpdate);
+
+  // Tick every 10s so relative "last updated" text stays current
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 10_000);
+    return () => clearInterval(id);
+  }, []);
 
   const status = useActiveRoomStatus();
   const alerts = useAlertStore((s) => s.alerts);
@@ -887,6 +904,16 @@ export default function DashboardScreen() {
         </View>
         {summary.isStreaming && <LiveBadge startedAt={session?.startedAt} colors={colors} />}
       </View>
+
+      {/* Last updated timestamp */}
+      {lastUpdate > 0 && (() => {
+        const stale = Date.now() - lastUpdate > 60_000;
+        return (
+          <Text style={[styles.lastUpdatedText, { color: stale ? colors.warning : colors.textMuted }]}>
+            Updated {statusTimeAgo(lastUpdate)}{stale ? ' · may be stale' : ''}
+          </Text>
+        );
+      })()}
 
       {/* Mini Dashboard */}
       <View style={styles.metricRow}>
@@ -1117,7 +1144,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  lastUpdatedText: {
+    fontSize: fontSize.xs,
+    marginBottom: spacing.md,
   },
   roomLeft: {
     flexDirection: 'row',
