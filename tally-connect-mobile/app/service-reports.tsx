@@ -18,13 +18,23 @@ interface ServiceReport {
 export default function ServiceReportsScreen() {
   const [reports, setReports] = useState<ServiceReport[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const colors = useThemeColors();
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true);
+    setError(false);
     api<{ reports: ServiceReport[] }>('/api/church/service-reports')
       .then((d) => setReports(d.reports || []))
-      .catch(() => {})
+      .catch((err) => {
+        console.error('Failed to load service reports:', err);
+        setError(true);
+      })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    load();
   }, []);
 
   function gradeColor(grade?: string): string {
@@ -84,8 +94,16 @@ export default function ServiceReportsScreen() {
         </View>
       )}
       ListEmptyComponent={
-        <View style={{ paddingVertical: 60, alignItems: 'center' }}>
-          <Text style={{ fontSize: fontSize.md, color: colors.textMuted }}>No service reports yet</Text>
+        <View style={{ paddingVertical: 60, alignItems: 'center', paddingHorizontal: 32 }}>
+          {error ? (
+            <>
+              <Text style={{ fontSize: fontSize.md, fontWeight: '700', color: colors.text, textAlign: 'center', marginBottom: 8 }}>Failed to Load Reports</Text>
+              <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', marginBottom: 16 }}>Could not fetch service reports.</Text>
+              <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.accent }} onPress={load}>Try Again</Text>
+            </>
+          ) : (
+            <Text style={{ fontSize: fontSize.md, color: colors.textMuted }}>No service reports yet</Text>
+          )}
         </View>
       }
     />

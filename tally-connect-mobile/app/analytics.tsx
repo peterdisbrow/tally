@@ -19,19 +19,39 @@ interface AnalyticsData {
 export default function AnalyticsScreen() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const colors = useThemeColors();
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true);
+    setError(false);
     api<AnalyticsData>('/api/church/analytics?days=30')
       .then(setData)
-      .catch(() => {})
+      .catch((err) => {
+        console.error('Failed to load analytics:', err);
+        setError(true);
+      })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    load();
   }, []);
 
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg }}>
         <ActivityIndicator size="large" color={colors.accent} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg, padding: 32 }}>
+        <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: colors.text, textAlign: 'center', marginBottom: 8 }}>Failed to Load Analytics</Text>
+        <Text style={{ fontSize: fontSize.md, color: colors.textSecondary, textAlign: 'center', marginBottom: 24 }}>Could not fetch analytics data.</Text>
+        <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.accent }} onPress={load}>Try Again</Text>
       </View>
     );
   }

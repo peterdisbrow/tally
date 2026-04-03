@@ -86,7 +86,8 @@ export default function RundownScreen() {
 
       setPlan(data.plan);
       setState('ready');
-    } catch {
+    } catch (err) {
+      console.error('Failed to load service rundown:', err);
       setState('error');
     }
   }, []);

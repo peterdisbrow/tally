@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, RefreshControl,
-  TouchableOpacity, Animated, ActivityIndicator,
+  TouchableOpacity, Animated, ActivityIndicator, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
@@ -281,7 +281,9 @@ export default function PreServiceChecksScreen() {
       setCheckResult(checkRes);
       setRundown(rundownRes);
       setLastFetched(new Date().toISOString());
-    } catch {} finally {
+    } catch (err) {
+      console.error('Failed to fetch pre-service check data:', err);
+    } finally {
       setIsLoading(false);
     }
   }, [roomQuery]);
@@ -309,7 +311,10 @@ export default function PreServiceChecksScreen() {
       }
       const rundownRes = await api<RundownStatus>(`/api/church/rundown/status${roomQuery}`).catch(() => null);
       if (rundownRes) setRundown(rundownRes);
-    } catch {} finally {
+    } catch (err) {
+      console.error('Failed to run manual check:', err);
+      Alert.alert('Check Failed', 'Could not run pre-service check. Please try again.');
+    } finally {
       setIsRunning(false);
     }
   }, [roomQuery]);

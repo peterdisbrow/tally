@@ -70,11 +70,11 @@ export default function MoreScreen() {
   useEffect(() => {
     api<{ session: ServiceSession }>('/api/church/session/active')
       .then((d) => setSession(d.session || d as any))
-      .catch(() => {});
+      .catch((err) => console.error('Failed to load active session:', err));
 
     api<{ reports: any[] }>('/api/church/service-reports')
       .then((d) => setReports((d.reports || []).slice(0, 5)))
-      .catch(() => {});
+      .catch((err) => console.error('Failed to load recent reports:', err));
   }, []);
 
   const handleLogout = () => {
