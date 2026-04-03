@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, Switch, Linking, Platform, TouchableOpacity, Alert,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import { useNotificationStatus } from '../src/hooks/useNotifications';
@@ -72,7 +73,10 @@ export default function SettingsScreen() {
             {(['system', 'light', 'dark'] as ThemePreference[]).map((opt) => (
               <TouchableOpacity
                 key={opt}
-                onPress={() => setPreference(opt)}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setPreference(opt);
+                }}
                 style={{
                   flex: 1,
                   paddingVertical: spacing.sm,

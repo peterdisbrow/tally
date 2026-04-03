@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, Pressable, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStatusStore } from '../src/stores/statusStore';
@@ -61,6 +62,7 @@ export default function RoomPickerScreen() {
   }
 
   function selectRoom(room: Room) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     useChatStore.getState().clearMessages();
     const statusStore = useStatusStore.getState();
     statusStore.setActiveRoom(room.id);

@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, RefreshControl, Pressable, AppState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useAlertStore } from '../../src/stores/alertStore';
 import { AlertBadge } from '../../src/components/AlertBadge';
 import { useThemeColors } from '../../src/theme/ThemeContext';
@@ -60,7 +61,13 @@ export default function AlertsScreen() {
 
   const renderAlert = useCallback(({ item }: { item: Alert }) => (
     <View style={{ marginBottom: spacing.sm }}>
-      <AlertBadge alert={item} onPress={() => acknowledgeAlert(item.id)} />
+      <AlertBadge
+        alert={item}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          acknowledgeAlert(item.id);
+        }}
+      />
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: spacing.sm, paddingTop: 4, paddingHorizontal: 4 }}>
         {!item.acknowledged && (
           <Pressable
@@ -72,7 +79,10 @@ export default function AlertsScreen() {
               borderWidth: 1,
               borderColor: colors.border,
             }}
-            onPress={() => acknowledgeAlert(item.id)}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              acknowledgeAlert(item.id);
+            }}
           >
             <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' }}>Acknowledge</Text>
           </Pressable>
@@ -85,16 +95,19 @@ export default function AlertsScreen() {
         )}
         <Pressable
           style={{
-            width: 28,
-            height: 28,
-            borderRadius: 14,
+            width: 44,
+            height: 44,
+            borderRadius: 22,
             backgroundColor: colors.surface,
             borderWidth: 1,
             borderColor: colors.border,
             justifyContent: 'center',
             alignItems: 'center',
           }}
-          onPress={() => dismissAlert(item.id)}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            dismissAlert(item.id);
+          }}
         >
           <Ionicons name="close" size={16} color={colors.textMuted} />
         </Pressable>
@@ -125,7 +138,10 @@ export default function AlertsScreen() {
                   borderColor: filterColor,
                 },
               ]}
-              onPress={() => setFilter(f)}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setFilter(f);
+              }}
             >
               <Text style={[
                 { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
