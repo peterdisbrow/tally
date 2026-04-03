@@ -103,7 +103,7 @@ class ProPresenter extends EventEmitter {
       let data;
       try { data = JSON.parse(text); } catch { /* not JSON */ }
       if (data && typeof data === 'object') {
-        const v = data.host_description || data.version || data.appVersion || data.product || null;
+        const v = data.version || data.appVersion || data.host_description || data.product || null;
         this._version = v;
         return v;
       }

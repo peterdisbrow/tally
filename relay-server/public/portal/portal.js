@@ -1218,12 +1218,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Recording detail
         var isRecording = !!(status.atem && status.atem.recording) || !!(status.obs && status.obs.recording) || !!(status.vmix && status.vmix.recording);
 
+        var atemVerDisplay = verInfo(atemVer, 'atem_protocol') || (atemConnected && status.atem && status.atem.model ? {text: status.atem.model, outdated: false} : null);
         const rows = [
-          ['ATEM Switcher', atemConnected ? 'connected' : 'disconnected', verInfo(atemVer, 'atem_protocol'), atemDetail || null],
+          ['ATEM Switcher', atemConnected ? 'connected' : 'disconnected', atemVerDisplay, atemDetail || null],
           [encoderLabel, encoderStatus, verInfo(encVer, encVerType), encoderDetail || null],
           ['Stream', (encoderLive || obsStreaming) ? 'live' : 'off-air', null, streamDetail || null],
           ['Recording', isRecording ? 'recording' : 'off-air', null, null],
-          [audioLabel, audioStatus, null, null],
+          [audioLabel, audioStatus, verInfo(mixerVer, mixerVerType), null],
         ];
         // Dynamic device rows — only show if the device exists in status
         const hd = status.hyperdeck || status.hyperDeck;

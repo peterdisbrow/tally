@@ -124,6 +124,7 @@ class BlackmagicEncoder {
       fps,
       cpuUsage: null,
       recording: false,  // Web Presenter doesn't record
+      softwareVersion: this._softwareVersion || null,
       details,
     };
   }

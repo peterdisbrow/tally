@@ -30,6 +30,7 @@ class VmixEncoder {
         fps: null,
         cpuUsage: null,
         recording: !!s.recording,
+        version: s.version || null,
         details: `${s.edition || 'vMix'} ${s.version || ''}`.trim(),
       };
     } catch {

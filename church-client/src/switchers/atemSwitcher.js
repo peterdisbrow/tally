@@ -75,8 +75,14 @@ function extractAtemIdentity(state) {
   const modelEnumName = modelCode !== null ? ATEM_MODEL_ENUM[modelCode] : null;
   const modelName = prettifyAtemModelEnumName(modelEnumName) || productIdentifier;
   const apiVer = info.apiVersion;
-  const protocolVersion = apiVer && typeof apiVer === 'object'
-    ? `${apiVer.major || 0}.${apiVer.minor || 0}` : null;
+  let protocolVersion = null;
+  if (apiVer && typeof apiVer === 'object') {
+    protocolVersion = `${apiVer.major || 0}.${apiVer.minor || 0}`;
+  } else if (typeof apiVer === 'string' && apiVer.trim()) {
+    protocolVersion = apiVer.trim();
+  } else if (typeof apiVer === 'number') {
+    protocolVersion = String(apiVer);
+  }
   return { modelName: modelName || null, modelCode, productIdentifier: productIdentifier || null, protocolVersion };
 }
 
