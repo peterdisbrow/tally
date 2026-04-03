@@ -5,11 +5,11 @@ async function resolumeStatus(agent) {
   const status = await agent.resolume.getStatus();
 
   if (!status || !status.running) {
-    return '🎆 Resolume Arena — ❌ Offline\n\nResolume is not responding. Check that it is running.';
+    return '🎞️ Resolume Arena — ❌ Offline\n\nResolume is not responding. Check that it is running.';
   }
 
   const lines = [
-    '🎆 Resolume Arena — ✅ Running',
+    '🎞️ Resolume Arena — ✅ Running',
     '',
     `📐 Composition: ${status.layerCount} layers · ${status.columnCount} columns`,
     status.bpm ? `🥁 BPM: ${status.bpm}` : null,
@@ -100,7 +100,7 @@ async function resolumeGetColumns(agent) {
 async function resolumeIsRunning(agent) {
   if (!agent.resolume) throw new Error('Resolume not configured');
   const running = await agent.resolume.isRunning();
-  return running ? '🎆 Resolume Arena — ✅ Running' : '🎆 Resolume Arena — ❌ Not reachable';
+  return running ? '🎞️ Resolume Arena — ✅ Running' : '🎞️ Resolume Arena — ❌ Not reachable';
 }
 
 async function resolumeVersion(agent) {
