@@ -181,7 +181,7 @@ const DEVICE_REGISTRY = {
 
   'smart-plug': {
     id: 'smart-plug',
-    name: 'Smart Plug (Shelly)',
+    name: 'Smart Plug',
     icon: '\u{1F50C}',
     category: 'core',
     description: 'Shelly WiFi smart plug — power monitoring and control (HTTP)',
@@ -196,7 +196,7 @@ const DEVICE_REGISTRY = {
 
   mixer: {
     id: 'mixer',
-    name: 'Audio Console',
+    name: 'Audio Mixer',
     icon: '\u{1F39A}',
     category: 'audio',
     description: 'OSC-compatible mixing console',

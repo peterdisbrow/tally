@@ -139,14 +139,14 @@ export default function ActionsScreen() {
         <Text style={styles.sectionTitle}>RECORDING</Text>
         <View style={styles.actionRow}>
           <ActionButton
-            label="Start Rec"
+            label="Start Recording"
             icon="radio-button-on-outline"
             color={colors.critical}
             onPress={() => sendCommand('obs.startRecording')}
             pending={pending === 'obs.startRecording'}
           />
           <ActionButton
-            label="Stop Rec"
+            label="Stop Recording"
             icon="square-outline"
             onPress={() => sendCommand('obs.stopRecording', {}, true)}
             pending={pending === 'obs.stopRecording'}

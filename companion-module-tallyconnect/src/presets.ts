@@ -325,7 +325,7 @@ export function getPresets(): CompanionPresetDefinitions {
 		category: 'Device Status',
 		name: 'ProPresenter Status',
 		style: {
-			text: 'ProP',
+			text: 'ProPres',
 			size: 'auto',
 			color: combineRgb(255, 255, 255),
 			bgcolor: combineRgb(0, 0, 0),

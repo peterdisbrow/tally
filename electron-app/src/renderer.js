@@ -2534,17 +2534,17 @@ async function runFailoverDrill() {
   if (spinner) spinner.style.display = 'inline';
 
   const steps = [
-    { delay: 800,  text: '<strong>DRILL IN PROGRESS</strong><br>Step 1/5 — Encoder bitrate dropped to 0 kbps (simulated)', color: 'var(--warn, #eab308)' },
-    { delay: 2000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 2/5 — Black screen detected. Waiting for confirmation…', color: 'var(--warn, #eab308)' },
+    { delay: 800,  text: '<strong>DRILL IN PROGRESS</strong><br>Step 1/5 — Encoder bitrate dropped to 0 kbps (simulated)', color: 'var(--warn, #f59e0b)' },
+    { delay: 2000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 2/5 — Black screen detected. Waiting for confirmation…', color: 'var(--warn, #f59e0b)' },
     { delay: 3500, text: '<strong>DRILL IN PROGRESS</strong><br>Step 3/5 — Outage confirmed. TD Telegram alert would fire now. Ack window open…', color: 'var(--err, #ef4444)' },
     { delay: 5000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 4/5 — No TD ack received (simulated). Executing failover action…', color: 'var(--err, #ef4444)' },
   ];
 
   if (statusEl) {
     statusEl.style.display = '';
-    statusEl.style.background = 'rgba(234,179,8,0.08)';
-    statusEl.style.border = '1px solid rgba(234,179,8,0.25)';
-    statusEl.style.color = 'var(--warn, #eab308)';
+    statusEl.style.background = 'rgba(245,158,11,0.08)';
+    statusEl.style.border = '1px solid rgba(245,158,11,0.25)';
+    statusEl.style.color = 'var(--warn, #f59e0b)';
     statusEl.innerHTML = '<strong>DRILL IN PROGRESS</strong> — Simulating encoder signal loss…';
   }
 

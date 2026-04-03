@@ -222,7 +222,7 @@ function buildDeviceList(status: DeviceStatus | null): DeviceInfo[] {
   }
   if (status.encoder && !status.obs) {
     devices.push({
-      name: status.encoder.name || status.encoder.type || 'Encoder',
+      name: status.encoder.name || status.encoder.type || 'Streaming Encoder',
       type: 'encoder',
       connected: status.encoder.connected,
       detail: status.encoder.streaming ? 'Streaming' : undefined,

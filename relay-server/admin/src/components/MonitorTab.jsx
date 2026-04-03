@@ -415,7 +415,7 @@ export default function MonitorTab({ token, api }) {
     // App connection
     sections.push(
       <div key="app">
-        {deviceHeader('app', 'TallyConnect App', eqOnline, eqOnline ? 'Connected' : 'Offline')}
+        {deviceHeader('app', 'TallyConnect App', eqOnline, eqOnline ? 'Connected' : 'Disconnected')}
         {deviceBody('app', <>
           {detailRow('Hostname', details.system?.hostname)}
           {detailRow('Platform', details.system?.platform)}

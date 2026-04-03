@@ -1195,21 +1195,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var isRecording = !!(status.atem && status.atem.recording) || !!(status.obs && status.obs.recording) || !!(status.vmix && status.vmix.recording);
 
         const rows = [
-          ['ATEM Switcher', atemConnected ? 'connected' : 'unknown', verInfo(atemVer, 'atem_protocol'), atemDetail || null],
+          ['ATEM Switcher', atemConnected ? 'connected' : 'disconnected', verInfo(atemVer, 'atem_protocol'), atemDetail || null],
           [encoderLabel, encoderStatus, verInfo(encVer, encVerType), encoderDetail || null],
-          ['Stream', (encoderLive || obsStreaming) ? 'live' : 'offline', null, streamDetail || null],
-          ['Recording', isRecording ? 'recording' : 'offline', null, null],
+          ['Stream', (encoderLive || obsStreaming) ? 'live' : 'off-air', null, streamDetail || null],
+          ['Recording', isRecording ? 'recording' : 'off-air', null, null],
           [audioLabel, audioStatus, null, null],
         ];
         // Dynamic device rows — only show if the device exists in status
         const hd = status.hyperdeck || status.hyperDeck;
         if (hd) {
-          const hdSt = hd.recording ? 'recording' : (hd.connected ? 'connected' : 'unknown');
+          const hdSt = hd.recording ? 'recording' : (hd.connected ? 'connected' : 'disconnected');
           rows.push(['HyperDeck', hdSt, null, hd.lastSeen || null]);
         }
         if (Array.isArray(status.hyperdecks || status.hyperDecks)) {
           (status.hyperdecks || status.hyperDecks).forEach(function(deck, i) {
-            const hdSt = deck.recording ? 'recording' : (deck.connected ? 'connected' : 'unknown');
+            const hdSt = deck.recording ? 'recording' : (deck.connected ? 'connected' : 'disconnected');
             rows.push(['HyperDeck ' + (i + 1), hdSt, null, deck.lastSeen || null]);
           });
         }
@@ -1312,11 +1312,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         tbody.innerHTML = rows.map(([name, st, ver, ts]) => {
           let badgeCls = 'badge-gray';
           let label = st;
-          if (st === 'connected' || st === 'ok') badgeCls = 'badge-green';
+          if (st === 'connected' || st === 'ok') { badgeCls = 'badge-green'; label = 'Connected'; }
           else if (st === 'live' || st === 'streaming') { badgeCls = 'badge-green'; label = st === 'live' ? '<span style="color:#ef4444">&#9679;</span> Live' : 'Streaming'; }
           else if (st === 'recording') { badgeCls = 'badge-green'; label = 'Recording'; }
           else if (st === 'warning') badgeCls = 'badge-yellow';
           else if (st === 'muted') { badgeCls = 'badge-yellow'; label = 'Muted'; }
+          else if (st === 'disconnected') { badgeCls = 'badge-gray'; label = 'Disconnected'; }
+          else if (st === 'off-air') { badgeCls = 'badge-gray'; label = 'Off Air'; }
           else if (st === 'offline') { badgeCls = 'badge-gray'; label = 'Offline'; }
           var verHtml = '—';
           if (ver) {
@@ -1464,7 +1466,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       // Source label
       var source = 'Unknown';
       var encNames = {obs:'OBS',vmix:'vMix',ecamm:'Ecamm',blackmagic:'Blackmagic',aja:'AJA',epiphan:'Epiphan',teradek:'Teradek',tricaster:'TriCaster',birddog:'BirdDog'};
-      if (atemStreaming) source = 'ATEM Encoder' + (status.atem.streamingService ? ' → ' + status.atem.streamingService : '');
+      if (atemStreaming) source = 'ATEM Switcher' + (status.atem.streamingService ? ' → ' + status.atem.streamingService : '');
       else if (obsStreaming) source = 'OBS Studio';
       else if (vmixStreaming) source = 'vMix';
       else if (encoderLive) source = encNames[enc.type] || enc.type || 'Encoder';
@@ -1732,7 +1734,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       var silEl = document.getElementById('audio-silence-status');
       if (silEl) {
-        if (audio.silenceDetected) { silEl.textContent = 'Silence'; silEl.style.color = '#eab308'; }
+        if (audio.silenceDetected) { silEl.textContent = 'Silence'; silEl.style.color = '#f59e0b'; }
         else { silEl.textContent = '✓ Signal'; silEl.style.color = '#22c55e'; }
       }
 
@@ -3842,16 +3844,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (spinner) spinner.style.display = 'inline';
       if (statusEl) {
         statusEl.style.display = 'block';
-        statusEl.style.background = 'rgba(234,179,8,0.08)';
-        statusEl.style.border = '1px solid rgba(234,179,8,0.25)';
-        statusEl.style.color = '#eab308';
+        statusEl.style.background = 'rgba(245,158,11,0.08)';
+        statusEl.style.border = '1px solid rgba(245,158,11,0.25)';
+        statusEl.style.color = '#f59e0b';
         statusEl.innerHTML = '<strong>DRILL IN PROGRESS</strong> — Simulating encoder signal loss…';
       }
 
       // Animate through drill steps with delays to simulate real failover timeline
       var steps = [
-        { delay: 800,  text: '<strong>DRILL IN PROGRESS</strong><br>Step 1/5 — Encoder bitrate dropped to 0 kbps (simulated)', color: '#eab308' },
-        { delay: 2000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 2/5 — Black screen detected. Waiting for confirmation (simulated 5s threshold)…', color: '#eab308' },
+        { delay: 800,  text: '<strong>DRILL IN PROGRESS</strong><br>Step 1/5 — Encoder bitrate dropped to 0 kbps (simulated)', color: '#f59e0b' },
+        { delay: 2000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 2/5 — Black screen detected. Waiting for confirmation (simulated 5s threshold)…', color: '#f59e0b' },
         { delay: 3500, text: '<strong>DRILL IN PROGRESS</strong><br>Step 3/5 — Outage confirmed. TD Telegram alert would fire now. Ack window open (30s)…', color: '#ef4444' },
         { delay: 5000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 4/5 — No TD ack received (simulated). Executing failover action…', color: '#ef4444' },
       ];
@@ -4217,7 +4219,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         el.innerHTML = reports.map(function(r) {
           var dateStr = new Date(r.created_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
           var grade = r.grade || '—';
-          var gradeColor = grade.startsWith('A') ? '#22c55e' : grade.startsWith('B') ? '#eab308' : '#ef4444';
+          var gradeColor = grade.startsWith('A') ? '#22c55e' : grade.startsWith('B') ? '#f59e0b' : '#ef4444';
           var uptime = r.uptime_pct != null ? r.uptime_pct + '%' : '—';
           var recs = (r.recommendations || []).filter(function(rc) { return rc.priority === 'high'; });
           return '<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05)">'
@@ -4253,7 +4255,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           + '<div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:#F8FAFC">' + (r.uptime_pct != null ? r.uptime_pct + '%' : '—') + '</div><div style="font-size:11px;color:#64748B;margin-top:2px">Uptime</div></div>'
           + '<div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:#F8FAFC">' + (r.alert_count || 0) + '</div><div style="font-size:11px;color:#64748B;margin-top:2px">Alerts</div></div>'
           + '</div>'
-          + (r.recommendations && r.recommendations.length ? '<div style="margin-bottom:16px"><div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;margin-bottom:8px">Recommendations</div>' + r.recommendations.map(function(rc) { var c = rc.priority === 'high' ? '#ef4444' : rc.priority === 'medium' ? '#eab308' : '#22c55e'; return '<div style="padding:8px 10px;border-left:3px solid ' + c + ';background:rgba(255,255,255,0.03);margin-bottom:6px;border-radius:0 6px 6px 0;font-size:12px;color:#F8FAFC;line-height:1.5">' + escapeHtml(rc.text) + '</div>'; }).join('') + '</div>' : '')
+          + (r.recommendations && r.recommendations.length ? '<div style="margin-bottom:16px"><div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;margin-bottom:8px">Recommendations</div>' + r.recommendations.map(function(rc) { var c = rc.priority === 'high' ? '#ef4444' : rc.priority === 'medium' ? '#f59e0b' : '#22c55e'; return '<div style="padding:8px 10px;border-left:3px solid ' + c + ';background:rgba(255,255,255,0.03);margin-bottom:6px;border-radius:0 6px 6px 0;font-size:12px;color:#F8FAFC;line-height:1.5">' + escapeHtml(rc.text) + '</div>'; }).join('') + '</div>' : '')
           + (r.failover_events && r.failover_events.length ? '<div><div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;margin-bottom:8px">Failover Events</div>' + r.failover_events.map(function(f) { return '<div style="padding:6px 10px;font-size:12px;color:#F8FAFC;border-bottom:1px solid rgba(255,255,255,0.05)">' + new Date(f.timestamp).toLocaleTimeString() + ' · ' + escapeHtml(f.type || 'failover') + ' · ' + (f.autoRecovered ? 'auto-recovered' : 'manual') + '</div>'; }).join('') + '</div>' : '')
           + '</div>';
         modal.appendChild(inner);
@@ -4477,7 +4479,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try {
         const b = await api('GET', '/api/church/billing');
         billingData = b;
-        const statusColors = { active: '#22c55e', trialing: '#eab308', past_due: '#ef4444', canceled: '#94A3B8', pending: '#94A3B8', trial_expired: '#ef4444', inactive: '#94A3B8' };
+        const statusColors = { active: '#22c55e', trialing: '#f59e0b', past_due: '#ef4444', canceled: '#94A3B8', pending: '#94A3B8', trial_expired: '#ef4444', inactive: '#94A3B8' };
         const statusLabels = { active: 'Active', trialing: 'Trial', past_due: 'Past Due', canceled: 'Canceled', pending: 'Pending', trial_expired: 'Expired', inactive: 'Inactive' };
         const tierName = b.tierName || b.tier || 'Connect';
         const intervalName = b.billingIntervalLabel || (b.billingInterval === 'annual' ? 'Annual' : (b.billingInterval === 'one_time' ? 'One-time' : 'Monthly'));
@@ -4493,9 +4495,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         if (b.status === 'trialing' && b.trialDaysRemaining != null) {
           const pct = Math.max(0, Math.min(100, ((30 - b.trialDaysRemaining) / 30) * 100));
-          html += '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:12px;margin-bottom:16px">';
-          html += '<div style="color:#eab308;font-size:13px;font-weight:600;margin-bottom:6px">Trial: ' + b.trialDaysRemaining + ' days remaining</div>';
-          html += '<div style="background:#1a2e1f;border-radius:4px;height:6px;overflow:hidden"><div style="background:#eab308;height:100%;width:' + pct + '%;border-radius:4px"></div></div>';
+          html += '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:12px;margin-bottom:16px">';
+          html += '<div style="color:#f59e0b;font-size:13px;font-weight:600;margin-bottom:6px">Trial: ' + b.trialDaysRemaining + ' days remaining</div>';
+          html += '<div style="background:#1a2e1f;border-radius:4px;height:6px;overflow:hidden"><div style="background:#f59e0b;height:100%;width:' + pct + '%;border-radius:4px"></div></div>';
           html += '</div>';
         }
 
@@ -4527,7 +4529,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // AI Diagnostics usage progress bar
         if (b.aiUsage && b.aiUsage.diagnosticLimit !== Infinity && b.aiUsage.diagnosticLimit !== null) {
           var aiPct = Math.min(100, Math.round((b.aiUsage.diagnosticUsage / b.aiUsage.diagnosticLimit) * 100));
-          var aiBarColor = aiPct >= 80 ? '#eab308' : '#22c55e';
+          var aiBarColor = aiPct >= 80 ? '#f59e0b' : '#22c55e';
           html += '<div class="card" style="margin-bottom:16px">';
           html += '<h3 style="font-size:14px;color:#F8FAFC;margin:0 0 8px">AI Diagnostics</h3>';
           html += '<div style="color:#94A3B8;font-size:13px;margin-bottom:8px">' + b.aiUsage.diagnosticUsage + ' / ' + b.aiUsage.diagnosticLimit + ' messages this month</div>';
@@ -4597,7 +4599,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '</div>';
           if (b.cancelAtPeriodEnd && b.currentPeriodEnd) {
             var endLabel = new Date(b.currentPeriodEnd).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-            html += '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:13px;color:#eab308">Cancellation scheduled. Your plan will remain active until <strong>' + endLabel + '</strong>.</div>';
+            html += '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:13px;color:#f59e0b">Cancellation scheduled. Your plan will remain active until <strong>' + endLabel + '</strong>.</div>';
           }
           html += '<p style="color:#475569;font-size:12px">Update payment method and view invoices from the Stripe portal.</p>';
         }
@@ -4652,13 +4654,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var lnk = 'color:#22c55e;font-weight:700';
       if (b.status === 'trialing' && b.trialDaysRemaining != null && b.trialDaysRemaining <= 7) {
         var dayWord = b.trialDaysRemaining !== 1 ? pt('billing.banner.days') : pt('billing.banner.day');
-        el.innerHTML = '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">' + pt('billing.banner.trial_pre') + ' ' + b.trialDaysRemaining + ' ' + dayWord + '. <a href="https://tallyconnect.app/signup" style="' + lnk + '">' + pt('billing.banner.trial_link') + '</a> ' + pt('billing.banner.trial_post') + '</div>';
+        el.innerHTML = '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#f59e0b">' + pt('billing.banner.trial_pre') + ' ' + b.trialDaysRemaining + ' ' + dayWord + '. <a href="https://tallyconnect.app/signup" style="' + lnk + '">' + pt('billing.banner.trial_link') + '</a> ' + pt('billing.banner.trial_post') + '</div>';
       } else if (b.status === 'past_due') {
         el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">' + pt('billing.banner.past_due_msg') + ' <a href="' + (b.portalUrl || 'https://tallyconnect.app/signup') + '" style="' + lnk + '">' + pt('billing.banner.past_due_link') + '</a> ' + pt('billing.banner.past_due_post') + '</div>';
       } else if (b.status === 'canceled' || b.status === 'trial_expired') {
         el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">' + pt('billing.banner.canceled_msg') + ' <a href="#" onclick="showPage(\'billing\',document.querySelector(\'[data-page=billing]\'));return false" style="' + lnk + '">' + pt('billing.banner.reactivate_link') + '</a> ' + pt('billing.banner.canceled_post') + '</div>';
       } else if (b.status === 'inactive' || b.status === 'pending') {
-        el.innerHTML = '<div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#eab308">' + pt('billing.banner.inactive_msg') + ' <a href="https://tallyconnect.app/signup" style="' + lnk + '">' + pt('billing.banner.checkout_link') + '</a> ' + pt('billing.banner.inactive_post') + '</div>';
+        el.innerHTML = '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#f59e0b">' + pt('billing.banner.inactive_msg') + ' <a href="https://tallyconnect.app/signup" style="' + lnk + '">' + pt('billing.banner.checkout_link') + '</a> ' + pt('billing.banner.inactive_post') + '</div>';
       } else {
         el.innerHTML = '';
       }
@@ -5033,7 +5035,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           progressEl.innerHTML =
             '<div style="display:flex;gap:24px;margin-bottom:20px;flex-wrap:wrap">' +
               '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#F8FAFC">' + total + '</div><div style="font-size:11px;color:#475569">Referred</div></div>' +
-              '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#eab308">' + (total - converted) + '</div><div style="font-size:11px;color:#475569">Pending</div></div>' +
+              '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#f59e0b">' + (total - converted) + '</div><div style="font-size:11px;color:#475569">Pending</div></div>' +
               '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#22c55e">' + converted + '</div><div style="font-size:11px;color:#475569">Signed Up</div></div>' +
               '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#22c55e">' + creditDollars + '</div><div style="font-size:11px;color:#475569">Earned</div></div>' +
             '</div>' +
@@ -5063,7 +5065,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               '</tr></thead><tbody>';
             for (var i = 0; i < referrals.length; i++) {
               var r = referrals[i];
-              var statusColor = r.status === 'credited' ? '#22c55e' : r.status === 'converted' ? '#3b82f6' : r.status === 'expired' ? '#ef4444' : '#eab308';
+              var statusColor = r.status === 'credited' ? '#22c55e' : r.status === 'converted' ? '#3b82f6' : r.status === 'expired' ? '#ef4444' : '#f59e0b';
               var statusLabel = r.status === 'credited' ? 'Credited' : r.status === 'converted' ? 'Subscribed' : r.status === 'expired' ? 'Expired' : 'Pending';
               var credit = r.credit_amount ? '$' + (r.credit_amount / 100).toFixed(0) : '—';
               var date = r.created_at ? new Date(r.created_at).toLocaleDateString() : '—';
@@ -5144,7 +5146,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           container.innerHTML = '<p style="color:#475569;text-align:center;padding:20px">No alerts yet. Alerts will appear here during and after your services.</p>';
           return;
         }
-        var sevColors = { INFO: '#22c55e', WARNING: '#eab308', CRITICAL: '#ef4444', EMERGENCY: '#ef4444' };
+        var sevColors = { INFO: '#3b82f6', WARNING: '#f59e0b', CRITICAL: '#ef4444', EMERGENCY: '#ef4444' };
         var html = '<div style="display:flex;flex-direction:column;gap:8px">';
         alerts.forEach(function(a) {
           var color = sevColors[a.severity] || '#94A3B8';
@@ -5271,7 +5273,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     function supportStateChip(state) {
       if (state === 'operational') return '<span style="color:#22c55e;font-weight:700">Operational</span>';
-      if (state === 'degraded') return '<span style="color:#eab308;font-weight:700">Degraded</span>';
+      if (state === 'degraded') return '<span style="color:#f59e0b;font-weight:700">Degraded</span>';
       return '<span style="color:#ef4444;font-weight:700">Outage</span>';
     }
 
@@ -5339,14 +5341,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function renderAnalyticsKPI(d) {
       var upEl = document.getElementById('a-uptime');
       upEl.textContent = d.uptime_pct.toFixed(1) + '%';
-      upEl.style.color = d.uptime_pct >= 99 ? '#22c55e' : d.uptime_pct >= 95 ? '#eab308' : '#ef4444';
+      upEl.style.color = d.uptime_pct >= 99 ? '#22c55e' : d.uptime_pct >= 95 ? '#f59e0b' : '#ef4444';
       document.getElementById('a-sessions-count').textContent = d.total_sessions;
       document.getElementById('a-avg-viewers').textContent =
         d.avg_peak_viewers !== null ? Math.round(d.avg_peak_viewers) : '—';
       document.getElementById('a-recovery-rate').textContent =
         d.auto_recovery_rate !== null ? d.auto_recovery_rate.toFixed(0) + '%' : '—';
       document.getElementById('a-recovery-rate').style.color =
-        d.auto_recovery_rate === null ? '#94A3B8' : d.auto_recovery_rate >= 80 ? '#22c55e' : d.auto_recovery_rate >= 50 ? '#eab308' : '#ef4444';
+        d.auto_recovery_rate === null ? '#94A3B8' : d.auto_recovery_rate >= 80 ? '#22c55e' : d.auto_recovery_rate >= 50 ? '#f59e0b' : '#ef4444';
     }
 
     function renderStreamHealth(d) {
@@ -5729,7 +5731,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="font-weight:700;color:#22c55e;font-size:13px;margin-bottom:8px">AI Diagnosis</div>';
           // Primary cause
           var conf = ai.primaryCause.confidence || 0;
-          var confColor = conf >= 70 ? '#22c55e' : conf >= 40 ? '#eab308' : '#ef4444';
+          var confColor = conf >= 70 ? '#22c55e' : conf >= 40 ? '#f59e0b' : '#ef4444';
           html += '<div style="margin-bottom:8px"><span style="font-weight:700;color:#F8FAFC">' + escapeHtml(ai.primaryCause.cause) + '</span>';
           html += ' <span style="color:' + confColor + ';font-size:12px;font-weight:600">' + conf + '% confidence</span></div>';
           if (ai.primaryCause.explanation) {
@@ -5988,7 +5990,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           <h3>Alert Severity</h3>
           <ul>
             <li><strong style="color:#ef4444">Critical</strong> — Stream is down or about to fail. Respond immediately.</li>
-            <li><strong style="color:#eab308">Warning</strong> — Something is degraded but not broken yet. Investigate soon.</li>
+            <li><strong style="color:#f59e0b">Warning</strong> — Something is degraded but not broken yet. Investigate soon.</li>
             <li><strong style="color:#22c55e">Info</strong> — Informational. Stream started, recording began, pre-service check passed.</li>
           </ul>
           <h3>Responding to Alerts</h3>
@@ -6717,7 +6719,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     var maxCount = Math.max.apply(null, dist.map(function(d) { return d.count; }));
-    var colors = { critical: '#ef4444', high: '#f97316', medium: '#eab308', low: '#3b82f6', info: '#6b7280' };
+    var colors = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#3b82f6', info: '#6b7280' };
     var html = '';
     dist.forEach(function(d) {
       var pct = maxCount > 0 ? Math.max(4, Math.round((d.count / maxCount) * 100)) : 4;
@@ -6806,7 +6808,7 @@ document.addEventListener('DOMContentLoaded', function() {
       html += '<div style="flex:1;display:flex;flex-direction:column;align-items:stretch;gap:1px;height:100%">';
       if (critPct > 0) html += '<div style="height:' + critPct + '%;background:#ef4444;border-radius:2px;min-height:2px"></div>';
       if (highPct > 0) html += '<div style="height:' + highPct + '%;background:#f97316;border-radius:2px;min-height:2px"></div>';
-      if (medPct > 0) html += '<div style="height:' + medPct + '%;background:#eab308;border-radius:2px;min-height:2px"></div>';
+      if (medPct > 0) html += '<div style="height:' + medPct + '%;background:#f59e0b;border-radius:2px;min-height:2px"></div>';
       if (lowPct > 0) html += '<div style="height:' + lowPct + '%;background:#3b82f6;border-radius:2px;min-height:2px"></div>';
       if (total === 0) html += '<div style="height:2px;background:#1a2e1f;border-radius:2px"></div>';
       html += '</div>';
@@ -6921,7 +6923,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var html = '';
         data.deviceUptime.forEach(function(d) {
           var pct = parseFloat(d.avgUptime) || 0;
-          var color = pct >= 99 ? '#22c55e' : pct >= 95 ? '#eab308' : '#ef4444';
+          var color = pct >= 99 ? '#22c55e' : pct >= 95 ? '#f59e0b' : '#ef4444';
           html += '<div class="a-bar-row">' +
             '<div class="a-bar-label">' + escapeHtml(d.device) + '</div>' +
             '<div class="a-bar-track"><div class="a-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
@@ -7081,12 +7083,12 @@ document.addEventListener('DOMContentLoaded', function() {
           var tr = document.createElement('tr');
           var d = new Date(s.startedAt);
           var dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-          var gradeColor = s.grade === 'A' ? '#22c55e' : s.grade === 'B' ? '#eab308' : '#ef4444';
+          var gradeColor = s.grade === 'A' ? '#22c55e' : s.grade === 'B' ? '#f59e0b' : '#ef4444';
           tr.innerHTML =
             '<td style="font-size:12px;color:#94A3B8">' + dateStr + '</td>' +
             '<td style="font-size:12px">' + (s.room || '—') + '</td>' +
             '<td style="font-size:12px">' + (s.durationMin || 0) + ' min</td>' +
-            '<td style="font-size:12px;color:' + (s.alerts > 0 ? '#eab308' : '#22c55e') + '">' + (s.alerts || 0) + '</td>' +
+            '<td style="font-size:12px;color:' + (s.alerts > 0 ? '#f59e0b' : '#22c55e') + '">' + (s.alerts || 0) + '</td>' +
             '<td style="font-size:12px;color:#22c55e">' + (s.autoRecovered || 0) + '</td>' +
             '<td style="font-weight:700;color:' + gradeColor + '">' + (s.grade || '—') + '</td>';
           tbody.appendChild(tr);
@@ -7108,7 +7110,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var html = '';
         data.uptimeSummary.forEach(function(d) {
           var pct = parseFloat(d.avgUptime) || 0;
-          var color = pct >= 99 ? '#22c55e' : pct >= 95 ? '#eab308' : '#ef4444';
+          var color = pct >= 99 ? '#22c55e' : pct >= 95 ? '#f59e0b' : '#ef4444';
           html += '<div class="rpt-health-card">' +
             '<div class="rpt-h-uptime" style="color:' + color + '">' + pct + '%</div>' +
             '<div><div class="rpt-h-name">' + escapeHtml(d.device) + '</div>' +
@@ -7126,7 +7128,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var maxInc = Math.max.apply(null, data.devices.map(function(d) { return d.incidents; })) || 1;
         var html = '';
         data.devices.forEach(function(d) {
-          var barColor = d.incidents > 5 ? '#ef4444' : d.incidents > 2 ? '#eab308' : '#22c55e';
+          var barColor = d.incidents > 5 ? '#ef4444' : d.incidents > 2 ? '#f59e0b' : '#22c55e';
           var trendIcon = d.trend === 'improving' ? '↓' : d.trend === 'declining' ? '↑' : '→';
           html += '<div class="rpt-device-row">' +
             '<div class="rpt-d-label">' + escapeHtml(d.label) + '</div>' +
