@@ -48,6 +48,7 @@ export default function RootLayout() {
         <Stack.Screen name="service-reports" options={{ title: 'Service Reports', headerBackTitle: 'More' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings', headerBackTitle: 'More' }} />
         <Stack.Screen name="equipment-config" options={{ title: 'Equipment Config', headerBackTitle: 'More' }} />
+        <Stack.Screen name="rundown" options={{ title: 'Service Rundown', headerBackTitle: 'More' }} />
       </Stack>
     </>
   );
