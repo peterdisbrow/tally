@@ -1341,6 +1341,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // ── Live Stream Stats card ──────────────────────────────────────────
         updateStreamStats(status, enc);
 
+        // ── Stream Protection card ────────────────────────────────────────
+        if (status.streamProtection) updateStreamProtectionUI(status.streamProtection);
+
         // ── Broadcast platform health (YouTube / Facebook) ──────────────
         updateBroadcastHealthCard(d.broadcastHealth);
 
@@ -1531,6 +1534,75 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var detailEl = document.getElementById('ss-detail-row');
       if (detailEl) detailEl.innerHTML = details.map(function(d) { return '<span>' + d + '</span>'; }).join('');
     }
+
+    // ── Stream Protection UI ────────────────────────────────────────────────
+    function updateStreamProtectionUI(sp) {
+      var card = document.getElementById('stream-protection-card');
+      if (!card || !sp) return;
+      card.style.display = '';
+
+      var dot = document.getElementById('sp-status-dot');
+      var label = document.getElementById('sp-state-label');
+      var toggle = document.getElementById('sp-toggle');
+      var knob = document.getElementById('sp-toggle-knob');
+      var eventRow = document.getElementById('sp-event-row');
+      var alertRow = document.getElementById('sp-alert-row');
+      var alertText = document.getElementById('sp-alert-text');
+      var restartBtn = document.getElementById('sp-restart-btn');
+
+      // Toggle state
+      if (toggle && toggle.checked !== sp.enabled) toggle.checked = sp.enabled;
+      if (knob) knob.style.transform = sp.enabled ? 'translateX(16px)' : 'translateX(0)';
+      var toggleBg = toggle && toggle.parentElement.querySelector('span');
+      if (toggleBg) toggleBg.style.background = sp.enabled ? '#22c55e' : '#334155';
+
+      // Status dot and label
+      var stateColors = { idle: '#475569', protecting: '#22c55e', encoder_disconnected: '#ef4444', restarting: '#f59e0b', alert_sent: '#f59e0b', cdn_mismatch: '#f59e0b' };
+      var stateLabels = { idle: 'OFF', protecting: 'PROTECTED', encoder_disconnected: 'ENCODER DOWN', restarting: 'RESTARTING', alert_sent: 'ALERT', cdn_mismatch: 'CDN ISSUE' };
+      if (dot) dot.style.background = stateColors[sp.state] || '#475569';
+      if (label) {
+        label.textContent = sp.enabled ? (stateLabels[sp.state] || sp.state.toUpperCase()) : 'OFF';
+        label.style.color = stateColors[sp.state] || '#94A3B8';
+      }
+
+      // Last event
+      if (eventRow && sp.lastEvent) {
+        eventRow.style.display = '';
+        eventRow.textContent = sp.lastEvent;
+      } else if (eventRow) {
+        eventRow.style.display = 'none';
+      }
+
+      // Alert row + restart button
+      if (sp.state === 'alert_sent' || sp.state === 'encoder_disconnected' || sp.state === 'cdn_mismatch') {
+        if (alertRow) { alertRow.style.display = ''; }
+        if (alertText) alertText.textContent = sp.lastEvent || 'Stream protection alert';
+        if (restartBtn) restartBtn.style.display = sp.canManualRestart ? '' : 'none';
+      } else {
+        if (alertRow) alertRow.style.display = 'none';
+      }
+
+      window._lastStreamProtection = sp;
+    }
+
+    window.toggleStreamProtection = function(enabled) {
+      // Send via portal WebSocket or fall back to command API
+      var token = _portalToken || (document.cookie.match(/portal_token=([^;]+)/) || [])[1];
+      fetch('/api/church/app/send-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ command: enabled ? 'streamProtection.enable' : 'streamProtection.disable', params: {} }),
+      }).catch(function() {});
+    };
+
+    window.streamProtectionRestart = function() {
+      var token = _portalToken || (document.cookie.match(/portal_token=([^;]+)/) || [])[1];
+      fetch('/api/church/app/send-command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ command: 'streamProtection.restart', params: {} }),
+      }).catch(function() {});
+    };
 
     // ── Broadcast Platform Health Card (YouTube / Facebook) ────────────────
     function updateBroadcastHealthCard(bh) {
@@ -6094,6 +6166,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 var txt3 = document.getElementById('stat-status-text');
                 if (dot3 && txt3) { dot3.style.background = '#475569'; txt3.textContent = 'Offline'; }
               }
+            } else if (data.type === 'stream_protection_status') {
+              updateStreamProtectionUI(data.streamProtection);
             } else if (data.type === 'viewer_update') {
               var card = document.getElementById('live-viewers-card');
               if (card && data.total !== undefined) {

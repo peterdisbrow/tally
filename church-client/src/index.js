@@ -32,6 +32,7 @@ const { ShellyManager } = require('./shellyManager');
 const { getSystemHealth } = require('./systemHealth');
 const { collectDiagnosticBundle } = require('./diagnosticBundle');
 const { SwitcherManager } = require('./switcherManager');
+const { StreamProtectionManager } = require('./streamProtection');
 
 // ExternalPortType enum → human-readable label (used for audio source detection)
 const PORT_TYPE_NAMES = { 1: 'SDI', 2: 'HDMI', 4: 'Component', 8: 'Composite',
@@ -406,6 +407,10 @@ class ChurchAVAgent {
       shelly:       { commandsTotal: 0, commandsOk: 0, commandsFailed: 0, reconnects: 0 },
       _startedAt: Date.now(),
     };
+
+    // ── Stream Protection ─────────────────────────────────────────────────────
+    this.streamProtection = new StreamProtectionManager(this);
+    this.streamProtection.start();
 
     // ── Signal failover bitrate tracking ──────────────────────────────────────
     this._bitrateBaseline = null;      // established kbps baseline for current stream
@@ -1019,6 +1024,8 @@ class ChurchAVAgent {
         if (parts.length) console.log(`[CDN Verify] ${parts.join(' · ')}`);
         this.status.streamVerification = v;
         this.sendStatus();
+        // Stream Protection: CDN validation (case 5)
+        if (this.streamProtection) this.streamProtection.onCdnVerificationResult(v);
         break;
       }
       case 'smart_plug_command': {
@@ -1051,6 +1058,13 @@ class ChurchAVAgent {
         console.log(`[ROOM_DELETED] ${JSON.stringify({ roomId: msg.roomId, roomName: msg.roomName })}`);
         break;
       }
+      case 'stream_protection_command': {
+        if (!this.streamProtection) break;
+        if (msg.action === 'enable') this.streamProtection.setEnabled(true);
+        else if (msg.action === 'disable') this.streamProtection.setEnabled(false);
+        else if (msg.action === 'restart') this.streamProtection.manualRestart();
+        break;
+      }
       default:
         console.log('Relay msg:', msg.type);
     }
@@ -1061,6 +1075,15 @@ class ChurchAVAgent {
     const deviceKey = command.split('.')[0];
     const hDev = this.health[deviceKey];
     if (hDev) hDev.commandsTotal++;
+
+    // Stream Protection: mark TC-commanded stream stops
+    const STREAM_STOP_COMMANDS = [
+      'atem.stopStreaming', 'obs.stopStream', 'encoder.stopStream',
+      'vmix.stopStream', 'ecamm.stopStream',
+    ];
+    if (STREAM_STOP_COMMANDS.includes(command) && this.streamProtection) {
+      this.streamProtection.markTCCommandedStop();
+    }
 
     let result = null;
     let error = null;
@@ -1117,6 +1140,8 @@ class ChurchAVAgent {
       try { this.status.atem.atemAudioSources = this.detectAtemAudioSources(this.atem?.state); } catch { /* non-critical */ }
       this._resolveAudioViaAtem();
       this.atemReconnecting = false;
+      // Stream Protection: ATEM reconnected
+      if (this.streamProtection) this.streamProtection.onEncoderConnectionChange(true);
 
       // Don't reset backoff immediately — only after connection is stable for 30s.
       // This prevents a connect→disconnect loop from resetting the delay every cycle.
@@ -1161,6 +1186,8 @@ class ChurchAVAgent {
       this.sendStatus();
       this.sendAlert('ATEM disconnected', 'warning');
       this.sendToRelay({ type: 'signal_event', signal: 'atem_lost' });
+      // Stream Protection: encoder/ATEM disconnected
+      if (this.streamProtection) this.streamProtection.onEncoderConnectionChange(false);
       this.reconnectATEM();
     });
 
@@ -1224,6 +1251,14 @@ class ChurchAVAgent {
             `ATEM streaming ${isStreaming ? 'STARTED' : 'STOPPED'}${this.status.atem.streamingService ? ` (${this.status.atem.streamingService})` : ''}`,
             isStreaming ? 'info' : 'warning'
           );
+          // Stream Protection: notify of state change
+          if (this.streamProtection) {
+            this.streamProtection.onStreamingStateChange(isStreaming, {
+              encoderConnected: !!(this.status.encoder?.connected || this.status.obs?.connected || this.status.vmix?.connected),
+              atemConnected: this.status.atem.connected,
+              cacheUsed: this.status.atem.streamingCacheUsed,
+            });
+          }
         }
       }
 
@@ -1466,6 +1501,8 @@ class ChurchAVAgent {
         this.status.obs.app = 'OBS Studio';
         if (!this._encoderManaged) this.status.encoder.connected = true;
         this._obsReconnectDelay = 5000; // reset backoff on success
+        // Stream Protection: OBS reconnected
+        if (this.streamProtection) this.streamProtection.onEncoderConnectionChange(true);
         void (async () => {
           try {
             const ver = await this.obs.call('GetVersion');
@@ -1486,6 +1523,8 @@ class ChurchAVAgent {
         console.warn(`⚠️  OBS disconnected. Retrying in ${this._obsReconnectDelay / 1000}s...`);
         this.status.obs.connected = false;
         if (!this._encoderManaged) this.status.encoder.connected = false;
+        // Stream Protection: OBS disconnected
+        if (this.streamProtection) this.streamProtection.onEncoderConnectionChange(false);
         this.sendStatus();
         const delay = this._obsReconnectDelay;
         this._obsReconnectDelay = Math.min(this._obsReconnectDelay * 2, 60_000);
@@ -1499,6 +1538,14 @@ class ChurchAVAgent {
         if (wasStreaming !== outputActive) {
           this.sendAlert(`Stream ${outputActive ? 'STARTED' : 'STOPPED'}`, 'info');
           this.sendStatus();
+          // Stream Protection: notify of OBS state change
+          if (this.streamProtection) {
+            this.streamProtection.onStreamingStateChange(outputActive, {
+              encoderConnected: this.status.obs.connected,
+              atemConnected: this.status.atem?.connected,
+              cacheUsed: this.status.atem?.streamingCacheUsed,
+            });
+          }
         }
       });
 
@@ -2436,6 +2483,10 @@ class ChurchAVAgent {
     // Include multi-switcher status if available
     if (this.switcherManager && this.switcherManager.size > 0) {
       fullStatus.switchers = this.switcherManager.getSwitchersStatus();
+    }
+    // Include stream protection status
+    if (this.streamProtection) {
+      fullStatus.streamProtection = { ...this.streamProtection.status };
     }
     this.sendToRelay({ type: 'status_update', status: fullStatus });
     setTimeout(() => {

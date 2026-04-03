@@ -68,6 +68,11 @@ export function getVariableDefinitions(): CompanionVariableDefinition[] {
 		// Sourced from status.health (included in status_update)
 		{ variableId: 'relay_latency', name: 'Relay Latency (ms)' },
 
+		// ── Stream Protection ─────────────────────────────────────────────────────
+		{ variableId: 'sp_enabled', name: 'Stream Protection Enabled (true/false)' },
+		{ variableId: 'sp_state', name: 'Stream Protection State' },
+		{ variableId: 'sp_last_event', name: 'Stream Protection Last Event' },
+
 		// ── Connection ────────────────────────────────────────────────────────────
 		{ variableId: 'connection_status', name: 'Module Connection Status' },
 		{ variableId: 'church_name', name: 'Church Name' },
@@ -140,6 +145,10 @@ export function getVariableValues(self: TallyConnectInstance): Record<string, st
 		system_uptime: s.systemUptime ?? '',
 
 		relay_latency: s.relayLatencyMs ?? '',
+
+		sp_enabled: String(s.streamProtectionEnabled ?? false),
+		sp_state: s.streamProtectionState ?? 'idle',
+		sp_last_event: s.streamProtectionLastEvent ?? '',
 
 		connection_status: self.connectionStatus,
 		church_name: self.churchName,

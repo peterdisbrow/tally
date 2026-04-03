@@ -369,6 +369,35 @@
     </div>
 
 
+    <!-- Stream Protection Status -->
+    <div class="section collapsible-section" id="stream-protection-section" style="display:none;">
+      <div class="section-toggle" onclick="toggleCollapsible('stream-protection-section')" style="display:flex; align-items:center; justify-content:space-between;">
+        <h2>Stream Protection</h2>
+        <div class="failover-state-badge" id="sp-badge">OFF</div>
+      </div>
+      <div class="section-body">
+        <div class="info-grid">
+          <div class="info-card">
+            <div class="label">Status</div>
+            <div class="value muted" id="val-sp-state">—</div>
+          </div>
+          <div class="info-card">
+            <div class="label">Protection</div>
+            <div class="value muted" id="val-sp-enabled">—</div>
+          </div>
+        </div>
+        <div id="sp-event-msg" style="font-size:12px; color:var(--text-secondary); margin-top:6px; display:none;"></div>
+        <div id="sp-alert-bar" style="display:none; margin-top:8px; padding:8px 12px; border-radius:6px; background:var(--bg-card); border:1px solid #78350f;">
+          <div id="sp-alert-text" style="font-size:12px; color:#fbbf24; margin-bottom:6px;"></div>
+          <button id="sp-restart-btn" class="btn-primary" style="font-size:11px; padding:4px 12px; display:none;" onclick="sendStreamProtectionRestart()">Restart Stream</button>
+        </div>
+        <div style="margin-top:8px; display:flex; gap:8px;">
+          <button class="btn-secondary" style="font-size:11px; padding:4px 12px;" onclick="toggleStreamProtection(true)">Enable</button>
+          <button class="btn-secondary" style="font-size:11px; padding:4px 12px;" onclick="toggleStreamProtection(false)">Disable</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Device Identity (collapsed by default) -->
     <div class="section collapsible-section collapsed" id="section-device-identity">
       <div class="section-toggle" onclick="toggleCollapsible('section-device-identity')">
