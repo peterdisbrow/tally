@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStatusStore, useActiveRoomStatus } from '../src/stores/statusStore';
-import { colors } from '../src/theme/colors';
+import { useThemeColors } from '../src/theme/ThemeContext';
+import type { ThemeColors } from '../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../src/theme/spacing';
 import type { DeviceStatus } from '../src/ws/types';
 
@@ -297,9 +298,141 @@ function formatUptime(seconds: number): string {
   return `${m}m`;
 }
 
+// ─── Dynamic Styles ────────────────────────────────────────────────────────
+
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.bg,
+    },
+    content: {
+      padding: spacing.lg,
+    },
+    headerCard: {
+      backgroundColor: colors.surface,
+      borderRadius: borderRadius.md,
+      padding: spacing.lg,
+      marginBottom: spacing.xxl,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    headerTop: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    headerRoom: {
+      fontSize: fontSize.lg,
+      fontWeight: '700',
+      color: colors.text,
+    },
+    headerSubtitle: {
+      fontSize: fontSize.sm,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    countBadge: {
+      alignItems: 'center',
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: borderRadius.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    countText: {
+      fontSize: fontSize.xl,
+      fontWeight: '800',
+      color: colors.accent,
+    },
+    countLabel: {
+      fontSize: fontSize.xs,
+      color: colors.textSecondary,
+      marginTop: 1,
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: borderRadius.md,
+      padding: spacing.lg,
+      marginBottom: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    cardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: spacing.md,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    cardTitle: {
+      flex: 1,
+      fontSize: fontSize.md,
+      fontWeight: '700',
+      color: colors.text,
+      marginLeft: spacing.sm,
+    },
+    statusDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      marginRight: spacing.xs,
+    },
+    statusText: {
+      fontSize: fontSize.sm,
+      fontWeight: '600',
+    },
+    fieldList: {},
+    fieldRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: spacing.xs + 1,
+    },
+    fieldLabel: {
+      fontSize: fontSize.sm,
+      color: colors.textSecondary,
+      flex: 1,
+    },
+    fieldValue: {
+      fontSize: fontSize.sm,
+      color: colors.text,
+      fontWeight: '500',
+      textAlign: 'right',
+      flex: 1,
+    },
+    fieldSensitive: {
+      fontFamily: 'Courier',
+      color: colors.textMuted,
+    },
+    emptyState: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: spacing.xxxl * 2,
+      paddingHorizontal: spacing.xxl,
+    },
+    emptyTitle: {
+      fontSize: fontSize.lg,
+      fontWeight: '700',
+      color: colors.text,
+      marginTop: spacing.lg,
+    },
+    emptySubtitle: {
+      fontSize: fontSize.sm,
+      color: colors.textSecondary,
+      textAlign: 'center',
+      marginTop: spacing.sm,
+      lineHeight: 20,
+    },
+  });
+}
+
 // ─── Components ─────────────────────────────────────────────────────────────
 
 function DeviceConfigCard({ device }: { device: ConfigDevice }) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   return (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
@@ -328,6 +461,9 @@ function DeviceConfigCard({ device }: { device: ConfigDevice }) {
 }
 
 function EmptyState() {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   return (
     <View style={styles.emptyState}>
       <Ionicons name="hardware-chip-outline" size={48} color={colors.textMuted} />
@@ -342,6 +478,9 @@ function EmptyState() {
 // ─── Screen ─────────────────────────────────────────────────────────────────
 
 export default function EquipmentConfigScreen() {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const status = useActiveRoomStatus();
   const activeRoomId = useStatusStore((s) => s.activeRoomId);
   const rooms = useStatusStore((s) => s.rooms);
@@ -393,130 +532,3 @@ export default function EquipmentConfigScreen() {
     </ScrollView>
   );
 }
-
-// ─── Styles ─────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  content: {
-    padding: spacing.lg,
-  },
-  headerCard: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    marginBottom: spacing.xxl,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerRoom: {
-    fontSize: fontSize.lg,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  headerSubtitle: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  countBadge: {
-    alignItems: 'center',
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: borderRadius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  countText: {
-    fontSize: fontSize.xl,
-    fontWeight: '800',
-    color: colors.accent,
-  },
-  countLabel: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    marginTop: 1,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-    paddingBottom: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  cardTitle: {
-    flex: 1,
-    fontSize: fontSize.md,
-    fontWeight: '700',
-    color: colors.text,
-    marginLeft: spacing.sm,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: spacing.xs,
-  },
-  statusText: {
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-  },
-  fieldList: {},
-  fieldRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.xs + 1,
-  },
-  fieldLabel: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-    flex: 1,
-  },
-  fieldValue: {
-    fontSize: fontSize.sm,
-    color: colors.text,
-    fontWeight: '500',
-    textAlign: 'right',
-    flex: 1,
-  },
-  fieldSensitive: {
-    fontFamily: 'Courier',
-    color: colors.textMuted,
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.xxxl * 2,
-    paddingHorizontal: spacing.xxl,
-  },
-  emptyTitle: {
-    fontSize: fontSize.lg,
-    fontWeight: '700',
-    color: colors.text,
-    marginTop: spacing.lg,
-  },
-  emptySubtitle: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-    lineHeight: 20,
-  },
-});

@@ -1,17 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, RefreshControl,
+  View, Text, ScrollView, RefreshControl,
   TouchableOpacity, Animated, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
-import { colors } from '../../src/theme/colors';
+import { useThemeColors, type ThemeColors } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
 import { api } from '../../src/api/client';
 import { usePolling } from '../../src/hooks/usePolling';
 import type { DeviceStatus } from '../../src/ws/types';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface CheckItem {
   name: string;
@@ -54,8 +52,6 @@ interface DisplayCheck {
   category?: string;
 }
 
-// ─── Category mapping ────────────────────────────────────────────────────────
-
 const CATEGORY_ORDER = [
   'devices', 'stream', 'presentation', 'audio', 'network', 'companion', 'versions',
 ] as const;
@@ -82,9 +78,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   general: 'General',
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function statusColor(status: CheckStatus): string {
+function statusColor(status: CheckStatus, colors: ThemeColors): string {
   switch (status) {
     case 'pass': return colors.online;
     case 'fail': return colors.offline;
@@ -104,10 +98,8 @@ function statusIcon(status: CheckStatus): string {
 
 function overallStatusFromChecks(checks: DisplayCheck[]): CheckStatus {
   if (checks.length === 0) return 'unknown';
-  const hasFail = checks.some(c => c.status === 'fail');
-  const hasWarn = checks.some(c => c.status === 'warn');
-  if (hasFail) return 'fail';
-  if (hasWarn) return 'warn';
+  if (checks.some(c => c.status === 'fail')) return 'fail';
+  if (checks.some(c => c.status === 'warn')) return 'warn';
   return 'pass';
 }
 
@@ -120,7 +112,6 @@ function overallLabel(status: CheckStatus): string {
   }
 }
 
-/** Classify a flat check item into a category based on its name. */
 function classifyCheck(name: string): string {
   const n = name.toLowerCase();
   if (n.includes('atem') || n.includes('camera') || n.includes('input') || n.includes('switcher')) return 'devices';
@@ -154,7 +145,6 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-/** Build display items from a flat check result + live device status for extra context. */
 function buildDisplayChecks(
   checkResult: PreServiceResult | null,
   rundown: RundownStatus | null,
@@ -162,7 +152,6 @@ function buildDisplayChecks(
 ): DisplayCheck[] {
   const items: DisplayCheck[] = [];
 
-  // Prefer rundown categories if available (richer hierarchical data)
   if (rundown?.active && rundown.checks_json) {
     const categories = parseRundownChecks(rundown.checks_json);
     if (categories) {
@@ -180,7 +169,6 @@ function buildDisplayChecks(
     }
   }
 
-  // Fall back to flat check results
   if (checkResult?.checks_json) {
     const checks = parseChecks(checkResult.checks_json);
     for (const check of checks) {
@@ -193,74 +181,28 @@ function buildDisplayChecks(
     }
   }
 
-  // If no server data, build checks from live WebSocket device status
   if (items.length === 0 && liveStatus) {
     if (liveStatus.atem) {
-      items.push({
-        name: 'ATEM Connection',
-        status: liveStatus.atem.connected ? 'pass' : 'fail',
-        detail: liveStatus.atem.connected ? (liveStatus.atem.model || 'Connected') : 'Switcher offline',
-        category: 'devices',
-      });
+      items.push({ name: 'ATEM Connection', status: liveStatus.atem.connected ? 'pass' : 'fail', detail: liveStatus.atem.connected ? (liveStatus.atem.model || 'Connected') : 'Switcher offline', category: 'devices' });
     }
     if (liveStatus.obs) {
-      items.push({
-        name: 'OBS Studio',
-        status: liveStatus.obs.connected ? 'pass' : 'fail',
-        detail: liveStatus.obs.connected
-          ? (liveStatus.obs.streaming ? 'Streaming' : 'Connected, not streaming')
-          : 'OBS offline',
-        category: 'stream',
-      });
+      items.push({ name: 'OBS Studio', status: liveStatus.obs.connected ? 'pass' : 'fail', detail: liveStatus.obs.connected ? (liveStatus.obs.streaming ? 'Streaming' : 'Connected, not streaming') : 'OBS offline', category: 'stream' });
     }
     if (liveStatus.vmix) {
-      items.push({
-        name: 'vMix',
-        status: liveStatus.vmix.connected ? 'pass' : 'fail',
-        detail: liveStatus.vmix.connected
-          ? (liveStatus.vmix.streaming ? 'Streaming' : 'Connected')
-          : 'vMix offline',
-        category: 'stream',
-      });
+      items.push({ name: 'vMix', status: liveStatus.vmix.connected ? 'pass' : 'fail', detail: liveStatus.vmix.connected ? (liveStatus.vmix.streaming ? 'Streaming' : 'Connected') : 'vMix offline', category: 'stream' });
     }
     if (liveStatus.propresenter) {
-      items.push({
-        name: 'ProPresenter',
-        status: liveStatus.propresenter.connected ? 'pass' : 'fail',
-        detail: liveStatus.propresenter.connected
-          ? (liveStatus.propresenter.currentPresentation || 'Ready')
-          : 'ProPresenter offline',
-        category: 'presentation',
-      });
+      items.push({ name: 'ProPresenter', status: liveStatus.propresenter.connected ? 'pass' : 'fail', detail: liveStatus.propresenter.connected ? (liveStatus.propresenter.currentPresentation || 'Ready') : 'ProPresenter offline', category: 'presentation' });
     }
     if (liveStatus.mixer) {
       const muted = liveStatus.mixer.mainMuted;
-      items.push({
-        name: 'Audio Console',
-        status: liveStatus.mixer.connected ? (muted ? 'warn' : 'pass') : 'fail',
-        detail: liveStatus.mixer.connected
-          ? (muted ? 'Main bus MUTED' : (liveStatus.mixer.model || 'Online'))
-          : 'Mixer offline',
-        category: 'audio',
-      });
+      items.push({ name: 'Audio Console', status: liveStatus.mixer.connected ? (muted ? 'warn' : 'pass') : 'fail', detail: liveStatus.mixer.connected ? (muted ? 'Main bus MUTED' : (liveStatus.mixer.model || 'Online')) : 'Mixer offline', category: 'audio' });
     }
     if (liveStatus.companion) {
-      items.push({
-        name: 'Companion',
-        status: liveStatus.companion.connected ? 'pass' : 'fail',
-        detail: liveStatus.companion.connected ? 'Running' : 'Companion offline',
-        category: 'companion',
-      });
+      items.push({ name: 'Companion', status: liveStatus.companion.connected ? 'pass' : 'fail', detail: liveStatus.companion.connected ? 'Running' : 'Companion offline', category: 'companion' });
     }
     if (liveStatus.encoder) {
-      items.push({
-        name: 'Encoder',
-        status: liveStatus.encoder.connected ? 'pass' : 'fail',
-        detail: liveStatus.encoder.connected
-          ? (liveStatus.encoder.streaming ? 'Streaming' : 'Connected')
-          : 'Encoder offline',
-        category: 'stream',
-      });
+      items.push({ name: 'Encoder', status: liveStatus.encoder.connected ? 'pass' : 'fail', detail: liveStatus.encoder.connected ? (liveStatus.encoder.streaming ? 'Streaming' : 'Connected') : 'Encoder offline', category: 'stream' });
     }
   }
 
@@ -279,9 +221,7 @@ function groupByCategory(checks: DisplayCheck[]): { key: string; label: string; 
     .filter(g => g.checks.length > 0);
 }
 
-// ─── Pulsing Ring Component ─────────────────────────────────────────────────
-
-function StatusRing({ status, size = 80 }: { status: CheckStatus; size?: number }) {
+function StatusRing({ status, size = 80, colors }: { status: CheckStatus; size?: number; colors: ThemeColors }) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -298,7 +238,7 @@ function StatusRing({ status, size = 80 }: { status: CheckStatus; size?: number 
     }
   }, [status]);
 
-  const color = statusColor(status);
+  const color = statusColor(status, colors);
   const iconName = status === 'pass' ? 'checkmark-circle' : status === 'fail' ? 'close-circle' : status === 'warn' ? 'warning' : 'help-circle-outline';
 
   return (
@@ -317,12 +257,11 @@ function StatusRing({ status, size = 80 }: { status: CheckStatus; size?: number 
   );
 }
 
-// ─── Main Component ──────────────────────────────────────────────────────────
-
 export default function PreServiceChecksScreen() {
   const activeRoomId = useStatusStore((s) => s.activeRoomId);
   const rooms = useStatusStore((s) => s.rooms);
   const liveStatus = useActiveRoomStatus();
+  const colors = useThemeColors();
 
   const [checkResult, setCheckResult] = useState<PreServiceResult | null>(null);
   const [rundown, setRundown] = useState<RundownStatus | null>(null);
@@ -342,9 +281,7 @@ export default function PreServiceChecksScreen() {
       setCheckResult(checkRes);
       setRundown(rundownRes);
       setLastFetched(new Date().toISOString());
-    } catch {
-      // Keep existing data on error
-    } finally {
+    } catch {} finally {
       setIsLoading(false);
     }
   }, [roomQuery]);
@@ -354,7 +291,6 @@ export default function PreServiceChecksScreen() {
     fetchData();
   }, [activeRoomId]);
 
-  // Poll every 30 seconds
   usePolling(fetchData, 30000);
 
   const onRefresh = useCallback(async () => {
@@ -371,12 +307,9 @@ export default function PreServiceChecksScreen() {
         setCheckResult(res.result);
         setLastFetched(new Date().toISOString());
       }
-      // Also refresh rundown
       const rundownRes = await api<RundownStatus>(`/api/church/rundown/status${roomQuery}`).catch(() => null);
       if (rundownRes) setRundown(rundownRes);
-    } catch {
-      // Will show stale data
-    } finally {
+    } catch {} finally {
       setIsRunning(false);
     }
   }, [roomQuery]);
@@ -395,33 +328,38 @@ export default function PreServiceChecksScreen() {
 
   return (
     <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      contentContainerStyle={{ padding: spacing.lg }}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
       }
     >
-      {/* Room Header */}
-      <View style={styles.roomRow}>
-        <Text style={styles.roomLabel}>{roomName}</Text>
-        {checkTime && <Text style={styles.lastCheck}>Last check: {checkTime}</Text>}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg }}>
+        <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: colors.text }}>{roomName}</Text>
+        {checkTime && <Text style={{ fontSize: fontSize.xs, color: colors.textMuted }}>Last check: {checkTime}</Text>}
       </View>
 
-      {/* Overall Status Card */}
-      <View style={[styles.overallCard, { borderColor: statusColor(overall) + '40' }]}>
-        <View style={styles.overallInner}>
-          <StatusRing status={isLoading ? 'unknown' : overall} />
-          <View style={styles.overallText}>
-            <Text style={[styles.overallTitle, { color: statusColor(isLoading ? 'unknown' : overall) }]}>
+      <View style={{
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.lg,
+        borderWidth: 1,
+        borderColor: `${statusColor(overall, colors)}40`,
+        padding: spacing.xl,
+        marginBottom: spacing.lg,
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.lg }}>
+          <StatusRing status={isLoading ? 'unknown' : overall} colors={colors} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: fontSize.xl, fontWeight: '800', color: statusColor(isLoading ? 'unknown' : overall, colors) }}>
               {isLoading ? 'Loading...' : overallLabel(overall)}
             </Text>
-            <Text style={styles.overallSubtitle}>
+            <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 4 }}>
               {isLoading ? 'Fetching check results' : `${passCount} passed${warnCount > 0 ? ` \u00b7 ${warnCount} warning${warnCount !== 1 ? 's' : ''}` : ''}${failCount > 0 ? ` \u00b7 ${failCount} failed` : ''}`}
             </Text>
             {rundown?.active && rundown.confirmation && (
-              <View style={styles.confirmedBadge}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: spacing.sm }}>
                 <Ionicons name="shield-checkmark" size={12} color={colors.online} />
-                <Text style={styles.confirmedText}>
+                <Text style={{ fontSize: fontSize.xs, color: colors.online, fontWeight: '600' }}>
                   Confirmed by {rundown.confirmation.confirmedBy}
                 </Text>
               </View>
@@ -429,65 +367,75 @@ export default function PreServiceChecksScreen() {
           </View>
         </View>
 
-        {/* AI Summary */}
         {rundown?.active && rundown.ai_summary && (
-          <View style={styles.aiSummary}>
-            <View style={styles.aiHeader}>
+          <View style={{ marginTop: spacing.lg, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.sm }}>
               <Ionicons name="sparkles" size={14} color={colors.accent} />
-              <Text style={styles.aiLabel}>AI Summary</Text>
+              <Text style={{ fontSize: fontSize.xs, color: colors.accent, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>AI Summary</Text>
             </View>
-            <Text style={styles.aiText}>{rundown.ai_summary}</Text>
+            <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 20 }}>{rundown.ai_summary}</Text>
           </View>
         )}
       </View>
 
-      {/* Run Check Button */}
       <TouchableOpacity
-        style={[styles.runButton, isRunning && styles.runButtonDisabled]}
+        style={[
+          { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingVertical: spacing.md, marginBottom: spacing.xl },
+          isRunning && { opacity: 0.6 },
+        ]}
         onPress={runManualCheck}
         disabled={isRunning}
         activeOpacity={0.7}
       >
         {isRunning ? (
-          <ActivityIndicator size="small" color={colors.white} />
+          <ActivityIndicator size="small" color="#ffffff" />
         ) : (
-          <Ionicons name="refresh" size={18} color={colors.white} />
+          <Ionicons name="refresh" size={18} color="#ffffff" />
         )}
-        <Text style={styles.runButtonText}>
+        <Text style={{ fontSize: fontSize.md, fontWeight: '700', color: '#ffffff' }}>
           {isRunning ? 'Running Checks...' : 'Run Check Now'}
         </Text>
       </TouchableOpacity>
 
-      {/* Check Categories */}
       {isLoading ? (
-        <View style={styles.emptyContainer}>
+        <View style={{ paddingVertical: spacing.xxxl * 2, alignItems: 'center', gap: spacing.md }}>
           <ActivityIndicator size="large" color={colors.accent} />
-          <Text style={styles.emptyText}>Loading pre-service checks...</Text>
+          <Text style={{ fontSize: fontSize.md, color: colors.textMuted, textAlign: 'center' }}>Loading pre-service checks...</Text>
         </View>
       ) : displayChecks.length === 0 ? (
-        <View style={styles.emptyContainer}>
+        <View style={{ paddingVertical: spacing.xxxl * 2, alignItems: 'center', gap: spacing.md }}>
           <Ionicons name="clipboard-outline" size={48} color={colors.textMuted} />
-          <Text style={styles.emptyText}>No check data available</Text>
-          <Text style={styles.emptySubtext}>Tap "Run Check Now" to check readiness</Text>
+          <Text style={{ fontSize: fontSize.md, color: colors.textMuted, textAlign: 'center' }}>No check data available</Text>
+          <Text style={{ fontSize: fontSize.sm, color: colors.textMuted, textAlign: 'center' }}>Tap "Run Check Now" to check readiness</Text>
         </View>
       ) : (
         grouped.map(group => (
-          <View key={group.key} style={styles.categorySection}>
-            <View style={styles.categoryHeader}>
+          <View key={group.key} style={{ marginBottom: spacing.lg }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
               <Ionicons name={group.icon as any} size={16} color={colors.textSecondary} />
-              <Text style={styles.categoryTitle}>{group.label}</Text>
-              <CategoryBadge checks={group.checks} />
+              <Text style={{ flex: 1, fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '600' }}>{group.label}</Text>
+              <CategoryBadge checks={group.checks} colors={colors} />
             </View>
             {group.checks.map((check, i) => (
-              <View key={`${group.key}-${i}`} style={styles.checkRow}>
+              <View key={`${group.key}-${i}`} style={{
+                flexDirection: 'row',
+                alignItems: 'flex-start',
+                gap: spacing.md,
+                backgroundColor: colors.surface,
+                borderRadius: borderRadius.md,
+                borderWidth: 1,
+                borderColor: colors.border,
+                padding: spacing.md,
+                marginBottom: spacing.xs,
+              }}>
                 <Ionicons
                   name={statusIcon(check.status) as any}
                   size={20}
-                  color={statusColor(check.status)}
+                  color={statusColor(check.status, colors)}
                 />
-                <View style={styles.checkContent}>
-                  <Text style={styles.checkName}>{check.name}</Text>
-                  <Text style={[styles.checkDetail, { color: check.status === 'fail' ? colors.offline : colors.textSecondary }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.text }}>{check.name}</Text>
+                  <Text style={{ fontSize: fontSize.sm, color: check.status === 'fail' ? colors.offline : colors.textSecondary, marginTop: 2 }}>
                     {check.detail}
                   </Text>
                 </View>
@@ -502,200 +450,17 @@ export default function PreServiceChecksScreen() {
   );
 }
 
-// ─── Category Badge ──────────────────────────────────────────────────────────
-
-function CategoryBadge({ checks }: { checks: DisplayCheck[] }) {
+function CategoryBadge({ checks, colors }: { checks: DisplayCheck[]; colors: ThemeColors }) {
   const allPass = checks.every(c => c.status === 'pass');
   const anyFail = checks.some(c => c.status === 'fail');
   const status: CheckStatus = anyFail ? 'fail' : allPass ? 'pass' : 'warn';
+  const color = statusColor(status, colors);
 
   return (
-    <View style={[styles.badge, { backgroundColor: statusColor(status) + '20' }]}>
-      <Text style={[styles.badgeText, { color: statusColor(status) }]}>
+    <View style={{ paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: borderRadius.full, backgroundColor: `${color}20` }}>
+      <Text style={{ fontSize: fontSize.xs, fontWeight: '700', color }}>
         {checks.filter(c => c.status === 'pass').length}/{checks.length}
       </Text>
     </View>
   );
 }
-
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  content: {
-    padding: spacing.lg,
-  },
-  roomRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  roomLabel: {
-    fontSize: fontSize.lg,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  lastCheck: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-  },
-
-  // Overall Card
-  overallCard: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.xl,
-    marginBottom: spacing.lg,
-  },
-  overallInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.lg,
-  },
-  overallText: {
-    flex: 1,
-  },
-  overallTitle: {
-    fontSize: fontSize.xl,
-    fontWeight: '800',
-  },
-  overallSubtitle: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-    marginTop: 4,
-  },
-  confirmedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: spacing.sm,
-  },
-  confirmedText: {
-    fontSize: fontSize.xs,
-    color: colors.online,
-    fontWeight: '600',
-  },
-
-  // AI Summary
-  aiSummary: {
-    marginTop: spacing.lg,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  aiHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: spacing.sm,
-  },
-  aiLabel: {
-    fontSize: fontSize.xs,
-    color: colors.accent,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  aiText: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-    lineHeight: 20,
-  },
-
-  // Run Button
-  runButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.accent,
-    borderRadius: borderRadius.md,
-    paddingVertical: spacing.md,
-    marginBottom: spacing.xl,
-  },
-  runButtonDisabled: {
-    opacity: 0.6,
-  },
-  runButtonText: {
-    fontSize: fontSize.md,
-    fontWeight: '700',
-    color: colors.white,
-  },
-
-  // Categories
-  categorySection: {
-    marginBottom: spacing.lg,
-  },
-  categoryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  categoryTitle: {
-    flex: 1,
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    fontWeight: '600',
-  },
-  badge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: borderRadius.full,
-  },
-  badgeText: {
-    fontSize: fontSize.xs,
-    fontWeight: '700',
-  },
-
-  // Check Row
-  checkRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.md,
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.xs,
-  },
-  checkContent: {
-    flex: 1,
-  },
-  checkName: {
-    fontSize: fontSize.md,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  checkDetail: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-
-  // Empty
-  emptyContainer: {
-    paddingVertical: spacing.xxxl * 2,
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  emptyText: {
-    fontSize: fontSize.md,
-    color: colors.textMuted,
-    textAlign: 'center',
-  },
-  emptySubtext: {
-    fontSize: fontSize.sm,
-    color: colors.textMuted,
-    textAlign: 'center',
-  },
-});

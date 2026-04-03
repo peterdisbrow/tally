@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, FlatList, StyleSheet,
+  View, Text, TextInput, FlatList,
   Pressable, KeyboardAvoidingView, Platform,
   Alert as RNAlert, NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useChatStore } from '../../src/stores/chatStore';
 import { useStatusStore } from '../../src/stores/statusStore';
-import { colors } from '../../src/theme/colors';
+import { useThemeColors } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
 import { PulseDot } from '../../src/components/PulseDot';
 import type { ChatMessage } from '../../src/ws/types';
@@ -22,10 +22,10 @@ export default function ChatScreen() {
   const [sendError, setSendError] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
   const isAtBottom = useRef(true);
+  const colors = useThemeColors();
 
   const clearMessages = useChatStore((s) => s.clearMessages);
 
-  // Clear stale messages when room changes; new messages arrive via WebSocket
   useEffect(() => {
     clearMessages();
   }, [activeRoomId]);
@@ -61,27 +61,45 @@ export default function ChatScreen() {
 
     return (
       <View style={[
-        msgStyles.row,
-        isUser ? msgStyles.rowRight : msgStyles.rowLeft,
+        { marginBottom: spacing.md },
+        isUser ? { alignItems: 'flex-end' as const } : { alignItems: 'flex-start' as const },
       ]}>
         <View style={[
-          msgStyles.bubble,
-          isUser ? msgStyles.bubbleUser : msgStyles.bubbleAI,
+          { maxWidth: '80%', padding: spacing.md },
+          isUser ? {
+            backgroundColor: 'rgba(34, 197, 94, 0.85)',
+            borderTopLeftRadius: borderRadius.lg,
+            borderTopRightRadius: borderRadius.lg,
+            borderBottomLeftRadius: borderRadius.lg,
+            borderBottomRightRadius: 4,
+            shadowColor: colors.accent,
+            shadowOpacity: 0.2,
+            shadowRadius: 6,
+            shadowOffset: { width: 0, height: 2 },
+          } : {
+            backgroundColor: colors.surfaceElevated,
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderTopLeftRadius: 4,
+            borderTopRightRadius: borderRadius.lg,
+            borderBottomRightRadius: borderRadius.lg,
+            borderBottomLeftRadius: borderRadius.lg,
+          },
         ]}>
           {!isUser && (
-            <Text style={msgStyles.sender}>
+            <Text style={{ fontSize: fontSize.xs, color: colors.accentLight, fontWeight: '600', marginBottom: 4 }}>
               {item.senderName || 'Tally Engineer'}
             </Text>
           )}
           <Text style={[
-            msgStyles.text,
-            isUser ? msgStyles.textUser : msgStyles.textAI,
+            { fontSize: fontSize.md, lineHeight: 22 },
+            isUser ? { color: '#ffffff' } : { color: colors.text },
           ]}>
             {item.message}
           </Text>
           <Text style={[
-            msgStyles.time,
-            isUser ? msgStyles.timeUser : msgStyles.timeAI,
+            { fontSize: 10, marginTop: 4, alignSelf: 'flex-end' as const },
+            isUser ? { color: 'rgba(255,255,255,0.5)' } : { color: colors.textMuted },
           ]}>
             {formatTime(item.timestamp)}
           </Text>
@@ -92,20 +110,37 @@ export default function ChatScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={{ flex: 1, backgroundColor: colors.bg }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={90}
     >
-      {/* Chat Header */}
-      <View style={styles.chatHeader}>
-        <View style={styles.headerAvatar}>
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.md,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        backgroundColor: colors.surface,
+      }}>
+        <View style={{
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          backgroundColor: colors.isDark ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.12)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          marginRight: spacing.md,
+          borderWidth: 1,
+          borderColor: colors.isDark ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)',
+        }}>
           <Ionicons name="hardware-chip-outline" size={20} color={colors.accent} />
         </View>
-        <View style={styles.headerInfo}>
-          <Text style={styles.headerTitle}>Tally Engineer</Text>
-          <View style={styles.headerStatus}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: fontSize.md, fontWeight: '700', color: colors.text }}>Tally Engineer</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 2 }}>
             <PulseDot color={colors.online} size={6} />
-            <Text style={styles.headerStatusText}>Monitoring your stream</Text>
+            <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary }}>Monitoring your stream</Text>
           </View>
         </View>
       </View>
@@ -115,15 +150,15 @@ export default function ChatScreen() {
         data={messages}
         keyExtractor={(item, idx) => item.id || `${idx}`}
         renderItem={renderMessage}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={{ padding: spacing.lg, flexGrow: 1, justifyContent: 'flex-end' }}
         onScroll={handleScroll}
         scrollEventThrottle={100}
         onContentSizeChange={handleContentSizeChange}
         ListEmptyComponent={
-          <View style={styles.empty}>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 80 }}>
             <Ionicons name="chatbubbles-outline" size={48} color={colors.textMuted} style={{ marginBottom: spacing.md }} />
-            <Text style={styles.emptyTitle}>Tally Engineer</Text>
-            <Text style={styles.emptyText}>
+            <Text style={{ fontSize: fontSize.xl, fontWeight: '700', color: colors.text, marginBottom: spacing.sm }}>Tally Engineer</Text>
+            <Text style={{ fontSize: fontSize.md, color: colors.textSecondary, textAlign: 'center', lineHeight: 22 }}>
               Ask questions, send commands, or get diagnostics.{'\n'}
               Try "What's the stream status?" or "Switch to camera 2"
             </Text>
@@ -132,17 +167,45 @@ export default function ChatScreen() {
       />
 
       {sendError && (
-        <View style={styles.errorBar}>
-          <Text style={styles.errorText}>{sendError}</Text>
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingHorizontal: spacing.lg,
+          paddingVertical: spacing.sm,
+          backgroundColor: colors.isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(220, 38, 38, 0.08)',
+          borderTopWidth: 1,
+          borderTopColor: colors.critical,
+        }}>
+          <Text style={{ fontSize: fontSize.sm, color: colors.critical, flex: 1 }}>{sendError}</Text>
           <Pressable onPress={() => setSendError(null)}>
             <Ionicons name="close-circle" size={18} color={colors.critical} />
           </Pressable>
         </View>
       )}
 
-      <View style={styles.inputBar}>
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.md,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+        backgroundColor: colors.surface,
+      }}>
         <TextInput
-          style={styles.input}
+          style={{
+            flex: 1,
+            backgroundColor: colors.inputBg,
+            borderRadius: borderRadius.lg,
+            paddingHorizontal: spacing.lg,
+            paddingVertical: spacing.md,
+            fontSize: fontSize.md,
+            color: colors.text,
+            maxHeight: 100,
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
           placeholder="Type a message..."
           placeholderTextColor={colors.textMuted}
           value={text}
@@ -153,8 +216,23 @@ export default function ChatScreen() {
         />
         <Pressable
           style={[
-            styles.sendButton,
-            (!text.trim() || isSending) && styles.sendDisabled,
+            {
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: colors.accent,
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginLeft: spacing.sm,
+              shadowColor: colors.accent,
+              shadowOpacity: 0.4,
+              shadowRadius: 8,
+              shadowOffset: { width: 0, height: 2 },
+            },
+            (!text.trim() || isSending) && {
+              backgroundColor: colors.surface,
+              shadowOpacity: 0,
+            },
           ]}
           onPress={handleSend}
           disabled={!text.trim() || isSending}
@@ -162,7 +240,7 @@ export default function ChatScreen() {
           <Ionicons
             name="send"
             size={20}
-            color={text.trim() && !isSending ? colors.white : colors.textMuted}
+            color={text.trim() && !isSending ? '#ffffff' : colors.textMuted}
           />
         </Pressable>
       </View>
@@ -178,187 +256,3 @@ function formatTime(timestamp: string): string {
     return '';
   }
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  chatHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  headerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(34, 197, 94, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: spacing.md,
-    borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.3)',
-  },
-  headerInfo: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: fontSize.md,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  headerStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    marginTop: 2,
-  },
-  headerStatusText: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-  },
-  list: {
-    padding: spacing.lg,
-    flexGrow: 1,
-    justifyContent: 'flex-end',
-  },
-  empty: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 80,
-  },
-  emptyTitle: {
-    fontSize: fontSize.xl,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: spacing.sm,
-  },
-  emptyText: {
-    fontSize: fontSize.md,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  errorBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderTopWidth: 1,
-    borderTopColor: colors.critical,
-  },
-  errorText: {
-    fontSize: fontSize.sm,
-    color: colors.critical,
-    flex: 1,
-  },
-  inputBar: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  input: {
-    flex: 1,
-    backgroundColor: colors.bg,
-    borderRadius: borderRadius.lg,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    fontSize: fontSize.md,
-    color: colors.text,
-    maxHeight: 100,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: spacing.sm,
-    shadowColor: colors.accent,
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  sendDisabled: {
-    backgroundColor: colors.surface,
-    shadowOpacity: 0,
-  },
-});
-
-const msgStyles = StyleSheet.create({
-  row: {
-    marginBottom: spacing.md,
-  },
-  rowLeft: {
-    alignItems: 'flex-start',
-  },
-  rowRight: {
-    alignItems: 'flex-end',
-  },
-  bubble: {
-    maxWidth: '80%',
-    padding: spacing.md,
-  },
-  bubbleUser: {
-    backgroundColor: 'rgba(34, 197, 94, 0.85)',
-    borderTopLeftRadius: borderRadius.lg,
-    borderTopRightRadius: borderRadius.lg,
-    borderBottomLeftRadius: borderRadius.lg,
-    borderBottomRightRadius: 4,
-    shadowColor: colors.accent,
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  bubbleAI: {
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderTopLeftRadius: 4,
-    borderTopRightRadius: borderRadius.lg,
-    borderBottomRightRadius: borderRadius.lg,
-    borderBottomLeftRadius: borderRadius.lg,
-  },
-  sender: {
-    fontSize: fontSize.xs,
-    color: colors.accentLight,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  text: {
-    fontSize: fontSize.md,
-    lineHeight: 22,
-  },
-  textUser: {
-    color: colors.white,
-  },
-  textAI: {
-    color: colors.text,
-  },
-  time: {
-    fontSize: 10,
-    marginTop: 4,
-    alignSelf: 'flex-end',
-  },
-  timeUser: {
-    color: 'rgba(255,255,255,0.5)',
-  },
-  timeAI: {
-    color: colors.textMuted,
-  },
-});

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
+import { useThemeColors } from '../theme/ThemeContext';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -19,13 +20,15 @@ export function RingGauge({
   size = 100,
   strokeWidth = 8,
   color,
-  trackColor = 'rgba(255,255,255,0.06)',
+  trackColor,
   label,
   valueText,
 }: RingGaugeProps) {
+  const colors = useThemeColors();
   const animValue = useRef(new Animated.Value(0)).current;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
+  const resolvedTrackColor = trackColor || colors.trackColor;
 
   useEffect(() => {
     Animated.timing(animValue, {
@@ -43,16 +46,14 @@ export function RingGauge({
   return (
     <View style={[styles.container, { width: size, height: size }]}>
       <Svg width={size} height={size}>
-        {/* Track */}
         <Circle
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          stroke={trackColor}
+          stroke={resolvedTrackColor}
           strokeWidth={strokeWidth}
           fill="none"
         />
-        {/* Progress */}
         <AnimatedCircle
           cx={size / 2}
           cy={size / 2}
@@ -69,7 +70,7 @@ export function RingGauge({
       </Svg>
       <View style={styles.labelContainer}>
         <Text style={[styles.valueText, { color }]}>{valueText}</Text>
-        <Text style={styles.labelText}>{label}</Text>
+        <Text style={[styles.labelText, { color: colors.textSecondary }]}>{label}</Text>
       </View>
     </View>
   );
@@ -91,7 +92,6 @@ const styles = StyleSheet.create({
   },
   labelText: {
     fontSize: 10,
-    color: '#8888a0',
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,

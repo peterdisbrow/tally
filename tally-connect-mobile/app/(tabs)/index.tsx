@@ -6,7 +6,7 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
 import { usePolling } from '../../src/hooks/usePolling';
-import { colors } from '../../src/theme/colors';
+import { useThemeColors, type ThemeColors } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
 import { api } from '../../src/api/client';
 import { PulseDot } from '../../src/components/PulseDot';
@@ -57,21 +57,21 @@ function formatPercent(v?: number): string {
   return v != null ? `${Math.round(v)}%` : '--';
 }
 
-function percentColor(v?: number): string {
+function percentColor(v: number | undefined, colors: ThemeColors): string {
   if (v == null) return colors.textMuted;
   if (v >= 85) return colors.critical;
   if (v >= 70) return colors.warning;
   return colors.online;
 }
 
-function healthLabel(kbps?: number): { text: string; color: string } {
+function healthLabel(kbps: number | undefined, colors: ThemeColors): { text: string; color: string } {
   if (kbps == null) return { text: '--', color: colors.textMuted };
   if (kbps >= 4000) return { text: 'Excellent', color: colors.online };
   if (kbps >= 2000) return { text: 'Fair', color: colors.warning };
   return { text: 'Poor', color: colors.critical };
 }
 
-function streamStatusColor(connected: boolean, streaming?: boolean): string {
+function streamStatusColor(connected: boolean, streaming: boolean | undefined, colors: ThemeColors): string {
   if (!connected) return colors.offline;
   if (streaming) return colors.online;
   return colors.warning;
@@ -103,7 +103,7 @@ function isDevicePresent(device: Record<string, unknown> | undefined | null): bo
   return false;
 }
 
-function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
+function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): DeviceCard[] {
   if (!status) return [];
   const cards: DeviceCard[] = [];
 
@@ -142,7 +142,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   if (status.atem && isDevicePresent(status.atem) && (status.atem.streaming || status.atem.streamingBitrate || status.atem.streamingService)) {
     const a = status.atem;
     const bitrateKbps = a.streamingBitrate ? Math.round(a.streamingBitrate / 1000) : undefined;
-    const health = healthLabel(bitrateKbps);
+    const health = healthLabel(bitrateKbps, colors);
     const metrics: DeviceCard['metrics'] = [];
     if (a.protocolVersion) metrics.push({ label: 'Firmware', value: `v${a.protocolVersion}` });
     if (a.streamingService) metrics.push({ label: 'Platform', value: a.streamingService });
@@ -161,7 +161,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
       category: 'streaming',
       connected: a.connected,
       statusLabel: streamStatusLabel(a.connected, a.streaming),
-      statusColor: streamStatusColor(a.connected, a.streaming),
+      statusColor: streamStatusColor(a.connected, a.streaming, colors),
       metrics,
     });
   }
@@ -169,7 +169,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   // OBS Studio
   if (status.obs && isDevicePresent(status.obs)) {
     const o = status.obs;
-    const health = healthLabel(o.bitrate);
+    const health = healthLabel(o.bitrate, colors);
     const metrics: DeviceCard['metrics'] = [];
     if (o.version) metrics.push({ label: 'Version', value: `v${o.version}` });
     if (o.currentScene) metrics.push({ label: 'Scene', value: o.currentScene });
@@ -185,14 +185,14 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
     }
     if (o.fps != null) metrics.push({ label: 'FPS', value: `${Math.round(o.fps)}` });
     if (o.droppedFrames != null) metrics.push({ label: 'Dropped', value: `${o.droppedFrames}`, color: o.droppedFrames > 0 ? colors.warning : colors.online });
-    if (o.strain != null) metrics.push({ label: 'CPU Load', value: `${Math.round(o.strain * 100)}%`, color: percentColor(o.strain * 100) });
+    if (o.strain != null) metrics.push({ label: 'CPU Load', value: `${Math.round(o.strain * 100)}%`, color: percentColor(o.strain * 100, colors) });
     cards.push({
       id: 'obs',
       name: 'OBS Studio',
       category: 'streaming',
       connected: o.connected,
       statusLabel: streamStatusLabel(o.connected, o.streaming, o.recording),
-      statusColor: streamStatusColor(o.connected, o.streaming),
+      statusColor: streamStatusColor(o.connected, o.streaming, colors),
       metrics,
     });
   }
@@ -214,7 +214,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
       category: 'streaming',
       connected: v.connected,
       statusLabel: streamStatusLabel(v.connected, v.streaming, v.recording),
-      statusColor: streamStatusColor(v.connected, v.streaming),
+      statusColor: streamStatusColor(v.connected, v.streaming, colors),
       metrics,
     });
   }
@@ -222,7 +222,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   // Generic Encoder (when OBS not present)
   if (status.encoder && isDevicePresent(status.encoder) && !isDevicePresent(status.obs)) {
     const e = status.encoder;
-    const health = healthLabel(e.bitrate);
+    const health = healthLabel(e.bitrate, colors);
     const metrics: DeviceCard['metrics'] = [];
     if (e.type) metrics.push({ label: 'Type', value: e.type });
     if (e.firmwareVersion) metrics.push({ label: 'Firmware', value: `v${e.firmwareVersion}` });
@@ -234,15 +234,15 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
       metrics.push({ label: 'Health', value: health.text, color: health.color });
     }
     if (e.fps != null) metrics.push({ label: 'FPS', value: `${Math.round(e.fps)}` });
-    if (e.cpuUsage != null) metrics.push({ label: 'CPU', value: formatPercent(e.cpuUsage), color: percentColor(e.cpuUsage) });
-    if (e.congestion != null && e.congestion > 0) metrics.push({ label: 'Congestion', value: formatPercent(e.congestion), color: percentColor(e.congestion) });
+    if (e.cpuUsage != null) metrics.push({ label: 'CPU', value: formatPercent(e.cpuUsage), color: percentColor(e.cpuUsage, colors) });
+    if (e.congestion != null && e.congestion > 0) metrics.push({ label: 'Congestion', value: formatPercent(e.congestion), color: percentColor(e.congestion, colors) });
     cards.push({
       id: 'encoder',
       name: e.name || e.type || 'Encoder',
       category: 'streaming',
       connected: e.connected,
       statusLabel: streamStatusLabel(e.connected, e.streaming),
-      statusColor: streamStatusColor(e.connected, e.streaming),
+      statusColor: streamStatusColor(e.connected, e.streaming, colors),
       metrics,
     });
   }
@@ -307,7 +307,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
           metrics.push({ label: 'Status', value: deck.recording ? 'Recording' : 'Idle', color: deck.recording ? colors.critical : colors.textMuted });
         }
         if (deck.diskSpace) {
-          if (deck.diskSpace.percentUsed != null) metrics.push({ label: 'Disk Used', value: `${Math.round(deck.diskSpace.percentUsed)}%`, color: percentColor(deck.diskSpace.percentUsed) });
+          if (deck.diskSpace.percentUsed != null) metrics.push({ label: 'Disk Used', value: `${Math.round(deck.diskSpace.percentUsed)}%`, color: percentColor(deck.diskSpace.percentUsed, colors) });
           if (deck.diskSpace.freeGB != null) metrics.push({ label: 'Free', value: `${deck.diskSpace.freeGB.toFixed(1)} GB` });
           if (deck.diskSpace.minutesRemaining != null) metrics.push({ label: 'Time Left', value: `${Math.round(deck.diskSpace.minutesRemaining)} min`, color: deck.diskSpace.minutesRemaining < 30 ? colors.warning : colors.online });
         }
@@ -517,7 +517,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
   // Backup Encoder
   if (status.backupEncoder && isDevicePresent(status.backupEncoder)) {
     const b = status.backupEncoder;
-    const health = healthLabel(b.bitrate);
+    const health = healthLabel(b.bitrate, colors);
     const metrics: DeviceCard['metrics'] = [];
     if (b.type) metrics.push({ label: 'Type', value: b.type });
     if (b.firmwareVersion) metrics.push({ label: 'Firmware', value: `v${b.firmwareVersion}` });
@@ -533,7 +533,7 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
       category: 'streaming',
       connected: b.connected,
       statusLabel: streamStatusLabel(b.connected, b.streaming),
-      statusColor: streamStatusColor(b.connected, b.streaming),
+      statusColor: streamStatusColor(b.connected, b.streaming, colors),
       metrics,
     });
   }
@@ -547,9 +547,9 @@ function buildDeviceCards(status: DeviceStatus | null): DeviceCard[] {
     const cpuVal = typeof s.cpu === 'object' ? s.cpu?.usage : s.cpu;
     const memVal = typeof s.memory === 'object' ? s.memory?.usage : s.memory;
     const diskVal = typeof s.disk === 'object' ? s.disk?.usage : s.disk;
-    if (cpuVal != null) metrics.push({ label: 'CPU', value: formatPercent(cpuVal), color: percentColor(cpuVal) });
-    if (memVal != null) metrics.push({ label: 'RAM', value: formatPercent(memVal), color: percentColor(memVal) });
-    if (diskVal != null) metrics.push({ label: 'Disk', value: formatPercent(diskVal), color: percentColor(diskVal) });
+    if (cpuVal != null) metrics.push({ label: 'CPU', value: formatPercent(cpuVal), color: percentColor(cpuVal, colors) });
+    if (memVal != null) metrics.push({ label: 'RAM', value: formatPercent(memVal), color: percentColor(memVal, colors) });
+    if (diskVal != null) metrics.push({ label: 'Disk', value: formatPercent(diskVal), color: percentColor(diskVal, colors) });
     cards.push({
       id: 'system',
       name: 'System',
@@ -628,7 +628,8 @@ const DEVICE_ICONS: Record<string, { lib: 'ion' | 'mci'; name: string }> = {
   system: { lib: 'ion', name: 'settings-outline' },
 };
 
-function DeviceIcon({ id, size = 16, color = colors.textSecondary }: { id: string; size?: number; color?: string }) {
+function DeviceIcon({ id, size = 16, color, colors }: { id: string; size?: number; color?: string; colors: ThemeColors }) {
+  const iconColor = color ?? colors.textSecondary;
   let icon = DEVICE_ICONS[id];
   if (!icon) {
     if (id.startsWith('smartplug')) icon = { lib: 'mci', name: 'power-plug-outline' };
@@ -636,13 +637,13 @@ function DeviceIcon({ id, size = 16, color = colors.textSecondary }: { id: strin
     else if (id.startsWith('hyperdeck')) icon = { lib: 'mci', name: 'harddisk' };
     else icon = { lib: 'ion', name: 'hardware-chip-outline' };
   }
-  if (icon.lib === 'mci') return <MaterialCommunityIcons name={icon.name as any} size={size} color={color} />;
-  return <Ionicons name={icon.name as any} size={size} color={color} />;
+  if (icon.lib === 'mci') return <MaterialCommunityIcons name={icon.name as any} size={size} color={iconColor} />;
+  return <Ionicons name={icon.name as any} size={size} color={iconColor} />;
 }
 
 // ─── LIVE Badge Component ───────────────────────────────────────────────────
 
-function LiveBadge({ startedAt }: { startedAt?: string }) {
+function LiveBadge({ startedAt, colors }: { startedAt?: string; colors: ThemeColors }) {
   const pulseAnim = useRef(new Animated.Value(0.7)).current;
   const [elapsed, setElapsed] = useState('');
 
@@ -670,78 +671,50 @@ function LiveBadge({ startedAt }: { startedAt?: string }) {
   }, [startedAt]);
 
   return (
-    <Animated.View style={[liveBadgeStyles.badge, { opacity: pulseAnim }]}>
-      <View style={liveBadgeStyles.dot} />
-      <Text style={liveBadgeStyles.text}>LIVE</Text>
-      {elapsed ? <Text style={liveBadgeStyles.timer}>{elapsed}</Text> : null}
+    <Animated.View style={[{
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(239, 68, 68, 0.9)',
+      borderRadius: borderRadius.sm,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+      gap: 4,
+      shadowColor: colors.live,
+      shadowOpacity: 0.5,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+    }, { opacity: pulseAnim }]}>
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#ffffff' }} />
+      <Text style={{ fontSize: 10, fontWeight: '800', color: '#ffffff', letterSpacing: 1 }}>LIVE</Text>
+      {elapsed ? <Text style={{ fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.8)' }}>{elapsed}</Text> : null}
     </Animated.View>
   );
 }
 
-const liveBadgeStyles = StyleSheet.create({
-  badge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(239, 68, 68, 0.9)',
-    borderRadius: borderRadius.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    gap: 4,
-    shadowColor: colors.live,
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.white,
-  },
-  text: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: colors.white,
-    letterSpacing: 1,
-  },
-  timer: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: 'rgba(255,255,255,0.8)',
-  },
-});
-
 // ─── System Resource Bar ────────────────────────────────────────────────────
 
-function ResourceBar({ label, value, color }: { label: string; value: number; color: string }) {
+function ResourceBar({ label, value, color, colors }: { label: string; value: number; color: string; colors: ThemeColors }) {
   return (
-    <View style={resourceStyles.item}>
-      <View style={resourceStyles.labelRow}>
-        <Text style={resourceStyles.label}>{label}</Text>
-        <Text style={[resourceStyles.value, { color }]}>{Math.round(value)}%</Text>
+    <View style={{ marginBottom: spacing.sm }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+        <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' }}>{label}</Text>
+        <Text style={{ fontSize: fontSize.xs, fontWeight: '700', color }}>{Math.round(value)}%</Text>
       </View>
-      <View style={resourceStyles.track}>
-        <View style={[resourceStyles.fill, { width: `${Math.min(value, 100)}%`, backgroundColor: color }]} />
+      <View style={{ height: 4, backgroundColor: colors.trackColor, borderRadius: 2, overflow: 'hidden' }}>
+        <View style={{ height: 4, borderRadius: 2, width: `${Math.min(value, 100)}%`, backgroundColor: color }} />
       </View>
     </View>
   );
 }
 
-const resourceStyles = StyleSheet.create({
-  item: { marginBottom: spacing.sm },
-  labelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
-  label: { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
-  value: { fontSize: fontSize.xs, fontWeight: '700' },
-  track: { height: 4, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' },
-  fill: { height: 4, borderRadius: 2 },
-});
-
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function DashboardScreen() {
+  const colors = useThemeColors();
+
   const refreshAll = useStatusStore((s) => s.refreshAll);
   const isRefreshing = useStatusStore((s) => s.isRefreshing);
   const dashboardStats = useStatusStore((s) => s.dashboardStats);
@@ -772,7 +745,7 @@ export default function DashboardScreen() {
     }
   }, 5000);
 
-  const cards = buildDeviceCards(status);
+  const cards = buildDeviceCards(status, colors);
   const summary = buildSummary(status, cards);
 
   const toggleExpanded = useCallback((id: string) => {
@@ -849,7 +822,7 @@ export default function DashboardScreen() {
 
   return (
     <ScrollView
-      style={styles.container}
+      style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={styles.content}
       refreshControl={
         <RefreshControl
@@ -862,7 +835,7 @@ export default function DashboardScreen() {
       {/* Room Header with LIVE badge */}
       <View style={styles.roomRow}>
         <View style={styles.roomLeft}>
-          <Text style={styles.roomLabel}>
+          <Text style={[styles.roomLabel, { color: colors.text }]}>
             {rooms.find((r) => r.id === activeRoomId)?.name || 'No Room Selected'}
           </Text>
           <PulseDot
@@ -870,7 +843,7 @@ export default function DashboardScreen() {
             size={10}
           />
         </View>
-        {summary.isStreaming && <LiveBadge startedAt={session?.startedAt} />}
+        {summary.isStreaming && <LiveBadge startedAt={session?.startedAt} colors={colors} />}
       </View>
 
       {/* Ring Gauges Row */}
@@ -901,17 +874,17 @@ export default function DashboardScreen() {
       {(session?.active || summary.totalViewers > 0) && (
         <View style={styles.infoRow}>
           {session?.active && (
-            <View style={styles.infoPill}>
+            <View style={[styles.infoPill, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <PulseDot color={colors.online} size={6} />
-              <Text style={styles.infoText}>
+              <Text style={[styles.infoText, { color: colors.textSecondary }]}>
                 {sessionDuration || 'Active'}
                 {session.incidents ? ` · ${session.incidents} alert${session.incidents !== 1 ? 's' : ''}` : ''}
               </Text>
             </View>
           )}
           {summary.totalViewers > 0 && (
-            <View style={styles.infoPill}>
-              <Text style={styles.infoText}>
+            <View style={[styles.infoPill, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={[styles.infoText, { color: colors.textSecondary }]}>
                 <Ionicons name="eye-outline" size={14} color={colors.textSecondary} /> {summary.totalViewers.toLocaleString()} viewer{summary.totalViewers !== 1 ? 's' : ''}
               </Text>
             </View>
@@ -925,30 +898,30 @@ export default function DashboardScreen() {
           <View style={styles.streamStatsRow}>
             {bitrate != null && (
               <View style={styles.streamStat}>
-                <Text style={styles.streamStatValue}>{(bitrate / 1000).toFixed(1)}</Text>
-                <Text style={styles.streamStatLabel}>BITRATE</Text>
+                <Text style={[styles.streamStatValue, { color: colors.text }]}>{(bitrate / 1000).toFixed(1)}</Text>
+                <Text style={[styles.streamStatLabel, { color: colors.textSecondary }]}>BITRATE</Text>
               </View>
             )}
             {fps != null && (
               <View style={styles.streamStat}>
-                <Text style={styles.streamStatValue}>{Math.round(fps)}</Text>
-                <Text style={styles.streamStatLabel}>FPS</Text>
+                <Text style={[styles.streamStatValue, { color: colors.text }]}>{Math.round(fps)}</Text>
+                <Text style={[styles.streamStatLabel, { color: colors.textSecondary }]}>FPS</Text>
               </View>
             )}
             {totalViewers > 0 && (
               <View style={styles.streamStat}>
-                <Text style={styles.streamStatValue}>{totalViewers.toLocaleString()}</Text>
-                <Text style={styles.streamStatLabel}>VIEWERS</Text>
+                <Text style={[styles.streamStatValue, { color: colors.text }]}>{totalViewers.toLocaleString()}</Text>
+                <Text style={[styles.streamStatLabel, { color: colors.textSecondary }]}>VIEWERS</Text>
               </View>
             )}
             <View style={styles.platformTags}>
               {ytViewers != null && (
-                <View style={[styles.platformTag, { backgroundColor: 'rgba(239,68,68,0.15)' }]}>
+                <View style={[styles.platformTag, { backgroundColor: colors.isDark ? 'rgba(239,68,68,0.15)' : 'rgba(239,68,68,0.1)' }]}>
                   <Text style={[styles.platformTagText, { color: '#ef4444' }]}>YT</Text>
                 </View>
               )}
               {fbViewers != null && (
-                <View style={[styles.platformTag, { backgroundColor: 'rgba(59,130,246,0.15)' }]}>
+                <View style={[styles.platformTag, { backgroundColor: colors.isDark ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.1)' }]}>
                   <Text style={[styles.platformTagText, { color: '#3b82f6' }]}>FB</Text>
                 </View>
               )}
@@ -960,7 +933,7 @@ export default function DashboardScreen() {
       {/* Camera Tally Cards */}
       {tallyCards.length > 0 && (
         <View style={styles.categorySection}>
-          <Text style={styles.categoryTitle}>Camera Tally</Text>
+          <Text style={[styles.categoryTitle, { color: colors.textSecondary }]}>Camera Tally</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {tallyCards.map((input) => {
               const isPgm = input.isProgram;
@@ -970,12 +943,30 @@ export default function DashboardScreen() {
                   key={input.number}
                   style={[
                     styles.tallyCard,
-                    isPgm && styles.tallyPgm,
-                    isPvw && styles.tallyPvw,
-                    !isPgm && !isPvw && styles.tallyOff,
+                    isPgm && {
+                      backgroundColor: 'rgba(239, 68, 68, 0.85)',
+                      shadowColor: colors.tallyProgram,
+                      shadowOpacity: 0.6,
+                      shadowRadius: 12,
+                      shadowOffset: { width: 0, height: 4 },
+                      elevation: 8,
+                    },
+                    isPvw && {
+                      backgroundColor: 'rgba(34, 197, 94, 0.7)',
+                      shadowColor: colors.tallyPreview,
+                      shadowOpacity: 0.4,
+                      shadowRadius: 10,
+                      shadowOffset: { width: 0, height: 4 },
+                      elevation: 6,
+                    },
+                    !isPgm && !isPvw && {
+                      backgroundColor: colors.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    },
                   ]}
                 >
-                  <Text style={styles.tallyNumber}>{input.number}</Text>
+                  <Text style={[styles.tallyNumber, { color: isPgm || isPvw ? '#ffffff' : colors.text }]}>{input.number}</Text>
                   <Text style={styles.tallyName} numberOfLines={1}>{input.name}</Text>
                   {(isPgm || isPvw) && (
                     <Text style={styles.tallyLabel}>{isPgm ? 'PGM' : 'PVW'}</Text>
@@ -987,30 +978,30 @@ export default function DashboardScreen() {
         </View>
       )}
 
-      {/* Device List — single card with dividers */}
+      {/* Device List -- single card with dividers */}
       {grouped.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>
+          <Text style={[styles.emptyText, { color: colors.textMuted }]}>
             {status ? 'No devices configured' : 'Waiting for data...'}
           </Text>
         </View>
       ) : (
         grouped.map(group => (
           <View key={group.key} style={styles.categorySection}>
-            <Text style={styles.categoryTitle}>{group.label}</Text>
-            <View style={styles.deviceListCard}>
+            <Text style={[styles.categoryTitle, { color: colors.textSecondary }]}>{group.label}</Text>
+            <View style={[styles.deviceListCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               {group.cards.map((card, idx) => (
                 <TouchableOpacity
                   key={card.id}
                   activeOpacity={0.7}
                   onPress={() => toggleExpanded(card.id)}
                 >
-                  <View style={[styles.deviceRow, idx < group.cards.length - 1 && styles.deviceRowBorder]}>
+                  <View style={[styles.deviceRow, idx < group.cards.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
                     {/* Card Header */}
                     <View style={styles.cardHeader}>
-                      <DeviceIcon id={card.id} size={16} color={colors.textSecondary} />
+                      <DeviceIcon id={card.id} size={16} color={colors.textSecondary} colors={colors} />
                       <PulseDot color={card.statusColor} size={8} />
-                      <Text style={styles.cardName} numberOfLines={1}>{card.name}</Text>
+                      <Text style={[styles.cardName, { color: colors.text }]} numberOfLines={1}>{card.name}</Text>
                       <Text style={[styles.cardStatus, { color: card.statusColor }]}>
                         {card.statusLabel}
                       </Text>
@@ -1019,11 +1010,11 @@ export default function DashboardScreen() {
 
                     {/* Expanded Metrics */}
                     {expandedIds.has(card.id) && card.metrics.length > 0 && (
-                      <View style={styles.metricsGrid}>
+                      <View style={[styles.metricsGrid, { borderTopColor: colors.border }]}>
                         {card.metrics.map((m, i) => (
                           <View key={i} style={styles.metricItem}>
-                            <Text style={styles.metricLabel}>{m.label}</Text>
-                            <Text style={[styles.metricValue, m.color ? { color: m.color } : null]} numberOfLines={1}>
+                            <Text style={[styles.metricLabel, { color: colors.textMuted }]}>{m.label}</Text>
+                            <Text style={[styles.metricValue, { color: colors.text }, m.color ? { color: m.color } : null]} numberOfLines={1}>
                               {m.value}
                             </Text>
                           </View>
@@ -1041,11 +1032,11 @@ export default function DashboardScreen() {
       {/* System Resources */}
       {(cpuVal != null || memVal != null || diskVal != null) && (
         <View style={styles.categorySection}>
-          <Text style={styles.categoryTitle}>System Resources</Text>
+          <Text style={[styles.categoryTitle, { color: colors.textSecondary }]}>System Resources</Text>
           <GlassCard>
-            {cpuVal != null && <ResourceBar label="CPU" value={cpuVal} color={percentColor(cpuVal)} />}
-            {memVal != null && <ResourceBar label="RAM" value={memVal} color={percentColor(memVal)} />}
-            {diskVal != null && <ResourceBar label="Disk" value={diskVal} color={percentColor(diskVal)} />}
+            {cpuVal != null && <ResourceBar label="CPU" value={cpuVal} color={percentColor(cpuVal, colors)} colors={colors} />}
+            {memVal != null && <ResourceBar label="RAM" value={memVal} color={percentColor(memVal, colors)} colors={colors} />}
+            {diskVal != null && <ResourceBar label="Disk" value={diskVal} color={percentColor(diskVal, colors)} colors={colors} />}
           </GlassCard>
         </View>
       )}
@@ -1055,7 +1046,7 @@ export default function DashboardScreen() {
   );
 }
 
-function SystemStat({ label, value, unit }: { label: string; value?: number; unit: string }) {
+function SystemStat({ label, value, unit, colors }: { label: string; value?: number; unit: string; colors: ThemeColors }) {
   const v = value != null ? Math.round(value) : null;
   const color = v != null
     ? v >= 85 ? colors.critical
@@ -1064,9 +1055,9 @@ function SystemStat({ label, value, unit }: { label: string; value?: number; uni
     : colors.textMuted;
 
   return (
-    <View style={systemStyles.stat}>
-      <Text style={systemStyles.label}>{label}</Text>
-      <Text style={[systemStyles.value, { color }]}>
+    <View style={{ alignItems: 'center' }}>
+      <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' }}>{label}</Text>
+      <Text style={{ fontSize: fontSize.md, fontWeight: '700', color }}>
         {v != null ? `${v}${unit}` : '--'}
       </Text>
     </View>
@@ -1149,11 +1140,9 @@ function buildDeviceList(status: DeviceStatus | null): DeviceInfo[] {
   return devices;
 }
 
+// ─── Static styles (no color references) ────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
   content: {
     padding: spacing.lg,
   },
@@ -1171,7 +1160,6 @@ const styles = StyleSheet.create({
   roomLabel: {
     fontSize: fontSize.lg,
     fontWeight: '700',
-    color: colors.text,
   },
 
   // Ring Gauges
@@ -1201,11 +1189,9 @@ const styles = StyleSheet.create({
   streamStatValue: {
     fontSize: fontSize.xl,
     fontWeight: '700',
-    color: colors.text,
   },
   streamStatLabel: {
     fontSize: 9,
-    color: colors.textSecondary,
     fontWeight: '600',
     letterSpacing: 0.5,
     marginTop: 2,
@@ -1236,31 +1222,9 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
     overflow: 'hidden',
   },
-  tallyPgm: {
-    backgroundColor: 'rgba(239, 68, 68, 0.85)',
-    shadowColor: colors.tallyProgram,
-    shadowOpacity: 0.6,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 8,
-  },
-  tallyPvw: {
-    backgroundColor: 'rgba(34, 197, 94, 0.7)',
-    shadowColor: colors.tallyPreview,
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  tallyOff: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
   tallyNumber: {
     fontSize: fontSize.xl,
     fontWeight: '800',
-    color: colors.white,
   },
   tallyName: {
     fontSize: fontSize.xs,
@@ -1287,17 +1251,14 @@ const styles = StyleSheet.create({
   infoPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surface,
     borderRadius: borderRadius.full,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderWidth: 1,
-    borderColor: colors.border,
     gap: spacing.sm,
   },
   infoText: {
     fontSize: fontSize.xs,
-    color: colors.textSecondary,
   },
 
   // Categories
@@ -1306,7 +1267,6 @@ const styles = StyleSheet.create({
   },
   categoryTitle: {
     fontSize: fontSize.xs,
-    color: colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 1,
     fontWeight: '600',
@@ -1315,17 +1275,11 @@ const styles = StyleSheet.create({
 
   // Device List (single card with dividers)
   deviceListCard: {
-    backgroundColor: colors.surface,
     borderRadius: borderRadius.md,
     borderWidth: 1,
-    borderColor: colors.border,
     overflow: 'hidden',
   },
   deviceRow: {},
-  deviceRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1336,7 +1290,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: fontSize.md,
     fontWeight: '600',
-    color: colors.text,
   },
   cardStatus: {
     fontSize: fontSize.sm,
@@ -1350,7 +1303,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
     paddingTop: spacing.md,
   },
   metricItem: {
@@ -1360,13 +1312,11 @@ const styles = StyleSheet.create({
   },
   metricLabel: {
     fontSize: fontSize.xs,
-    color: colors.textMuted,
     marginBottom: 2,
   },
   metricValue: {
     fontSize: fontSize.sm,
     fontWeight: '600',
-    color: colors.text,
   },
 
   // Empty state
@@ -1376,7 +1326,6 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: fontSize.md,
-    color: colors.textMuted,
     textAlign: 'center',
   },
 });

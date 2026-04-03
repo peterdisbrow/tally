@@ -1,6 +1,6 @@
 import React from 'react';
-import { View, StyleSheet, ViewStyle } from 'react-native';
-import { colors } from '../theme/colors';
+import { View, ViewStyle } from 'react-native';
+import { useThemeColors } from '../theme/ThemeContext';
 import { borderRadius, spacing } from '../theme/spacing';
 
 interface GlassCardProps {
@@ -10,19 +10,16 @@ interface GlassCardProps {
 }
 
 export function GlassCard({ children, glowColor, style }: GlassCardProps) {
+  const colors = useThemeColors();
   return (
-    <View style={[styles.card, glowColor && { shadowColor: glowColor, shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 }, style]}>
+    <View style={[{
+      backgroundColor: colors.surfaceElevated,
+      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+    }, glowColor && { shadowColor: glowColor, shadowOpacity: colors.cardShadowOpacity, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 8 }, style]}>
       {children}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-});
