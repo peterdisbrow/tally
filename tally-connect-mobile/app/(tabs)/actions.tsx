@@ -68,10 +68,13 @@ export default function ActionsScreen() {
             useCommandResultStore.getState().clearResult(messageId);
             resolve(r);
           }
-        }, 100);
+        }, 250);
       });
 
-      if (result && !result.success) {
+      if (result === null) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        Alert.alert('No Response', 'Command not acknowledged — check equipment status.');
+      } else if (!result.success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         Alert.alert('Command Failed', result.error || 'The command was not executed successfully.');
       } else {
