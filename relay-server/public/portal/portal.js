@@ -1392,14 +1392,22 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
         tbody.innerHTML = tableHtml;
 
+        // ── Detail cards — each wrapped in try-catch so one failure
+        //    doesn't prevent subsequent cards from rendering ──────────────
+        try { updateAtemDetailCard(status); } catch (e) { console.error('ATEM card error', e); }
+        try { updateProPresenterDetailCard(status); } catch (e) { console.error('PP card error', e); }
+        try { updateVideoHubRoutingCard(status); } catch (e) { console.error('VH card error', e); }
+        try { updateSmartPlugsCard(status); } catch (e) { console.error('Plugs card error', e); }
+        try { loadEquipmentRoles(); } catch (e) { console.error('Roles card error', e); }
+
         // ── Live Stream Stats card ──────────────────────────────────────────
-        updateStreamStats(status, enc);
+        try { updateStreamStats(status, enc); } catch (e) { console.error('Stream stats error', e); }
 
         // ── Stream Protection card ────────────────────────────────────────
-        if (status.streamProtection) updateStreamProtectionUI(status.streamProtection);
+        try { if (status.streamProtection) updateStreamProtectionUI(status.streamProtection); } catch (e) { console.error('SP error', e); }
 
         // ── Broadcast platform health (YouTube / Facebook) ──────────────
-        updateBroadcastHealthCard(d.broadcastHealth);
+        try { updateBroadcastHealthCard(d.broadcastHealth); } catch (e) { console.error('BH error', e); }
 
         var statusText = document.getElementById('stat-status-text');
         var statusDot = document.getElementById('stat-status-dot');
@@ -1407,11 +1415,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (statusDot) { statusDot.style.background = d.connected ? '#22c55e' : '#ef4444'; }
 
         // ── Onboarding checklist ──────────────────────────────────────────────
-        renderOnboarding(d);
+        try { renderOnboarding(d); } catch (e) { console.error('Onboarding error', e); }
 
         // ── Review prompt (after onboarding, after upgrade banner) ───────────
-        checkReviewEligibility();
-        loadReferralCard();
+        try { checkReviewEligibility(); } catch {}
+        try { loadReferralCard(); } catch {}
 
         // ── Sessions count for overview stat ─────────────────────────────────
         (async function() {
@@ -1427,21 +1435,6 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         // ── Live incident commander ──────────────────────────────────────────
         loadIncidents();
-
-        // ── ATEM detail card ──────────────────────────────────────────────────
-        updateAtemDetailCard(status);
-
-        // ── ProPresenter detail card ─────────────────────────────────────────
-        updateProPresenterDetailCard(status);
-
-        // ── VideoHub routing card ────────────────────────────────────────────
-        updateVideoHubRoutingCard(status);
-
-        // ── Smart plugs card ──────────────────────────────────────────────
-        updateSmartPlugsCard(status);
-
-        // ── Equipment roles card ─────────────────────────────────────────
-        loadEquipmentRoles();
 
         // ── Audio health card ────────────────────────────────────────────────
         updateAudioHealthCard(status, audioViaAtem);
@@ -1592,13 +1585,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           + '<div style="font-size:13px;font-weight:600;color:#F8FAFC">' + def.label + '</div>'
           + '<div style="font-size:11px;color:#64748B">' + desc + '</div>'
           + '</div>'
-          + '<select style="background:#0F172A;color:#F8FAFC;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;width:150px" '
+          + '<select data-role="' + roleKey + '" style="background:#0F172A;color:#F8FAFC;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;width:150px" '
           + 'onchange="onRoleChange(\'' + roleKey + '\', this.value)">'
           + options
           + '</select>'
           + '</div>';
       }
       body.innerHTML = html;
+      // Programmatically set each select's value to ensure the browser shows the
+      // correct selection (the HTML selected attribute alone can be unreliable).
+      var selects = body.querySelectorAll('select[data-role]');
+      for (var s = 0; s < selects.length; s++) {
+        var sel = selects[s];
+        var rk = sel.getAttribute('data-role');
+        if (rk && _rolesEdited[rk]) {
+          sel.value = _rolesEdited[rk];
+        }
+      }
     }
 
     function renderRolesRouting() {
@@ -2197,6 +2200,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
 
       var html = '';
+      var _mergedAtem = false;
       for (var i = 0; i < ids.length; i++) {
         var sw = switchers[ids[i]];
         if (!sw) continue;
@@ -2205,7 +2209,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // authoritative source for the primary ATEM (it's what the equipment table
         // row and stream widget read).  Always prefer its values over the switcher
         // object, which may lag behind or arrive with null fields.
-        if (sw.type === 'atem' && status.atem && typeof status.atem === 'object') {
+        // Use case-insensitive type check and also merge into the first switcher
+        // when there's only one (single-switcher setups).
+        var _isAtemType = (sw.type || '').toLowerCase() === 'atem';
+        var _shouldMergeAtem = _isAtemType || (ids.length === 1 && status.atem && typeof status.atem === 'object' && status.atem.connected);
+        if (_shouldMergeAtem && status.atem && typeof status.atem === 'object') {
           if (status.atem.programInput != null) sw.programInput = status.atem.programInput;
           if (status.atem.previewInput != null) sw.previewInput = status.atem.previewInput;
           if (status.atem.inputLabels) sw.inputLabels = status.atem.inputLabels;
@@ -2218,17 +2226,19 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           if (status.atem.streamingBitrate != null) sw.streamingBitrate = status.atem.streamingBitrate;
           if (status.atem.streamingCacheUsed != null) sw.streamingCacheUsed = status.atem.streamingCacheUsed;
           if (status.atem.audioDelays) sw.audioDelays = status.atem.audioDelays;
+          if (_isAtemType) _mergedAtem = true;
         }
 
-        var typeIcon = sw.type === 'atem' ? '\uD83C\uDF9B' : sw.type === 'obs' ? '\uD83D\uDCF9' : sw.type === 'vmix' ? '\uD83C\uDFAC' : '\uD83D\uDD00';
-        var typeLabel = sw.type === 'atem' ? 'ATEM' : sw.type === 'obs' ? 'OBS' : sw.type === 'vmix' ? 'vMix' : sw.type;
+        var _swType = (sw.type || '').toLowerCase();
+        var typeIcon = _swType === 'atem' ? '\uD83C\uDF9B' : _swType === 'obs' ? '\uD83D\uDCF9' : _swType === 'vmix' ? '\uD83C\uDFAC' : '\uD83D\uDD00';
+        var typeLabel = _swType === 'atem' ? 'ATEM' : _swType === 'obs' ? 'OBS' : _swType === 'vmix' ? 'vMix' : sw.type;
         var modelLabel = sw.model || sw.version || typeLabel;
         var roleBadge = '<span class="badge badge-gray" style="font-size:10px;text-transform:uppercase">' + _escHtml(sw.role || 'unknown') + '</span>';
         var connDot = sw.connected ? '<span style="color:#22c55e">\u25CF</span>' : '<span style="color:#ef4444">\u25CF</span>';
 
         // Program/Preview display
-        var pgmName = sw.programInput != null ? (sw.type === 'atem' ? friendlyInputName(sw.programInput) : String(sw.programInput)) : '\u2014';
-        var pvwName = sw.previewInput != null ? (sw.type === 'atem' ? friendlyInputName(sw.previewInput) : String(sw.previewInput)) : '\u2014';
+        var pgmName = sw.programInput != null ? (_isAtemType ? friendlyInputName(sw.programInput) : String(sw.programInput)) : '\u2014';
+        var pvwName = sw.previewInput != null ? (_isAtemType ? friendlyInputName(sw.previewInput) : String(sw.previewInput)) : '\u2014';
         var labels = sw.inputLabels || {};
         var pgmLabel = labels[sw.programInput] || '';
         var pvwLabel = labels[sw.previewInput] || '';
@@ -2281,6 +2291,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         html += '<div style="display:flex;gap:8px;flex-wrap:wrap">' + badgeParts.join(' ') + '</div>';
         html += '</div>';
+      }
+
+      // Fallback: if status.atem has PGM/PVW data but no switcher card picked it up,
+      // show the legacy ATEM detail card instead so the data isn't lost.
+      if (!_mergedAtem && status.atem && typeof status.atem === 'object' && status.atem.connected) {
+        var _legacyCard = document.getElementById('atem-detail-card');
+        if (_legacyCard) {
+          _legacyCard.style.display = '';
+          var _lm = document.getElementById('atem-model-label');
+          if (_lm) _lm.textContent = status.atem.model || 'ATEM';
+          var _lp = document.getElementById('atem-pgm-input');
+          if (_lp) _lp.textContent = status.atem.programInput != null ? friendlyInputName(status.atem.programInput) : '\u2014';
+          var _lv = document.getElementById('atem-pvw-input');
+          if (_lv) _lv.textContent = status.atem.previewInput != null ? friendlyInputName(status.atem.previewInput) : '\u2014';
+        }
       }
 
       container.innerHTML = html;
