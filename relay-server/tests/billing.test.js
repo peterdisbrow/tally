@@ -5,7 +5,7 @@
  * a Stripe API key or database connection.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
@@ -90,7 +90,10 @@ describe('PRICES structure', () => {
 });
 
 describe('_validatePriceIds (via BillingSystem constructor)', () => {
+  const ORIGINAL_ENV = { ...process.env };
+
   beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV };
     // Clear billing module cache between tests
     const billingPath = require.resolve('../src/billing');
     delete require.cache[billingPath];
@@ -100,8 +103,13 @@ describe('_validatePriceIds (via BillingSystem constructor)', () => {
     } catch { /* stripe may not resolve */ }
   });
 
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+  });
+
   it('warns on placeholder prices when Stripe is configured', () => {
     // Set a fake Stripe key so stripe initializes
+    process.env.NODE_ENV = 'test';
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake_key_for_unit_testing';
 
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -121,6 +129,22 @@ describe('_validatePriceIds (via BillingSystem constructor)', () => {
     expect(warnCalls).toContain('placeholder');
 
     warnSpy.mockRestore();
+  });
+
+  it('throws in production-like env when Stripe prices are placeholders', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.STRIPE_SECRET_KEY = 'sk_live_fake_for_validation';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_fake_for_validation';
+    delete process.env.VITEST;
+
+    const { BillingSystem } = require('../src/billing');
+
+    const mockDb = {
+      exec: vi.fn(),
+      prepare: vi.fn().mockReturnValue({ run: vi.fn(), get: vi.fn(), all: vi.fn() }),
+    };
+
+    expect(() => new BillingSystem(mockDb)).toThrow(/STRIPE_PRICE_CONNECT/);
   });
 
   it('does not warn about placeholders when Stripe is not configured', () => {

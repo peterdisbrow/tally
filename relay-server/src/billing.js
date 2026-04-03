@@ -90,6 +90,23 @@ const TIER_LIMITS = {
   event:   { rooms: 1,        devices: 'all' },
 };
 
+function isDevLikeEnv() {
+  return process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test' || !!process.env.VITEST;
+}
+
+function getInvalidPriceEnvKeys() {
+  const missing = [];
+  for (const [tier, intervals] of Object.entries(PRICES)) {
+    for (const [interval, priceId] of Object.entries(intervals)) {
+      if (!priceId || priceId.includes('placeholder') || !priceId.startsWith('price_')) {
+        const envKey = PRICE_ENV_KEYS[tier]?.[interval] || `STRIPE_PRICE_${tier.toUpperCase()}`;
+        missing.push(envKey);
+      }
+    }
+  }
+  return missing;
+}
+
 class BillingSystem {
   constructor(db) {
     this.db = db;
@@ -105,26 +122,28 @@ class BillingSystem {
     });
   }
 
-  /** Warn at startup if Stripe is enabled but price IDs are still placeholders */
+  /** Validate Stripe checkout config. Dev/test warns; non-dev throws. */
   _validatePriceIds() {
     if (!stripe) return; // Stripe not configured, skip
 
+    const strict = !isDevLikeEnv();
+
     // Check for webhook secret
     if (!process.env.STRIPE_WEBHOOK_SECRET) {
-      console.warn('\n⚠️  Stripe is enabled but STRIPE_WEBHOOK_SECRET is not set.');
+      const msg = '[Billing] Stripe is enabled but STRIPE_WEBHOOK_SECRET is not set.';
+      if (strict) throw new Error(msg);
+      console.warn(`\n⚠️  ${msg}`);
       console.warn('   Webhook signature verification will fail without it.\n');
     }
 
-    const missing = [];
-    for (const [tier, intervals] of Object.entries(PRICES)) {
-      for (const [interval, priceId] of Object.entries(intervals)) {
-        if (!priceId || priceId.includes('placeholder') || !priceId.startsWith('price_')) {
-          const envKey = PRICE_ENV_KEYS[tier]?.[interval] || `STRIPE_PRICE_${tier.toUpperCase()}`;
-          missing.push(envKey);
-        }
-      }
-    }
+    const missing = getInvalidPriceEnvKeys();
     if (missing.length > 0) {
+      const msg =
+        `[Billing] Stripe is enabled but ${missing.length} price ID(s) are missing or still placeholders: ` +
+        `${missing.join(', ')}.`;
+      if (strict) {
+        throw new Error(`${msg} Set real Stripe price IDs before accepting payments.`);
+      }
       console.warn(`\n⚠️  Stripe is enabled but ${missing.length} price ID(s) are missing or still placeholders:`);
       console.warn(`   ${missing.join(', ')}`);
       console.warn('   Set these in .env with real Stripe price IDs before accepting payments.\n');
