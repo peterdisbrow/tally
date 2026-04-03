@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Pressable, Alert,
+  View, Text, ScrollView, StyleSheet, Pressable, Alert, Switch,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -98,6 +98,31 @@ export default function ActionsScreen() {
 
   const isStreaming = status?.encoder?.streaming || status?.obs?.streaming || status?.atem?.streaming;
 
+  // Stream Protection state
+  const sp = (status as any)?.streamProtection;
+  const spEnabled = sp?.enabled ?? false;
+  const spState = sp?.state ?? 'idle';
+  const spLastEvent = sp?.lastEvent;
+  const spCanRestart = sp?.canManualRestart ?? false;
+
+  const stateLabels: Record<string, string> = {
+    idle: 'Off',
+    protecting: 'Active',
+    encoder_disconnected: 'Encoder Down',
+    restarting: 'Restarting',
+    alert_sent: 'Alert',
+    cdn_mismatch: 'CDN Issue',
+  };
+
+  const stateColors: Record<string, string> = {
+    idle: colors.textMuted,
+    protecting: colors.online,
+    encoder_disconnected: colors.critical,
+    restarting: colors.warning,
+    alert_sent: colors.warning,
+    cdn_mismatch: colors.warning,
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Camera Switching */}
@@ -162,6 +187,39 @@ export default function ActionsScreen() {
             pending={pending === 'obs.stopStream' || pending === 'atem.stopStream' || pending === 'encoder.stopStream'}
             disabled={!isStreaming}
           />
+        </View>
+      </View>
+
+      {/* Stream Protection */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>STREAM PROTECTION</Text>
+        <View style={spStyles.card}>
+          <View style={spStyles.headerRow}>
+            <View style={spStyles.statusRow}>
+              <View style={[spStyles.statusDot, { backgroundColor: stateColors[spState] || colors.textMuted }]} />
+              <Text style={spStyles.statusLabel}>
+                {spEnabled ? (stateLabels[spState] || spState) : 'Disabled'}
+              </Text>
+            </View>
+            <Switch
+              value={spEnabled}
+              onValueChange={(val) => sendCommand(val ? 'streamProtection.enable' : 'streamProtection.disable')}
+              trackColor={{ false: colors.border, true: colors.accent }}
+              thumbColor={colors.white}
+            />
+          </View>
+          {spLastEvent && spEnabled && (
+            <Text style={spStyles.eventText}>{spLastEvent}</Text>
+          )}
+          {spCanRestart && (
+            <Pressable
+              style={spStyles.restartBtn}
+              onPress={() => sendCommand('streamProtection.restart')}
+            >
+              <Ionicons name="refresh-outline" size={16} color={colors.white} />
+              <Text style={spStyles.restartLabel}>Restart Stream</Text>
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -309,5 +367,56 @@ const actionStyles = StyleSheet.create({
     color: colors.text,
     fontWeight: '600',
     marginTop: spacing.sm,
+  },
+});
+
+const spStyles = StyleSheet.create({
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusLabel: {
+    fontSize: fontSize.md,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  eventText: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    marginTop: spacing.md,
+  },
+  restartBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    backgroundColor: colors.warning,
+    borderRadius: borderRadius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  restartLabel: {
+    fontSize: fontSize.sm,
+    color: colors.white,
+    fontWeight: '600',
   },
 });

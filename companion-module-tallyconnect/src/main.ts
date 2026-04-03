@@ -65,6 +65,12 @@ export interface TallyState {
 	// Composite: which devices are connected
 	// Keys: atem, obs, encoder, proPresenter, vmix, mixer, companion, resolume
 	deviceConnected: Record<string, boolean>
+
+	// status.streamProtection.*
+	streamProtectionEnabled: boolean
+	streamProtectionState: string | null
+	streamProtectionLastEvent: string | null
+	streamProtectionCanRestart: boolean
 }
 
 function createDefaultTallyState(): TallyState {
@@ -99,6 +105,10 @@ function createDefaultTallyState(): TallyState {
 		ytViewers: null,
 		fbViewers: null,
 		deviceConnected: {},
+		streamProtectionEnabled: false,
+		streamProtectionState: null,
+		streamProtectionLastEvent: null,
+		streamProtectionCanRestart: false,
 	}
 }
 
@@ -449,6 +459,13 @@ export class TallyConnectInstance extends InstanceBase<TallyConnectConfig> {
 			companion: companion.connected === true,
 			resolume: resolume.connected === true,
 		}
+
+		// Stream Protection — status.streamProtection.*
+		const sp = (status.streamProtection || {}) as Record<string, unknown>
+		s.streamProtectionEnabled = sp.enabled === true
+		s.streamProtectionState = sp.state != null ? String(sp.state) : null
+		s.streamProtectionLastEvent = sp.lastEvent != null ? String(sp.lastEvent) : null
+		s.streamProtectionCanRestart = sp.canManualRestart === true
 	}
 
 	/**
@@ -467,6 +484,8 @@ export class TallyConnectInstance extends InstanceBase<TallyConnectConfig> {
 			'device_disconnected',
 			'audio_muted',
 			'audio_silence',
+			'stream_protection_active',
+			'stream_protection_alert',
 		)
 	}
 

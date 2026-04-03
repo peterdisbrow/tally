@@ -4287,6 +4287,37 @@ function handlePortalWsConnection(ws, url) {
     if (ws.readyState === WebSocket.OPEN) ws.ping();
   }, 25_000);
 
+  ws.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'stream_protection_command') {
+        // Route stream protection commands from portal to church agent
+        const targetChurch = churches.get(churchId);
+        if (targetChurch && targetChurch.sockets?.size) {
+          const fwd = { type: 'stream_protection_command', action: msg.action };
+          for (const sock of targetChurch.sockets.values()) {
+            if (sock.readyState === WebSocket.OPEN) safeSend(sock, fwd);
+          }
+        }
+      } else if (msg.type === 'command') {
+        // Route commands from portal to church agent
+        const targetChurch = churches.get(churchId);
+        if (targetChurch && targetChurch.sockets?.size) {
+          const fwd = { type: 'command', command: msg.command, params: msg.params || {}, id: msg.messageId };
+          if (msg.roomId && targetChurch.roomInstanceMap) {
+            const inst = targetChurch.roomInstanceMap[msg.roomId];
+            const sock = inst && targetChurch.sockets.get(inst);
+            if (sock?.readyState === WebSocket.OPEN) safeSend(sock, fwd);
+          } else {
+            for (const sock of targetChurch.sockets.values()) {
+              if (sock.readyState === WebSocket.OPEN) safeSend(sock, fwd);
+            }
+          }
+        }
+      }
+    } catch { /* Malformed JSON */ }
+  });
+
   ws.on('close', () => {
     clearInterval(pingInterval);
     const clients = portalWsClients.get(churchId);

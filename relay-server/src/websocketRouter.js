@@ -577,6 +577,23 @@ function createWebSocketHandlers({
         safeSend(senderWs || church.ws, { type: 'pong', ts: msg.ts });
         break;
 
+      case 'stream_protection_status': {
+        // Broadcast stream protection status to all controllers and portal clients
+        const spEvent = {
+          type: 'stream_protection_status',
+          churchId: church.churchId,
+          name: church.name,
+          streamProtection: msg.streamProtection,
+          timestamp: church.lastSeen,
+        };
+        broadcastToControllers(spEvent);
+        broadcastToPortal(church.churchId, {
+          type: 'stream_protection_status',
+          streamProtection: msg.streamProtection,
+        });
+        break;
+      }
+
       // The following types are handled entirely by hooks — the routing layer
       // does not broadcast them directly (they're heavy subsystem concerns).
       case 'signal_event':

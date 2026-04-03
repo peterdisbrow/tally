@@ -217,6 +217,28 @@
         <div id="smart-plugs-list" style="display:flex;flex-direction:column;gap:10px"></div>
       </div>
 
+      <!-- Stream Protection (shown when protection is available) -->
+      <div class="card" id="stream-protection-card" style="display:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div class="card-title" style="margin:0">
+            <span id="sp-status-dot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#475569;margin-right:8px"></span>Stream Protection
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="sp-state-label" style="font-size:12px;color:#94A3B8;background:#0F1613;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px">OFF</span>
+            <label style="position:relative;display:inline-block;width:36px;height:20px;cursor:pointer">
+              <input type="checkbox" id="sp-toggle" style="opacity:0;width:0;height:0" onchange="toggleStreamProtection(this.checked)">
+              <span style="position:absolute;top:0;left:0;right:0;bottom:0;background:#334155;border-radius:10px;transition:background .2s"></span>
+              <span id="sp-toggle-knob" style="position:absolute;top:2px;left:2px;width:16px;height:16px;background:#F8FAFC;border-radius:50%;transition:transform .2s"></span>
+            </label>
+          </div>
+        </div>
+        <div id="sp-event-row" style="font-size:13px;color:#94A3B8;margin-bottom:8px;display:none"></div>
+        <div id="sp-alert-row" style="display:none;padding:10px 14px;border-radius:8px;background:#1c1917;border:1px solid #78350f;margin-bottom:8px">
+          <div id="sp-alert-text" style="font-size:13px;color:#fbbf24;margin-bottom:8px"></div>
+          <button id="sp-restart-btn" class="btn-primary" style="font-size:12px;padding:5px 14px;display:none" onclick="streamProtectionRestart()">Restart Stream</button>
+        </div>
+      </div>
+
       <!-- Live Stream Stats (shown when any source is streaming) -->
       <div class="card" id="stream-stats-card" style="display:none">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">

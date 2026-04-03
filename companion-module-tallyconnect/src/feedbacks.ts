@@ -221,5 +221,36 @@ export function getFeedbacks(self: TallyConnectInstance): CompanionFeedbackDefin
 				return self.tallyState.audioSilence === true
 			},
 		},
+
+		// ── Stream Protection ────────────────────────────────────────────────────
+
+		stream_protection_active: {
+			type: 'boolean',
+			name: 'Stream Protection: Active',
+			description: 'True when stream protection is enabled and actively protecting a live stream',
+			defaultStyle: {
+				bgcolor: combineRgb(0, 128, 0),
+				color: combineRgb(255, 255, 255),
+			},
+			options: [],
+			callback: () => {
+				return self.tallyState.streamProtectionEnabled === true && self.tallyState.streamProtectionState === 'protecting'
+			},
+		},
+
+		stream_protection_alert: {
+			type: 'boolean',
+			name: 'Stream Protection: Alert',
+			description: 'True when stream protection has detected an issue (encoder down, alert sent, CDN issue)',
+			defaultStyle: {
+				bgcolor: combineRgb(255, 191, 0),
+				color: combineRgb(0, 0, 0),
+			},
+			options: [],
+			callback: () => {
+				const st = self.tallyState.streamProtectionState
+				return st === 'encoder_disconnected' || st === 'alert_sent' || st === 'restarting' || st === 'cdn_mismatch'
+			},
+		},
 	}
 }

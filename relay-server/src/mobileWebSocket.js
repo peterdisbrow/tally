@@ -190,6 +190,18 @@ function createMobileWebSocketHandler({
           break;
         }
 
+        case 'stream_protection_command': {
+          // Route stream protection commands from mobile to church agent
+          const spChurch = churches.get(churchId);
+          if (spChurch && spChurch.sockets?.size) {
+            const fwd = { type: 'stream_protection_command', action: msg.action };
+            for (const sock of spChurch.sockets.values()) {
+              if (sock.readyState === 1) _safeSend(sock, fwd);
+            }
+          }
+          break;
+        }
+
         default:
           break;
       }

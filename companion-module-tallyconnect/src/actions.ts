@@ -753,6 +753,35 @@ export function getActions(self: TallyConnectInstance): CompanionActionDefinitio
 			},
 		},
 
+		// ── Stream Protection ────────────────────────────────────────────────────
+
+		stream_protection_enable: {
+			name: 'Stream Protection: Enable',
+			description: 'Enable stream protection (auto-restart on failure)',
+			options: [],
+			callback: async () => {
+				self.sendCommand('streamProtection.enable', {})
+			},
+		},
+
+		stream_protection_disable: {
+			name: 'Stream Protection: Disable',
+			description: 'Disable stream protection',
+			options: [],
+			callback: async () => {
+				self.sendCommand('streamProtection.disable', {})
+			},
+		},
+
+		stream_protection_restart: {
+			name: 'Stream Protection: Restart Stream',
+			description: 'Manually restart the stream (available after protection alert)',
+			options: [],
+			callback: async () => {
+				self.sendCommand('streamProtection.restart', {})
+			},
+		},
+
 		// ── Freeform Command ──────────────────────────────────────────────────────
 
 		send_command: {

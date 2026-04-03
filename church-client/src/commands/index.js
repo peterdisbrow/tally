@@ -26,6 +26,7 @@ const commandHandlers = {
   ...require('./recovery'),
   ...require('./failover'),
   ...require('./shelly'),
+  ...require('./streamProtection'),
 };
 
 module.exports = { commandHandlers };

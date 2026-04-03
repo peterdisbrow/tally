@@ -2310,7 +2310,78 @@ function updateStatusUI(status) {
 
   // Signal Failover status
   if (status.failover) updateFailoverUI(status.failover);
+
+  // Stream Protection status
+  if (status.streamProtection) updateStreamProtectionUI(status.streamProtection);
 }
+
+// ─── STREAM PROTECTION UI ────────────────────────────────────────────────────
+
+function updateStreamProtectionUI(sp) {
+  const section = document.getElementById('stream-protection-section');
+  if (!section) return;
+
+  section.style.display = '';
+
+  const badge = document.getElementById('sp-badge');
+  const stateEl = document.getElementById('val-sp-state');
+  const enabledEl = document.getElementById('val-sp-enabled');
+  const eventMsg = document.getElementById('sp-event-msg');
+  const alertBar = document.getElementById('sp-alert-bar');
+  const alertText = document.getElementById('sp-alert-text');
+  const restartBtn = document.getElementById('sp-restart-btn');
+
+  const stateLabels = {
+    idle: 'Idle', protecting: 'Protecting', encoder_disconnected: 'Encoder Down',
+    restarting: 'Restarting', alert_sent: 'Alert', cdn_mismatch: 'CDN Issue',
+  };
+  const stateBadge = {
+    idle: 'OFF', protecting: 'PROTECTED', encoder_disconnected: 'ENCODER DOWN',
+    restarting: 'RESTARTING', alert_sent: 'ALERT', cdn_mismatch: 'CDN ISSUE',
+  };
+
+  if (badge) {
+    badge.textContent = sp.enabled ? (stateBadge[sp.state] || sp.state) : 'OFF';
+    badge.className = 'failover-state-badge';
+    if (sp.state === 'protecting') badge.classList.add('');
+    else if (sp.state === 'encoder_disconnected' || sp.state === 'alert_sent') badge.classList.add('confirmed');
+    else if (sp.state === 'restarting') badge.classList.add('suspected');
+  }
+
+  if (stateEl) stateEl.textContent = sp.enabled ? (stateLabels[sp.state] || sp.state) : 'Disabled';
+  if (enabledEl) {
+    enabledEl.textContent = sp.enabled ? 'ON' : 'OFF';
+    enabledEl.style.color = sp.enabled ? 'var(--success)' : 'var(--text-secondary)';
+  }
+
+  if (eventMsg && sp.lastEvent) {
+    eventMsg.style.display = '';
+    eventMsg.textContent = sp.lastEvent;
+  } else if (eventMsg) {
+    eventMsg.style.display = 'none';
+  }
+
+  if (sp.state === 'alert_sent' || sp.state === 'encoder_disconnected' || sp.state === 'cdn_mismatch') {
+    if (alertBar) alertBar.style.display = '';
+    if (alertText) alertText.textContent = sp.lastEvent || 'Stream protection alert';
+    if (restartBtn) restartBtn.style.display = sp.canManualRestart ? '' : 'none';
+  } else {
+    if (alertBar) alertBar.style.display = 'none';
+  }
+}
+
+window.toggleStreamProtection = function(enabled) {
+  const cmd = enabled ? 'streamProtection.enable' : 'streamProtection.disable';
+  if (window.electronAPI?.sendCommand) {
+    window.electronAPI.sendCommand(cmd, {});
+  }
+};
+
+window.sendStreamProtectionRestart = function() {
+  if (window.electronAPI?.sendCommand) {
+    window.electronAPI.sendCommand('streamProtection.restart', {});
+  }
+};
 
 // ─── SIGNAL FAILOVER UI ──────────────────────────────────────────────────────
 
