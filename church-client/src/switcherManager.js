@@ -284,6 +284,9 @@ class SwitcherManager {
       // For primary ATEM, also fire the legacy atem_restored signal
       if (sw.type === 'atem' && (sw.role === 'primary' || this.getAllByType('atem').length === 1)) {
         this.agent.sendToRelay({ type: 'signal_event', signal: 'atem_restored' });
+        // Update the legacy agent.atem reference — reconnect creates a new
+        // Atem() instance so the old reference is a destroyed socket.
+        this.agent.atem = sw.raw;
       }
     });
 

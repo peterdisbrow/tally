@@ -109,7 +109,8 @@ function validateAtemInput(agent, input, switcherId) {
 /**
  * Resolve the ATEM instance and connected flag for a command.
  * If params.switcherId is set, use that specific switcher's raw Atem.
- * Otherwise use the legacy agent.atem (primary).
+ * Otherwise use the switcherManager's primary (which always returns the
+ * live Atem instance even after reconnects), falling back to agent.atem.
  */
 function resolveAtem(agent, params) {
   if (params.switcherId && agent.switcherManager) {
@@ -118,6 +119,14 @@ function resolveAtem(agent, params) {
     if (sw.type !== 'atem') throw new Error(`Switcher "${params.switcherId}" is ${sw.type}, not ATEM`);
     if (!sw.connected) throw new Error(`ATEM "${params.switcherId}" not connected`);
     return { atem: sw.raw, fake: false };
+  }
+  // Always go through switcherManager to get the live Atem instance —
+  // agent.atem can become stale after reconnect (old destroyed socket).
+  if (agent.switcherManager) {
+    const primary = agent.switcherManager.getPrimary();
+    if (primary && primary.type === 'atem') {
+      return { atem: primary.raw, fake: false };
+    }
   }
   return { atem: agent.atem, fake: isFakeAtem(agent) };
 }
