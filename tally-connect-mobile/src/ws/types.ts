@@ -79,6 +79,7 @@ export interface DeviceStatus {
     streaming?: boolean;
     recording?: boolean;
     model?: string;
+    protocolVersion?: string;
     inputs?: Record<string, { name: string; type: string }>;
     streamingBitrate?: number | null;   // bps from ATEM SDK
     streamingCacheUsed?: number | null;  // bytes
@@ -93,11 +94,14 @@ export interface DeviceStatus {
     droppedFrames?: number;
     strain?: number;
     currentScene?: string;
+    version?: string;
   };
   vmix?: {
     connected: boolean;
     streaming?: boolean;
     recording?: boolean;
+    version?: string;
+    edition?: string;
   };
   encoder?: {
     connected: boolean;
@@ -108,10 +112,13 @@ export interface DeviceStatus {
     name?: string;
     cpuUsage?: number;
     congestion?: number;
+    firmwareVersion?: string;
+    details?: string;
   };
   mixer?: {
     connected: boolean;
     model?: string;
+    firmware?: string;
     mainMuted?: boolean;
     channels?: Array<{
       name: string;
@@ -134,6 +141,7 @@ export interface DeviceStatus {
       state: string;
     }>;
     activeLook?: string;
+    version?: string;
   };
   companion?: {
     connected: boolean;
@@ -142,6 +150,7 @@ export interface DeviceStatus {
     connected: boolean;
     recording?: boolean;
     diskRemaining?: number;
+    protocolVersion?: string;
     hyperdecks?: Array<{
       name?: string;
       connected: boolean;
@@ -185,6 +194,8 @@ export interface DeviceStatus {
     bitrate?: number;
     name?: string;
     type?: string;
+    firmwareVersion?: string;
+    details?: string;
   };
   system?: {
     cpu?: number | { usage: number; cores?: number };
