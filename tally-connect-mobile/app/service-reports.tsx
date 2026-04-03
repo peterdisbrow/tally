@@ -49,6 +49,7 @@ export default function ServiceReportsScreen() {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg }}>
         <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={{ fontSize: fontSize.md, color: colors.textSecondary, marginTop: 12 }}>Loading service reports...</Text>
       </View>
     );
   }

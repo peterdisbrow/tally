@@ -106,6 +106,7 @@ export default function RundownScreen() {
     return (
       <View style={[styles.centered, { backgroundColor: colors.bg }]}>
         <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={{ fontSize: fontSize.md, color: colors.textSecondary, marginTop: 12 }}>Loading service plan...</Text>
       </View>
     );
   }

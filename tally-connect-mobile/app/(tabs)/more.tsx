@@ -26,7 +26,9 @@ export default function MoreScreen() {
   const updateReady = useUpdateStore((s) => s.updateReady);
   const setUpdateReady = useUpdateStore((s) => s.setUpdateReady);
   const [session, setSession] = useState<ServiceSession | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
   const [reports, setReports] = useState<any[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(true);
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'up-to-date' | 'ready'>('idle');
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
@@ -70,11 +72,13 @@ export default function MoreScreen() {
   useEffect(() => {
     api<{ session: ServiceSession }>('/api/church/session/active')
       .then((d) => setSession(d.session || d as any))
-      .catch((err) => console.error('Failed to load active session:', err));
+      .catch((err) => console.error('Failed to load active session:', err))
+      .finally(() => setSessionLoading(false));
 
     api<{ reports: any[] }>('/api/church/service-reports')
       .then((d) => setReports((d.reports || []).slice(0, 5)))
-      .catch((err) => console.error('Failed to load recent reports:', err));
+      .catch((err) => console.error('Failed to load recent reports:', err))
+      .finally(() => setReportsLoading(false));
   }, []);
 
   const handleLogout = () => {
@@ -186,7 +190,7 @@ export default function MoreScreen() {
       </View>
 
       {/* Active Session */}
-      {session?.active && (
+      {(sessionLoading || session?.active) && (
         <View style={{ marginBottom: spacing.xxl }}>
           <Text style={{
             fontSize: fontSize.xs,
@@ -196,6 +200,21 @@ export default function MoreScreen() {
             fontWeight: '600',
             marginBottom: spacing.md,
           }}>ACTIVE SESSION</Text>
+          {sessionLoading ? (
+            <View style={{
+              backgroundColor: colors.surface,
+              borderRadius: borderRadius.md,
+              padding: spacing.lg,
+              borderWidth: 1,
+              borderColor: colors.border,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.md,
+            }}>
+              <ActivityIndicator size="small" color={colors.accent} />
+              <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary }}>Loading session...</Text>
+            </View>
+          ) : (
           <GlassCard glowColor={colors.accent}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
               <Text style={{ fontSize: fontSize.md, color: colors.textSecondary }}>Grade</Text>
@@ -219,11 +238,12 @@ export default function MoreScreen() {
               </Text>
             </View>
           </GlassCard>
+          )}
         </View>
       )}
 
       {/* Recent Reports */}
-      {reports.length > 0 && (
+      {(reportsLoading || reports.length > 0) && (
         <View style={{ marginBottom: spacing.xxl }}>
           <Text style={{
             fontSize: fontSize.xs,
@@ -240,7 +260,12 @@ export default function MoreScreen() {
             borderWidth: 1,
             borderColor: colors.border,
           }}>
-            {reports.map((r, i) => (
+            {reportsLoading ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm }}>
+                <ActivityIndicator size="small" color={colors.accent} />
+                <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary }}>Loading recent services...</Text>
+              </View>
+            ) : reports.map((r, i) => (
               <View key={r.id || i} style={[
                 { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.md },
                 i < reports.length - 1 && { borderBottomWidth: 1, borderBottomColor: colors.border },

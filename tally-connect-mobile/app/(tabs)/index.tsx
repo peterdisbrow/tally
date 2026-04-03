@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, LayoutAnimation, Platform, UIManager, Animated,
+  TouchableOpacity, LayoutAnimation, Platform, UIManager, Animated, ActivityIndicator,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
@@ -1069,9 +1069,16 @@ export default function DashboardScreen() {
       {/* Device List -- single card with dividers */}
       {grouped.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-            {status ? 'No devices configured' : 'Waiting for data...'}
-          </Text>
+          {!status ? (
+            <>
+              <ActivityIndicator size="large" color={colors.accent} />
+              <Text style={[styles.emptyText, { color: colors.textSecondary, marginTop: 12 }]}>
+                Connecting to room...
+              </Text>
+            </>
+          ) : (
+            <Text style={[styles.emptyText, { color: colors.textMuted }]}>No devices configured</Text>
+          )}
         </View>
       ) : (
         grouped.map(group => (
