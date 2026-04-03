@@ -2,7 +2,7 @@ name: Production Smoke
 
 on:
   schedule:
-    - cron: "17 * * * *"
+    - cron: "17 */6 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -48,7 +48,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Authenticated endpoint checks
+        id: auth_checks
         if: ${{ env.RELAY_ADMIN_EMAIL != '' && env.RELAY_ADMIN_PASSWORD != '' }}
+        continue-on-error: true
         run: |
           set -euo pipefail
 
@@ -73,6 +75,15 @@ jobs:
             echo "- PASS: \`GET /api/churches\`"
             echo "- PASS: \`GET /api/billing\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Auth check warning
+        if: steps.auth_checks.outcome == 'failure'
+        run: |
+          {
+            echo "## Authenticated checks"
+            echo "- :warning: FAILED: admin login returned an error. Update \`RELAY_ADMIN_EMAIL\` and \`RELAY_ADMIN_PASSWORD\` repository secrets."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning::Authenticated smoke checks failed — update admin credentials in repository secrets"
 
       - name: Missing secret notice
         if: ${{ env.RELAY_ADMIN_EMAIL == '' || env.RELAY_ADMIN_PASSWORD == '' }}

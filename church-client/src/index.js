@@ -2488,18 +2488,20 @@ class ChurchAVAgent {
     if (this.streamProtection) {
       fullStatus.streamProtection = { ...this.streamProtection.status };
     }
-    // Strip unconfigured devices so mobile/portal don't show phantom entries
+    // Mark unconfigured devices so mobile/portal can filter phantom entries
+    // (We keep the fields present to preserve the status contract — consumers
+    // should check .configured instead of testing for field existence.)
     const cfg = this.config;
-    if (!cfg.atemIp) delete fullStatus.atem;
-    if (!this.isObsMonitoringEnabled()) delete fullStatus.obs;
-    if (!cfg.vmix?.host) delete fullStatus.vmix;
-    if (!cfg.encoder?.type) delete fullStatus.encoder;
-    if (!cfg.mixer?.host) delete fullStatus.mixer;
-    if (!cfg.proPresenter?.host) delete fullStatus.proPresenter;
-    if (!this.isCompanionMonitoringEnabled()) delete fullStatus.companion;
-    if (!cfg.hyperdecks?.some(d => d.host)) { delete fullStatus.hyperdeck; delete fullStatus.hyperdecks; }
-    if (!cfg.resolume?.host) delete fullStatus.resolume;
-    if (!cfg.ptz?.some(c => c.ip)) delete fullStatus.ptz;
+    if (fullStatus.atem)        fullStatus.atem.configured        = !!cfg.atemIp;
+    if (fullStatus.obs)         fullStatus.obs.configured         = !!this.isObsMonitoringEnabled();
+    if (fullStatus.vmix)        fullStatus.vmix.configured        = !!cfg.vmix?.host;
+    if (fullStatus.encoder)     fullStatus.encoder.configured     = !!cfg.encoder?.type;
+    if (fullStatus.mixer)       fullStatus.mixer.configured       = !!cfg.mixer?.host;
+    if (fullStatus.proPresenter) fullStatus.proPresenter.configured = !!cfg.proPresenter?.host;
+    if (fullStatus.companion)   fullStatus.companion.configured   = !!this.isCompanionMonitoringEnabled();
+    if (fullStatus.hyperdeck)   fullStatus.hyperdeck.configured   = !!cfg.hyperdecks?.some(d => d.host);
+    if (fullStatus.resolume)    fullStatus.resolume.configured    = !!cfg.resolume?.host;
+    if (fullStatus.ptz)         fullStatus.ptz.configured         = !!cfg.ptz?.some(c => c.ip);
     this.sendToRelay({ type: 'status_update', status: fullStatus });
     setTimeout(() => {
       this._statusDebounce = false;

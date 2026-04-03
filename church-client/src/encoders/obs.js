@@ -9,7 +9,11 @@
  * on the agent's OBS instance when available, or creates its own connection.
  */
 
-const OBSWebSocket = require('obs-websocket-js').default;
+let _OBSWebSocket;
+function getOBSWebSocket() {
+  if (!_OBSWebSocket) _OBSWebSocket = require('obs-websocket-js').default;
+  return _OBSWebSocket;
+}
 
 class ObsEncoder {
   constructor({ host = 'localhost', port = 4455, password = '' } = {}) {
@@ -38,7 +42,7 @@ class ObsEncoder {
   async connect() {
     if (this._obs) return this._connected;
     try {
-      this._obs = new OBSWebSocket();
+      this._obs = new (getOBSWebSocket())();
       const url = `ws://${this.host}:${this.port}`;
       await this._obs.connect(url, this.password || undefined);
       this._connected = true;

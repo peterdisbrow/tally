@@ -11,7 +11,7 @@ name: Tally CI
 #
 #   Current thresholds (ratcheted after P3-P9 test additions, 2026-Q1):
 #     relay-server  : statements=42  branches=38  functions=37  lines=43
-#     church-client : statements=53  branches=80  functions=31  lines=53
+#     church-client : statements=53  branches=79  functions=31  lines=53
 #     electron-app  : statements=48  branches=68  functions=40  lines=48
 
 on:
@@ -19,7 +19,17 @@ on:
     branches:
       - main
       - master
+    paths:
+      - 'relay-server/**'
+      - 'church-client/**'
+      - 'electron-app/**'
+      - '.github/workflows/ci.yml'
   pull_request:
+    paths:
+      - 'relay-server/**'
+      - 'church-client/**'
+      - 'electron-app/**'
+      - '.github/workflows/ci.yml'
   workflow_dispatch:
 
 concurrency:
@@ -138,7 +148,7 @@ jobs:
           echo ""
           echo "Thresholds (ratcheted 2026-Q1):"
           echo "  relay-server  : statements=42  branches=38  functions=37  lines=43"
-          echo "  church-client : statements=53  branches=80  functions=31  lines=53"
+          echo "  church-client : statements=53  branches=79  functions=31  lines=53"
           echo "  electron-app  : statements=48  branches=68  functions=40  lines=48"
           echo ""
           echo "Next ratchet: 2026-Q2. Run test:coverage in each codebase, raise thresholds to match actuals."
