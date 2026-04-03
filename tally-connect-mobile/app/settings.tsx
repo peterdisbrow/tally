@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, Switch, Linking, Platform,
+  View, Text, ScrollView, Switch, Linking, Platform, TouchableOpacity,
 } from 'react-native';
 import Constants from 'expo-constants';
 import { useNotificationStatus } from '../src/hooks/useNotifications';
 import { useSettingsStore } from '../src/stores/settingsStore';
 import { getRelayUrl } from '../src/api/client';
-import { useThemeColors } from '../src/theme/ThemeContext';
+import { useTheme, useThemeColors, ThemePreference } from '../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../src/theme/spacing';
 
 const DEFAULT_URL = 'https://api.tallyconnect.app';
@@ -19,6 +19,7 @@ export default function SettingsScreen() {
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const [serverUrl, setServerUrl] = useState<string>(DEFAULT_URL);
   const colors = useThemeColors();
+  const { preference, setPreference } = useTheme();
 
   useEffect(() => {
     loadSettings();
@@ -37,6 +38,40 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ padding: spacing.lg }}>
+      <Text style={{
+        fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase',
+        letterSpacing: 1, fontWeight: '600', marginBottom: spacing.md, marginTop: spacing.xxl,
+      }}>APPEARANCE</Text>
+      <View style={{ backgroundColor: colors.surface, borderRadius: borderRadius.md, borderWidth: 1, borderColor: colors.border }}>
+        <View style={{ padding: spacing.lg }}>
+          <Text style={{ fontSize: fontSize.md, fontWeight: '600', color: colors.text, marginBottom: spacing.sm }}>Theme</Text>
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            {(['system', 'light', 'dark'] as ThemePreference[]).map((opt) => (
+              <TouchableOpacity
+                key={opt}
+                onPress={() => setPreference(opt)}
+                style={{
+                  flex: 1,
+                  paddingVertical: spacing.sm,
+                  borderRadius: borderRadius.sm,
+                  borderWidth: 1,
+                  borderColor: preference === opt ? colors.accent : colors.border,
+                  backgroundColor: preference === opt ? colors.accent + '22' : colors.surfaceElevated,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{
+                  fontSize: fontSize.sm,
+                  fontWeight: preference === opt ? '600' : '400',
+                  color: preference === opt ? colors.accent : colors.textSecondary,
+                  textTransform: 'capitalize',
+                }}>{opt}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </View>
+
       <Text style={{
         fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase',
         letterSpacing: 1, fontWeight: '600', marginBottom: spacing.md, marginTop: spacing.xxl,
