@@ -2343,8 +2343,7 @@ function updateStreamProtectionUI(sp) {
   if (badge) {
     badge.textContent = sp.enabled ? (stateBadge[sp.state] || sp.state) : 'OFF';
     badge.className = 'failover-state-badge';
-    if (sp.state === 'protecting') badge.classList.add('');
-    else if (sp.state === 'encoder_disconnected' || sp.state === 'alert_sent') badge.classList.add('confirmed');
+    if (sp.state === 'encoder_disconnected' || sp.state === 'alert_sent') badge.classList.add('confirmed');
     else if (sp.state === 'restarting') badge.classList.add('suspected');
   }
 
