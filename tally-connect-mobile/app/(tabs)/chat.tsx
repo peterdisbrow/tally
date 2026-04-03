@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, FlatList,
   Pressable, KeyboardAvoidingView, Platform,
@@ -36,6 +36,12 @@ export default function ChatScreen() {
       listRef.current?.scrollToEnd({ animated: false });
     }
   }, []);
+
+  useEffect(() => {
+    if (!sendError) return;
+    const timer = setTimeout(() => setSendError(null), 5000);
+    return () => clearTimeout(timer);
+  }, [sendError]);
 
   const handleSend = async () => {
     const trimmed = text.trim();
@@ -171,8 +177,17 @@ export default function ChatScreen() {
           backgroundColor: colors.isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(220, 38, 38, 0.08)',
           borderTopWidth: 1,
           borderTopColor: colors.critical,
+          gap: spacing.sm,
         }}>
           <Text style={{ fontSize: fontSize.sm, color: colors.critical, flex: 1 }}>{sendError}</Text>
+          <Pressable
+            onPress={() => { setSendError(null); handleSend(); }}
+            accessibilityLabel="Retry sending message"
+            accessibilityRole="button"
+            style={{ paddingHorizontal: spacing.sm, paddingVertical: 2 }}
+          >
+            <Text style={{ fontSize: fontSize.sm, color: colors.critical, fontWeight: '700' }}>Retry</Text>
+          </Pressable>
           <Pressable onPress={() => setSendError(null)} accessibilityLabel="Dismiss error" accessibilityRole="button">
             <Ionicons name="close-circle" size={18} color={colors.critical} />
           </Pressable>
