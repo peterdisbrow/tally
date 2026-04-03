@@ -10,6 +10,8 @@ import { tallySocket } from '../../src/ws/TallySocket';
 import { colors } from '../../src/theme/colors';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
 import { TallyIndicator } from '../../src/components/TallyIndicator';
+import { GlassCard } from '../../src/components/GlassCard';
+import { PulseDot } from '../../src/components/PulseDot';
 
 export default function ActionsScreen() {
   const status = useActiveRoomStatus();
@@ -144,15 +146,19 @@ export default function ActionsScreen() {
             ))}
           </ScrollView>
           <View style={styles.transitionRow}>
-            <ActionButton
+            <GradientButton
               label="CUT"
               icon="cut-outline"
+              gradientBg="rgba(239, 68, 68, 0.25)"
+              borderColor="rgba(239, 68, 68, 0.4)"
               onPress={() => sendCommand('atem.cut')}
               pending={pending === 'atem.cut'}
             />
-            <ActionButton
+            <GradientButton
               label="AUTO"
               icon="swap-horizontal-outline"
+              gradientBg="rgba(245, 158, 11, 0.2)"
+              borderColor="rgba(245, 158, 11, 0.35)"
               onPress={() => sendCommand('atem.auto')}
               pending={pending === 'atem.auto'}
             />
@@ -164,9 +170,11 @@ export default function ActionsScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>STREAM</Text>
         <View style={styles.actionRow}>
-          <ActionButton
+          <GradientButton
             label="Start Stream"
             icon="play-circle-outline"
+            gradientBg="rgba(34, 197, 94, 0.2)"
+            borderColor="rgba(34, 197, 94, 0.35)"
             color={colors.online}
             onPress={() => {
               const cmd = status?.obs?.connected ? 'obs.startStream' : 'atem.startStream';
@@ -175,9 +183,11 @@ export default function ActionsScreen() {
             pending={pending === 'obs.startStream' || pending === 'atem.startStream'}
             disabled={isStreaming}
           />
-          <ActionButton
+          <GradientButton
             label="Stop Stream"
             icon="stop-circle-outline"
+            gradientBg="rgba(239, 68, 68, 0.2)"
+            borderColor="rgba(239, 68, 68, 0.35)"
             color={colors.critical}
             onPress={() => {
               const cmd = status?.obs?.streaming ? 'obs.stopStream'
@@ -198,7 +208,7 @@ export default function ActionsScreen() {
         <View style={spStyles.card}>
           <View style={spStyles.headerRow}>
             <View style={spStyles.statusRow}>
-              <View style={[spStyles.statusDot, { backgroundColor: stateColors[spState] || colors.textMuted }]} />
+              <PulseDot color={stateColors[spState] || colors.textMuted} size={8} />
               <Text style={spStyles.statusLabel}>
                 {spEnabled ? (stateLabels[spState] || spState) : 'Disabled'}
               </Text>
@@ -251,16 +261,20 @@ export default function ActionsScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>RECORDING</Text>
         <View style={styles.actionRow}>
-          <ActionButton
-            label="Start Recording"
+          <GradientButton
+            label="Start Rec"
             icon="radio-button-on-outline"
+            gradientBg="rgba(239, 68, 68, 0.2)"
+            borderColor="rgba(239, 68, 68, 0.35)"
             color={colors.critical}
             onPress={() => sendCommand('obs.startRecording')}
             pending={pending === 'obs.startRecording'}
           />
-          <ActionButton
-            label="Stop Recording"
+          <GradientButton
+            label="Stop Rec"
             icon="square-outline"
+            gradientBg={colors.surface}
+            borderColor={colors.border}
             onPress={() => sendCommand('obs.stopRecording', {}, true)}
             pending={pending === 'obs.stopRecording'}
           />
@@ -271,25 +285,31 @@ export default function ActionsScreen() {
       {status?.propresenter?.connected && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>PROPRESENTER</Text>
-          {status.propresenter.currentSlide && (
-            <Text style={styles.currentSlide}>
-              {status.propresenter.currentSlide}
-            </Text>
-          )}
-          <View style={styles.actionRow}>
-            <ActionButton
-              label="Previous"
-              icon="chevron-back"
-              onPress={() => sendCommand('propresenter.previousSlide')}
-              pending={pending === 'propresenter.previousSlide'}
-            />
-            <ActionButton
-              label="Next"
-              icon="chevron-forward"
-              onPress={() => sendCommand('propresenter.nextSlide')}
-              pending={pending === 'propresenter.nextSlide'}
-            />
-          </View>
+          <GlassCard glowColor={colors.accent}>
+            {status.propresenter.currentSlide && (
+              <Text style={styles.currentSlide}>
+                📺 {status.propresenter.currentSlide}
+              </Text>
+            )}
+            <View style={styles.actionRow}>
+              <GradientButton
+                label="Previous"
+                icon="chevron-back"
+                gradientBg="rgba(34, 197, 94, 0.15)"
+                borderColor="rgba(34, 197, 94, 0.3)"
+                onPress={() => sendCommand('propresenter.previousSlide')}
+                pending={pending === 'propresenter.previousSlide'}
+              />
+              <GradientButton
+                label="Next"
+                icon="chevron-forward"
+                gradientBg="rgba(34, 197, 94, 0.15)"
+                borderColor="rgba(34, 197, 94, 0.3)"
+                onPress={() => sendCommand('propresenter.nextSlide')}
+                pending={pending === 'propresenter.nextSlide'}
+              />
+            </View>
+          </GlassCard>
         </View>
       )}
 
@@ -298,22 +318,25 @@ export default function ActionsScreen() {
   );
 }
 
-interface ActionButtonProps {
+interface GradientButtonProps {
   label: string;
   icon: string;
+  gradientBg: string;
+  borderColor: string;
   color?: string;
   onPress: () => void;
   pending?: boolean;
   disabled?: boolean;
 }
 
-function ActionButton({ label, icon, color, onPress, pending, disabled }: ActionButtonProps) {
+function GradientButton({ label, icon, gradientBg, borderColor, color, onPress, pending, disabled }: GradientButtonProps) {
   return (
     <Pressable
       style={[
         actionStyles.button,
+        { backgroundColor: gradientBg, borderColor },
         disabled && actionStyles.buttonDisabled,
-        pending && actionStyles.buttonPending,
+        pending && { borderColor: colors.accent },
       ]}
       onPress={onPress}
       disabled={disabled || pending}
@@ -371,20 +394,15 @@ const styles = StyleSheet.create({
 const actionStyles = StyleSheet.create({
   button: {
     flex: 1,
-    backgroundColor: colors.surface,
     borderRadius: borderRadius.md,
     padding: spacing.lg,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: colors.border,
     minHeight: 72,
   },
   buttonDisabled: {
     opacity: 0.4,
-  },
-  buttonPending: {
-    borderColor: colors.accent,
   },
   label: {
     fontSize: fontSize.sm,
@@ -411,11 +429,6 @@ const spStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
   },
   statusLabel: {
     fontSize: fontSize.md,

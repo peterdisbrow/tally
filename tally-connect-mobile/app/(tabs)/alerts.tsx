@@ -10,6 +10,14 @@ import type { Alert } from '../../src/ws/types';
 
 type SeverityFilter = 'ALL' | 'EMERGENCY' | 'CRITICAL' | 'WARNING' | 'INFO';
 
+const FILTER_COLORS: Record<SeverityFilter, string> = {
+  ALL: colors.accent,
+  EMERGENCY: colors.emergency,
+  CRITICAL: colors.critical,
+  WARNING: colors.warningAlert,
+  INFO: colors.infoAlert,
+};
+
 export default function AlertsScreen() {
   const alerts = useAlertStore((s) => s.alerts);
   const isLoading = useAlertStore((s) => s.isLoading);
@@ -52,7 +60,7 @@ export default function AlertsScreen() {
           </Pressable>
         )}
         {item.acknowledged && (
-          <Text style={alertCardStyles.ackedLabel}>Acknowledged</Text>
+          <Text style={alertCardStyles.ackedLabel}>✓ Acknowledged</Text>
         )}
         <Pressable
           style={alertCardStyles.dismissButton}
@@ -68,17 +76,30 @@ export default function AlertsScreen() {
     <View style={styles.container}>
       {/* Filter bar */}
       <View style={styles.filterBar}>
-        {filterButtons.map((f) => (
-          <Pressable
-            key={f}
-            style={[styles.filterButton, filter === f && styles.filterActive]}
-            onPress={() => setFilter(f)}
-          >
-            <Text style={[styles.filterText, filter === f && styles.filterTextActive]}>
-              {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
-            </Text>
-          </Pressable>
-        ))}
+        {filterButtons.map((f) => {
+          const isActive = filter === f;
+          const filterColor = FILTER_COLORS[f];
+          return (
+            <Pressable
+              key={f}
+              style={[
+                styles.filterButton,
+                isActive && {
+                  backgroundColor: `${filterColor}20`,
+                  borderColor: filterColor,
+                },
+              ]}
+              onPress={() => setFilter(f)}
+            >
+              <Text style={[
+                styles.filterText,
+                isActive && { color: filterColor },
+              ]}>
+                {f === 'ALL' ? 'All' : f.charAt(0) + f.slice(1).toLowerCase()}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       <FlatList
@@ -95,6 +116,7 @@ export default function AlertsScreen() {
         }
         ListEmptyComponent={
           <View style={styles.empty}>
+            <Text style={styles.emptyEmoji}>🔔</Text>
             <Text style={styles.emptyText}>
               {isLoading ? 'Loading alerts...' : 'No alerts'}
             </Text>
@@ -124,17 +146,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  filterActive: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
-  },
   filterText: {
     fontSize: fontSize.xs,
     color: colors.textSecondary,
     fontWeight: '600',
-  },
-  filterTextActive: {
-    color: colors.white,
   },
   list: {
     padding: spacing.lg,
@@ -142,6 +157,10 @@ const styles = StyleSheet.create({
   empty: {
     paddingVertical: 60,
     alignItems: 'center',
+  },
+  emptyEmoji: {
+    fontSize: 36,
+    marginBottom: spacing.md,
   },
   emptyText: {
     fontSize: fontSize.md,

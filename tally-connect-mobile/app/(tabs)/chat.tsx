@@ -11,6 +11,7 @@ import { useStatusStore } from '../../src/stores/statusStore';
 import { usePolling } from '../../src/hooks/usePolling';
 import { colors } from '../../src/theme/colors';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
+import { PulseDot } from '../../src/components/PulseDot';
 import type { ChatMessage } from '../../src/ws/types';
 
 export default function ChatScreen() {
@@ -105,6 +106,20 @@ export default function ChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={90}
     >
+      {/* Chat Header */}
+      <View style={styles.chatHeader}>
+        <View style={styles.headerAvatar}>
+          <Text style={styles.headerAvatarText}>🤖</Text>
+        </View>
+        <View style={styles.headerInfo}>
+          <Text style={styles.headerTitle}>Tally Engineer</Text>
+          <View style={styles.headerStatus}>
+            <PulseDot color={colors.online} size={6} />
+            <Text style={styles.headerStatusText}>Monitoring your stream</Text>
+          </View>
+        </View>
+      </View>
+
       <FlatList
         ref={listRef}
         data={messages}
@@ -116,7 +131,7 @@ export default function ChatScreen() {
         onContentSizeChange={handleContentSizeChange}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Ionicons name="chatbubble-ellipses-outline" size={48} color={colors.textMuted} />
+            <Text style={styles.emptyEmoji}>💬</Text>
             <Text style={styles.emptyTitle}>Tally Engineer</Text>
             <Text style={styles.emptyText}>
               Ask questions, send commands, or get diagnostics.{'\n'}
@@ -147,7 +162,10 @@ export default function ChatScreen() {
           returnKeyType="default"
         />
         <Pressable
-          style={[styles.sendButton, (!text.trim() || isSending) && styles.sendDisabled]}
+          style={[
+            styles.sendButton,
+            (!text.trim() || isSending) && styles.sendDisabled,
+          ]}
           onPress={handleSend}
           disabled={!text.trim() || isSending}
         >
@@ -176,6 +194,47 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
+  chatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  headerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(34, 197, 94, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.3)',
+  },
+  headerAvatarText: {
+    fontSize: 20,
+  },
+  headerInfo: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: fontSize.md,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  headerStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginTop: 2,
+  },
+  headerStatusText: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
   list: {
     padding: spacing.lg,
     flexGrow: 1,
@@ -187,11 +246,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 80,
   },
+  emptyEmoji: {
+    fontSize: 48,
+    marginBottom: spacing.md,
+  },
   emptyTitle: {
     fontSize: fontSize.xl,
     fontWeight: '700',
     color: colors.text,
-    marginTop: spacing.lg,
     marginBottom: spacing.sm,
   },
   emptyText: {
@@ -244,9 +306,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: spacing.sm,
+    shadowColor: colors.accent,
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
   },
   sendDisabled: {
     backgroundColor: colors.surface,
+    shadowOpacity: 0,
   },
 });
 
@@ -262,18 +329,27 @@ const msgStyles = StyleSheet.create({
   },
   bubble: {
     maxWidth: '80%',
-    borderRadius: borderRadius.lg,
     padding: spacing.md,
   },
   bubbleUser: {
-    backgroundColor: colors.accent,
+    backgroundColor: 'rgba(34, 197, 94, 0.85)',
+    borderTopLeftRadius: borderRadius.lg,
+    borderTopRightRadius: borderRadius.lg,
+    borderBottomLeftRadius: borderRadius.lg,
     borderBottomRightRadius: 4,
+    shadowColor: colors.accent,
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
   },
   bubbleAI: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
     borderColor: colors.border,
-    borderBottomLeftRadius: 4,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: borderRadius.lg,
+    borderBottomRightRadius: borderRadius.lg,
+    borderBottomLeftRadius: borderRadius.lg,
   },
   sender: {
     fontSize: fontSize.xs,

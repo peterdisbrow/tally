@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { colors } from '../theme/colors';
 import { spacing, borderRadius, fontSize } from '../theme/spacing';
+import { GlassCard } from './GlassCard';
 import type { DeviceStatus } from '../ws/types';
 
 interface StreamStatsProps {
@@ -19,11 +20,11 @@ export function StreamStats({ status }: StreamStatsProps) {
   const totalViewers = (ytViewers || 0) + (fbViewers || 0);
 
   return (
-    <View style={styles.container}>
+    <GlassCard glowColor={isStreaming ? colors.live : undefined}>
       <View style={styles.header}>
         <Text style={styles.title}>STREAM</Text>
-        <View style={[styles.liveTag, { backgroundColor: isStreaming ? colors.live : colors.offline }]}>
-          <Text style={styles.liveText}>{isStreaming ? 'LIVE' : 'OFF AIR'}</Text>
+        <View style={[styles.liveTag, { backgroundColor: isStreaming ? colors.live : colors.surface }]}>
+          <Text style={styles.liveText}>{isStreaming ? 'LIVE' : 'OFFLINE'}</Text>
         </View>
       </View>
 
@@ -33,7 +34,7 @@ export function StreamStats({ status }: StreamStatsProps) {
             {bitrate != null && (
               <View style={styles.stat}>
                 <Text style={styles.statValue}>{(bitrate / 1000).toFixed(1)}</Text>
-                <Text style={styles.statLabel}>Mbps</Text>
+                <Text style={styles.statLabel}>BITRATE</Text>
               </View>
             )}
             {fps != null && (
@@ -45,7 +46,7 @@ export function StreamStats({ status }: StreamStatsProps) {
             {totalViewers > 0 && (
               <View style={styles.stat}>
                 <Text style={styles.statValue}>{totalViewers.toLocaleString()}</Text>
-                <Text style={styles.statLabel}>Viewers</Text>
+                <Text style={styles.statLabel}>VIEWERS</Text>
               </View>
             )}
           </View>
@@ -53,27 +54,24 @@ export function StreamStats({ status }: StreamStatsProps) {
           {(ytViewers != null || fbViewers != null) && (
             <View style={styles.platforms}>
               {ytViewers != null && (
-                <Text style={styles.platform}>YT: {ytViewers.toLocaleString()}</Text>
+                <View style={[styles.platformTag, { backgroundColor: 'rgba(239,68,68,0.15)' }]}>
+                  <Text style={[styles.platformTagText, { color: '#ef4444' }]}>YT: {ytViewers.toLocaleString()}</Text>
+                </View>
               )}
               {fbViewers != null && (
-                <Text style={styles.platform}>FB: {fbViewers.toLocaleString()}</Text>
+                <View style={[styles.platformTag, { backgroundColor: 'rgba(59,130,246,0.15)' }]}>
+                  <Text style={[styles.platformTagText, { color: '#3b82f6' }]}>FB: {fbViewers.toLocaleString()}</Text>
+                </View>
               )}
             </View>
           )}
         </>
       )}
-    </View>
+    </GlassCard>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -111,20 +109,27 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   statLabel: {
-    fontSize: fontSize.xs,
+    fontSize: 9,
     color: colors.textSecondary,
+    fontWeight: '600',
+    letterSpacing: 0.5,
     marginTop: 2,
   },
   platforms: {
     flexDirection: 'row',
-    gap: spacing.lg,
+    gap: spacing.sm,
     marginTop: spacing.md,
     paddingTop: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
-  platform: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
+  platformTag: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: borderRadius.sm,
+  },
+  platformTagText: {
+    fontSize: fontSize.xs,
+    fontWeight: '700',
   },
 });

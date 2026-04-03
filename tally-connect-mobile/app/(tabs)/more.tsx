@@ -12,6 +12,7 @@ import { useNotificationStatus } from '../../src/hooks/useNotifications';
 import { api } from '../../src/api/client';
 import { colors } from '../../src/theme/colors';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
+import { GlassCard } from '../../src/components/GlassCard';
 import type { ServiceSession } from '../../src/ws/types';
 
 export default function MoreScreen() {
@@ -67,7 +68,7 @@ export default function MoreScreen() {
       {session?.active && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>ACTIVE SESSION</Text>
-          <View style={styles.card}>
+          <GlassCard glowColor={colors.accent}>
             <View style={styles.sessionRow}>
               <Text style={styles.sessionLabel}>Grade</Text>
               <Text style={[styles.sessionValue, { color: gradeColor(session.grade) }]}>
@@ -89,7 +90,7 @@ export default function MoreScreen() {
                 {session.incidents ?? 0}
               </Text>
             </View>
-          </View>
+          </GlassCard>
         </View>
       )}
 
@@ -138,16 +139,18 @@ export default function MoreScreen() {
 
       {/* Menu Items */}
       <View style={styles.section}>
-        <MenuItem icon="swap-horizontal-outline" label="Switch Room" onPress={() => {
-          useChatStore.getState().clearMessages();
-          router.replace('/room-picker');
-        }} />
-        <MenuItem icon="analytics-outline" label="Analytics" onPress={() => router.push('/analytics')} />
-        <MenuItem icon="document-text-outline" label="Service Reports" onPress={() => router.push('/service-reports')} />
-        <MenuItem icon="settings-outline" label="Settings" onPress={() => router.push('/settings')} />
-        <MenuItem icon="help-circle-outline" label="Help & Support" onPress={() => {
-          Linking.openURL('https://tallyconnect.app/docs');
-        }} />
+        <View style={styles.menuCard}>
+          <MenuItem emoji="🔄" label="Switch Room" onPress={() => {
+            useChatStore.getState().clearMessages();
+            router.replace('/room-picker');
+          }} isFirst />
+          <MenuItem emoji="📊" label="Analytics" onPress={() => router.push('/analytics')} />
+          <MenuItem emoji="📋" label="Service Reports" onPress={() => router.push('/service-reports')} />
+          <MenuItem emoji="⚙️" label="Settings" onPress={() => router.push('/settings')} />
+          <MenuItem emoji="❓" label="Help & Support" onPress={() => {
+            Linking.openURL('https://tallyconnect.app/docs');
+          }} isLast />
+        </View>
       </View>
 
       {/* Sign Out */}
@@ -162,10 +165,10 @@ export default function MoreScreen() {
   );
 }
 
-function MenuItem({ icon, label, onPress }: { icon: string; label: string; onPress: () => void }) {
+function MenuItem({ emoji, label, onPress, isFirst, isLast }: { emoji: string; label: string; onPress: () => void; isFirst?: boolean; isLast?: boolean }) {
   return (
-    <Pressable style={menuStyles.item} onPress={onPress}>
-      <Ionicons name={icon as any} size={22} color={colors.textSecondary} />
+    <Pressable style={[menuStyles.item, !isLast && menuStyles.itemBorder]} onPress={onPress}>
+      <Text style={menuStyles.emoji}>{emoji}</Text>
       <Text style={menuStyles.label}>{label}</Text>
       <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
     </Pressable>
@@ -208,10 +211,14 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: colors.accent,
+    backgroundColor: 'rgba(34, 197, 94, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: spacing.lg,
+    shadowColor: colors.accent,
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
   },
   avatarText: {
     fontSize: fontSize.xl,
@@ -304,6 +311,13 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: spacing.sm,
   },
+  menuCard: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -333,17 +347,21 @@ const menuStyles = StyleSheet.create({
   item: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
     padding: spacing.lg,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
+  },
+  itemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  emoji: {
+    fontSize: 18,
+    width: 28,
+    textAlign: 'center',
+    marginRight: spacing.md,
   },
   label: {
     flex: 1,
     fontSize: fontSize.md,
     color: colors.text,
-    marginLeft: spacing.md,
   },
 });
