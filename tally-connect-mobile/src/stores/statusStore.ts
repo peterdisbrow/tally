@@ -36,13 +36,7 @@ export const useStatusStore = create<StatusState>((set, get) => ({
   roomsError: null,
 
   setActiveRoom: (roomId) => {
-    const prev = get().activeRoomId;
     set({ activeRoomId: roomId });
-    if (prev && prev !== roomId) {
-      // Lazy require to avoid circular import (chatStore imports statusStore)
-      const { useChatStore } = require('./chatStore');
-      useChatStore.getState().clearMessages();
-    }
   },
 
   updateRoomStatus: (roomId, status) => {

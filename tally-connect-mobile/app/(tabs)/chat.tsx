@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View, Text, TextInput, FlatList,
   Pressable, KeyboardAvoidingView, Platform,
@@ -14,21 +14,16 @@ import { PulseDot } from '../../src/components/PulseDot';
 import type { ChatMessage } from '../../src/ws/types';
 
 export default function ChatScreen() {
-  const messages = useChatStore((s) => s.messages);
+  const messagesByRoom = useChatStore((s) => s.messagesByRoom);
   const isSending = useChatStore((s) => s.isSending);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const activeRoomId = useStatusStore((s) => s.activeRoomId);
+  const messages = messagesByRoom[activeRoomId ?? '__no_room__'] ?? [];
   const [text, setText] = useState('');
   const [sendError, setSendError] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
   const isAtBottom = useRef(true);
   const colors = useThemeColors();
-
-  const clearMessages = useChatStore((s) => s.clearMessages);
-
-  useEffect(() => {
-    clearMessages();
-  }, [activeRoomId]);
 
   const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;

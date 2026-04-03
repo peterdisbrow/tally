@@ -17,44 +17,61 @@ function normalizeMessage(raw: Record<string, unknown>): ChatMessage {
   };
 }
 
+const NO_ROOM = '__no_room__';
+
+function roomKey(roomId: string | null | undefined): string {
+  return roomId || NO_ROOM;
+}
+
 interface ChatState {
-  messages: ChatMessage[];
+  messagesByRoom: Record<string, ChatMessage[]>;
   isLoading: boolean;
   isSending: boolean;
 
   fetchMessages: () => Promise<void>;
   sendMessage: (text: string, roomId?: string) => Promise<boolean>;
   addMessage: (msg: ChatMessage) => void;
+  /** Clear messages for the current active room only. */
   clearMessages: () => void;
+  /** Clear messages for all rooms (use on logout). */
+  clearAllMessages: () => void;
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
-  messages: [],
+  messagesByRoom: {},
   isLoading: false,
   isSending: false,
 
   fetchMessages: async () => {
-    const wasEmpty = get().messages.length === 0;
+    const roomId = useStatusStore.getState().activeRoomId;
+    const key = roomKey(roomId);
+    const existing = get().messagesByRoom[key] ?? [];
+    const wasEmpty = existing.length === 0;
     if (wasEmpty) set({ isLoading: true });
     try {
-      const roomId = useStatusStore.getState().activeRoomId;
       const params = new URLSearchParams({ latest: 'true' });
       if (roomId) params.set('roomId', roomId);
       const data = await api<{ messages: Record<string, unknown>[] }>(
         `/api/church/chat?${params.toString()}`,
       );
       const incoming = (data.messages || []).map(normalizeMessage);
-      const existing = get().messages;
+      const current = get().messagesByRoom[key] ?? [];
 
       // Only update state if messages actually changed (avoids flicker)
       if (
-        incoming.length !== existing.length ||
-        (incoming.length > 0 && existing.length > 0 &&
-          incoming[incoming.length - 1]?.id !== existing[existing.length - 1]?.id)
+        incoming.length !== current.length ||
+        (incoming.length > 0 && current.length > 0 &&
+          incoming[incoming.length - 1]?.id !== current[current.length - 1]?.id)
       ) {
-        set({ messages: incoming, isLoading: false });
+        set((state) => ({
+          messagesByRoom: { ...state.messagesByRoom, [key]: incoming },
+          isLoading: false,
+        }));
       } else if (wasEmpty) {
-        set({ messages: incoming, isLoading: false });
+        set((state) => ({
+          messagesByRoom: { ...state.messagesByRoom, [key]: incoming },
+          isLoading: false,
+        }));
       } else {
         set({ isLoading: false });
       }
@@ -70,8 +87,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         method: 'POST',
         body: { message: text, roomId: roomId || null },
       });
+      const msg = normalizeMessage(saved);
+      const key = roomKey(msg.roomId ?? roomId);
       set((state) => ({
-        messages: [...state.messages, normalizeMessage(saved)],
+        messagesByRoom: {
+          ...state.messagesByRoom,
+          [key]: [...(state.messagesByRoom[key] ?? []), msg],
+        },
         isSending: false,
       }));
       return true;
@@ -82,12 +104,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   addMessage: (msg) => {
+    const key = roomKey(msg.roomId);
     set((state) => ({
-      messages: [...state.messages, msg],
+      messagesByRoom: {
+        ...state.messagesByRoom,
+        [key]: [...(state.messagesByRoom[key] ?? []), msg],
+      },
     }));
   },
 
   clearMessages: () => {
-    set({ messages: [], isLoading: false, isSending: false });
+    const roomId = useStatusStore.getState().activeRoomId;
+    const key = roomKey(roomId);
+    set((state) => ({
+      messagesByRoom: { ...state.messagesByRoom, [key]: [] },
+    }));
+  },
+
+  clearAllMessages: () => {
+    set({ messagesByRoom: {}, isLoading: false, isSending: false });
   },
 }));

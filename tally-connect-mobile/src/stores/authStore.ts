@@ -91,7 +91,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       // Logout may fail if token already expired
     }
     await clearAuth();
-    useChatStore.getState().clearMessages();
+    useChatStore.getState().clearAllMessages();
     useStatusStore.getState().reset();
     useAlertStore.getState().reset();
     set({
@@ -108,7 +108,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   forceLogout: async () => {
     tallySocket.disconnect();
     await clearAuth();
-    useChatStore.getState().clearMessages();
+    useChatStore.getState().clearAllMessages();
     useStatusStore.getState().reset();
     useAlertStore.getState().reset();
     Alert.alert('Session Expired', 'Your session has expired. Please log in again.');

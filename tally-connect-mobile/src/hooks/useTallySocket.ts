@@ -104,20 +104,16 @@ export function useTallySocket() {
         case 'chat': {
           const chat = msg as unknown as Record<string, unknown>;
           const roomId = (chat.roomId ?? chat.room_id ?? null) as string | null;
-          const activeRoom = useStatusStore.getState().activeRoomId;
-          // Only add if the message belongs to the active room (or has no room)
-          if (!roomId || !activeRoom || roomId === activeRoom) {
-            useChatStore.getState().addMessage({
-              id: (chat.id as string) || '',
-              churchId: (chat.churchId ?? chat.church_id ?? '') as string,
-              senderName: (chat.senderName ?? chat.sender_name ?? '') as string,
-              senderRole: (chat.senderRole ?? chat.sender_role ?? 'system') as ChatMessage['senderRole'],
-              message: (chat.message as string) || '',
-              source: (chat.source as string) || '',
-              timestamp: (chat.timestamp as string) || '',
-              roomId,
-            });
-          }
+          useChatStore.getState().addMessage({
+            id: (chat.id as string) || '',
+            churchId: (chat.churchId ?? chat.church_id ?? '') as string,
+            senderName: (chat.senderName ?? chat.sender_name ?? '') as string,
+            senderRole: (chat.senderRole ?? chat.sender_role ?? 'system') as ChatMessage['senderRole'],
+            message: (chat.message as string) || '',
+            source: (chat.source as string) || '',
+            timestamp: (chat.timestamp as string) || '',
+            roomId,
+          });
           break;
         }
       }
