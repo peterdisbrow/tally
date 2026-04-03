@@ -1,5 +1,6 @@
 import { getRelayUrl, getAuthToken } from '../api/client';
 import type { ServerMessage } from './types';
+import { Sentry } from '../lib/sentry';
 
 type MessageHandler = (msg: ServerMessage) => void;
 type ConnectionHandler = (connected: boolean) => void;
@@ -55,8 +56,9 @@ export class TallySocket {
             return;
           }
           this.notifyMessage(msg);
-        } catch {
-          // Malformed JSON — ignore
+        } catch (e) {
+          // Malformed JSON — ignore, but track if it's frequent
+          Sentry.captureException(e, { extra: { raw: event.data } });
         }
       };
 
@@ -71,7 +73,8 @@ export class TallySocket {
       this.ws.onerror = () => {
         // Error will trigger close, which handles reconnection
       };
-    } catch {
+    } catch (e) {
+      Sentry.captureException(e, { extra: { context: 'WebSocket connect' } });
       this.scheduleReconnect();
     }
   }
@@ -140,8 +143,9 @@ export class TallySocket {
     for (const handler of this.messageHandlers) {
       try {
         handler(msg);
-      } catch {
+      } catch (e) {
         // Don't let one handler crash others
+        Sentry.captureException(e, { extra: { context: 'WebSocket message handler', msgType: (msg as { type?: string }).type } });
       }
     }
   }
@@ -150,8 +154,9 @@ export class TallySocket {
     for (const handler of this.connectionHandlers) {
       try {
         handler(connected);
-      } catch {
+      } catch (e) {
         // Don't let one handler crash others
+        Sentry.captureException(e, { extra: { context: 'WebSocket connection handler', connected } });
       }
     }
   }

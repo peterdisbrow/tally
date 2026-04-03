@@ -8,6 +8,10 @@ import { useNotifications } from '../src/hooks/useNotifications';
 import { useTallySocket } from '../src/hooks/useTallySocket';
 import { useUpdateCheck } from '../src/hooks/useUpdateCheck';
 import { ThemeProvider, useThemeColors } from '../src/theme/ThemeContext';
+import { initSentry } from '../src/lib/sentry';
+import { ErrorBoundary } from '../src/components/ErrorBoundary';
+
+initSentry();
 
 function RootNavigator() {
   const checkAuth = useAuthStore((s) => s.checkAuth);
@@ -55,8 +59,10 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <ThemeProvider>
-      <RootNavigator />
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <RootNavigator />
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

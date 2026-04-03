@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import * as Updates from 'expo-updates';
 import { useUpdateStore } from '../stores/updateStore';
+import { Sentry } from '../lib/sentry';
 
 /**
  * Checks for OTA updates on app launch (non-blocking).
@@ -27,6 +28,9 @@ export function useUpdateCheck() {
           '| channel:', Updates.channel ?? 'none',
           '| runtime:', Updates.runtimeVersion ?? 'unknown',
         );
+        Sentry.captureException(err, {
+          extra: { context: 'OTA update check', channel: Updates.channel, runtimeVersion: Updates.runtimeVersion },
+        });
       }
     })();
   }, []);

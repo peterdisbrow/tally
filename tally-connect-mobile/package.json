@@ -11,6 +11,7 @@
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@sentry/react-native": "^8.7.0",
     "babel-preset-expo": "^55.0.13",
     "expo": "~54.0.33",
     "expo-constants": "~18.0.13",

@@ -10,6 +10,7 @@ import { useChatStore } from '../src/stores/chatStore';
 import { useAuthStore } from '../src/stores/authStore';
 import { api } from '../src/api/client';
 import { useThemeColors } from '../src/theme/ThemeContext';
+import { Sentry } from '../src/lib/sentry';
 import { spacing, borderRadius, fontSize } from '../src/theme/spacing';
 import type { Room } from '../src/ws/types';
 
@@ -45,6 +46,7 @@ export default function RoomPickerScreen() {
       setRooms((data.rooms || []).map((r) => ({ id: r.id, name: r.name })));
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return;
+      Sentry.captureException(e, { extra: { context: 'loadRooms' } });
       setError(e instanceof Error ? e.message : 'Failed to load rooms. Check your connection and try again.');
     }
     if (!signal?.aborted) setLoading(false);

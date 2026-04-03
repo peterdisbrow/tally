@@ -6,6 +6,7 @@ import Constants from 'expo-constants';
 import type { EventSubscription } from 'expo-modules-core';
 import { api } from '../api/client';
 import { useAuthStore } from '../stores/authStore';
+import { Sentry } from '../lib/sentry';
 
 // Configure how notifications are displayed when app is in foreground
 Notifications.setNotificationHandler({
@@ -139,7 +140,8 @@ async function registerForPushNotifications(): Promise<{ token: string | null; s
       projectId: projectId || undefined,
     });
     return { token: tokenData.data, status: 'granted' };
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e, { extra: { context: 'push token registration' } });
     return { token: null, status: 'error' };
   }
 }

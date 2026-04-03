@@ -5,6 +5,7 @@ import { tallySocket } from '../ws/TallySocket';
 import { useChatStore } from './chatStore';
 import { useStatusStore } from './statusStore';
 import { useAlertStore } from './alertStore';
+import { Sentry } from '../lib/sentry';
 
 interface AuthState {
   isLoggedIn: boolean;
@@ -101,6 +102,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       return true;
     } catch (err) {
+      Sentry.captureException(err, { extra: { context: 'login', email } });
       set({ isLoading: false, error: normalizeLoginError(err) });
       return false;
     }
@@ -171,7 +173,8 @@ export const useAuthStore = create<AuthState>((set) => ({
         email: profile.email,
         role: profile.role || 'admin',
       });
-    } catch {
+    } catch (err) {
+      Sentry.captureException(err, { extra: { context: 'checkAuth' } });
       await clearAuth();
       set({ isLoggedIn: false, isLoading: false });
     }
