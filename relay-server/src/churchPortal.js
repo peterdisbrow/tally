@@ -837,32 +837,26 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
     // Filter status to only include devices configured for this room's equipment config.
     // This prevents devices from other rooms bleeding through when a single Electron app
-    // serves multiple rooms.
+    // serves multiple rooms. Uses a denylist approach: start with full status and remove
+    // only device keys that have a config mechanism AND are not configured for this room.
     if (requestedRoomId && statusObj && !statusObj._offline) {
       try {
         const eqRow = db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ? AND church_id = ?').get(requestedRoomId, c.churchId);
         if (eqRow) {
           const eq = JSON.parse(eqRow.equipment);
-          const filtered = {};
-          // Always pass through system metadata and non-device keys
-          for (const key of ['system', 'connected', '_updatedAt', 'lastSeen', 'streaming', 'audio']) {
-            if (statusObj[key] !== undefined) filtered[key] = statusObj[key];
-          }
-          // Only include device status if that device type is configured for this room
-          if (eq.atemIp)                                                  filtered.atem = statusObj.atem;
-          if (eq.encoderType || eq.encoderHost)                           filtered.encoder = statusObj.encoder;
-          if (eq.obsUrl)                                                  filtered.obs = statusObj.obs;
-          if (eq.mixer?.type || eq.mixer?.host)                           filtered.mixer = statusObj.mixer;
-          if (eq.proPresenter?.host)                                      { filtered.proPresenter = statusObj.proPresenter; filtered.propresenter = statusObj.propresenter; }
-          if (eq.resolume?.host)                                          filtered.resolume = statusObj.resolume;
-          if (eq.vmix?.host)                                              filtered.vmix = statusObj.vmix;
-          if (eq.companionUrl)                                            filtered.companion = statusObj.companion;
-          if (eq.ptz?.length)                                             { filtered.ptz = statusObj.ptz; filtered.cameras = statusObj.cameras; }
-          if (eq.hyperdecks?.length)                                      { filtered.hyperdeck = statusObj.hyperdeck; filtered.hyperDeck = statusObj.hyperDeck; filtered.hyperdecks = statusObj.hyperdecks; filtered.hyperDecks = statusObj.hyperDecks; }
-          if (eq.videoHubs?.length)                                       filtered.videoHubs = statusObj.videoHubs;
-          if (eq.audioViaAtem && filtered.atem)                           filtered.audio = statusObj.audio;
-          // Smart plugs are room-agnostic for now — always include if present
-          if (statusObj.smartPlugs)                                       filtered.smartPlugs = statusObj.smartPlugs;
+          const filtered = { ...statusObj };
+          // Each config field maps to status keys — remove if NOT configured
+          if (!eq.atemIp)                         delete filtered.atem;
+          if (!eq.encoderType && !eq.encoderHost) delete filtered.encoder;
+          if (!eq.obsUrl)                         delete filtered.obs;
+          if (!eq.mixer?.type && !eq.mixer?.host) delete filtered.mixer;
+          if (!eq.proPresenter?.host)             { delete filtered.proPresenter; delete filtered.propresenter; }
+          if (!eq.resolume?.host)                 delete filtered.resolume;
+          if (!eq.vmix?.host)                     delete filtered.vmix;
+          if (!eq.companionUrl)                   delete filtered.companion;
+          if (!eq.ptz?.length)                    { delete filtered.ptz; delete filtered.cameras; }
+          if (!eq.hyperdecks?.length)             { delete filtered.hyperdeck; delete filtered.hyperDeck; delete filtered.hyperdecks; delete filtered.hyperDecks; }
+          if (!eq.videoHubs?.length)              delete filtered.videoHubs;
           statusObj = filtered;
         }
       } catch { /* If equipment config can't be read, show unfiltered status */ }

@@ -1311,6 +1311,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           const cams = status.cameras || (status.ptz ? [status.ptz] : []);
           (Array.isArray(cams) ? cams : [cams]).forEach(function(cam, i) {
             if (!cam) return;
+            // Only show cameras that have real connection data (IP, name, or connected flag)
+            if (!cam.connected && !cam.ip && !cam.host && !cam.name && !cam.lastSeen) return;
             const camSt = cam.connected ? 'connected' : 'disconnected';
             const camLabel = cam.name || ('Camera ' + (i + 1));
             rows.push([camLabel, camSt, null, cam.lastSeen || null]);
