@@ -46,7 +46,7 @@ function toggleTheme() {
   const isLight = document.body.classList.toggle('light-theme');
   localStorage.setItem('theme', isLight ? 'light' : 'dark');
   const btn = document.getElementById('theme-toggle');
-  if (btn) btn.textContent = isLight ? '🌙' : '☀️';
+  if (btn) btn.textContent = isLight ? '\u263E' : '\u2600';
 }
 
 function restoreTheme() {
@@ -54,7 +54,7 @@ function restoreTheme() {
   if (saved === 'light') {
     document.body.classList.add('light-theme');
     const btn = document.getElementById('theme-toggle');
-    if (btn) btn.textContent = '🌙';
+    if (btn) btn.textContent = '\u263E';
   }
 }
 
@@ -145,6 +145,251 @@ async function flushOfflineQueue() {
   updateOfflineQueueBadge();
   if (replayed > 0) {
     addAlert(`Sent ${replayed} queued message${replayed !== 1 ? 's' : ''} from offline.`);
+  }
+}
+
+// ─── PORTAL DISCOVERY ─────────────────────────────────────────────────────────
+
+function openPortal(path) {
+  const base = 'https://tallyconnect.app/portal';
+  const url = path ? base + path : base;
+  if (api.openExternal) {
+    api.openExternal(url);
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
+function showFirstLaunchModal() {
+  const seen = localStorage.getItem('firstLaunchSeen');
+  if (seen) return;
+  const modal = document.getElementById('first-launch-modal');
+  if (modal) modal.style.display = 'flex';
+}
+
+function dismissFirstLaunch() {
+  localStorage.setItem('firstLaunchSeen', '1');
+  const modal = document.getElementById('first-launch-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+// ─── CONTROL ROOM DASHBOARD ─────────────────────────────────────────────────
+
+function updateControlRoom(status) {
+  // ── Hero status ────────────────────────────────────────────
+  const heroIcon = document.getElementById('cr-hero-icon');
+  const heroHeadline = document.getElementById('cr-hero-headline');
+  const heroSub = document.getElementById('cr-hero-sub');
+
+  let issues = 0;
+  let warnings = 0;
+  const relayOk = getStatusActive(status.relay);
+  const atemOk = getStatusActive(status.atem);
+  const encoderOk = getStatusActive(status.encoder) || getStatusActive(status.obs);
+  const companionOk = getStatusActive(status.companion);
+
+  if (status.atem !== null && status.atem !== undefined && !atemOk) issues++;
+  if (status.encoder !== null && status.encoder !== undefined && !encoderOk && status.obs !== undefined && !getStatusActive(status.obs)) issues++;
+  if (!relayOk && !_monitoringStoppedByUser) warnings++;
+
+  if (heroHeadline) {
+    if (issues > 0) {
+      heroHeadline.textContent = `${issues} Issue${issues > 1 ? 's' : ''} Detected`;
+      if (heroIcon) heroIcon.className = 'cr-hero-icon error';
+      if (heroIcon) heroIcon.innerHTML = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+    } else if (warnings > 0) {
+      heroHeadline.textContent = 'Attention Needed';
+      if (heroIcon) heroIcon.className = 'cr-hero-icon warning';
+      if (heroIcon) heroIcon.innerHTML = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+    } else {
+      heroHeadline.textContent = 'All Systems Nominal';
+      if (heroIcon) heroIcon.className = 'cr-hero-icon';
+      if (heroIcon) heroIcon.innerHTML = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+    }
+  }
+  if (heroSub) {
+    const parts = [];
+    if (relayOk) parts.push('Relay connected');
+    else if (!_monitoringStoppedByUser) parts.push('Relay offline');
+    if (status.streaming || (status.encoder && typeof status.encoder === 'object' && status.encoder.live)) parts.push('LIVE');
+    if (!parts.length) parts.push('No issues detected');
+    heroSub.textContent = parts.join(' \u00B7 ');
+  }
+
+  // ── Connectivity indicator ─────────────────────────────────
+  const connIndicator = document.getElementById('connectivity-indicator');
+  const connLabel = document.getElementById('connectivity-label');
+  if (connIndicator) {
+    connIndicator.classList.remove('offline', 'disconnected');
+    if (relayOk) {
+      connLabel.textContent = 'Connected';
+    } else if (!navigator.onLine) {
+      connIndicator.classList.add('disconnected');
+      connLabel.textContent = 'No Internet';
+    } else {
+      connIndicator.classList.add('offline');
+      connLabel.textContent = 'Offline Mode';
+    }
+  }
+
+  // ── Device cards ───────────────────────────────────────────
+  function setCard(id, statusVal, label, detail) {
+    const card = document.getElementById(id);
+    if (!card) return;
+    card.dataset.status = statusVal;
+    const valEl = card.querySelector('.cr-card-value');
+    const detailEl = card.querySelector('.cr-card-detail');
+    if (valEl) valEl.textContent = label;
+    if (detailEl) detailEl.textContent = detail || '';
+  }
+
+  // ATEM
+  const atemCard = document.getElementById('cr-card-atem');
+  if (status.atem === null || status.atem === undefined) {
+    if (atemCard) atemCard.style.display = 'none';
+  } else {
+    if (atemCard) atemCard.style.display = '';
+    setCard('cr-card-atem', atemOk ? 'ok' : 'error',
+      atemOk ? (status.atemModel || 'Connected') : 'Disconnected',
+      atemOk ? `PGM: ${status.program || '--'}` : '');
+  }
+
+  // Encoder
+  const encCard = document.getElementById('cr-card-encoder');
+  if (status.encoder === null && (status.obs === undefined || status.obs === null) && !status.encoderType) {
+    if (encCard) encCard.style.display = 'none';
+  } else {
+    if (encCard) encCard.style.display = '';
+    const encTitle = document.getElementById('cr-encoder-title');
+    if (encTitle) encTitle.textContent = status.encoderType || 'Encoder';
+    setCard('cr-card-encoder', encoderOk ? 'ok' : 'error',
+      encoderOk ? 'Connected' : 'Disconnected',
+      encoderOk && status.fps ? `${status.fps} FPS` : '');
+  }
+
+  // Stream
+  const isLive = status.streaming || (status.encoder && typeof status.encoder === 'object' && status.encoder.live);
+  const bitrate = status.bitrate || (status.encoder && typeof status.encoder === 'object' ? status.encoder.bitrateKbps : null);
+  setCard('cr-card-stream', isLive ? 'live' : 'idle',
+    isLive ? 'LIVE' : 'Offline',
+    isLive && bitrate ? `${Math.round(bitrate)} Kbps` : '');
+
+  // Recording
+  const isRecording = status.recording || (status.encoder && typeof status.encoder === 'object' && status.encoder.recording);
+  setCard('cr-card-recording', isRecording ? 'ok' : 'idle',
+    isRecording ? 'Recording' : 'Idle',
+    status.recordingDuration || '');
+
+  // Companion
+  const compCard = document.getElementById('cr-card-companion');
+  if (status.companion === null || status.companion === undefined) {
+    if (compCard) compCard.style.display = 'none';
+  } else {
+    if (compCard) compCard.style.display = '';
+    setCard('cr-card-companion', companionOk ? 'ok' : 'error',
+      companionOk ? 'Connected' : 'Disconnected', '');
+  }
+
+  // ProPresenter
+  const ppCard = document.getElementById('cr-card-propresenter');
+  if (!status.proPresenter) {
+    if (ppCard) ppCard.style.display = 'none';
+  } else {
+    if (ppCard) ppCard.style.display = '';
+    const ppOk = getStatusActive(status.proPresenter);
+    setCard('cr-card-propresenter', ppOk ? 'ok' : 'error',
+      ppOk ? (status.ppPresentation || 'Connected') : 'Disconnected',
+      status.ppSlide || '');
+  }
+
+  // Network
+  setCard('cr-card-network', relayOk ? 'ok' : (navigator.onLine ? 'warning' : 'error'),
+    relayOk ? 'Online' : (navigator.onLine ? 'Relay Offline' : 'No Internet'),
+    'Local connections active');
+
+  // Audio
+  const audioOk = status.audio && !status.audio.muted && !status.audio.silence;
+  const audioMuted = status.audio && status.audio.muted;
+  const audioSilence = status.audio && status.audio.silence;
+  if (status.audio) {
+    setCard('cr-card-audio',
+      audioMuted ? 'error' : (audioSilence ? 'warning' : 'ok'),
+      audioMuted ? 'MUTED' : (audioSilence ? 'Silence' : 'Active'),
+      status.audio.level ? `${status.audio.level} dB` : '');
+  }
+
+  // ── Tally strip ────────────────────────────────────────────
+  const tallyStrip = document.getElementById('cr-tally-strip');
+  if (tallyStrip) {
+    if (atemOk && (status.program || status.preview)) {
+      tallyStrip.style.display = 'flex';
+      const pgmEl = document.getElementById('cr-pgm-source');
+      const pvwEl = document.getElementById('cr-pvw-source');
+      if (pgmEl) pgmEl.textContent = status.program || '--';
+      if (pvwEl) pvwEl.textContent = status.preview || '--';
+    } else {
+      tallyStrip.style.display = 'none';
+    }
+  }
+
+  // ── Bottom bar sync ────────────────────────────────────────
+  const bottomDot = document.getElementById('dot-bottom-relay');
+  const bottomLabel = document.getElementById('bottom-bar-label');
+  const bottomBtn = document.getElementById('btn-toggle-compact');
+  if (bottomDot) {
+    bottomDot.className = 'dot ' + (relayOk ? 'green' : (!navigator.onLine ? 'red' : 'yellow'));
+  }
+  if (bottomLabel) {
+    if (isRunning) {
+      bottomLabel.textContent = isLive ? 'LIVE' : (relayOk ? 'Monitoring' : 'Offline Mode');
+    } else {
+      bottomLabel.textContent = 'Stopped';
+    }
+  }
+  if (bottomBtn) {
+    bottomBtn.textContent = isRunning ? 'Stop' : 'Start';
+    bottomBtn.classList.toggle('running', isRunning);
+  }
+
+  // ── Settings room name ─────────────────────────────────────
+  const settingsRoom = document.getElementById('settings-room-name');
+  if (settingsRoom) {
+    settingsRoom.textContent = status.roomName || window._currentRoomName || 'Default';
+  }
+}
+
+// ─── OFFLINE BANNER UPDATE (enhanced) ───────────────────────────────────────
+
+function updateOfflineBannerText(relayOk) {
+  const offlineBanner = document.getElementById('offline-banner');
+  const offlineBannerText = document.getElementById('offline-banner-text');
+  const offlineBannerDetail = document.getElementById('offline-banner-detail');
+  const offlineBannerStale = document.getElementById('offline-banner-stale');
+  if (!offlineBanner) return;
+
+  if (_monitoringStoppedByUser) {
+    offlineBanner.style.display = 'none';
+    return;
+  }
+
+  if (!relayOk && !navigator.onLine) {
+    if (offlineBannerText) offlineBannerText.textContent = 'No Internet Connection';
+    if (offlineBannerDetail) offlineBannerDetail.textContent = 'Local device monitoring continues. Network scanning works offline. Changes sync when connected.';
+    offlineBanner.style.display = '';
+  } else if (!relayOk) {
+    if (offlineBannerText) offlineBannerText.textContent = 'Offline Mode \u2014 Local monitoring active';
+    if (offlineBannerDetail) offlineBannerDetail.textContent = 'Device connections maintained locally. Portal sync and AI features unavailable.';
+    offlineBanner.style.display = '';
+  } else {
+    offlineBanner.style.display = 'none';
+  }
+
+  if (offlineBannerStale && _cachedStatusTime && !relayOk) {
+    const agoText = formatTimeAgo(_cachedStatusTime);
+    offlineBannerStale.textContent = `Last cloud sync: ${agoText}`;
+    offlineBannerStale.style.display = '';
+  } else if (offlineBannerStale) {
+    offlineBannerStale.style.display = 'none';
   }
 }
 
@@ -637,6 +882,15 @@ async function showDashboard() {
   restoreCollapsibleStates();
   restoreTheme();
   showChangeRoomButton();
+
+  // Restore active tab
+  const savedTab = localStorage.getItem('activeTab');
+  if (savedTab && ['dashboard', 'devices', 'network', 'settings'].includes(savedTab)) {
+    switchTab(savedTab);
+  }
+
+  // Show first-launch onboarding modal
+  showFirstLaunchModal();
 }
 
 // ─── ROOM SELECTOR ─────────────��────────────────────────────────────────────
@@ -1372,7 +1626,7 @@ async function completeOnboarding() {
 function skipToManualSetup() {
   api.saveConfig({ setupComplete: true }).then(async () => {
     showDashboard();
-    switchTab('equipment');
+    switchTab('devices');
     setAllDotsConnecting();
     try { await api.startAgent(); isRunning = true; } catch {}
     updateToggleBtn();
@@ -1894,35 +2148,7 @@ function updateStatusUI(status) {
   }
 
   // ── Offline / disconnection banner ──────────────────────────────────────
-  // Don't show connection-loss banner when user intentionally stopped monitoring
-  const offlineBanner = document.getElementById('offline-banner');
-  const offlineBannerText = document.getElementById('offline-banner-text');
-  const offlineBannerStale = document.getElementById('offline-banner-stale');
-  if (offlineBanner) {
-    if (_monitoringStoppedByUser) {
-      offlineBanner.style.display = 'none';
-      if (offlineBannerStale) offlineBannerStale.style.display = 'none';
-    } else if (!relayOk && !navigator.onLine) {
-      if (offlineBannerText) offlineBannerText.textContent = 'No internet -- check your Wi-Fi or network cable';
-      offlineBanner.style.display = '';
-      if (offlineBannerStale && _cachedStatusTime) {
-        const agoText = formatTimeAgo(_cachedStatusTime);
-        offlineBannerStale.textContent = `Showing cached data. Last update: ${agoText}`;
-        offlineBannerStale.style.display = '';
-      }
-    } else if (!relayOk) {
-      if (offlineBannerText) offlineBannerText.textContent = friendlyError('WebSocket error');
-      offlineBanner.style.display = '';
-      if (offlineBannerStale && _cachedStatusTime) {
-        const agoText = formatTimeAgo(_cachedStatusTime);
-        offlineBannerStale.textContent = `Showing cached data. Last update: ${agoText}`;
-        offlineBannerStale.style.display = '';
-      }
-    } else {
-      offlineBanner.style.display = 'none';
-      if (offlineBannerStale) offlineBannerStale.style.display = 'none';
-    }
-  }
+  updateOfflineBannerText(relayOk);
 
   // ── Dynamic encoder dot + label ─────────────────────────────────────────
   const encoderLabel = status.encoderType || 'Encoder';
@@ -2915,8 +3141,16 @@ function setAllDotsConnecting() {
 
 function updateToggleBtn() {
   const btn = document.getElementById('btn-toggle');
-  btn.textContent = isRunning ? 'Stop Monitoring' : 'Start Monitoring';
-  btn.className = isRunning ? 'btn-primary' : 'btn-start';
+  if (btn) {
+    btn.textContent = isRunning ? 'Stop Monitoring' : 'Start Monitoring';
+    btn.className = isRunning ? 'btn-primary' : 'btn-start';
+  }
+  // Sync compact bottom bar button
+  const compactBtn = document.getElementById('btn-toggle-compact');
+  if (compactBtn) {
+    compactBtn.textContent = isRunning ? 'Stop' : 'Start';
+    compactBtn.classList.toggle('running', isRunning);
+  }
 }
 
 async function toggleAgent() {
@@ -3264,6 +3498,9 @@ function updatePfBadge() {
 api.onStatus((status) => {
   updateStatusUI(status);
 
+  // Control room dashboard update
+  updateControlRoom(status);
+
   // Multi-encoder update
   updateMultiEncoderUI(status);
 
@@ -3441,33 +3678,39 @@ function markEquipDirty() { _equipDirty = true; }
 
 // Listen for field changes inside the equipment tab
 document.addEventListener('input', (e) => {
-  if (e.target.closest('#tab-equipment')) markEquipDirty();
+  if (e.target.closest('#tab-devices')) markEquipDirty();
 });
 document.addEventListener('change', (e) => {
-  if (e.target.closest('#tab-equipment')) markEquipDirty();
+  if (e.target.closest('#tab-devices')) markEquipDirty();
 });
 
 async function switchTab(name) {
-  // Warn about unsaved equipment changes when leaving equipment tab
-  const equipTab = document.getElementById('tab-equipment');
-  if (_equipDirty && equipTab?.classList.contains('active') && name !== 'equipment') {
+  // Map legacy tab names for backward compatibility
+  if (name === 'status') name = 'dashboard';
+  if (name === 'equipment') name = 'devices';
+
+  // Warn about unsaved equipment changes when leaving devices tab
+  const equipTab = document.getElementById('tab-devices');
+  if (_equipDirty && equipTab?.classList.contains('active') && name !== 'devices') {
     if (!(await asyncConfirm('You have unsaved equipment changes. Leave without saving?'))) return;
     _equipDirty = false;
   }
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => {
+    // Don't touch hidden tabs (engineer, commands)
+    if (t.style.display === 'none' && t.style.getPropertyPriority('display') === 'important') return;
+    t.classList.remove('active');
+  });
   document.querySelector(`.tab-btn[onclick="switchTab('${name}')"]`)?.classList.add('active');
   document.getElementById('tab-' + name)?.classList.add('active');
-  if (name === 'equipment') { loadEquipment(); updateOAuthUI(); }
-  if (name === 'engineer') { loadProblemFinder(); startChatPolling(); }
-  else stopChatPolling();
-  // Clear issue badge when user views the Status tab
-  if (name === 'status') {
+  if (name === 'devices') { loadEquipment(); updateOAuthUI(); }
+  // Clear issue badge when user views the Dashboard tab
+  if (name === 'dashboard') {
     _pfAutoRunIssueCount = 0;
     updatePfBadge();
   }
-  // Refresh commands panel visibility when switching to it
-  if (name === 'commands') { updateCommandsPanelVisibility(_lastCommandsStatus); }
+  // Persist active tab
+  localStorage.setItem('activeTab', name);
 }
 
 // ─── CHAT ───────────────────────────────────────────────────────────────────
@@ -4690,11 +4933,10 @@ document.addEventListener('keydown', (e) => {
   const mod = e.metaKey || e.ctrlKey;
   if (!mod) return;
 
-  if (e.key === '1') { e.preventDefault(); switchTab('status'); }
-  else if (e.key === '2') { e.preventDefault(); switchTab('equipment'); }
-  else if (e.key === '3') { e.preventDefault(); switchTab('engineer'); }
-  else if (e.key === '4') { e.preventDefault(); switchTab('commands'); }
-  else if (e.key === '5') { e.preventDefault(); switchTab('network'); }
+  if (e.key === '1') { e.preventDefault(); switchTab('dashboard'); }
+  else if (e.key === '2') { e.preventDefault(); switchTab('devices'); }
+  else if (e.key === '3') { e.preventDefault(); switchTab('network'); }
+  else if (e.key === '4') { e.preventDefault(); switchTab('settings'); }
 });
 
 // External link handler

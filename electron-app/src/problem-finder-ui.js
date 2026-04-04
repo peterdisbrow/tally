@@ -225,8 +225,8 @@ function initProblemFinderListener() {
         const realIssues = issues.filter(i => i.id !== 'no_issues_detected');
         _pfAutoRunIssueCount = realIssues.length;
         // Only show badge when Status tab is active (not engineer tab)
-        const statusTab = document.getElementById('tab-status');
-        if (statusTab && statusTab.classList.contains('active')) {
+        const dashboardTab = document.getElementById('tab-dashboard');
+        if (dashboardTab && dashboardTab.classList.contains('active')) {
           // User is already viewing status — don't show badge
         } else {
           updatePfBadge();

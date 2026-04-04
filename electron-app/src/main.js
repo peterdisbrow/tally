@@ -493,7 +493,7 @@ function updateTray() {
   if (!tray) return;
   const state = computeTrayState();
   // Build a fingerprint of all values that affect the tray menu
-  const fingerprint = `${state}|${!!agentStatus.relay}|${!!agentStatus.atem}|${!!(agentStatus.encoder||agentStatus.obs)}|${!!agentStatus.companion}|${agentStatus.encoderType||''}|${agentStatus.billingTier||''}|${agentStatus.billingStatus||''}|${agentStatus.trialDaysRemaining??''}`;
+  const fingerprint = `${state}|${!!agentStatus.relay}|${!!agentStatus.atem}|${!!(agentStatus.encoder||agentStatus.obs)}|${!!agentStatus.companion}|${!!agentStatus.proPresenter}|${!!agentStatus.resolume}|${agentStatus.encoderType||''}|${agentStatus.billingTier||''}|${agentStatus.billingStatus||''}|${agentStatus.trialDaysRemaining??''}|${!!(agentStatus.streaming)}`;
   if (fingerprint === _lastTrayState) return;
   _lastTrayState = fingerprint;
   tray.setImage(getTrayIcon(state));
@@ -503,10 +503,19 @@ function updateTray() {
   const encoderOk = agentStatus.encoder || agentStatus.obs;
   const compOk = agentStatus.companion;
   const encLabel = agentStatus.encoderType || 'OBS';
+  const isLive = agentStatus.streaming || (agentStatus.encoder && typeof agentStatus.encoder === 'object' && agentStatus.encoder.live);
+
+  // Count connected devices
+  let deviceCount = 0;
+  if (atemOk) deviceCount++;
+  if (encoderOk) deviceCount++;
+  if (compOk) deviceCount++;
+  if (agentStatus.proPresenter) deviceCount++;
+  if (agentStatus.resolume) deviceCount++;
 
   const statusLine = connected
-    ? `Connected — ATEM: ${atemOk ? '✓' : '✗'} | ${encLabel}: ${encoderOk ? '✓' : '✗'} | Companion: ${compOk ? '✓' : '✗'}`
-    : 'Disconnected';
+    ? `${isLive ? '● LIVE — ' : ''}${deviceCount} device${deviceCount !== 1 ? 's' : ''} connected`
+    : 'Offline Mode — Local monitoring active';
 
   // Billing status line for tray
   const billingTier = agentStatus.billingTier || '';
@@ -522,16 +531,25 @@ function updateTray() {
     billingLine = `\u2705 Plan: ${tierNames[billingTier] || billingTier}`;
   }
 
+  // Device status detail lines
+  const deviceLines = [];
+  if (atemOk) deviceLines.push(`  ATEM: ✓ Connected`);
+  else if (agentStatus.atem !== null && agentStatus.atem !== undefined) deviceLines.push(`  ATEM: ✗ Disconnected`);
+  if (encoderOk) deviceLines.push(`  ${encLabel}: ✓ Connected`);
+  else if (agentStatus.encoder !== null || agentStatus.obs !== undefined) deviceLines.push(`  ${encLabel}: ✗ Disconnected`);
+  if (compOk) deviceLines.push(`  Companion: ✓ Connected`);
+
   const { t } = i18n;
   const menu = Menu.buildFromTemplate([
     { label: 'Tally', enabled: false },
     { label: statusLine, enabled: false },
+    ...deviceLines.map(l => ({ label: l, enabled: false })),
     ...(billingLine ? [{ label: billingLine, enabled: false }] : []),
     { type: 'separator' },
     { label: t('tray.openDashboard'), click: () => mainWindow?.show() },
     { label: connected ? t('tray.stopMonitoring') : t('tray.startMonitoring'), click: () => connected ? stopAgent() : startAgent() },
     { type: 'separator' },
-    { label: t('tray.clientPortal'), click: () => shell.openExternal('https://tallyconnect.app/portal') },
+    { label: 'Open Church Portal', click: () => shell.openExternal('https://tallyconnect.app/portal') },
     { label: t('tray.helpSupport'), click: () => shell.openExternal('https://tallyconnect.app/help') },
     { label: 'Tally Connect', click: () => shell.openExternal('https://tallyconnect.app') },
     { type: 'separator' },

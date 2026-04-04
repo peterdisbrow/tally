@@ -153,12 +153,23 @@
     <div id="room-picker" class="room-picker" style="display:none;">
       <button id="change-room-btn" onclick="changeRoom()">Change Room</button>
     </div>
-    <button id="theme-toggle" onclick="toggleTheme()" style="position:absolute;top:12px;right:16px;background:none;border:none;cursor:pointer;font-size:16px;-webkit-app-region:no-drag;padding:4px;opacity:0.6;" title="Toggle light/dark theme">☀️</button>
+    <div class="header-actions" style="-webkit-app-region:no-drag; position:absolute; top:12px; right:16px; display:flex; align-items:center; gap:8px;">
+      <button id="btn-open-portal" class="btn-portal-header" onclick="openPortal()" title="Open Church Portal in browser">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:4px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>Portal
+      </button>
+      <button id="theme-toggle" onclick="toggleTheme()" style="background:none;border:none;cursor:pointer;font-size:16px;padding:4px;opacity:0.6;" title="Toggle light/dark theme">&#9728;</button>
+    </div>
   </div>
 
   <div class="status-bar">
-    <div class="status-chip" title="Connection to the TallyConnect relay server for remote monitoring"><div class="dot" id="dot-relay"></div><span>Relay</span></div>
+    <!-- Connectivity indicator -->
+    <div class="connectivity-indicator" id="connectivity-indicator" title="Relay server connection status">
+      <div class="dot" id="dot-relay"></div>
+      <span id="connectivity-label">Connected</span>
+    </div>
     <div id="relay-latency-chip" style="display:none; font-size:10px; color:var(--muted); font-family:var(--mono); padding:0 6px; align-self:center;" title="Round-trip latency to relay server"></div>
+    <span style="flex:1;"></span>
+    <!-- Device status chips -->
     <div class="status-chip" title="Blackmagic ATEM switcher connection status"><div class="dot" id="dot-atem"></div><span>ATEM</span></div>
     <div class="status-chip" title="Streaming encoder connection and health"><div class="dot" id="dot-encoder"></div><span id="dot-encoder-label">Encoder</span></div>
     <div class="status-chip" title="Bitfocus Companion connection for button triggers"><div class="dot" id="dot-companion"></div><span>Companion</span></div>
@@ -175,27 +186,170 @@
 
   <!-- Offline / disconnection banner -->
   <div class="offline-banner" id="offline-banner" style="display:none;">
-    <span id="offline-banner-text">Relay disconnected — monitoring is paused</span>
-    <span id="offline-banner-countdown" style="display:none; margin-left:8px; font-weight:400;"></span>
-    <span id="offline-queue-count" style="display:none; margin-left:8px; background:rgba(245,158,11,0.3); padding:1px 6px; border-radius:10px; font-size:10px;"></span>
-    <div id="offline-banner-stale" style="display:none; font-weight:400; font-size:10px; margin-top:2px;"></div>
+    <div class="offline-banner-main">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M1 1l22 22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.56 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
+      <div>
+        <div id="offline-banner-text" style="font-weight:600;">Offline Mode — Local monitoring active</div>
+        <div id="offline-banner-detail" style="font-size:11px; opacity:0.8; margin-top:2px;">Device connections maintained locally. Changes will sync when connected.</div>
+      </div>
+      <span id="offline-banner-countdown" style="display:none; font-size:11px; font-weight:400; white-space:nowrap;"></span>
+      <span id="offline-queue-count" style="display:none; background:rgba(245,158,11,0.3); padding:2px 8px; border-radius:10px; font-size:10px; white-space:nowrap;"></span>
+    </div>
+    <div id="offline-banner-stale" style="display:none; font-weight:400; font-size:10px; padding:4px 16px 0 36px; opacity:0.7;"></div>
   </div>
 
   <div class="tab-bar">
-    <button class="tab-btn active" onclick="switchTab('status')" title="Status (Ctrl+1 / ⌘1)">Status <span class="tab-badge" id="status-issue-badge" style="display:none;"></span></button>
-    <button class="tab-btn" onclick="switchTab('equipment')" title="Equipment (Ctrl+2 / ⌘2)">Equipment</button>
-    <button class="tab-btn" onclick="switchTab('engineer')" title="Tally Engineer (Ctrl+3 / ⌘3)">Tally Engineer</button>
-    <button class="tab-btn" onclick="switchTab('commands')" title="Commands (Ctrl+4 / ⌘4)">Commands</button>
-    <button class="tab-btn" onclick="switchTab('network')" title="Network (Ctrl+5 / ⌘5)">Network <span class="tab-badge" id="network-device-badge" style="display:none;"></span></button>
+    <button class="tab-btn active" onclick="switchTab('dashboard')" title="Dashboard (Ctrl+1 / &#8984;1)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Dashboard <span class="tab-badge" id="status-issue-badge" style="display:none;"></span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('devices')" title="Devices (Ctrl+2 / &#8984;2)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/><line x1="4" y1="9" x2="9" y2="9"/></svg>
+      Devices
+    </button>
+    <button class="tab-btn" onclick="switchTab('network')" title="Network (Ctrl+3 / &#8984;3)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M2 12h20"/></svg>
+      Network <span class="tab-badge" id="network-device-badge" style="display:none;"></span>
+    </button>
+    <button class="tab-btn" onclick="switchTab('settings')" title="Settings (Ctrl+4 / &#8984;4)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </button>
   </div>
 
-  <!-- ══════════ STATUS TAB ══════════ -->
-  <div class="content tab-content active" id="tab-status" style="flex:1; overflow-y:auto;">
+  <!-- ══════════ DASHBOARD TAB (Control Room) ══════════ -->
+  <div class="content tab-content active" id="tab-dashboard" style="flex:1; overflow-y:auto;">
 
-    <!-- System Check Quick Action -->
-    <div class="section" id="system-check-bar" style="display:flex; align-items:center; justify-content:space-between; padding:8px 12px;">
-      <button class="btn-small" id="btn-system-check" onclick="runQuickSystemCheck()" style="font-size:11px;">Run System Check</button>
-      <span id="system-check-result" style="font-size:11px; font-family:var(--mono); color:var(--muted);"></span>
+    <!-- Control Room Hero — At-a-glance status -->
+    <div class="cr-hero" id="cr-hero">
+      <div class="cr-hero-status" id="cr-hero-status">
+        <div class="cr-hero-icon" id="cr-hero-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </div>
+        <div class="cr-hero-text">
+          <div class="cr-hero-headline" id="cr-hero-headline">All Systems Nominal</div>
+          <div class="cr-hero-sub" id="cr-hero-sub">No issues detected</div>
+        </div>
+      </div>
+      <div class="cr-hero-actions">
+        <button class="btn-small" id="btn-system-check" onclick="runQuickSystemCheck()" style="font-size:11px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px; margin-right:3px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          System Check
+        </button>
+        <span id="system-check-result" style="font-size:11px; font-family:var(--mono); color:var(--muted);"></span>
+      </div>
+    </div>
+
+    <!-- Device Health Grid — mission control cards -->
+    <div class="cr-grid" id="cr-device-grid">
+      <!-- ATEM Card -->
+      <div class="cr-card" id="cr-card-atem" data-status="idle">
+        <div class="cr-card-header">
+          <div class="cr-card-dot"></div>
+          <span class="cr-card-title">ATEM Switcher</span>
+        </div>
+        <div class="cr-card-body">
+          <div class="cr-card-value" id="cr-atem-status">Not configured</div>
+          <div class="cr-card-detail" id="cr-atem-detail"></div>
+        </div>
+      </div>
+      <!-- Encoder Card -->
+      <div class="cr-card" id="cr-card-encoder" data-status="idle">
+        <div class="cr-card-header">
+          <div class="cr-card-dot"></div>
+          <span class="cr-card-title" id="cr-encoder-title">Encoder</span>
+        </div>
+        <div class="cr-card-body">
+          <div class="cr-card-value" id="cr-encoder-status">Not configured</div>
+          <div class="cr-card-detail" id="cr-encoder-detail"></div>
+        </div>
+      </div>
+      <!-- Stream Card -->
+      <div class="cr-card" id="cr-card-stream" data-status="idle">
+        <div class="cr-card-header">
+          <div class="cr-card-dot"></div>
+          <span class="cr-card-title">Stream</span>
+        </div>
+        <div class="cr-card-body">
+          <div class="cr-card-value" id="cr-stream-status">Offline</div>
+          <div class="cr-card-detail" id="cr-stream-detail"></div>
+        </div>
+      </div>
+      <!-- Recording Card -->
+      <div class="cr-card" id="cr-card-recording" data-status="idle">
+        <div class="cr-card-header">
+          <div class="cr-card-dot"></div>
+          <span class="cr-card-title">Recording</span>
+        </div>
+        <div class="cr-card-body">
+          <div class="cr-card-value" id="cr-recording-status">Idle</div>
+          <div class="cr-card-detail" id="cr-recording-detail"></div>
+        </div>
+      </div>
+      <!-- Companion Card -->
+      <div class="cr-card" id="cr-card-companion" data-status="idle" style="display:none;">
+        <div class="cr-card-header">
+          <div class="cr-card-dot"></div>
+          <span class="cr-card-title">Companion</span>
+        </div>
+        <div class="cr-card-body">
+          <div class="cr-card-value" id="cr-companion-status">Not configured</div>
+          <div class="cr-card-detail" id="cr-companion-detail"></div>
+        </div>
+      </div>
+      <!-- ProPresenter Card -->
+      <div class="cr-card" id="cr-card-propresenter" data-status="idle" style="display:none;">
+        <div class="cr-card-header">
+          <div class="cr-card-dot"></div>
+          <span class="cr-card-title">ProPresenter</span>
+        </div>
+        <div class="cr-card-body">
+          <div class="cr-card-value" id="cr-pp-status">Not configured</div>
+          <div class="cr-card-detail" id="cr-pp-detail"></div>
+        </div>
+      </div>
+      <!-- Network Card -->
+      <div class="cr-card" id="cr-card-network" data-status="idle">
+        <div class="cr-card-header">
+          <div class="cr-card-dot"></div>
+          <span class="cr-card-title">Network</span>
+        </div>
+        <div class="cr-card-body">
+          <div class="cr-card-value" id="cr-network-status">--</div>
+          <div class="cr-card-detail" id="cr-network-detail">Local connections active</div>
+        </div>
+      </div>
+      <!-- Audio Card -->
+      <div class="cr-card" id="cr-card-audio" data-status="idle">
+        <div class="cr-card-header">
+          <div class="cr-card-dot"></div>
+          <span class="cr-card-title">Audio</span>
+        </div>
+        <div class="cr-card-body">
+          <div class="cr-card-value" id="cr-audio-status">--</div>
+          <div class="cr-card-detail" id="cr-audio-detail"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tally / Program-Preview strip -->
+    <div class="cr-tally-strip" id="cr-tally-strip" style="display:none;">
+      <div class="cr-tally-pgm" id="cr-tally-pgm">
+        <div class="cr-tally-label">PGM</div>
+        <div class="cr-tally-value" id="cr-pgm-source">--</div>
+      </div>
+      <div class="cr-tally-pvw" id="cr-tally-pvw">
+        <div class="cr-tally-label">PVW</div>
+        <div class="cr-tally-value" id="cr-pvw-source">--</div>
+      </div>
+    </div>
+
+    <!-- Pre-Service Readiness Widget -->
+    <div class="section preservice-readiness" id="preservice-readiness" style="display:none;">
+      <div class="readiness-bar" id="readiness-bar">
+        <span class="readiness-icon" id="readiness-icon"></span>
+        <span class="readiness-text" id="readiness-text">Checking...</span>
+      </div>
     </div>
 
     <!-- Pre-Service Readiness Widget -->
@@ -523,40 +677,16 @@
       </div>
     </div>
 
-    <!-- Quick Chat placeholder (moved to persistent bottom bar) -->
+  </div><!-- /tab-dashboard -->
 
-    <!-- Raw Agent Logs (collapsed by default — Show/Hide for techs) -->
-    <div class="section collapsible-section collapsed" id="section-raw-logs">
-      <div class="section-toggle" onclick="toggleCollapsible('section-raw-logs')">
-        <h2>Agent Logs <span style="font-size:10px; color:var(--muted); font-weight:400; margin-left:4px;">(Show/Hide)</span></h2>
-      </div>
-      <div class="section-body">
-        <div id="raw-log-output" style="font-family:var(--mono); font-size:10px; color:var(--dim); max-height:200px; overflow-y:auto; padding:4px 0; line-height:1.5;" aria-live="off" aria-label="Raw agent log output"></div>
-        <button class="btn-small btn-secondary" onclick="clearRawLogs()" style="margin-top:6px;">Clear</button>
-      </div>
+  <!-- ══════════ DEVICES TAB ══════════ -->
+  <div class="content tab-content" id="tab-devices" style="flex:1; overflow-y:auto;">
+
+    <!-- Portal link -->
+    <div class="portal-hint-bar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0; opacity:0.6;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      <span>Live device status shown here. <a href="#" class="portal-context-link" onclick="openPortal('/rooms'); return false;">Configure equipment in Portal</a></span>
     </div>
-
-    <!-- Activity Feed (collapsed by default) -->
-    <div class="section collapsible-section collapsed" id="section-activity">
-      <div class="section-toggle" onclick="toggleCollapsible('section-activity')">
-        <h2>Activity <span id="activity-badge" style="font-size:9px;background:var(--green);color:#000;padding:1px 5px;border-radius:var(--r-chip);margin-left:6px;display:none;">0</span></h2>
-      </div>
-      <div class="section-body">
-        <div class="activity-log" id="alerts-log" role="log" aria-live="polite" aria-label="Activity feed">
-          <div class="activity-placeholder">Waiting for events…</div>
-        </div>
-        <div style="text-align:center; margin-top:8px;">
-          <button class="btn-small btn-secondary" id="btn-diagnostic-bundle" onclick="sendDiagnosticBundle()" title="Collect and send a full system diagnostic report to Tally Connect support">
-            Send Diagnostic Report
-          </button>
-          <div id="diagnostic-bundle-status" style="font-size:11px; color:var(--muted); font-family:var(--mono); margin-top:6px; display:none;"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══════════ EQUIPMENT TAB ══════════ -->
-  <div class="content tab-content" id="tab-equipment" style="flex:1; overflow-y:auto;">
 
     <!-- Mode Toggle -->
     <div class="equip-mode-bar">
@@ -815,10 +945,10 @@
       <button class="factory-reset-link" onclick="confirmFactoryReset()">Reset to Factory Defaults</button>
     </div>
 
-  </div><!-- /tab-equipment -->
+  </div><!-- /tab-devices -->
 
-  <!-- ══════════ TALLY ENGINEER TAB ══════════ -->
-  <div class="content tab-content" id="tab-engineer">
+  <!-- ══════════ TALLY ENGINEER TAB (hidden — portal feature) ══════════ -->
+  <div class="content tab-content" id="tab-engineer" style="display:none !important;">
 
     <!-- Diagnostics section (scrollable) -->
     <div id="chat-scroll-area" style="flex:1; overflow-y:auto;">
@@ -937,8 +1067,8 @@
     </div>
   </div><!-- /tab-engineer -->
 
-  <!-- ══════════ COMMANDS TAB ══════════ -->
-  <div class="content tab-content" id="tab-commands" style="flex:1; overflow-y:auto;">
+  <!-- ══════════ COMMANDS TAB (hidden — portal feature) ══════════ -->
+  <div class="content tab-content" id="tab-commands" style="display:none !important; flex:1; overflow-y:auto;">
 
     <!-- No devices connected message -->
     <div id="cmd-empty" style="text-align:center; padding:40px 20px; color:var(--muted); font-size:12px;">
@@ -1163,6 +1293,12 @@
   <!-- ══════════ NETWORK TAB ══════════ -->
   <div class="content tab-content" id="tab-network" style="flex:1; overflow-y:auto;">
 
+    <!-- Portal link -->
+    <div class="portal-hint-bar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0; opacity:0.6;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      <span>Network works offline. <a href="#" class="portal-context-link" onclick="openPortal('/analytics'); return false;">View AI network analysis in Portal</a></span>
+    </div>
+
     <!-- Scan controls -->
     <div style="padding:12px 16px 0; display:flex; align-items:center; gap:10px;">
       <button class="btn btn-small" id="net-scan-btn" onclick="startDeepScan()">
@@ -1210,27 +1346,148 @@
 
   </div><!-- /tab-network -->
 
+  <!-- ══════════ SETTINGS TAB ══════════ -->
+  <div class="content tab-content" id="tab-settings" style="flex:1; overflow-y:auto;">
 
-  <div class="branding">
-    Powered by <a href="#" class="ext-link" data-url="https://tallyconnect.app">Tally Connect</a>
-  </div>
+    <!-- Monitoring Control -->
+    <div class="settings-section">
+      <h3 class="settings-heading">Monitoring</h3>
+      <div class="settings-row">
+        <button class="btn-start" id="btn-toggle" onclick="toggleAgent()" style="width:100%;">Start Monitoring</button>
+      </div>
+      <div class="settings-row" style="margin-top:8px;">
+        <label class="autostart-label" title="When enabled, monitoring starts automatically after sign-in without needing to press Start">
+          <input type="checkbox" id="autostart-checkbox" onchange="toggleAutoStart(this.checked)">
+          <span>Start monitoring on launch</span>
+        </label>
+      </div>
+    </div>
 
-  <div class="autostart-bar" id="autostart-bar">
-    <label class="autostart-label" title="When enabled, monitoring starts automatically after sign-in without needing to press Start">
-      <input type="checkbox" id="autostart-checkbox" onchange="toggleAutoStart(this.checked)">
-      <span>Start monitoring on launch</span>
-    </label>
-  </div>
+    <!-- Connection -->
+    <div class="settings-section">
+      <h3 class="settings-heading">Connection</h3>
+      <div class="settings-row">
+        <button class="btn-secondary btn-small" onclick="testConn()" style="flex:1;">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" style="vertical-align:middle"><path fill-rule="evenodd" d="M6 1.75A.75.75 0 0 1 6.75 1h2.5a.75.75 0 0 1 0 1.5h-.75v1.75h3A1.5 1.5 0 0 1 13 5.75v3.5A1.5 1.5 0 0 1 11.5 10.75H11V12a1 1 0 0 1-1 1H9v1.25a.75.75 0 0 1-1.5 0V13H6a1 1 0 0 1-1-1v-1.25H4.5A1.5 1.5 0 0 1 3 9.25v-3.5A1.5 1.5 0 0 1 4.5 4.25h3V2.5H6.75A.75.75 0 0 1 6 1.75Z" clip-rule="evenodd"/></svg> Test Connection
+        </button>
+        <button class="btn-secondary btn-small" onclick="exportLogs()" style="flex:1;">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" style="vertical-align:middle"><path fill-rule="evenodd" d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3Zm3.5 2.25a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-5ZM5.75 9a.75.75 0 0 0 0 1.5h3a.75.75 0 0 0 0-1.5h-3Z" clip-rule="evenodd"/></svg> Export Logs
+        </button>
+      </div>
+      <div class="settings-row" style="margin-top:8px;">
+        <button class="btn-secondary btn-small" onclick="sendDiagnosticBundle()" style="flex:1;">Send Diagnostic Report</button>
+        <div id="diagnostic-bundle-status" style="font-size:11px; color:var(--muted); font-family:var(--mono); display:none;"></div>
+      </div>
+    </div>
 
-  <div class="actions">
-    <button class="btn-start" id="btn-toggle" onclick="toggleAgent()">Start Monitoring</button>
-    <button class="btn-secondary btn-small" onclick="testConn()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M6 1.75A.75.75 0 0 1 6.75 1h2.5a.75.75 0 0 1 0 1.5h-.75v1.75h3A1.5 1.5 0 0 1 13 5.75v3.5A1.5 1.5 0 0 1 11.5 10.75H11V12a1 1 0 0 1-1 1H9v1.25a.75.75 0 0 1-1.5 0V13H6a1 1 0 0 1-1-1v-1.25H4.5A1.5 1.5 0 0 1 3 9.25v-3.5A1.5 1.5 0 0 1 4.5 4.25h3V2.5H6.75A.75.75 0 0 1 6 1.75Z" clip-rule="evenodd"/></svg> Test</button>
-    <button class="btn-secondary btn-small" onclick="exportLogs()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3Zm3.5 2.25a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-5ZM5.75 9a.75.75 0 0 0 0 1.5h3a.75.75 0 0 0 0-1.5h-3Z" clip-rule="evenodd"/></svg> Logs</button>
-    <button class="btn-secondary btn-small" onclick="showEquipmentWizard()">⚙️ Setup</button>
-    <button class="btn-secondary btn-small" onclick="doSignOut()">Sign Out</button>
+    <!-- Room -->
+    <div class="settings-section">
+      <h3 class="settings-heading">Room</h3>
+      <div class="settings-row">
+        <span id="settings-room-name" style="font-size:13px; color:var(--white);"></span>
+        <button class="btn-secondary btn-small" onclick="changeRoom()">Change Room</button>
+      </div>
+    </div>
+
+    <!-- Portal -->
+    <div class="settings-section">
+      <h3 class="settings-heading">Church Portal</h3>
+      <div class="settings-detail">Manage equipment, team access, stream keys, analytics, and AI assistant in your browser.</div>
+      <div class="settings-row" style="margin-top:8px;">
+        <button class="btn-portal-settings" onclick="openPortal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px; margin-right:4px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open Church Portal
+        </button>
+      </div>
+    </div>
+
+    <!-- Agent Logs (collapsed) -->
+    <div class="settings-section">
+      <div class="section collapsible-section collapsed" id="section-raw-logs">
+        <div class="section-toggle" onclick="toggleCollapsible('section-raw-logs')">
+          <h2>Agent Logs <span style="font-size:10px; color:var(--muted); font-weight:400; margin-left:4px;">(Show/Hide)</span></h2>
+        </div>
+        <div class="section-body">
+          <div id="raw-log-output" style="font-family:var(--mono); font-size:10px; color:var(--dim); max-height:200px; overflow-y:auto; padding:4px 0; line-height:1.5;" aria-live="off" aria-label="Raw agent log output"></div>
+          <button class="btn-small btn-secondary" onclick="clearRawLogs()" style="margin-top:6px;">Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity Feed (collapsed) -->
+    <div class="settings-section">
+      <div class="section collapsible-section collapsed" id="section-activity">
+        <div class="section-toggle" onclick="toggleCollapsible('section-activity')">
+          <h2>Activity <span id="activity-badge" style="font-size:9px;background:var(--green);color:#000;padding:1px 5px;border-radius:var(--r-chip);margin-left:6px;display:none;">0</span></h2>
+        </div>
+        <div class="section-body">
+          <div class="activity-log" id="alerts-log" role="log" aria-live="polite" aria-label="Activity feed">
+            <div class="activity-placeholder">Waiting for events...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Account -->
+    <div class="settings-section" style="border-top:1px solid var(--border); padding-top:16px; margin-top:8px;">
+      <div class="settings-row">
+        <button class="btn-secondary btn-small" onclick="showEquipmentWizard()" style="flex:1;">Run Setup Wizard</button>
+        <button class="btn-secondary btn-small" onclick="doSignOut()" style="flex:1; color:var(--warn); border-color:rgba(245,158,11,0.3);">Sign Out</button>
+      </div>
+      <div style="text-align:center; padding:12px 0 4px;">
+        <button class="factory-reset-link" onclick="confirmFactoryReset()">Reset to Factory Defaults</button>
+      </div>
+    </div>
+
+    <div class="branding" style="border-top:none; padding-top:8px;">
+      Powered by <a href="#" class="ext-link" data-url="https://tallyconnect.app">Tally Connect</a>
+    </div>
+
+  </div><!-- /tab-settings -->
+
+  <!-- Persistent bottom bar with monitoring toggle -->
+  <div class="bottom-bar" id="bottom-bar">
+    <div class="bottom-bar-status">
+      <div class="dot" id="dot-bottom-relay"></div>
+      <span id="bottom-bar-label" style="font-size:11px; font-family:var(--mono); color:var(--muted);">Idle</span>
+    </div>
+    <button class="btn-start-compact" id="btn-toggle-compact" onclick="toggleAgent()">Start</button>
   </div>
 
 </div><!-- /dashboard -->
+
+<!-- First-launch onboarding modal -->
+<div id="first-launch-modal" class="first-launch-modal" style="display:none;" role="dialog" aria-label="Welcome to Tally">
+  <div class="first-launch-content">
+    <div class="first-launch-icon">
+      <div class="header-dot" style="width:16px; height:16px;"></div>
+    </div>
+    <h2 style="font-size:18px; font-weight:800; margin:12px 0 8px;">Welcome to Tally</h2>
+    <p style="color:var(--muted); font-size:13px; line-height:1.6; max-width:340px; margin:0 auto;">
+      TallyConnect has two parts:
+    </p>
+    <div class="first-launch-cards">
+      <div class="first-launch-card">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <div>
+          <strong style="color:var(--white);">This App</strong>
+          <div style="font-size:11px; color:var(--muted);">Monitors your equipment during live services</div>
+        </div>
+      </div>
+      <div class="first-launch-card">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        <div>
+          <strong style="color:var(--white);">Church Portal</strong>
+          <div style="font-size:11px; color:var(--muted);">Manage equipment, team, streams, and AI assistant in your browser</div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex; gap:8px; margin-top:20px;">
+      <button class="btn-save" onclick="dismissFirstLaunch()" style="flex:1;">Got it</button>
+      <button class="btn-portal-settings" onclick="dismissFirstLaunch(); openPortal();" style="flex:1;">Open Portal</button>
+    </div>
+  </div>
+</div>
 
 <!-- Fix All Progress Modal (P2 item 13) -->
 <div id="fix-all-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9000; align-items:center; justify-content:center; pointer-events:none;" role="dialog" aria-label="Fix All Progress">
