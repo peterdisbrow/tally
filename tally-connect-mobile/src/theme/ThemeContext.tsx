@@ -68,10 +68,10 @@ export const darkColors: ThemeColors = {
   textMuted: '#555568',
 
   tallyProgram: '#ef4444',
-  tallyPreview: '#22c55e',
+  tallyPreview: '#00E676',
   tallyOff: '#333333',
 
-  online: '#22c55e',
+  online: '#00E676',
   offline: '#ef4444',
   warning: '#f59e0b',
   info: '#3b82f6',
@@ -81,8 +81,8 @@ export const darkColors: ThemeColors = {
   warningAlert: '#f59e0b',
   infoAlert: '#3b82f6',
 
-  accent: '#22c55e',
-  accentLight: '#4ade80',
+  accent: '#00E676',
+  accentLight: '#69F0AE',
 
   live: '#ef4444',
   liveGlow: 'rgba(239, 68, 68, 0.2)',
@@ -111,10 +111,10 @@ export const lightColors: ThemeColors = {
   textMuted: '#9ca3af',
 
   tallyProgram: '#ef4444',
-  tallyPreview: '#22c55e',
+  tallyPreview: '#00E676',
   tallyOff: '#e5e5ea',
 
-  online: '#16a34a',
+  online: '#00C853',
   offline: '#dc2626',
   warning: '#d97706',
   info: '#2563eb',
@@ -124,8 +124,8 @@ export const lightColors: ThemeColors = {
   warningAlert: '#d97706',
   infoAlert: '#2563eb',
 
-  accent: '#22c55e',
-  accentLight: '#16a34a',
+  accent: '#00E676',
+  accentLight: '#00C853',
 
   live: '#dc2626',
   liveGlow: 'rgba(220, 38, 38, 0.15)',

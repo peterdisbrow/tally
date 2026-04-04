@@ -68,7 +68,7 @@ export default function ChatScreen() {
         <View style={[
           { maxWidth: '80%', padding: spacing.md },
           isUser ? {
-            backgroundColor: 'rgba(34, 197, 94, 0.85)',
+            backgroundColor: 'rgba(0, 230, 118, 0.85)',
             borderTopLeftRadius: borderRadius.lg,
             borderTopRightRadius: borderRadius.lg,
             borderBottomLeftRadius: borderRadius.lg,
@@ -128,12 +128,12 @@ export default function ChatScreen() {
           width: 40,
           height: 40,
           borderRadius: 20,
-          backgroundColor: colors.isDark ? 'rgba(34, 197, 94, 0.2)' : 'rgba(34, 197, 94, 0.12)',
+          backgroundColor: colors.isDark ? 'rgba(0, 230, 118, 0.2)' : 'rgba(0, 230, 118, 0.12)',
           justifyContent: 'center',
           alignItems: 'center',
           marginRight: spacing.md,
           borderWidth: 1,
-          borderColor: colors.isDark ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.2)',
+          borderColor: colors.isDark ? 'rgba(0, 230, 118, 0.3)' : 'rgba(0, 230, 118, 0.2)',
         }}>
           <Ionicons name="hardware-chip-outline" size={20} color={colors.accent} />
         </View>

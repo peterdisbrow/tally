@@ -129,7 +129,7 @@ export default function RoomPickerScreen() {
                 width: 48,
                 height: 48,
                 borderRadius: 24,
-                backgroundColor: colors.isDark ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.08)',
+                backgroundColor: colors.isDark ? 'rgba(0, 230, 118, 0.1)' : 'rgba(0, 230, 118, 0.08)',
                 justifyContent: 'center',
                 alignItems: 'center',
                 marginRight: spacing.lg,

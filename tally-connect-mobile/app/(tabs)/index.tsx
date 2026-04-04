@@ -6,6 +6,7 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
 import { useAlertStore } from '../../src/stores/alertStore';
+import { useSettingsStore } from '../../src/stores/settingsStore';
 import { usePolling } from '../../src/hooks/usePolling';
 import { useThemeColors, type ThemeColors } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
@@ -78,7 +79,7 @@ function streamStatusColor(connected: boolean, streaming: boolean | undefined, c
 }
 
 function streamStatusLabel(connected: boolean, streaming?: boolean, recording?: boolean): string {
-  if (!connected) return 'Offline';
+  if (!connected) return 'Disconnected';
   const parts: string[] = [];
   if (streaming) parts.push('Streaming');
   if (recording) parts.push('Recording');
@@ -132,7 +133,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
       name: a.model || 'ATEM Switcher',
       category: 'switching',
       connected: a.connected,
-      statusLabel: a.connected ? 'Connected' : 'Offline',
+      statusLabel: a.connected ? 'Connected' : 'Disconnected',
       statusColor: a.connected ? colors.online : colors.offline,
       metrics,
     });
@@ -146,7 +147,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
     const metrics: DeviceCard['metrics'] = [];
     if (a.protocolVersion) metrics.push({ label: 'Firmware', value: `v${a.protocolVersion}` });
     if (a.streamingService) metrics.push({ label: 'Platform', value: a.streamingService });
-    metrics.push({ label: 'Status', value: a.streaming ? 'LIVE' : 'Idle', color: a.streaming ? colors.online : colors.textMuted });
+    metrics.push({ label: 'Status', value: a.streaming ? 'LIVE' : 'Off Air', color: a.streaming ? colors.online : colors.textMuted });
     if (bitrateKbps != null) {
       metrics.push({ label: 'Bitrate', value: formatBitrate(bitrateKbps), color: health.color });
       metrics.push({ label: 'Health', value: health.text, color: health.color });
@@ -177,7 +178,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
       const parts: string[] = [];
       if (o.streaming) parts.push('LIVE');
       if (o.recording) parts.push('REC');
-      metrics.push({ label: 'Status', value: parts.length > 0 ? parts.join(' + ') : 'Idle' });
+      metrics.push({ label: 'Status', value: parts.length > 0 ? parts.join(' + ') : 'Off Air' });
     }
     if (o.bitrate != null) {
       metrics.push({ label: 'Bitrate', value: formatBitrate(o.bitrate), color: health.color });
@@ -206,7 +207,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
       const parts: string[] = [];
       if (v.streaming) parts.push('LIVE');
       if (v.recording) parts.push('REC');
-      metrics.push({ label: 'Status', value: parts.length > 0 ? parts.join(' + ') : 'Idle' });
+      metrics.push({ label: 'Status', value: parts.length > 0 ? parts.join(' + ') : 'Off Air' });
     }
     cards.push({
       id: 'vmix',
@@ -227,7 +228,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
     if (e.type) metrics.push({ label: 'Type', value: e.type });
     if (e.firmwareVersion) metrics.push({ label: 'Firmware', value: `v${e.firmwareVersion}` });
     if (e.streaming != null) {
-      metrics.push({ label: 'Status', value: e.streaming ? 'LIVE' : 'Idle', color: e.streaming ? colors.online : colors.textMuted });
+      metrics.push({ label: 'Status', value: e.streaming ? 'LIVE' : 'Off Air', color: e.streaming ? colors.online : colors.textMuted });
     }
     if (e.bitrate != null) {
       metrics.push({ label: 'Bitrate', value: formatBitrate(e.bitrate), color: health.color });
@@ -304,7 +305,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
       h.hyperdecks.forEach((deck, i) => {
         const metrics: DeviceCard['metrics'] = [];
         if (deck.recording != null) {
-          metrics.push({ label: 'Status', value: deck.recording ? 'Recording' : 'Idle', color: deck.recording ? colors.critical : colors.textMuted });
+          metrics.push({ label: 'Status', value: deck.recording ? 'Recording' : 'Stopped', color: deck.recording ? colors.critical : colors.textMuted });
         }
         if (deck.diskSpace) {
           if (deck.diskSpace.percentUsed != null) metrics.push({ label: 'Disk Used', value: `${Math.round(deck.diskSpace.percentUsed)}%`, color: percentColor(deck.diskSpace.percentUsed, colors) });
@@ -316,7 +317,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
           name: deck.name || `HyperDeck ${i + 1}`,
           category: 'recording',
           connected: deck.connected,
-          statusLabel: deck.connected ? (deck.recording ? 'Recording' : 'Connected') : 'Offline',
+          statusLabel: deck.connected ? (deck.recording ? 'Recording' : 'Connected') : 'Disconnected',
           statusColor: deck.connected ? (deck.recording ? colors.critical : colors.online) : colors.offline,
           metrics,
         });
@@ -324,7 +325,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
     } else {
       const metrics: DeviceCard['metrics'] = [];
       if (h.recording != null) {
-        metrics.push({ label: 'Status', value: h.recording ? 'Recording' : 'Idle', color: h.recording ? colors.critical : colors.textMuted });
+        metrics.push({ label: 'Status', value: h.recording ? 'Recording' : 'Stopped', color: h.recording ? colors.critical : colors.textMuted });
       }
       if (h.diskRemaining != null) {
         const gb = (h.diskRemaining / (1024 * 1024 * 1024)).toFixed(1);
@@ -335,7 +336,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
         name: 'HyperDeck',
         category: 'recording',
         connected: h.connected,
-        statusLabel: h.connected ? (h.recording ? 'Recording' : 'Connected') : 'Offline',
+        statusLabel: h.connected ? (h.recording ? 'Recording' : 'Connected') : 'Disconnected',
         statusColor: h.connected ? (h.recording ? colors.critical : colors.online) : colors.offline,
         metrics,
       });
@@ -377,7 +378,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
       name: 'ProPresenter',
       category: 'presentation',
       connected: p.connected,
-      statusLabel: p.connected ? 'Connected' : 'Offline',
+      statusLabel: p.connected ? 'Connected' : 'Disconnected',
       statusColor: p.connected ? colors.online : colors.offline,
       metrics,
     });
@@ -404,7 +405,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
       name: m.model || 'Audio Mixer',
       category: 'audio',
       connected: m.connected,
-      statusLabel: hasWarning ? (m.mainMuted ? 'MUTED' : 'Silence') : (m.connected ? 'Connected' : 'Offline'),
+      statusLabel: hasWarning ? (m.mainMuted ? 'MUTED' : 'Silence') : (m.connected ? 'Connected' : 'Disconnected'),
       statusColor: hasWarning ? colors.warning : (m.connected ? colors.online : colors.offline),
       metrics,
     });
@@ -416,11 +417,11 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
     if (cameras.length > 0) {
       const connectedCount = cameras.filter(c => c.connected).length;
       const metrics: DeviceCard['metrics'] = [];
-      metrics.push({ label: 'Cameras', value: `${connectedCount}/${cameras.length} online` });
+      metrics.push({ label: 'Cameras', value: `${connectedCount}/${cameras.length} connected` });
       cameras.forEach(cam => {
         metrics.push({
           label: cam.name || 'Camera',
-          value: cam.connected ? 'Online' : 'Offline',
+          value: cam.connected ? 'Connected' : 'Disconnected',
           color: cam.connected ? colors.online : colors.offline,
         });
       });
@@ -439,7 +440,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
         name: 'PTZ Cameras',
         category: 'network',
         connected: status.ptz.connected,
-        statusLabel: status.ptz.connected ? 'Connected' : 'Offline',
+        statusLabel: status.ptz.connected ? 'Connected' : 'Disconnected',
         statusColor: status.ptz.connected ? colors.online : colors.offline,
         metrics: [],
       });
@@ -454,7 +455,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
       name: 'Companion',
       category: 'network',
       connected: c.connected,
-      statusLabel: c.connected ? 'Connected' : 'Offline',
+      statusLabel: c.connected ? 'Connected' : 'Disconnected',
       statusColor: c.connected ? colors.online : colors.offline,
       metrics: [],
     });
@@ -491,7 +492,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
         name: vh.name || `VideoHub ${i + 1}`,
         category: 'switching',
         connected: vh.connected,
-        statusLabel: vh.connected ? 'Connected' : 'Offline',
+        statusLabel: vh.connected ? 'Connected' : 'Disconnected',
         statusColor: vh.connected ? colors.online : colors.offline,
         metrics,
       });
@@ -508,7 +509,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
       name: 'Resolume',
       category: 'presentation',
       connected: r.connected,
-      statusLabel: r.connected ? 'Connected' : 'Offline',
+      statusLabel: r.connected ? 'Connected' : 'Disconnected',
       statusColor: r.connected ? colors.online : colors.offline,
       metrics,
     });
@@ -522,7 +523,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
     if (b.type) metrics.push({ label: 'Type', value: b.type });
     if (b.firmwareVersion) metrics.push({ label: 'Firmware', value: `v${b.firmwareVersion}` });
     if (b.streaming != null) {
-      metrics.push({ label: 'Status', value: b.streaming ? 'LIVE' : 'Standby', color: b.streaming ? colors.online : colors.textMuted });
+      metrics.push({ label: 'Status', value: b.streaming ? 'LIVE' : 'Off Air', color: b.streaming ? colors.online : colors.textMuted });
     }
     if (b.bitrate != null) {
       metrics.push({ label: 'Bitrate', value: formatBitrate(b.bitrate), color: health.color });
@@ -555,7 +556,7 @@ function buildDeviceCards(status: DeviceStatus | null, colors: ThemeColors): Dev
       name: 'System',
       category: 'system',
       connected: true,
-      statusLabel: 'Online',
+      statusLabel: 'Connected',
       statusColor: colors.online,
       metrics,
     });
@@ -606,6 +607,39 @@ function buildSummary(status: DeviceStatus | null, cards: DeviceCard[]): Summary
   }
 
   return { totalDevices, onlineDevices, isStreaming, isRecording, streamPlatforms, totalViewers };
+}
+
+// ─── Simple Mode Filter ────────────────────────────────────────────────────
+// Technical metric labels hidden in simple mode
+
+const TECHNICAL_LABELS = new Set([
+  'Firmware', 'Version', 'Firmware Version', 'Protocol',
+  'CPU', 'CPU Load', 'RAM', 'Disk',
+  'FPS', 'Bitrate', 'Dropped', 'Congestion',
+  'Cache Used', 'I/O', 'Channels', 'Ch. Muted',
+  'Type', 'Health',
+]);
+
+// Friendly labels for technical terms shown in simple mode
+const FRIENDLY_LABELS: Record<string, string> = {
+  'CPU': 'Processor Load',
+  'RAM': 'Memory Usage',
+  'Disk': 'Storage',
+  'FPS': 'Frame Rate',
+  'Bitrate': 'Upload Speed',
+  'Dropped': 'Skipped Frames',
+  'Congestion': 'Network Congestion',
+  'Cache Used': 'Buffer Usage',
+  'Ch. Muted': 'Channels Muted',
+  'I/O': 'Inputs / Outputs',
+};
+
+function filterMetricsForMode(
+  metrics: DeviceCard['metrics'],
+  isSimple: boolean,
+): DeviceCard['metrics'] {
+  if (!isSimple) return metrics;
+  return metrics.filter(m => !TECHNICAL_LABELS.has(m.label));
 }
 
 // ─── Icons for Device Categories ────────────────────────────────────────────
@@ -748,8 +782,8 @@ function AlertBar({ alerts, colors }: { alerts: Array<{ id: string; severity: st
   if (activeAlerts.length === 0) {
     return (
       <View style={[styles.alertBar, {
-        backgroundColor: colors.isDark ? 'rgba(34,197,94,0.06)' : 'rgba(22,163,74,0.06)',
-        borderColor: colors.isDark ? 'rgba(34,197,94,0.15)' : 'rgba(22,163,74,0.15)',
+        backgroundColor: colors.isDark ? 'rgba(0,230,118,0.06)' : 'rgba(0,200,83,0.06)',
+        borderColor: colors.isDark ? 'rgba(0,230,118,0.15)' : 'rgba(0,200,83,0.15)',
       }]}>
         <Ionicons name="checkmark-circle" size={14} color={colors.online} />
         <Text style={[styles.alertBarText, { color: colors.online }]}>All Systems Normal</Text>
@@ -799,6 +833,8 @@ export default function DashboardScreen() {
     return () => clearInterval(id);
   }, []);
 
+  const viewMode = useSettingsStore((s) => s.viewMode);
+  const isSimple = viewMode === 'simple';
   const status = useActiveRoomStatus();
   const alerts = useAlertStore((s) => s.alerts);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -980,8 +1016,8 @@ export default function DashboardScreen() {
         </View>
       )}
 
-      {/* Stream Stats Card */}
-      {isStreaming && (
+      {/* Stream Stats Card (hidden in simple mode — summary shown in mini dashboard) */}
+      {!isSimple && isStreaming && (
         <GlassCard glowColor={colors.live} style={styles.streamCard}>
           <View style={styles.streamStatsRow}>
             {bitrate != null && (
@@ -1043,7 +1079,7 @@ export default function DashboardScreen() {
                       elevation: 8,
                     },
                     isPvw && {
-                      backgroundColor: 'rgba(34, 197, 94, 0.7)',
+                      backgroundColor: 'rgba(0, 230, 118, 0.7)',
                       shadowColor: colors.tallyPreview,
                       shadowOpacity: 0.4,
                       shadowRadius: 10,
@@ -1109,18 +1145,23 @@ export default function DashboardScreen() {
                     </View>
 
                     {/* Expanded Metrics */}
-                    {expandedIds.has(card.id) && card.metrics.length > 0 && (
-                      <View style={[styles.metricsGrid, { borderTopColor: colors.border }]}>
-                        {card.metrics.map((m, i) => (
-                          <View key={i} style={styles.metricItem}>
-                            <Text style={[styles.metricLabel, { color: colors.textMuted }]}>{m.label}</Text>
-                            <Text style={[styles.metricValue, { color: colors.text }, m.color ? { color: m.color } : null]} numberOfLines={1}>
-                              {m.value}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
+                    {expandedIds.has(card.id) && (() => {
+                      const filtered = filterMetricsForMode(card.metrics, isSimple);
+                      return filtered.length > 0 ? (
+                        <View style={[styles.metricsGrid, { borderTopColor: colors.border }]}>
+                          {filtered.map((m, i) => (
+                            <View key={i} style={styles.metricItem}>
+                              <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
+                                {isSimple && FRIENDLY_LABELS[m.label] ? FRIENDLY_LABELS[m.label] : m.label}
+                              </Text>
+                              <Text style={[styles.metricValue, { color: colors.text }, m.color ? { color: m.color } : null]} numberOfLines={1}>
+                                {m.value}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null;
+                    })()}
                   </View>
                 </TouchableOpacity>
               ))}
@@ -1129,8 +1170,8 @@ export default function DashboardScreen() {
         ))
       )}
 
-      {/* System Resources */}
-      {(cpuVal != null || memVal != null || diskVal != null) && (
+      {/* System Resources (hidden in simple mode) */}
+      {!isSimple && (cpuVal != null || memVal != null || diskVal != null) && (
         <View style={styles.categorySection}>
           <Text style={[styles.categoryTitle, { color: colors.textSecondary }]}>System Resources</Text>
           <GlassCard>
