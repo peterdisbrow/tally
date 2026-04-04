@@ -222,7 +222,7 @@ export default function MoreScreen() {
               <ActivityIndicator size="small" color={colors.accent} />
               <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary }}>Loading session...</Text>
             </View>
-          ) : (
+          ) : session ? (
           <GlassCard glowColor={colors.accent}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm }}>
               <Text style={{ fontSize: fontSize.md, color: colors.textSecondary }}>Grade</Text>
@@ -246,7 +246,8 @@ export default function MoreScreen() {
               </Text>
             </View>
           </GlassCard>
-          )}
+          ) : null
+          }
         </View>
       )}
 

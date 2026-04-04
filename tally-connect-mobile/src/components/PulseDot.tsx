@@ -1,13 +1,14 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Animated, StyleSheet } from 'react-native';
+import { View, Animated, StyleSheet, ViewStyle } from 'react-native';
 
 interface PulseDotProps {
   color: string;
   size?: number;
   pulseScale?: number;
+  style?: ViewStyle;
 }
 
-export function PulseDot({ color, size = 8, pulseScale = 2.2 }: PulseDotProps) {
+export function PulseDot({ color, size = 8, pulseScale = 2.2, style }: PulseDotProps) {
   const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -29,7 +30,7 @@ export function PulseDot({ color, size = 8, pulseScale = 2.2 }: PulseDotProps) {
   });
 
   return (
-    <View style={[styles.wrapper, { width: size * pulseScale, height: size * pulseScale }]}>
+    <View style={[styles.wrapper, { width: size * pulseScale, height: size * pulseScale }, style]}>
       <Animated.View
         style={[
           styles.pulse,
