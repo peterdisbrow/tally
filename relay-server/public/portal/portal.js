@@ -853,9 +853,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var knob = document.getElementById('theme-toggle-knob');
       var label = document.getElementById('theme-label');
       if (sw && knob) {
-        sw.style.background = isLight ? '#22c55e' : '#1e293b';
+        sw.style.background = isLight ? '#00E676' : '#0d3320';
         knob.style.left = isLight ? '18px' : '2px';
-        knob.style.background = isLight ? '#fff' : '#475569';
+        knob.style.background = isLight ? '#fff' : '#556270';
       }
       if (label) label.innerHTML = isLight ? '&#9788; Light' : '&#9790; Dark';
     }
@@ -1132,11 +1132,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         // Handle offline room — show placeholder instead of equipment details
         if (status._offline) {
-          tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:#64748B">This room is <strong>offline</strong> — no Tally desktop app is connected.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:#6B7280">This room is <strong>offline</strong> — no Tally desktop app is connected.</td></tr>';
           var statusText = document.getElementById('stat-status-text');
           var statusDot = document.getElementById('stat-status-dot');
-          if (statusText) { statusText.textContent = 'Offline'; statusText.style.color = '#94A3B8'; }
-          if (statusDot) { statusDot.style.background = '#ef4444'; }
+          if (statusText) { statusText.textContent = 'Offline'; statusText.style.color = '#8B9DAF'; }
+          if (statusDot) { statusDot.style.background = '#FF5252'; }
           // Load sub-cards only if app has ever connected (historical data may exist)
           loadScheduleOverview();
           loadIncidents();
@@ -1381,7 +1381,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           if (ago < 60) stalenessEl.textContent = 'Updated just now';
           else if (ago < 3600) stalenessEl.textContent = 'Updated ' + Math.round(ago / 60) + 'm ago';
           else stalenessEl.textContent = 'Updated ' + Math.round(ago / 3600) + 'h ago';
-          stalenessEl.style.color = ago > 300 ? '#f59e0b' : '#475569';
+          stalenessEl.style.color = ago > 300 ? '#FFB74D' : '#556270';
         }
 
         // Sort: connected/active devices first, disconnected/off-air last
@@ -1394,7 +1394,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var badgeCls = 'badge-gray';
           var label = st;
           if (st === 'connected' || st === 'ok') { badgeCls = 'badge-green'; label = 'Connected'; }
-          else if (st === 'live' || st === 'streaming') { badgeCls = 'badge-green'; label = st === 'live' ? '<span style="color:#ef4444">&#9679;</span> Live' : 'Streaming'; }
+          else if (st === 'live' || st === 'streaming') { badgeCls = 'badge-green'; label = st === 'live' ? '<span style="color:#FF5252">&#9679;</span> Live' : 'Streaming'; }
           else if (st === 'recording') { badgeCls = 'badge-green'; label = 'Recording'; }
           else if (st === 'warning') badgeCls = 'badge-yellow';
           else if (st === 'muted') { badgeCls = 'badge-yellow'; label = 'Muted'; }
@@ -1404,14 +1404,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var verHtml = '—';
           if (ver) {
             verHtml = ver.outdated
-              ? '<span style="color:#f59e0b">! ' + ver.text + '</span>'
-              : '<span style="color:#22c55e">' + ver.text + '</span>';
+              ? '<span style="color:#FFB74D">! ' + ver.text + '</span>'
+              : '<span style="color:#00E676">' + ver.text + '</span>';
           } else if (st === 'connected' || st === 'ok' || st === 'live' || st === 'streaming' || st === 'recording') {
-            verHtml = '<span style="color:#22c55e">Connected</span>';
+            verHtml = '<span style="color:#00E676">Connected</span>';
           }
           var detailHtml = '—';
           if (typeof ts === 'string' && ts.length > 0 && isNaN(Date.parse(ts))) {
-            detailHtml = '<span style="color:#94A3B8">' + ts + '</span>';
+            detailHtml = '<span style="color:#8B9DAF">' + ts + '</span>';
           } else if (ts) {
             detailHtml = new Date(ts).toLocaleTimeString();
           }
@@ -1420,7 +1420,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             + '<td>' + name + '</td>'
             + '<td><span class="badge ' + badgeCls + '">' + label + '</span></td>'
             + '<td style="font-size:12px">' + verHtml + '</td>'
-            + '<td style="color:#475569;font-size:12px">' + detailHtml + '</td>'
+            + '<td style="color:#556270;font-size:12px">' + detailHtml + '</td>'
             + '</tr>';
         }
 
@@ -1452,8 +1452,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         var statusText = document.getElementById('stat-status-text');
         var statusDot = document.getElementById('stat-status-dot');
-        if (statusText) { statusText.textContent = d.connected ? 'Online' : 'Offline'; statusText.style.color = d.connected ? '#22c55e' : '#94A3B8'; }
-        if (statusDot) { statusDot.style.background = d.connected ? '#22c55e' : '#ef4444'; }
+        if (statusText) { statusText.textContent = d.connected ? 'Online' : 'Offline'; statusText.style.color = d.connected ? '#00E676' : '#8B9DAF'; }
+        if (statusDot) { statusDot.style.background = d.connected ? '#00E676' : '#FF5252'; }
 
         // ── Onboarding checklist ──────────────────────────────────────────────
         try { renderOnboarding(d); } catch (e) { console.error('Onboarding error', e); }
@@ -1493,9 +1493,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       } catch(e) {
         console.error(e);
         var eqTbody = document.getElementById('equipment-tbody');
-        if (eqTbody) eqTbody.innerHTML = '<tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">Could not load equipment status.</td></tr>';
+        if (eqTbody) eqTbody.innerHTML = '<tr><td colspan="4" style="color:#556270;text-align:center;padding:20px">Could not load equipment status.</td></tr>';
         var statusText = document.getElementById('stat-status-text');
-        if (statusText) { statusText.textContent = '—'; statusText.style.color = '#94A3B8'; }
+        if (statusText) { statusText.textContent = '—'; statusText.style.color = '#8B9DAF'; }
         var schedBody = document.getElementById('schedule-overview-body');
         if (schedBody) schedBody.textContent = 'Could not load schedule.';
       }
@@ -1620,10 +1620,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<div style="display:flex;align-items:center;gap:12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 14px">'
           + '<span style="font-size:18px;width:28px;text-align:center">' + icon + '</span>'
           + '<div style="flex:1;min-width:0">'
-          + '<div style="font-size:13px;font-weight:600;color:#F8FAFC">' + def.label + '</div>'
-          + '<div style="font-size:11px;color:#64748B">' + desc + '</div>'
+          + '<div style="font-size:13px;font-weight:600;color:#F0F2F4">' + def.label + '</div>'
+          + '<div style="font-size:11px;color:#6B7280">' + desc + '</div>'
           + '</div>'
-          + '<select data-role="' + roleKey + '" style="background:#0F172A;color:#F8FAFC;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;width:150px" '
+          + '<select data-role="' + roleKey + '" style="background:#060D08;color:#F0F2F4;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;width:150px" '
           + 'onchange="onRoleChange(\'' + roleKey + '\', this.value)">'
           + options
           + '</select>'
@@ -1654,8 +1654,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var assigned = _rolesEdited[roleKey];
         var deviceName = assigned ? (DEVICE_NAMES[assigned] || assigned) : null;
         html += '<div style="display:flex;justify-content:space-between;padding:3px 0">'
-          + '<span style="color:#94A3B8">' + (ROLE_ROUTING[roleKey] || def.label) + '</span>'
-          + '<span style="font-weight:600;color:' + (assigned ? '#22c55e' : '#64748B') + '">'
+          + '<span style="color:#8B9DAF">' + (ROLE_ROUTING[roleKey] || def.label) + '</span>'
+          + '<span style="font-weight:600;color:' + (assigned ? '#00E676' : '#6B7280') + '">'
           + (assigned ? '→ ' + deviceName : 'Fallback (auto)') + '</span>'
           + '</div>';
       }
@@ -1676,12 +1676,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
       try {
         await api('PUT', '/api/church/rooms/' + encodeURIComponent(_selectedRoomId) + '/roles', { roles: _rolesEdited });
-        if (msg) { msg.style.display = ''; msg.style.color = '#22c55e'; msg.textContent = 'Roles saved successfully'; }
+        if (msg) { msg.style.display = ''; msg.style.color = '#00E676'; msg.textContent = 'Roles saved successfully'; }
         var autoBadge = document.getElementById('roles-auto-badge');
         if (autoBadge) autoBadge.style.display = 'none';
         setTimeout(function() { if (msg) msg.style.display = 'none'; }, 3000);
       } catch (e) {
-        if (msg) { msg.style.display = ''; msg.style.color = '#ef4444'; msg.textContent = e.message || 'Save failed'; }
+        if (msg) { msg.style.display = ''; msg.style.color = '#FF5252'; msg.textContent = e.message || 'Save failed'; }
       } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Save Roles'; }
       }
@@ -1698,24 +1698,24 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       card.style.display = '';
 
       list.innerHTML = plugs.map(function(plug) {
-        var stateColor = !plug.connected ? '#64748B' : (plug.powerOn ? '#22c55e' : '#ef4444');
+        var stateColor = !plug.connected ? '#6B7280' : (plug.powerOn ? '#00E676' : '#FF5252');
         var stateLabel = !plug.connected ? 'Offline' : (plug.powerOn ? 'ON' : 'OFF');
-        var watts = plug.powerWatts != null ? '<span style="color:#94A3B8;font-size:12px;margin-left:8px">' + plug.powerWatts + 'W</span>' : '';
-        var voltage = plug.voltage != null ? '<span style="color:#94A3B8;font-size:12px;margin-left:4px">' + plug.voltage + 'V</span>' : '';
+        var watts = plug.powerWatts != null ? '<span style="color:#8B9DAF;font-size:12px;margin-left:8px">' + plug.powerWatts + 'W</span>' : '';
+        var voltage = plug.voltage != null ? '<span style="color:#8B9DAF;font-size:12px;margin-left:4px">' + plug.voltage + 'V</span>' : '';
         var toggleLabel = plug.powerOn ? 'Turn Off' : 'Turn On';
         var disabled = !plug.connected ? ' disabled' : '';
 
-        return '<div style="display:flex;align-items:center;justify-content:space-between;background:#0F1613;border:1px solid #1a2e1f;border-radius:8px;padding:12px 16px">'
+        return '<div style="display:flex;align-items:center;justify-content:space-between;background:#0a1610;border:1px solid #0d3320;border-radius:8px;padding:12px 16px">'
           + '<div style="display:flex;align-items:center;gap:10px">'
           + '<span style="width:8px;height:8px;border-radius:50%;background:' + stateColor + ';display:inline-block"></span>'
           + '<div>'
-          + '<div style="font-weight:600;color:#F8FAFC;font-size:14px">' + escapeHtml(plug.name || plug.ip) + '</div>'
-          + '<div style="font-size:12px;color:#64748B">' + escapeHtml(plug.ip) + ' &middot; ' + stateLabel + watts + voltage + '</div>'
+          + '<div style="font-weight:600;color:#F0F2F4;font-size:14px">' + escapeHtml(plug.name || plug.ip) + '</div>'
+          + '<div style="font-size:12px;color:#6B7280">' + escapeHtml(plug.ip) + ' &middot; ' + stateLabel + watts + voltage + '</div>'
           + '</div>'
           + '</div>'
           + '<div style="display:flex;gap:8px">'
           + '<button class="btn-secondary" onclick="smartPlugToggle(\'' + escapeHtml(plug.ip) + '\')" style="font-size:12px;padding:5px 12px"' + disabled + '>' + toggleLabel + '</button>'
-          + '<button class="btn-secondary" onclick="smartPlugPowerCycle(\'' + escapeHtml(plug.ip) + '\')" style="font-size:12px;padding:5px 12px;color:#f59e0b;border-color:#f59e0b"' + disabled + '>Power Cycle</button>'
+          + '<button class="btn-secondary" onclick="smartPlugPowerCycle(\'' + escapeHtml(plug.ip) + '\')" style="font-size:12px;padding:5px 12px;color:#FFB74D;border-color:#FFB74D"' + disabled + '>Power Cycle</button>'
           + '</div>'
           + '</div>';
       }).join('');
@@ -1808,13 +1808,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (audEl) {
         var audActive = screens.audience != null ? screens.audience : null;
         audEl.textContent = audActive === true || audActive === 'active' ? 'Active' : audActive === false || audActive === 'inactive' ? 'Inactive' : '—';
-        audEl.style.color = audActive === true || audActive === 'active' ? '#22c55e' : '#94A3B8';
+        audEl.style.color = audActive === true || audActive === 'active' ? '#00E676' : '#8B9DAF';
       }
       var stgEl = document.getElementById('pp-stage-screen');
       if (stgEl) {
         var stgActive = screens.stage != null ? screens.stage : null;
         stgEl.textContent = stgActive === true || stgActive === 'active' ? 'Active' : stgActive === false || stgActive === 'inactive' ? 'Inactive' : '—';
-        stgEl.style.color = stgActive === true || stgActive === 'active' ? '#22c55e' : '#94A3B8';
+        stgEl.style.color = stgActive === true || stgActive === 'active' ? '#00E676' : '#8B9DAF';
       }
 
       // Timers
@@ -1864,7 +1864,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var keys = Object.keys(routes);
 
       if (keys.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" style="color:#475569;text-align:center;padding:12px">No routes configured</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="3" style="color:#556270;text-align:center;padding:12px">No routes configured</td></tr>';
         return;
       }
 
@@ -1876,9 +1876,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var outName = outputLabels[outIdx] || ('Output ' + (parseInt(outIdx) + 1));
         var inName = inputLabels[inIdx] || ('Input ' + (parseInt(inIdx) + 1));
         return '<tr>'
-          + '<td style="font-weight:500;color:#F8FAFC">' + escapeHtml(outName) + '</td>'
-          + '<td style="text-align:center;color:#22c55e;font-size:16px">&#x2190;</td>'
-          + '<td style="color:#94A3B8">' + escapeHtml(inName) + '</td>'
+          + '<td style="font-weight:500;color:#F0F2F4">' + escapeHtml(outName) + '</td>'
+          + '<td style="text-align:center;color:#00E676;font-size:16px">&#x2190;</td>'
+          + '<td style="color:#8B9DAF">' + escapeHtml(inName) + '</td>'
           + '</tr>';
       }).join('');
     }
@@ -1920,7 +1920,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var brEl = document.getElementById('ss-bitrate');
       if (brEl) {
         brEl.textContent = bitrate !== null ? bitrate.toLocaleString() : '—';
-        brEl.style.color = bitrate !== null && bitrate < 1000 ? '#ef4444' : '#F8FAFC';
+        brEl.style.color = bitrate !== null && bitrate < 1000 ? '#FF5252' : '#F0F2F4';
       }
 
       // FPS — from any source
@@ -1930,16 +1930,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var fpsEl = document.getElementById('ss-fps');
       if (fpsEl) {
         fpsEl.textContent = fps !== null ? fps : '—';
-        fpsEl.style.color = fps !== null && fps < 24 ? '#f59e0b' : '#F8FAFC';
+        fpsEl.style.color = fps !== null && fps < 24 ? '#FFB74D' : '#F0F2F4';
       }
 
       // Health indicator
       var healthEl = document.getElementById('ss-health');
       if (healthEl) {
-        if (bitrate !== null && bitrate < 1000) { healthEl.textContent = 'Low'; healthEl.style.color = '#ef4444'; }
-        else if (fps !== null && fps < 24) { healthEl.textContent = 'FPS'; healthEl.style.color = '#f59e0b'; }
-        else if (bitrate !== null || fps !== null) { healthEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Good'; healthEl.style.color = '#22c55e'; }
-        else { healthEl.textContent = '—'; healthEl.style.color = '#F8FAFC'; }
+        if (bitrate !== null && bitrate < 1000) { healthEl.textContent = 'Low'; healthEl.style.color = '#FF5252'; }
+        else if (fps !== null && fps < 24) { healthEl.textContent = 'FPS'; healthEl.style.color = '#FFB74D'; }
+        else if (bitrate !== null || fps !== null) { healthEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Good'; healthEl.style.color = '#00E676'; }
+        else { healthEl.textContent = '—'; healthEl.style.color = '#F0F2F4'; }
       }
 
       // Uptime
@@ -1953,12 +1953,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       // Detail row — extra info (encoder metrics + stream health)
       var details = [];
       if (enc.cpuUsage != null) {
-        var cpuColor = enc.cpuUsage > 80 ? '#ef4444' : enc.cpuUsage > 60 ? '#f59e0b' : '#94A3B8';
+        var cpuColor = enc.cpuUsage > 80 ? '#FF5252' : enc.cpuUsage > 60 ? '#FFB74D' : '#8B9DAF';
         details.push('<span style="color:' + cpuColor + '">CPU: ' + Math.round(enc.cpuUsage) + '%</span>');
       }
       if (enc.congestion != null) {
         var congPct = Math.round(enc.congestion * 100);
-        var congColor = congPct > 50 ? '#ef4444' : congPct > 20 ? '#f59e0b' : '#94A3B8';
+        var congColor = congPct > 50 ? '#FF5252' : congPct > 20 ? '#FFB74D' : '#8B9DAF';
         details.push('<span style="color:' + congColor + '">Congestion: ' + congPct + '%</span>');
       }
       if (atemStreaming && status.atem.streamingCacheUsed !== null && status.atem.streamingCacheUsed !== undefined) {
@@ -1993,15 +1993,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (toggle && toggle.checked !== sp.enabled) toggle.checked = sp.enabled;
       if (knob) knob.style.transform = sp.enabled ? 'translateX(16px)' : 'translateX(0)';
       var toggleBg = toggle && toggle.parentElement.querySelector('span');
-      if (toggleBg) toggleBg.style.background = sp.enabled ? '#22c55e' : '#334155';
+      if (toggleBg) toggleBg.style.background = sp.enabled ? '#00E676' : '#1a3a2a';
 
       // Status dot and label
-      var stateColors = { idle: '#475569', protecting: '#22c55e', encoder_disconnected: '#ef4444', restarting: '#f59e0b', alert_sent: '#f59e0b', cdn_mismatch: '#f59e0b' };
+      var stateColors = { idle: '#556270', protecting: '#00E676', encoder_disconnected: '#FF5252', restarting: '#FFB74D', alert_sent: '#FFB74D', cdn_mismatch: '#FFB74D' };
       var stateLabels = { idle: 'OFF', protecting: 'PROTECTED', encoder_disconnected: 'ENCODER DOWN', restarting: 'RESTARTING', alert_sent: 'ALERT', cdn_mismatch: 'CDN ISSUE' };
-      if (dot) dot.style.background = stateColors[sp.state] || '#475569';
+      if (dot) dot.style.background = stateColors[sp.state] || '#556270';
       if (label) {
         label.textContent = sp.enabled ? (stateLabels[sp.state] || sp.state.toUpperCase()) : 'OFF';
-        label.style.color = stateColors[sp.state] || '#94A3B8';
+        label.style.color = stateColors[sp.state] || '#8B9DAF';
       }
 
       // CDN health indicator
@@ -2011,13 +2011,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var cdnDetails = document.getElementById('sp-cdn-details');
       if (cdnRow && sp.cdnHealth) {
         cdnRow.style.display = '';
-        var cdnColors = { checking: '#94A3B8', healthy: '#22c55e', mismatch: '#f59e0b' };
+        var cdnColors = { checking: '#8B9DAF', healthy: '#00E676', mismatch: '#FFB74D' };
         var cdnLabels = { checking: 'CDN: Checking...', healthy: 'CDN: Healthy', mismatch: 'CDN: Not Receiving' };
-        var cdnBgs = { checking: 'rgba(148,163,184,0.08)', healthy: 'rgba(34,197,94,0.08)', mismatch: 'rgba(245,158,11,0.1)' };
-        if (cdnDot) cdnDot.style.background = cdnColors[sp.cdnHealth] || '#94A3B8';
+        var cdnBgs = { checking: 'rgba(148,163,184,0.08)', healthy: 'rgba(0,230,118,0.08)', mismatch: 'rgba(245,158,11,0.1)' };
+        if (cdnDot) cdnDot.style.background = cdnColors[sp.cdnHealth] || '#8B9DAF';
         if (cdnLabel) {
           cdnLabel.textContent = cdnLabels[sp.cdnHealth] || sp.cdnHealth;
-          cdnLabel.style.color = cdnColors[sp.cdnHealth] || '#94A3B8';
+          cdnLabel.style.color = cdnColors[sp.cdnHealth] || '#8B9DAF';
         }
         cdnRow.style.background = cdnBgs[sp.cdnHealth] || 'transparent';
         // Per-platform details
@@ -2092,7 +2092,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var html = '';
 
       if (hasYt) {
-        var ytColor = yt.status === 'good' ? '#22c55e' : yt.status === 'warning' ? '#f59e0b' : yt.status === 'error' ? '#ef4444' : '#94A3B8';
+        var ytColor = yt.status === 'good' ? '#00E676' : yt.status === 'warning' ? '#FFB74D' : yt.status === 'error' ? '#FF5252' : '#8B9DAF';
         var ytBadge = yt.status === 'good' ? 'badge-green' : yt.status === 'warning' ? 'badge-yellow' : yt.status === 'error' ? 'badge-red' : 'badge-gray';
         var ytLabel = yt.live ? 'LIVE' : yt.lifecycleStatus || yt.status;
         var ytDetails = [];
@@ -2100,18 +2100,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (yt.resolution) ytDetails.push(yt.resolution);
         if (yt.framerate) ytDetails.push(yt.framerate);
         if (yt.streamStatus) ytDetails.push('Stream: ' + yt.streamStatus);
-        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#09090B;border-radius:8px;border-left:3px solid ' + ytColor + '">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#060D08;border-radius:8px;border-left:3px solid ' + ytColor + '">';
         html += '<div style="display:flex;align-items:center;gap:10px">';
         html += '<span style="color:#ff0000;font-weight:700;font-size:14px">YT</span>';
-        html += '<div><div style="font-size:13px;color:#F8FAFC">' + escapeHtml(yt.channelName || yt.title || 'YouTube Live') + '</div>';
-        if (ytDetails.length) html += '<div style="font-size:11px;color:#64748B;margin-top:2px">' + ytDetails.map(escapeHtml).join(' · ') + '</div>';
+        html += '<div><div style="font-size:13px;color:#F0F2F4">' + escapeHtml(yt.channelName || yt.title || 'YouTube Live') + '</div>';
+        if (ytDetails.length) html += '<div style="font-size:11px;color:#6B7280;margin-top:2px">' + ytDetails.map(escapeHtml).join(' · ') + '</div>';
         html += '</div></div>';
         html += '<span class="badge ' + ytBadge + '">' + escapeHtml(ytLabel) + '</span>';
         html += '</div>';
       }
 
       if (hasFb) {
-        var fbColor = fb.status === 'good' ? '#22c55e' : fb.status === 'warning' ? '#f59e0b' : fb.status === 'error' ? '#ef4444' : '#94A3B8';
+        var fbColor = fb.status === 'good' ? '#00E676' : fb.status === 'warning' ? '#FFB74D' : fb.status === 'error' ? '#FF5252' : '#8B9DAF';
         var fbBadge = fb.status === 'good' ? 'badge-green' : fb.status === 'warning' ? 'badge-yellow' : fb.status === 'error' ? 'badge-red' : 'badge-gray';
         var fbLabel = fb.live ? 'LIVE' : fb.broadcastStatus || fb.status;
         var fbDetails = [];
@@ -2121,11 +2121,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           if (fb.ingestHealth.bitrate) fbDetails.push(Math.round(fb.ingestHealth.bitrate / 1000) + ' kbps');
           if (fb.ingestHealth.streamHealth) fbDetails.push('Health: ' + fb.ingestHealth.streamHealth);
         }
-        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#09090B;border-radius:8px;border-left:3px solid ' + fbColor + '">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#060D08;border-radius:8px;border-left:3px solid ' + fbColor + '">';
         html += '<div style="display:flex;align-items:center;gap:10px">';
         html += '<span style="color:#1877f2;font-weight:700;font-size:14px">FB</span>';
-        html += '<div><div style="font-size:13px;color:#F8FAFC">' + escapeHtml(fb.pageName || fb.title || 'Facebook Live') + '</div>';
-        if (fbDetails.length) html += '<div style="font-size:11px;color:#64748B;margin-top:2px">' + fbDetails.map(escapeHtml).join(' · ') + '</div>';
+        html += '<div><div style="font-size:13px;color:#F0F2F4">' + escapeHtml(fb.pageName || fb.title || 'Facebook Live') + '</div>';
+        if (fbDetails.length) html += '<div style="font-size:11px;color:#6B7280;margin-top:2px">' + fbDetails.map(escapeHtml).join(' · ') + '</div>';
         html += '</div></div>';
         html += '<span class="badge ' + fbBadge + '">' + escapeHtml(fbLabel) + '</span>';
         html += '</div>';
@@ -2168,7 +2168,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (badges) {
         var parts = [];
         if (atem.recording) parts.push('<span class="badge badge-green">Recording</span>');
-        if (atem.streaming) parts.push('<span class="badge badge-green"><span style="color:#ef4444">&#9679;</span> Streaming</span>');
+        if (atem.streaming) parts.push('<span class="badge badge-green"><span style="color:#FF5252">&#9679;</span> Streaming</span>');
         if (!atem.recording && !atem.streaming) parts.push('<span class="badge badge-gray">Standby</span>');
         if (atem.streamingCacheUsed > 80) parts.push('<span class="badge badge-yellow">Cache ' + Math.round(atem.streamingCacheUsed) + '%</span>');
         badges.innerHTML = parts.join(' ');
@@ -2186,7 +2186,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             var remaining = atem.recordingTimeAvailable;
             if (remEl && remaining != null) {
               remEl.textContent = _formatDuration(remaining);
-              remEl.style.color = remaining < 600 ? '#ef4444' : remaining < 1800 ? '#eab308' : '#F8FAFC';
+              remEl.style.color = remaining < 600 ? '#FF5252' : remaining < 1800 ? '#eab308' : '#F0F2F4';
             } else {
               remEl.textContent = '—';
             }
@@ -2272,7 +2272,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var typeLabel = _swType === 'atem' ? 'ATEM' : _swType === 'obs' ? 'OBS' : _swType === 'vmix' ? 'vMix' : sw.type;
         var modelLabel = sw.model || sw.version || typeLabel;
         var roleBadge = '<span class="badge badge-gray" style="font-size:10px;text-transform:uppercase">' + _escHtml(sw.role || 'unknown') + '</span>';
-        var connDot = sw.connected ? '<span style="color:#22c55e">\u25CF</span>' : '<span style="color:#ef4444">\u25CF</span>';
+        var connDot = sw.connected ? '<span style="color:#00E676">\u25CF</span>' : '<span style="color:#FF5252">\u25CF</span>';
 
         // Program/Preview display
         var pgmName = sw.programInput != null ? (_isAtemType ? friendlyInputName(sw.programInput) : String(sw.programInput)) : '\u2014';
@@ -2284,7 +2284,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Badges
         var badgeParts = [];
         if (sw.recording) badgeParts.push('<span class="badge badge-green">Recording</span>');
-        if (sw.streaming) badgeParts.push('<span class="badge badge-green"><span style="color:#ef4444">\u25CF</span> Streaming</span>');
+        if (sw.streaming) badgeParts.push('<span class="badge badge-green"><span style="color:#FF5252">\u25CF</span> Streaming</span>');
         if (!sw.recording && !sw.streaming && sw.connected) badgeParts.push('<span class="badge badge-gray">Standby</span>');
         if (!sw.connected) badgeParts.push('<span class="badge badge-red">Disconnected</span>');
 
@@ -2292,20 +2292,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'
           + '<div class="card-title" style="margin:0">' + typeIcon + ' ' + _escHtml(sw.name || sw.id) + ' ' + connDot + '</div>'
           + '<div style="display:flex;gap:8px;align-items:center">' + roleBadge
-          + '<span style="font-size:12px;color:#94A3B8;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;padding:3px 10px">' + _escHtml(modelLabel) + '</span>'
+          + '<span style="font-size:12px;color:#8B9DAF;background:#060D08;border:1px solid #0d3320;border-radius:6px;padding:3px 10px">' + _escHtml(modelLabel) + '</span>'
           + '</div></div>';
 
         if (sw.connected) {
           html += '<div class="grid-2col" style="gap:16px;margin-bottom:14px">'
-            + '<div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">'
-            + '<div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Program</div>'
-            + '<div style="font-size:22px;font-weight:700;color:#ef4444">' + _escHtml(pgmName) + '</div>'
-            + '<div style="font-size:12px;color:#94A3B8;margin-top:4px">' + _escHtml(pgmLabel) + '</div>'
+            + '<div style="background:#060D08;border-radius:8px;padding:14px;text-align:center">'
+            + '<div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Program</div>'
+            + '<div style="font-size:22px;font-weight:700;color:#FF5252">' + _escHtml(pgmName) + '</div>'
+            + '<div style="font-size:12px;color:#8B9DAF;margin-top:4px">' + _escHtml(pgmLabel) + '</div>'
             + '</div>'
-            + '<div style="background:#09090B;border-radius:8px;padding:14px;text-align:center">'
-            + '<div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Preview</div>'
-            + '<div style="font-size:22px;font-weight:700;color:#22c55e">' + _escHtml(pvwName) + '</div>'
-            + '<div style="font-size:12px;color:#94A3B8;margin-top:4px">' + _escHtml(pvwLabel) + '</div>'
+            + '<div style="background:#060D08;border-radius:8px;padding:14px;text-align:center">'
+            + '<div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Preview</div>'
+            + '<div style="font-size:22px;font-weight:700;color:#00E676">' + _escHtml(pvwName) + '</div>'
+            + '<div style="font-size:12px;color:#8B9DAF;margin-top:4px">' + _escHtml(pvwLabel) + '</div>'
             + '</div></div>';
 
           // Recording duration / time remaining (ATEM only)
@@ -2313,15 +2313,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             var recDur = sw.recordingDuration != null ? _formatDuration(sw.recordingDuration) : '\u2014';
             var recRem = sw.recordingTimeAvailable != null ? _formatDuration(sw.recordingTimeAvailable) : '\u2014';
             var remColor = sw.recordingTimeAvailable != null
-              ? (sw.recordingTimeAvailable < 600 ? '#ef4444' : sw.recordingTimeAvailable < 1800 ? '#eab308' : '#F8FAFC')
-              : '#F8FAFC';
+              ? (sw.recordingTimeAvailable < 600 ? '#FF5252' : sw.recordingTimeAvailable < 1800 ? '#eab308' : '#F0F2F4')
+              : '#F0F2F4';
             html += '<div class="grid-2col" style="gap:12px;margin-bottom:14px">'
-              + '<div style="background:#09090B;border-radius:8px;padding:12px;text-align:center">'
-              + '<div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Recording Duration</div>'
-              + '<div style="font-size:18px;font-weight:700;color:#22c55e">' + _escHtml(recDur) + '</div>'
+              + '<div style="background:#060D08;border-radius:8px;padding:12px;text-align:center">'
+              + '<div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Recording Duration</div>'
+              + '<div style="font-size:18px;font-weight:700;color:#00E676">' + _escHtml(recDur) + '</div>'
               + '</div>'
-              + '<div style="background:#09090B;border-radius:8px;padding:12px;text-align:center">'
-              + '<div style="font-size:10px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Time Remaining</div>'
+              + '<div style="background:#060D08;border-radius:8px;padding:12px;text-align:center">'
+              + '<div style="font-size:10px;color:#6B7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Time Remaining</div>'
               + '<div style="font-size:18px;font-weight:700;color:' + remColor + '">' + _escHtml(recRem) + '</div>'
               + '</div></div>';
           }
@@ -2369,20 +2369,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       var muteEl = document.getElementById('audio-mute-status');
       if (muteEl) {
-        if (mixer.mainMuted) { muteEl.textContent = 'MUTED'; muteEl.style.color = '#ef4444'; }
-        else { muteEl.textContent = 'OK'; muteEl.style.color = '#22c55e'; }
+        if (mixer.mainMuted) { muteEl.textContent = 'MUTED'; muteEl.style.color = '#FF5252'; }
+        else { muteEl.textContent = 'OK'; muteEl.style.color = '#00E676'; }
       }
 
       var silEl = document.getElementById('audio-silence-status');
       if (silEl) {
         if (audio.silenceDetected) { silEl.textContent = 'Silence'; silEl.style.color = '#eab308'; }
-        else { silEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Signal'; silEl.style.color = '#22c55e'; }
+        else { silEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Signal'; silEl.style.color = '#00E676'; }
       }
 
       var monEl = document.getElementById('audio-monitoring-status');
       if (monEl) {
-        if (audio.monitoring) { monEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Active'; monEl.style.color = '#22c55e'; }
-        else { monEl.textContent = '— Off'; monEl.style.color = '#94A3B8'; }
+        if (audio.monitoring) { monEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Active'; monEl.style.color = '#00E676'; }
+        else { monEl.textContent = '— Off'; monEl.style.color = '#8B9DAF'; }
       }
 
       var detailRow = document.getElementById('audio-detail-row');
@@ -2418,7 +2418,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           renderRundownPicker(body, rundowns);
         }
       } catch (e) {
-        body.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">Rundown unavailable</div>';
+        body.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">Rundown unavailable</div>';
         badge.className = 'badge badge-gray';
         badge.textContent = '—';
       }
@@ -2432,27 +2432,27 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var rundownName = schedulerStatus ? schedulerStatus.rundownName : (data.rundownName || 'Rundown');
 
       var html = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
-      html += '<div style="font-size:14px;font-weight:600;color:#F8FAFC">' + escapeHtml(rundownName) + '</div>';
+      html += '<div style="font-size:14px;font-weight:600;color:#F0F2F4">' + escapeHtml(rundownName) + '</div>';
       var stateIcon = state === 'running' ? '&#9654;' : (state === 'paused' ? '&#9646;&#9646;' : '&#10003;');
-      html += '<span style="font-size:12px;color:#94A3B8">' + stateIcon + ' ' + state.toUpperCase() + '</span>';
+      html += '<span style="font-size:12px;color:#8B9DAF">' + stateIcon + ' ' + state.toUpperCase() + '</span>';
       html += '</div>';
 
-      html += '<div style="height:4px;background:#1E293B;border-radius:2px;margin-bottom:12px;overflow:hidden">';
-      html += '<div style="height:100%;width:' + progress + '%;background:#22c55e;border-radius:2px;transition:width 0.3s"></div></div>';
+      html += '<div style="height:4px;background:#0d3320;border-radius:2px;margin-bottom:12px;overflow:hidden">';
+      html += '<div style="height:100%;width:' + progress + '%;background:#00E676;border-radius:2px;transition:width 0.3s"></div></div>';
 
       if (schedulerStatus && state !== 'completed') {
-        html += '<div style="font-size:11px;color:#94A3B8;margin-bottom:10px">' + escapeHtml(schedulerStatus.nextTriggerInfo) + '</div>';
+        html += '<div style="font-size:11px;color:#8B9DAF;margin-bottom:10px">' + escapeHtml(schedulerStatus.nextTriggerInfo) + '</div>';
       }
 
       html += '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px;max-height:240px;overflow-y:auto">';
       steps.forEach(function(step, i) {
         var isCurrent = i === currentIdx;
         var isPast = i < currentIdx;
-        var bg = isCurrent ? 'rgba(34,197,94,0.1)' : '#09090B';
-        var border = isCurrent ? '1px solid rgba(34,197,94,0.3)' : '1px solid transparent';
-        var nameColor = isCurrent ? '#22c55e' : (isPast ? '#475569' : '#94A3B8');
+        var bg = isCurrent ? 'rgba(0,230,118,0.1)' : '#060D08';
+        var border = isCurrent ? '1px solid rgba(0,230,118,0.3)' : '1px solid transparent';
+        var nameColor = isCurrent ? '#00E676' : (isPast ? '#556270' : '#8B9DAF');
         var icon = isPast ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : (isCurrent ? '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>' : (i + 1));
-        var iconColor = isPast ? '#22c55e' : (isCurrent ? '#22c55e' : '#475569');
+        var iconColor = isPast ? '#00E676' : (isCurrent ? '#00E676' : '#556270');
         var stepName = step.label || step.name || ('Cue ' + (i + 1));
         var trigger = step.trigger || { type: 'manual' };
         var triggerIcon = TRIGGER_ICONS[trigger.type] || '?';
@@ -2462,7 +2462,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<span style="color:' + iconColor + ';font-size:13px;width:20px;text-align:center;font-weight:700">' + icon + '</span>';
         html += '<span style="font-size:12px" title="' + trigger.type + '">' + triggerIcon + '</span>';
         html += '<span style="color:' + nameColor + ';font-size:13px;flex:1">' + escapeHtml(stepName) + '</span>';
-        if (cmdLabel) html += '<span style="color:#475569;font-size:10px">' + cmdLabel + '</span>';
+        if (cmdLabel) html += '<span style="color:#556270;font-size:10px">' + cmdLabel + '</span>';
         html += '</div>';
       });
       html += '</div>';
@@ -2473,29 +2473,29 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<button class="btn-secondary" onclick="portalSchedulerSkip()" style="font-size:12px;padding:6px 10px">Skip</button>';
         html += '<button class="btn-secondary" onclick="portalSchedulerBack()" style="font-size:12px;padding:6px 10px">Back</button>';
         if (state === 'running') html += '<button class="btn-secondary" onclick="portalSchedulerPause()" style="font-size:12px;padding:6px 10px">Pause</button>';
-        else if (state === 'paused') html += '<button class="btn-secondary" onclick="portalSchedulerResume()" style="font-size:12px;padding:6px 10px;border-color:#22c55e;color:#22c55e">Resume</button>';
+        else if (state === 'paused') html += '<button class="btn-secondary" onclick="portalSchedulerResume()" style="font-size:12px;padding:6px 10px;border-color:#00E676;color:#00E676">Resume</button>';
       }
-      html += '<button class="btn-secondary" onclick="portalEndRundown()" style="font-size:12px;padding:6px 10px;border-color:#ef4444;color:#ef4444">End</button>';
+      html += '<button class="btn-secondary" onclick="portalEndRundown()" style="font-size:12px;padding:6px 10px;border-color:#FF5252;color:#FF5252">End</button>';
       html += '</div>';
 
       if (steps[currentIdx] && steps[currentIdx].notes) {
-        html += '<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,0.08);border-radius:6px;font-size:12px;color:#f59e0b"><strong>Tip:</strong> ' + escapeHtml(steps[currentIdx].notes) + '</div>';
+        html += '<div style="margin-top:10px;padding:8px 12px;background:rgba(245,158,11,0.08);border-radius:6px;font-size:12px;color:#FFB74D"><strong>Tip:</strong> ' + escapeHtml(steps[currentIdx].notes) + '</div>';
       }
       container.innerHTML = html;
     }
 
     function renderRundownPicker(container, rundowns) {
       if (!rundowns || !rundowns.length) {
-        container.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">No rundowns yet. Create one via Telegram or the API.</div>';
+        container.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">No rundowns yet. Create one via Telegram or the API.</div>';
         return;
       }
       var html = '<div style="display:flex;flex-direction:column;gap:6px">';
       rundowns.forEach(function(r) {
         var stepCount = (r.steps || []).length;
-        var autoLabel = r.auto_activate ? ' <span style="color:#f59e0b;font-size:10px">AUTO</span>' : '';
-        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#09090B;border-radius:6px">';
-        html += '<div><span style="color:#F8FAFC;font-size:13px">' + escapeHtml(r.name) + '</span>' + autoLabel;
-        html += ' <span style="color:#475569;font-size:11px">' + stepCount + ' cues</span></div>';
+        var autoLabel = r.auto_activate ? ' <span style="color:#FFB74D;font-size:10px">AUTO</span>' : '';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#060D08;border-radius:6px">';
+        html += '<div><span style="color:#F0F2F4;font-size:13px">' + escapeHtml(r.name) + '</span>' + autoLabel;
+        html += ' <span style="color:#556270;font-size:11px">' + stepCount + ' cues</span></div>';
         html += '<button class="btn-sm" onclick="portalActivateRundown(&apos;' + r.id + '&apos;)">Start</button>';
         html += '</div>';
       });
@@ -2580,7 +2580,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         if (countEl) countEl.textContent = items.length + ' events';
         if (!items.length) {
-          body.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">No recent activity</div>';
+          body.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">No recent activity</div>';
           return;
         }
 
@@ -2588,21 +2588,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var timeStr = item.time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
           var dateStr = item.time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           var icon, color;
-          if (item.severity === 'auto_fixed') { icon = '<span style="font-size:10px;font-weight:700">AI</span>'; color = '#22c55e'; }
-          else if (item.severity === 'resolved') { icon = '<span style="color:#22c55e">&#10003;</span>'; color = '#22c55e'; }
-          else if (item.severity === 'CRITICAL' || item.severity === 'EMERGENCY') { icon = '<span style="color:#ef4444">&#9679;</span>'; color = '#ef4444'; }
-          else if (item.severity === 'WARNING' || item.severity === 'active') { icon = '<span style="color:#f59e0b">!</span>'; color = '#f59e0b'; }
-          else { icon = '<span style="color:#94A3B8">i</span>'; color = '#94A3B8'; }
+          if (item.severity === 'auto_fixed') { icon = '<span style="font-size:10px;font-weight:700">AI</span>'; color = '#00E676'; }
+          else if (item.severity === 'resolved') { icon = '<span style="color:#00E676">&#10003;</span>'; color = '#00E676'; }
+          else if (item.severity === 'CRITICAL' || item.severity === 'EMERGENCY') { icon = '<span style="color:#FF5252">&#9679;</span>'; color = '#FF5252'; }
+          else if (item.severity === 'WARNING' || item.severity === 'active') { icon = '<span style="color:#FFB74D">!</span>'; color = '#FFB74D'; }
+          else { icon = '<span style="color:#8B9DAF">i</span>'; color = '#8B9DAF'; }
           return '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'
-            + '<span style="font-size:11px;color:#475569;min-width:72px;flex-shrink:0">' + dateStr + '<br>' + timeStr + '</span>'
+            + '<span style="font-size:11px;color:#556270;min-width:72px;flex-shrink:0">' + dateStr + '<br>' + timeStr + '</span>'
             + '<span style="font-size:13px">' + icon + '</span>'
             + '<div style="flex:1;min-width:0">'
             + '<div style="font-size:13px;color:' + color + ';text-transform:capitalize">' + escapeHtml(item.type) + '</div>'
-            + (item.detail ? '<div style="font-size:11px;color:#64748B;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(item.detail) + '</div>' : '')
+            + (item.detail ? '<div style="font-size:11px;color:#6B7280;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(item.detail) + '</div>' : '')
             + '</div></div>';
         }).join('');
       } catch (e) {
-        body.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">Unable to load activity feed</div>';
+        body.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">Unable to load activity feed</div>';
       }
     }
 
@@ -2628,8 +2628,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Connection status
         var statusText = document.getElementById('stat-status-text');
         var statusDot = document.getElementById('stat-status-dot');
-        if (statusText) { statusText.textContent = d.connected ? 'Online' : 'Offline'; statusText.style.color = d.connected ? '#22c55e' : '#94A3B8'; }
-        if (statusDot) { statusDot.style.background = d.connected ? '#22c55e' : '#ef4444'; }
+        if (statusText) { statusText.textContent = d.connected ? 'Online' : 'Offline'; statusText.style.color = d.connected ? '#00E676' : '#8B9DAF'; }
+        if (statusDot) { statusDot.style.background = d.connected ? '#00E676' : '#FF5252'; }
 
         // Staleness
         var stalenessEl = document.getElementById('equip-staleness');
@@ -2638,7 +2638,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           if (ago < 60) stalenessEl.textContent = 'Updated just now';
           else if (ago < 3600) stalenessEl.textContent = 'Updated ' + Math.round(ago / 60) + 'm ago';
           else stalenessEl.textContent = 'Updated ' + Math.round(ago / 3600) + 'h ago';
-          stalenessEl.style.color = ago > 300 ? '#f59e0b' : '#475569';
+          stalenessEl.style.color = ago > 300 ? '#FFB74D' : '#556270';
         }
 
         // Cards
@@ -2693,12 +2693,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '</div>';
         });
         if (!hasAny) {
-          body.innerHTML = '<span style="color:#475569">No service windows configured. <a href="#" style="color:#22c55e;text-decoration:none" onclick="event.preventDefault();showPage(\'schedule\', document.querySelector(\'[data-page=schedule]\'))">Set up your schedule →</a></span>';
+          body.innerHTML = '<span style="color:#556270">No service windows configured. <a href="#" style="color:#00E676;text-decoration:none" onclick="event.preventDefault();showPage(\'schedule\', document.querySelector(\'[data-page=schedule]\'))">Set up your schedule →</a></span>';
         } else {
           body.innerHTML = html;
         }
       } catch(e) {
-        body.innerHTML = '<span style="color:#475569">Unable to load schedule</span>';
+        body.innerHTML = '<span style="color:#556270">Unable to load schedule</span>';
       }
     }
 
@@ -2732,21 +2732,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Meta line
         var parts = [];
         if (session.tdName) parts.push('TD: ' + session.tdName);
-        if (session.streaming) parts.push('<span style="color:#ef4444">&#9679;</span> Streaming');
+        if (session.streaming) parts.push('<span style="color:#FF5252">&#9679;</span> Streaming');
         if (session.peakViewers !== null) parts.push(session.peakViewers + ' peak viewers');
         if (metaEl) metaEl.textContent = parts.join(' · ');
 
         // Status dot color: green=clean, yellow=minor, red=escalated
         if (dot) {
-          if (session.escalated > 0) { dot.style.background = '#ef4444'; }
-          else if (session.alertCount > 0) { dot.style.background = '#f59e0b'; }
-          else { dot.style.background = '#22c55e'; }
+          if (session.escalated > 0) { dot.style.background = '#FF5252'; }
+          else if (session.alertCount > 0) { dot.style.background = '#FFB74D'; }
+          else { dot.style.background = '#00E676'; }
         }
 
         // Events for this session
         var events = data.events || [];
         if (!events.length && session.alertCount === 0) {
-          body.innerHTML = '<div style="color:#22c55e;font-size:13px;padding:8px 0">No issues — smooth sailing</div>';
+          body.innerHTML = '<div style="color:#00E676;font-size:13px;padding:8px 0">No issues — smooth sailing</div>';
           return;
         }
 
@@ -2758,38 +2758,38 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
           var icon, statusLine;
           if (e.auto_resolved) {
-            icon = '<span style="font-size:10px;font-weight:700;color:#22c55e">AI</span>';
-            statusLine = '<span style="color:#22c55e;font-size:11px;margin-left:8px">(auto-fixed)</span>';
+            icon = '<span style="font-size:10px;font-weight:700;color:#00E676">AI</span>';
+            statusLine = '<span style="color:#00E676;font-size:11px;margin-left:8px">(auto-fixed)</span>';
           } else if (e.resolved) {
-            icon = '<span style="color:#22c55e">&#10003;</span>';
-            statusLine = '<span style="color:#22c55e;font-size:11px;margin-left:8px">(resolved)</span>';
+            icon = '<span style="color:#00E676">&#10003;</span>';
+            statusLine = '<span style="color:#00E676;font-size:11px;margin-left:8px">(resolved)</span>';
           } else {
-            icon = '<span style="color:#f59e0b">!</span>';
-            statusLine = '<span style="color:#f59e0b;font-size:11px;margin-left:8px">(active)</span>';
+            icon = '<span style="color:#FFB74D">!</span>';
+            statusLine = '<span style="color:#FFB74D;font-size:11px;margin-left:8px">(active)</span>';
           }
 
           // Diagnosis info if available
           var diagHtml = '';
           if (e.diagnosis) {
             var confPct = e.diagnosis.confidence ? ' (' + e.diagnosis.confidence + '%)' : '';
-            diagHtml = '<div style="font-size:11px;color:#64748b;margin-top:2px;margin-left:28px">'
+            diagHtml = '<div style="font-size:11px;color:#6B7280;margin-top:2px;margin-left:28px">'
               + 'Likely: ' + escapeHtml(e.diagnosis.likely_cause || '') + confPct
               + '</div>';
           }
 
           return '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'
             + '<div style="display:flex;align-items:center;gap:8px">'
-            + '<span style="font-size:11px;color:#64748b;min-width:60px">' + time + '</span>'
+            + '<span style="font-size:11px;color:#6B7280;min-width:60px">' + time + '</span>'
             + '<span>' + icon + '</span>'
-            + '<span style="color:#F8FAFC;font-size:13px">' + escapeHtml(type) + '</span>'
+            + '<span style="color:#F0F2F4;font-size:13px">' + escapeHtml(type) + '</span>'
             + statusLine
             + '</div>'
-            + (detail ? '<div style="font-size:12px;color:#94A3B8;margin-left:28px">' + detail + '</div>' : '')
+            + (detail ? '<div style="font-size:12px;color:#8B9DAF;margin-left:28px">' + detail + '</div>' : '')
             + diagHtml
             + '</div>';
         }).join('');
 
-        if (!html) html = '<div style="color:#22c55e;font-size:13px;padding:8px 0">No incidents recorded yet</div>';
+        if (!html) html = '<div style="color:#00E676;font-size:13px;padding:8px 0">No incidents recorded yet</div>';
         body.innerHTML = html;
       } catch(e) {
         card.style.display = 'none';
@@ -2807,7 +2807,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try {
         var data = await api('GET', '/api/church/preservice-check' + roomParam());
         if (!data || !data.checks_json) {
-          body.innerHTML = '<div style="color:#475569;text-align:center;padding:14px;font-size:13px">No check data yet — click <strong>Run Check Now</strong> or wait for the automatic check 30 min before your next service.</div>';
+          body.innerHTML = '<div style="color:#556270;text-align:center;padding:14px;font-size:13px">No check data yet — click <strong>Run Check Now</strong> or wait for the automatic check 30 min before your next service.</div>';
           if (badge) { badge.textContent = 'Not Run'; badge.className = 'badge badge-gray'; }
           return;
         }
@@ -2839,9 +2839,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             return '';
           }
           var icon = c.pass ? '\u2713' : '!';
-          var borderColor = c.pass ? '#16a34a' : '#d97706';
-          var bg = c.pass ? 'rgba(34,197,94,0.05)' : 'rgba(245,158,11,0.08)';
-          var detail = c.detail ? '<div style="color:#64748b;font-size:11px;margin-top:3px;line-height:1.4">' + escapeHtml(c.detail) + '</div>' : '';
+          var borderColor = c.pass ? '#00C853' : '#d97706';
+          var bg = c.pass ? 'rgba(0,230,118,0.05)' : 'rgba(245,158,11,0.08)';
+          var detail = c.detail ? '<div style="color:#6B7280;font-size:11px;margin-top:3px;line-height:1.4">' + escapeHtml(c.detail) + '</div>' : '';
           return '<div style="padding:8px 10px;border-radius:6px;border:1px solid ' + borderColor + ';background:' + bg + '">'
             + '<div style="display:flex;align-items:center;gap:6px;font-size:13px">'
             + '<span>' + icon + '</span><span style="font-weight:500">' + escapeHtml(c.name || 'Check') + '</span>'
@@ -2860,7 +2860,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           fixBtn.textContent = 'Fix ' + fixableFailures.length + ' Safe Issue' + (fixableFailures.length !== 1 ? 's' : '');
         }
       } catch(e) {
-        if (body) body.innerHTML = '<div style="color:#475569;text-align:center;padding:14px;font-size:13px">No check data yet — click <strong>Run Check Now</strong> to start.</div>';
+        if (body) body.innerHTML = '<div style="color:#556270;text-align:center;padding:14px;font-size:13px">No check data yet — click <strong>Run Check Now</strong> to start.</div>';
         if (badge) { badge.textContent = 'Not Run'; badge.className = 'badge badge-gray'; }
       }
     }
@@ -2869,18 +2869,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var body = document.getElementById('psc-dash-body');
       var badge = document.getElementById('psc-dash-badge');
       if (badge) { badge.textContent = 'Running…'; badge.className = 'badge badge-gray'; }
-      if (body) body.innerHTML = '<div style="color:#94A3B8;text-align:center;padding:14px;font-size:13px">Running system check…</div>';
+      if (body) body.innerHTML = '<div style="color:#8B9DAF;text-align:center;padding:14px;font-size:13px">Running system check…</div>';
 
       try {
         var data = await api('POST', '/api/church/preservice-check/run' + roomParam());
         if (data && data.result) {
           await loadPreServiceCheck();
         } else {
-          if (body) body.innerHTML = '<div style="color:#f59e0b;text-align:center;padding:14px;font-size:13px">Could not run check — is the Tally app connected?</div>';
+          if (body) body.innerHTML = '<div style="color:#FFB74D;text-align:center;padding:14px;font-size:13px">Could not run check — is the Tally app connected?</div>';
           if (badge) { badge.textContent = 'Offline'; badge.className = 'badge badge-yellow'; }
         }
       } catch(e) {
-        if (body) body.innerHTML = '<div style="color:#ef4444;text-align:center;padding:14px;font-size:13px">Error running check: ' + escapeHtml(e.message || 'unknown') + '</div>';
+        if (body) body.innerHTML = '<div style="color:#FF5252;text-align:center;padding:14px;font-size:13px">Error running check: ' + escapeHtml(e.message || 'unknown') + '</div>';
         if (badge) { badge.textContent = 'Error'; badge.className = 'badge badge-red'; }
       }
     }
@@ -2917,7 +2917,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var data = await api('GET', '/api/church/problems' + roomParam());
         renderProblems(data, body, badge);
       } catch(e) {
-        body.innerHTML = '<div style="color:#475569;text-align:center;padding:20px;font-size:13px">No diagnostics data yet — connect the Tally desktop app to see results.</div>';
+        body.innerHTML = '<div style="color:#556270;text-align:center;padding:20px;font-size:13px">No diagnostics data yet — connect the Tally desktop app to see results.</div>';
         if (badge) { badge.className = 'badge badge-gray'; badge.textContent = '—'; }
       }
     }
@@ -2929,7 +2929,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var msg = hasEquipment
           ? 'No diagnostics scan has run yet. Tally will scan automatically, or run a pre-service check.'
           : 'No diagnostics data yet — connect the Tally desktop app to see results.';
-        body.innerHTML = '<div style="color:#475569;text-align:center;padding:20px;font-size:13px">' + msg + '</div>';
+        body.innerHTML = '<div style="color:#556270;text-align:center;padding:20px;font-size:13px">' + msg + '</div>';
         if (badge) { badge.className = 'badge badge-gray'; badge.textContent = '—'; }
         return;
       }
@@ -2948,7 +2948,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var html = '';
 
       // Timestamp + coverage
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;font-size:12px;color:#64748B">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;font-size:12px;color:#6B7280">';
       html += '<span>Last scan: ' + (data.created_at ? new Date(data.created_at).toLocaleString() : '—') + '</span>';
       if (data.coverage_score !== undefined) {
         html += '<span>Coverage: ' + Math.min(100, Math.round(data.coverage_score * 100)) + '%</span>';
@@ -2959,9 +2959,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var issues = [];
       try { issues = JSON.parse(data.issues_json || '[]'); } catch {}
       html += '<div style="margin-bottom:16px">';
-      html += '<div style="font-size:12px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">What Tally Found</div>';
+      html += '<div style="font-size:12px;font-weight:600;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">What Tally Found</div>';
       if (issues.length === 0) {
-        html += '<div style="color:#22c55e;font-size:13px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> No issues detected</div>';
+        html += '<div style="color:#00E676;font-size:13px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> No issues detected</div>';
       } else {
         var sevCounts = { critical: 0, high: 0, medium: 0, low: 0 };
         issues.forEach(function(i) { if (sevCounts[i.severity] !== undefined) sevCounts[i.severity]++; });
@@ -2978,19 +2978,19 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var autoFixed = [];
       try { autoFixed = JSON.parse(data.auto_fixed_json || '[]'); } catch {}
       html += '<div style="margin-bottom:16px">';
-      html += '<div style="font-size:12px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">What Tally Fixed</div>';
+      html += '<div style="font-size:12px;font-weight:600;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">What Tally Fixed</div>';
       if (autoFixed.length === 0 && data.auto_fixed_count === 0) {
-        html += '<div style="color:#64748B;font-size:13px">No auto-fixes applied</div>';
+        html += '<div style="color:#6B7280;font-size:13px">No auto-fixes applied</div>';
       } else {
         if (autoFixed.length > 0) {
           autoFixed.forEach(function(f) {
             html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:13px">';
-            html += '<span style="color:#22c55e"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg></span>';
-            html += '<span style="color:#F8FAFC">' + escapeHtml(f.title || f.id) + '</span>';
+            html += '<span style="color:#00E676"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg></span>';
+            html += '<span style="color:#F0F2F4">' + escapeHtml(f.title || f.id) + '</span>';
             html += '</div>';
           });
         } else {
-          html += '<div style="color:#22c55e;font-size:13px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> ' + data.auto_fixed_count + ' item(s) auto-resolved</div>';
+          html += '<div style="color:#00E676;font-size:13px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> ' + data.auto_fixed_count + ' item(s) auto-resolved</div>';
         }
       }
       html += '</div>';
@@ -2999,22 +2999,22 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var needsAttention = [];
       try { needsAttention = JSON.parse(data.needs_attention_json || '[]'); } catch {}
       html += '<div style="margin-bottom:16px">';
-      html += '<div style="font-size:12px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Needs TD Attention</div>';
+      html += '<div style="font-size:12px;font-weight:600;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Needs TD Attention</div>';
       if (needsAttention.length === 0 && data.blocker_count === 0) {
-        html += '<div style="color:#22c55e;font-size:13px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Nothing needs attention</div>';
+        html += '<div style="color:#00E676;font-size:13px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Nothing needs attention</div>';
       } else {
         needsAttention.forEach(function(item) {
           var sevCls = item.severity === 'critical' ? 'badge-red' : 'badge-yellow';
-          html += '<div style="background:rgba(15,22,19,0.5);border:1px solid #1a2e1f;border-radius:8px;padding:12px;margin-bottom:8px">';
+          html += '<div style="background:rgba(15,22,19,0.5);border:1px solid #0d3320;border-radius:8px;padding:12px;margin-bottom:8px">';
           html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
           html += '<span class="badge ' + sevCls + '">' + (item.severity || 'high') + '</span>';
-          html += '<span style="font-size:13px;font-weight:600;color:#F8FAFC">' + escapeHtml(item.title || item.id) + '</span>';
+          html += '<span style="font-size:13px;font-weight:600;color:#F0F2F4">' + escapeHtml(item.title || item.id) + '</span>';
           html += '</div>';
           if (item.symptom) {
-            html += '<div style="font-size:12px;color:#94A3B8;margin-bottom:4px">' + escapeHtml(item.symptom) + '</div>';
+            html += '<div style="font-size:12px;color:#8B9DAF;margin-bottom:4px">' + escapeHtml(item.symptom) + '</div>';
           }
           if (item.fixStep) {
-            html += '<div style="font-size:12px;color:#22c55e">→ ' + escapeHtml(item.fixStep) + '</div>';
+            html += '<div style="font-size:12px;color:#00E676">→ ' + escapeHtml(item.fixStep) + '</div>';
           }
           html += '</div>';
         });
@@ -3026,10 +3026,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try { topActions = JSON.parse(data.top_actions_json || '[]'); } catch {}
       if (topActions.length > 0) {
         html += '<div>';
-        html += '<div style="font-size:12px;font-weight:600;color:#94A3B8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Recommended Actions</div>';
+        html += '<div style="font-size:12px;font-weight:600;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Recommended Actions</div>';
         topActions.forEach(function(action, idx) {
-          html += '<div style="display:flex;gap:8px;margin-bottom:4px;font-size:13px;color:#F8FAFC">';
-          html += '<span style="color:#22c55e;font-weight:700">' + (idx + 1) + '.</span>';
+          html += '<div style="display:flex;gap:8px;margin-bottom:4px;font-size:13px;color:#F0F2F4">';
+          html += '<span style="color:#00E676;font-weight:700">' + (idx + 1) + '.</span>';
           html += '<span>' + escapeHtml(typeof action === 'string' ? action : (action.step || action.title || '')) + '</span>';
           html += '</div>';
         });
@@ -3065,7 +3065,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           action: '<a href="https://telegram.org/" target="_blank" class="onboard-action-btn" style="margin-right:4px">' + pt('onboarding.step.telegram.download') + '</a>'
             + '<span class="onboard-action-btn" onclick="copyOnboardingCode()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.copy') + '</span>'
             + ' <a href="https://t.me/TallyConnectBot" target="_blank" class="onboard-action-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v6A1.5 1.5 0 0 0 2.5 12H4v2.25a.75.75 0 0 0 1.28.53L7.56 12H13.5A1.5 1.5 0 0 0 15 10.5v-6A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.open') + '</a>'
-            + '<br><span class="onboard-skip-link" onclick="skipTelegramStep()" style="font-size:11px;color:#64748B;cursor:pointer;text-decoration:underline;margin-top:6px;display:inline-block">' + pt('onboarding.step.telegram.skip') + '</span>',
+            + '<br><span class="onboard-skip-link" onclick="skipTelegramStep()" style="font-size:11px;color:#6B7280;cursor:pointer;text-decoration:underline;margin-top:6px;display:inline-block">' + pt('onboarding.step.telegram.skip') + '</span>',
         },
         {
           key: 'failover',
@@ -3090,8 +3090,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (allDone) {
         container.style.display = 'block';
         container.style.animation = 'none';
-        container.style.borderColor = '#22c55e';
-        itemsEl.innerHTML = '<div style="text-align:center;padding:16px 0"><div style="font-size:28px;margin-bottom:8px;animation:onboardCheckPop 0.5s ease-out">&#9733;</div><div style="font-size:15px;font-weight:700;color:#22c55e">' + pt('onboarding.complete') + '</div><div style="font-size:12px;color:#94A3B8;margin-top:4px">' + pt('onboarding.complete.sub') + '</div></div>';
+        container.style.borderColor = '#00E676';
+        itemsEl.innerHTML = '<div style="text-align:center;padding:16px 0"><div style="font-size:28px;margin-bottom:8px;animation:onboardCheckPop 0.5s ease-out">&#9733;</div><div style="font-size:15px;font-weight:700;color:#00E676">' + pt('onboarding.complete') + '</div><div style="font-size:12px;color:#8B9DAF;margin-top:4px">' + pt('onboarding.complete.sub') + '</div></div>';
         if (resumeEl) resumeEl.style.display = 'none';
         setTimeout(function() { container.style.display = 'none'; }, 5000);
         return;
@@ -3112,14 +3112,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       itemsEl.innerHTML = steps.map((s, i) => {
         const icon = s.done
-          ? '<div style="width:24px;height:24px;border-radius:50%;background:#22c55e;display:flex;align-items:center;justify-content:center;color:#000;font-size:13px;font-weight:700;flex-shrink:0;animation:onboardCheckPop 0.4s ease-out"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>'
-          : '<div style="width:24px;height:24px;border-radius:50%;border:2px solid #334155;display:flex;align-items:center;justify-content:center;color:#64748B;font-size:12px;font-weight:700;flex-shrink:0;">' + (i + 1) + '</div>';
+          ? '<div style="width:24px;height:24px;border-radius:50%;background:#00E676;display:flex;align-items:center;justify-content:center;color:#000;font-size:13px;font-weight:700;flex-shrink:0;animation:onboardCheckPop 0.4s ease-out"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>'
+          : '<div style="width:24px;height:24px;border-radius:50%;border:2px solid #1a3a2a;display:flex;align-items:center;justify-content:center;color:#6B7280;font-size:12px;font-weight:700;flex-shrink:0;">' + (i + 1) + '</div>';
         var actionHtml = (!s.done && s.action) ? '<div style="margin-top:4px">' + s.action + '</div>' : '';
-        return '<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;' + (i < steps.length - 1 ? 'border-bottom:1px solid #1a2e1f;' : '') + '">'
+        return '<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;' + (i < steps.length - 1 ? 'border-bottom:1px solid #0d3320;' : '') + '">'
           + icon
           + '<div style="flex:1">'
-          + '<div style="font-size:13px;font-weight:600;color:' + (s.done ? '#22c55e' : '#F8FAFC') + ';">' + s.label + '</div>'
-          + (s.done ? '' : '<div style="font-size:12px;color:#64748B;margin-top:2px;">' + s.detail + '</div>')
+          + '<div style="font-size:13px;font-weight:600;color:' + (s.done ? '#00E676' : '#F0F2F4') + ';">' + s.label + '</div>'
+          + (s.done ? '' : '<div style="font-size:12px;color:#6B7280;margin-top:2px;">' + s.detail + '</div>')
           + actionHtml
           + '</div>'
           + '</div>';
@@ -3346,7 +3346,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var status = document.getElementById('equipment-save-status');
       btn.disabled = true;
       status.textContent = 'Saving…';
-      status.style.color = '#475569';
+      status.style.color = '#556270';
       try {
         var equipment = {
           atemIp: document.getElementById('eq-atem-ip').value.trim(),
@@ -3391,11 +3391,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         var d = await api('PUT', '/api/church/config/equipment', { equipment: equipment, roomId: _equipmentRoomId });
         status.textContent = 'Saved! ' + new Date(d.updatedAt).toLocaleString();
-        status.style.color = '#22c55e';
+        status.style.color = '#00E676';
         toast('Equipment config saved');
       } catch (e) {
         status.textContent = 'Save failed';
-        status.style.color = '#ef4444';
+        status.style.color = '#FF5252';
         toast('Failed to save: ' + e.message, true);
       } finally {
         btn.disabled = false;
@@ -3424,7 +3424,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           polls++;
           if (polls > maxPolls) {
             clearInterval(_portalFbPollTimer);
-            if (status) { status.textContent = 'Timed out — try again'; status.style.color = '#ef4444'; }
+            if (status) { status.textContent = 'Timed out — try again'; status.style.color = '#FF5252'; }
             if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
             return;
           }
@@ -3440,16 +3440,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 document.getElementById('portal-fb-page-selector').style.display = 'block';
                 if (status) { status.textContent = 'Select a page below'; status.style.color = '#eab308'; }
               } else if (result.success) {
-                if (status) { status.textContent = 'No Facebook Pages found'; status.style.color = '#ef4444'; }
+                if (status) { status.textContent = 'No Facebook Pages found'; status.style.color = '#FF5252'; }
               } else {
-                if (status) { status.textContent = result.error || 'Connection failed'; status.style.color = '#ef4444'; }
+                if (status) { status.textContent = result.error || 'Connection failed'; status.style.color = '#FF5252'; }
               }
               if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
             }
           } catch (e) { /* keep polling */ }
         }, 2000);
       } catch (e) {
-        if (status) { status.textContent = e.message || 'Failed to start'; status.style.color = '#ef4444'; }
+        if (status) { status.textContent = e.message || 'Failed to start'; status.style.color = '#FF5252'; }
         if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
       }
     }
@@ -3468,10 +3468,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           portalUpdateOAuthStatus();
           toast('Facebook connected');
         } else {
-          if (status) { status.textContent = result.error || 'Failed'; status.style.color = '#ef4444'; }
+          if (status) { status.textContent = result.error || 'Failed'; status.style.color = '#FF5252'; }
         }
       } catch (e) {
-        if (status) { status.textContent = e.message; status.style.color = '#ef4444'; }
+        if (status) { status.textContent = e.message; status.style.color = '#FF5252'; }
       }
     }
     window.portalFbSelectPage = portalFbSelectPage;
@@ -3496,7 +3496,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (d.facebook && d.facebook.connected) {
           var name = d.facebook.pageName || 'Connected';
           status.textContent = name + (d.facebook.streamKeySet ? ' — key ready' : '');
-          status.style.color = '#22c55e';
+          status.style.color = '#00E676';
           btn.textContent = 'Disconnect';
           btn.onclick = portalFbDisconnect;
           // Show expiration warning if within 7 days
@@ -3518,7 +3518,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           }
         } else {
           status.textContent = 'Not connected';
-          status.style.color = '#64748b';
+          status.style.color = '#6B7280';
           btn.textContent = 'Connect Facebook';
           btn.onclick = portalFbConnect;
           expiryDiv.style.display = 'none';
@@ -3612,9 +3612,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var daysLeft = Math.floor((new Date(d.facebook.expiresAt).getTime() - Date.now()) / (24*60*60*1000));
           if (daysLeft <= 7 && daysLeft > 0) {
             fbExpiry.style.display = 'block';
-            fbExpiry.style.borderColor = '#92400e';
+            fbExpiry.style.borderColor = '#7c4a1a';
             fbExpiryText.textContent = 'Facebook token expires in ' + daysLeft + ' day' + (daysLeft !== 1 ? 's' : '') + '. Reconnect to refresh.';
-            fbExpiryText.style.color = '#fbbf24';
+            fbExpiryText.style.color = '#FFB74D';
           } else if (daysLeft <= 0) {
             fbExpiry.style.display = 'block';
             fbExpiry.style.borderColor = '#dc2626';
@@ -3658,7 +3658,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           polls++;
           if (polls > maxPolls) {
             clearInterval(_connYtPollTimer);
-            if (msg) { msg.textContent = 'Timed out \u2014 try again'; msg.style.color = '#ef4444'; }
+            if (msg) { msg.textContent = 'Timed out \u2014 try again'; msg.style.color = '#FF5252'; }
             if (btn) { btn.disabled = false; btn.textContent = 'Connect YouTube'; }
             return;
           }
@@ -3672,14 +3672,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 toast('YouTube connected' + (result.channelName ? ' \u2014 ' + result.channelName : ''));
                 loadConnections();
               } else {
-                if (msg) { msg.textContent = result.error || 'Connection failed'; msg.style.color = '#ef4444'; }
+                if (msg) { msg.textContent = result.error || 'Connection failed'; msg.style.color = '#FF5252'; }
               }
               if (btn) { btn.disabled = false; }
             }
           } catch (e) { /* keep polling */ }
         }, 2000);
       } catch (e) {
-        if (msg) { msg.textContent = e.message || 'Failed to start'; msg.style.color = '#ef4444'; }
+        if (msg) { msg.textContent = e.message || 'Failed to start'; msg.style.color = '#FF5252'; }
         if (btn) { btn.disabled = false; btn.textContent = 'Connect YouTube'; }
       }
     }
@@ -3712,7 +3712,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           polls++;
           if (polls > maxPolls) {
             clearInterval(_connFbPollTimer);
-            if (msg) { msg.textContent = 'Timed out \u2014 try again'; msg.style.color = '#ef4444'; }
+            if (msg) { msg.textContent = 'Timed out \u2014 try again'; msg.style.color = '#FF5252'; }
             if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
             return;
           }
@@ -3728,16 +3728,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 document.getElementById('conn-fb-page-selector').style.display = 'block';
                 if (msg) { msg.textContent = 'Select a page below'; msg.style.color = '#eab308'; }
               } else if (result.success) {
-                if (msg) { msg.textContent = 'No Facebook Pages found'; msg.style.color = '#ef4444'; }
+                if (msg) { msg.textContent = 'No Facebook Pages found'; msg.style.color = '#FF5252'; }
               } else {
-                if (msg) { msg.textContent = result.error || 'Connection failed'; msg.style.color = '#ef4444'; }
+                if (msg) { msg.textContent = result.error || 'Connection failed'; msg.style.color = '#FF5252'; }
               }
               if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
             }
           } catch (e) { /* keep polling */ }
         }, 2000);
       } catch (e) {
-        if (msg) { msg.textContent = e.message || 'Failed to start'; msg.style.color = '#ef4444'; }
+        if (msg) { msg.textContent = e.message || 'Failed to start'; msg.style.color = '#FF5252'; }
         if (btn) { btn.disabled = false; btn.textContent = 'Connect Facebook'; }
       }
     }
@@ -3755,10 +3755,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           loadConnections();
           toast('Facebook connected');
         } else {
-          if (msg) { msg.textContent = result.error || 'Failed'; msg.style.color = '#ef4444'; }
+          if (msg) { msg.textContent = result.error || 'Failed'; msg.style.color = '#FF5252'; }
         }
       } catch (e) {
-        if (msg) { msg.textContent = e.message; msg.style.color = '#ef4444'; }
+        if (msg) { msg.textContent = e.message; msg.style.color = '#FF5252'; }
       }
     }
 
@@ -3820,22 +3820,22 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var data = await api('GET', '/api/church/rooms');
         var rooms = data.rooms || [];
         if (!rooms.length) {
-          container.innerHTML = '<span style="color:#475569;font-size:13px">No rooms yet. Create a room first.</span>';
+          container.innerHTML = '<span style="color:#556270;font-size:13px">No rooms yet. Create a room first.</span>';
           return;
         }
         container.innerHTML = '';
         rooms.forEach(function(r) {
           var row = document.createElement('div');
-          row.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid #1E293B';
+          row.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid #0d3320';
           row.innerHTML =
-            '<span style="font-size:13px;color:#CBD5E1;min-width:120px;font-weight:500">' + escapeHtml(r.name) + '</span>' +
-            '<code id="room-key-' + r.id + '" style="font-size:13px;color:#22c55e;padding:6px 10px;background:#09090B;border:1px solid #1a2e1f;border-radius:6px;letter-spacing:0.5px;flex:1;min-width:180px;overflow:hidden;text-overflow:ellipsis">' + (r.streamKey || '—') + '</code>' +
+            '<span style="font-size:13px;color:#B0BEC5;min-width:120px;font-weight:500">' + escapeHtml(r.name) + '</span>' +
+            '<code id="room-key-' + r.id + '" style="font-size:13px;color:#00E676;padding:6px 10px;background:#060D08;border:1px solid #0d3320;border-radius:6px;letter-spacing:0.5px;flex:1;min-width:180px;overflow:hidden;text-overflow:ellipsis">' + (r.streamKey || '—') + '</code>' +
             '<button class="btn-secondary" data-action="copyRoomKey" data-room-id="' + r.id + '" style="font-size:11px;white-space:nowrap;padding:4px 8px">Copy</button>' +
             '<button class="btn-secondary" data-action="regenRoomKey" data-room-id="' + r.id + '" style="font-size:11px;white-space:nowrap;padding:4px 8px">Regenerate</button>';
           container.appendChild(row);
         });
       } catch(e) {
-        container.innerHTML = '<span style="color:#EF4444;font-size:13px">Failed to load room keys</span>';
+        container.innerHTML = '<span style="color:#FF5252;font-size:13px">Failed to load room keys</span>';
       }
     }
 
@@ -4043,20 +4043,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var name = m.sender_name || m.senderName || 'Unknown';
         var role = m.sender_role || m.senderRole || 'td';
         var time = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        var nameColor = role === 'system' ? '#22c55e' : (role === 'admin' ? '#22c55e' : '#F8FAFC');
+        var nameColor = role === 'system' ? '#00E676' : (role === 'admin' ? '#00E676' : '#F0F2F4');
         var icon = role === 'system' ? 'SYS' : (role === 'admin' ? 'ADM' : 'ME');
         var msgText = escapeHtml(m.message);
         // Basic markdown: bold
         msgText = msgText.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
         // Bullet lists
-        msgText = msgText.replace(/^[-•]\\s+/gm, '<span style="color:#22c55e">•</span> ');
+        msgText = msgText.replace(/^[-•]\\s+/gm, '<span style="color:#00E676">•</span> ');
         // Newlines
         msgText = msgText.replace(/\\n/g, '<br>');
         html += '<div style="padding:6px 0;margin-bottom:4px;border-bottom:1px solid rgba(26,46,31,0.3)">'
-          + '<div style="font-size:10px;color:#475569;font-family:monospace">'
+          + '<div style="font-size:10px;color:#556270;font-family:monospace">'
           + icon + ' <span style="color:' + nameColor + ';font-weight:600">' + escapeHtml(name) + '</span>'
           + ' <span style="margin-left:6px">' + time + '</span></div>'
-          + '<div style="font-size:13px;color:#F8FAFC;margin-top:2px;line-height:1.5">' + msgText + '</div>'
+          + '<div style="font-size:13px;color:#F0F2F4;margin-top:2px;line-height:1.5">' + msgText + '</div>'
           + '</div>';
       }
       // Keep only messages, remove empty state
@@ -4099,8 +4099,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       engineerThinkingStart = Date.now();
       var div = document.createElement('div');
       div.id = 'engineer-thinking';
-      div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;margin:4px 0;font-size:12px;color:#64748B';
-      div.innerHTML = '<span style="display:inline-flex;gap:3px"><span style="animation:thinkBounce 1.2s infinite;width:6px;height:6px;background:#22C55E;border-radius:50%"></span><span style="animation:thinkBounce 1.2s infinite 0.2s;width:6px;height:6px;background:#22C55E;border-radius:50%"></span><span style="animation:thinkBounce 1.2s infinite 0.4s;width:6px;height:6px;background:#22C55E;border-radius:50%"></span></span> <span id="engineer-thinking-text">Tally Engineer is thinking\u2026</span> <span id="engineer-thinking-elapsed" style="color:#475569;font-size:10px;margin-left:4px"></span>';
+      div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;margin:4px 0;font-size:12px;color:#6B7280';
+      div.innerHTML = '<span style="display:inline-flex;gap:3px"><span style="animation:thinkBounce 1.2s infinite;width:6px;height:6px;background:#00E676;border-radius:50%"></span><span style="animation:thinkBounce 1.2s infinite 0.2s;width:6px;height:6px;background:#00E676;border-radius:50%"></span><span style="animation:thinkBounce 1.2s infinite 0.4s;width:6px;height:6px;background:#00E676;border-radius:50%"></span></span> <span id="engineer-thinking-text">Tally Engineer is thinking\u2026</span> <span id="engineer-thinking-elapsed" style="color:#556270;font-size:10px;margin-left:4px"></span>';
       container.appendChild(div);
       container.scrollTop = container.scrollHeight;
       engineerThinkingTimer = setInterval(function() {
@@ -4162,16 +4162,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         // Reliability score
         if (data.reliability !== null) {
-          var relColor = data.reliability >= 98 ? '#22c55e' : (data.reliability >= 95 ? '#f59e0b' : '#ef4444');
+          var relColor = data.reliability >= 98 ? '#00E676' : (data.reliability >= 95 ? '#FFB74D' : '#FF5252');
           html += '<div style="margin-bottom:12px;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px">'
             + '<div style="font-size:24px;font-weight:700;color:' + relColor + '">' + data.reliability + '%</div>'
-            + '<div style="font-size:11px;color:#64748b">Uptime reliability this week</div>'
+            + '<div style="font-size:11px;color:#6B7280">Uptime reliability this week</div>'
             + '</div>';
         }
 
         // Session count
         if (data.sessions > 0) {
-          html += '<div style="font-size:13px;color:#94A3B8;margin-bottom:8px">'
+          html += '<div style="font-size:13px;color:#8B9DAF;margin-bottom:8px">'
             + data.sessions + ' session' + (data.sessions !== 1 ? 's' : '') + ' this week'
             + (data.autoResolved > 0 ? ' · ' + data.autoResolved + ' auto-recovered' : '')
             + '</div>';
@@ -4179,22 +4179,22 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         // Patterns
         if (data.patterns && data.patterns.length > 0) {
-          html += '<div style="margin-top:12px;margin-bottom:4px;font-size:12px;font-weight:600;color:#F8FAFC">Recurring Patterns</div>';
+          html += '<div style="margin-top:12px;margin-bottom:4px;font-size:12px;font-weight:600;color:#F0F2F4">Recurring Patterns</div>';
           for (var i = 0; i < data.patterns.length; i++) {
             var p = data.patterns[i];
             html += '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px">'
-              + '<span style="color:#f59e0b">!</span> '
-              + '<span style="color:#F8FAFC">' + escapeHtml(p.pattern) + '</span>'
-              + ' <span style="color:#64748b;font-size:11px">' + escapeHtml(p.timeWindow) + '</span>';
+              + '<span style="color:#FFB74D">!</span> '
+              + '<span style="color:#F0F2F4">' + escapeHtml(p.pattern) + '</span>'
+              + ' <span style="color:#6B7280;font-size:11px">' + escapeHtml(p.timeWindow) + '</span>';
             if (p.recommendation) {
-              html += '<div style="font-size:12px;color:#94A3B8;margin-top:2px;margin-left:20px">→ ' + escapeHtml(p.recommendation) + '</div>';
+              html += '<div style="font-size:12px;color:#8B9DAF;margin-top:2px;margin-left:20px">→ ' + escapeHtml(p.recommendation) + '</div>';
             }
             html += '</div>';
           }
         }
 
         if (!html) {
-          html = '<div style="color:#22c55e;font-size:13px;padding:8px 0">Clean week — no patterns detected</div>';
+          html = '<div style="color:#00E676;font-size:13px;padding:8px 0">Clean week — no patterns detected</div>';
         }
 
         body.innerHTML = html;
@@ -4211,25 +4211,25 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var data = await api('GET', '/api/church/rooms');
         var rooms = data.rooms || [];
         if (!rooms.length) {
-          container.innerHTML = '<div style="text-align:center;padding:16px;color:#475569">No rooms yet. Add a room to get started.</div>';
+          container.innerHTML = '<div style="text-align:center;padding:16px;color:#556270">No rooms yet. Add a room to get started.</div>';
           return;
         }
         var html = '<div class="table-wrap"><table><thead><tr><th>Room</th><th>Assigned Desktop</th><th>Status</th><th></th></tr></thead><tbody>';
         for (var r of rooms) {
           var assigned = r.assignedDesktops && r.assignedDesktops.length > 0
             ? r.assignedDesktops.map(function(d) { return escapeHtml(d.name); }).join(', ')
-            : '<span style="color:#475569">Unassigned</span>';
+            : '<span style="color:#556270">Unassigned</span>';
           html += '<tr>';
-          html += '<td style="font-weight:600">' + escapeHtml(r.name) + (r.description ? '<br><span style="font-size:11px;color:#64748B">' + escapeHtml(r.description) + '</span>' : '') + '</td>';
+          html += '<td style="font-weight:600">' + escapeHtml(r.name) + (r.description ? '<br><span style="font-size:11px;color:#6B7280">' + escapeHtml(r.description) + '</span>' : '') + '</td>';
           html += '<td>' + assigned + '</td>';
-          html += '<td>' + (r.assignedDesktops && r.assignedDesktops.length > 0 ? '<span style="color:#22c55e">●</span>' : '<span style="color:#475569">—</span>') + '</td>';
+          html += '<td>' + (r.assignedDesktops && r.assignedDesktops.length > 0 ? '<span style="color:#00E676">●</span>' : '<span style="color:#556270">—</span>') + '</td>';
           html += '<td style="text-align:right"><button class="btn-small btn-secondary" data-action="editRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '" data-room-desc="' + escapeHtml(r.description || '') + '">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" data-action="deleteRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '">Delete</button></td>';
           html += '</tr>';
         }
         html += '</tbody></table></div>';
         container.innerHTML = html;
       } catch (e) {
-        container.innerHTML = '<div style="color:#ef4444;padding:12px">' + escapeHtml(e.message) + '</div>';
+        container.innerHTML = '<div style="color:#FF5252;padding:12px">' + escapeHtml(e.message) + '</div>';
       }
     }
 
@@ -4296,7 +4296,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const tds = await api('GET', '/api/church/tds');
         const tbody = document.getElementById('tds-tbody');
         if (!tds.length) {
-          tbody.innerHTML = '<tr><td colspan="7" style="color:#475569;text-align:center;padding:20px">No tech directors yet.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7" style="color:#556270;text-align:center;padding:20px">No tech directors yet.</td></tr>';
           return;
         }
         tbody.innerHTML = tds.map(td => {
@@ -4309,22 +4309,22 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             <td>${escapeHtml(td.name || '')}</td>
             <td><span class="badge badge-gray">${escapeHtml(td.role || 'td')}</span></td>
             <td>
-              <select style="background:#09090B;color:#F8FAFC;border:1px solid #1a2e1f;border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer" onchange="setTdAccessLevel('${tdId}', this.value)">
+              <select style="background:#060D08;color:#F0F2F4;border:1px solid #0d3320;border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer" onchange="setTdAccessLevel('${tdId}', this.value)">
                 <option value="viewer" ${(td.access_level||'operator')==='viewer'?'selected':''}>Viewer</option>
                 <option value="operator" ${(!td.access_level||td.access_level==='operator')?'selected':''}>Operator</option>
                 <option value="admin" ${(td.access_level||'')==='admin'?'selected':''}>Admin</option>
               </select>
             </td>
-            <td style="color:#94A3B8">${escapeHtml(td.email || '—')}</td>
+            <td style="color:#8B9DAF">${escapeHtml(td.email || '—')}</td>
             <td>
               <div style="display:flex;align-items:center;gap:6px">
-                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;color:${portalOn ? '#22c55e' : '#64748b'}">
-                  <input type="checkbox" ${portalOn ? 'checked' : ''} onchange="toggleTdPortalAccess('${tdId}', this.checked)" style="accent-color:#22c55e">
+                <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px;color:${portalOn ? '#00E676' : '#6B7280'}">
+                  <input type="checkbox" ${portalOn ? 'checked' : ''} onchange="toggleTdPortalAccess('${tdId}', this.checked)" style="accent-color:#00E676">
                   ${portalOn ? 'On' : 'Off'}
                 </label>
                 <button class="btn-secondary" style="font-size:11px;padding:2px 8px" onclick="promptSetTdPassword('${tdId}', '${escapeHtml(td.name || '')}')">${hasPassword ? 'Reset PW' : 'Set PW'}</button>
               </div>
-              ${portalOn ? '<div style="font-size:10px;color:#64748b;margin-top:2px">Last login: ' + lastLogin + '</div>' : ''}
+              ${portalOn ? '<div style="font-size:10px;color:#6B7280;margin-top:2px">Last login: ' + lastLogin + '</div>' : ''}
             </td>
             <td><button class="btn-danger" onclick="removeTd('${tdId}')">Remove</button></td>
           </tr>`;
@@ -4332,7 +4332,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         document.getElementById('stat-tds').textContent = tds.length;
       } catch(e) {
         var tbody = document.getElementById('tds-tbody');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="color:#475569;text-align:center;padding:20px">No tech directors yet.</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="color:#556270;text-align:center;padding:20px">No tech directors yet.</td></tr>';
       }
     }
 
@@ -4724,7 +4724,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         container.innerHTML = html;
         container.style.opacity = '1';
       } catch(e) {
-        container.innerHTML = '<p style="color:#475569;font-size:12px">Unable to load email preferences.</p>';
+        container.innerHTML = '<p style="color:#556270;font-size:12px">Unable to load email preferences.</p>';
         container.style.opacity = '1';
       }
     }
@@ -4879,16 +4879,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         statusEl.style.display = 'block';
         statusEl.style.background = 'rgba(245,158,11,0.08)';
         statusEl.style.border = '1px solid rgba(245,158,11,0.25)';
-        statusEl.style.color = '#f59e0b';
+        statusEl.style.color = '#FFB74D';
         statusEl.innerHTML = '<strong>DRILL IN PROGRESS</strong> — Simulating encoder signal loss…';
       }
 
       // Animate through drill steps with delays to simulate real failover timeline
       var steps = [
-        { delay: 800,  text: '<strong>DRILL IN PROGRESS</strong><br>Step 1/5 — Encoder bitrate dropped to 0 kbps (simulated)', color: '#f59e0b' },
-        { delay: 2000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 2/5 — Black screen detected. Waiting for confirmation (simulated 5s threshold)…', color: '#f59e0b' },
-        { delay: 3500, text: '<strong>DRILL IN PROGRESS</strong><br>Step 3/5 — Outage confirmed. TD Telegram alert would fire now. Ack window open (30s)…', color: '#ef4444' },
-        { delay: 5000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 4/5 — No TD ack received (simulated). Executing failover action…', color: '#ef4444' },
+        { delay: 800,  text: '<strong>DRILL IN PROGRESS</strong><br>Step 1/5 — Encoder bitrate dropped to 0 kbps (simulated)', color: '#FFB74D' },
+        { delay: 2000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 2/5 — Black screen detected. Waiting for confirmation (simulated 5s threshold)…', color: '#FFB74D' },
+        { delay: 3500, text: '<strong>DRILL IN PROGRESS</strong><br>Step 3/5 — Outage confirmed. TD Telegram alert would fire now. Ack window open (30s)…', color: '#FF5252' },
+        { delay: 5000, text: '<strong>DRILL IN PROGRESS</strong><br>Step 4/5 — No TD ack received (simulated). Executing failover action…', color: '#FF5252' },
       ];
 
       for (var i = 0; i < steps.length; i++) {
@@ -4903,18 +4903,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var result = await api('POST', '/api/church/failover/drill');
         if (statusEl) {
           var passed = result && result.passed;
-          statusEl.style.background = passed ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)';
-          statusEl.style.border = '1px solid ' + (passed ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)');
-          statusEl.style.color = passed ? '#22c55e' : '#ef4444';
+          statusEl.style.background = passed ? 'rgba(0,230,118,0.08)' : 'rgba(239,68,68,0.08)';
+          statusEl.style.border = '1px solid ' + (passed ? 'rgba(0,230,118,0.3)' : 'rgba(239,68,68,0.3)');
+          statusEl.style.color = passed ? '#00E676' : '#FF5252';
           statusEl.innerHTML = (passed ? '&#10003;' : '&#10007;') + ' <strong>DRILL COMPLETE</strong><br>' +
             (result.report || (passed
               ? 'All failover steps completed successfully. Your setup is ready.'
               : 'Drill found issues — review your failover configuration above.')) +
-            '<br><span style="font-size:11px;color:#64748B;margin-top:4px;display:block">This was a drill. No real equipment was changed.</span>';
+            '<br><span style="font-size:11px;color:#6B7280;margin-top:4px;display:block">This was a drill. No real equipment was changed.</span>';
         }
       } catch(e) {
         if (statusEl) {
-          statusEl.style.color = '#ef4444';
+          statusEl.style.color = '#FF5252';
           statusEl.innerHTML = '&#10007; <strong>DRILL FAILED</strong><br>' + escapeHtml(e.message || 'Could not complete drill. Make sure failover is configured.');
         }
       }
@@ -4929,7 +4929,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const tokens = await api('GET', '/api/church/guest-tokens');
         const tbody = document.getElementById('guests-tbody');
         if (!tokens.length) {
-          tbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No guest tokens.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="6" style="color:#556270;text-align:center;padding:20px">No guest tokens.</td></tr>';
           return;
         }
         tbody.innerHTML = tokens.map(t => {
@@ -4939,20 +4939,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               : msLeft < 86400000 ? Math.ceil(msLeft/3600000) + 'h left'
               : Math.ceil(msLeft/86400000) + 'd left')
             : '—';
-          const remainingColor = msLeft < 3600000 ? '#f59e0b' : msLeft < 14400000 ? '#fbbf24' : '#22c55e';
+          const remainingColor = msLeft < 3600000 ? '#FFB74D' : msLeft < 14400000 ? '#FFB74D' : '#00E676';
           return `
           <tr>
-            <td><code style="font-size:11px;color:#22c55e">${t.token.slice(0,16)}…</code></td>
-            <td style="color:#94A3B8">${t.label || '—'}</td>
-            <td style="color:${t.registered ? '#22c55e' : '#64748B'};font-size:12px">${t.registered ? '\\u2713 Claimed' : 'Unclaimed'}</td>
-            <td style="color:#94A3B8;font-size:12px">${new Date(t.createdAt).toLocaleDateString()}</td>
-            <td style="font-size:12px"><span style="color:${remainingColor};font-weight:600">${remaining}</span><br><span style="color:#475569;font-size:11px">${t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : ''}</span></td>
+            <td><code style="font-size:11px;color:#00E676">${t.token.slice(0,16)}…</code></td>
+            <td style="color:#8B9DAF">${t.label || '—'}</td>
+            <td style="color:${t.registered ? '#00E676' : '#6B7280'};font-size:12px">${t.registered ? '\\u2713 Claimed' : 'Unclaimed'}</td>
+            <td style="color:#8B9DAF;font-size:12px">${new Date(t.createdAt).toLocaleDateString()}</td>
+            <td style="font-size:12px"><span style="color:${remainingColor};font-weight:600">${remaining}</span><br><span style="color:#556270;font-size:11px">${t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : ''}</span></td>
             <td><button class="btn-danger" onclick="revokeToken('${t.token}')">Revoke</button></td>
           </tr>`;
         }).join('');
       } catch(e) {
         var tbody = document.getElementById('guests-tbody');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No guest tokens.</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="color:#556270;text-align:center;padding:20px">No guest tokens.</td></tr>';
       }
     }
 
@@ -4985,8 +4985,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try {
         var macros = await api('GET', '/api/church/macros');
         if (!macros.length) {
-          el.innerHTML = '<div style="color:#475569;text-align:center;padding:24px;font-size:13px">'
-            + '<div style="margin-bottom:8px;color:#94A3B8"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path d="M9.5 1.5 5 9h4l-2.5 5.5L13 7H9l.5-5.5Z"/></svg></div>'
+          el.innerHTML = '<div style="color:#556270;text-align:center;padding:24px;font-size:13px">'
+            + '<div style="margin-bottom:8px;color:#8B9DAF"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><path d="M9.5 1.5 5 9h4l-2.5 5.5L13 7H9l.5-5.5Z"/></svg></div>'
             + '<div style="font-weight:600;margin-bottom:6px">No macros yet</div>'
             + '<div>Create your first macro to give your TDs one-tap shortcuts for common service sequences.</div>'
             + '</div>';
@@ -4997,17 +4997,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           return '<div style="padding:14px;border:1px solid rgba(255,255,255,0.06);border-radius:8px;margin-bottom:10px">'
             + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">'
             + '<div>'
-            + '<span style="font-family:monospace;font-size:15px;font-weight:700;color:#22c55e">/' + escapeHtml(m.name) + '</span>'
-            + (m.description ? '<span style="color:#94A3B8;font-size:13px;margin-left:10px">' + escapeHtml(m.description) + '</span>' : '')
+            + '<span style="font-family:monospace;font-size:15px;font-weight:700;color:#00E676">/' + escapeHtml(m.name) + '</span>'
+            + (m.description ? '<span style="color:#8B9DAF;font-size:13px;margin-left:10px">' + escapeHtml(m.description) + '</span>' : '')
             + '</div>'
             + '<div style="display:flex;gap:6px">'
             + '<button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="editMacro(\'' + escapeHtml(String(m.id)) + '\')">Edit</button>'
             + '<button class="btn-danger" style="font-size:11px;padding:4px 10px" onclick="deleteMacro(\'' + escapeHtml(String(m.id)) + '\')">Delete</button>'
             + '</div></div>'
-            + (steps.length ? '<div style="font-family:monospace;font-size:11px;color:#64748b;line-height:1.8">'
+            + (steps.length ? '<div style="font-family:monospace;font-size:11px;color:#6B7280;line-height:1.8">'
               + steps.map(function(s) { return '→ ' + escapeHtml(s); }).join('<br>') + '</div>' : '');
         }).join('');
-      } catch(e) { el.innerHTML = '<div style="color:#ef4444;text-align:center;padding:20px;font-size:13px">Failed to load macros</div>'; }
+      } catch(e) { el.innerHTML = '<div style="color:#FF5252;text-align:center;padding:20px;font-size:13px">Failed to load macros</div>'; }
     }
 
     function closeMacroModal() {
@@ -5090,7 +5090,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         renderAutopilotRules(data.rules || []);
       } catch(e) {
         var el = document.getElementById('autopilot-rules-list');
-        if (el) el.innerHTML = '<div style="color:#ef4444;text-align:center;padding:20px">Error loading AutoPilot: ' + escapeHtml(e.message) + '</div>';
+        if (el) el.innerHTML = '<div style="color:#FF5252;text-align:center;padding:20px">Error loading AutoPilot: ' + escapeHtml(e.message) + '</div>';
       }
     }
 
@@ -5098,8 +5098,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var el = document.getElementById('autopilot-rules-list');
       if (!el) return;
       if (!rules.length) {
-        el.innerHTML = '<div style="color:#475569;text-align:center;padding:24px;font-size:13px">'
-          + '<div style="margin-bottom:8px;color:#94A3B8"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><rect x="3" y="5" width="10" height="7" rx="1.5" ry="1.5"/><circle cx="6" cy="8.5" r="1"/><circle cx="10" cy="8.5" r="1"/><rect x="6.5" y="2" width="3" height="3" rx=".5"/><path d="M5 5V4h1v1zm5 0V4h1v1z"/></svg></div>'
+        el.innerHTML = '<div style="color:#556270;text-align:center;padding:24px;font-size:13px">'
+          + '<div style="margin-bottom:8px;color:#8B9DAF"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="24" height="24" aria-hidden="true"><rect x="3" y="5" width="10" height="7" rx="1.5" ry="1.5"/><circle cx="6" cy="8.5" r="1"/><circle cx="10" cy="8.5" r="1"/><rect x="6.5" y="2" width="3" height="3" rx=".5"/><path d="M5 5V4h1v1zm5 0V4h1v1z"/></svg></div>'
           + '<div style="font-weight:600;margin-bottom:6px">' + escapeHtml(pt('autopilot.no_rules')) + '</div>'
           + '</div>';
         return;
@@ -5114,16 +5114,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var firedInfo = rule.last_fired_at ? ' \u00b7 Last fired: ' + timeAgo(rule.last_fired_at) : '';
         var enabledClass = rule.enabled ? 'badge-green' : 'badge-gray';
         var enabledLabel = rule.enabled ? 'Enabled' : 'Disabled';
-        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #1a2e1f">'
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #0d3320">'
           + '<div style="flex:1;min-width:0;margin-right:12px">'
-          +   '<div style="font-weight:600;color:#F8FAFC;font-size:14px">' + escapeHtml(rule.name) + '</div>'
-          +   '<div style="font-size:12px;color:#64748B;margin-top:2px">' + escapeHtml(label) + escapeHtml(firedInfo) + '</div>'
+          +   '<div style="font-weight:600;color:#F0F2F4;font-size:14px">' + escapeHtml(rule.name) + '</div>'
+          +   '<div style="font-size:12px;color:#6B7280;margin-top:2px">' + escapeHtml(label) + escapeHtml(firedInfo) + '</div>'
           + '</div>'
           + '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">'
           +   '<span class="badge ' + enabledClass + '">' + escapeHtml(rule.enabled ? pt('status.enabled') : pt('status.disabled')) + '</span>'
           +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="testAutopilotRule(\'' + rule.id + '\')">'+  escapeHtml(pt('autopilot.test')) + '</button>'
           +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px" onclick="toggleAutopilotRule(\'' + rule.id + '\',' + !rule.enabled + ')">' + escapeHtml(rule.enabled ? pt('btn.disable') : pt('btn.enable')) + '</button>'
-          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px;color:#ef4444;border-color:rgba(239,68,68,0.4)" onclick="deleteAutopilotRule(\'' + rule.id + '\')">'+  escapeHtml(pt('btn.delete')) + '</button>'
+          +   '<button class="btn-secondary" style="padding:4px 10px;font-size:11px;color:#FF5252;border-color:rgba(239,68,68,0.4)" onclick="deleteAutopilotRule(\'' + rule.id + '\')">'+  escapeHtml(pt('btn.delete')) + '</button>'
           + '</div>'
           + '</div>';
       }).join('');
@@ -5139,28 +5139,28 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     async function testAutopilotRule(ruleId) {
       var resultEl = document.getElementById('test-rule-result');
-      resultEl.innerHTML = '<div style="color:#475569;text-align:center;padding:16px">Running dry run\u2026</div>';
+      resultEl.innerHTML = '<div style="color:#556270;text-align:center;padding:16px">Running dry run\u2026</div>';
       document.getElementById('modal-test-rule').classList.add('open');
       try {
         var r = await api('POST', '/api/churches/' + _autopilotChurchId + '/automation/' + ruleId + '/test');
-        var fireColor = r.wouldFire ? '#22c55e' : '#ef4444';
+        var fireColor = r.wouldFire ? '#00E676' : '#FF5252';
         var fireLabel = r.wouldFire ? pt('autopilot.test.would_fire') : pt('autopilot.test.would_not_fire');
         var html = '<div style="margin-bottom:14px">';
         html += '<div style="font-size:16px;font-weight:700;color:' + fireColor + '">' + escapeHtml(fireLabel) + '</div>';
-        html += '<div style="color:#94A3B8;font-size:13px;margin-top:6px;line-height:1.5">' + escapeHtml(r.reason) + '</div>';
+        html += '<div style="color:#8B9DAF;font-size:13px;margin-top:6px;line-height:1.5">' + escapeHtml(r.reason) + '</div>';
         html += '</div>';
         if (r.wouldFire && r.actions && r.actions.length) {
-          html += '<div style="font-size:12px;color:#64748B;margin-bottom:6px">' + escapeHtml(pt('autopilot.test.actions_header')) + '</div>';
+          html += '<div style="font-size:12px;color:#6B7280;margin-bottom:6px">' + escapeHtml(pt('autopilot.test.actions_header')) + '</div>';
           html += r.actions.map(function(a) {
-            return '<div style="background:#09090B;border-radius:6px;padding:8px 12px;font-family:monospace;font-size:12px;color:#22c55e;margin-bottom:4px">'
+            return '<div style="background:#060D08;border-radius:6px;padding:8px 12px;font-family:monospace;font-size:12px;color:#00E676;margin-bottom:4px">'
               + escapeHtml(a.command) + (a.params && Object.keys(a.params).length ? ' ' + escapeHtml(JSON.stringify(a.params)) : '')
               + '</div>';
           }).join('');
         }
-        html += '<div style="font-size:11px;color:#475569;margin-top:12px;padding-top:10px;border-top:1px solid #1a2e1f">' + escapeHtml(r.note) + '</div>';
+        html += '<div style="font-size:11px;color:#556270;margin-top:12px;padding-top:10px;border-top:1px solid #0d3320">' + escapeHtml(r.note) + '</div>';
         resultEl.innerHTML = html;
       } catch(e) {
-        resultEl.innerHTML = '<div style="color:#ef4444">' + escapeHtml(e.message) + '</div>';
+        resultEl.innerHTML = '<div style="color:#FF5252">' + escapeHtml(e.message) + '</div>';
       }
     }
 
@@ -5223,14 +5223,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const sessions = await api('GET', '/api/church/sessions' + roomParam());
         const tbody = document.getElementById('sessions-tbody');
         if (!sessions.length) {
-          tbody.innerHTML = '<tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">No sessions recorded yet.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="4" style="color:#556270;text-align:center;padding:20px">No sessions recorded yet.</td></tr>';
         } else {
           tbody.innerHTML = sessions.map(s => {
             const start = new Date(s.started_at);
             const end = s.ended_at ? new Date(s.ended_at) : null;
             const dur = end ? Math.round((end - start) / 60000) + 'm' : 'Active';
             return `<tr>
-              <td>${start.toLocaleDateString()} <span style="color:#475569">${start.toLocaleTimeString()}</span></td>
+              <td>${start.toLocaleDateString()} <span style="color:#556270">${start.toLocaleTimeString()}</span></td>
               <td>${dur}</td>
               <td>${s.peak_viewers || '—'}</td>
               <td><span class="badge ${s.ended_at ? 'badge-gray' : 'badge-green'}">${s.ended_at ? 'Ended' : 'Live'}</span></td>
@@ -5240,7 +5240,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
       } catch(e) {
         var tbody = document.getElementById('sessions-tbody');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="4" style="color:#475569;text-align:center;padding:20px">No sessions recorded yet.</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4" style="color:#556270;text-align:center;padding:20px">No sessions recorded yet.</td></tr>';
       }
       // Also load AI reports
       loadServiceReports();
@@ -5252,27 +5252,27 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try {
         var reports = await api('GET', '/api/church/service-reports?limit=5' + roomParamAmp());
         if (!reports.length) {
-          el.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">No reports yet — reports are generated automatically after each service session ends.</div>';
+          el.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">No reports yet — reports are generated automatically after each service session ends.</div>';
           return;
         }
         el.innerHTML = reports.map(function(r) {
           var dateStr = new Date(r.created_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
           var grade = r.grade || '—';
-          var gradeColor = grade.startsWith('A') ? '#22c55e' : grade.startsWith('B') ? '#f59e0b' : '#ef4444';
+          var gradeColor = grade.startsWith('A') ? '#00E676' : grade.startsWith('B') ? '#FFB74D' : '#FF5252';
           var uptime = r.uptime_pct != null ? r.uptime_pct + '%' : '—';
           var recs = (r.recommendations || []).filter(function(rc) { return rc.priority === 'high'; });
           return '<div style="padding:14px 0;border-bottom:1px solid rgba(255,255,255,0.05)">'
             + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
             + '<span style="font-weight:600;font-size:13px">' + dateStr + '</span>'
             + '<div style="display:flex;align-items:center;gap:10px">'
-            + '<span style="color:#94A3B8;font-size:12px">' + (r.duration_minutes || 0) + ' min · ' + uptime + ' uptime</span>'
+            + '<span style="color:#8B9DAF;font-size:12px">' + (r.duration_minutes || 0) + ' min · ' + uptime + ' uptime</span>'
             + '<span style="background:' + gradeColor + '22;color:' + gradeColor + ';border:1px solid ' + gradeColor + ';border-radius:6px;padding:2px 8px;font-size:13px;font-weight:700">' + grade + '</span>'
             + '</div></div>'
-            + (r.ai_summary ? '<div style="font-size:12px;color:#94A3B8;line-height:1.5;margin-bottom:6px">' + escapeHtml(r.ai_summary) + '</div>' : '')
-            + (recs.length ? '<div style="font-size:11px;color:#ef4444">' + recs.length + ' high-priority recommendation' + (recs.length !== 1 ? 's' : '') + ' — <a href="#" onclick="viewServiceReport(\'' + r.id + '\')" style="color:#22c55e">View report</a></div>' : '<div style="font-size:11px;color:#22c55e">No critical issues</div>')
+            + (r.ai_summary ? '<div style="font-size:12px;color:#8B9DAF;line-height:1.5;margin-bottom:6px">' + escapeHtml(r.ai_summary) + '</div>' : '')
+            + (recs.length ? '<div style="font-size:11px;color:#FF5252">' + recs.length + ' high-priority recommendation' + (recs.length !== 1 ? 's' : '') + ' — <a href="#" onclick="viewServiceReport(\'' + r.id + '\')" style="color:#00E676">View report</a></div>' : '<div style="font-size:11px;color:#00E676">No critical issues</div>')
             + '</div>';
         }).join('');
-      } catch { el.innerHTML = '<div style="color:#475569;text-align:center;padding:16px;font-size:13px">Could not load reports.</div>'; }
+      } catch { el.innerHTML = '<div style="color:#556270;text-align:center;padding:16px;font-size:13px">Could not load reports.</div>'; }
     }
 
     async function viewServiceReport(reportId) {
@@ -5284,18 +5284,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var inner = document.createElement('div');
         inner.style.cssText = 'background:#1a2433;border-radius:12px;width:100%;max-width:640px;max-height:85vh;overflow-y:auto';
         inner.innerHTML = '<div style="position:sticky;top:0;background:#1a2433;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.08)">'
-          + '<span style="font-weight:600;color:#F8FAFC">Service Report</span>'
-          + '<button onclick="this.closest(\'[style*=position]\').remove()" style="background:none;border:none;color:#94A3B8;font-size:18px;cursor:pointer;display:flex;align-items:center"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>'
+          + '<span style="font-weight:600;color:#F0F2F4">Service Report</span>'
+          + '<button onclick="this.closest(\'[style*=position]\').remove()" style="background:none;border:none;color:#8B9DAF;font-size:18px;cursor:pointer;display:flex;align-items:center"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>'
           + '</div>'
           + '<div style="padding:16px">'
-          + (r.ai_summary ? '<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:8px;padding:14px;margin-bottom:16px"><div style="font-size:11px;font-weight:700;color:#22c55e;text-transform:uppercase;margin-bottom:6px">AI Summary</div><div style="font-size:13px;color:#F8FAFC;line-height:1.6">' + escapeHtml(r.ai_summary) + '</div></div>' : '')
+          + (r.ai_summary ? '<div style="background:rgba(0,230,118,0.08);border:1px solid rgba(0,230,118,0.2);border-radius:8px;padding:14px;margin-bottom:16px"><div style="font-size:11px;font-weight:700;color:#00E676;text-transform:uppercase;margin-bottom:6px">AI Summary</div><div style="font-size:13px;color:#F0F2F4;line-height:1.6">' + escapeHtml(r.ai_summary) + '</div></div>' : '')
           + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">'
-          + '<div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:#F8FAFC">' + (r.duration_minutes || 0) + '<span style="font-size:11px;color:#64748B">m</span></div><div style="font-size:11px;color:#64748B;margin-top:2px">Duration</div></div>'
-          + '<div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:#F8FAFC">' + (r.uptime_pct != null ? r.uptime_pct + '%' : '—') + '</div><div style="font-size:11px;color:#64748B;margin-top:2px">Uptime</div></div>'
-          + '<div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:#F8FAFC">' + (r.alert_count || 0) + '</div><div style="font-size:11px;color:#64748B;margin-top:2px">Alerts</div></div>'
+          + '<div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:#F0F2F4">' + (r.duration_minutes || 0) + '<span style="font-size:11px;color:#6B7280">m</span></div><div style="font-size:11px;color:#6B7280;margin-top:2px">Duration</div></div>'
+          + '<div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:#F0F2F4">' + (r.uptime_pct != null ? r.uptime_pct + '%' : '—') + '</div><div style="font-size:11px;color:#6B7280;margin-top:2px">Uptime</div></div>'
+          + '<div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:12px;text-align:center"><div style="font-size:20px;font-weight:700;color:#F0F2F4">' + (r.alert_count || 0) + '</div><div style="font-size:11px;color:#6B7280;margin-top:2px">Alerts</div></div>'
           + '</div>'
-          + (r.recommendations && r.recommendations.length ? '<div style="margin-bottom:16px"><div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;margin-bottom:8px">Recommendations</div>' + r.recommendations.map(function(rc) { var c = rc.priority === 'high' ? '#ef4444' : rc.priority === 'medium' ? '#f59e0b' : '#22c55e'; return '<div style="padding:8px 10px;border-left:3px solid ' + c + ';background:rgba(255,255,255,0.03);margin-bottom:6px;border-radius:0 6px 6px 0;font-size:12px;color:#F8FAFC;line-height:1.5">' + escapeHtml(rc.text) + '</div>'; }).join('') + '</div>' : '')
-          + (r.failover_events && r.failover_events.length ? '<div><div style="font-size:12px;font-weight:700;color:#94A3B8;text-transform:uppercase;margin-bottom:8px">Failover Events</div>' + r.failover_events.map(function(f) { return '<div style="padding:6px 10px;font-size:12px;color:#F8FAFC;border-bottom:1px solid rgba(255,255,255,0.05)">' + new Date(f.timestamp).toLocaleTimeString() + ' · ' + escapeHtml(f.type || 'failover') + ' · ' + (f.autoRecovered ? 'auto-recovered' : 'manual') + '</div>'; }).join('') + '</div>' : '')
+          + (r.recommendations && r.recommendations.length ? '<div style="margin-bottom:16px"><div style="font-size:12px;font-weight:700;color:#8B9DAF;text-transform:uppercase;margin-bottom:8px">Recommendations</div>' + r.recommendations.map(function(rc) { var c = rc.priority === 'high' ? '#FF5252' : rc.priority === 'medium' ? '#FFB74D' : '#00E676'; return '<div style="padding:8px 10px;border-left:3px solid ' + c + ';background:rgba(255,255,255,0.03);margin-bottom:6px;border-radius:0 6px 6px 0;font-size:12px;color:#F0F2F4;line-height:1.5">' + escapeHtml(rc.text) + '</div>'; }).join('') + '</div>' : '')
+          + (r.failover_events && r.failover_events.length ? '<div><div style="font-size:12px;font-weight:700;color:#8B9DAF;text-transform:uppercase;margin-bottom:8px">Failover Events</div>' + r.failover_events.map(function(f) { return '<div style="padding:6px 10px;font-size:12px;color:#F0F2F4;border-bottom:1px solid rgba(255,255,255,0.05)">' + new Date(f.timestamp).toLocaleTimeString() + ' · ' + escapeHtml(f.type || 'failover') + ' · ' + (f.autoRecovered ? 'auto-recovered' : 'manual') + '</div>'; }).join('') + '</div>' : '')
           + '</div>';
         modal.appendChild(inner);
         document.body.appendChild(modal);
@@ -5436,7 +5436,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         ['Planning Center', 'ProPresenter Standalone', 'vMix', 'Wirecast', 'Companion Only', 'Nothing — New Setup', 'Other'].forEach(function(s) {
           var btn = document.createElement('button');
           btn.className = 'migrate-source-btn';
-          btn.style.cssText = 'background:#09090B;border:2px solid #1a2e1f;border-radius:10px;padding:16px 12px;text-align:center;cursor:pointer;transition:all 0.15s;color:#F8FAFC;font-size:13px;font-weight:600';
+          btn.style.cssText = 'background:#060D08;border:2px solid #0d3320;border-radius:10px;padding:16px 12px;text-align:center;cursor:pointer;transition:all 0.15s;color:#F0F2F4;font-size:13px;font-weight:600';
           btn.textContent = s;
           btn.onclick = function() { selectMigrateSource(s, btn); };
           grid.appendChild(btn);
@@ -5447,8 +5447,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       document.getElementById('migrate-step-2').style.display = 'none';
       document.getElementById('migrate-step-2').innerHTML = '';
       document.querySelectorAll('.migrate-source-btn').forEach(function(b) {
-        b.style.borderColor = '#1a2e1f';
-        b.style.background = '#09090B';
+        b.style.borderColor = '#0d3320';
+        b.style.background = '#060D08';
       });
       _migrateSource = null;
     }
@@ -5456,13 +5456,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function selectMigrateSource(source, btn) {
       _migrateSource = source;
       document.querySelectorAll('.migrate-source-btn').forEach(function(b) {
-        b.style.borderColor = '#1a2e1f';
-        b.style.background = '#09090B';
-        b.style.color = '#F8FAFC';
+        b.style.borderColor = '#0d3320';
+        b.style.background = '#060D08';
+        b.style.color = '#F0F2F4';
       });
-      btn.style.borderColor = '#22c55e';
-      btn.style.background = 'rgba(34,197,94,0.08)';
-      btn.style.color = '#22c55e';
+      btn.style.borderColor = '#00E676';
+      btn.style.background = 'rgba(0,230,118,0.08)';
+      btn.style.color = '#00E676';
       renderMigrationGuide(source);
     }
 
@@ -5475,7 +5475,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var html = '';
 
       // Intro
-      html += '<div class="card"><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span style="font-size:24px">' + data.icon + '</span><div><div class="card-title" style="margin:0">Switching from ' + escapeHtml(source) + '</div></div></div><p style="color:#94A3B8;font-size:14px;line-height:1.6;margin:0">' + escapeHtml(data.intro) + '</p></div>';
+      html += '<div class="card"><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><span style="font-size:24px">' + data.icon + '</span><div><div class="card-title" style="margin:0">Switching from ' + escapeHtml(source) + '</div></div></div><p style="color:#8B9DAF;font-size:14px;line-height:1.6;margin:0">' + escapeHtml(data.intro) + '</p></div>';
 
       // Feature comparison (if available)
       if (data.features.length > 0) {
@@ -5483,8 +5483,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<thead><tr><th>Capability</th><th>' + escapeHtml(source) + '</th><th>Tally</th></tr></thead><tbody>';
         html += data.features.map(function(f) {
           return '<tr><td style="font-size:13px">' + escapeHtml(f.feature) + '</td>'
-            + '<td style="font-size:13px;color:#94A3B8">' + escapeHtml(f.them) + '</td>'
-            + '<td style="font-size:13px;color:#22c55e;font-weight:500">' + escapeHtml(f.us) + '</td></tr>';
+            + '<td style="font-size:13px;color:#8B9DAF">' + escapeHtml(f.them) + '</td>'
+            + '<td style="font-size:13px;color:#00E676;font-weight:500">' + escapeHtml(f.us) + '</td></tr>';
         }).join('');
         html += '</tbody></table></div></div>';
       }
@@ -5493,16 +5493,16 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       html += '<div class="card"><div class="card-title" style="margin-bottom:16px">Your Setup Checklist</div>';
       html += data.steps.map(function(step, i) {
         return '<div style="display:flex;gap:14px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05)">'
-          + '<div style="min-width:28px;height:28px;background:rgba(34,197,94,0.1);border:2px solid #22c55e;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#22c55e;flex-shrink:0">' + (i+1) + '</div>'
+          + '<div style="min-width:28px;height:28px;background:rgba(0,230,118,0.1);border:2px solid #00E676;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#00E676;flex-shrink:0">' + (i+1) + '</div>'
           + '<div><div style="font-weight:600;font-size:13px;margin-bottom:4px">' + escapeHtml(step.title) + '</div>'
-          + '<div style="font-size:12px;color:#94A3B8;line-height:1.5">' + escapeHtml(step.detail) + '</div></div>'
+          + '<div style="font-size:12px;color:#8B9DAF;line-height:1.5">' + escapeHtml(step.detail) + '</div></div>'
           + '</div>';
       }).join('');
       html += '</div>';
 
       // Import note
       if (data.importNote) {
-        html += '<div class="card" style="background:rgba(34,197,94,0.05);border-color:rgba(34,197,94,0.2)"><div style="display:flex;gap:10px;align-items:flex-start"><span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="currentColor" width="18" height="18" aria-hidden="true"><path d="M3 2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5.414A1 1 0 0 0 15.707 5L13 2.293A1 1 0 0 0 12.586 2H3Zm0 1h9v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3Zm2 8a3 3 0 1 1 6 0 3 3 0 0 1-6 0Z"/></svg></span><div><div style="font-weight:600;font-size:13px;margin-bottom:4px">Import / Migration Note</div><div style="font-size:13px;color:#94A3B8;line-height:1.5">' + escapeHtml(data.importNote) + '</div></div></div></div>';
+        html += '<div class="card" style="background:rgba(0,230,118,0.05);border-color:rgba(0,230,118,0.2)"><div style="display:flex;gap:10px;align-items:flex-start"><span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" fill="currentColor" width="18" height="18" aria-hidden="true"><path d="M3 2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5.414A1 1 0 0 0 15.707 5L13 2.293A1 1 0 0 0 12.586 2H3Zm0 1h9v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3Zm2 8a3 3 0 1 1 6 0 3 3 0 0 1-6 0Z"/></svg></span><div><div style="font-weight:600;font-size:13px;margin-bottom:4px">Import / Migration Note</div><div style="font-size:13px;color:#8B9DAF;line-height:1.5">' + escapeHtml(data.importNote) + '</div></div></div></div>';
       }
 
       // CTA
@@ -5518,34 +5518,34 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       try {
         const b = await api('GET', '/api/church/billing');
         billingData = b;
-        const statusColors = { active: '#22c55e', trialing: '#f59e0b', past_due: '#ef4444', canceled: '#94A3B8', pending: '#94A3B8', trial_expired: '#ef4444', inactive: '#94A3B8' };
+        const statusColors = { active: '#00E676', trialing: '#FFB74D', past_due: '#FF5252', canceled: '#8B9DAF', pending: '#8B9DAF', trial_expired: '#FF5252', inactive: '#8B9DAF' };
         const statusLabels = { active: 'Active', trialing: 'Trial', past_due: 'Past Due', canceled: 'Canceled', pending: 'Pending', trial_expired: 'Expired', inactive: 'Inactive' };
         const tierName = b.tierName || b.tier || 'Connect';
         const intervalName = b.billingIntervalLabel || (b.billingInterval === 'annual' ? 'Annual' : (b.billingInterval === 'one_time' ? 'One-time' : 'Monthly'));
-        const statusColor = statusColors[b.status] || '#94A3B8';
+        const statusColor = statusColors[b.status] || '#8B9DAF';
         const statusLabel = statusLabels[b.status] || b.status;
 
         let html = '<div class="card" style="margin-bottom:16px">';
         html += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">';
-        html += '<span style="font-size:20px;font-weight:800;color:#F8FAFC">' + tierName + '</span>';
-        html += '<span style="background:#111827;color:#94A3B8;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700">' + intervalName + '</span>';
+        html += '<span style="font-size:20px;font-weight:800;color:#F0F2F4">' + tierName + '</span>';
+        html += '<span style="background:#111827;color:#8B9DAF;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700">' + intervalName + '</span>';
         html += '<span style="background:' + statusColor + ';color:#000;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700">' + statusLabel + '</span>';
         html += '</div>';
 
         if (b.status === 'trialing' && b.trialDaysRemaining != null) {
           const pct = Math.max(0, Math.min(100, ((30 - b.trialDaysRemaining) / 30) * 100));
           html += '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:12px;margin-bottom:16px">';
-          html += '<div style="color:#f59e0b;font-size:13px;font-weight:600;margin-bottom:6px">Trial: ' + b.trialDaysRemaining + ' days remaining</div>';
-          html += '<div style="background:#1a2e1f;border-radius:4px;height:6px;overflow:hidden"><div style="background:#f59e0b;height:100%;width:' + pct + '%;border-radius:4px"></div></div>';
+          html += '<div style="color:#FFB74D;font-size:13px;font-weight:600;margin-bottom:6px">Trial: ' + b.trialDaysRemaining + ' days remaining</div>';
+          html += '<div style="background:#0d3320;border-radius:4px;height:6px;overflow:hidden"><div style="background:#FFB74D;height:100%;width:' + pct + '%;border-radius:4px"></div></div>';
           html += '</div>';
         }
 
         if (b.status === 'past_due') {
           html += '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:12px;margin-bottom:16px">';
-          html += '<div style="color:#ef4444;font-size:13px;font-weight:600">Payment failed — update your card to avoid service interruption.</div></div>';
+          html += '<div style="color:#FF5252;font-size:13px;font-weight:600">Payment failed — update your card to avoid service interruption.</div></div>';
         }
 
-        html += '<h3 style="font-size:14px;color:#F8FAFC;margin:12px 0 8px">Your Plan Includes</h3>';
+        html += '<h3 style="font-size:14px;color:#F0F2F4;margin:12px 0 8px">Your Plan Includes</h3>';
         html += '<div class="grid-2col" style="gap:6px;font-size:13px">';
         const features = b.features || {};
         const includedFeatures = [
@@ -5561,20 +5561,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           ['Monthly reports', features.monthlyReport],
         ];
         includedFeatures.forEach(function(f) {
-          if (f[1]) html += '<div style="color:#94A3B8">\\u2713 ' + f[0] + '</div>';
+          if (f[1]) html += '<div style="color:#8B9DAF">\\u2713 ' + f[0] + '</div>';
         });
         html += '</div></div>';
 
         // AI Diagnostics usage progress bar
         if (b.aiUsage && b.aiUsage.diagnosticLimit !== Infinity && b.aiUsage.diagnosticLimit !== null) {
           var aiPct = Math.min(100, Math.round((b.aiUsage.diagnosticUsage / b.aiUsage.diagnosticLimit) * 100));
-          var aiBarColor = aiPct >= 80 ? '#f59e0b' : '#22c55e';
+          var aiBarColor = aiPct >= 80 ? '#FFB74D' : '#00E676';
           html += '<div class="card" style="margin-bottom:16px">';
-          html += '<h3 style="font-size:14px;color:#F8FAFC;margin:0 0 8px">AI Diagnostics</h3>';
-          html += '<div style="color:#94A3B8;font-size:13px;margin-bottom:8px">' + b.aiUsage.diagnosticUsage + ' / ' + b.aiUsage.diagnosticLimit + ' messages this month</div>';
+          html += '<h3 style="font-size:14px;color:#F0F2F4;margin:0 0 8px">AI Diagnostics</h3>';
+          html += '<div style="color:#8B9DAF;font-size:13px;margin-bottom:8px">' + b.aiUsage.diagnosticUsage + ' / ' + b.aiUsage.diagnosticLimit + ' messages this month</div>';
           html += '<div style="background:#1F2937;border-radius:4px;height:6px;overflow:hidden">';
           html += '<div style="background:' + aiBarColor + ';height:100%;width:' + aiPct + '%;border-radius:4px;transition:width 0.3s"></div></div>';
-          html += '<div style="color:#64748B;font-size:11px;margin-top:4px">Resets ' + (b.aiUsage.diagnosticResetDate || '1st of next month') + '</div>';
+          html += '<div style="color:#6B7280;font-size:11px;margin-top:4px">Resets ' + (b.aiUsage.diagnosticResetDate || '1st of next month') + '</div>';
           html += '</div>';
         }
 
@@ -5583,49 +5583,49 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         if (currentTier === 'connect') {
           // Plus upgrade card
-          html += '<div style="margin-bottom:16px;background:rgba(34,197,94,0.04);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:20px 24px">';
+          html += '<div style="margin-bottom:16px;background:rgba(0,230,118,0.04);border:1px solid rgba(0,230,118,0.2);border-radius:12px;padding:20px 24px">';
           html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">';
-          html += '<span style="background:rgba(34,197,94,0.12);color:#22c55e;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.08em;font-family:ui-monospace,monospace">PLUS</span>';
-          html += '<span style="color:#F8FAFC;font-size:14px;font-weight:700">Unlock with Plus</span>';
+          html += '<span style="background:rgba(0,230,118,0.12);color:#00E676;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.08em;font-family:ui-monospace,monospace">PLUS</span>';
+          html += '<span style="color:#F0F2F4;font-size:14px;font-weight:700">Unlock with Plus</span>';
           html += '</div>';
           html += '<div class="grid-2col" style="gap:6px;font-size:13px;margin-bottom:16px">';
-          html += '<div style="color:#94A3B8">✦ ProPresenter control (looks, timers, stage)</div>';
-          html += '<div style="color:#94A3B8">✦ Live video preview stream</div>';
-          html += '<div style="color:#94A3B8">✦ On-call TD rotation</div>';
-          html += '<div style="color:#94A3B8">✦ Up to 3 rooms</div>';
+          html += '<div style="color:#8B9DAF">✦ ProPresenter control (looks, timers, stage)</div>';
+          html += '<div style="color:#8B9DAF">✦ Live video preview stream</div>';
+          html += '<div style="color:#8B9DAF">✦ On-call TD rotation</div>';
+          html += '<div style="color:#8B9DAF">✦ Up to 3 rooms</div>';
           html += '</div>';
-          html += '<button onclick="upgradePlan(\'plus\')" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Plus — $99/mo →</button>';
+          html += '<button onclick="upgradePlan(\'plus\')" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Plus — $99/mo →</button>';
           html += '</div>';
 
           // Pro upgrade card
-          html += '<div style="margin-bottom:16px;background:rgba(34,197,94,0.04);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:20px 24px">';
+          html += '<div style="margin-bottom:16px;background:rgba(0,230,118,0.04);border:1px solid rgba(0,230,118,0.2);border-radius:12px;padding:20px 24px">';
           html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">';
-          html += '<span style="background:rgba(34,197,94,0.12);color:#22c55e;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.08em;font-family:ui-monospace,monospace">PRO</span>';
-          html += '<span style="color:#F8FAFC;font-size:14px;font-weight:700">Unlock with Pro</span>';
+          html += '<span style="background:rgba(0,230,118,0.12);color:#00E676;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.08em;font-family:ui-monospace,monospace">PRO</span>';
+          html += '<span style="color:#F0F2F4;font-size:14px;font-weight:700">Unlock with Pro</span>';
           html += '</div>';
           html += '<div class="grid-2col" style="gap:6px;font-size:13px;margin-bottom:16px">';
-          html += '<div style="color:#94A3B8">✦ Everything in Plus</div>';
-          html += '<div style="color:#94A3B8">✦ AI Autopilot automation rules</div>';
-          html += '<div style="color:#94A3B8">✦ Planning Center sync + write-back</div>';
-          html += '<div style="color:#94A3B8">✦ Monthly leadership reports</div>';
-          html += '<div style="color:#94A3B8">✦ Up to 5 rooms</div>';
+          html += '<div style="color:#8B9DAF">✦ Everything in Plus</div>';
+          html += '<div style="color:#8B9DAF">✦ AI Autopilot automation rules</div>';
+          html += '<div style="color:#8B9DAF">✦ Planning Center sync + write-back</div>';
+          html += '<div style="color:#8B9DAF">✦ Monthly leadership reports</div>';
+          html += '<div style="color:#8B9DAF">✦ Up to 5 rooms</div>';
           html += '</div>';
-          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#22c55e;border:1px solid rgba(34,197,94,0.3);cursor:pointer">Upgrade to Pro — $149/mo →</button>';
+          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#00E676;border:1px solid rgba(0,230,118,0.3);cursor:pointer">Upgrade to Pro — $149/mo →</button>';
           html += '</div>';
         } else if (currentTier === 'plus') {
           // Pro upgrade card only
-          html += '<div style="margin-bottom:16px;background:rgba(34,197,94,0.04);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:20px 24px">';
+          html += '<div style="margin-bottom:16px;background:rgba(0,230,118,0.04);border:1px solid rgba(0,230,118,0.2);border-radius:12px;padding:20px 24px">';
           html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">';
-          html += '<span style="background:rgba(34,197,94,0.12);color:#22c55e;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.08em;font-family:ui-monospace,monospace">PRO</span>';
-          html += '<span style="color:#F8FAFC;font-size:14px;font-weight:700">Unlock with Pro</span>';
+          html += '<span style="background:rgba(0,230,118,0.12);color:#00E676;padding:3px 10px;border-radius:12px;font-size:10px;font-weight:800;letter-spacing:0.08em;font-family:ui-monospace,monospace">PRO</span>';
+          html += '<span style="color:#F0F2F4;font-size:14px;font-weight:700">Unlock with Pro</span>';
           html += '</div>';
           html += '<div class="grid-2col" style="gap:6px;font-size:13px;margin-bottom:16px">';
-          html += '<div style="color:#94A3B8">✦ AI Autopilot automation rules</div>';
-          html += '<div style="color:#94A3B8">✦ Planning Center sync + write-back</div>';
-          html += '<div style="color:#94A3B8">✦ Monthly leadership reports</div>';
-          html += '<div style="color:#94A3B8">✦ Up to 5 rooms</div>';
+          html += '<div style="color:#8B9DAF">✦ AI Autopilot automation rules</div>';
+          html += '<div style="color:#8B9DAF">✦ Planning Center sync + write-back</div>';
+          html += '<div style="color:#8B9DAF">✦ Monthly leadership reports</div>';
+          html += '<div style="color:#8B9DAF">✦ Up to 5 rooms</div>';
           html += '</div>';
-          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">Upgrade to Pro — $149/mo →</button>';
+          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Pro — $149/mo →</button>';
           html += '</div>';
         }
 
@@ -5633,73 +5633,73 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">';
           html += '<a href="' + b.portalUrl + '" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none">Manage Subscription →</a>';
           if (['active','trialing'].includes(b.status) && !b.cancelAtPeriodEnd) {
-            html += '<button onclick="cancelSubscription()" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:13px;padding:8px 16px;border-radius:8px;cursor:pointer;font-weight:600">Cancel Subscription</button>';
+            html += '<button onclick="cancelSubscription()" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#FF5252;font-size:13px;padding:8px 16px;border-radius:8px;cursor:pointer;font-weight:600">Cancel Subscription</button>';
           }
           html += '</div>';
           if (b.cancelAtPeriodEnd && b.currentPeriodEnd) {
             var endLabel = new Date(b.currentPeriodEnd).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-            html += '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:13px;color:#f59e0b">Cancellation scheduled. Your plan will remain active until <strong>' + endLabel + '</strong>.</div>';
+            html += '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:13px;color:#FFB74D">Cancellation scheduled. Your plan will remain active until <strong>' + endLabel + '</strong>.</div>';
           }
-          html += '<p style="color:#475569;font-size:12px">Update payment method and view invoices from the Stripe portal.</p>';
+          html += '<p style="color:#556270;font-size:12px">Update payment method and view invoices from the Stripe portal.</p>';
         }
 
         // Reactivation button for cancelled/expired/inactive churches
         if (['trial_expired','canceled','inactive'].includes(b.status)) {
-          html += '<div style="margin-top:16px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.2);border-radius:12px;padding:20px 24px">';
-          html += '<div style="font-size:15px;font-weight:700;color:#22c55e;margin-bottom:8px">Reactivate Your Subscription</div>';
-          html += '<div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:14px">Your settings and data are still here. Reactivate to resume monitoring immediately.</div>';
+          html += '<div style="margin-top:16px;background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.2);border-radius:12px;padding:20px 24px">';
+          html += '<div style="font-size:15px;font-weight:700;color:#00E676;margin-bottom:8px">Reactivate Your Subscription</div>';
+          html += '<div style="font-size:13px;color:#8B9DAF;line-height:1.6;margin-bottom:14px">Your settings and data are still here. Reactivate to resume monitoring immediately.</div>';
           html += '<button onclick="reactivateSubscription()" id="btn-reactivate" class="btn-primary" style="cursor:pointer">Reactivate Now →</button>';
           html += '</div>';
         }
 
         // Downgrade option (only show for tiers above connect)
         if (['active','trialing'].includes(b.status) && currentTier !== 'connect') {
-          html += '<div style="margin-top:16px;background:#0F1613;border:1px solid #1a2e1f;border-radius:12px;padding:16px 24px">';
-          html += '<div style="font-size:13px;color:#94A3B8;margin-bottom:8px">Need fewer features?</div>';
+          html += '<div style="margin-top:16px;background:#0a1610;border:1px solid #0d3320;border-radius:12px;padding:16px 24px">';
+          html += '<div style="font-size:13px;color:#8B9DAF;margin-bottom:8px">Need fewer features?</div>';
           if (currentTier === 'managed' || currentTier === 'pro') {
-            html += '<button onclick="downgradePlan(\'plus\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:8px">Downgrade to Plus ($99/mo)</button>';
-            html += '<button onclick="downgradePlan(\'connect\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
+            html += '<button onclick="downgradePlan(\'plus\')" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer;margin-right:8px">Downgrade to Plus ($99/mo)</button>';
+            html += '<button onclick="downgradePlan(\'connect\')" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
           } else if (currentTier === 'plus') {
-            html += '<button onclick="downgradePlan(\'connect\')" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
+            html += '<button onclick="downgradePlan(\'connect\')" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Downgrade to Connect ($49/mo)</button>';
           }
           html += '</div>';
         }
 
         // Data export & account management
-        html += '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #1a2e1f">';
-        html += '<div style="font-size:14px;font-weight:700;color:#F8FAFC;margin-bottom:12px">Data & Privacy</div>';
+        html += '<div style="margin-top:24px;padding-top:16px;border-top:1px solid #0d3320">';
+        html += '<div style="font-size:14px;font-weight:700;color:#F0F2F4;margin-bottom:12px">Data & Privacy</div>';
         html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
-        html += '<button onclick="exportData()" style="background:none;border:1px solid #1a2e1f;color:#94A3B8;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Export All Data (JSON)</button>';
-        html += '<button onclick="deleteAccount()" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#ef4444;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Delete Account</button>';
+        html += '<button onclick="exportData()" style="background:none;border:1px solid #0d3320;color:#8B9DAF;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Export All Data (JSON)</button>';
+        html += '<button onclick="deleteAccount()" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#FF5252;font-size:12px;padding:6px 14px;border-radius:6px;cursor:pointer">Delete Account</button>';
         html += '</div>';
-        html += '<p style="color:#475569;font-size:11px;margin-top:8px;line-height:1.5">Export downloads a JSON file with all your church data. Deletion is permanent and cannot be undone.</p>';
+        html += '<p style="color:#556270;font-size:11px;margin-top:8px;line-height:1.5">Export downloads a JSON file with all your church data. Deletion is permanent and cannot be undone.</p>';
         html += '</div>';
 
-        html += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #1a2e1f">';
-        html += '<p style="color:#475569;font-size:12px;line-height:1.6">Cancel anytime. Service continues through the end of your billing period. No partial-month refunds. Questions? <a href="mailto:support@tallyconnect.app" style="color:#22c55e">support@tallyconnect.app</a></p>';
+        html += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #0d3320">';
+        html += '<p style="color:#556270;font-size:12px;line-height:1.6">Cancel anytime. Service continues through the end of your billing period. No partial-month refunds. Questions? <a href="mailto:support@tallyconnect.app" style="color:#00E676">support@tallyconnect.app</a></p>';
         html += '</div>';
 
         document.getElementById('billing-content').innerHTML = html;
         updateBillingBanner(b);
         renderUpgradeBanner(b);
       } catch(e) {
-        document.getElementById('billing-content').innerHTML = '<div style="color:#475569;text-align:center;padding:30px">Billing info unavailable. <a href="mailto:support@tallyconnect.app" style="color:#22c55e">Contact support</a></div>';
+        document.getElementById('billing-content').innerHTML = '<div style="color:#556270;text-align:center;padding:30px">Billing info unavailable. <a href="mailto:support@tallyconnect.app" style="color:#00E676">Contact support</a></div>';
       }
     }
 
     function updateBillingBanner(b) {
       var el = document.getElementById('billing-banner');
       if (!el) return;
-      var lnk = 'color:#22c55e;font-weight:700';
+      var lnk = 'color:#00E676;font-weight:700';
       if (b.status === 'trialing' && b.trialDaysRemaining != null && b.trialDaysRemaining <= 7) {
         var dayWord = b.trialDaysRemaining !== 1 ? pt('billing.banner.days') : pt('billing.banner.day');
-        el.innerHTML = '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#f59e0b">' + pt('billing.banner.trial_pre') + ' ' + b.trialDaysRemaining + ' ' + dayWord + '. <a href="https://tallyconnect.app/signup" style="' + lnk + '">' + pt('billing.banner.trial_link') + '</a> ' + pt('billing.banner.trial_post') + '</div>';
+        el.innerHTML = '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#FFB74D">' + pt('billing.banner.trial_pre') + ' ' + b.trialDaysRemaining + ' ' + dayWord + '. <a href="https://tallyconnect.app/signup" style="' + lnk + '">' + pt('billing.banner.trial_link') + '</a> ' + pt('billing.banner.trial_post') + '</div>';
       } else if (b.status === 'past_due') {
-        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">' + pt('billing.banner.past_due_msg') + ' <a href="' + (b.portalUrl || 'https://tallyconnect.app/signup') + '" style="' + lnk + '">' + pt('billing.banner.past_due_link') + '</a> ' + pt('billing.banner.past_due_post') + '</div>';
+        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#FF5252">' + pt('billing.banner.past_due_msg') + ' <a href="' + (b.portalUrl || 'https://tallyconnect.app/signup') + '" style="' + lnk + '">' + pt('billing.banner.past_due_link') + '</a> ' + pt('billing.banner.past_due_post') + '</div>';
       } else if (b.status === 'canceled' || b.status === 'trial_expired') {
-        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#ef4444">' + pt('billing.banner.canceled_msg') + ' <a href="#" onclick="showPage(\'billing\',document.querySelector(\'[data-page=billing]\'));return false" style="' + lnk + '">' + pt('billing.banner.reactivate_link') + '</a> ' + pt('billing.banner.canceled_post') + '</div>';
+        el.innerHTML = '<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#FF5252">' + pt('billing.banner.canceled_msg') + ' <a href="#" onclick="showPage(\'billing\',document.querySelector(\'[data-page=billing]\'));return false" style="' + lnk + '">' + pt('billing.banner.reactivate_link') + '</a> ' + pt('billing.banner.canceled_post') + '</div>';
       } else if (b.status === 'inactive' || b.status === 'pending') {
-        el.innerHTML = '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#f59e0b">' + pt('billing.banner.inactive_msg') + ' <a href="https://tallyconnect.app/signup" style="' + lnk + '">' + pt('billing.banner.checkout_link') + '</a> ' + pt('billing.banner.inactive_post') + '</div>';
+        el.innerHTML = '<div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 16px;margin-bottom:16px;font-size:13px;color:#FFB74D">' + pt('billing.banner.inactive_msg') + ' <a href="https://tallyconnect.app/signup" style="' + lnk + '">' + pt('billing.banner.checkout_link') + '</a> ' + pt('billing.banner.inactive_post') + '</div>';
       } else {
         el.innerHTML = '';
       }
@@ -5727,11 +5727,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var body = pt(tier === 'connect' ? 'upgrade.connect.body' : 'upgrade.plus.body');
       var btnLabel = pt('upgrade.btn', { tier: nextTier, price: nextPrice });
 
-      el.innerHTML = '<div style="margin-bottom:20px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.25);border-radius:12px;padding:20px 24px;position:relative">' +
-        '<button onclick="dismissUpgradeBanner(\''+dismissKey+'\')" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#475569;font-size:16px;cursor:pointer;padding:4px" title="Dismiss">\\u2715</button>' +
-        '<div style="font-size:15px;font-weight:700;color:#22c55e;margin-bottom:6px">' + headline + '</div>' +
-        '<div style="font-size:13px;color:#94A3B8;line-height:1.6;margin-bottom:14px;padding-right:24px">' + body + '</div>' +
-        '<button onclick="upgradePlan(\'' + nextTierSlug + '\')" id="btn-upgrade-' + nextTierSlug + '-banner" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#22c55e;color:#000;border:none;cursor:pointer">' + btnLabel + '</button>' +
+      el.innerHTML = '<div style="margin-bottom:20px;background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.25);border-radius:12px;padding:20px 24px;position:relative">' +
+        '<button onclick="dismissUpgradeBanner(\''+dismissKey+'\')" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#556270;font-size:16px;cursor:pointer;padding:4px" title="Dismiss">\\u2715</button>' +
+        '<div style="font-size:15px;font-weight:700;color:#00E676;margin-bottom:6px">' + headline + '</div>' +
+        '<div style="font-size:13px;color:#8B9DAF;line-height:1.6;margin-bottom:14px;padding-right:24px">' + body + '</div>' +
+        '<button onclick="upgradePlan(\'' + nextTierSlug + '\')" id="btn-upgrade-' + nextTierSlug + '-banner" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">' + btnLabel + '</button>' +
         '</div>';
     }
 
@@ -5899,15 +5899,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         if (!data.hasReview && data.eligible && localStorage.getItem('tally_review_dismissed') !== '1') {
           banner.style.display = 'block';
-          banner.innerHTML = '<div style="margin-bottom:20px;background:#0F1613;border:1px solid #1a3a24;border-radius:12px;padding:20px 24px">' +
+          banner.innerHTML = '<div style="margin-bottom:20px;background:#0a1610;border:1px solid #0d3320;border-radius:12px;padding:20px 24px">' +
             '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
             '<div style="flex:1;min-width:200px">' +
-            '<div style="font-size:15px;font-weight:700;color:#F8FAFC">\\u2B50 Loving Tally? Share your experience</div>' +
-            '<div style="font-size:13px;color:#94A3B8;margin-top:4px;line-height:1.5">Your review helps other church production teams discover Tally. Takes 60 seconds.</div>' +
+            '<div style="font-size:15px;font-weight:700;color:#F0F2F4">\\u2B50 Loving Tally? Share your experience</div>' +
+            '<div style="font-size:13px;color:#8B9DAF;margin-top:4px;line-height:1.5">Your review helps other church production teams discover Tally. Takes 60 seconds.</div>' +
             '</div>' +
             '<div style="display:flex;gap:8px;flex-shrink:0;align-items:center">' +
             '<button class="btn-primary" onclick="openReviewModal()" style="padding:8px 16px;font-size:13px">Leave a Review</button>' +
-            '<button onclick="dismissReviewBanner()" style="background:none;border:1px solid #1a2e1f;color:#64748B;font-size:11px;padding:6px 12px;border-radius:6px;cursor:pointer">Later</button>' +
+            '<button onclick="dismissReviewBanner()" style="background:none;border:1px solid #0d3320;color:#6B7280;font-size:11px;padding:6px 12px;border-radius:6px;cursor:pointer">Later</button>' +
             '</div></div></div>';
         } else {
           banner.style.display = 'none';
@@ -5937,7 +5937,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var container = document.getElementById('star-rating');
       if (!container) return;
       container.innerHTML = [1,2,3,4,5].map(function(n) {
-        return '<button onclick="setRating(' + n + ')" style="background:none;border:none;font-size:28px;cursor:pointer;color:' + (n <= reviewRating ? '#22c55e' : '#334155') + ';transition:color 0.15s">\\u2605</button>';
+        return '<button onclick="setRating(' + n + ')" style="background:none;border:none;font-size:28px;cursor:pointer;color:' + (n <= reviewRating ? '#00E676' : '#1a3a2a') + ';transition:color 0.15s">\\u2605</button>';
       }).join('');
     }
 
@@ -6010,25 +6010,25 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (data.totalReferred > 0) {
           var creditDollars = data.totalCredits ? '$' + (data.totalCredits / 100).toFixed(0) : '$0';
           statsHtml = '<div style="display:flex;gap:24px;margin-bottom:14px">' +
-            '<div><div style="font-size:20px;font-weight:800;color:#F8FAFC">' + data.totalReferred + '</div><div style="font-size:11px;color:#475569">' + pt('referral.stat.referred') + '</div></div>' +
-            '<div><div style="font-size:20px;font-weight:800;color:#22c55e">' + data.totalConverted + '</div><div style="font-size:11px;color:#475569">' + pt('referral.stat.signed_up') + '</div></div>' +
-            '<div><div style="font-size:20px;font-weight:800;color:#22c55e">' + creditDollars + '</div><div style="font-size:11px;color:#475569">' + pt('referral.stat.credits') + '</div></div>' +
+            '<div><div style="font-size:20px;font-weight:800;color:#F0F2F4">' + data.totalReferred + '</div><div style="font-size:11px;color:#556270">' + pt('referral.stat.referred') + '</div></div>' +
+            '<div><div style="font-size:20px;font-weight:800;color:#00E676">' + data.totalConverted + '</div><div style="font-size:11px;color:#556270">' + pt('referral.stat.signed_up') + '</div></div>' +
+            '<div><div style="font-size:20px;font-weight:800;color:#00E676">' + creditDollars + '</div><div style="font-size:11px;color:#556270">' + pt('referral.stat.credits') + '</div></div>' +
             '</div>';
         }
 
         card.style.display = 'block';
-        card.innerHTML = '<div style="margin-bottom:20px;background:#0F1613;border:1px solid #1a2e1f;border-radius:12px;padding:20px 24px">' +
+        card.innerHTML = '<div style="margin-bottom:20px;background:#0a1610;border:1px solid #0d3320;border-radius:12px;padding:20px 24px">' +
           '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">' +
           '<span style="font-size:18px">&#127873;</span>' +
-          '<span style="font-size:15px;font-weight:700;color:#F8FAFC">' + pt('referral.title') + '</span>' +
+          '<span style="font-size:15px;font-weight:700;color:#F0F2F4">' + pt('referral.title') + '</span>' +
           '</div>' +
-          '<div style="font-size:13px;color:#94A3B8;line-height:1.5;margin-bottom:14px">' +
+          '<div style="font-size:13px;color:#8B9DAF;line-height:1.5;margin-bottom:14px">' +
           pt('referral.body') + ' ' +
-          '<span style="color:#475569">' + pt('referral.fine_print') + '</span>' +
+          '<span style="color:#556270">' + pt('referral.fine_print') + '</span>' +
           '</div>' +
           statsHtml +
           '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-          '<div style="flex:1;min-width:200px;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:13px;color:#F8FAFC;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="referral-link">' + escapeHtml(data.shareUrl || '') + '</div>' +
+          '<div style="flex:1;min-width:200px;background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:8px 12px;font-family:ui-monospace,monospace;font-size:13px;color:#F0F2F4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="referral-link">' + escapeHtml(data.shareUrl || '') + '</div>' +
           '<button onclick="copyReferralLink()" class="btn-primary" style="padding:8px 16px;font-size:13px;flex-shrink:0">' + pt('referral.copy_btn') + '</button>' +
           '</div>' +
           '</div>';
@@ -6073,17 +6073,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
           progressEl.innerHTML =
             '<div style="display:flex;gap:24px;margin-bottom:20px;flex-wrap:wrap">' +
-              '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#F8FAFC">' + total + '</div><div style="font-size:11px;color:#475569">Referred</div></div>' +
-              '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#f59e0b">' + (total - converted) + '</div><div style="font-size:11px;color:#475569">Pending</div></div>' +
-              '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#22c55e">' + converted + '</div><div style="font-size:11px;color:#475569">Signed Up</div></div>' +
-              '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#22c55e">' + creditDollars + '</div><div style="font-size:11px;color:#475569">Earned</div></div>' +
+              '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#F0F2F4">' + total + '</div><div style="font-size:11px;color:#556270">Referred</div></div>' +
+              '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#FFB74D">' + (total - converted) + '</div><div style="font-size:11px;color:#556270">Pending</div></div>' +
+              '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#00E676">' + converted + '</div><div style="font-size:11px;color:#556270">Signed Up</div></div>' +
+              '<div style="text-align:center;flex:1;min-width:80px"><div style="font-size:24px;font-weight:800;color:#00E676">' + creditDollars + '</div><div style="font-size:11px;color:#556270">Earned</div></div>' +
             '</div>' +
-            '<div style="margin-bottom:6px;display:flex;justify-content:space-between;font-size:12px;color:#94A3B8">' +
+            '<div style="margin-bottom:6px;display:flex;justify-content:space-between;font-size:12px;color:#8B9DAF">' +
               '<span>' + credited + ' of ' + max + ' free months earned</span>' +
               '<span>' + remaining + ' remaining</span>' +
             '</div>' +
-            '<div style="background:#1E293B;border-radius:6px;height:10px;overflow:hidden">' +
-              '<div style="background:#22c55e;height:100%;width:' + pct + '%;border-radius:6px;transition:width 0.5s"></div>' +
+            '<div style="background:#0d3320;border-radius:6px;height:10px;overflow:hidden">' +
+              '<div style="background:#00E676;height:100%;width:' + pct + '%;border-radius:6px;transition:width 0.5s"></div>' +
             '</div>';
           progressEl.style.opacity = '1';
         }
@@ -6093,26 +6093,26 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (histEl) {
           var referrals = _refData.referrals || [];
           if (referrals.length === 0) {
-            histEl.innerHTML = '<p style="color:#475569;text-align:center;padding:16px;font-size:13px">No referrals yet. Share your link to get started!</p>';
+            histEl.innerHTML = '<p style="color:#556270;text-align:center;padding:16px;font-size:13px">No referrals yet. Share your link to get started!</p>';
           } else {
             var tbl = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">' +
-              '<thead><tr style="border-bottom:1px solid #1a2e1f">' +
-                '<th style="text-align:left;padding:8px 10px;color:#64748B;font-weight:600;font-size:11px">Church</th>' +
-                '<th style="text-align:left;padding:8px 10px;color:#64748B;font-weight:600;font-size:11px">Date</th>' +
-                '<th style="text-align:left;padding:8px 10px;color:#64748B;font-weight:600;font-size:11px">Status</th>' +
-                '<th style="text-align:right;padding:8px 10px;color:#64748B;font-weight:600;font-size:11px">Credit</th>' +
+              '<thead><tr style="border-bottom:1px solid #0d3320">' +
+                '<th style="text-align:left;padding:8px 10px;color:#6B7280;font-weight:600;font-size:11px">Church</th>' +
+                '<th style="text-align:left;padding:8px 10px;color:#6B7280;font-weight:600;font-size:11px">Date</th>' +
+                '<th style="text-align:left;padding:8px 10px;color:#6B7280;font-weight:600;font-size:11px">Status</th>' +
+                '<th style="text-align:right;padding:8px 10px;color:#6B7280;font-weight:600;font-size:11px">Credit</th>' +
               '</tr></thead><tbody>';
             for (var i = 0; i < referrals.length; i++) {
               var r = referrals[i];
-              var statusColor = r.status === 'credited' ? '#22c55e' : r.status === 'converted' ? '#3b82f6' : r.status === 'expired' ? '#ef4444' : '#f59e0b';
+              var statusColor = r.status === 'credited' ? '#00E676' : r.status === 'converted' ? '#3b82f6' : r.status === 'expired' ? '#FF5252' : '#FFB74D';
               var statusLabel = r.status === 'credited' ? 'Credited' : r.status === 'converted' ? 'Subscribed' : r.status === 'expired' ? 'Expired' : 'Pending';
               var credit = r.credit_amount ? '$' + (r.credit_amount / 100).toFixed(0) : '—';
               var date = r.created_at ? new Date(r.created_at).toLocaleDateString() : '—';
-              tbl += '<tr style="border-bottom:1px solid #0F1613">' +
-                '<td style="padding:10px;color:#F8FAFC">' + escapeHtml(r.referred_name || 'Unknown') + '</td>' +
-                '<td style="padding:10px;color:#94A3B8">' + date + '</td>' +
+              tbl += '<tr style="border-bottom:1px solid #0a1610">' +
+                '<td style="padding:10px;color:#F0F2F4">' + escapeHtml(r.referred_name || 'Unknown') + '</td>' +
+                '<td style="padding:10px;color:#8B9DAF">' + date + '</td>' +
                 '<td style="padding:10px"><span style="background:' + statusColor + '22;color:' + statusColor + ';padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600">' + statusLabel + '</span></td>' +
-                '<td style="padding:10px;text-align:right;color:#F8FAFC;font-weight:600">' + credit + '</td>' +
+                '<td style="padding:10px;text-align:right;color:#F0F2F4;font-weight:600">' + credit + '</td>' +
               '</tr>';
             }
             tbl += '</tbody></table></div>';
@@ -6122,9 +6122,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
       } catch(e) {
         var pc = document.getElementById('ref-progress-content');
-        if (pc) { pc.innerHTML = '<p style="color:#475569;font-size:12px">Referral data unavailable.</p>'; pc.style.opacity = '1'; }
+        if (pc) { pc.innerHTML = '<p style="color:#556270;font-size:12px">Referral data unavailable.</p>'; pc.style.opacity = '1'; }
         var hc = document.getElementById('ref-history-content');
-        if (hc) { hc.innerHTML = '<p style="color:#475569;font-size:12px">No referral history yet.</p>'; hc.style.opacity = '1'; }
+        if (hc) { hc.innerHTML = '<p style="color:#556270;font-size:12px">No referral history yet.</p>'; hc.style.opacity = '1'; }
       }
     }
 
@@ -6184,38 +6184,38 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const alerts = await api('GET', '/api/church/alerts' + roomParam());
         var container = document.getElementById('alerts-content');
         if (!alerts.length) {
-          container.innerHTML = '<p style="color:#475569;text-align:center;padding:20px">No alerts yet. Alerts will appear here during and after your services.</p>';
+          container.innerHTML = '<p style="color:#556270;text-align:center;padding:20px">No alerts yet. Alerts will appear here during and after your services.</p>';
           return;
         }
-        var sevColors = { INFO: '#3b82f6', WARNING: '#f59e0b', CRITICAL: '#ef4444', EMERGENCY: '#ef4444' };
+        var sevColors = { INFO: '#3b82f6', WARNING: '#FFB74D', CRITICAL: '#FF5252', EMERGENCY: '#FF5252' };
         var html = '<div style="display:flex;flex-direction:column;gap:8px">';
         alerts.forEach(function(a) {
-          var color = sevColors[a.severity] || '#94A3B8';
+          var color = sevColors[a.severity] || '#8B9DAF';
           var time = new Date(a.created_at).toLocaleString();
           var type = _portalFriendlyAlertType(a.alert_type);
-          var acked = a.acknowledged_at ? '<span style="color:#22c55e;font-size:11px">\\u2713 Acknowledged' + (a.acknowledged_by ? ' by ' + escapeHtml(a.acknowledged_by) : '') + '</span>' : '<span style="color:#475569;font-size:11px">Not acknowledged</span>';
+          var acked = a.acknowledged_at ? '<span style="color:#00E676;font-size:11px">\\u2713 Acknowledged' + (a.acknowledged_by ? ' by ' + escapeHtml(a.acknowledged_by) : '') + '</span>' : '<span style="color:#556270;font-size:11px">Not acknowledged</span>';
           var ctx = a.context || {};
           var diag = ctx.diagnosis || ctx;
 
           html += '<div class="card" style="padding:12px">';
           html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
           html += '<span style="background:' + color + ';color:#000;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700">' + (a.severity || 'INFO') + '</span>';
-          html += '<span style="color:#F8FAFC;font-size:13px;font-weight:600">' + type + '</span>';
-          html += '<span style="color:#475569;font-size:11px;margin-left:auto">' + time + '</span>';
+          html += '<span style="color:#F0F2F4;font-size:13px;font-weight:600">' + type + '</span>';
+          html += '<span style="color:#556270;font-size:11px;margin-left:auto">' + time + '</span>';
           html += '</div>';
           html += '<div style="margin-top:4px">' + acked;
-          if (a.resolved) html += ' <span style="color:#22c55e;font-size:11px;margin-left:8px">\\u2713 Resolved</span>';
+          if (a.resolved) html += ' <span style="color:#00E676;font-size:11px;margin-left:8px">\\u2713 Resolved</span>';
           html += '</div>';
 
           if (diag.likely_cause || (diag.steps && diag.steps.length)) {
-            html += '<div style="margin-top:8px;background:#09090B;border-radius:6px;padding:8px 12px;font-size:12px">';
-            if (diag.likely_cause) html += '<div style="color:#94A3B8;margin-bottom:4px"><strong style="color:#F8FAFC">Likely cause:</strong> ' + escapeHtml(diag.likely_cause) + '</div>';
+            html += '<div style="margin-top:8px;background:#060D08;border-radius:6px;padding:8px 12px;font-size:12px">';
+            if (diag.likely_cause) html += '<div style="color:#8B9DAF;margin-bottom:4px"><strong style="color:#F0F2F4">Likely cause:</strong> ' + escapeHtml(diag.likely_cause) + '</div>';
             if (diag.steps && diag.steps.length) {
-              html += '<div style="color:#94A3B8"><strong style="color:#F8FAFC">Steps:</strong></div><ol style="margin:4px 0 0;padding-left:20px;color:#94A3B8">';
+              html += '<div style="color:#8B9DAF"><strong style="color:#F0F2F4">Steps:</strong></div><ol style="margin:4px 0 0;padding-left:20px;color:#8B9DAF">';
               diag.steps.forEach(function(s) { html += '<li>' + escapeHtml(s) + '</li>'; });
               html += '</ol>';
             }
-            if (diag.canAutoFix) html += '<div style="color:#22c55e;font-size:11px;margin-top:4px">Tally can attempt auto-recovery for this issue.</div>';
+            if (diag.canAutoFix) html += '<div style="color:#00E676;font-size:11px;margin-top:4px">Tally can attempt auto-recovery for this issue.</div>';
             html += '</div>';
           }
           html += '</div>';
@@ -6223,7 +6223,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '</div>';
         container.innerHTML = html;
       } catch(e) {
-        document.getElementById('alerts-content').innerHTML = '<p style="color:#475569;text-align:center;padding:20px">No alerts yet. Alerts will appear here during and after your services.</p>';
+        document.getElementById('alerts-content').innerHTML = '<p style="color:#556270;text-align:center;padding:20px">No alerts yet. Alerts will appear here during and after your services.</p>';
       }
     }
 
@@ -6254,11 +6254,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var cc = comp.connectionCount || 0;
           var labels = (comp.connections || []).map(function(c) { return c.label; }).filter(Boolean);
           statusEl.innerHTML = '<div style="padding:10px 14px;background:#0c2818;border:1px solid #16532e;border-radius:8px;font-size:13px">' +
-            '<span style="color:#22c55e;font-weight:700"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Companion Connected</span>' +
+            '<span style="color:#00E676;font-weight:700"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Companion Connected</span>' +
             (cc > 0 ? ' — ' + cc + ' module' + (cc !== 1 ? 's' : '') + (labels.length ? ': ' + labels.join(', ') : '') : '') +
             '</div>';
         } else {
-          statusEl.innerHTML = '<div style="padding:10px 14px;background:#1e1e1e;border:1px solid #333;border-radius:8px;font-size:13px;color:#94A3B8">' +
+          statusEl.innerHTML = '<div style="padding:10px 14px;background:#1e1e1e;border:1px solid #333;border-radius:8px;font-size:13px;color:#8B9DAF">' +
             '⚠ Companion not detected. Make sure it\'s running on the same machine as Tally (port 8888).' +
             '</div>';
         }
@@ -6269,9 +6269,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (btnEl) {
         var suggestions = [];
         // Core buttons every church needs
-        suggestions.push({ name: 'Start Stream', module: 'OBS / vMix / Encoder', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="#ef4444" stroke="none"><circle cx="12" cy="12" r="8"/></svg>' });
+        suggestions.push({ name: 'Start Stream', module: 'OBS / vMix / Encoder', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="#FF5252" stroke="none"><circle cx="12" cy="12" r="8"/></svg>' });
         suggestions.push({ name: 'Stop Stream', module: 'OBS / vMix / Encoder', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>' });
-        suggestions.push({ name: 'Start Recording', module: 'OBS / HyperDeck', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="#ef4444"/></svg>' });
+        suggestions.push({ name: 'Start Recording', module: 'OBS / HyperDeck', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FF5252" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="#FF5252"/></svg>' });
         suggestions.push({ name: 'Stop Recording', module: 'OBS / HyperDeck', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>' });
 
         // ATEM-specific
@@ -6303,19 +6303,19 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         suggestions.push({ name: 'Stage Look: Worship', module: 'Lighting / ArtNet', icon: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/><path d="M5 3v4M19 17v4M3 5h4M17 19h4"/></svg>' });
 
         btnEl.innerHTML = suggestions.map(function(s) {
-          return '<div style="background:#0F1613;border:1px solid #1a2e1f;border-radius:8px;padding:10px 12px;font-size:12px">' +
+          return '<div style="background:#0a1610;border:1px solid #0d3320;border-radius:8px;padding:10px 12px;font-size:12px">' +
             '<div style="font-size:16px;margin-bottom:4px">' + s.icon + '</div>' +
-            '<div style="color:#F8FAFC;font-weight:600">' + s.name + '</div>' +
-            '<div style="color:#475569;font-size:11px;margin-top:2px">' + s.module + '</div>' +
+            '<div style="color:#F0F2F4;font-weight:600">' + s.name + '</div>' +
+            '<div style="color:#556270;font-size:11px;margin-top:2px">' + s.module + '</div>' +
             '</div>';
         }).join('');
       }
     }
 
     function supportStateChip(state) {
-      if (state === 'operational') return '<span style="color:#22c55e;font-weight:700">Operational</span>';
-      if (state === 'degraded') return '<span style="color:#f59e0b;font-weight:700">Degraded</span>';
-      return '<span style="color:#ef4444;font-weight:700">Outage</span>';
+      if (state === 'operational') return '<span style="color:#00E676;font-weight:700">Operational</span>';
+      if (state === 'degraded') return '<span style="color:#FFB74D;font-weight:700">Degraded</span>';
+      return '<span style="color:#FF5252;font-weight:700">Outage</span>';
     }
 
     // ── Analytics ───────────────────────────────────────────────────────────
@@ -6372,7 +6372,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         renderSessionStats(data);
         renderEquipmentPerf(data);
       } catch (e) {
-        var noData = '<p style="color:#475569;text-align:center;padding:20px">No analytics data yet. Data will appear after your first streaming session.</p>';
+        var noData = '<p style="color:#556270;text-align:center;padding:20px">No analytics data yet. Data will appear after your first streaming session.</p>';
         var ahEl = document.getElementById('a-health-content');
         if (ahEl) ahEl.innerHTML = noData;
         var vcEl = document.getElementById('a-viewer-chart');
@@ -6392,20 +6392,20 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function renderAnalyticsKPI(d) {
       var upEl = document.getElementById('a-uptime');
       upEl.textContent = d.uptime_pct.toFixed(1) + '%';
-      upEl.style.color = d.uptime_pct >= 99 ? '#22c55e' : d.uptime_pct >= 95 ? '#f59e0b' : '#ef4444';
+      upEl.style.color = d.uptime_pct >= 99 ? '#00E676' : d.uptime_pct >= 95 ? '#FFB74D' : '#FF5252';
       document.getElementById('a-sessions-count').textContent = d.total_sessions;
       document.getElementById('a-avg-viewers').textContent =
         d.avg_peak_viewers !== null ? Math.round(d.avg_peak_viewers) : '—';
       document.getElementById('a-recovery-rate').textContent =
         d.auto_recovery_rate !== null ? d.auto_recovery_rate.toFixed(0) + '%' : '—';
       document.getElementById('a-recovery-rate').style.color =
-        d.auto_recovery_rate === null ? '#94A3B8' : d.auto_recovery_rate >= 80 ? '#22c55e' : d.auto_recovery_rate >= 50 ? '#f59e0b' : '#ef4444';
+        d.auto_recovery_rate === null ? '#8B9DAF' : d.auto_recovery_rate >= 80 ? '#00E676' : d.auto_recovery_rate >= 50 ? '#FFB74D' : '#FF5252';
     }
 
     function renderStreamHealth(d) {
       var el = document.getElementById('a-health-content');
       if (!d.total_sessions) {
-        el.innerHTML = '<p style="color:#475569">No sessions in this period.</p>';
+        el.innerHTML = '<p style="color:#556270">No sessions in this period.</p>';
         return;
       }
       var html = '<div class="a-metric-grid">';
@@ -6417,7 +6417,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       if (d.top_event_types && d.top_event_types.length) {
         html += '<div style="margin-top:16px">';
-        html += '<div style="font-size:12px;color:#94A3B8;margin-bottom:8px;font-weight:600">Most Common Issues</div>';
+        html += '<div style="font-size:12px;color:#8B9DAF;margin-bottom:8px;font-weight:600">Most Common Issues</div>';
         var maxCount = d.top_event_types[0].count;
         d.top_event_types.forEach(function(t) {
           var pct = Math.round((t.count / maxCount) * 100);
@@ -6436,7 +6436,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function renderViewerChart(d) {
       var el = document.getElementById('a-viewer-chart');
       if (!d.viewer_trend || !d.viewer_trend.length) {
-        el.innerHTML = '<p style="color:#475569">No viewer data available.</p>';
+        el.innerHTML = '<p style="color:#556270">No viewer data available.</p>';
         return;
       }
       var maxV = Math.max.apply(null, d.viewer_trend.map(function(v) { return v.peak; }));
@@ -6461,7 +6461,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         renderPlatformChart(d);
         renderLiveChart(d);
       } catch (e) {
-        var noAud = '<p style="color:#475569;text-align:center;padding:20px">No audience data yet. Viewer counts are collected during live streams when platform API keys are configured.</p>';
+        var noAud = '<p style="color:#556270;text-align:center;padding:20px">No audience data yet. Viewer counts are collected during live streams when platform API keys are configured.</p>';
         var pcEl = document.getElementById('aud-platform-chart');
         if (pcEl) pcEl.innerHTML = noAud;
         // Clear audience KPI values
@@ -6486,13 +6486,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var el = document.getElementById('aud-platform-chart');
       var trend = d.weekly_trend || [];
       if (!trend.length) {
-        el.innerHTML = '<p style="color:#475569">No platform viewer data yet. Viewer counts are collected during live streams when YouTube, Facebook, or Vimeo API keys are configured.</p>';
+        el.innerHTML = '<p style="color:#556270">No platform viewer data yet. Viewer counts are collected during live streams when YouTube, Facebook, or Vimeo API keys are configured.</p>';
         return;
       }
       var maxV = Math.max.apply(null, trend.map(function(w) { return w.peak_total || 0; }));
       if (maxV === 0) maxV = 1;
 
-      var html = '<div style="font-size:12px;color:#94A3B8;margin-bottom:8px;font-weight:600">Weekly Viewers by Platform</div>';
+      var html = '<div style="font-size:12px;color:#8B9DAF;margin-bottom:8px;font-weight:600">Weekly Viewers by Platform</div>';
       trend.forEach(function(w) {
         var yt = w.peak_youtube || 0;
         var fb = w.peak_facebook || 0;
@@ -6520,7 +6520,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
 
       // Legend
-      html += '<div style="display:flex;gap:16px;margin-top:10px;font-size:11px;color:#94A3B8">';
+      html += '<div style="display:flex;gap:16px;margin-top:10px;font-size:11px;color:#8B9DAF">';
       html += '<span>\\u25cf <span style="color:#ff0000">YouTube</span></span>';
       html += '<span>\\u25cf <span style="color:#1877f2">Facebook</span></span>';
       html += '<span>\\u25cf <span style="color:#1ab7ea">Vimeo</span></span>';
@@ -6545,11 +6545,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var pct = Math.round(((s.total || 0) / maxV) * 100);
         var time = s.captured_at ? new Date(s.captured_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
         html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">';
-        html += '<div style="width:50px;text-align:right;font-size:10px;color:#94A3B8">' + time + '</div>';
-        html += '<div style="flex:1;height:6px;background:var(--border,#1e293b);border-radius:3px;overflow:hidden">';
-        html += '<div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,#22c55e,#3b82f6);border-radius:3px"></div>';
+        html += '<div style="width:50px;text-align:right;font-size:10px;color:#8B9DAF">' + time + '</div>';
+        html += '<div style="flex:1;height:6px;background:var(--border,#0d3320);border-radius:3px;overflow:hidden">';
+        html += '<div style="height:100%;width:' + pct + '%;background:linear-gradient(90deg,#00E676,#3b82f6);border-radius:3px"></div>';
         html += '</div>';
-        html += '<div style="width:35px;font-size:10px;color:#cbd5e1;text-align:right">' + (s.total || 0) + '</div>';
+        html += '<div style="width:35px;font-size:10px;color:#B0BEC5;text-align:right">' + (s.total || 0) + '</div>';
         html += '</div>';
       });
       el.innerHTML = html;
@@ -6558,7 +6558,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function renderSessionStats(d) {
       var el = document.getElementById('a-session-stats');
       if (!d.total_sessions) {
-        el.innerHTML = '<p style="color:#475569">No sessions in this period.</p>';
+        el.innerHTML = '<p style="color:#556270">No sessions in this period.</p>';
         return;
       }
       var html = '<div class="a-metric-grid">';
@@ -6570,7 +6570,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       if (d.weekly_sessions && d.weekly_sessions.length) {
         html += '<div style="margin-top:16px">';
-        html += '<div style="font-size:12px;color:#94A3B8;margin-bottom:8px;font-weight:600">Sessions Per Week</div>';
+        html += '<div style="font-size:12px;color:#8B9DAF;margin-bottom:8px;font-weight:600">Sessions Per Week</div>';
         var maxW = Math.max.apply(null, d.weekly_sessions.map(function(w) { return w.count; }));
         if (maxW === 0) maxW = 1;
         d.weekly_sessions.forEach(function(w) {
@@ -6589,12 +6589,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     function renderEquipmentPerf(d) {
       var el = document.getElementById('a-equipment-content');
       if (!d.equipment_disconnects || !d.equipment_disconnects.length) {
-        el.innerHTML = '<p style="color:#475569">No equipment disconnect data available.</p>';
+        el.innerHTML = '<p style="color:#556270">No equipment disconnect data available.</p>';
         return;
       }
       var maxC = d.equipment_disconnects[0].count;
       if (maxC === 0) maxC = 1;
-      var html = '<div style="font-size:12px;color:#94A3B8;margin-bottom:8px;font-weight:600">Disconnects by Device</div>';
+      var html = '<div style="font-size:12px;color:#8B9DAF;margin-bottom:8px;font-weight:600">Disconnects by Device</div>';
       d.equipment_disconnects.forEach(function(eq) {
         var pct = Math.round((eq.count / maxC) * 100);
         var colorClass = eq.count >= 10 ? 'red' : eq.count >= 5 ? 'yellow' : '';
@@ -6606,7 +6606,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       });
 
       if (d.equipment_auto_resolve_rates && d.equipment_auto_resolve_rates.length) {
-        html += '<div style="margin-top:16px;font-size:12px;color:#94A3B8;margin-bottom:8px;font-weight:600">Auto-Resolve Rate by Device</div>';
+        html += '<div style="margin-top:16px;font-size:12px;color:#8B9DAF;margin-bottom:8px;font-weight:600">Auto-Resolve Rate by Device</div>';
         d.equipment_auto_resolve_rates.forEach(function(eq) {
           var pct = Math.round(eq.rate);
           var colorClass = pct >= 80 ? '' : pct >= 50 ? 'yellow' : 'red';
@@ -6743,24 +6743,24 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     async function loadSupportStatus() {
       var wrap = document.getElementById('support-status-components');
       if (!wrap) return;
-      wrap.innerHTML = '<div style="color:#475569">Loading status...</div>';
+      wrap.innerHTML = '<div style="color:#556270">Loading status...</div>';
       try {
         var r = await fetch('/api/status/components', { signal: AbortSignal.timeout(10000) });
         var payload = await r.json();
         var items = payload.components || [];
         if (!items.length) {
-          wrap.innerHTML = '<div style="color:#475569">No status data available.</div>';
+          wrap.innerHTML = '<div style="color:#556270">No status data available.</div>';
           return;
         }
         wrap.innerHTML = items.map(function(c) {
           var latency = c.latency_ms == null ? '—' : (c.latency_ms + ' ms');
-          return '<div style=\"display:flex;justify-content:space-between;gap:10px;background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:8px 10px\">' +
-            '<div><div style=\"color:#F8FAFC;font-size:13px;font-weight:600\">' + escapeHtml(c.name) + '</div><div style=\"color:#64748B;font-size:12px\">' + escapeHtml(c.detail || '') + '</div></div>' +
-            '<div style=\"text-align:right;font-size:12px\">' + supportStateChip(c.state) + '<div style=\"color:#64748B;margin-top:3px\">' + latency + '</div></div>' +
+          return '<div style=\"display:flex;justify-content:space-between;gap:10px;background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:8px 10px\">' +
+            '<div><div style=\"color:#F0F2F4;font-size:13px;font-weight:600\">' + escapeHtml(c.name) + '</div><div style=\"color:#6B7280;font-size:12px\">' + escapeHtml(c.detail || '') + '</div></div>' +
+            '<div style=\"text-align:right;font-size:12px\">' + supportStateChip(c.state) + '<div style=\"color:#6B7280;margin-top:3px\">' + latency + '</div></div>' +
           '</div>';
         }).join('');
       } catch (e) {
-        wrap.innerHTML = '<div style="color:#ef4444">Unable to load status right now.</div>';
+        wrap.innerHTML = '<div style="color:#FF5252">Unable to load status right now.</div>';
       }
     }
 
@@ -6779,42 +6779,42 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var checks = (triage.checks || []).map(function(c) {
           return (c.ok ? '\\u2705 ' : '\\u274C ') + c.note;
         }).join('<br>');
-        var html = '<div style="background:#09090B;border:1px solid #1a2e1f;border-radius:8px;padding:14px">';
-        html += '<div style="font-weight:700;color:#F8FAFC;margin-bottom:8px">Triage: ' + escapeHtml(triage.triageResult || 'monitoring') + '</div>';
-        html += '<div style="color:#94A3B8;margin-bottom:10px">' + checks + '</div>';
+        var html = '<div style="background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:14px">';
+        html += '<div style="font-weight:700;color:#F0F2F4;margin-bottom:8px">Triage: ' + escapeHtml(triage.triageResult || 'monitoring') + '</div>';
+        html += '<div style="color:#8B9DAF;margin-bottom:10px">' + checks + '</div>';
 
         // AI Analysis
         var ai = triage.aiAnalysis;
         if (ai && ai.primaryCause) {
-          html += '<div style="border-top:1px solid #1a2e1f;padding-top:10px;margin-top:10px">';
-          html += '<div style="font-weight:700;color:#22c55e;font-size:13px;margin-bottom:8px">AI Diagnosis</div>';
+          html += '<div style="border-top:1px solid #0d3320;padding-top:10px;margin-top:10px">';
+          html += '<div style="font-weight:700;color:#00E676;font-size:13px;margin-bottom:8px">AI Diagnosis</div>';
           // Primary cause
           var conf = ai.primaryCause.confidence || 0;
-          var confColor = conf >= 70 ? '#22c55e' : conf >= 40 ? '#f59e0b' : '#ef4444';
-          html += '<div style="margin-bottom:8px"><span style="font-weight:700;color:#F8FAFC">' + escapeHtml(ai.primaryCause.cause) + '</span>';
+          var confColor = conf >= 70 ? '#00E676' : conf >= 40 ? '#FFB74D' : '#FF5252';
+          html += '<div style="margin-bottom:8px"><span style="font-weight:700;color:#F0F2F4">' + escapeHtml(ai.primaryCause.cause) + '</span>';
           html += ' <span style="color:' + confColor + ';font-size:12px;font-weight:600">' + conf + '% confidence</span></div>';
           if (ai.primaryCause.explanation) {
-            html += '<div style="color:#94A3B8;font-size:13px;margin-bottom:8px">' + escapeHtml(ai.primaryCause.explanation) + '</div>';
+            html += '<div style="color:#8B9DAF;font-size:13px;margin-bottom:8px">' + escapeHtml(ai.primaryCause.explanation) + '</div>';
           }
           // Secondary causes
           if (ai.secondaryCauses && ai.secondaryCauses.length) {
-            html += '<div style="font-size:12px;color:#475569;margin-bottom:8px">Also possible: ';
+            html += '<div style="font-size:12px;color:#556270;margin-bottom:8px">Also possible: ';
             html += ai.secondaryCauses.map(function(s) { return escapeHtml(s.cause) + ' (' + s.confidence + '%)'; }).join(', ');
             html += '</div>';
           }
           // Steps
           if (ai.steps && ai.steps.length) {
-            html += '<div style="font-weight:600;color:#F8FAFC;font-size:12px;margin-bottom:4px">Recommended steps:</div>';
-            html += '<ol style="color:#94A3B8;font-size:13px;padding-left:20px;margin:0">';
+            html += '<div style="font-weight:600;color:#F0F2F4;font-size:12px;margin-bottom:4px">Recommended steps:</div>';
+            html += '<ol style="color:#8B9DAF;font-size:13px;padding-left:20px;margin:0">';
             ai.steps.forEach(function(step) { html += '<li style="margin-bottom:4px">' + escapeHtml(step) + '</li>'; });
             html += '</ol>';
           }
           // Suggested AutoPilot rule
           if (ai.suggestedRule) {
             html += '<div style="margin-top:12px;padding:10px;background:#0c2818;border:1px solid #16532e;border-radius:8px">';
-            html += '<div style="font-size:12px;color:#22c55e;font-weight:600;margin-bottom:4px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg> Suggested AutoPilot Rule</div>';
-            html += '<div style="font-size:13px;color:#F8FAFC;font-weight:600">' + escapeHtml(ai.suggestedRule.name) + '</div>';
-            html += '<div style="font-size:12px;color:#94A3B8">' + escapeHtml(ai.suggestedRule.description) + '</div>';
+            html += '<div style="font-size:12px;color:#00E676;font-weight:600;margin-bottom:4px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg> Suggested AutoPilot Rule</div>';
+            html += '<div style="font-size:13px;color:#F0F2F4;font-weight:600">' + escapeHtml(ai.suggestedRule.name) + '</div>';
+            html += '<div style="font-size:12px;color:#8B9DAF">' + escapeHtml(ai.suggestedRule.description) + '</div>';
             html += '</div>';
           }
           html += '</div>';
@@ -6879,11 +6879,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     async function loadSupportTickets() {
       var tbody = document.getElementById('support-tickets-tbody');
       if (!tbody) return;
-      tbody.innerHTML = '<tr><td colspan=\"5\" style=\"color:#475569;text-align:center;padding:20px\">Loading...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan=\"5\" style=\"color:#556270;text-align:center;padding:20px\">Loading...</td></tr>';
       try {
         var tickets = await api('GET', '/api/church/support/tickets?limit=25');
         if (!tickets.length) {
-          tbody.innerHTML = '<tr><td colspan=\"5\" style=\"color:#475569;text-align:center;padding:20px\">No tickets yet.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan=\"5\" style=\"color:#556270;text-align:center;padding:20px\">No tickets yet.</td></tr>';
           return;
         }
         tbody.innerHTML = tickets.map(function(t) {
@@ -6901,7 +6901,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           });
         });
       } catch (e) {
-        tbody.innerHTML = '<tr><td colspan=\"5\" style=\"color:#ef4444;text-align:center;padding:20px\">' + escapeHtml(e.message) + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan=\"5\" style=\"color:#FF5252;text-align:center;padding:20px\">' + escapeHtml(e.message) + '</td></tr>';
       }
     }
 
@@ -6959,7 +6959,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           <h3>Primary TD vs. On-Call TD</h3>
           <p><strong>Primary TD</strong> is your main tech person. They get escalated alerts if no one else responds.<br><strong>On-Call TD</strong> is whoever is running the board that week. They receive the first alert.</p>
           <h3>On-Call Rotation</h3>
-          <p>TDs can swap on-call duty themselves via Telegram using <code style="color:#22c55e">/swap [name]</code>. No need to update the portal every week.</p>
+          <p>TDs can swap on-call duty themselves via Telegram using <code style="color:#00E676">/swap [name]</code>. No need to update the portal every week.</p>
           <div class="tip-box"><strong>Tip:</strong> <strong>For volunteer teams:</strong> Even if you only have one tech person, add them as both Primary and On-Call so they always get alerts. If you have a team, rotate so no one gets burned out.</div>
           <h3>Connecting via Telegram</h3>
           <p>After you add a TD, click "Copy Link" to get their Telegram deep link. They click it, Telegram opens, and they're connected automatically. That's it — no codes to memorize.</p>
@@ -7048,9 +7048,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           <p>Alerts are how Tally tells you something needs attention. They arrive in Telegram during service and appear here in the portal afterward.</p>
           <h3>Alert Severity</h3>
           <ul>
-            <li><strong style="color:#ef4444">Critical</strong> — Stream is down or about to fail. Respond immediately.</li>
-            <li><strong style="color:#f59e0b">Warning</strong> — Something is degraded but not broken yet. Investigate soon.</li>
-            <li><strong style="color:#22c55e">Info</strong> — Informational. Stream started, recording began, pre-service check passed.</li>
+            <li><strong style="color:#FF5252">Critical</strong> — Stream is down or about to fail. Respond immediately.</li>
+            <li><strong style="color:#FFB74D">Warning</strong> — Something is degraded but not broken yet. Investigate soon.</li>
+            <li><strong style="color:#00E676">Info</strong> — Informational. Stream started, recording began, pre-service check passed.</li>
           </ul>
           <h3>Responding to Alerts</h3>
           <p>When you get an alert in Telegram, you'll see response buttons like "On it" and "Run Diagnostics." Tapping "On it" tells Tally you've seen it and are handling it — this prevents auto-failover from kicking in.</p>
@@ -7138,14 +7138,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 var txt = document.getElementById('stat-status-text');
                 if (dot && txt) {
                   var isConnected = data.type === 'connected' || !!(effectiveStatus.connected !== false && (effectiveStatus.atem || effectiveStatus.obs || effectiveStatus.encoder));
-                  dot.style.background = isConnected ? '#22c55e' : '#475569';
+                  dot.style.background = isConnected ? '#00E676' : '#556270';
                   txt.textContent = isConnected ? 'Connected' : 'Offline';
                 }
                 // Pulse the equipment staleness indicator
                 var stale = document.getElementById('equip-staleness');
                 if (stale) {
                   stale.textContent = 'Live';
-                  stale.style.color = '#22c55e';
+                  stale.style.color = '#00E676';
                 }
                 // Refresh the equipment table if the overview page is visible
                 if (document.getElementById('page-overview').classList.contains('active')) {
@@ -7157,7 +7157,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               if (data.roomIds && data.roomIds.indexOf(_selectedRoomId) !== -1) {
                 var dot3 = document.getElementById('stat-status-dot');
                 var txt3 = document.getElementById('stat-status-text');
-                if (dot3 && txt3) { dot3.style.background = '#475569'; txt3.textContent = 'Offline'; }
+                if (dot3 && txt3) { dot3.style.background = '#556270'; txt3.textContent = 'Offline'; }
               }
             } else if (data.type === 'stream_protection_status') {
               updateStreamProtectionUI(data.streamProtection);
@@ -7181,14 +7181,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                   var max = Math.max.apply(null, window._viewerSparkData) || 1;
                   spark.innerHTML = window._viewerSparkData.map(function(v) {
                     var h = Math.max(2, Math.round((v / max) * 36));
-                    return '<div style="flex:1;height:' + h + 'px;background:#22c55e;border-radius:2px;min-width:2px"></div>';
+                    return '<div style="flex:1;height:' + h + 'px;background:#00E676;border-radius:2px;min-width:2px"></div>';
                   }).join('');
                 }
               }
             } else if (data.type === 'disconnected') {
               var dot2 = document.getElementById('stat-status-dot');
               var txt2 = document.getElementById('stat-status-text');
-              if (dot2 && txt2) { dot2.style.background = '#475569'; txt2.textContent = 'Offline'; }
+              if (dot2 && txt2) { dot2.style.background = '#556270'; txt2.textContent = 'Offline'; }
             }
           } catch {}
           reconnectDelay = 3000; // reset backoff on successful message
@@ -7710,7 +7710,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ? details.minutesUntilService + ' min until service starts'
         : 'Setup window active';
     } else if (context === 'in_service') {
-      banner.style.borderLeftColor = '#ef4444';
+      banner.style.borderLeftColor = '#FF5252';
       iconEl.textContent = '\uD83D\uDD34';
       labelEl.textContent = 'In Service';
       labelEl.className = 'triage-pulse';
@@ -7718,7 +7718,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ? details.minutesIntoService + ' min into service'
         : 'Service in progress';
     } else {
-      banner.style.borderLeftColor = '#475569';
+      banner.style.borderLeftColor = '#556270';
       iconEl.textContent = '\uD83D\uDFE2';
       labelEl.textContent = 'Off Hours';
       labelEl.className = '';
@@ -7795,13 +7795,13 @@ document.addEventListener('DOMContentLoaded', function() {
     var legend = document.getElementById('ai-triage-severity-legend');
     var dist = stats.severity_distribution || [];
     if (!dist.length) {
-      container.innerHTML = '<div style="color:#475569;font-size:13px;text-align:center;width:100%;padding:40px 0">No events recorded yet</div>';
+      container.innerHTML = '<div style="color:#556270;font-size:13px;text-align:center;width:100%;padding:40px 0">No events recorded yet</div>';
       legend.innerHTML = '';
       return;
     }
 
     var maxCount = Math.max.apply(null, dist.map(function(d) { return d.count; }));
-    var colors = { critical: '#ef4444', high: '#f97316', medium: '#f59e0b', low: '#3b82f6', info: '#6b7280' };
+    var colors = { critical: '#FF5252', high: '#f97316', medium: '#FFB74D', low: '#3b82f6', info: '#6b7280' };
     var html = '';
     dist.forEach(function(d) {
       var pct = maxCount > 0 ? Math.max(4, Math.round((d.count / maxCount) * 100)) : 4;
@@ -7845,20 +7845,20 @@ document.addEventListener('DOMContentLoaded', function() {
       var postEnd = Math.min(totalMin, w.postBufferEnd) / totalMin * 100;
 
       html += '<div style="display:flex;align-items:center;gap:10px">';
-      html += '<div style="min-width:36px;font-size:12px;font-weight:600;color:#94A3B8">' + w.dayName + '</div>';
+      html += '<div style="min-width:36px;font-size:12px;font-weight:600;color:#8B9DAF">' + w.dayName + '</div>';
       html += '<div class="window-bar" style="flex:1">';
       html += '<div class="window-segment pre" style="left:' + preStart + '%;width:' + (serviceStart - preStart) + '%"></div>';
       html += '<div class="window-segment service" style="left:' + serviceStart + '%;width:' + (serviceEnd - serviceStart) + '%"></div>';
       html += '<div class="window-segment post" style="left:' + serviceEnd + '%;width:' + (postEnd - serviceEnd) + '%"></div>';
       html += '</div>';
-      html += '<div style="min-width:90px;font-size:11px;color:#475569">' + w.startFormatted + ' - ' + w.endFormatted + '</div>';
+      html += '<div style="min-width:90px;font-size:11px;color:#556270">' + w.startFormatted + ' - ' + w.endFormatted + '</div>';
       html += '</div>';
     });
 
     // Legend
-    html += '<div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:#94A3B8">';
+    html += '<div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:#8B9DAF">';
     html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#f9731630;margin-right:4px"></span>Pre-service</span>';
-    html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#22c55e30;margin-right:4px"></span>In service</span>';
+    html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#00E67630;margin-right:4px"></span>In service</span>';
     html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#3b82f620;margin-right:4px"></span>Post-buffer</span>';
     html += '</div>';
 
@@ -7872,7 +7872,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var trend = stats.daily_trend || [];
 
     if (!trend.length) {
-      container.innerHTML = '<div style="color:#475569;font-size:13px;text-align:center;width:100%;padding:30px 0">No daily data yet</div>';
+      container.innerHTML = '<div style="color:#556270;font-size:13px;text-align:center;width:100%;padding:30px 0">No daily data yet</div>';
       labels.innerHTML = '';
       return;
     }
@@ -7888,11 +7888,11 @@ document.addEventListener('DOMContentLoaded', function() {
       var totalPct = maxCount > 0 ? Math.max(2, total / maxCount * 100) : 2;
 
       html += '<div style="flex:1;display:flex;flex-direction:column;align-items:stretch;gap:1px;height:100%">';
-      if (critPct > 0) html += '<div style="height:' + critPct + '%;background:#ef4444;border-radius:2px;min-height:2px"></div>';
+      if (critPct > 0) html += '<div style="height:' + critPct + '%;background:#FF5252;border-radius:2px;min-height:2px"></div>';
       if (highPct > 0) html += '<div style="height:' + highPct + '%;background:#f97316;border-radius:2px;min-height:2px"></div>';
-      if (medPct > 0) html += '<div style="height:' + medPct + '%;background:#f59e0b;border-radius:2px;min-height:2px"></div>';
+      if (medPct > 0) html += '<div style="height:' + medPct + '%;background:#FFB74D;border-radius:2px;min-height:2px"></div>';
       if (lowPct > 0) html += '<div style="height:' + lowPct + '%;background:#3b82f6;border-radius:2px;min-height:2px"></div>';
-      if (total === 0) html += '<div style="height:2px;background:#1a2e1f;border-radius:2px"></div>';
+      if (total === 0) html += '<div style="height:2px;background:#0d3320;border-radius:2px"></div>';
       html += '</div>';
     });
     container.innerHTML = html;
@@ -7916,7 +7916,7 @@ document.addEventListener('DOMContentLoaded', function() {
       loadMoreBtn.style.display = (res.events || []).length >= 25 ? '' : 'none';
     } catch (err) {
       document.getElementById('ai-triage-events-tbody').innerHTML =
-        '<tr><td colspan="5" style="color:#ef4444;text-align:center;padding:20px">Failed to load events</td></tr>';
+        '<tr><td colspan="5" style="color:#FF5252;text-align:center;padding:20px">Failed to load events</td></tr>';
     }
   }
 
@@ -7939,7 +7939,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!append) tbody.innerHTML = '';
 
     if (!events.length && !append) {
-      tbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">No triage events yet. Events will appear here as your system is monitored.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" style="color:#556270;text-align:center;padding:20px">No triage events yet. Events will appear here as your system is monitored.</td></tr>';
       return;
     }
 
@@ -7955,14 +7955,14 @@ document.addEventListener('DOMContentLoaded', function() {
       var alertLabel = _portalFriendlyAlertType(ev.alert_type || '');
       var severityLabel = _portalFriendlySeverity(ev.triage_severity || '');
       var contextLabel = _portalFriendlyTimeContext(ev.time_context || '');
-      var actionText = ev.resolution_id ? '<span style="display:inline-flex;align-items:center;gap:4px;color:#22c55e;font-weight:600"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>Auto-fixed</span>' : '—';
+      var actionText = ev.resolution_id ? '<span style="display:inline-flex;align-items:center;gap:4px;color:#00E676;font-weight:600"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>Auto-fixed</span>' : '—';
 
       tr.innerHTML =
-        '<td style="font-size:12px;white-space:nowrap;color:#94A3B8">' + timeStr + '</td>' +
+        '<td style="font-size:12px;white-space:nowrap;color:#8B9DAF">' + timeStr + '</td>' +
         '<td style="font-size:12px;font-weight:500">' + alertLabel + '</td>' +
         '<td><span class="severity-badge ' + (ev.triage_severity || '') + '">' + severityLabel + '</span></td>' +
         '<td><span class="context-badge ' + (ev.time_context || '') + '">' + contextLabel + '</span></td>' +
-        '<td style="font-size:12px;color:' + (ev.resolution_id ? '#22c55e' : '#475569') + '">' + actionText + '</td>';
+        '<td style="font-size:12px;color:' + (ev.resolution_id ? '#00E676' : '#556270') + '">' + actionText + '</td>';
 
       tbody.appendChild(tr);
     });
@@ -7994,8 +7994,8 @@ document.addEventListener('DOMContentLoaded', function() {
       body.innerHTML =
         '<div class="rpt-summary-grid">' +
           '<div class="rpt-summary-item"><span class="rpt-item-label">Events Resolved</span><span class="rpt-item-value">' + (data.eventsResolved || 0) + '</span></div>' +
-          '<div class="rpt-summary-item"><span class="rpt-item-label">Auto-Recoveries</span><span class="rpt-item-value" style="color:#22c55e">' + (data.autoRecoveryCount || 0) + '</span></div>' +
-          '<div class="rpt-summary-item"><span class="rpt-item-label">Escalated Alerts</span><span class="rpt-item-value" style="color:' + ((data.escalated || 0) > 0 ? '#ef4444' : '#F8FAFC') + '">' + (data.escalated || 0) + '</span></div>' +
+          '<div class="rpt-summary-item"><span class="rpt-item-label">Auto-Recoveries</span><span class="rpt-item-value" style="color:#00E676">' + (data.autoRecoveryCount || 0) + '</span></div>' +
+          '<div class="rpt-summary-item"><span class="rpt-item-label">Escalated Alerts</span><span class="rpt-item-value" style="color:' + ((data.escalated || 0) > 0 ? '#FF5252' : '#F0F2F4') + '">' + (data.escalated || 0) + '</span></div>' +
           '<div class="rpt-summary-item"><span class="rpt-item-label">Total Alerts</span><span class="rpt-item-value">' + (data.totalAlerts || 0) + '</span></div>' +
         '</div>';
 
@@ -8005,7 +8005,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var html = '';
         data.deviceUptime.forEach(function(d) {
           var pct = parseFloat(d.avgUptime) || 0;
-          var color = pct >= 99 ? '#22c55e' : pct >= 95 ? '#f59e0b' : '#ef4444';
+          var color = pct >= 99 ? '#00E676' : pct >= 95 ? '#FFB74D' : '#FF5252';
           html += '<div class="a-bar-row">' +
             '<div class="a-bar-label">' + escapeHtml(d.device) + '</div>' +
             '<div class="a-bar-track"><div class="a-bar-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
@@ -8014,10 +8014,10 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         bars.innerHTML = html;
       } else {
-        bars.innerHTML = '<span style="color:#475569;font-size:13px">No uptime data yet for this period.</span>';
+        bars.innerHTML = '<span style="color:#556270;font-size:13px">No uptime data yet for this period.</span>';
       }
     } catch (err) {
-      var noRpt = '<span style="color:#475569;font-size:13px">No report data yet. Reports will appear after your first streaming session.</span>';
+      var noRpt = '<span style="color:#556270;font-size:13px">No report data yet. Reports will appear after your first streaming session.</span>';
       var rptBody = document.getElementById('rpt-summary-body');
       if (rptBody) rptBody.innerHTML = noRpt;
       var rptBars = document.getElementById('rpt-uptime-bars');
@@ -8070,7 +8070,7 @@ document.addEventListener('DOMContentLoaded', function() {
       fetchReportEvents();
     } catch {
       var evtTbody = document.getElementById('rpt-events-tbody');
-      if (evtTbody) evtTbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No event data yet.</td></tr>';
+      if (evtTbody) evtTbody.innerHTML = '<tr><td colspan="6" style="color:#556270;text-align:center;padding:20px">No event data yet.</td></tr>';
     }
   }
 
@@ -8093,7 +8093,7 @@ document.addEventListener('DOMContentLoaded', function() {
       var tbody = document.getElementById('rpt-events-tbody');
 
       if (!data.events || !data.events.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No events found for the selected filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="color:#556270;text-align:center;padding:20px">No events found for the selected filters.</td></tr>';
       } else {
         tbody.innerHTML = '';
         data.events.forEach(function(ev) {
@@ -8103,13 +8103,13 @@ document.addEventListener('DOMContentLoaded', function() {
             time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
           var resText = ev.resolution
             ? '<span class="rpt-ai-action-result ' + (ev.resolution.success ? 'success' : 'failed') + '">' + (ev.resolution.success ? '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Fixed' : '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M18 6 6 18M6 6l12 12"/></svg> Failed') + '</span>'
-            : '<span style="color:#475569">—</span>';
+            : '<span style="color:#556270">—</span>';
           var contextLabel = (ev.timeContext || '').replace(/_/g, ' ');
           tr.innerHTML =
-            '<td style="font-size:12px;white-space:nowrap;color:#94A3B8">' + timeStr + '</td>' +
+            '<td style="font-size:12px;white-space:nowrap;color:#8B9DAF">' + timeStr + '</td>' +
             '<td><span class="severity-badge ' + ev.severity + '">' + ev.severity + '</span></td>' +
             '<td style="font-size:12px;font-weight:500">' + escapeHtml(ev.alertType) + '</td>' +
-            '<td style="font-size:12px;color:#94A3B8">' + (ev.roomId || '—') + '</td>' +
+            '<td style="font-size:12px;color:#8B9DAF">' + (ev.roomId || '—') + '</td>' +
             '<td><span class="context-badge ' + (ev.timeContext || '') + '">' + contextLabel + '</span></td>' +
             '<td>' + resText + '</td>';
           tbody.appendChild(tr);
@@ -8123,7 +8123,7 @@ document.addEventListener('DOMContentLoaded', function() {
       document.getElementById('rpt-events-prev').disabled = pg.page <= 1;
       document.getElementById('rpt-events-next').disabled = pg.page >= pg.totalPages;
     } catch (err) {
-      document.getElementById('rpt-events-tbody').innerHTML = '<tr><td colspan="6" style="color:#ef4444;text-align:center;padding:20px">Failed to load events</td></tr>';
+      document.getElementById('rpt-events-tbody').innerHTML = '<tr><td colspan="6" style="color:#FF5252;text-align:center;padding:20px">Failed to load events</td></tr>';
     }
   }
 
@@ -8154,7 +8154,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         schedEl.innerHTML = html;
       } else {
-        schedEl.innerHTML = '<span style="color:#475569">No service windows configured.</span>';
+        schedEl.innerHTML = '<span style="color:#556270">No service windows configured.</span>';
       }
 
       // Context chart
@@ -8169,32 +8169,32 @@ document.addEventListener('DOMContentLoaded', function() {
       // Sessions table
       var tbody = document.getElementById('rpt-sessions-tbody');
       if (!data.sessions || !data.sessions.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No sessions in this period.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="color:#556270;text-align:center;padding:20px">No sessions in this period.</td></tr>';
       } else {
         tbody.innerHTML = '';
         data.sessions.forEach(function(s) {
           var tr = document.createElement('tr');
           var d = new Date(s.startedAt);
           var dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-          var gradeColor = s.grade === 'A' ? '#22c55e' : s.grade === 'B' ? '#f59e0b' : '#ef4444';
+          var gradeColor = s.grade === 'A' ? '#00E676' : s.grade === 'B' ? '#FFB74D' : '#FF5252';
           tr.innerHTML =
-            '<td style="font-size:12px;color:#94A3B8">' + dateStr + '</td>' +
+            '<td style="font-size:12px;color:#8B9DAF">' + dateStr + '</td>' +
             '<td style="font-size:12px">' + (s.room || '—') + '</td>' +
             '<td style="font-size:12px">' + (s.durationMin || 0) + ' min</td>' +
-            '<td style="font-size:12px;color:' + (s.alerts > 0 ? '#f59e0b' : '#22c55e') + '">' + (s.alerts || 0) + '</td>' +
-            '<td style="font-size:12px;color:#22c55e">' + (s.autoRecovered || 0) + '</td>' +
+            '<td style="font-size:12px;color:' + (s.alerts > 0 ? '#FFB74D' : '#00E676') + '">' + (s.alerts || 0) + '</td>' +
+            '<td style="font-size:12px;color:#00E676">' + (s.autoRecovered || 0) + '</td>' +
             '<td style="font-weight:700;color:' + gradeColor + '">' + (s.grade || '—') + '</td>';
           tbody.appendChild(tr);
         });
       }
     } catch (err) {
-      var noWin = '<span style="color:#475569;font-size:13px">No data yet.</span>';
+      var noWin = '<span style="color:#556270;font-size:13px">No data yet.</span>';
       var wsEl = document.getElementById('rpt-windows-schedule');
       if (wsEl) wsEl.innerHTML = noWin;
       var wcEl = document.getElementById('rpt-windows-context-chart');
       if (wcEl) wcEl.innerHTML = noWin;
       var wsTbody = document.getElementById('rpt-sessions-tbody');
-      if (wsTbody) wsTbody.innerHTML = '<tr><td colspan="6" style="color:#475569;text-align:center;padding:20px">No sessions yet.</td></tr>';
+      if (wsTbody) wsTbody.innerHTML = '<tr><td colspan="6" style="color:#556270;text-align:center;padding:20px">No sessions yet.</td></tr>';
     }
   }
 
@@ -8209,7 +8209,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var html = '';
         data.uptimeSummary.forEach(function(d) {
           var pct = parseFloat(d.avgUptime) || 0;
-          var color = pct >= 99 ? '#22c55e' : pct >= 95 ? '#f59e0b' : '#ef4444';
+          var color = pct >= 99 ? '#00E676' : pct >= 95 ? '#FFB74D' : '#FF5252';
           html += '<div class="rpt-health-card">' +
             '<div class="rpt-h-uptime" style="color:' + color + '">' + pct + '%</div>' +
             '<div><div class="rpt-h-name">' + escapeHtml(d.device) + '</div>' +
@@ -8218,7 +8218,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         uptimeEl.innerHTML = html;
       } else {
-        uptimeEl.innerHTML = '<div class="card"><div style="color:#475569;text-align:center;padding:20px;font-size:13px">No uptime data available yet.</div></div>';
+        uptimeEl.innerHTML = '<div class="card"><div style="color:#556270;text-align:center;padding:20px;font-size:13px">No uptime data available yet.</div></div>';
       }
 
       // Device incident breakdown
@@ -8227,7 +8227,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var maxInc = Math.max.apply(null, data.devices.map(function(d) { return d.incidents; })) || 1;
         var html = '';
         data.devices.forEach(function(d) {
-          var barColor = d.incidents > 5 ? '#ef4444' : d.incidents > 2 ? '#f59e0b' : '#22c55e';
+          var barColor = d.incidents > 5 ? '#FF5252' : d.incidents > 2 ? '#FFB74D' : '#00E676';
           var trendIcon = d.trend === 'improving' ? '↓' : d.trend === 'declining' ? '↑' : '→';
           html += '<div class="rpt-device-row">' +
             '<div class="rpt-d-label">' + escapeHtml(d.label) + '</div>' +
@@ -8236,7 +8236,7 @@ document.addEventListener('DOMContentLoaded', function() {
             '<span class="rpt-trend-arrow ' + d.trend + '">' + trendIcon + ' ' + d.trend + '</span>' +
           '</div>';
           if (d.reconnAttempts) {
-            html += '<div style="padding:0 0 8px 12px;font-size:11px;color:#64748B">' +
+            html += '<div style="padding:0 0 8px 12px;font-size:11px;color:#6B7280">' +
               'Reconnection: ' + d.reconnSuccesses + '/' + d.reconnAttempts + ' successful' +
               (d.avgReconnMs ? ' · avg ' + Math.round(d.avgReconnMs / 1000) + 's' : '') +
             '</div>';
@@ -8244,14 +8244,14 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         devEl.innerHTML = html;
       } else {
-        devEl.innerHTML = '<span style="color:#475569;font-size:13px">No device incidents in this period.</span>';
+        devEl.innerHTML = '<span style="color:#556270;font-size:13px">No device incidents in this period.</span>';
       }
     } catch (err) {
-      var noHealth = '<span style="color:#475569;font-size:13px">No device health data yet.</span>';
+      var noHealth = '<span style="color:#556270;font-size:13px">No device health data yet.</span>';
       var hdEl = document.getElementById('rpt-health-devices');
       if (hdEl) hdEl.innerHTML = noHealth;
       var huEl = document.getElementById('rpt-health-uptime');
-      if (huEl) huEl.innerHTML = '<div class="card"><div style="color:#475569;text-align:center;padding:20px;font-size:13px">No uptime data available yet.</div></div>';
+      if (huEl) huEl.innerHTML = '<div class="card"><div style="color:#556270;text-align:center;padding:20px;font-size:13px">No uptime data available yet.</div></div>';
     }
   }
 
@@ -8278,7 +8278,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // Actions table
       var tbody = document.getElementById('rpt-ai-actions-tbody');
       if (!data.actions || !data.actions.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">No AI actions recorded yet.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="color:#556270;text-align:center;padding:20px">No AI actions recorded yet.</td></tr>';
       } else {
         tbody.innerHTML = '';
         data.actions.forEach(function(a) {
@@ -8287,11 +8287,11 @@ document.addEventListener('DOMContentLoaded', function() {
           var timeStr = time.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' +
             time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
           tr.innerHTML =
-            '<td style="font-size:12px;white-space:nowrap;color:#94A3B8">' + timeStr + '</td>' +
+            '<td style="font-size:12px;white-space:nowrap;color:#8B9DAF">' + timeStr + '</td>' +
             '<td style="font-size:12px"><span class="severity-badge ' + a.severity + '">' + a.severity + '</span> ' + escapeHtml(a.alertType) + '</td>' +
-            '<td style="font-size:12px;color:#F8FAFC">' + escapeHtml(a.action || '—') + '</td>' +
+            '<td style="font-size:12px;color:#F0F2F4">' + escapeHtml(a.action || '—') + '</td>' +
             '<td><span class="rpt-ai-action-result ' + (a.success ? 'success' : 'failed') + '">' + (a.success ? '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> Success' : '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M18 6 6 18M6 6l12 12"/></svg> Failed') + '</span></td>' +
-            '<td style="font-size:12px;color:#94A3B8">' + (a.durationMs ? (a.durationMs / 1000).toFixed(1) + 's' : '—') + '</td>';
+            '<td style="font-size:12px;color:#8B9DAF">' + (a.durationMs ? (a.durationMs / 1000).toFixed(1) + 's' : '—') + '</td>';
           tbody.appendChild(tr);
         });
       }
@@ -8303,7 +8303,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // Pending issues
       var pendEl = document.getElementById('rpt-ai-pending-list');
       if (!data.pendingIssues || !data.pendingIssues.length) {
-        pendEl.innerHTML = '<span style="color:#22c55e;font-size:13px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> No unresolved issues — all clear!</span>';
+        pendEl.innerHTML = '<span style="color:#00E676;font-size:13px"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00E676" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M20 6 9 17l-5-5"/></svg> No unresolved issues — all clear!</span>';
       } else {
         var html = '';
         data.pendingIssues.forEach(function(p) {
@@ -8313,7 +8313,7 @@ document.addEventListener('DOMContentLoaded', function() {
           html += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(26,46,31,0.5)">' +
             '<span class="severity-badge ' + p.severity + '">' + p.severity + '</span>' +
             '<span style="font-size:12px;flex:1">' + escapeHtml(p.alertType) + '</span>' +
-            '<span style="font-size:11px;color:#94A3B8">' + timeStr + '</span>' +
+            '<span style="font-size:11px;color:#8B9DAF">' + timeStr + '</span>' +
           '</div>';
         });
         pendEl.innerHTML = html;
@@ -8324,9 +8324,9 @@ document.addEventListener('DOMContentLoaded', function() {
       var aiDisabled = document.getElementById('rpt-ai-disabled');
       if (aiDisabled) aiDisabled.style.display = 'none';
       var aiTbody = document.getElementById('rpt-ai-actions-tbody');
-      if (aiTbody) aiTbody.innerHTML = '<tr><td colspan="5" style="color:#475569;text-align:center;padding:20px">No AI activity data yet.</td></tr>';
+      if (aiTbody) aiTbody.innerHTML = '<tr><td colspan="5" style="color:#556270;text-align:center;padding:20px">No AI activity data yet.</td></tr>';
       var aiPending = document.getElementById('rpt-ai-pending-list');
-      if (aiPending) aiPending.innerHTML = '<span style="color:#475569;font-size:13px">No data yet.</span>';
+      if (aiPending) aiPending.innerHTML = '<span style="color:#556270;font-size:13px">No data yet.</span>';
       // Clear KPI values
       ['rpt-ai-total', 'rpt-ai-success', 'rpt-ai-pending', 'rpt-ai-avg-time'].forEach(function(id) {
         var el = document.getElementById(id); if (el) el.textContent = '—';
