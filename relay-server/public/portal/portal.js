@@ -8356,4 +8356,333 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('ai-triage-sensitivity-val').textContent = this.value;
   });
 
+  // ══════════════════════════════════════════════════════════════════
+  // UX OVERHAUL — Simple/Advanced Mode, Readiness, Navigation
+  // ══════════════════════════════════════════════════════════════════
+
+  // ── View Mode Toggle (Simple / Advanced) ──────────────────────────
+  var _viewMode = localStorage.getItem('tally_view_mode') || 'simple';
+
+  function applyViewMode() {
+    var label = document.getElementById('view-mode-label');
+    if (_viewMode === 'advanced') {
+      document.body.classList.add('advanced-mode');
+      if (label) label.textContent = 'Advanced';
+    } else {
+      document.body.classList.remove('advanced-mode');
+      if (label) label.textContent = 'Simple';
+    }
+  }
+
+  function toggleViewMode() {
+    _viewMode = _viewMode === 'simple' ? 'advanced' : 'simple';
+    localStorage.setItem('tally_view_mode', _viewMode);
+    applyViewMode();
+  }
+  window.toggleViewMode = toggleViewMode;
+  applyViewMode();
+
+  // ── Nav More Toggle ───────────────────────────────────────────────
+  function toggleMoreNav() {
+    var toggle = document.getElementById('nav-more-toggle');
+    var items = document.getElementById('nav-more-items');
+    if (!toggle || !items) return;
+    toggle.classList.toggle('open');
+    items.classList.toggle('open');
+    localStorage.setItem('tally_nav_more_open', items.classList.contains('open') ? '1' : '0');
+  }
+  window.toggleMoreNav = toggleMoreNav;
+
+  // Auto-expand More section if a child page is active, or from localStorage
+  (function() {
+    var items = document.getElementById('nav-more-items');
+    var toggle = document.getElementById('nav-more-toggle');
+    if (!items || !toggle) return;
+    var hasActive = items.querySelector('.nav-item.active');
+    var stored = localStorage.getItem('tally_nav_more_open');
+    if (hasActive || stored === '1') {
+      toggle.classList.add('open');
+      items.classList.add('open');
+    }
+  })();
+
+  // ── Church-Friendly Device Names ──────────────────────────────────
+  var FRIENDLY_NAMES = {
+    'ATEM Switcher': 'Video Switcher',
+    'atem': 'Video Switcher',
+    'OBS Studio': 'Streaming Software',
+    'OBS': 'Streaming Software',
+    'obs': 'Streaming Software',
+    'vMix': 'Production Software',
+    'vmix': 'Production Software',
+    'Stream': 'Live Stream',
+    'Recording': 'Recording',
+    'Audio': 'Sound',
+    'HyperDeck': 'Video Recorder',
+    'ProPresenter': 'Presentation Slides',
+    'Resolume': 'Visual Effects',
+    'VideoHub': 'Video Router',
+    'PTZ': 'Camera',
+    'Companion': 'Button Control',
+    'Encoder': 'Stream Encoder',
+    'Streaming Encoder': 'Stream Encoder',
+  };
+
+  var DEVICE_ICONS = {
+    'Video Switcher': '🎬',
+    'Streaming Software': '📡',
+    'Production Software': '🖥',
+    'Live Stream': '📺',
+    'Recording': '⏺',
+    'Sound': '🔊',
+    'Video Recorder': '💾',
+    'Presentation Slides': '📊',
+    'Visual Effects': '✨',
+    'Video Router': '🔀',
+    'Camera': '📷',
+    'Button Control': '🎛',
+    'Stream Encoder': '📡',
+  };
+
+  function friendlyDeviceName(rawName) {
+    if (!rawName) return rawName;
+    // Check exact match first
+    if (FRIENDLY_NAMES[rawName]) return FRIENDLY_NAMES[rawName];
+    // Check prefix matches (for "Audio (XLR)" → "Sound (XLR)", etc.)
+    for (var key in FRIENDLY_NAMES) {
+      if (rawName.startsWith(key)) {
+        return FRIENDLY_NAMES[key] + rawName.substring(key.length);
+      }
+    }
+    return rawName;
+  }
+
+  function friendlyStatusText(status) {
+    switch (status) {
+      case 'connected': return 'Ready';
+      case 'disconnected': return 'Not Connected';
+      case 'streaming': return 'Live';
+      case 'live': return 'Live';
+      case 'recording': return 'Recording';
+      case 'off-air': return 'Standby';
+      case 'muted': return 'Muted';
+      case 'warning': return 'Needs Attention';
+      case 'ok': return 'Ready';
+      default: return status || 'Unknown';
+    }
+  }
+
+  function statusClass(status) {
+    switch (status) {
+      case 'connected': case 'ok': return 'ready';
+      case 'streaming': case 'live': case 'recording': return 'ready';
+      case 'muted': case 'warning': return 'warning';
+      case 'disconnected': return 'off';
+      case 'off-air': return 'off';
+      default: return 'off';
+    }
+  }
+
+  // ── Readiness Hero ────────────────────────────────────────────────
+  function updateReadinessHero(rows, isOffline) {
+    var hero = document.getElementById('readiness-hero');
+    var icon = document.getElementById('readiness-icon');
+    var title = document.getElementById('readiness-title');
+    var subtitle = document.getElementById('readiness-subtitle');
+    var badge = document.getElementById('readiness-badge');
+    if (!hero) return;
+
+    if (isOffline) {
+      hero.className = 'readiness-hero offline';
+      icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="32" height="32"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>';
+      title.textContent = 'Desktop App Offline';
+      subtitle.textContent = 'Connect the Tally desktop app to monitor your equipment';
+      badge.textContent = '';
+      badge.className = 'readiness-badge';
+      return;
+    }
+
+    if (!rows || rows.length === 0) {
+      hero.className = 'readiness-hero offline';
+      title.textContent = 'No Equipment Found';
+      subtitle.textContent = 'Set up your equipment on the Equipment page';
+      badge.textContent = '';
+      badge.className = 'readiness-badge';
+      return;
+    }
+
+    var errors = 0, warnings = 0, ready = 0, total = rows.length;
+    rows.forEach(function(r) {
+      var st = r[1];
+      if (st === 'disconnected') errors++;
+      else if (st === 'muted' || st === 'warning') warnings++;
+      else ready++;
+    });
+
+    if (errors > 0) {
+      hero.className = 'readiness-hero error';
+      icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="32" height="32"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>';
+      title.textContent = errors === 1 ? '1 device needs attention' : errors + ' devices need attention';
+      subtitle.textContent = 'Check your equipment before the next service';
+      badge.textContent = errors + ' issue' + (errors > 1 ? 's' : '');
+      badge.className = 'readiness-badge badge-red';
+    } else if (warnings > 0) {
+      hero.className = 'readiness-hero warning';
+      icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="32" height="32"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>';
+      title.textContent = 'Almost Ready';
+      subtitle.textContent = warnings + ' item' + (warnings > 1 ? 's' : '') + ' to review';
+      badge.textContent = 'Review';
+      badge.className = 'readiness-badge badge-yellow';
+    } else {
+      hero.className = 'readiness-hero ready';
+      icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="32" height="32"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>';
+      title.textContent = 'Everything Looks Good';
+      subtitle.textContent = 'All ' + total + ' systems are ready';
+      badge.textContent = 'Ready';
+      badge.className = 'readiness-badge badge-green';
+    }
+  }
+
+  // ── Needs Attention Banner ────────────────────────────────────────
+  function updateNeedsAttention(rows) {
+    var container = document.getElementById('needs-attention');
+    var itemsEl = document.getElementById('needs-attention-items');
+    var titleEl = document.getElementById('needs-attention-title');
+    if (!container || !itemsEl) return;
+
+    var issues = [];
+    if (rows) {
+      rows.forEach(function(r) {
+        var name = friendlyDeviceName(r[0]);
+        var st = r[1];
+        if (st === 'disconnected') {
+          issues.push({ text: name + ' is not connected', level: 'error' });
+        } else if (st === 'muted') {
+          issues.push({ text: name + ' is muted', level: 'warn' });
+        } else if (st === 'warning') {
+          issues.push({ text: name + ' needs attention', level: 'warn' });
+        }
+      });
+    }
+
+    if (issues.length === 0) {
+      container.style.display = 'none';
+      return;
+    }
+
+    container.style.display = 'block';
+    if (titleEl) titleEl.textContent = issues.length + ' thing' + (issues.length > 1 ? 's' : '') + ' need' + (issues.length === 1 ? 's' : '') + ' your attention';
+    itemsEl.innerHTML = issues.map(function(item) {
+      return '<div class="needs-attention-item"><span class="na-dot ' + item.level + '"></span><span>' + item.text + '</span></div>';
+    }).join('');
+  }
+
+  // ── Simplified Equipment List ─────────────────────────────────────
+  function updateSimpleEquipmentList(rows) {
+    var list = document.getElementById('equipment-simple-list');
+    if (!list) return;
+
+    if (!rows || rows.length === 0) {
+      list.innerHTML = '<div class="equip-empty-state"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="40" height="40"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg><div>All systems ready</div></div>';
+      return;
+    }
+
+    var html = '';
+    rows.forEach(function(r, i) {
+      var rawName = r[0];
+      var status = r[1];
+      var version = r[2]; // {text, outdated} or null
+      var detail = r[3]; // string or null
+      var name = friendlyDeviceName(rawName);
+      var icon = DEVICE_ICONS[name] || '⚙';
+      var stClass = statusClass(status);
+      var stText = friendlyStatusText(status);
+      var detailHtml = '';
+      if (detail) {
+        detailHtml = '<div class="equip-simple-detail" id="equip-detail-' + i + '">' + detail + '</div>';
+      }
+
+      html += '<div class="equip-simple-row" data-detail="equip-detail-' + i + '" onclick="toggleEquipDetail(this)">'
+        + '<div class="equip-simple-icon">' + icon + '</div>'
+        + '<div class="equip-simple-name">' + name + '</div>'
+        + '<div class="equip-simple-status ' + stClass + '"><span class="es-dot"></span> ' + stText + '</div>'
+        + (detail ? '<svg class="equip-simple-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>' : '')
+        + '</div>'
+        + detailHtml;
+    });
+    list.innerHTML = html;
+  }
+
+  window.toggleEquipDetail = function(row) {
+    var detailId = row.getAttribute('data-detail');
+    var detail = document.getElementById(detailId);
+    if (!detail) return;
+    row.classList.toggle('expanded');
+    detail.classList.toggle('open');
+  };
+
+  // ── Hook into loadOverview to update new UX components ─────────────
+  // We monkey-patch after the existing loadOverview runs by observing
+  // the equipment table body changes.
+  var _origLoadOverview = window.loadOverview || loadOverview;
+  var _eqObserver = new MutationObserver(function() {
+    // Read the equipment rows from the table that loadOverview just populated
+    var tbody = document.getElementById('equipment-tbody');
+    if (!tbody) return;
+    var trs = tbody.querySelectorAll('tr');
+    var rows = [];
+    trs.forEach(function(tr) {
+      var tds = tr.querySelectorAll('td');
+      if (tds.length < 4) return; // skip loading/placeholder rows
+      var name = tds[0].textContent.trim();
+      var statusTd = tds[1];
+      var statusText = statusTd.textContent.trim().toLowerCase();
+      // Map status badge text to status keys
+      var st = 'disconnected';
+      if (statusText.indexOf('streaming') >= 0 || statusText.indexOf('live') >= 0) st = 'streaming';
+      else if (statusText.indexOf('recording') >= 0) st = 'recording';
+      else if (statusText.indexOf('connected') >= 0 || statusText.indexOf('ok') >= 0 || statusText.indexOf('ready') >= 0) st = 'connected';
+      else if (statusText.indexOf('muted') >= 0) st = 'muted';
+      else if (statusText.indexOf('warning') >= 0 || statusText.indexOf('silence') >= 0) st = 'warning';
+      else if (statusText.indexOf('off-air') >= 0 || statusText.indexOf('standby') >= 0) st = 'off-air';
+
+      var version = tds[2] ? tds[2].textContent.trim() : null;
+      var detail = tds[3] ? tds[3].textContent.trim() : null;
+      if (detail === '—' || detail === '') detail = null;
+      rows.push([name, st, version ? { text: version } : null, detail]);
+    });
+
+    updateReadinessHero(rows, false);
+    updateNeedsAttention(rows);
+    updateSimpleEquipmentList(rows);
+  });
+
+  // Start observing
+  var _eqTbody = document.getElementById('equipment-tbody');
+  if (_eqTbody) {
+    _eqObserver.observe(_eqTbody, { childList: true, subtree: true });
+  }
+
+  // Also handle offline state: observe the stat-status-text for "Offline"
+  var _statEl = document.getElementById('stat-status-text');
+  if (_statEl) {
+    new MutationObserver(function() {
+      if (_statEl.textContent.trim() === 'Offline') {
+        updateReadinessHero(null, true);
+        updateNeedsAttention(null);
+        var list = document.getElementById('equipment-simple-list');
+        if (list) list.innerHTML = '<div class="equip-empty-state" style="color:var(--text-muted)">Desktop app is offline</div>';
+      }
+    }).observe(_statEl, { childList: true, characterData: true, subtree: true });
+  }
+
+  // ── Wire new actions in delegated handler ─────────────────────────
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    var action = btn.dataset.action;
+    if (action === 'toggleViewMode') toggleViewMode();
+    if (action === 'toggleMoreNav') toggleMoreNav();
+  });
+
 });
