@@ -78,6 +78,48 @@ function getRequestedRoomContext(req, churches) {
   };
 }
 
+/**
+ * Filter pre-service check items by room_equipment config.
+ * Same denylist approach as the portal status filtering: remove checks for
+ * equipment types that are NOT configured for this room.
+ * Also converts the Camera Inputs "0/0" check to a warning (known ATEM limitation).
+ */
+function filterChecksByRoomEquipment(checks, roomId, churchId, db) {
+  if (!Array.isArray(checks)) return checks;
+
+  // Camera Inputs "0/0" is a known false-positive — convert to warning/pass
+  checks = checks.map(c => {
+    if (/camera\s*inputs/i.test(c.name) && /0\/0/i.test(c.detail)) {
+      return { ...c, pass: true, detail: c.detail + ' (informational — ATEM camera detection is limited)' };
+    }
+    return c;
+  });
+
+  if (!roomId || !db) return checks;
+  try {
+    const eqRow = db.prepare('SELECT equipment FROM room_equipment WHERE room_id = ? AND church_id = ?').get(roomId, churchId);
+    if (!eqRow) return checks; // no config = show all
+    const eq = JSON.parse(eqRow.equipment);
+
+    return checks.filter(c => {
+      const n = c.name.toLowerCase();
+      if (n.includes('atem') || n.includes('switcher'))                     return !!eq.atemIp;
+      if (n.includes('obs'))                                                return !!eq.obsUrl;
+      if (n.includes('vmix'))                                               return !!eq.vmix?.host;
+      if (n.includes('audio') || n.includes('mixer') || n.includes('console') || n === 'main output')
+                                                                            return !!(eq.mixer?.type || eq.mixer?.host);
+      if (n.includes('propresenter'))                                       return !!eq.proPresenter?.host;
+      if (n.includes('resolume'))                                           return !!eq.resolume?.host;
+      if (n.includes('encoder'))                                            return !!(eq.encoderType || eq.encoderHost);
+      if (n.includes('companion'))                                          return !!eq.companionUrl;
+      if (n.includes('camera') || n.includes('input'))                      return !!(eq.ptz?.length);
+      if (n.includes('hyperdeck'))                                          return !!(eq.hyperdecks?.length);
+      if (n.includes('videohub'))                                           return !!(eq.videoHubs?.length);
+      return true; // unknown check type — keep it
+    });
+  } catch { return checks; }
+}
+
 // ─── JWT helpers ───────────────────────────────────────────────────────────────
 
 function issueChurchToken(churchId, jwtSecret) {
@@ -1933,12 +1975,26 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           'SELECT * FROM preservice_check_results WHERE church_id = ? AND instance_name = ? ORDER BY created_at DESC LIMIT 1'
         ).get(req.church.churchId, instanceName);
       }
-      if (!row && !roomId) {
+      // Fallback: query by room_id if instance lookup missed, or no instance mapping
+      if (!row && roomId) {
+        row = db.prepare(
+          'SELECT * FROM preservice_check_results WHERE church_id = ? AND room_id = ? ORDER BY created_at DESC LIMIT 1'
+        ).get(req.church.churchId, roomId);
+      }
+      if (!row) {
         row = db.prepare(
           'SELECT * FROM preservice_check_results WHERE church_id = ? ORDER BY created_at DESC LIMIT 1'
         ).get(req.church.churchId);
       }
       if (!row) return res.json(null);
+      // Filter checks by room equipment config
+      if (roomId) {
+        try {
+          const checks = JSON.parse(row.checks_json || '[]');
+          const filtered = filterChecksByRoomEquipment(checks, roomId, req.church.churchId, db);
+          row = { ...row, checks_json: JSON.stringify(filtered) };
+        } catch { /* return unfiltered */ }
+      }
       res.json(row);
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });
@@ -1953,6 +2009,12 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       const instanceName = resolveRoomInstance(req, churches) || null;
       const result = await preServiceCheck.runManualCheck(req.church.churchId, instanceName);
       if (!result) return res.json({ result: null, message: 'Client offline or no response' });
+      // Filter checks by room equipment config
+      const roomId = getEffectiveRoomId(req);
+      if (roomId && result.checks) {
+        result.checks = filterChecksByRoomEquipment(result.checks, roomId, req.church.churchId, db);
+        result.pass = result.checks.every(c => c.pass);
+      }
       res.json({ result });
     } catch (e) {
       res.status(500).json({ error: safeErrorMessage(e) });

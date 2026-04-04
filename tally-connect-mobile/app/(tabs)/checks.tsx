@@ -278,8 +278,9 @@ export default function PreServiceChecksScreen() {
         api<PreServiceResult | null>(`/api/church/preservice-check${roomQuery}`, { signal }).catch((e) => { if (e.name === 'AbortError') throw e; return null; }),
         api<RundownStatus>(`/api/church/rundown/status${roomQuery}`, { signal }).catch((e) => { if (e.name === 'AbortError') throw e; return { active: false }; }),
       ]);
-      setCheckResult(checkRes);
-      setRundown(rundownRes);
+      // Only update state with non-null results to preserve manual check data across refreshes
+      if (checkRes !== null) setCheckResult(checkRes);
+      if (rundownRes) setRundown(rundownRes);
       setLastFetched(new Date().toISOString());
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
