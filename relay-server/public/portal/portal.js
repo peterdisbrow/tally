@@ -1230,6 +1230,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             ? ((encoderLive || obsStreaming) ? 'ok' : 'connected')
           : 'disconnected';
         const audioLabel = 'Audio' + (audioViaAtem && audioPortLabel ? audioPortLabel : '');
+        const audioSourceName = audioViaAtem ? 'ATEM Audio' : (status.mixer ? (status.mixer.name || status.mixer.type || null) : null);
+        const audioDetailParts = [];
+        if (audioSourceName) audioDetailParts.push(audioSourceName);
+        if (status.mixer && status.mixer.host) audioDetailParts.push(status.mixer.host + (status.mixer.port ? ':' + status.mixer.port : ''));
+        if (audioViaAtem && atemAudioSrcs.length > 0) audioDetailParts.push(atemAudioSrcs[0].portType);
+        if (status.audio && status.audio.monitoring) audioDetailParts.push('Monitoring active');
+        const audioDetail = audioDetailParts.length > 0 ? audioDetailParts.join(' \u00B7 ') : null;
+        window._audioSourceName = audioSourceName || null;
 
         // ── Version checking helpers ──────────────────────────────────────────
         var MIN_VERS = {obs:'30.0',proPresenter:'7.14',vmix:'27.0',atem_protocol:'2.30',encoder_birddog:'6.0',encoder_teradek:'4.0',encoder_epiphan:'4.24',mixer_behringer:'4.0'};
@@ -1321,7 +1329,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           rows.push(['Recording', isRecording ? 'recording' : 'stopped', null, null]);
         }
         if (mixerConnected || audioViaAtem || (status.audio && status.audio.silenceDetected)) {
-          rows.push([audioLabel, audioStatus, verInfo(mixerVer, mixerVerType), null]);
+          rows.push([audioLabel, audioStatus, verInfo(mixerVer, mixerVerType), audioDetail]);
         }
         // Dynamic device rows — only show if the device exists in status
         const hd = status.hyperdeck || status.hyperDeck;
@@ -8641,6 +8649,10 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Device Subtitle (actual product/model name) ────────────────────
   function deviceSubtitle(rawName, friendlyName, versionText) {
     var ver = (versionText && versionText !== 'Connected' && versionText !== '—') ? versionText : null;
+    // Audio/Sound row: use the stored audio source name as subtitle
+    if (friendlyName.indexOf('Sound') === 0 && window._audioSourceName) {
+      return ver ? window._audioSourceName + ' \u00B7 ' + ver : window._audioSourceName;
+    }
     // When friendly name differs from raw name, the raw name IS the product name
     if (friendlyName !== rawName) {
       return ver ? rawName + ' \u00B7 ' + ver : rawName;
