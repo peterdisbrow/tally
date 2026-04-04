@@ -71,7 +71,7 @@ const en = {
   'label.incidents': 'Incidents',
 
   // Friendly metric descriptions (for simple mode)
-  'friendly.bitrate': 'Upload Speed',
+  'friendly.bitrate': 'Bitrate',
   'friendly.fps': 'Frame Rate',
   'friendly.cpu': 'Processor Load',
   'friendly.ram': 'Memory Usage',
@@ -211,7 +211,7 @@ const es: Record<keyof typeof en, string> = {
   'label.incidents': 'Incidentes',
 
   // Friendly metric descriptions
-  'friendly.bitrate': 'Velocidad de subida',
+  'friendly.bitrate': 'Bitrate',
   'friendly.fps': 'Cuadros por segundo',
   'friendly.cpu': 'Carga del procesador',
   'friendly.ram': 'Uso de memoria',

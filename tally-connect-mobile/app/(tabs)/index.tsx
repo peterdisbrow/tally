@@ -626,7 +626,7 @@ const FRIENDLY_LABELS: Record<string, string> = {
   'RAM': 'Memory Usage',
   'Disk': 'Storage',
   'FPS': 'Frame Rate',
-  'Bitrate': 'Upload Speed',
+  'Bitrate': 'Bitrate',
   'Dropped': 'Skipped Frames',
   'Congestion': 'Network Congestion',
   'Cache Used': 'Buffer Usage',
