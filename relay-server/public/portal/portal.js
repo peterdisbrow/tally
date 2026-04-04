@@ -1089,6 +1089,23 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         await loadOverviewRoomSelector();
         const d = await api('GET', '/api/church/me' + roomParam());
         profileData = d;
+
+        // Show/hide data cards based on whether the desktop app has ever connected.
+        // New users see only the onboarding checklist, Quick Info, and a "Get Connected" prompt.
+        var hasEverConnected = !!d.onboarding_app_connected_at;
+        var _gcCard = document.getElementById('get-connected-card');
+        var _eqCard = document.getElementById('equipment-status-card');
+        var _pscCard = document.getElementById('preservice-card-dashboard');
+        var _rundownCard = document.getElementById('rundown-card');
+        var _actFeedCard = document.getElementById('activity-feed-card');
+        var _pfCard = document.getElementById('pf-card');
+        if (_gcCard) _gcCard.style.display = hasEverConnected ? 'none' : 'block';
+        if (_eqCard) _eqCard.style.display = hasEverConnected ? '' : 'none';
+        if (_pscCard) _pscCard.style.display = hasEverConnected ? '' : 'none';
+        if (_rundownCard) _rundownCard.style.display = hasEverConnected ? '' : 'none';
+        if (_actFeedCard) _actFeedCard.style.display = hasEverConnected ? '' : 'none';
+        if (_pfCard) _pfCard.style.display = hasEverConnected ? '' : 'none';
+
         document.getElementById('stat-tds').textContent = (d.tds || []).length;
         document.getElementById('registered-date').textContent = d.registeredAt ? new Date(d.registeredAt).toLocaleDateString() : '—';
         const tierNames = { connect: 'Connect', plus: 'Plus', pro: 'Pro', managed: 'Enterprise', event: 'Event' };
@@ -1120,13 +1137,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var statusDot = document.getElementById('stat-status-dot');
           if (statusText) { statusText.textContent = 'Offline'; statusText.style.color = '#94A3B8'; }
           if (statusDot) { statusDot.style.background = '#ef4444'; }
-          // Still load sub-cards (they may have historical data)
+          // Load sub-cards only if app has ever connected (historical data may exist)
           loadScheduleOverview();
           loadIncidents();
-          loadPreServiceCheck();
-          loadRundown();
-          loadActivityFeed();
-          loadProblems();
+          if (hasEverConnected) {
+            loadPreServiceCheck();
+            loadRundown();
+            loadActivityFeed();
+            loadProblems();
+          }
           return;
         }
 
@@ -1461,17 +1480,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // ── Audio health card ────────────────────────────────────────────────
         updateAudioHealthCard(status, audioViaAtem);
 
-        // ── Pre-service check card ──────────────────────────────────────────
-        loadPreServiceCheck();
-
-        // ── Service rundown ──────────────────────────────────────────────────
-        loadRundown();
-
-        // ── Activity feed ────────────────────────────────────────────────────
-        loadActivityFeed();
-
-        // ── Tally Engineer diagnostics ──────────────────────────────────────
-        loadProblems();
+        // ── Pre-service check, rundown, activity feed, diagnostics ─────────
+        // Only loaded after the desktop app has connected at least once.
+        if (hasEverConnected) {
+          loadPreServiceCheck();
+          loadRundown();
+          loadActivityFeed();
+          loadProblems();
+        }
 
         // Room selector is now populated from DB in loadOverviewRoomSelector()
       } catch(e) {
