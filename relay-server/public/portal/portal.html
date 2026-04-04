@@ -507,17 +507,7 @@
         </div>
         <div id="schedule-overview-body" style="font-size:13px;color:#8B9DAF">Loading schedule…</div>
       </div>
-      <div class="card advanced-only">
-        <div class="card-title" data-i18n="overview.quickinfo.title">Quick Info</div>
-        <table>
-          <tbody>
-            <tr><td style="color:#8B9DAF;width:160px" data-i18n="overview.quickinfo.church_id">Church ID</td><td><code style="font-size:12px;color:#556270" id="church-id-display">{{CHURCH_ID}}</code></td></tr>
-            <tr><td style="color:#8B9DAF" data-i18n="overview.quickinfo.registered">Registered</td><td id="registered-date" style="color:#F0F2F4">—</td></tr>
-            <tr><td style="color:#8B9DAF" data-i18n="overview.quickinfo.plan">Plan</td><td id="plan-name" style="color:#F0F2F4">—</td></tr>
-            <tr><td style="color:#8B9DAF" data-i18n="overview.quickinfo.rooms">Rooms</td><td id="plan-room-limit" style="color:#F0F2F4">—</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- Quick Info moved to Billing page -->
     </div>
 
     <!-- PROFILE -->
@@ -1515,6 +1505,18 @@
       <p class="help-box"><strong>Plan tiers:</strong> <strong style="color:#00E676">Connect</strong> (free — monitoring + alerts), <strong style="color:#00E676">Plus</strong> (faster response + Telegram bot), <strong style="color:#00E676">Pro</strong> (AI Autopilot + Planning Center sync), <strong style="color:#00E676">Enterprise</strong> (dedicated support with 15-min response SLA).</p>
       <div id="billing-content">
         <div style="color:#556270;text-align:center;padding:30px">Loading billing info...</div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-title" data-i18n="overview.quickinfo.title">Quick Info</div>
+        <table>
+          <tbody>
+            <tr><td style="color:#8B9DAF;width:160px" data-i18n="overview.quickinfo.church_id">Church ID</td><td><code style="font-size:12px;color:#556270" id="church-id-display">{{CHURCH_ID}}</code></td></tr>
+            <tr><td style="color:#8B9DAF" data-i18n="overview.quickinfo.registered">Registered</td><td id="registered-date" style="color:#F0F2F4">—</td></tr>
+            <tr><td style="color:#8B9DAF" data-i18n="overview.quickinfo.plan">Plan</td><td id="plan-name" style="color:#F0F2F4">—</td></tr>
+            <tr><td style="color:#8B9DAF" data-i18n="overview.quickinfo.rooms">Rooms</td><td id="plan-room-limit" style="color:#F0F2F4">—</td></tr>
+          </tbody>
+        </table>
       </div>
 
       <div style="margin-top:32px;padding-top:24px;border-top:1px solid #0d3320">
