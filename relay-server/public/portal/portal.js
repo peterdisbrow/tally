@@ -4,6 +4,56 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     let notifData = {};
     let supportTriage = null;
 
+    // ── SVG Icon Library ───────────────────────────────────────────────────────
+    // Polished inline SVG icons replacing all emoji usage. Use currentColor to
+    // inherit text/parent color. All icons are 16×16 unless noted.
+    var SVG = {
+      // Section headers / navigation
+      clipboard: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg>',
+      wrench: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M9.66 1.2a5 5 0 0 0-5.956 6.437L1.146 10.2A.5.5 0 0 0 1 10.56V14a.5.5 0 0 0 .5.5h3.44a.5.5 0 0 0 .354-.146l2.563-2.558A5 5 0 0 0 13.8 6.34l-2.122 2.121a2.5 2.5 0 0 1-3.536-3.536L10.264 2.8A4.978 4.978 0 0 0 9.66 1.2Z" clip-rule="evenodd"/></svg>',
+      refresh: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37A5.5 5.5 0 0 0 2.5 8a.75.75 0 0 1-1.5 0 7 7 0 0 1 11.964-4.953V2.477a.75.75 0 0 1 .75-.75h.122ZM2.164 13.523a.75.75 0 0 1-.75-.75v-3.182a.75.75 0 0 1 .75-.75h3.182a.75.75 0 0 1 0 1.5h-1.37A5.5 5.5 0 0 0 13.5 8a.75.75 0 0 1 1.5 0 7 7 0 0 1-11.964 4.953v.57a.75.75 0 0 1-.75.75h-.122Z" clip-rule="evenodd"/></svg>',
+      mixer: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path d="M3 3.5a.5.5 0 0 1 1 0V6a2 2 0 0 1 0 4v2.5a.5.5 0 0 1-1 0V10a2 2 0 0 1 0-4V3.5ZM8.5 3.5a.5.5 0 0 1 1 0v1A2 2 0 0 1 9.5 8.5v4a.5.5 0 0 1-1 0v-4a2 2 0 0 1 0-4v-1ZM12.5 5.5a.5.5 0 0 1 1 0v2a2 2 0 0 1 0 4v1a.5.5 0 0 1-1 0v-1a2 2 0 0 1 0-4v-2Z"/></svg>',
+      speaker: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z"/></svg>',
+      bolt: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path d="M9.5 1.5 5 9h4l-2.5 5.5L13 7H9l.5-5.5Z"/></svg>',
+      link: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M8.914 6.025a3.5 3.5 0 0 1 0 4.95l-2 2a3.5 3.5 0 0 1-4.95-4.95l1.06-1.06a.75.75 0 0 1 1.06 1.06l-1.06 1.06a2 2 0 0 0 2.828 2.828l2-2a2 2 0 0 0 0-2.828.75.75 0 1 1 1.06-1.06ZM7.086 9.975a3.5 3.5 0 0 1 0-4.95l2-2a3.5 3.5 0 0 1 4.95 4.95l-1.06 1.06a.75.75 0 0 1-1.06-1.06l1.06-1.06a2 2 0 0 0-2.828-2.828l-2 2a2 2 0 0 0 0 2.828.75.75 0 1 1-1.06 1.06Z" clip-rule="evenodd"/></svg>',
+      siren: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M8 1a.75.75 0 0 1 .75.75V3a.75.75 0 0 1-1.5 0V1.75A.75.75 0 0 1 8 1ZM3.5 8a4.5 4.5 0 1 1 9 0v3.5h-9V8Zm-1.5 4a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1H13v1a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 3 13.5v-1h-.5a.5.5 0 0 1-.5-.5Zm12-3.25a.75.75 0 0 0 0-1.5h-1.25a.75.75 0 0 0 0 1.5H14ZM3.25 7.25a.75.75 0 0 0 0 1.5H2a.75.75 0 0 0 0-1.5h1.25Z" clip-rule="evenodd"/></svg>',
+      chat: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h11A1.5 1.5 0 0 1 15 3.5v7a1.5 1.5 0 0 1-1.5 1.5H9.707l-2.853 2.854A.5.5 0 0 1 6 14.5V12H2.5A1.5 1.5 0 0 1 1 10.5v-7Z"/></svg>',
+      chart: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path d="M3 2.5a.5.5 0 0 1 .5.5v10a.5.5 0 0 1-1 0V3a.5.5 0 0 1 .5-.5ZM6 5a1 1 0 0 1 1 1v7H5V6a1 1 0 0 1 1-1Zm4-2a1 1 0 0 1 1 1v9H9V4a1 1 0 0 1 1-1Zm4 4a1 1 0 0 1 1 1v5h-2V8a1 1 0 0 1 1-1Z"/></svg>',
+      // Equipment / device type icons
+      satellite: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path d="M5.621 1.485a.75.75 0 0 1 1.06 0l7.834 7.834a.75.75 0 0 1-1.06 1.06L5.62 2.546a.75.75 0 0 1 0-1.06ZM3.21 3.61a.75.75 0 0 1 1.06 0l3.182 3.182a.75.75 0 0 1-1.06 1.06L3.21 4.672a.75.75 0 0 1 0-1.06ZM1.5 8a.75.75 0 0 1 .75-.75h2a.75.75 0 0 1 0 1.5h-2A.75.75 0 0 1 1.5 8ZM.75 10.75a.75.75 0 0 1 .75.75A2.75 2.75 0 0 0 4.25 14.25a.75.75 0 0 1 0 1.5A4.25 4.25 0 0 1 0 11.5a.75.75 0 0 1 .75-.75ZM.75 13.5a.75.75 0 0 1 .75.75 1 1 0 0 0 1 1 .75.75 0 0 1 0 1.5 2.5 2.5 0 0 1-2.5-2.5.75.75 0 0 1 .75-.75Z"/></svg>',
+      floppy: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path d="M3 2a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V4.414a1 1 0 0 0-.293-.707l-1.414-1.414A1 1 0 0 0 11.586 2H11v3a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V2H3Zm5 7a2 2 0 1 0 0 4 2 2 0 0 0 0-4Z"/></svg>',
+      gear: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M6.455 1.45A.5.5 0 0 1 6.952 1h2.096a.5.5 0 0 1 .497.45l.186 1.858a4.996 4.996 0 0 1 1.466.848l1.703-.71a.5.5 0 0 1 .627.222l1.048 1.814a.5.5 0 0 1-.13.672l-1.517 1.148a5.01 5.01 0 0 1 0 1.696l1.516 1.148a.5.5 0 0 1 .13.672l-1.047 1.814a.5.5 0 0 1-.627.222l-1.703-.71c-.436.367-.93.66-1.466.848l-.186 1.858a.5.5 0 0 1-.497.45H6.952a.5.5 0 0 1-.497-.45l-.186-1.858a4.993 4.993 0 0 1-1.466-.848l-1.703.71a.5.5 0 0 1-.627-.222L1.425 12.66a.5.5 0 0 1 .13-.672l1.517-1.148a5.01 5.01 0 0 1 0-1.696L1.555 7.996a.5.5 0 0 1-.13-.672L2.473 5.51a.5.5 0 0 1 .627-.222l1.703.71c.436-.367.93-.66 1.466-.848l.186-1.7ZM8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" clip-rule="evenodd"/></svg>',
+      clapperboard: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M1 3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v2H1V3Zm2.5.5L5 5h2.5L6 3.5H3.5Zm4.5 0L9.5 5H12l-1.5-1.5H8ZM1 6h14v7a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V6Z" clip-rule="evenodd"/></svg>',
+      monitor: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M2 3.5A1.5 1.5 0 0 1 3.5 2h9A1.5 1.5 0 0 1 14 3.5v6a1.5 1.5 0 0 1-1.5 1.5h-3.25v1.5H11a.75.75 0 0 1 0 1.5H5a.75.75 0 0 1 0-1.5h1.75V11H3.5A1.5 1.5 0 0 1 2 9.5v-6Z" clip-rule="evenodd"/></svg>',
+      tv: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path d="M1.5 4A1.5 1.5 0 0 1 3 2.5h10A1.5 1.5 0 0 1 14.5 4v7a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 11V4ZM3 4h10v7H3V4Zm-1.5 9.5a.75.75 0 0 1 .75-.75h11.5a.75.75 0 0 1 0 1.5H2.25a.75.75 0 0 1-.75-.75Z"/></svg>',
+      sparkle: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path d="M8 1.75a.75.75 0 0 1 .692.462l1.41 3.393 3.393 1.41a.75.75 0 0 1 0 1.38l-3.393 1.41-1.41 3.393a.75.75 0 0 1-1.384 0l-1.41-3.393-3.393-1.41a.75.75 0 0 1 0-1.38l3.393-1.41 1.41-3.393A.75.75 0 0 1 8 1.75Z"/></svg>',
+      shuffle: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path d="M1.75 3a.75.75 0 0 0 0 1.5h2.834l3.973 7.474A.75.75 0 0 0 9.22 12.5h3.03v1.25a.5.5 0 0 0 .8.4l2.2-1.65a.5.5 0 0 0 0-.8l-2.2-1.65a.5.5 0 0 0-.8.4V11.5H9.586L5.613 4.026A.75.75 0 0 0 4.95 3.5H1.75Zm10.5 0v1.25a.5.5 0 0 1-.8.4l-.001-.001 2.2-1.65a.5.5 0 0 1 .001-.8l2.2 1.65a.5.5 0 0 1-.8.4V3h-2.8Z"/></svg>',
+      camera: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path d="M6.268 2.562a.5.5 0 0 1 .465-.312h2.534a.5.5 0 0 1 .465.312L10.232 4H13a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h2.768l.5-1.438ZM8 6.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z"/></svg>',
+      record: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><circle cx="8" cy="8" r="5"/></svg>',
+      videocam: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path d="M2 4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4Zm10.293.293a.5.5 0 0 1 .707 0l2.5 2.5a.5.5 0 0 1 .146.353v1.708a.5.5 0 0 1-.146.354l-2.5 2.5a.5.5 0 0 1-.854-.354V4.646a.5.5 0 0 1 .147-.353Z"/></svg>',
+      robot: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="32" height="32" aria-hidden="true" style="vertical-align:middle"><path d="M8 1.75a.75.75 0 0 1 .75.75v.75h2A2.25 2.25 0 0 1 13 5.5v5A2.25 2.25 0 0 1 10.75 12.75h-5.5A2.25 2.25 0 0 1 3 10.5v-5A2.25 2.25 0 0 1 5.25 3.25h2V2.5A.75.75 0 0 1 8 1.75ZM5.5 6.5a1 1 0 1 0 2 0 1 1 0 0 0-2 0Zm4-1a1 1 0 1 0 0 2 1 1 0 0 0 0-2ZM5.5 9.5a.5.5 0 0 0 0 1h5a.5.5 0 0 0 0-1h-5Z"/></svg>',
+      // Status indicators
+      warning: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M6.701 2.25c.577-1 2.02-1 2.598 0l5.196 9a1.5 1.5 0 0 1-1.299 2.25H2.804a1.5 1.5 0 0 1-1.3-2.25l5.197-9ZM8 5a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-2.5A.75.75 0 0 1 8 5Zm0 6.25a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" clip-rule="evenodd"/></svg>',
+      checkCircle: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm3.844-8.791a.75.75 0 0 0-1.188-.918l-3.7 4.79-1.649-1.833a.75.75 0 1 0-1.114 1.004l2.25 2.5a.75.75 0 0 0 1.15-.043l4.25-5.5Z" clip-rule="evenodd"/></svg>',
+      xCircle: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14Zm2.844-9.844a.75.75 0 0 0-1.06-1.06L8 5.878 6.216 4.096a.75.75 0 1 0-1.06 1.06L6.938 6.94 5.156 8.72a.75.75 0 1 0 1.06 1.06L8 7.998l1.784 1.784a.75.75 0 1 0 1.06-1.06L9.062 6.938l1.782-1.782Z" clip-rule="evenodd"/></svg>',
+      check: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clip-rule="evenodd"/></svg>',
+      xMark: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true" style="vertical-align:middle"><path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z"/></svg>',
+      arrowRight: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M2 8a.75.75 0 0 1 .75-.75h8.69L8.97 4.78a.75.75 0 0 1 1.06-1.06l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06l2.47-2.47H2.75A.75.75 0 0 1 2 8Z" clip-rule="evenodd"/></svg>',
+      arrowUp: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="currentColor" width="10" height="10" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M6 1.75a.75.75 0 0 1 .53.22l3.25 3.25a.75.75 0 0 1-1.06 1.06L6.75 4.31V10a.75.75 0 0 1-1.5 0V4.31L3.28 6.28a.75.75 0 0 1-1.06-1.06l3.25-3.25A.75.75 0 0 1 6 1.75Z" clip-rule="evenodd"/></svg>',
+      arrowDown: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" fill="currentColor" width="10" height="10" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M6 10.25a.75.75 0 0 1-.53-.22L2.22 6.78a.75.75 0 0 1 1.06-1.06L5.25 7.69V2a.75.75 0 0 1 1.5 0v5.69l1.97-1.97a.75.75 0 0 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-.53.22Z" clip-rule="evenodd"/></svg>',
+      // Rating
+      star: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="28" height="28" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M8 1.75a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 13.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 7.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327 2.17A.75.75 0 0 1 8 1.75Z" clip-rule="evenodd"/></svg>',
+      starSmall: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M8 1.75a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 13.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 7.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327 2.17A.75.75 0 0 1 8 1.75Z" clip-rule="evenodd"/></svg>',
+      // Feature bullet (diamond)
+      diamond: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="10" height="10" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M8.074 1.064a.75.75 0 0 0-1.148 0l-4.963 5.9a.75.75 0 0 0 0 .972l4.963 5.9a.75.75 0 0 0 1.148 0l4.963-5.9a.75.75 0 0 0 0-.972l-4.963-5.9Z" clip-rule="evenodd"/></svg>',
+      // Misc
+      dotGreen: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8" width="10" height="10" aria-hidden="true" style="vertical-align:middle"><circle cx="4" cy="4" r="4" fill="#00E676"/></svg>',
+      dotRed: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8" width="10" height="10" aria-hidden="true" style="vertical-align:middle"><circle cx="4" cy="4" r="4" fill="#FF5252"/></svg>',
+      dotOrange: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8" width="10" height="10" aria-hidden="true" style="vertical-align:middle"><circle cx="4" cy="4" r="4" fill="#f97316"/></svg>',
+      hookArrow: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true" style="vertical-align:middle"><path fill-rule="evenodd" d="M3 2a.75.75 0 0 1 .75.75v6.5h5.44l-1.97-1.97a.75.75 0 0 1 1.06-1.06l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 1 1-1.06-1.06l1.97-1.97H3.75A.75.75 0 0 1 3 10V2.75A.75.75 0 0 1 3 2Z" clip-rule="evenodd"/></svg>',
+      headphones: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle"><path d="M8 1a7 7 0 0 0-7 7v3.5a2.5 2.5 0 0 0 2.5 2.5H4a1 1 0 0 0 1-1V9a1 1 0 0 0-1-1h-.5A5.5 5.5 0 0 1 8 2.5 5.5 5.5 0 0 1 12.5 8H12a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h.5a2.5 2.5 0 0 0 2.5-2.5V8a7 7 0 0 0-7-7Z"/></svg>',
+    };
+
     // ── Global room context ─────────────────────────────────────────────────────
     // Shared across Overview, Engineer, and other room-scoped pages.
     var _selectedRoomId = new URLSearchParams(window.location.search).get('room') || '';
@@ -146,30 +196,30 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.getting_started': 'Getting Started',
         'overview.setup_progress': 'Complete these steps to finish setup',
         'overview.dismiss': 'Dismiss',
-        'overview.resume_setup': '\ud83d\udccb Resume Setup Guide',
+        'overview.resume_setup': 'Resume Setup Guide',
         'overview.connection': 'Connection',
         'overview.sessions_30d': 'Sessions (30d)',
         'overview.stat_tds': 'Tech Directors',
-        'overview.preservice.title': '\ud83d\udd27 System Health Check',
+        'overview.preservice.title': 'System Health Check',
         'overview.preservice.fix_all': 'Fix All Safe Issues',
         'overview.preservice.run_now': 'Run Check Now',
         'overview.quickinfo.rooms': 'Rooms',
         'overview.equip.title': 'Equipment Status',
-        'overview.equip.refresh': '\u21bb Refresh',
+        'overview.equip.refresh': 'Refresh',
         'overview.stream.title': 'Live Stream',
         'overview.stream.bitrate': 'Bitrate (kbps)',
         'overview.stream.fps': 'FPS',
         'overview.stream.health': 'Health',
         'overview.stream.uptime': 'Uptime',
-        'overview.atem.title': '\ud83c\udfa7 ATEM Switcher',
+        'overview.atem.title': 'ATEM Switcher',
         'overview.atem.program': 'Program',
         'overview.atem.preview': 'Preview',
-        'overview.audio.title': '\ud83d\udd0a Audio Health',
+        'overview.audio.title': 'Audio Health',
         'overview.audio.mute': 'Mute',
         'overview.audio.silence': 'Silence',
         'overview.audio.monitoring': 'Monitoring',
-        'overview.rundown.title': '\ud83d\udccb Service Checklist',
-        'overview.activity.title': '\u26a1 Activity Feed',
+        'overview.rundown.title': 'Service Checklist',
+        'overview.activity.title': 'Activity Feed',
         'overview.engineer.title': 'AI Assistant',
         'overview.schedule.title': 'Service Schedule',
         'overview.quickinfo.title': 'Quick Info',
@@ -204,7 +254,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // AutoPilot
         'autopilot.subtitle': 'Automation rules that fire during your service windows',
         'autopilot.no_rules': 'No rules yet. Click \u201c+ New Rule\u201d to create your first automation.',
-        'autopilot.paused_banner': '\u23f8 AutoPilot is paused \u2014 all rules are suspended.',
+        'autopilot.paused_banner': 'AutoPilot is paused \u2014 all rules are suspended.',
         'autopilot.upgrade_gate_title': 'AutoPilot requires Pro or higher',
         'autopilot.upgrade_gate_body': 'Set up automation rules that run during your service windows \u2014 auto-start recording, switch cameras on slide change, and more.',
         'autopilot.new_rule': '+ New Rule',
@@ -212,15 +262,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'autopilot.resume': 'Resume AutoPilot',
         'autopilot.test': 'Test',
         'autopilot.test.title': 'Test Rule \u2014 Dry Run',
-        'autopilot.test.would_fire': '\u2714 Would fire',
-        'autopilot.test.would_not_fire': '\u2718 Would NOT fire',
+        'autopilot.test.would_fire': 'Would fire',
+        'autopilot.test.would_not_fire': 'Would NOT fire',
         'autopilot.test.actions_header': 'Actions that would execute:',
-        'autopilot.upgrade_to_pro': 'Upgrade to Pro \u2192',
+        'autopilot.upgrade_to_pro': 'Upgrade to Pro',
         // Upgrade modal
         'upgrade.rule_limit_title': 'Rule Limit Reached',
         'upgrade.rule_limit_default': 'Upgrade to add more rules.',
         'upgrade.maybe_later': 'Maybe Later',
-        'upgrade.cta': 'Upgrade Plan \u2192',
+        'upgrade.cta': 'Upgrade Plan',
         // Profile page
         'profile.sub': 'Update your contact information',
         'profile.contact': 'Contact Information',
@@ -241,7 +291,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'profile.update_password': 'Update Password',
         // Tech Directors
         'tds.page_sub': 'People who receive alerts and have TD access',
-        'tds.invite_link': '\ud83d\udd17 Copy Invite Link',
+        'tds.invite_link': 'Copy Invite Link',
         'tds.add_btn': '+ Add TD',
         'tds.modal.title': 'Add Tech Director',
         'tds.modal.add': 'Add TD',
@@ -272,8 +322,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'notif.failover.enable.label': 'Enable auto-recovery',
         'notif.failover.enable.desc': 'Auto-switch to a safe source on confirmed signal loss',
         'notif.failover.save': 'Save Auto-Recovery Settings',
-        'notif.failover.drill.title': '\ud83d\udea8 Alert System Test',
-        'notif.failover.drill.run': '\u25b6 Test Alert System',
+        'notif.failover.drill.title': 'Alert System Test',
+        'notif.failover.drill.run': 'Test Alert System',
         'notif.telegram_card.title': 'Telegram Integration',
         'notif.telegram_chat_id': 'Your Telegram Chat ID',
         // Engineer
@@ -287,7 +337,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'engineer.backup_switcher': 'Backup Switcher',
         'engineer.special_notes': 'Special Notes',
         'engineer.save': 'Save Profile',
-        'engineer.chat.title': '\ud83d\udcac Chat with Tally Engineer',
+        'engineer.chat.title': 'Chat with Tally Engineer',
         'engineer.chat.placeholder': 'Ask Tally Engineer a question...',
         // Guest Access
         'guests.page_sub': 'Temporary tokens for visiting TDs, contractors, or trainers',
@@ -299,7 +349,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'macros.modal.save': 'Save Macro',
         // Sessions
         'sessions.page_sub': 'History of recent live service sessions',
-        'sessions.reports.title': '\ud83d\udcca Service Reports',
+        'sessions.reports.title': 'Service Reports',
         'sessions.reports.auto': 'Auto-generated after each service',
         // Analytics
         'analytics.page_sub': 'Stream health, viewer trends, and equipment performance',
@@ -349,7 +399,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'support.diag.ticket': 'Open Ticket',
         'support.diag.refresh': 'Refresh Tickets',
         'support.platform.title': 'Platform Status',
-        'support.platform.link': 'Open full status page \u2192',
+        'support.platform.link': 'Open full status page',
         'support.tickets.title': 'Support Tickets',
         // Modals & dialogs
         'modal.help.got_it': 'Got it',
@@ -416,7 +466,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'upgrade.connect.body': 'Your Connect plan supports ATEM, OBS, and vMix. Upgrade to Plus for ProPresenter control, live video preview, on-call TD rotation, and 14 more device integrations.',
         'upgrade.plus.headline': 'Automate your Sundays',
         'upgrade.plus.body': 'Upgrade to Pro for AI Autopilot (auto-start streaming and recording when your service window opens), Planning Center sync, and monthly leadership reports.',
-        'upgrade.btn': 'Upgrade to {{tier}} \u2014 {{price}}/mo \u2192',
+        'upgrade.btn': 'Upgrade to {{tier}} \u2014 {{price}}/mo',
         // Referral card
         'referral.title': 'Give a month, get a month',
         'referral.body': 'Share your link with another church. When they create a new account and subscribe, you both get a free month.',
@@ -510,30 +560,30 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'overview.getting_started': 'Primeros Pasos',
         'overview.setup_progress': 'Completa estos pasos para finalizar la configuraci\u00f3n',
         'overview.dismiss': 'Descartar',
-        'overview.resume_setup': '\ud83d\udccb Retomar Gu\u00eda de Configuraci\u00f3n',
+        'overview.resume_setup': 'Retomar Gu\u00eda de Configuraci\u00f3n',
         'overview.connection': 'Conexi\u00f3n',
         'overview.sessions_30d': 'Sesiones (30d)',
         'overview.stat_tds': 'Directores T\u00e9cnicos',
-        'overview.preservice.title': '\ud83d\udd27 Chequeo Pre-Servicio',
+        'overview.preservice.title': 'Chequeo Pre-Servicio',
         'overview.preservice.fix_all': 'Corregir lo que sea seguro',
         'overview.preservice.run_now': 'Checar ahora',
         'overview.quickinfo.rooms': 'Salas',
         'overview.equip.title': 'Estado del Equipo',
-        'overview.equip.refresh': '\u21bb Actualizar',
+        'overview.equip.refresh': 'Actualizar',
         'overview.stream.title': 'Transmisi\u00f3n en Vivo',
         'overview.stream.bitrate': 'Bitrate (kbps)',
         'overview.stream.fps': 'FPS',
         'overview.stream.health': 'Estado',
         'overview.stream.uptime': 'Tiempo Activo',
-        'overview.atem.title': '\ud83c\udfa7 Mezclador ATEM',
+        'overview.atem.title': 'Mezclador ATEM',
         'overview.atem.program': 'Programa',
         'overview.atem.preview': 'Vista Previa',
-        'overview.audio.title': '\ud83d\udd0a Estado de Audio',
+        'overview.audio.title': 'Estado de Audio',
         'overview.audio.mute': 'Silencio',
         'overview.audio.silence': 'Sin Sonido',
         'overview.audio.monitoring': 'Monitoreo',
-        'overview.rundown.title': '\ud83d\udccb Gu\u00ed\u00f3n del Servicio',
-        'overview.activity.title': '\u26a1 Actividad Reciente',
+        'overview.rundown.title': 'Gu\u00ed\u00f3n del Servicio',
+        'overview.activity.title': 'Actividad Reciente',
         'overview.engineer.title': 'AI Assistant',
         'overview.schedule.title': 'Horario de Servicio',
         'overview.quickinfo.title': 'Informaci\u00f3n R\u00e1pida',
@@ -568,7 +618,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // AutoPilot
         'autopilot.subtitle': 'Reglas de automatizaci\u00f3n que se activan durante tus servicios',
         'autopilot.no_rules': 'Sin reglas a\u00fan. Haz clic en \u201c+ Nueva Regla\u201d para crear tu primera automatizaci\u00f3n.',
-        'autopilot.paused_banner': '\u23f8 AutoPilot est\u00e1 pausado \u2014 todas las reglas est\u00e1n suspendidas.',
+        'autopilot.paused_banner': 'AutoPilot est\u00e1 pausado \u2014 todas las reglas est\u00e1n suspendidas.',
         'autopilot.upgrade_gate_title': 'AutoPilot requiere el plan Pro o superior',
         'autopilot.upgrade_gate_body': 'Configura reglas de automatizaci\u00f3n para tus servicios \u2014 inicio autom\u00e1tico de grabaci\u00f3n, cambio de c\u00e1maras en diapositivas, y m\u00e1s.',
         'autopilot.new_rule': '+ Nueva Regla',
@@ -576,15 +626,15 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'autopilot.resume': 'Reanudar AutoPilot',
         'autopilot.test': 'Probar',
         'autopilot.test.title': 'Probar Regla \u2014 Simulaci\u00f3n',
-        'autopilot.test.would_fire': '\u2714 Se activar\u00eda',
-        'autopilot.test.would_not_fire': '\u2718 NO se activar\u00eda',
+        'autopilot.test.would_fire': 'Se activar\u00eda',
+        'autopilot.test.would_not_fire': 'NO se activar\u00eda',
         'autopilot.test.actions_header': 'Acciones que se ejecutar\u00edan:',
-        'autopilot.upgrade_to_pro': 'Actualizar a Pro \u2192',
+        'autopilot.upgrade_to_pro': 'Actualizar a Pro',
         // Upgrade modal
         'upgrade.rule_limit_title': 'L\u00edmite de reglas alcanzado',
         'upgrade.rule_limit_default': 'Actualiza tu plan para agregar m\u00e1s reglas.',
         'upgrade.maybe_later': 'Tal vez luego',
-        'upgrade.cta': 'Actualizar Plan \u2192',
+        'upgrade.cta': 'Actualizar Plan',
         // Profile page
         'profile.sub': 'Actualiza tu informaci\u00f3n de contacto',
         'profile.contact': 'Informaci\u00f3n de Contacto',
@@ -605,7 +655,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'profile.update_password': 'Actualizar Contrase\u00f1a',
         // Tech Directors
         'tds.page_sub': 'Personas que reciben alertas y tienen acceso de DT',
-        'tds.invite_link': '\ud83d\udd17 Copiar Enlace de Invitaci\u00f3n',
+        'tds.invite_link': 'Copiar Enlace de Invitaci\u00f3n',
         'tds.add_btn': '+ Agregar DT',
         'tds.modal.title': 'Agregar Director T\u00e9cnico',
         'tds.modal.add': 'Agregar DT',
@@ -636,8 +686,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'notif.failover.enable.label': 'Activar respaldo de transmisi\u00f3n',
         'notif.failover.enable.desc': 'Cambiar autom\u00e1ticamente a una fuente segura cuando se detecte p\u00e9rdida de se\u00f1al',
         'notif.failover.save': 'Guardar Configuraci\u00f3n',
-        'notif.failover.drill.title': '\ud83d\udea8 Prueba de Respaldo',
-        'notif.failover.drill.run': '\u25b6 Ejecutar Prueba',
+        'notif.failover.drill.title': 'Prueba de Respaldo',
+        'notif.failover.drill.run': 'Ejecutar Prueba',
         'notif.telegram_card.title': 'Integraci\u00f3n con Telegram',
         'notif.telegram_chat_id': 'Tu ID de Chat de Telegram',
         // Engineer
@@ -651,7 +701,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'engineer.backup_switcher': 'Switcher de Respaldo',
         'engineer.special_notes': 'Notas Especiales',
         'engineer.save': 'Guardar Perfil',
-        'engineer.chat.title': '\ud83d\udcac Chatear con Tally Engineer',
+        'engineer.chat.title': 'Chatear con Tally Engineer',
         'engineer.chat.placeholder': 'Preg\u00fantale algo al Tally Engineer...',
         // Guest Access
         'guests.page_sub': 'Tokens temporales para DTs visitantes, contratistas o entrenadores',
@@ -663,7 +713,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'macros.modal.save': 'Guardar Macro',
         // Sessions
         'sessions.page_sub': 'Historial de sesiones de servicio recientes',
-        'sessions.reports.title': '\ud83d\udcca Reportes de Servicio',
+        'sessions.reports.title': 'Reportes de Servicio',
         'sessions.reports.auto': 'Se genera solo despu\u00e9s de cada servicio',
         // Analytics
         'analytics.page_sub': 'Estado del stream, tendencias de audiencia y rendimiento del equipo',
@@ -713,7 +763,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'support.diag.ticket': 'Abrir Ticket',
         'support.diag.refresh': 'Actualizar Tickets',
         'support.platform.title': 'Estado de la Plataforma',
-        'support.platform.link': 'Ver p\u00e1gina de estado completa \u2192',
+        'support.platform.link': 'Ver p\u00e1gina de estado completa',
         'support.tickets.title': 'Tickets de Soporte',
         // Modals & dialogs
         'modal.help.got_it': 'Entendido',
@@ -780,7 +830,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'upgrade.connect.body': 'Tu plan Connect incluye ATEM, OBS y vMix. Actualiza a Plus para control de ProPresenter, vista previa de video en vivo, rotaci\u00f3n de DT de guardia, y 14 integraciones m\u00e1s.',
         'upgrade.plus.headline': 'Automatiza tus domingos',
         'upgrade.plus.body': 'Actualiza a Pro para AI AutoPilot (inicio autom\u00e1tico de transmisi\u00f3n y grabaci\u00f3n al comenzar tu servicio), sincronizaci\u00f3n con Planning Center e informes mensuales de liderazgo.',
-        'upgrade.btn': 'Actualizar a {{tier}} \u2014 {{price}}/mes \u2192',
+        'upgrade.btn': 'Actualizar a {{tier}} \u2014 {{price}}/mes',
         // Referral card
         'referral.title': 'Da un mes, gana un mes',
         'referral.body': 'Comparte tu enlace con otra iglesia. Cuando abran una cuenta nueva y se suscriban, ambos reciben un mes gratis.',
@@ -1355,7 +1405,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               }
             }
             if (varParts.length) {
-              rows.push(['\u00A0\u00A0\u21B3 ' + connLabel, 'connected', null, varParts.join(' · ')]);
+              rows.push(['\u00A0\u00A0' + SVG.hookArrow + ' ' + connLabel, 'connected', null, varParts.join(' · ')]);
             }
           }
         }
@@ -1509,12 +1559,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     async function refreshEquipmentStatus() {
       var btn = document.getElementById('btn-refresh-equip');
-      if (btn) { btn.disabled = true; btn.textContent = '↻ Refreshing…'; }
+      if (btn) { btn.disabled = true; btn.innerHTML = SVG.refresh + ' Refreshing\u2026'; }
       try {
         await loadOverview();
         toast('Equipment status refreshed');
       } catch { toast('Refresh failed', true); }
-      finally { if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; } }
+      finally { if (btn) { btn.disabled = false; btn.innerHTML = SVG.refresh + ' ' + pt('overview.equip.refresh'); } }
     }
 
     // ── Equipment Roles Card ─────────────────────────────────────────────────
@@ -1522,8 +1572,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     var _rolesEdited = {}; // user edits
 
     var ROLE_ICONS = {
-      primary_switcher: '🎛', recording_device: '⏺', streaming_device: '📡',
-      presentation: '📊', audio_mixer: '🔊', backup_encoder: '💾',
+      primary_switcher: SVG.mixer, recording_device: SVG.record, streaming_device: SVG.satellite,
+      presentation: SVG.chart, audio_mixer: SVG.speaker, backup_encoder: SVG.floppy,
     };
     var ROLE_ROUTING = {
       primary_switcher: 'Switching commands (cut, auto, set preview)',
@@ -1616,7 +1666,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       for (var roleKey in defs) {
         if (!defs.hasOwnProperty(roleKey)) continue;
         var def = defs[roleKey];
-        var icon = ROLE_ICONS[roleKey] || '⚙';
+        var icon = ROLE_ICONS[roleKey] || SVG.gear;
         var desc = ROLE_ROUTING[roleKey] || '';
         var options = '<option value="">— None —</option>';
         (def.compatible || []).forEach(function(devType) {
@@ -1662,7 +1712,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         html += '<div style="display:flex;justify-content:space-between;padding:3px 0">'
           + '<span style="color:#8B9DAF">' + (ROLE_ROUTING[roleKey] || def.label) + '</span>'
           + '<span style="font-weight:600;color:' + (assigned ? '#00E676' : '#6B7280') + '">'
-          + (assigned ? '→ ' + deviceName : 'Fallback (auto)') + '</span>'
+          + (assigned ? SVG.arrowRight + ' ' + deviceName : 'Fallback (auto)') + '</span>'
           + '</div>';
       }
       body.innerHTML = html;
@@ -1729,12 +1779,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
     async function refreshSmartPlugs() {
       var btn = document.getElementById('btn-refresh-plugs');
-      if (btn) { btn.disabled = true; btn.textContent = '↻ Refreshing…'; }
+      if (btn) { btn.disabled = true; btn.innerHTML = SVG.refresh + ' Refreshing\u2026'; }
       try {
         await loadOverview();
         toast('Smart plugs refreshed');
       } catch { toast('Refresh failed', true); }
-      finally { if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; } }
+      finally { if (btn) { btn.disabled = false; btn.innerHTML = SVG.refresh + ' Refresh'; } }
     }
 
     // ── Helper: format seconds into HH:MM:SS ────────────────────────────────
@@ -1912,7 +1962,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       // Source label
       var source = 'Unknown';
       var encNames = {obs:'OBS',vmix:'vMix',ecamm:'Ecamm',blackmagic:'Blackmagic',aja:'AJA',epiphan:'Epiphan',teradek:'Teradek',tricaster:'TriCaster',birddog:'BirdDog'};
-      if (atemStreaming) source = 'ATEM Switcher' + (status.atem.streamingService ? ' → ' + status.atem.streamingService : '');
+      if (atemStreaming) source = 'ATEM Switcher' + (status.atem.streamingService ? ' \u2014 ' + status.atem.streamingService : '');
       else if (obsStreaming) source = 'OBS Studio';
       else if (vmixStreaming) source = 'vMix';
       else if (encoderLive) source = encNames[enc.type] || enc.type || 'Encoder';
@@ -2274,11 +2324,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
 
         var _swType = (sw.type || '').toLowerCase();
-        var typeIcon = _swType === 'atem' ? '\uD83C\uDF9B' : _swType === 'obs' ? '\uD83D\uDCF9' : _swType === 'vmix' ? '\uD83C\uDFAC' : '\uD83D\uDD00';
+        var typeIcon = _swType === 'atem' ? SVG.mixer : _swType === 'obs' ? SVG.videocam : _swType === 'vmix' ? SVG.clapperboard : SVG.shuffle;
         var typeLabel = _swType === 'atem' ? 'ATEM' : _swType === 'obs' ? 'OBS' : _swType === 'vmix' ? 'vMix' : sw.type;
         var modelLabel = sw.model || sw.version || typeLabel;
         var roleBadge = '<span class="badge badge-gray" style="font-size:10px;text-transform:uppercase">' + _escHtml(sw.role || 'unknown') + '</span>';
-        var connDot = sw.connected ? '<span style="color:#00E676">\u25CF</span>' : '<span style="color:#FF5252">\u25CF</span>';
+        var connDot = sw.connected ? '<span style="color:#00E676"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8" width="8" height="8" aria-hidden="true" style="vertical-align:middle"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg></span>' : '<span style="color:#FF5252"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8" width="8" height="8" aria-hidden="true" style="vertical-align:middle"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg></span>';
 
         // Program/Preview display
         var pgmName = sw.programInput != null ? (_isAtemType ? friendlyInputName(sw.programInput) : String(sw.programInput)) : '\u2014';
@@ -2290,7 +2340,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Badges
         var badgeParts = [];
         if (sw.recording) badgeParts.push('<span class="badge badge-green">Recording</span>');
-        if (sw.streaming) badgeParts.push('<span class="badge badge-green"><span style="color:#FF5252">\u25CF</span> Streaming</span>');
+        if (sw.streaming) badgeParts.push('<span class="badge badge-green"><span style="color:#FF5252"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8" width="8" height="8" aria-hidden="true" style="vertical-align:middle"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg></span> Streaming</span>');
         if (!sw.recording && !sw.streaming && sw.connected) badgeParts.push('<span class="badge badge-gray">Standby</span>');
         if (!sw.connected) badgeParts.push('<span class="badge badge-red">Disconnected</span>');
 
@@ -2699,7 +2749,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '</div>';
         });
         if (!hasAny) {
-          body.innerHTML = '<span style="color:#556270">No service windows configured. <a href="#" style="color:#00E676;text-decoration:none" onclick="event.preventDefault();showPage(\'schedule\', document.querySelector(\'[data-page=schedule]\'))">Set up your schedule →</a></span>';
+          body.innerHTML = '<span style="color:#556270">No service windows configured. <a href="#" style="color:#00E676;text-decoration:none" onclick="event.preventDefault();showPage(\'schedule\', document.querySelector(\'[data-page=schedule]\'))">Set up your schedule ' + SVG.arrowRight + '</a></span>';
         } else {
           body.innerHTML = html;
         }
@@ -2847,7 +2897,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           if (c.name === 'Camera Inputs' && c.detail && c.detail.indexOf('0/0') !== -1) {
             return '';
           }
-          var icon = c.pass ? '\u2713' : '!';
+          var icon = c.pass ? SVG.check : SVG.warning;
           var borderColor = c.pass ? '#00C853' : '#d97706';
           var bg = c.pass ? 'rgba(0,230,118,0.05)' : 'rgba(245,158,11,0.08)';
           var detail = c.detail ? '<div style="color:#6B7280;font-size:11px;margin-top:3px;line-height:1.4">' + escapeHtml(c.detail) + '</div>' : '';
@@ -3023,7 +3073,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             html += '<div style="font-size:12px;color:#8B9DAF;margin-bottom:4px">' + escapeHtml(item.symptom) + '</div>';
           }
           if (item.fixStep) {
-            html += '<div style="font-size:12px;color:#00E676">→ ' + escapeHtml(item.fixStep) + '</div>';
+            html += '<div style="font-size:12px;color:#00E676">' + SVG.arrowRight + ' ' + escapeHtml(item.fixStep) + '</div>';
           }
           html += '</div>';
         });
@@ -4194,7 +4244,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
               + '<span style="color:#F0F2F4">' + escapeHtml(p.pattern) + '</span>'
               + ' <span style="color:#6B7280;font-size:11px">' + escapeHtml(p.timeWindow) + '</span>';
             if (p.recommendation) {
-              html += '<div style="font-size:12px;color:#8B9DAF;margin-top:2px;margin-left:20px">→ ' + escapeHtml(p.recommendation) + '</div>';
+              html += '<div style="font-size:12px;color:#8B9DAF;margin-top:2px;margin-left:20px">' + SVG.arrowRight + ' ' + escapeHtml(p.recommendation) + '</div>';
             }
             html += '</div>';
           }
@@ -4229,7 +4279,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<tr>';
           html += '<td style="font-weight:600">' + escapeHtml(r.name) + (r.description ? '<br><span style="font-size:11px;color:#6B7280">' + escapeHtml(r.description) + '</span>' : '') + '</td>';
           html += '<td>' + assigned + '</td>';
-          html += '<td>' + (r.assignedDesktops && r.assignedDesktops.length > 0 ? '<span style="color:#00E676">●</span>' : '<span style="color:#556270">—</span>') + '</td>';
+          html += '<td>' + (r.assignedDesktops && r.assignedDesktops.length > 0 ? '<span style="color:#00E676">' + SVG.dotGreen + '</span>' : '<span style="color:#556270">\u2014</span>') + '</td>';
           html += '<td style="text-align:right"><button class="btn-small btn-secondary" data-action="editRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '" data-room-desc="' + escapeHtml(r.description || '') + '">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" data-action="deleteRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '">Delete</button></td>';
           html += '</tr>';
         }
@@ -4951,7 +5001,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           <tr>
             <td><code style="font-size:11px;color:#00E676">${t.token.slice(0,16)}…</code></td>
             <td style="color:#8B9DAF">${t.label || '—'}</td>
-            <td style="color:${t.registered ? '#00E676' : '#6B7280'};font-size:12px">${t.registered ? '\\u2713 Claimed' : 'Unclaimed'}</td>
+            <td style="color:${t.registered ? '#00E676' : '#6B7280'};font-size:12px">${t.registered ? SVG.check + ' Claimed' : 'Unclaimed'}</td>
             <td style="color:#8B9DAF;font-size:12px">${new Date(t.createdAt).toLocaleDateString()}</td>
             <td style="font-size:12px"><span style="color:${remainingColor};font-weight:600">${remaining}</span><br><span style="color:#556270;font-size:11px">${t.expiresAt ? new Date(t.expiresAt).toLocaleDateString() : ''}</span></td>
             <td><button class="btn-danger" onclick="revokeToken('${t.token}')">Revoke</button></td>
@@ -5012,7 +5062,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             + '<button class="btn-danger" style="font-size:11px;padding:4px 10px" onclick="deleteMacro(\'' + escapeHtml(String(m.id)) + '\')">Delete</button>'
             + '</div></div>'
             + (steps.length ? '<div style="font-family:monospace;font-size:11px;color:#6B7280;line-height:1.8">'
-              + steps.map(function(s) { return '→ ' + escapeHtml(s); }).join('<br>') + '</div>' : '');
+              + steps.map(function(s) { return SVG.arrowRight + ' ' + escapeHtml(s); }).join('<br>') + '</div>' : '');
         }).join('');
       } catch(e) { el.innerHTML = '<div style="color:#FF5252;text-align:center;padding:20px;font-size:13px">Failed to load macros</div>'; }
     }
@@ -5513,7 +5563,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       }
 
       // CTA
-      html += '<div style="text-align:center;padding:8px 0 16px"><button class="btn-primary" onclick="showPage(\'team\', document.querySelector(\'[data-page=team]\'))" style="margin-right:8px">Set Up Tech Directors →</button><button class="btn-secondary" onclick="showPage(\'engineer\', document.querySelector(\'[data-page=engineer]\'))">Open Tally Engineer</button></div>';
+      html += '<div style="text-align:center;padding:8px 0 16px"><button class="btn-primary" onclick="showPage(\'team\', document.querySelector(\'[data-page=team]\'))" style="margin-right:8px">Set Up Tech Directors ' + SVG.arrowRight + '</button><button class="btn-secondary" onclick="showPage(\'engineer\', document.querySelector(\'[data-page=engineer]\'))">Open Tally Engineer</button></div>';
 
       step2.innerHTML = html;
       step2.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -5568,7 +5618,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           ['Monthly reports', features.monthlyReport],
         ];
         includedFeatures.forEach(function(f) {
-          if (f[1]) html += '<div style="color:#8B9DAF">\\u2713 ' + f[0] + '</div>';
+          if (f[1]) html += '<div style="color:#8B9DAF">' + SVG.check + ' ' + f[0] + '</div>';
         });
         html += '</div></div>';
 
@@ -5596,12 +5646,12 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<span style="color:#F0F2F4;font-size:14px;font-weight:700">Unlock with Plus</span>';
           html += '</div>';
           html += '<div class="grid-2col" style="gap:6px;font-size:13px;margin-bottom:16px">';
-          html += '<div style="color:#8B9DAF">✦ ProPresenter control (looks, timers, stage)</div>';
-          html += '<div style="color:#8B9DAF">✦ Live video preview stream</div>';
-          html += '<div style="color:#8B9DAF">✦ On-call TD rotation</div>';
-          html += '<div style="color:#8B9DAF">✦ Up to 3 rooms</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'ProPresenter control (looks, timers, stage)</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Live video preview stream</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'On-call TD rotation</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Up to 3 rooms</div>';
           html += '</div>';
-          html += '<button onclick="upgradePlan(\'plus\')" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Plus — $99/mo →</button>';
+          html += '<button onclick="upgradePlan(\'plus\')" id="btn-upgrade-plus" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Plus — $99/mo ' + SVG.arrowRight + '</button>';
           html += '</div>';
 
           // Pro upgrade card
@@ -5611,13 +5661,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<span style="color:#F0F2F4;font-size:14px;font-weight:700">Unlock with Pro</span>';
           html += '</div>';
           html += '<div class="grid-2col" style="gap:6px;font-size:13px;margin-bottom:16px">';
-          html += '<div style="color:#8B9DAF">✦ Everything in Plus</div>';
-          html += '<div style="color:#8B9DAF">✦ AI Autopilot automation rules</div>';
-          html += '<div style="color:#8B9DAF">✦ Planning Center sync + write-back</div>';
-          html += '<div style="color:#8B9DAF">✦ Monthly leadership reports</div>';
-          html += '<div style="color:#8B9DAF">✦ Up to 5 rooms</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Everything in Plus</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'AI Autopilot automation rules</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Planning Center sync + write-back</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Monthly leadership reports</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Up to 5 rooms</div>';
           html += '</div>';
-          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#00E676;border:1px solid rgba(0,230,118,0.3);cursor:pointer">Upgrade to Pro — $149/mo →</button>';
+          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:transparent;color:#00E676;border:1px solid rgba(0,230,118,0.3);cursor:pointer">Upgrade to Pro — $149/mo ' + SVG.arrowRight + '</button>';
           html += '</div>';
         } else if (currentTier === 'plus') {
           // Pro upgrade card only
@@ -5627,18 +5677,18 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<span style="color:#F0F2F4;font-size:14px;font-weight:700">Unlock with Pro</span>';
           html += '</div>';
           html += '<div class="grid-2col" style="gap:6px;font-size:13px;margin-bottom:16px">';
-          html += '<div style="color:#8B9DAF">✦ AI Autopilot automation rules</div>';
-          html += '<div style="color:#8B9DAF">✦ Planning Center sync + write-back</div>';
-          html += '<div style="color:#8B9DAF">✦ Monthly leadership reports</div>';
-          html += '<div style="color:#8B9DAF">✦ Up to 5 rooms</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'AI Autopilot automation rules</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Planning Center sync + write-back</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Monthly leadership reports</div>';
+          html += '<div style="color:#8B9DAF">' + SVG.diamond + 'Up to 5 rooms</div>';
           html += '</div>';
-          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Pro — $149/mo →</button>';
+          html += '<button onclick="upgradePlan(\'pro\')" id="btn-upgrade-pro" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">Upgrade to Pro — $149/mo ' + SVG.arrowRight + '</button>';
           html += '</div>';
         }
 
         if (b.portalUrl) {
           html += '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px">';
-          html += '<a href="' + b.portalUrl + '" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none">Manage Subscription →</a>';
+          html += '<a href="' + b.portalUrl + '" target="_blank" class="btn-primary" style="display:inline-block;text-decoration:none">Manage Subscription ' + SVG.arrowRight + '</a>';
           if (['active','trialing'].includes(b.status) && !b.cancelAtPeriodEnd) {
             html += '<button onclick="cancelSubscription()" style="background:none;border:1px solid rgba(239,68,68,0.3);color:#FF5252;font-size:13px;padding:8px 16px;border-radius:8px;cursor:pointer;font-weight:600">Cancel Subscription</button>';
           }
@@ -5655,7 +5705,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<div style="margin-top:16px;background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.2);border-radius:12px;padding:20px 24px">';
           html += '<div style="font-size:15px;font-weight:700;color:#00E676;margin-bottom:8px">Reactivate Your Subscription</div>';
           html += '<div style="font-size:13px;color:#8B9DAF;line-height:1.6;margin-bottom:14px">Your settings and data are still here. Reactivate to resume monitoring immediately.</div>';
-          html += '<button onclick="reactivateSubscription()" id="btn-reactivate" class="btn-primary" style="cursor:pointer">Reactivate Now →</button>';
+          html += '<button onclick="reactivateSubscription()" id="btn-reactivate" class="btn-primary" style="cursor:pointer">Reactivate Now ' + SVG.arrowRight + '</button>';
           html += '</div>';
         }
 
@@ -5735,7 +5785,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var btnLabel = pt('upgrade.btn', { tier: nextTier, price: nextPrice });
 
       el.innerHTML = '<div style="margin-bottom:20px;background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.25);border-radius:12px;padding:20px 24px;position:relative">' +
-        '<button onclick="dismissUpgradeBanner(\''+dismissKey+'\')" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#556270;font-size:16px;cursor:pointer;padding:4px" title="Dismiss">\\u2715</button>' +
+        '<button onclick="dismissUpgradeBanner(\''+dismissKey+'\')" style="position:absolute;top:12px;right:14px;background:none;border:none;color:#556270;cursor:pointer;padding:4px" title="Dismiss">' + SVG.xMark + '</button>' +
         '<div style="font-size:15px;font-weight:700;color:#00E676;margin-bottom:6px">' + headline + '</div>' +
         '<div style="font-size:13px;color:#8B9DAF;line-height:1.6;margin-bottom:14px;padding-right:24px">' + body + '</div>' +
         '<button onclick="upgradePlan(\'' + nextTierSlug + '\')" id="btn-upgrade-' + nextTierSlug + '-banner" style="display:inline-block;padding:8px 20px;font-size:13px;font-weight:700;border-radius:8px;background:#00E676;color:#000;border:none;cursor:pointer">' + btnLabel + '</button>' +
@@ -5801,7 +5851,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
       } catch(e) {
         toast(e.message || 'Reactivation failed', true);
-        if (btn) { btn.disabled = false; btn.textContent = 'Reactivate Now →'; }
+        if (btn) { btn.disabled = false; btn.innerHTML = 'Reactivate Now ' + SVG.arrowRight; }
       }
     }
 
@@ -5909,7 +5959,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           banner.innerHTML = '<div style="margin-bottom:20px;background:#0a1610;border:1px solid #0d3320;border-radius:12px;padding:20px 24px">' +
             '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
             '<div style="flex:1;min-width:200px">' +
-            '<div style="font-size:15px;font-weight:700;color:#F0F2F4">\\u2B50 Loving Tally? Share your experience</div>' +
+            '<div style="font-size:15px;font-weight:700;color:#F0F2F4">' + SVG.starSmall + ' Loving Tally? Share your experience</div>' +
             '<div style="font-size:13px;color:#8B9DAF;margin-top:4px;line-height:1.5">Your review helps other church production teams discover Tally. Takes 60 seconds.</div>' +
             '</div>' +
             '<div style="display:flex;gap:8px;flex-shrink:0;align-items:center">' +
@@ -5944,7 +5994,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       var container = document.getElementById('star-rating');
       if (!container) return;
       container.innerHTML = [1,2,3,4,5].map(function(n) {
-        return '<button onclick="setRating(' + n + ')" style="background:none;border:none;font-size:28px;cursor:pointer;color:' + (n <= reviewRating ? '#00E676' : '#1a3a2a') + ';transition:color 0.15s">\\u2605</button>';
+        return '<button onclick="setRating(' + n + ')" style="background:none;border:none;cursor:pointer;color:' + (n <= reviewRating ? '#00E676' : '#1a3a2a') + ';transition:color 0.15s">' + SVG.star + '</button>';
       }).join('');
     }
 
@@ -6200,7 +6250,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           var color = sevColors[a.severity] || '#8B9DAF';
           var time = new Date(a.created_at).toLocaleString();
           var type = _portalFriendlyAlertType(a.alert_type);
-          var acked = a.acknowledged_at ? '<span style="color:#00E676;font-size:11px">\\u2713 Acknowledged' + (a.acknowledged_by ? ' by ' + escapeHtml(a.acknowledged_by) : '') + '</span>' : '<span style="color:#556270;font-size:11px">Not acknowledged</span>';
+          var acked = a.acknowledged_at ? '<span style="color:#00E676;font-size:11px">' + SVG.check + ' Acknowledged' + (a.acknowledged_by ? ' by ' + escapeHtml(a.acknowledged_by) : '') + '</span>' : '<span style="color:#556270;font-size:11px">Not acknowledged</span>';
           var ctx = a.context || {};
           var diag = ctx.diagnosis || ctx;
 
@@ -6211,7 +6261,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           html += '<span style="color:#556270;font-size:11px;margin-left:auto">' + time + '</span>';
           html += '</div>';
           html += '<div style="margin-top:4px">' + acked;
-          if (a.resolved) html += ' <span style="color:#00E676;font-size:11px;margin-left:8px">\\u2713 Resolved</span>';
+          if (a.resolved) html += ' <span style="color:#00E676;font-size:11px;margin-left:8px">' + SVG.check + ' Resolved</span>';
           html += '</div>';
 
           if (diag.likely_cause || (diag.steps && diag.steps.length)) {
@@ -6266,7 +6316,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             '</div>';
         } else {
           statusEl.innerHTML = '<div style="padding:10px 14px;background:#1e1e1e;border:1px solid #333;border-radius:8px;font-size:13px;color:#8B9DAF">' +
-            '⚠ Companion not detected. Make sure it\'s running on the same machine as Tally (port 8888).' +
+            SVG.warning + ' Companion not detected. Make sure it\'s running on the same machine as Tally (port 8888).' +
             '</div>';
         }
       }
@@ -6784,7 +6834,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         });
         supportTriage = triage;
         var checks = (triage.checks || []).map(function(c) {
-          return (c.ok ? '\\u2705 ' : '\\u274C ') + c.note;
+          return (c.ok ? SVG.checkCircle + ' ' : SVG.xCircle + ' ') + c.note;
         }).join('<br>');
         var html = '<div style="background:#060D08;border:1px solid #0d3320;border-radius:8px;padding:14px">';
         html += '<div style="font-weight:700;color:#F0F2F4;margin-bottom:8px">Triage: ' + escapeHtml(triage.triageResult || 'monitoring') + '</div>';
@@ -7710,7 +7760,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (context === 'pre_service') {
       banner.style.borderLeftColor = '#f97316';
-      iconEl.textContent = '\u26A0\uFE0F';
+      iconEl.innerHTML = SVG.warning;
       labelEl.textContent = 'Pre-Service';
       labelEl.className = 'triage-pulse';
       detailEl.textContent = details.minutesUntilService
@@ -7718,7 +7768,7 @@ document.addEventListener('DOMContentLoaded', function() {
         : 'Setup window active';
     } else if (context === 'in_service') {
       banner.style.borderLeftColor = '#FF5252';
-      iconEl.textContent = '\uD83D\uDD34';
+      iconEl.innerHTML = SVG.dotRed;
       labelEl.textContent = 'In Service';
       labelEl.className = 'triage-pulse';
       detailEl.textContent = details.minutesIntoService
@@ -7726,7 +7776,7 @@ document.addEventListener('DOMContentLoaded', function() {
         : 'Service in progress';
     } else {
       banner.style.borderLeftColor = '#556270';
-      iconEl.textContent = '\uD83D\uDFE2';
+      iconEl.innerHTML = SVG.dotGreen;
       labelEl.textContent = 'Off Hours';
       labelEl.className = '';
       detailEl.textContent = details.reason === 'no_schedule'
@@ -8235,7 +8285,7 @@ document.addEventListener('DOMContentLoaded', function() {
         var html = '';
         data.devices.forEach(function(d) {
           var barColor = d.incidents > 5 ? '#FF5252' : d.incidents > 2 ? '#FFB74D' : '#00E676';
-          var trendIcon = d.trend === 'improving' ? '↓' : d.trend === 'declining' ? '↑' : '→';
+          var trendIcon = d.trend === 'improving' ? SVG.arrowDown : d.trend === 'declining' ? SVG.arrowUp : SVG.arrowRight;
           html += '<div class="rpt-device-row">' +
             '<div class="rpt-d-label">' + escapeHtml(d.label) + '</div>' +
             '<div class="rpt-d-bar"><div class="rpt-d-bar-fill" style="width:' + ((d.incidents / maxInc) * 100) + '%;background:' + barColor + '"></div></div>' +
@@ -8438,20 +8488,20 @@ document.addEventListener('DOMContentLoaded', function() {
   };
 
   var DEVICE_ICONS = {
-    'Video Switcher': '🎬',
-    'Streaming Software': '📡',
-    'Production Software': '🖥',
-    'Live Stream': '📺',
-    'Recording': '⏺',
-    'Sound': '🔊',
-    'Video Recorder': '💾',
-    'Presentation Slides': '📊',
-    'Visual Effects': '✨',
-    'Resolume Arena': '✨',
-    'Video Router': '🔀',
-    'Camera': '📷',
-    'Button Control': '🎛',
-    'Stream Encoder': '📡',
+    'Video Switcher': SVG.clapperboard,
+    'Streaming Software': SVG.satellite,
+    'Production Software': SVG.monitor,
+    'Live Stream': SVG.tv,
+    'Recording': SVG.record,
+    'Sound': SVG.speaker,
+    'Video Recorder': SVG.floppy,
+    'Presentation Slides': SVG.chart,
+    'Visual Effects': SVG.sparkle,
+    'Resolume Arena': SVG.sparkle,
+    'Video Router': SVG.shuffle,
+    'Camera': SVG.camera,
+    'Button Control': SVG.mixer,
+    'Stream Encoder': SVG.satellite,
   };
 
   function friendlyDeviceName(rawName) {
@@ -8616,7 +8666,7 @@ document.addEventListener('DOMContentLoaded', function() {
       var version = r[2]; // {text, outdated} or null
       var detail = r[3]; // string or null
       var name = friendlyDeviceName(rawName);
-      var icon = DEVICE_ICONS[name] || '⚙';
+      var icon = DEVICE_ICONS[name] || SVG.gear;
       var stClass = statusClass(status);
       var stText = friendlyStatusText(status);
       var vText = version ? version.text : null;
