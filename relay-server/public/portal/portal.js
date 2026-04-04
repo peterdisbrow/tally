@@ -1460,7 +1460,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         // ── Review prompt (after onboarding, after upgrade banner) ───────────
         try { checkReviewEligibility(); } catch {}
-        try { loadReferralCard(); } catch {}
+        // Referral card moved to billing page only
 
         // ── Sessions count for overview stat ─────────────────────────────────
         (async function() {

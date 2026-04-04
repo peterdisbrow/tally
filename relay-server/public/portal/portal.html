@@ -167,14 +167,11 @@
         <button id="btn-undismiss-onboarding" data-action="undismissOnboarding" style="background:none; border:none; color:#00E676; font-size:12px; cursor:pointer; padding:4px 8px; opacity:0.7;" data-i18n="overview.resume_setup"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> Resume Setup Guide</button>
       </div>
 
-      <!-- Upgrade Banner -->
-      <div id="upgrade-banner"></div>
+      <!-- Upgrade Banner (advanced-only — not Sunday-morning critical) -->
+      <div id="upgrade-banner" class="advanced-only"></div>
 
-      <!-- Review Prompt Banner -->
-      <div id="review-prompt-banner" style="display:none"></div>
-
-      <!-- Referral Card -->
-      <div id="referral-card" style="display:none"></div>
+      <!-- Review Prompt Banner (advanced-only) -->
+      <div id="review-prompt-banner" class="advanced-only" style="display:none"></div>
 
       <!-- Simple view: clean stats -->
       <div class="stats-row" id="simple-stats-row">
@@ -491,8 +488,8 @@
         </div>
       </div>
 
-      <!-- Activity Feed -->
-      <div class="card" id="activity-feed-card">
+      <!-- Activity Feed (advanced-only — not a Sunday-morning quick action) -->
+      <div class="card advanced-only" id="activity-feed-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time operational events — status changes, alerts, and auto-recovery actions" data-i18n="overview.activity.title"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"/></svg> Activity Feed</span></div>
           <span id="activity-feed-count" style="font-size:11px;color:#556270"></span>
@@ -513,7 +510,7 @@
         </div>
       </div>
 
-      <div class="card" id="schedule-overview-card">
+      <div class="card advanced-only" id="schedule-overview-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Your configured service windows — alerts and automations follow this schedule" data-i18n="overview.schedule.title">Service Schedule</span></div>
           <button class="btn-secondary" data-action="showPage" data-page="schedule" style="padding:4px 12px;font-size:11px" data-i18n="btn.edit">Edit</button>
