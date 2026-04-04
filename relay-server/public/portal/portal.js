@@ -994,6 +994,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
       document.getElementById('page-' + id).classList.add('active');
       el.classList.add('active');
+      try { localStorage.setItem('portal_page', id); } catch(e) {}
       // Close mobile nav on page switch
       var sidebar = document.getElementById('sidebar-nav');
       var overlay = document.getElementById('sidebar-overlay');
@@ -1028,6 +1029,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       page.querySelectorAll('.tab-bar button').forEach(function(b) { b.classList.remove('active'); });
       var btn = page.querySelector('.tab-bar button[data-tab="' + tabId + '"]');
       if (btn) btn.classList.add('active');
+      try { localStorage.setItem('portal_tab', tabId); } catch(e) {}
       // Load data for the tab if not already loaded
       if (!_tabLoaded[tabId]) {
         _tabLoaded[tabId] = true;
@@ -8842,5 +8844,16 @@ document.addEventListener('DOMContentLoaded', function() {
     if (action === 'toggleViewMode') toggleViewMode();
     if (action === 'toggleMoreNav') toggleMoreNav();
   });
+
+  // ── Restore last page/tab from localStorage ──────────────────────
+  try {
+    var savedPage = localStorage.getItem('portal_page');
+    if (savedPage && document.getElementById('page-' + savedPage)) {
+      var navBtn = document.querySelector('.nav-item[data-page="' + savedPage + '"]');
+      if (navBtn) showPage(savedPage, navBtn);
+      var savedTab = localStorage.getItem('portal_tab');
+      if (savedTab && document.getElementById(savedTab)) switchTab(savedTab);
+    }
+  } catch(e) {}
 
 });
