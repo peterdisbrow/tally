@@ -106,7 +106,137 @@ PLANNING CENTER INTEGRATION:
 - When giving a pre-service briefing, combine PCO plan data with device status and historical context.
 - If PCO data shows unconfirmed team members, mention it proactively during pre-service briefings.
 - Song items include key, BPM, CCLI number when available from PCO.
-- "Last synced" timestamp tells you how fresh the plan data is. If >6 hours old, suggest a manual sync.`;
+- "Last synced" timestamp tells you how fresh the plan data is. If >6 hours old, suggest a manual sync.
+
+AV NETWORKING PROTOCOLS:
+
+NDI (Network Device Interface):
+- Full NDI: ~150Mbps per 1080p60 stream, ~250Mbps for 4K. Requires gigabit minimum, 10GbE recommended for multiple streams.
+- NDI|HX: compressed variant, ~20Mbps for 1080p60. Works on gigabit but adds 1-2 frames of encoding latency. Good tradeoff for PTZ cameras on constrained networks.
+- Discovery: mDNS on port 5353 (like Bonjour). NDI Discovery Server recommended for cross-subnet — runs on port 5959 by default.
+- Transport: TCP-based (not multicast by default). Each receiver opens a direct connection to the sender.
+- Common issue: NDI streams invisible across subnets without a Discovery Server or mDNS reflector.
+
+Dante (Audinate digital audio):
+- Primary ports: UDP 4440 (primary audio), 14336-14591 (flow ports for audio streams), TCP 4440 (Dante Controller), UDP 8700-8708 (mDNS/discovery).
+- PTP clock sync: IEEE 1588v2 Precision Time Protocol. One device becomes grandmaster clock. Clock stability is critical — jitter causes clicks/dropouts.
+- Latency settings: 0.25ms (same switch only), 0.5ms (2-3 switches), 1ms (typical church install), 5ms (cross-building or congested network). Lower is not always better — use 1ms unless you have a clean dedicated VLAN.
+- Unicast vs multicast flows: Unicast = point-to-point (default for <4 receivers). Multicast = one-to-many (efficient when >4 receivers need the same audio). Multicast REQUIRES IGMP snooping on every switch in the path.
+- Redundancy: Dante supports primary/secondary on separate NICs. Use two independent switch paths for critical audio.
+- Common issue: Dante audio glitching = almost always PTP clock problems, wrong latency setting, or missing IGMP snooping.
+
+AES67 (AES standard for audio-over-IP):
+- Interoperable with Dante (Dante devices can enable AES67 mode in Dante Controller).
+- Uses PTP grandmaster clock (same as Dante but separate PTP domain by default).
+- Multicast-only transport. Requires IGMP snooping.
+- Multicast addressing: 239.x.x.x range. Plan addresses to avoid conflicts with sACN or other multicast traffic.
+- Used by: Lawo, Wheatstone, Livewire+, some Yamaha and A&H consoles natively.
+
+sACN (streaming ACN / E1.31) and Art-Net (lighting control):
+- sACN: multicast on 239.255.x.x (universe-mapped). Up to 63999 universes. Port 5568 UDP.
+- Art-Net: broadcast/unicast on port 6454 UDP. Art-Net 4 supports up to 32768 universes.
+- Both carry DMX512 data over Ethernet for lighting control.
+- sACN preferred in church installs — multicast is cleaner than Art-Net broadcast. Art-Net broadcast can flood networks if not on a dedicated VLAN.
+
+AVB/TSN (IEEE 802.1 Audio Video Bridging / Time-Sensitive Networking):
+- 802.1Qav (credit-based shaper), 802.1AS (generalized PTP), 802.1Qat (stream reservation).
+- Requires AVB-capable switches end-to-end (not all managed switches support it). Milan certification ensures interop.
+- Used by: Apple (macOS built-in), MOTU, PreSonus StudioLive, some Avid interfaces.
+- Low adoption in church AV compared to Dante. Only recommend if the church already has AVB gear.
+
+NETWORK BEST PRACTICES FOR CHURCH AV:
+
+VLAN segmentation (critical for reliable AV):
+- VLAN 10: AV control traffic (ATEM, OBS WebSocket, ProPresenter, Companion, PTZ VISCA/ONVIF)
+- VLAN 20: Dante/AES67 audio (dedicated, no other traffic — audio is the most latency-sensitive)
+- VLAN 30: NDI video (high bandwidth, keep separate from audio)
+- VLAN 40: General IT / internet access (congregation WiFi, office computers)
+- VLAN 50: Streaming/encoding (encoder to internet, isolated from internal AV)
+- At minimum: separate AV from IT traffic. Even a two-VLAN setup (AV + IT) is a huge improvement over flat networks.
+
+QoS / DSCP tagging:
+- EF (DSCP 46): Dante/AES67 audio — highest priority, expedited forwarding
+- CS7 (DSCP 56): PTP clock sync packets — must never be delayed
+- AF41 (DSCP 34): NDI video streams — high priority but below audio
+- AF21 (DSCP 18): AV control traffic (ATEM, OSC, VISCA commands)
+- BE (DSCP 0): General IT traffic — best effort
+- QoS must be configured on EVERY switch in the path. One unconfigured switch negates the entire QoS chain.
+
+IGMP snooping:
+- MUST be enabled on all switches carrying multicast traffic (Dante multicast flows, AES67, sACN, NDI Discovery).
+- Without IGMP snooping, multicast floods to every port on every switch — kills bandwidth and causes packet loss.
+- Enable IGMP querier on exactly ONE switch per VLAN (usually the core switch or the one closest to the multicast source).
+- Fast-leave (immediate leave) should be enabled for AV VLANs to reduce channel change latency.
+
+Spanning Tree:
+- Use RSTP (Rapid Spanning Tree Protocol) — converges in 1-3 seconds vs 30-50 seconds for legacy STP.
+- Enable edge port / PortFast on all ports connected to end devices (ATEM, mixers, cameras, encoders) — skips listening/learning states so devices connect instantly.
+- Never disable STP entirely on trunk/uplink ports — loops will take down the entire network.
+
+Switch requirements:
+- Managed switches REQUIRED for Dante networks (QoS, IGMP snooping, VLAN support). Unmanaged switches will cause audio glitches.
+- Gigabit minimum for all AV. 10GbE uplinks recommended if running multiple NDI streams.
+- Low latency / non-blocking backplane. Enterprise-grade recommended: Cisco SG/CBS series, Netgear M4250/M4300, Luminex GigaCore (purpose-built for AV).
+- Avoid consumer "smart" switches that advertise IGMP/VLAN but implement them poorly.
+- EEE (Energy Efficient Ethernet / Green Ethernet): DISABLE on all AV ports. EEE adds micro-latency that disrupts PTP clock sync and causes Dante dropouts.
+
+PoE (Power over Ethernet):
+- PoE (802.3af, 15.4W): sufficient for most PTZ cameras, Dante endpoints, small access points.
+- PoE+ (802.3at, 30W): needed for some PTZ cameras with heaters, larger Dante stageboxes.
+- PoE++ (802.3bt, 60-90W): large PTZ cameras, high-power devices.
+- Budget the total PoE draw — a 24-port PoE switch may only supply 380W total, not 15W per port simultaneously.
+- Use PoE for PTZ cameras whenever possible — eliminates power cable runs and simplifies installation.
+
+Network redundancy:
+- Dante primary/secondary: use two independent switch paths. If primary switch fails, audio continues on secondary with zero interruption.
+- Redundant uplinks between core and edge switches. Configure as LACP (Link Aggregation) or RSTP alternate paths.
+- UPS on all network switches — a 30-second power blip that reboots a switch takes out all AV for 2-3 minutes during reconvergence.
+
+NETWORK TROUBLESHOOTING PATTERNS:
+
+High latency / sluggish control:
+- Check VLAN config — is AV traffic sharing a VLAN with general IT or guest WiFi? Separate them.
+- Check QoS — are AV packets getting deprioritized? Verify DSCP tags are being honored, not stripped.
+- Check switch CPU load — excessive broadcast/multicast (no IGMP snooping) can overwhelm switch CPUs.
+- Check for network loops — missing or misconfigured STP causes broadcast storms.
+
+NDI stream dropping or pixelating:
+- Check available bandwidth — full NDI needs ~150Mbps per 1080p60 stream. Multiple streams on gigabit saturate quickly.
+- Check IGMP snooping — if NDI Discovery uses mDNS multicast, flooding can cause congestion.
+- Check for multicast storms — unmanaged switches or WiFi APs bridging multicast to wireless.
+- Verify sender and receiver are on the same VLAN or that routing/Discovery Server is configured for cross-VLAN.
+
+Dante audio glitching (clicks, dropouts, gaps):
+- Check PTP clock — open Dante Controller, verify one stable grandmaster. Multiple competing grandmasters = clock fighting = audio glitches.
+- Check latency setting — if set to 0.25ms but traffic crosses multiple switches, increase to 1ms.
+- Check unicast vs multicast — if using multicast flows, verify IGMP snooping is enabled on every switch.
+- Check EEE (Energy Efficient Ethernet) — must be disabled on all switch ports carrying Dante. EEE causes micro-interruptions that break PTP sync.
+- Check for bandwidth contention — Dante is low bandwidth (~6Mbps per stereo flow) but extremely latency-sensitive. QoS is essential.
+
+ATEM connection unstable (frequent disconnects/reconnects):
+- Check subnet — ATEM and church client must be on the same subnet, or routing must be explicitly configured.
+- Check for IP conflicts — static ATEM IP conflicting with DHCP range is a common church mistake.
+- Check gateway configuration — ATEM needs a valid gateway if it communicates cross-subnet.
+- Check for competing control connections — only one BMD ATEM Software Control instance can control at a time in addition to Tally.
+
+Stream bitrate fluctuating or dropping:
+- Check QoS on the path from encoder to ISP gateway — encoding traffic may be getting throttled.
+- Check for bandwidth contention on the uplink — other traffic (backups, updates, cloud sync) competing with stream upload.
+- Check ISP upload speed — need at least 2x the target stream bitrate for headroom (e.g., 12Mbps upload for a 6Mbps stream).
+- Check for ISP throttling — some ISPs throttle sustained upload. Test with a speed test during service time.
+- Check encoder CPU/hardware — software encoding on an overloaded computer drops frames before network issues show.
+
+COMMON CHURCH NETWORK MISTAKES:
+- Consumer/unmanaged switches in the AV signal path: No QoS, no IGMP snooping, no VLANs. Single biggest cause of "random" AV glitches. Replace with managed switches.
+- AV and IT traffic on the same flat VLAN with no QoS: Guest WiFi traffic, Windows updates, and cloud backups compete with Dante audio and NDI video. Segment with VLANs.
+- WiFi access points bridging multicast to wireless: APs that bridge multicast between wired and wireless flood the wireless network and reflect multicast back to wired, causing storms. Disable multicast-to-unicast conversion or isolate APs on their own VLAN.
+- DHCP range overlapping static AV device IPs: ATEMs, encoders, and Dante devices use static IPs. If the DHCP server hands out an address already used by AV gear, both devices lose connectivity intermittently. Reserve a static range outside DHCP scope (e.g., .1-.50 static, .100-.250 DHCP).
+- ISP router firewall blocking RTMP/SRT outbound: Some church ISP routers or firewalls block outbound RTMP (port 1935) or SRT (user-defined port, typically 9000+). If streaming fails but internet works, check firewall rules for these ports.
+- Daisy-chaining switches instead of star topology: Each daisy-chain hop adds latency and creates a single point of failure. Use a star topology with a central core switch.
+- No UPS on network equipment: A brief power flicker reboots all switches, taking AV offline for 2-3 minutes. Put core switch and AV switches on UPS.
+- Using Wi-Fi for any AV transport: Never use WiFi for NDI, Dante, ATEM control, or any real-time AV protocol. WiFi latency and jitter are fundamentally incompatible with real-time AV. Hardwire everything in the signal path.
+
+When you detect connectivity problems (equipment disconnecting, stream drops, high latency alerts), proactively consider network-related causes and recommend checking VLAN config, QoS settings, IGMP snooping, and switch type. Many "equipment problems" are actually network problems.`;
 
 
 // ─── PROMPT BUILDERS ────────────────────────────────────────────────────────────
