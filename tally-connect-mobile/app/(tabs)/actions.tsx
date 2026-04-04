@@ -164,7 +164,7 @@ export default function ActionsScreen() {
   const stateLabels: Record<string, string> = {
     idle: 'Off',
     protecting: 'Active',
-    encoder_disconnected: 'Encoder Offline',
+    encoder_disconnected: 'Encoder Disconnected',
     restarting: 'Restarting',
     alert_sent: 'Alert Active',
     cdn_mismatch: 'CDN Mismatch',
@@ -233,8 +233,8 @@ export default function ActionsScreen() {
             colors={colors}
             label="Start Stream"
             icon="play-circle-outline"
-            gradientBg="rgba(34, 197, 94, 0.2)"
-            borderColor="rgba(34, 197, 94, 0.35)"
+            gradientBg="rgba(0, 230, 118, 0.2)"
+            borderColor="rgba(0, 230, 118, 0.35)"
             color={colors.online}
             onPress={() => {
               const cmd = status?.obs?.connected ? 'obs.startStream' : 'atem.startStream';
@@ -324,8 +324,8 @@ export default function ActionsScreen() {
             colors={colors}
             label="Start Stream"
             icon="play-circle-outline"
-            gradientBg="rgba(34, 197, 94, 0.2)"
-            borderColor="rgba(34, 197, 94, 0.35)"
+            gradientBg="rgba(0, 230, 118, 0.2)"
+            borderColor="rgba(0, 230, 118, 0.35)"
             color={colors.online}
             onPress={() => {
               const cmd = status?.obs?.connected ? 'obs.startStream' : 'atem.startStream';
@@ -396,7 +396,7 @@ export default function ActionsScreen() {
               paddingHorizontal: spacing.md,
               borderRadius: borderRadius.sm,
               backgroundColor: spCdnHealth === 'healthy'
-                ? (colors.isDark ? 'rgba(34,197,94,0.1)' : 'rgba(22,163,74,0.06)')
+                ? (colors.isDark ? 'rgba(0,230,118,0.1)' : 'rgba(0,200,83,0.06)')
                 : spCdnHealth === 'mismatch'
                   ? (colors.isDark ? 'rgba(245,158,11,0.1)' : 'rgba(217,119,6,0.06)')
                   : (colors.isDark ? 'rgba(148,163,184,0.08)' : 'rgba(107,114,128,0.06)'),
@@ -496,8 +496,8 @@ export default function ActionsScreen() {
                 colors={colors}
                 label="Previous"
                 icon="chevron-back"
-                gradientBg="rgba(34, 197, 94, 0.15)"
-                borderColor="rgba(34, 197, 94, 0.3)"
+                gradientBg="rgba(0, 230, 118, 0.15)"
+                borderColor="rgba(0, 230, 118, 0.3)"
                 onPress={() => sendCommand('propresenter.previousSlide')}
                 pending={pending === 'propresenter.previousSlide'}
               />
@@ -505,8 +505,8 @@ export default function ActionsScreen() {
                 colors={colors}
                 label="Next"
                 icon="chevron-forward"
-                gradientBg="rgba(34, 197, 94, 0.15)"
-                borderColor="rgba(34, 197, 94, 0.3)"
+                gradientBg="rgba(0, 230, 118, 0.15)"
+                borderColor="rgba(0, 230, 118, 0.3)"
                 onPress={() => sendCommand('propresenter.nextSlide')}
                 pending={pending === 'propresenter.nextSlide'}
               />

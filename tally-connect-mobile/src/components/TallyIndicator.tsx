@@ -48,7 +48,7 @@ export function TallyIndicator({ inputNumber, inputName, isProgram, isPreview, o
           elevation: 8,
         },
         isPreview && {
-          backgroundColor: 'rgba(34, 197, 94, 0.7)',
+          backgroundColor: 'rgba(0, 230, 118, 0.7)',
           shadowColor: colors.tallyPreview,
           shadowOpacity: 0.4,
           shadowRadius: 10,

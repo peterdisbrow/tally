@@ -25,7 +25,7 @@ export function StreamStats({ status }: StreamStatsProps) {
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md }}>
         <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: '600' }}>STREAM</Text>
         <View style={{ paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: borderRadius.sm, backgroundColor: isStreaming ? colors.live : colors.surface }}>
-          <Text style={{ fontSize: 10, fontWeight: '800', color: '#ffffff', letterSpacing: 1 }}>{isStreaming ? 'LIVE' : 'OFFLINE'}</Text>
+          <Text style={{ fontSize: 10, fontWeight: '800', color: '#ffffff', letterSpacing: 1 }}>{isStreaming ? 'LIVE' : 'OFF AIR'}</Text>
         </View>
       </View>
 

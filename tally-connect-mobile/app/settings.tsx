@@ -2,14 +2,16 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, Switch, Linking, Platform, TouchableOpacity, Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import { useNotificationStatus } from '../src/hooks/useNotifications';
-import { useSettingsStore } from '../src/stores/settingsStore';
+import { useSettingsStore, type ViewMode, type AppLanguage } from '../src/stores/settingsStore';
 import { getRelayUrl } from '../src/api/client';
 import { useTheme, useThemeColors, ThemePreference } from '../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../src/theme/spacing';
+import { useTranslation } from '../src/i18n';
 
 const DEFAULT_URL = 'https://api.tallyconnect.app';
 
@@ -18,11 +20,16 @@ export default function SettingsScreen() {
   const notificationsEnabled = permission === 'granted';
   const alertSounds = useSettingsStore((s) => s.alertSounds);
   const setAlertSounds = useSettingsStore((s) => s.setAlertSounds);
+  const viewMode = useSettingsStore((s) => s.viewMode);
+  const setViewMode = useSettingsStore((s) => s.setViewMode);
+  const language = useSettingsStore((s) => s.language);
+  const setLanguage = useSettingsStore((s) => s.setLanguage);
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const [serverUrl, setServerUrl] = useState<string>(DEFAULT_URL);
   const [serverUrlError, setServerUrlError] = useState(false);
   const colors = useThemeColors();
   const { preference, setPreference } = useTheme();
+  const { t } = useTranslation();
 
   useEffect(() => {
     loadSettings();
@@ -95,6 +102,95 @@ export default function SettingsScreen() {
                   color: preference === opt ? colors.accent : colors.textSecondary,
                   textTransform: 'capitalize',
                 }}>{opt}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </View>
+
+      <Text style={{
+        fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase',
+        letterSpacing: 1, fontWeight: '600', marginBottom: spacing.md, marginTop: spacing.xxl,
+      }}>{t('settings.viewMode')}</Text>
+      <View style={{ backgroundColor: colors.surface, borderRadius: borderRadius.md, borderWidth: 1, borderColor: colors.border }}>
+        <View style={{ padding: spacing.lg }}>
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            {([
+              { value: 'simple' as ViewMode, label: t('settings.simple'), desc: t('settings.simpleDesc'), icon: 'eye-outline' },
+              { value: 'advanced' as ViewMode, label: t('settings.advanced'), desc: t('settings.advancedDesc'), icon: 'code-slash-outline' },
+            ]).map((opt) => (
+              <TouchableOpacity
+                key={opt.value}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setViewMode(opt.value);
+                }}
+                style={{
+                  flex: 1,
+                  paddingVertical: spacing.md,
+                  paddingHorizontal: spacing.sm,
+                  minHeight: 64,
+                  borderRadius: borderRadius.sm,
+                  borderWidth: 1,
+                  borderColor: viewMode === opt.value ? colors.accent : colors.border,
+                  backgroundColor: viewMode === opt.value ? colors.accent + '22' : colors.surfaceElevated,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Ionicons name={opt.icon as any} size={18} color={viewMode === opt.value ? colors.accent : colors.textMuted} />
+                <Text style={{
+                  fontSize: fontSize.sm,
+                  fontWeight: viewMode === opt.value ? '600' : '400',
+                  color: viewMode === opt.value ? colors.accent : colors.textSecondary,
+                  marginTop: 4,
+                }}>{opt.label}</Text>
+                <Text style={{
+                  fontSize: fontSize.xs,
+                  color: colors.textMuted,
+                  marginTop: 2,
+                  textAlign: 'center',
+                }}>{opt.desc}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </View>
+
+      <Text style={{
+        fontSize: fontSize.xs, color: colors.textSecondary, textTransform: 'uppercase',
+        letterSpacing: 1, fontWeight: '600', marginBottom: spacing.md, marginTop: spacing.xxl,
+      }}>{t('settings.language')}</Text>
+      <View style={{ backgroundColor: colors.surface, borderRadius: borderRadius.md, borderWidth: 1, borderColor: colors.border }}>
+        <View style={{ padding: spacing.lg }}>
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            {([
+              { value: 'en' as AppLanguage, label: t('settings.english') },
+              { value: 'es' as AppLanguage, label: t('settings.spanish') },
+            ]).map((opt) => (
+              <TouchableOpacity
+                key={opt.value}
+                onPress={() => {
+                  Haptics.selectionAsync();
+                  setLanguage(opt.value);
+                }}
+                style={{
+                  flex: 1,
+                  paddingVertical: spacing.sm,
+                  minHeight: 44,
+                  borderRadius: borderRadius.sm,
+                  borderWidth: 1,
+                  borderColor: language === opt.value ? colors.accent : colors.border,
+                  backgroundColor: language === opt.value ? colors.accent + '22' : colors.surfaceElevated,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{
+                  fontSize: fontSize.sm,
+                  fontWeight: language === opt.value ? '600' : '400',
+                  color: language === opt.value ? colors.accent : colors.textSecondary,
+                }}>{opt.label}</Text>
               </TouchableOpacity>
             ))}
           </View>

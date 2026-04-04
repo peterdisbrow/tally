@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 
@@ -38,7 +39,7 @@ export function NetworkBanner({ isConnected }: NetworkBannerProps) {
       pointerEvents="none"
     >
       <View style={styles.inner}>
-        <Text style={styles.icon}>⚠</Text>
+        <Ionicons name="warning-outline" size={16} color={colors.black} />
         <Text style={styles.text}>No internet connection</Text>
       </View>
     </Animated.View>
@@ -61,10 +62,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-  },
-  icon: {
-    fontSize: 14,
-    color: colors.black,
   },
   text: {
     fontSize: 13,

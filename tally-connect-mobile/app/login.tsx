@@ -58,7 +58,7 @@ export default function LoginScreen() {
             width: 80,
             height: 80,
             borderRadius: 20,
-            backgroundColor: 'rgba(34, 197, 94, 0.85)',
+            backgroundColor: 'rgba(0, 230, 118, 0.85)',
             justifyContent: 'center',
             alignItems: 'center',
             marginBottom: spacing.lg,
@@ -152,7 +152,7 @@ export default function LoginScreen() {
         <Pressable
           style={[
             {
-              backgroundColor: 'rgba(34, 197, 94, 0.85)',
+              backgroundColor: 'rgba(0, 230, 118, 0.85)',
               borderRadius: borderRadius.md,
               padding: spacing.lg,
               alignItems: 'center',

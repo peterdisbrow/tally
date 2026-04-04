@@ -13,11 +13,11 @@ export const colors = {
 
   // Tally
   tallyProgram: '#ef4444',
-  tallyPreview: '#22c55e',
+  tallyPreview: '#00E676',
   tallyOff: '#333333',
 
   // Status
-  online: '#22c55e',
+  online: '#00E676',
   offline: '#ef4444',
   warning: '#f59e0b',
   info: '#3b82f6',
@@ -29,8 +29,8 @@ export const colors = {
   infoAlert: '#3b82f6',
 
   // Brand
-  accent: '#22c55e',
-  accentLight: '#4ade80',
+  accent: '#00E676',
+  accentLight: '#69F0AE',
 
   // Stream
   live: '#ef4444',

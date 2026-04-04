@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Sentry } from '../lib/sentry';
+import { translate } from '../i18n';
 
 interface Props {
   children: React.ReactNode;
@@ -25,15 +26,15 @@ export class ErrorBoundary extends React.Component<Props, State> {
     if (this.state.hasError) {
       return (
         <View style={styles.container}>
-          <Text style={styles.title}>Something went wrong</Text>
+          <Text style={styles.title}>{translate('error.somethingWrong')}</Text>
           <Text style={styles.body}>
-            The app ran into an unexpected error. Our team has been notified.
+            {translate('error.appCrash')}
           </Text>
           <Pressable
             style={styles.button}
             onPress={() => this.setState({ hasError: false })}
           >
-            <Text style={styles.buttonText}>Try Again</Text>
+            <Text style={styles.buttonText}>{translate('action.tryAgain')}</Text>
           </Pressable>
         </View>
       );
@@ -66,7 +67,7 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   button: {
-    backgroundColor: '#2563eb',
+    backgroundColor: '#00E676',
     paddingHorizontal: 28,
     paddingVertical: 14,
     borderRadius: 10,

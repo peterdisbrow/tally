@@ -124,7 +124,7 @@ export default function MoreScreen() {
           width: 48,
           height: 48,
           borderRadius: 24,
-          backgroundColor: 'rgba(34, 197, 94, 0.8)',
+          backgroundColor: 'rgba(0, 230, 118, 0.8)',
           justifyContent: 'center',
           alignItems: 'center',
           marginRight: spacing.lg,
@@ -170,7 +170,7 @@ export default function MoreScreen() {
                   flex: 1,
                   paddingVertical: spacing.md,
                   alignItems: 'center',
-                  backgroundColor: isActive ? (colors.isDark ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.1)') : 'transparent',
+                  backgroundColor: isActive ? (colors.isDark ? 'rgba(0, 230, 118, 0.15)' : 'rgba(0, 230, 118, 0.1)') : 'transparent',
                   borderRightWidth: opt.value !== 'dark' ? 1 : 0,
                   borderRightColor: colors.border,
                 }}

@@ -52,7 +52,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
     fields.push({ label: 'Type', value: 'Video Switcher' });
     if (a.model) fields.push({ label: 'Model', value: a.model });
     if (a.protocolVersion) fields.push({ label: 'Firmware', value: `v${a.protocolVersion}` });
-    fields.push({ label: 'Status', value: a.connected ? 'Connected' : 'Offline' });
+    fields.push({ label: 'Status', value: a.connected ? 'Connected' : 'Disconnected' });
 
     // Input assignments
     const inputs = a.inputs || {};
@@ -84,7 +84,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
     const fields: ConfigDevice['fields'] = [];
     fields.push({ label: 'Type', value: 'Streaming Software' });
     if (o.version) fields.push({ label: 'Version', value: `v${o.version}` });
-    fields.push({ label: 'Status', value: o.connected ? 'Connected' : 'Offline' });
+    fields.push({ label: 'Status', value: o.connected ? 'Connected' : 'Disconnected' });
     if (o.currentScene) fields.push({ label: 'Current Scene', value: o.currentScene });
     if (o.streaming != null) fields.push({ label: 'Streaming', value: o.streaming ? 'Live' : 'Idle' });
     if (o.recording != null) fields.push({ label: 'Recording', value: o.recording ? 'Active' : 'Idle' });
@@ -100,7 +100,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
     const fields: ConfigDevice['fields'] = [];
     fields.push({ label: 'Type', value: 'Streaming Software' });
     if (v.version) fields.push({ label: 'Version', value: `${v.edition ? v.edition + ' ' : ''}v${v.version}` });
-    fields.push({ label: 'Status', value: v.connected ? 'Connected' : 'Offline' });
+    fields.push({ label: 'Status', value: v.connected ? 'Connected' : 'Disconnected' });
     if (v.streaming != null) fields.push({ label: 'Streaming', value: v.streaming ? 'Live' : 'Idle' });
     if (v.recording != null) fields.push({ label: 'Recording', value: v.recording ? 'Active' : 'Idle' });
     devices.push({ id: 'vmix', name: 'vMix', icon: 'videocam-outline', connected: v.connected, fields });
@@ -114,7 +114,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
     if (e.name) fields.push({ label: 'Name', value: e.name });
     if (e.firmwareVersion) fields.push({ label: 'Firmware', value: `v${e.firmwareVersion}` });
     else if (e.details) fields.push({ label: 'Details', value: e.details });
-    fields.push({ label: 'Status', value: e.connected ? 'Connected' : 'Offline' });
+    fields.push({ label: 'Status', value: e.connected ? 'Connected' : 'Disconnected' });
     if (e.streaming != null) fields.push({ label: 'Streaming', value: e.streaming ? 'Live' : 'Idle' });
     if (e.bitrate != null) fields.push({ label: 'Bitrate', value: `${e.bitrate >= 1000 ? (e.bitrate / 1000).toFixed(1) + ' Mbps' : e.bitrate + ' Kbps'}` });
     if (e.fps != null) fields.push({ label: 'Frame Rate', value: `${Math.round(e.fps)} fps` });
@@ -131,7 +131,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
     if (be.name) fields.push({ label: 'Name', value: be.name });
     if (be.firmwareVersion) fields.push({ label: 'Firmware', value: `v${be.firmwareVersion}` });
     else if (be.details) fields.push({ label: 'Details', value: be.details });
-    fields.push({ label: 'Status', value: be.connected ? 'Connected' : 'Offline' });
+    fields.push({ label: 'Status', value: be.connected ? 'Connected' : 'Disconnected' });
     if (be.streaming != null) fields.push({ label: 'Streaming', value: be.streaming ? 'Live' : 'Idle' });
     if (be.bitrate != null) fields.push({ label: 'Bitrate', value: `${be.bitrate >= 1000 ? (be.bitrate / 1000).toFixed(1) + ' Mbps' : be.bitrate + ' Kbps'}` });
     devices.push({ id: 'backup-encoder', name: be.name || 'Backup Encoder', icon: 'cloud-upload-outline', connected: be.connected, fields });
@@ -144,7 +144,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
     fields.push({ label: 'Type', value: 'Audio Mixer' });
     if (m.model) fields.push({ label: 'Model', value: m.model });
     if (m.firmware) fields.push({ label: 'Firmware', value: `v${m.firmware}` });
-    fields.push({ label: 'Status', value: m.connected ? 'Connected' : 'Offline' });
+    fields.push({ label: 'Status', value: m.connected ? 'Connected' : 'Disconnected' });
     if (m.mainMuted != null) fields.push({ label: 'Main Bus', value: m.mainMuted ? 'MUTED' : 'Active' });
     if (m.channels && m.channels.length > 0) {
       fields.push({ label: 'Channels', value: `${m.channels.length} configured` });
@@ -165,7 +165,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
     const fields: ConfigDevice['fields'] = [];
     fields.push({ label: 'Type', value: 'Presentation Software' });
     if (p.version) fields.push({ label: 'Version', value: `v${p.version}` });
-    fields.push({ label: 'Status', value: p.connected ? 'Connected' : 'Offline' });
+    fields.push({ label: 'Status', value: p.connected ? 'Connected' : 'Disconnected' });
     if (p.currentPresentation) fields.push({ label: 'Presentation', value: p.currentPresentation });
     if (p.slideIndex != null && p.totalSlides != null) {
       fields.push({ label: 'Slide', value: `${p.slideIndex + 1} of ${p.totalSlides}` });
@@ -184,7 +184,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
     const r = status.resolume;
     const fields: ConfigDevice['fields'] = [];
     fields.push({ label: 'Type', value: 'VJ Software' });
-    fields.push({ label: 'Status', value: r.connected ? 'Connected' : 'Offline' });
+    fields.push({ label: 'Status', value: r.connected ? 'Connected' : 'Disconnected' });
     if (r.version) fields.push({ label: 'Version', value: r.version });
     devices.push({ id: 'resolume', name: 'Resolume Arena', icon: 'color-palette-outline', connected: r.connected, fields });
   }
@@ -194,7 +194,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
     const c = status.companion;
     const fields: ConfigDevice['fields'] = [];
     fields.push({ label: 'Type', value: 'Button Control' });
-    fields.push({ label: 'Status', value: c.connected ? 'Connected' : 'Offline' });
+    fields.push({ label: 'Status', value: c.connected ? 'Connected' : 'Disconnected' });
     devices.push({ id: 'companion', name: 'Bitfocus Companion', icon: 'grid-outline', connected: c.connected, fields });
   }
 
@@ -206,7 +206,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
         const fields: ConfigDevice['fields'] = [];
         fields.push({ label: 'Type', value: 'HyperDeck Recorder' });
         if (h.protocolVersion) fields.push({ label: 'Firmware', value: `v${h.protocolVersion}` });
-        fields.push({ label: 'Status', value: deck.connected ? 'Connected' : 'Offline' });
+        fields.push({ label: 'Status', value: deck.connected ? 'Connected' : 'Disconnected' });
         if (deck.recording != null) fields.push({ label: 'Recording', value: deck.recording ? 'Active' : 'Idle' });
         if (deck.diskSpace) {
           if (deck.diskSpace.freeGB != null) fields.push({ label: 'Free Space', value: `${deck.diskSpace.freeGB.toFixed(1)} GB` });
@@ -219,7 +219,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
       const fields: ConfigDevice['fields'] = [];
       fields.push({ label: 'Type', value: 'HyperDeck Recorder' });
       if (h.protocolVersion) fields.push({ label: 'Firmware', value: `v${h.protocolVersion}` });
-      fields.push({ label: 'Status', value: h.connected ? 'Connected' : 'Offline' });
+      fields.push({ label: 'Status', value: h.connected ? 'Connected' : 'Disconnected' });
       if (h.recording != null) fields.push({ label: 'Recording', value: h.recording ? 'Active' : 'Idle' });
       devices.push({ id: 'hyperdeck', name: 'HyperDeck', icon: 'disc-outline', connected: h.connected, fields });
     }
@@ -231,7 +231,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
     cameras.forEach((cam, i) => {
       const fields: ConfigDevice['fields'] = [];
       fields.push({ label: 'Type', value: 'PTZ Camera' });
-      fields.push({ label: 'Status', value: cam.connected ? 'Connected' : 'Offline' });
+      fields.push({ label: 'Status', value: cam.connected ? 'Connected' : 'Disconnected' });
       devices.push({ id: `ptz-${i}`, name: cam.name || `PTZ Camera ${i + 1}`, icon: 'camera-outline', connected: cam.connected, fields });
     });
   }
@@ -252,7 +252,7 @@ function buildConfigDevices(status: DeviceStatus | null): ConfigDevice[] {
     status.videohubs.forEach((hub, i) => {
       const fields: ConfigDevice['fields'] = [];
       fields.push({ label: 'Type', value: 'Video Router' });
-      fields.push({ label: 'Status', value: hub.connected ? 'Connected' : 'Offline' });
+      fields.push({ label: 'Status', value: hub.connected ? 'Connected' : 'Disconnected' });
       if (hub.inputs != null) fields.push({ label: 'Inputs', value: `${hub.inputs}` });
       if (hub.outputs != null) fields.push({ label: 'Outputs', value: `${hub.outputs}` });
       devices.push({ id: `videohub-${i}`, name: hub.name || `VideoHub ${i + 1}`, icon: 'git-network-outline', connected: hub.connected, fields });
@@ -440,7 +440,7 @@ function DeviceConfigCard({ device }: { device: ConfigDevice }) {
         <Text style={styles.cardTitle} numberOfLines={1}>{device.name}</Text>
         <View style={[styles.statusDot, { backgroundColor: device.connected ? colors.online : colors.offline }]} />
         <Text style={[styles.statusText, { color: device.connected ? colors.online : colors.offline }]}>
-          {device.connected ? 'Online' : 'Offline'}
+          {device.connected ? 'Connected' : 'Disconnected'}
         </Text>
       </View>
       <View style={styles.fieldList}>
