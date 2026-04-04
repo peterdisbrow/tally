@@ -78,6 +78,9 @@
     </div>
   </nav>
 
+  <!-- Sticky help nudge for new users (visible for first 5 page loads) -->
+  <button id="sticky-help-nudge" data-action="openHelp" data-help-page="overview" style="display:none;position:fixed;bottom:24px;right:24px;z-index:8000;background:#22c55e;color:#000;border:none;border-radius:999px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(34,197,94,0.35);transition:opacity 0.2s" title="Get help setting up">&#63; Need help?</button>
+
   <main class="main">
 
     <div id="billing-banner"></div>
@@ -154,6 +157,21 @@
         </div>
       </div>
 
+      <!-- Get Connected Card (shown when desktop app has never connected) -->
+      <div class="card" id="get-connected-card" style="display:none; border-color:#1a3a24; text-align:center; padding:32px 24px;">
+        <div style="margin-bottom:14px">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="40" height="40" aria-hidden="true"><path d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>
+        </div>
+        <div style="font-size:17px; font-weight:700; color:#F8FAFC; margin-bottom:8px">Connect the Tally Desktop App</div>
+        <div style="font-size:13px; color:#94A3B8; max-width:420px; margin:0 auto 20px; line-height:1.6">
+          Equipment status, pre-service checks, stream diagnostics, and your activity feed will all appear here once the Tally desktop app connects for the first time.
+        </div>
+        <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+          <a href="/download" class="btn-primary" style="text-decoration:none; padding:8px 20px; font-size:13px; display:inline-flex; align-items:center; gap:6px;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M7.47 10.78a.75.75 0 0 0 1.06 0l3.5-3.5a.75.75 0 0 0-1.06-1.06L8.75 8.44V1.75a.75.75 0 0 0-1.5 0v6.69L5.03 6.22a.75.75 0 0 0-1.06 1.06l3.5 3.5Z"/><path d="M3.5 9.75a.75.75 0 0 0-1.5 0v1.5A2.75 2.75 0 0 0 4.75 14h6.5A2.75 2.75 0 0 0 14 11.25v-1.5a.75.75 0 0 0-1.5 0v1.5c0 .69-.56 1.25-1.25 1.25h-6.5c-.69 0-1.25-.56-1.25-1.25v-1.5Z"/></svg> Download Desktop App</a>
+          <button class="btn-secondary" data-action="showPage" data-page="rooms" style="font-size:13px; padding:8px 20px;">Configure Equipment</button>
+        </div>
+      </div>
+
       <!-- Live Viewer Count (visible during active sessions) -->
       <div class="card" id="live-viewers-card" style="display:none;margin-bottom:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
@@ -166,7 +184,7 @@
         <div id="live-viewers-sparkline" style="margin-top:10px;height:40px;display:flex;align-items:flex-end;gap:2px"></div>
       </div>
 
-      <!-- Pre-Service Check Card — prominent, always visible on dashboard -->
+      <!-- Pre-Service Check Card — hidden until desktop app has connected -->
       <div class="card" id="preservice-card-dashboard">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
           <div style="display:flex;align-items:center;gap:10px">
@@ -194,7 +212,7 @@
         <div id="incident-body"></div>
       </div>
 
-      <div class="card">
+      <div class="card" id="equipment-status-card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div class="card-title" style="margin:0"><span class="tip" data-tip="Real-time status of each AV device Tally monitors (ATEM, OBS, HyperDeck, etc.)" data-i18n="overview.equip.title">Equipment Status</span> <span id="equip-room-label" style="font-size:12px;color:#22c55e;font-weight:normal;margin-left:8px"></span></div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -675,6 +693,17 @@
       <div id="equipment-loading" style="text-align:center;padding:40px;color:#475569">Loading equipment config…</div>
       <div id="equipment-form" style="display:none">
 
+        <!-- Equipment intro card -->
+        <div class="card" style="margin-bottom:16px;border-color:#1a3a24;background:#0a1a10">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="font-size:22px;flex-shrink:0">&#128268;</div>
+            <div>
+              <div style="font-size:14px;font-weight:600;color:#F8FAFC;margin-bottom:4px">Fill in what you have — you don't need everything.</div>
+              <div style="font-size:13px;color:#94A3B8;line-height:1.5">Start with your ATEM or video switcher connection. Tally will help detect other devices once connected. Leave anything blank that you don't use.</div>
+            </div>
+          </div>
+        </div>
+
         <!-- Room Selector -->
         <div id="eq-room-selector-wrap" style="display:none;margin-bottom:16px;padding:12px 16px;background:#0F1613;border:1px solid #1a2e1f;border-radius:8px">
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -687,7 +716,7 @@
         <div class="card" style="margin-bottom:16px">
           <div class="card-title">Video Switcher (ATEM)</div>
           <div class="field">
-            <label>ATEM IP Address</label>
+            <label><span class="tip" data-tip="Find this in your ATEM's network settings (Software Control &rsaquo; Settings &rsaquo; Network) or check your router's device list for a device named 'ATEM'.">ATEM IP Address</span></label>
             <input type="text" id="eq-atem-ip" placeholder="192.168.1.240">
           </div>
         </div>
@@ -696,7 +725,7 @@
         <div class="card" style="margin-bottom:16px">
           <div class="card-title">OBS Studio</div>
           <div class="field">
-            <label>WebSocket URL</label>
+            <label><span class="tip" data-tip="In OBS: Tools &rsaquo; WebSocket Server Settings. Enable the server, then copy the Server Port (default 4455). Format: ws://localhost:4455 if OBS runs on the same computer as Tally.">WebSocket URL</span></label>
             <input type="text" id="eq-obs-url" placeholder="ws://localhost:4455">
           </div>
           <div class="field">
@@ -720,11 +749,11 @@
               </select>
             </div>
             <div class="field" style="flex:1;min-width:140px">
-              <label>Host / IP</label>
+              <label><span class="tip" data-tip="The IP address of your mixer on the network. Check your mixer's network settings menu or look it up in your router's device list.">Host / IP</span></label>
               <input type="text" id="eq-mixer-host" placeholder="192.168.1.200">
             </div>
             <div class="field" style="flex:0 0 100px">
-              <label>Port</label>
+              <label><span class="tip" data-tip="The network port your mixer uses. Behringer X32/M32: 10023. Allen &amp; Heath dLive/SQ: 51326. Yamaha: 49280. Leave as default if unsure.">Port</span></label>
               <input type="number" id="eq-mixer-port" placeholder="10023" min="1" max="65535">
             </div>
           </div>
@@ -755,7 +784,7 @@
               </select>
             </div>
             <div class="field" style="flex:1;min-width:140px">
-              <label>Host / IP</label>
+              <label><span class="tip" data-tip="The IP address of your hardware encoder on the network. Find it in the encoder's web interface or your router's device list.">Host / IP</span></label>
               <input type="text" id="eq-encoder-host" placeholder="192.168.1.100">
             </div>
             <div class="field" style="flex:0 0 100px">

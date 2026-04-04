@@ -431,11 +431,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'onboarding.step.device.detail': 'Download the Tally app and connect your ATEM, OBS, or ProPresenter',
         'onboarding.step.device.btn': '\u2b07 Download App',
         'onboarding.step.telegram.label': 'Set up Telegram notifications',
+        'onboarding.step.telegram.explainer': 'Tally sends alerts to your phone via Telegram \u2014 a free messaging app. This is how you get notified if your stream drops during service.',
         'onboarding.step.telegram.detail': 'Send /register {{code}} to @TallyConnectBot on Telegram to receive alerts',
         'onboarding.step.telegram.copy': 'Copy Code',
         'onboarding.step.telegram.open': 'Open Telegram',
-        'onboarding.step.failover.label': 'Run a test failover',
-        'onboarding.step.failover.detail': 'Trigger a test to confirm Tally detects signal loss and sends an alert',
+        'onboarding.step.telegram.download': 'Download Telegram',
+        'onboarding.step.telegram.skip': 'Skip for now \u2014 set up later',
+        'onboarding.step.failover.label': 'Test your alert system',
+        'onboarding.step.failover.detail': 'Confirm your phone gets notified if something goes wrong during service',
         'onboarding.step.failover.btn': 'Run Test',
         'onboarding.step.team.label': 'Invite your team',
         'onboarding.step.team.detail': 'Share the registration code so your AV volunteers can join on Telegram',
@@ -792,11 +795,14 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         'onboarding.step.device.detail': 'Descarga la app de Tally y conecta tu ATEM, OBS o ProPresenter',
         'onboarding.step.device.btn': '\u2b07 Descargar App',
         'onboarding.step.telegram.label': 'Configura las notificaciones de Telegram',
+        'onboarding.step.telegram.explainer': 'Tally env\u00eda alertas a tu tel\u00e9fono por Telegram \u2014 una app de mensajer\u00eda gratuita. As\u00ed te notifica si tu transmisi\u00f3n se cae durante el servicio.',
         'onboarding.step.telegram.detail': 'Env\u00eda /register {{code}} a @TallyConnectBot en Telegram para recibir alertas',
         'onboarding.step.telegram.copy': 'Copiar C\u00f3digo',
         'onboarding.step.telegram.open': 'Abrir Telegram',
-        'onboarding.step.failover.label': 'Prueba el cambio autom\u00e1tico de se\u00f1al',
-        'onboarding.step.failover.detail': 'Activa una prueba para confirmar que Tally detecta la p\u00e9rdida de se\u00f1al y env\u00eda una alerta',
+        'onboarding.step.telegram.download': 'Descargar Telegram',
+        'onboarding.step.telegram.skip': 'Saltar por ahora \u2014 configurar despu\u00e9s',
+        'onboarding.step.failover.label': 'Prueba tu sistema de alertas',
+        'onboarding.step.failover.detail': 'Confirma que recibes notificaci\u00f3n en tu tel\u00e9fono si algo falla durante el servicio',
         'onboarding.step.failover.btn': 'Ejecutar Prueba',
         'onboarding.step.team.label': 'Invita a tu equipo',
         'onboarding.step.team.detail': 'Comparte el c\u00f3digo de registro para que tus voluntarios de AV se unan en Telegram',
@@ -858,6 +864,21 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       document.body.classList.add('light-theme');
       updateThemeToggleUI(true);
     }
+
+    // Show sticky help nudge for new users (first 5 page loads)
+    (function() {
+      var visits = parseInt(localStorage.getItem('tally_portal_visits') || '0', 10) + 1;
+      localStorage.setItem('tally_portal_visits', visits);
+      var nudge = document.getElementById('sticky-help-nudge');
+      if (nudge && visits <= 5) {
+        nudge.style.display = 'block';
+        // Fade out after 12 seconds on each visit
+        setTimeout(function() {
+          nudge.style.opacity = '0';
+          setTimeout(function() { nudge.style.display = 'none'; }, 300);
+        }, 12000);
+      }
+    })();
 
     function toggleLanguage() {
       const current = portalLocale();
@@ -3010,6 +3031,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       onboardingRegCode = d.registration_code || '';
 
+      var telegramSkipped = localStorage.getItem('tally_onboarding_telegram_skipped') === '1';
+
       const steps = [
         {
           key: 'device',
@@ -3020,10 +3043,13 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         },
         {
           key: 'telegram',
-          done: !!d.onboarding_telegram_registered_at,
+          done: !!d.onboarding_telegram_registered_at || telegramSkipped,
           label: pt('onboarding.step.telegram.label'),
-          detail: pt('onboarding.step.telegram.detail', { code: escapeHtml(d.registration_code || 'CODE') }),
-          action: '<span class="onboard-action-btn" onclick="copyOnboardingCode()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.copy') + '</span> <a href="https://t.me/TallyConnectBot" target="_blank" class="onboard-action-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v6A1.5 1.5 0 0 0 2.5 12H4v2.25a.75.75 0 0 0 1.28.53L7.56 12H13.5A1.5 1.5 0 0 0 15 10.5v-6A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.open') + '</a>',
+          detail: '<p style="margin:0 0 8px">' + pt('onboarding.step.telegram.explainer') + '</p>' + pt('onboarding.step.telegram.detail', { code: escapeHtml(d.registration_code || 'CODE') }),
+          action: '<a href="https://telegram.org/" target="_blank" class="onboard-action-btn" style="margin-right:4px">' + pt('onboarding.step.telegram.download') + '</a>'
+            + '<span class="onboard-action-btn" onclick="copyOnboardingCode()"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true" style="vertical-align:middle;margin-right:4px"><path fill-rule="evenodd" d="M4 2a1.5 1.5 0 0 1 1.5-1.5h5A1.5 1.5 0 0 1 12 2v1.5a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 3.5V2ZM3 4.5A1.5 1.5 0 0 0 1.5 6v7A1.5 1.5 0 0 0 3 14.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 13 4.5H3Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.copy') + '</span>'
+            + ' <a href="https://t.me/TallyConnectBot" target="_blank" class="onboard-action-btn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" width="16" height="16" aria-hidden="true"><path fill-rule="evenodd" d="M2.5 3A1.5 1.5 0 0 0 1 4.5v6A1.5 1.5 0 0 0 2.5 12H4v2.25a.75.75 0 0 0 1.28.53L7.56 12H13.5A1.5 1.5 0 0 0 15 10.5v-6A1.5 1.5 0 0 0 13.5 3h-11Z" clip-rule="evenodd"/></svg> ' + pt('onboarding.step.telegram.open') + '</a>'
+            + '<br><span class="onboard-skip-link" onclick="skipTelegramStep()" style="font-size:11px;color:#64748B;cursor:pointer;text-decoration:underline;margin-top:6px;display:inline-block">' + pt('onboarding.step.telegram.skip') + '</span>',
         },
         {
           key: 'failover',
@@ -3095,12 +3121,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       toast('Ensure your ATEM and booth computer are on the same network subnet. The app scans automatically.');
     }
 
+    function skipTelegramStep() {
+      localStorage.setItem('tally_onboarding_telegram_skipped', '1');
+      loadOverview();
+    }
+
     async function markFailoverTested() {
       const btn = document.getElementById('failover-test-btn');
       if (btn) { btn.textContent = 'Recording…'; btn.style.pointerEvents = 'none'; }
       try {
         await api('POST', '/api/church/onboarding/failover-tested');
-        toast('Test failover recorded! Step 3 complete.');
+        toast('Alert system test recorded! Step 3 complete.');
         loadOverview();
       } catch (e) {
         toast('Could not record test — please try again', true);

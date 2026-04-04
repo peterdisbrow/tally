@@ -87,19 +87,21 @@
       background: none;
       border: 1px solid #1a2e1f;
       border-radius: 50%;
-      width: 28px;
-      height: 28px;
+      width: 32px;
+      height: 32px;
       color: #64748B;
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 700;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       flex-shrink: 0;
-      transition: border-color .15s, color .15s;
+      transition: border-color .15s, color .15s, background .15s;
     }
-    .help-icon-btn:hover { border-color: #22c55e; color: #22c55e; }
+    .help-icon-btn:hover { border-color: #22c55e; color: #22c55e; background: rgba(34,197,94,0.08); }
+    /* Overview page help button gets a subtle green tint to be more discoverable */
+    #page-overview .help-icon-btn { border-color: #1e4a2a; color: #4ade80; }
     /* Help modal */
     #help-modal { background: rgba(0,0,0,0.7); }
     #help-modal .modal {
