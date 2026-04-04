@@ -8733,18 +8733,11 @@ document.addEventListener('DOMContentLoaded', function() {
       var vText = version ? version.text : null;
       var subtitle = deviceSubtitle(rawName, name, vText);
       var subtitleHtml = subtitle ? '<div class="equip-simple-subtitle">' + subtitle + '</div>' : '';
-      var detailHtml = '';
-      if (detail) {
-        detailHtml = '<div class="equip-simple-detail" id="equip-detail-' + i + '">' + detail + '</div>';
-      }
-
-      html += '<div class="equip-simple-row" data-detail="equip-detail-' + i + '" onclick="toggleEquipDetail(this)">'
+      html += '<div class="equip-simple-row">'
         + '<div class="equip-simple-icon">' + icon + '</div>'
         + '<div class="equip-simple-info"><div class="equip-simple-name">' + name + '</div>' + subtitleHtml + '</div>'
         + '<div class="equip-simple-status ' + stClass + '"><span class="es-dot"></span> ' + stText + '</div>'
-        + (detail ? '<svg class="equip-simple-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>' : '')
-        + '</div>'
-        + detailHtml;
+        + '</div>';
     });
     list.innerHTML = html;
   }
