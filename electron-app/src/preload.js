@@ -41,6 +41,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('scan-progress', listener);
     return () => ipcRenderer.removeListener('scan-progress', listener);
   },
+  // Deep network scan (ARP + mDNS + port scanning)
+  deepScanNetwork: (options = {}) => ipcRenderer.invoke('deep-scan-network', options),
+  abortDeepScan: () => ipcRenderer.invoke('abort-deep-scan'),
+  getNetworkTopology: () => ipcRenderer.invoke('get-network-topology'),
+  onDeepScanProgress: (cb) => {
+    const listener = (_, data) => cb(data);
+    ipcRenderer.on('deep-scan-progress', listener);
+    return () => ipcRenderer.removeListener('deep-scan-progress', listener);
+  },
+  onDeepScanDevice: (cb) => {
+    const listener = (_, data) => cb(data);
+    ipcRenderer.on('deep-scan-device', listener);
+    return () => ipcRenderer.removeListener('deep-scan-device', listener);
+  },
   // Chat
   sendChat: (payload) => ipcRenderer.invoke('send-chat', payload),
   getChat: (opts) => ipcRenderer.invoke('get-chat', opts),

@@ -2511,3 +2511,103 @@ body.light-theme .cmd-device-section h2 {
   color: #16a34a;
 }
 
+/* ── Network Tab ───────────────────────────────────────────── */
+.net-filter-chip {
+  padding: 3px 10px;
+  font-size: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: all 0.15s;
+}
+.net-filter-chip:hover { color: var(--white); border-color: var(--green); }
+.net-filter-chip.active { background: var(--green); color: #000; border-color: var(--green); }
+
+.net-device-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  transition: border-color 0.15s;
+}
+.net-device-card:hover { border-color: rgba(34,197,94,0.4); }
+
+.net-device-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.net-device-icon svg { width: 20px; height: 20px; }
+.net-device-icon.cat-video    { background: rgba(59,130,246,0.15); color: #60A5FA; }
+.net-device-icon.cat-audio    { background: rgba(168,85,247,0.15); color: #C084FC; }
+.net-device-icon.cat-lighting { background: rgba(245,158,11,0.15); color: #FBBF24; }
+.net-device-icon.cat-control  { background: rgba(34,197,94,0.15);  color: #4ADE80; }
+.net-device-icon.cat-power    { background: rgba(239,68,68,0.15);  color: #F87171; }
+.net-device-icon.cat-network  { background: rgba(148,163,184,0.15); color: #94A3B8; }
+.net-device-icon.cat-other    { background: rgba(148,163,184,0.1);  color: #64748B; }
+
+.net-device-info { flex: 1; min-width: 0; }
+.net-device-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.net-device-type {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+.net-device-meta {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.net-device-meta span {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.net-protocol-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.net-protocol-badge {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(34,197,94,0.12);
+  color: var(--green);
+  white-space: nowrap;
+}
+.net-confidence-high { }
+.net-confidence-medium { opacity: 0.85; }
+.net-confidence-low { opacity: 0.7; }
+
+/* Light theme overrides */
+body.light-theme .net-filter-chip { color: #64748B; border-color: #E2E8F0; }
+body.light-theme .net-filter-chip:hover { color: #16a34a; border-color: #16a34a; }
+body.light-theme .net-filter-chip.active { background: #16a34a; color: #fff; border-color: #16a34a; }
+body.light-theme .net-device-card { background: #FFFFFF; border-color: #E2E8F0; }
+body.light-theme .net-device-card:hover { border-color: rgba(22,163,74,0.4); }
+body.light-theme .net-device-name { color: #1E293B; }
+body.light-theme .net-device-meta span { color: #64748B; }
+body.light-theme .net-protocol-badge { background: rgba(22,163,74,0.1); color: #16a34a; }
+

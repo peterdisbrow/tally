@@ -1791,6 +1791,78 @@ ipcMain.handle('scan-network', async (event, options = {}) => {
   return results;
 });
 
+// ─── DEEP NETWORK SCAN (ARP + mDNS + Protocol Port Scanning) ────────────────
+const { NetworkScanner: DeepNetworkScanner, listInterfaces: listNetInterfaces } = require('../../shared/network-scanner');
+
+let _activeDeepScan = null;
+
+ipcMain.handle('deep-scan-network', async (event, options = {}) => {
+  // Abort any in-progress scan
+  if (_activeDeepScan) _activeDeepScan.abort();
+
+  const scanner = new DeepNetworkScanner({
+    onProgress: (progress) => {
+      mainWindow?.webContents.send('deep-scan-progress', progress);
+    },
+    onDeviceFound: (device) => {
+      mainWindow?.webContents.send('deep-scan-device', device);
+    },
+    timeout: options.timeout || 500,
+    batchSize: options.batchSize || 60,
+  });
+  _activeDeepScan = scanner;
+
+  try {
+    const results = await scanner.scan(options);
+    _activeDeepScan = null;
+
+    // Sync results to relay server if authenticated
+    try {
+      const config = loadConfig();
+      if (config.token && config.relayUrl) {
+        const url = config.relayUrl.replace(/^ws/, 'http') + '/api/church/app/network-topology';
+        const https = require('https');
+        const http = require('http');
+        const mod = url.startsWith('https') ? https : http;
+        const body = JSON.stringify({
+          roomId: config.roomId || null,
+          devices: results.devices,
+          scanTime: results.scanTime,
+        });
+        const req = mod.request(url, {
+          method: 'PUT',
+          headers: { 'Authorization': `Bearer ${config.token}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+          timeout: 5000,
+        });
+        req.on('error', () => {});
+        req.write(body);
+        req.end();
+      }
+    } catch {
+      // Non-critical — don't fail the scan if relay sync fails
+    }
+
+    return results;
+  } catch (err) {
+    _activeDeepScan = null;
+    return { devices: [], scanTime: new Date().toISOString(), deviceCount: 0, error: err.message };
+  }
+});
+
+ipcMain.handle('abort-deep-scan', () => {
+  if (_activeDeepScan) {
+    _activeDeepScan.abort();
+    _activeDeepScan = null;
+  }
+  return { ok: true };
+});
+
+ipcMain.handle('get-network-topology', () => {
+  return _lastNetworkTopology || { devices: [], scanTime: null, deviceCount: 0 };
+});
+
+let _lastNetworkTopology = null;
+
 ipcMain.handle('test-equipment-connection', async (_, params) => {
   // Delegate to equipment-tester module (uses correct UDP probes for ATEM/mixers)
   return equipmentTester.testEquipmentConnection(params);

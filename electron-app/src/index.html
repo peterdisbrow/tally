@@ -186,6 +186,7 @@
     <button class="tab-btn" onclick="switchTab('equipment')" title="Equipment (Ctrl+2 / ⌘2)">Equipment</button>
     <button class="tab-btn" onclick="switchTab('engineer')" title="Tally Engineer (Ctrl+3 / ⌘3)">Tally Engineer</button>
     <button class="tab-btn" onclick="switchTab('commands')" title="Commands (Ctrl+4 / ⌘4)">Commands</button>
+    <button class="tab-btn" onclick="switchTab('network')" title="Network (Ctrl+5 / ⌘5)">Network <span class="tab-badge" id="network-device-badge" style="display:none;"></span></button>
   </div>
 
   <!-- ══════════ STATUS TAB ══════════ -->
@@ -1158,6 +1159,56 @@
     <div id="cmd-toast" class="cmd-toast" style="display:none;"></div>
 
   </div><!-- /tab-commands -->
+
+  <!-- ══════════ NETWORK TAB ══════════ -->
+  <div class="content tab-content" id="tab-network" style="flex:1; overflow-y:auto;">
+
+    <!-- Scan controls -->
+    <div style="padding:12px 16px 0; display:flex; align-items:center; gap:10px;">
+      <button class="btn btn-small" id="net-scan-btn" onclick="startDeepScan()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px; margin-right:4px;">
+          <circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M2 12h20"/>
+        </svg>
+        Scan Network
+      </button>
+      <button class="btn btn-small" id="net-abort-btn" onclick="abortDeepScan()" style="display:none;">Abort</button>
+      <span id="net-scan-status" style="font-size:11px; color:var(--muted);"></span>
+      <span style="flex:1;"></span>
+      <span id="net-device-count" style="font-size:11px; color:var(--muted);"></span>
+    </div>
+
+    <!-- Progress bar -->
+    <div id="net-progress-wrap" style="display:none; padding:8px 16px;">
+      <div style="background:var(--surface); border-radius:4px; height:6px; overflow:hidden;">
+        <div id="net-progress-bar" style="height:100%; background:var(--green); width:0%; transition:width 0.3s;"></div>
+      </div>
+      <div id="net-progress-msg" style="font-size:10px; color:var(--muted); margin-top:4px;"></div>
+    </div>
+
+    <!-- Filter bar -->
+    <div id="net-filter-bar" style="display:none; padding:6px 16px; display:flex; gap:6px; flex-wrap:wrap;">
+      <button class="net-filter-chip active" data-filter="all" onclick="filterNetDevices('all')">All</button>
+      <button class="net-filter-chip" data-filter="video" onclick="filterNetDevices('video')">Video</button>
+      <button class="net-filter-chip" data-filter="audio" onclick="filterNetDevices('audio')">Audio</button>
+      <button class="net-filter-chip" data-filter="lighting" onclick="filterNetDevices('lighting')">Lighting</button>
+      <button class="net-filter-chip" data-filter="control" onclick="filterNetDevices('control')">Control</button>
+      <button class="net-filter-chip" data-filter="network" onclick="filterNetDevices('network')">Network</button>
+      <button class="net-filter-chip" data-filter="other" onclick="filterNetDevices('other')">Other</button>
+    </div>
+
+    <!-- Device list -->
+    <div id="net-device-list" style="padding:8px 16px 16px;">
+      <div id="net-empty-state" style="text-align:center; padding:48px 16px; color:var(--muted);">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:0.4; margin-bottom:12px;">
+          <circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M2 12h20"/><path d="M12 2c-4 4-4 16 0 20"/><path d="M12 2c4 4 4 16 0 20"/>
+        </svg>
+        <div style="font-size:13px; margin-bottom:6px;">No network scan yet</div>
+        <div style="font-size:11px;">Click <strong>Scan Network</strong> to discover AV devices on your network</div>
+      </div>
+      <div id="net-devices" style="display:none;"></div>
+    </div>
+
+  </div><!-- /tab-network -->
 
 
   <div class="branding">

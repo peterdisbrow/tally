@@ -1,0 +1,9 @@
+{
+  "name": "@tallyconnect/network-scanner",
+  "version": "1.0.0",
+  "description": "AV network device discovery — ARP, mDNS, and protocol-aware port scanning",
+  "main": "index.js",
+  "dependencies": {
+    "multicast-dns": "^7.2.5"
+  }
+}

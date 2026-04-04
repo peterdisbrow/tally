@@ -4694,6 +4694,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '2') { e.preventDefault(); switchTab('equipment'); }
   else if (e.key === '3') { e.preventDefault(); switchTab('engineer'); }
   else if (e.key === '4') { e.preventDefault(); switchTab('commands'); }
+  else if (e.key === '5') { e.preventDefault(); switchTab('network'); }
 });
 
 // External link handler
@@ -4871,6 +4872,246 @@ function showCmdToast(msg, type) {
   toast.className = 'cmd-toast ' + (type || 'success');
   toast.style.display = '';
   _cmdToastTimer = setTimeout(() => { toast.style.display = 'none'; }, 3000);
+}
+
+// ─── NETWORK TAB ─────────────────────────────────────────────────────────────
+
+let _netDevices = [];
+let _netFilter = 'all';
+let _netScanning = false;
+
+// SVG icons for device categories
+const NET_ICONS = {
+  switcher: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 12h10M12 8v8"/></svg>',
+  recorder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="12" cy="12" r="3"/></svg>',
+  router: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 12h3M10 8v8M14 8v8M15 12h3"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
+  encoder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 10l4 2-4 2v-4z"/></svg>',
+  ndi: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2v20M2 12h20"/><path d="M4.93 4.93l14.14 14.14M19.07 4.93L4.93 19.07"/></svg>',
+  presentation: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+  mixer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="4" height="20" rx="1"/><rect x="10" y="6" width="4" height="16" rx="1"/><rect x="16" y="4" width="4" height="18" rx="1"/></svg>',
+  dante: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>',
+  lighting: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>',
+  controller: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="12" r="2"/></svg>',
+  software: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M8 10l2 2-2 2M13 10h3"/></svg>',
+  plug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v6M8 2v6M16 2v6"/><rect x="6" y="8" width="12" height="8" rx="2"/><path d="M10 16v4h4v-4"/></svg>',
+  network: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1"/><circle cx="6" cy="18" r="1"/></svg>',
+  computer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+  mobile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>',
+  printer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><rect x="2" y="9" width="20" height="8" rx="1"/><path d="M6 17v4h12v-4"/></svg>',
+  unknown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>',
+};
+
+const CATEGORY_MAP = {
+  switcher: 'video', recorder: 'video', router: 'video', camera: 'video',
+  encoder: 'video', 'ndi-source': 'video', 'ndi-converter': 'video', presentation: 'video',
+  'audio-mixer': 'audio', 'audio-network': 'audio',
+  lighting: 'lighting',
+  controller: 'control', software: 'control',
+  'smart-plug': 'power',
+  infrastructure: 'network', computer: 'network', mobile: 'network', printer: 'network',
+  unknown: 'other',
+};
+
+const ICON_MAP = {
+  switcher: 'switcher', recorder: 'recorder', router: 'router', camera: 'camera',
+  encoder: 'encoder', 'ndi-source': 'ndi', 'ndi-converter': 'ndi', presentation: 'presentation',
+  'audio-mixer': 'mixer', 'audio-network': 'dante',
+  lighting: 'lighting',
+  controller: 'controller', software: 'software',
+  'smart-plug': 'plug',
+  infrastructure: 'network', computer: 'computer', mobile: 'mobile', printer: 'printer',
+  unknown: 'unknown',
+};
+
+function getDeviceCategory(device) {
+  return device.category || CATEGORY_MAP[device.deviceType] || 'other';
+}
+
+function getDeviceIcon(device) {
+  const iconKey = ICON_MAP[device.deviceType] || device.icon || 'unknown';
+  return NET_ICONS[iconKey] || NET_ICONS.unknown;
+}
+
+function getDeviceDisplayName(device) {
+  if (device.model) return device.model;
+  if (device.hostname) return device.hostname.replace(/\.local\.?$/, '');
+  if (device.label) return device.label;
+  // Use vendor + type as fallback
+  const label = device.vendor ? `${device.vendor}` : (device.deviceType || 'Unknown Device');
+  return label.replace(/^unknown$/i, 'Unknown Device');
+}
+
+function getDeviceTypeLabel(device) {
+  const labels = {
+    switcher: 'Video Switcher', recorder: 'Recorder', router: 'Video Router',
+    camera: 'Camera', encoder: 'Encoder', 'ndi-source': 'NDI Source',
+    'ndi-converter': 'NDI Converter', presentation: 'Presentation Software',
+    'audio-mixer': 'Audio Mixer', 'audio-network': 'Audio Network',
+    lighting: 'Lighting Controller', controller: 'Automation Controller',
+    software: 'Production Software', 'smart-plug': 'Smart Plug',
+    infrastructure: 'Network Infrastructure', computer: 'Computer',
+    mobile: 'Mobile Device', printer: 'Printer', unknown: 'Unknown Device',
+  };
+  return labels[device.deviceType] || 'Device';
+}
+
+function renderNetDevices() {
+  const container = document.getElementById('net-devices');
+  const empty = document.getElementById('net-empty-state');
+  const filterBar = document.getElementById('net-filter-bar');
+  const countEl = document.getElementById('net-device-count');
+  const badge = document.getElementById('network-device-badge');
+
+  if (!_netDevices.length) {
+    container.style.display = 'none';
+    empty.style.display = '';
+    filterBar.style.display = 'none';
+    countEl.textContent = '';
+    badge.style.display = 'none';
+    return;
+  }
+
+  empty.style.display = 'none';
+  container.style.display = '';
+  filterBar.style.display = 'flex';
+
+  // Sort: AV devices first, then by deviceType, then by IP
+  const sorted = [..._netDevices].sort((a, b) => {
+    const catA = getDeviceCategory(a);
+    const catB = getDeviceCategory(b);
+    const order = ['video', 'audio', 'lighting', 'control', 'power', 'network', 'other'];
+    const oi = order.indexOf(catA) - order.indexOf(catB);
+    if (oi !== 0) return oi;
+    if (a.deviceType !== b.deviceType) return (a.deviceType || '').localeCompare(b.deviceType || '');
+    return (a.ip || '').localeCompare(b.ip || '');
+  });
+
+  const filtered = _netFilter === 'all'
+    ? sorted
+    : sorted.filter(d => getDeviceCategory(d) === _netFilter);
+
+  countEl.textContent = `${_netDevices.length} device${_netDevices.length !== 1 ? 's' : ''}`;
+  badge.textContent = _netDevices.length;
+  badge.style.display = '';
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding:24px; color:var(--muted); font-size:12px;">No devices match this filter</div>';
+    return;
+  }
+
+  let html = '';
+  for (const device of filtered) {
+    const cat = getDeviceCategory(device);
+    const icon = getDeviceIcon(device);
+    const name = getDeviceDisplayName(device);
+    const typeLabel = getDeviceTypeLabel(device);
+    const confidence = device.confidence || 'low';
+
+    html += `<div class="net-device-card net-confidence-${confidence}" data-category="${cat}">`;
+    html += `<div class="net-device-icon cat-${cat}">${icon}</div>`;
+    html += `<div class="net-device-info">`;
+    html += `<div class="net-device-name">${escapeHtml(name)}</div>`;
+    html += `<div class="net-device-type">${escapeHtml(typeLabel)}</div>`;
+    html += `<div class="net-device-meta">`;
+    html += `<span>${escapeHtml(device.ip)}</span>`;
+    if (device.mac) html += `<span>${escapeHtml(device.mac)}</span>`;
+    if (device.vendor) html += `<span>${escapeHtml(device.vendor)}</span>`;
+    html += `</div>`;
+    if (device.protocols && device.protocols.length) {
+      html += `<div class="net-protocol-badges">`;
+      for (const p of device.protocols) {
+        html += `<span class="net-protocol-badge">${escapeHtml(p)}</span>`;
+      }
+      html += `</div>`;
+    }
+    html += `</div></div>`;
+  }
+  container.innerHTML = html;
+}
+
+function filterNetDevices(filter) {
+  _netFilter = filter;
+  document.querySelectorAll('.net-filter-chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.filter === filter);
+  });
+  renderNetDevices();
+}
+
+async function startDeepScan() {
+  if (_netScanning) return;
+  _netScanning = true;
+  _netDevices = [];
+
+  const scanBtn = document.getElementById('net-scan-btn');
+  const abortBtn = document.getElementById('net-abort-btn');
+  const progressWrap = document.getElementById('net-progress-wrap');
+  const progressBar = document.getElementById('net-progress-bar');
+  const progressMsg = document.getElementById('net-progress-msg');
+  const statusEl = document.getElementById('net-scan-status');
+
+  scanBtn.disabled = true;
+  scanBtn.textContent = 'Scanning...';
+  abortBtn.style.display = '';
+  progressWrap.style.display = '';
+  progressBar.style.width = '0%';
+  statusEl.textContent = 'Initializing scan...';
+
+  renderNetDevices();
+
+  try {
+    const results = await api.deepScanNetwork({});
+
+    _netDevices = results.devices || [];
+    renderNetDevices();
+
+    statusEl.textContent = results.error
+      ? `Scan error: ${results.error}`
+      : `Last scan: ${new Date(results.scanTime).toLocaleTimeString()}`;
+  } catch (err) {
+    statusEl.textContent = `Scan failed: ${err.message || 'unknown error'}`;
+  } finally {
+    _netScanning = false;
+    scanBtn.disabled = false;
+    scanBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px; margin-right:4px;"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M2 12h20"/></svg> Scan Network';
+    abortBtn.style.display = 'none';
+    progressWrap.style.display = 'none';
+  }
+}
+
+function abortDeepScan() {
+  api.abortDeepScan();
+  _netScanning = false;
+  const scanBtn = document.getElementById('net-scan-btn');
+  scanBtn.disabled = false;
+  scanBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px; margin-right:4px;"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M2 12h20"/></svg> Scan Network';
+  document.getElementById('net-abort-btn').style.display = 'none';
+  document.getElementById('net-scan-status').textContent = 'Scan aborted';
+}
+
+// Listen for real-time progress and device discovery events
+if (api.onDeepScanProgress) {
+  api.onDeepScanProgress((progress) => {
+    const bar = document.getElementById('net-progress-bar');
+    const msg = document.getElementById('net-progress-msg');
+    const status = document.getElementById('net-scan-status');
+    if (bar && progress.percent != null) bar.style.width = progress.percent + '%';
+    if (msg) msg.textContent = progress.message || '';
+    if (status) status.textContent = progress.message || '';
+  });
+}
+
+if (api.onDeepScanDevice) {
+  api.onDeepScanDevice((device) => {
+    // Update or add device in real-time
+    const idx = _netDevices.findIndex(d => d.ip === device.ip);
+    if (idx >= 0) {
+      _netDevices[idx] = device;
+    } else {
+      _netDevices.push(device);
+    }
+    if (_netScanning) renderNetDevices();
+  });
 }
 
 // ─── CLEANUP ON UNLOAD ──────────────────────────────────────────────────────

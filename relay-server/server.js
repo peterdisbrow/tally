@@ -910,6 +910,19 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_support_ticket_status ON support_tickets
 db.exec('CREATE INDEX IF NOT EXISTS idx_support_ticket_updates_ticket ON support_ticket_updates(ticket_id, created_at DESC)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_status_incidents_component ON status_incidents(component_id, started_at DESC)');
 
+// ─── Network Topology table ──────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS network_topology (
+    church_id   TEXT NOT NULL,
+    room_id     TEXT,
+    devices     TEXT NOT NULL DEFAULT '[]',
+    scan_time   TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY (church_id, room_id)
+  )
+`);
+db.exec('CREATE INDEX IF NOT EXISTS idx_network_topology_church ON network_topology(church_id)');
+
 // ─── Problem Finder reports table ────────────────────────────────────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS problem_finder_reports (
@@ -2818,6 +2831,7 @@ require('./src/routes/automation')(app, routeCtx);
 require('./src/routes/scheduler')(app, routeCtx);
 require('./src/routes/churchOps')(app, routeCtx);
 require('./src/routes/roomEquipment')(app, routeCtx);
+require('./src/routes/networkTopology')(app, routeCtx);
 require('./src/routes/aiTriage')(app, routeCtx);
 require('./src/routes/mobile')(app, routeCtx);
 console.log('[Server] ✓ Route modules registered (including mobile)');
