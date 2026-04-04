@@ -1458,7 +1458,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
         var statusText = document.getElementById('stat-status-text');
         var statusDot = document.getElementById('stat-status-dot');
-        if (statusText) { statusText.textContent = d.connected ? 'Online' : 'Offline'; statusText.style.color = d.connected ? '#00E676' : '#8B9DAF'; }
+        if (statusText) { statusText.textContent = d.connected ? 'Connected' : 'Offline'; statusText.style.color = d.connected ? '#00E676' : '#8B9DAF'; }
         if (statusDot) { statusDot.style.background = d.connected ? '#00E676' : '#FF5252'; }
 
         // ── Onboarding checklist ──────────────────────────────────────────────
@@ -2634,7 +2634,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         // Connection status
         var statusText = document.getElementById('stat-status-text');
         var statusDot = document.getElementById('stat-status-dot');
-        if (statusText) { statusText.textContent = d.connected ? 'Online' : 'Offline'; statusText.style.color = d.connected ? '#00E676' : '#8B9DAF'; }
+        if (statusText) { statusText.textContent = d.connected ? 'Connected' : 'Offline'; statusText.style.color = d.connected ? '#00E676' : '#8B9DAF'; }
         if (statusDot) { statusDot.style.background = d.connected ? '#00E676' : '#FF5252'; }
 
         // Staleness
