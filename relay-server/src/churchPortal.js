@@ -438,21 +438,41 @@ function _findNextService(sched, now) {
 // ─── HTML builders ─────────────────────────────────────────────────────────────
 
 const _loginHtmlTemplate = require('fs').readFileSync(require('path').join(__dirname, '../public/portal/login.html'), 'utf8');
+const _loginAssetHash = (() => {
+  const crypto = require('crypto');
+  return crypto.createHash('md5')
+    .update(require('fs').readFileSync(require('path').join(__dirname, '../public/portal/login.css')))
+    .digest('hex').slice(0, 8);
+})();
 function buildChurchLoginHtml(error = '') {
   const errorBlock = error
     ? `<div class="error">${error.replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}</div>`
     : '';
-  return _loginHtmlTemplate.replace('{{ERROR_BLOCK}}', errorBlock);
+  return _loginHtmlTemplate.replace('{{ERROR_BLOCK}}', errorBlock)
+    .replace(/(\/portal\/login\.css)/, `$1?v=${_loginAssetHash}`);
 }
 
 // Portal HTML is served from separate static files (public/portal/)
 const _portalHtmlTemplate = require('fs').readFileSync(require('path').join(__dirname, '../public/portal/portal.html'), 'utf8');
 
+// Cache-bust static assets: compute a short content hash at startup so browsers
+// fetch fresh CSS/JS whenever the files change across deploys.
+const _assetHash = (() => {
+  const crypto = require('crypto');
+  const portalDir = require('path').join(__dirname, '../public/portal');
+  const hash = crypto.createHash('md5');
+  for (const f of ['portal.css', 'portal.js']) {
+    hash.update(require('fs').readFileSync(require('path').join(portalDir, f)));
+  }
+  return hash.digest('hex').slice(0, 8);
+})();
+
 function buildChurchPortalHtml(church, { roomCount = 0 } = {}) {
   const name = church.name || 'Your Church';
   let html = _portalHtmlTemplate
     .replace(/\{\{CHURCH_ID\}\}/g, church.churchId)
-    .replace(/\{\{CHURCH_NAME\}\}/g, _escapeHtml(name));
+    .replace(/\{\{CHURCH_NAME\}\}/g, _escapeHtml(name))
+    .replace(/(\/portal\/portal\.(?:css|js))/g, `$1?v=${_assetHash}`);
   // Server-side: strip the zero-rooms gate entirely when the church already has rooms.
   // This prevents any client-side race condition from briefly flashing the overlay.
   if (roomCount > 0) {
