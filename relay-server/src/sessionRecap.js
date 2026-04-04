@@ -361,11 +361,24 @@ class SessionRecap {
   /**
    * Record stream state change (start / stop).
    * Called on status_update from church client.
+   *
+   * If a stream goes live and no session exists, one is auto-created so that
+   * every live stream is tracked as a service event regardless of the
+   * configured service window.
+   *
    * @param {string} churchId
    * @param {boolean} streaming
    */
   recordStreamStatus(churchId, streaming, instanceName) {
-    const session = this._findSessionEntry(churchId, instanceName)?.session;
+    let session = this._findSessionEntry(churchId, instanceName)?.session;
+
+    // Auto-create a session when a stream goes live outside a service window
+    if (!session && streaming) {
+      console.log(`[SessionRecap] Stream went live outside service window — auto-creating session for ${churchId}`);
+      this.startSession(churchId, null, instanceName);
+      session = this._findSessionEntry(churchId, instanceName)?.session;
+    }
+
     if (!session) return;
 
     const wasStreaming = session.streaming;

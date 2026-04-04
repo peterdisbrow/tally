@@ -1220,6 +1220,7 @@ sessionRecap.setNotificationConfig(
   process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID
 );
 sessionRecap.recoverActiveSessions(); // Re-hydrate sessions that survived a restart
+aiTriageEngine.setSessionRecap(sessionRecap); // Let triage detect active streaming sessions
 
 // ─── PRE-SERVICE PUSH REMINDER (T-30 minutes) ────────────────────────────────
 scheduleEngine.addPreServiceCallback(async (churchId, nextService) => {

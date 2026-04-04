@@ -172,8 +172,14 @@ class AITriageEngine {
 
     // In-memory reconnection tracking: churchId → { timestamps: [], instanceCounts: Map }
     this._reconnectTracker = new Map();
+    this._sessionRecap = null;
 
     this._ensureTables();
+  }
+
+  /** Attach SessionRecap so getTimeContext can detect active streaming sessions. */
+  setSessionRecap(sessionRecap) {
+    this._sessionRecap = sessionRecap;
   }
 
   // ─── DATABASE SETUP ──────────────────────────────────────────────────────
@@ -318,6 +324,10 @@ class AITriageEngine {
 
     const schedule = this.scheduleEngine.getSchedule(churchId);
     if (!schedule.length) {
+      // Active streaming session (auto-created on stream-live) → treat as in-service
+      if (this._hasActiveStreamingSession(churchId)) {
+        return { context: TIME_CONTEXT.IN_SERVICE, details: { reason: 'live_stream_active' } };
+      }
       // No schedule — use session history to infer
       const inferred = this._inferTimeContextFromHistory(churchId);
       return inferred || { context: TIME_CONTEXT.OFF_HOURS, details: { reason: 'no_schedule' } };
@@ -385,7 +395,22 @@ class AITriageEngine {
       }
     }
 
+    // Outside scheduled windows but stream is live → still in-service
+    if (this._hasActiveStreamingSession(churchId)) {
+      return { context: TIME_CONTEXT.IN_SERVICE, details: { reason: 'live_stream_active' } };
+    }
+
     return { context: TIME_CONTEXT.OFF_HOURS, details: { reason: 'outside_schedule' } };
+  }
+
+  /**
+   * Check whether the church has an active session with a live stream.
+   * Uses the attached SessionRecap to inspect in-memory session state.
+   */
+  _hasActiveStreamingSession(churchId) {
+    if (!this._sessionRecap) return false;
+    const entries = this._sessionRecap._getSessionEntriesForChurch(churchId);
+    return entries.some(e => e.session.streaming);
   }
 
   /**
