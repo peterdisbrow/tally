@@ -43,10 +43,10 @@ const PORT_TYPE_NAMES = { 1: 'SDI', 2: 'HDMI', 4: 'Component', 8: 'Composite',
 
 program
   .name('tally-connect')
-  .description('Connect your church AV system to ATEM School remote monitoring');
+  .description('Connect your church AV system to Tally Connect remote monitoring');
 
 program
-  .option('-t, --token <token>', 'Your church connection token (from ATEM School)')
+  .option('-t, --token <token>', 'Your church connection token (from Tally Connect)')
   .option('-r, --relay <url>', 'Relay server URL', 'wss://api.tallyconnect.app')
   .option('-a, --atem <ip>', 'ATEM switcher IP address')
   .option('--atem-auto-record', 'Auto-start/stop ATEM recording with stream')
@@ -267,7 +267,7 @@ function loadConfig() {
 
   if (!config.token) {
     console.error('\n❌ No connection token provided.');
-    console.error('   Get your token from ATEM School, then run:');
+    console.error('   Get your token from Tally Connect, then run:');
     console.error('   tally-connect --token YOUR_TOKEN\n');
     process.exit(1);
   }

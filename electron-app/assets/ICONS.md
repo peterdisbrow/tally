@@ -5,7 +5,7 @@ For production builds, create these icon files:
 ## macOS
 - `icon.icns` — 1024x1024 app icon in Apple ICNS format
   - Generate from a 1024x1024 PNG using `iconutil` or an online converter
-  - Should feature a church/broadcast icon with ATEM School branding
+  - Should feature a church/broadcast icon with Tally Connect branding
 
 ## Windows  
 - `icon.ico` — Multi-resolution ICO file (16, 32, 48, 64, 128, 256px)
@@ -19,6 +19,6 @@ For production builds, create these icon files:
 Note: Current build generates tray icons programmatically. For production, replace with proper PNG assets for crisp rendering.
 
 ## Suggested Design
-- Primary color: #ef4444 (ATEM School red)
+- Primary color: #ef4444 (Tally Connect red)
 - Icon concept: church silhouette with broadcast/signal waves
 - Keep it simple — needs to read at 16px in the system tray

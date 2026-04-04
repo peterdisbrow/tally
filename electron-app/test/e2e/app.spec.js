@@ -45,7 +45,7 @@ test.describe('App Launch & Window', () => {
 
   test('window has correct title', async () => {
     const title = await page.title();
-    // The HTML <title> is "Tally by ATEM School"
+    // The HTML <title> is "Tally Connect"
     expect(title).toContain('Tally');
   });
 

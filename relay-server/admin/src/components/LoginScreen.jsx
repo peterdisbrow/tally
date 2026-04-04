@@ -37,7 +37,7 @@ export default function LoginScreen({ onLogin }) {
         <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>
           <span style={s.logoGreen}>Tally</span> Admin
         </div>
-        <div style={{ color: C.muted, fontSize: 13, marginBottom: 24 }}>ATEM School — Restricted Access</div>
+        <div style={{ color: C.muted, fontSize: 13, marginBottom: 24 }}>Tally Connect — Restricted Access</div>
         <form onSubmit={submit}>
           <div style={{ marginBottom: 14, textAlign: 'left' }}>
             <label style={s.label}>Email</label>

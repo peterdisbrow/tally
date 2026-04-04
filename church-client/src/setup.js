@@ -155,7 +155,7 @@ async function scanForATEM(onProgress) {
 async function stepBanner() {
   print();
   print(`${C.bold}${C.cyan}╔═══════════════════════════════════════════╗${C.reset}`);
-  print(`${C.bold}${C.cyan}║       Tally by ATEM School — Setup        ║${C.reset}`);
+  print(`${C.bold}${C.cyan}║        Tally Connect — Setup              ║${C.reset}`);
   print(`${C.bold}${C.cyan}╚═══════════════════════════════════════════╝${C.reset}`);
   print();
   printGray('This wizard will configure Tally on this computer.');

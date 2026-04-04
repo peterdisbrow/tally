@@ -1,4 +1,4 @@
-# Tally by ATEM School — Integration Knowledge Base
+# Tally Connect — Integration Knowledge Base
 
 > **247 commands** across **20 namespaces** controlling **14 equipment categories**
 

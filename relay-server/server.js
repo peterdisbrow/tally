@@ -466,7 +466,7 @@ function buildConnectionEmailHtml({ churchName, registrationCode, portalUrl }) {
 
       <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0 16px;" />
       <p style="font-size: 12px; color: #999;">
-        Tally by ATEM School &mdash; <a href="https://tallyconnect.app" style="color: #999;">tallyconnect.app</a>
+        Tally Connect &mdash; <a href="https://tallyconnect.app" style="color: #999;">tallyconnect.app</a>
       </p>
     </div>
   `;
@@ -493,7 +493,7 @@ Set up Telegram alerts — have your TDs send this to @tallybot:
 ` : ''}
 Church Portal: ${portalUrl}
 
-Tally by ATEM School — tallyconnect.app`;
+Tally Connect — tallyconnect.app`;
 }
 
 // ─── SQLITE PERSISTENCE ──────────────────────────────────────────────────────

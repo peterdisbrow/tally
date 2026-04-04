@@ -1,7 +1,7 @@
 {
   "appId": "com.atemschool.tally.mocklab",
   "productName": "Tally Mock Lab",
-  "copyright": "Copyright © 2026 ATEM School",
+  "copyright": "Copyright © 2026 Disbrow Productions, LLC",
   "directories": {
     "output": "dist-mock-lab"
   },
