@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { smartParse } = require('../src/smart-parser.js');
+const { smartParse, pickStreamDevice, pickRecordDevice } = require('../src/smart-parser.js');
 
 // ─── Status fixtures ─────────────────────────────────────────────────────────
 
@@ -746,6 +746,80 @@ describe('ATEM-specific routing', () => {
     const cmds = result.steps.map(s => s.command);
     expect(cmds).toContain('atem.stopStreaming');
     expect(cmds).not.toContain('atem.stopStream');
+  });
+});
+
+// ─── N. Role-based device selection ─────────────────────────────────────────
+
+describe('pickStreamDevice() with roles', () => {
+  it('returns role-assigned device when connected', () => {
+    const status = { encoder: { connected: true }, obs: { connected: true } };
+    // obs is assigned as streaming device via roles — it should win over encoder priority
+    expect(pickStreamDevice(status, { streaming_device: 'obs' })).toBe('obs');
+  });
+
+  it('falls through to priority when role device is disconnected', () => {
+    const status = { encoder: { connected: true }, obs: { connected: false } };
+    // obs assigned but disconnected — falls through to encoder (highest priority)
+    expect(pickStreamDevice(status, { streaming_device: 'obs' })).toBe('encoder');
+  });
+
+  it('returns null when role device is disconnected and no other devices', () => {
+    expect(pickStreamDevice({}, { streaming_device: 'obs' })).toBeNull();
+  });
+
+  it('ignores roles when roles is null', () => {
+    const status = { obs: { connected: true } };
+    expect(pickStreamDevice(status, null)).toBe('obs');
+  });
+});
+
+describe('pickRecordDevice() with roles', () => {
+  it('returns role-assigned device when connected', () => {
+    const status = { atem: { connected: true }, obs: { connected: true } };
+    // obs assigned as recording device — wins over atem priority
+    expect(pickRecordDevice(status, { recording_device: 'obs' })).toBe('obs');
+  });
+
+  it('falls through to priority when role device is disconnected', () => {
+    const status = { atem: { connected: true }, obs: { connected: false } };
+    // obs assigned but disconnected — falls through to atem
+    expect(pickRecordDevice(status, { recording_device: 'obs' })).toBe('atem');
+  });
+
+  it('returns null when role device is disconnected and no other devices', () => {
+    expect(pickRecordDevice({}, { recording_device: 'encoder' })).toBeNull();
+  });
+
+  it('ignores roles when roles is null', () => {
+    const status = { hyperdeck: { connected: true } };
+    expect(pickRecordDevice(status, null)).toBe('hyperdeck');
+  });
+});
+
+describe('smartParse() respects roles third argument', () => {
+  it('"go live" uses streaming_device role over encoder priority', () => {
+    const status = { encoder: { connected: true }, obs: { connected: true } };
+    const result = smartParse('go live', status, { streaming_device: 'obs' });
+    expect(result.command).toBe('obs.startStream');
+  });
+
+  it('"go live" falls through role to encoder when role device disconnected', () => {
+    const status = { encoder: { connected: true }, obs: { connected: false } };
+    const result = smartParse('go live', status, { streaming_device: 'obs' });
+    expect(result.command).toBe('encoder.startStream');
+  });
+
+  it('"start recording" uses recording_device role over atem priority', () => {
+    const status = { atem: { connected: true }, obs: { connected: true } };
+    const result = smartParse('start recording', status, { recording_device: 'obs' });
+    expect(result.command).toBe('obs.startRecording');
+  });
+
+  it('"start recording" falls through role to atem when role device disconnected', () => {
+    const status = { atem: { connected: true }, obs: { connected: false } };
+    const result = smartParse('start recording', status, { recording_device: 'obs' });
+    expect(result.command).toBe('atem.startRecording');
   });
 });
 

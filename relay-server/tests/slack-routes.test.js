@@ -232,6 +232,21 @@ describe('PUT /api/churches/:churchId/slack', () => {
     expect(row.slack_webhook_url).toBe(webhookUrl);
     expect(row.slack_channel).toBe('#notifications');
   });
+
+  it('saves valid webhook URL without channel → channel is null', async () => {
+    const churchId = seedChurch(db);
+    built.churchesMap.set(churchId, { name: 'Slack Church', churchId });
+    const adminId = seedAdmin(db);
+    const token = issueAdminToken(adminId);
+    const webhookUrl = 'https://hooks.slack.com/services/T123/B456/abcdef';
+    const { status, body } = await client.put(`/api/churches/${churchId}/slack`, {
+      token,
+      body: { webhookUrl }, // no channel provided
+    });
+    expect(status).toBe(200);
+    expect(body.saved).toBe(true);
+    expect(body.channel).toBeNull();
+  });
 });
 
 // ─── DELETE /api/churches/:churchId/slack ────────────────────────────────────

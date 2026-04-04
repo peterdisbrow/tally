@@ -303,6 +303,265 @@ describe('DELETE /api/church/app/oauth/facebook', () => {
   });
 });
 
+// ─── GET /api/oauth/youtube/callback ─────────────────────────────────────────
+
+describe('GET /api/oauth/youtube/callback', () => {
+  let db, client, built;
+
+  beforeEach(() => {
+    db = createDb();
+    built = buildApp(db, {
+      storeYouTubePendingCode: vi.fn(),
+      getYouTubePendingCode: vi.fn(),
+    });
+    client = makeClient(built.app);
+  });
+  afterEach(() => client.close());
+
+  it('returns 400 when code is missing', async () => {
+    const { status } = await client.get('/api/oauth/youtube/callback?state=abc');
+    expect(status).toBe(400);
+  });
+
+  it('stores pending code and returns success HTML on valid callback', async () => {
+    const { status, headers } = await client.get('/api/oauth/youtube/callback?code=ytcode123&state=state-xyz');
+    expect(status).toBe(200);
+    expect(headers['content-type']).toMatch(/html/i);
+    expect(built.streamOAuth.storeYouTubePendingCode).toHaveBeenCalledWith('state-xyz', 'ytcode123');
+  });
+});
+
+// ─── GET /api/church/app/oauth/youtube/pending ───────────────────────────────
+
+describe('GET /api/church/app/oauth/youtube/pending', () => {
+  let db, client, built;
+
+  beforeEach(() => {
+    db = createDb();
+    built = buildApp(db, {
+      getYouTubePendingCode: vi.fn().mockReturnValue(null),
+    });
+    client = makeClient(built.app);
+  });
+  afterEach(() => client.close());
+
+  it('returns 400 when state param is missing', async () => {
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    const { status } = await client.get('/api/church/app/oauth/youtube/pending', { token });
+    expect(status).toBe(400);
+  });
+
+  it('returns {ready:false} when no pending code', async () => {
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    const { status, body } = await client.get('/api/church/app/oauth/youtube/pending?state=some-state', { token });
+    expect(status).toBe(200);
+    expect(body.ready).toBe(false);
+  });
+
+  it('returns {ready:true, code} when pending code exists', async () => {
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    built.streamOAuth.getYouTubePendingCode = vi.fn().mockReturnValue({ code: 'yt-auth-code-xyz' });
+    const { status, body } = await client.get('/api/church/app/oauth/youtube/pending?state=my-yt-state', { token });
+    expect(status).toBe(200);
+    expect(body.ready).toBe(true);
+    expect(body.code).toBe('yt-auth-code-xyz');
+  });
+});
+
+// ─── POST /api/church/app/oauth/youtube/refresh-key ──────────────────────────
+
+describe('POST /api/church/app/oauth/youtube/refresh-key', () => {
+  let db, client, built;
+
+  beforeEach(() => {
+    db = createDb();
+    built = buildApp(db);
+    client = makeClient(built.app);
+  });
+  afterEach(() => client.close());
+
+  it('returns 401 without token', async () => {
+    const { status } = await client.post('/api/church/app/oauth/youtube/refresh-key');
+    expect(status).toBe(401);
+  });
+
+  it('calls fetchYouTubeStreamKey and returns stream key', async () => {
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    const { status, body } = await client.post('/api/church/app/oauth/youtube/refresh-key', { token });
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.streamKey).toBe('yt-key-123');
+  });
+
+  it('returns 500 when fetchYouTubeStreamKey throws', async () => {
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    built.streamOAuth.fetchYouTubeStreamKey.mockRejectedValueOnce(new Error('YouTube API error'));
+    const { status, body } = await client.post('/api/church/app/oauth/youtube/refresh-key', { token });
+    expect(status).toBe(500);
+    expect(body.error).toMatch(/YouTube API error/);
+  });
+});
+
+// ─── GET /api/church/app/oauth/facebook/pages ────────────────────────────────
+
+describe('GET /api/church/app/oauth/facebook/pages', () => {
+  let db, client, built;
+
+  beforeEach(() => {
+    db = createDb();
+    built = buildApp(db);
+    client = makeClient(built.app);
+  });
+  afterEach(() => client.close());
+
+  it('returns 401 without token', async () => {
+    const { status } = await client.get('/api/church/app/oauth/facebook/pages');
+    expect(status).toBe(401);
+  });
+
+  it('returns pages list', async () => {
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    built.streamOAuth.listFacebookDestinations = vi.fn().mockResolvedValue({ pages: [{ id: 'p1', name: 'My Page' }] });
+    const { status, body } = await client.get('/api/church/app/oauth/facebook/pages', { token });
+    expect(status).toBe(200);
+    expect(body.pages).toHaveLength(1);
+  });
+
+  it('returns 500 when listFacebookDestinations throws', async () => {
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    built.streamOAuth.listFacebookDestinations = vi.fn().mockRejectedValue(new Error('FB API error'));
+    const { status, body } = await client.get('/api/church/app/oauth/facebook/pages', { token });
+    expect(status).toBe(500);
+    expect(body.error).toMatch(/FB API error/);
+  });
+});
+
+// ─── POST /api/church/app/oauth/facebook/select-page ─────────────────────────
+
+describe('POST /api/church/app/oauth/facebook/select-page', () => {
+  let db, client, built;
+
+  beforeEach(() => {
+    db = createDb();
+    built = buildApp(db);
+    client = makeClient(built.app);
+  });
+  afterEach(() => client.close());
+
+  it('returns 401 without token', async () => {
+    const { status } = await client.post('/api/church/app/oauth/facebook/select-page');
+    expect(status).toBe(401);
+  });
+
+  it('calls selectFacebookPage and returns result', async () => {
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    const { status, body } = await client.post('/api/church/app/oauth/facebook/select-page', {
+      token,
+      body: { pageId: 'page-123' },
+    });
+    expect(status).toBe(200);
+    expect(body.connected).toBe(true);
+    expect(built.streamOAuth.selectFacebookPage).toHaveBeenCalledWith(churchId, 'page-123');
+  });
+
+  it('returns 500 when selectFacebookPage throws', async () => {
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    built.streamOAuth.selectFacebookPage.mockRejectedValueOnce(new Error('Page selection failed'));
+    const { status, body } = await client.post('/api/church/app/oauth/facebook/select-page', {
+      token, body: { pageId: 'page-123' },
+    });
+    expect(status).toBe(500);
+    expect(body.error).toMatch(/Page selection failed/);
+  });
+});
+
+// ─── POST /api/church/app/oauth/facebook/refresh-key ─────────────────────────
+
+describe('POST /api/church/app/oauth/facebook/refresh-key', () => {
+  let db, client, built;
+
+  beforeEach(() => {
+    db = createDb();
+    built = buildApp(db);
+    client = makeClient(built.app);
+  });
+  afterEach(() => client.close());
+
+  it('returns 401 without token', async () => {
+    const { status } = await client.post('/api/church/app/oauth/facebook/refresh-key');
+    expect(status).toBe(401);
+  });
+
+  it('calls refreshFacebookStreamKey and returns new stream key', async () => {
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    const { status, body } = await client.post('/api/church/app/oauth/facebook/refresh-key', { token });
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.streamKey).toBe('fb-key-new');
+  });
+
+  it('returns 500 when refreshFacebookStreamKey throws', async () => {
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    built.streamOAuth.refreshFacebookStreamKey.mockRejectedValueOnce(new Error('Refresh failed'));
+    const { status, body } = await client.post('/api/church/app/oauth/facebook/refresh-key', { token });
+    expect(status).toBe(500);
+    expect(body.error).toMatch(/Refresh failed/);
+  });
+});
+
+// ─── GET /api/church/app/oauth/client-ids ────────────────────────────────────
+
+describe('GET /api/church/app/oauth/client-ids', () => {
+  let db, client, built;
+
+  beforeEach(() => {
+    db = createDb();
+    built = buildApp(db);
+    client = makeClient(built.app);
+  });
+  afterEach(() => client.close());
+
+  it('returns 401 without token', async () => {
+    const { status } = await client.get('/api/church/app/oauth/client-ids');
+    expect(status).toBe(401);
+  });
+
+  it('returns client IDs from env vars', async () => {
+    process.env.YOUTUBE_CLIENT_ID = 'yt-client-id';
+    process.env.FACEBOOK_APP_ID = 'fb-app-id';
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    const { status, body } = await client.get('/api/church/app/oauth/client-ids', { token });
+    expect(status).toBe(200);
+    expect(body.youtubeClientId).toBe('yt-client-id');
+    expect(body.facebookAppId).toBe('fb-app-id');
+    delete process.env.YOUTUBE_CLIENT_ID;
+    delete process.env.FACEBOOK_APP_ID;
+  });
+
+  it('returns empty strings when env vars not set', async () => {
+    delete process.env.YOUTUBE_CLIENT_ID;
+    delete process.env.FACEBOOK_APP_ID;
+    const churchId = seedChurch(db);
+    const token = issueChurchToken(churchId);
+    const { status, body } = await client.get('/api/church/app/oauth/client-ids', { token });
+    expect(status).toBe(200);
+    expect(body.youtubeClientId).toBe('');
+    expect(body.facebookAppId).toBe('');
+  });
+});
+
 // ─── GET /api/church/app/oauth/status ────────────────────────────────────────
 
 describe('GET /api/church/app/oauth/status', () => {

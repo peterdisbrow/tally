@@ -696,6 +696,18 @@ describe('HealthAlertMonitor — sendAdminSummary', () => {
     // With no alerts in any category, nothing to send — still formats but empty sections
     // The function should still complete without error
   });
+
+  it('catches and logs Telegram send errors', async () => {
+    alertEngine.sendTelegramMessage.mockRejectedValueOnce(new Error('Telegram API error'));
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(monitor.sendAdminSummary([
+      { churchId: 'c1', churchName: 'Test', type: 'churn_risk', severity: 'info', message: 'Test', data: {} },
+    ])).resolves.toBeUndefined();
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Telegram send error'), 'Telegram API error');
+    consoleSpy.mockRestore();
+  });
 });
 
 describe('HealthAlertMonitor — Severity levels', () => {
@@ -823,6 +835,7 @@ describe('startHealthAlerts', () => {
 
     for (const id of intervals) clearInterval(id);
   });
+
 });
 
 describe('ALERT_THRESHOLDS', () => {

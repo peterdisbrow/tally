@@ -43,6 +43,12 @@ describe('compareVersions()', () => {
     expect(compareVersions('1.0', '')).toBe(null);
   });
 
+  it('returns null when version contains no digits (all non-numeric)', () => {
+    // After stripping leading non-digits, cleanA/cleanB becomes '' → null
+    expect(compareVersions('abc', '1.0')).toBe(null);
+    expect(compareVersions('1.0', 'xyz')).toBe(null);
+  });
+
   it('handles multi-level patch versions', () => {
     expect(compareVersions('4.24.1', '4.24.0')).toBe(1);
     expect(compareVersions('4.23.9', '4.24.0')).toBe(-1);
@@ -216,6 +222,12 @@ describe('VersionConfig', () => {
       const result = vc.checkVersion('obs', '30.0'); // below new minimum
       expect(result.outdated).toBe(true);
       expect(result.minimum).toBe('35.0');
+    });
+
+    it('returns checked:false when currentVersion has no digits (compareVersions returns null)', () => {
+      // 'abc' → compareVersions returns null → line 91 branch
+      const result = vc.checkVersion('obs', 'abc');
+      expect(result).toEqual({ checked: false });
     });
 
     it('coerces currentVersion to string in result', () => {
