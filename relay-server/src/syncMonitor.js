@@ -27,7 +27,7 @@ function setupSyncMonitor(db, relay, telegramBot, notifyUpdate) {
 
   // ── Telegram alert helper ───────────────────────────────────────────────────
   const BOT_TOKEN  = process.env.ALERT_BOT_TOKEN;
-  const CHAT_ID    = process.env.ANDREW_TELEGRAM_CHAT_ID;
+  const CHAT_ID    = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
 
   async function sendTelegram(message) {
     if (!BOT_TOKEN || !CHAT_ID) return;

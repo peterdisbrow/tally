@@ -14,10 +14,10 @@ class PreServiceCheck {
    * @param {object} opts.scheduleEngine - ScheduleEngine instance
    * @param {Map} opts.churches - in-memory church runtime map from server.js
    * @param {string} [opts.defaultBotToken] - Telegram bot token for sending alerts
-   * @param {string} [opts.andrewChatId] - Andrew's Telegram chat ID
+   * @param {string} [opts.adminChatId] - Admin contact Telegram chat ID
    * @param {object} [opts.sessionRecap] - SessionRecap instance for session ID linking
    */
-  constructor({ db, scheduleEngine, churches, defaultBotToken, andrewChatId, sessionRecap, versionConfig } = {}) {
+  constructor({ db, scheduleEngine, churches, defaultBotToken, adminChatId, sessionRecap, versionConfig } = {}) {
     this.lastPreServiceCheckAt = new Map(); // compositeKey (churchId::instanceName) → timestamp (ms)
     this._timer = null;
     this.db = db || null;
@@ -28,7 +28,7 @@ class PreServiceCheck {
     this.tallyBot = null;
     this.sendCommand = null;
     this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN;
-    this.andrewChatId = andrewChatId || process.env.ANDREW_TELEGRAM_CHAT_ID;
+    this.adminChatId = adminChatId || process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this._resultListeners = [];
     this._ensureTable();
     // Restore last-check timestamps from DB so relay restarts don't re-fire

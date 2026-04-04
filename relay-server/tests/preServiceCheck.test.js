@@ -86,7 +86,7 @@ function makePreServiceCheck(db, opts = {}) {
     scheduleEngine: opts.scheduleEngine || null,
     churches: opts.churches || new Map(),
     defaultBotToken: opts.botToken || null,
-    andrewChatId: opts.andrewChatId || null,
+    adminChatId: opts.adminChatId || null,
     sessionRecap: opts.sessionRecap || null,
     versionConfig: opts.versionConfig || null,
   });

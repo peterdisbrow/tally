@@ -1,6 +1,6 @@
 /**
  * Session Recap — Tracks service sessions and sends post-service recap
- * to the TD and Andrew after every service window closes.
+ * to the TD and admin contact after every service window closes.
  */
 
 const { v4: uuidv4 } = require('uuid');
@@ -15,7 +15,7 @@ class SessionRecap {
     this.db = db;
     this.activeSessions = new Map(); // compositeKey (churchId::instanceName) → session object
     this._botToken = null;
-    this._andrewChatId = null;
+    this._adminChatId = null;
     this._ensureTable();
   }
 
@@ -51,9 +51,9 @@ class SessionRecap {
    * Configure Telegram notification credentials.
    * Call this after construction (e.g. from server.js).
    */
-  setNotificationConfig(botToken, andrewChatId) {
+  setNotificationConfig(botToken, adminChatId) {
     this._botToken = botToken;
-    this._andrewChatId = andrewChatId;
+    this._adminChatId = adminChatId;
   }
 
   /** Attach lifecycle emails engine for first-service email */
@@ -325,7 +325,7 @@ class SessionRecap {
    * @param {string} churchId
    * @param {string} alertType
    * @param {boolean} autoRecovered  Was this auto-fixed?
-   * @param {boolean} escalated      Was this escalated to Andrew?
+   * @param {boolean} escalated      Was this escalated to the admin contact?
    */
   recordAlert(churchId, alertType, autoRecovered = false, escalated = false, instanceName) {
     const session = this._findSessionEntry(churchId, instanceName)?.session;
@@ -595,9 +595,9 @@ class SessionRecap {
       await this._sendTelegram(tdChatId, botToken, text);
     }
 
-    // Send to Andrew (if different from TD)
-    if (this._andrewChatId && this._andrewChatId !== tdChatId) {
-      await this._sendTelegram(this._andrewChatId, botToken, text);
+    // Send to admin contact (if different from TD)
+    if (this._adminChatId && this._adminChatId !== tdChatId) {
+      await this._sendTelegram(this._adminChatId, botToken, text);
     }
   }
 

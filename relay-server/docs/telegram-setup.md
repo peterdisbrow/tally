@@ -80,7 +80,7 @@ Limited command set for visiting or temporary operators:
 - OBS start/stop stream and scene switching
 - PTZ preset recall and home
 
-### Admin (Andrew)
+### Platform Admin
 
 Admin sees additional commands for managing multiple churches:
 - `at [Church Name]: [command]` — send a command to any church
@@ -104,7 +104,7 @@ Tally sends three alert levels:
 | Critical | 🔴 | Service-impacting issue (stream down, ATEM disconnected) |
 | Recovery | ✅ | Issue was resolved (automatically or manually) |
 
-**Escalation:** If a Critical alert arrives and no response is received within 90 seconds, it escalates to Andrew automatically.
+**Escalation:** If a Critical alert arrives and no response is received within 90 seconds, it escalates to your support contact automatically.
 
 Alert preferences (which device categories trigger alerts, minimum severity) are configured in the Tally portal under **Settings → Alerts**. Changes take effect immediately — no app restart needed.
 

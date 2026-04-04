@@ -1,5 +1,5 @@
 /**
- * Weekly Digest — Monday morning summary for Andrew
+ * Weekly Digest — Monday morning summary for the admin team
  */
 
 const fs = require('fs');

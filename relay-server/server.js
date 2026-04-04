@@ -6,7 +6,7 @@
  *
  * ENV VARS:
  *   PORT            (default 3000)
- *   ADMIN_API_KEY   Secret key for Andrew's OpenClaw skill
+ *   ADMIN_API_KEY   Secret key for the internal admin skill
  *   JWT_SECRET      Secret for signing church tokens
  *   DATABASE_PATH   Path to SQLite DB (default ./data/churches.db)
  */
@@ -1193,7 +1193,7 @@ guestTdMode.startCleanupTimer();
 const monthlyReport = new MonthlyReport({
   db,
   defaultBotToken: process.env.ALERT_BOT_TOKEN,
-  andrewChatId: process.env.ANDREW_TELEGRAM_CHAT_ID,
+  adminChatId: process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID,
 });
 monthlyReport.start();
 
@@ -1217,7 +1217,7 @@ sessionRecap.setRoomResolver((churchId, instanceName) => {
 sessionRecap.churchMemory = churchMemory;
 sessionRecap.setNotificationConfig(
   process.env.ALERT_BOT_TOKEN,
-  process.env.ANDREW_TELEGRAM_CHAT_ID
+  process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID
 );
 sessionRecap.recoverActiveSessions(); // Re-hydrate sessions that survived a restart
 
@@ -1648,7 +1648,7 @@ const TALLY_BOT_TOKEN = process.env.TALLY_BOT_TOKEN;
 if (TALLY_BOT_TOKEN) guestTdMode.botToken = TALLY_BOT_TOKEN;
 const TALLY_BOT_WEBHOOK_URL = process.env.TALLY_BOT_WEBHOOK_URL;
 const TALLY_BOT_WEBHOOK_SECRET = process.env.TALLY_BOT_WEBHOOK_SECRET || '';
-const ANDREW_TELEGRAM_CHAT_ID = process.env.ANDREW_TELEGRAM_CHAT_ID;
+const ADMIN_TELEGRAM_CHAT_ID = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
 
 let tallyBot = null;
 let preServiceCheck = null;
@@ -1656,7 +1656,7 @@ let preServiceCheck = null;
 if (TALLY_BOT_TOKEN) {
   tallyBot = new TallyBot({
     botToken: TALLY_BOT_TOKEN,
-    adminChatId: ANDREW_TELEGRAM_CHAT_ID,
+    adminChatId: ADMIN_TELEGRAM_CHAT_ID,
     db,
     relay: { churches, callDiagnosticAI, makeCommandSender, logAiChatInteraction },
     onCallRotation,
@@ -1784,7 +1784,7 @@ preServiceCheck = new PreServiceCheck({
   scheduleEngine,
   churches,
   defaultBotToken: process.env.ALERT_BOT_TOKEN,
-  andrewChatId: ANDREW_TELEGRAM_CHAT_ID,
+  adminChatId: ADMIN_TELEGRAM_CHAT_ID,
   sessionRecap,
   versionConfig,
 });
@@ -4617,7 +4617,7 @@ app.use((err, _req, res, _next) => {
 
 // ─── ADMIN GENERATE (Outreach AI message generation) ─────────────────────────
 
-const OUTREACH_SYSTEM_PROMPT = `You are a ghostwriter for Andrew, the founder of TallyConnect — a church production monitoring and remote control platform. You write outreach messages to church technical directors, worship leaders, and production volunteers.
+const OUTREACH_SYSTEM_PROMPT = `You are a ghostwriter for TallyConnect — a church production monitoring and remote control platform. You write outreach messages to church technical directors, worship leaders, and production volunteers on behalf of the Tally team.
 
 RULES:
 - Never sound salesy, pitch-like, or corporate. Write like a fellow church tech person talking to a peer.
@@ -4642,7 +4642,7 @@ const OUTREACH_TYPE_PROMPTS = {
   'cold-dm': 'Write a short, friendly cold DM (3-5 sentences). The goal is to start a conversation, not close a sale. Offer something genuinely helpful — the free health check tool or checklist. Don\'t mention pricing or trials unless asked.',
   'healthcheck-followup': 'Write a personalized follow-up message based on their health check results. Reference their specific score and top risks. Frame Tally as the solution to their specific weak areas. Keep it warm and helpful, not "gotcha, you need us."',
   'group-reply': 'Write a helpful reply to their post/question in a community group. Lead with actually answering their question or solving their problem. Only mention Tally briefly at the end as "something that might help with this long-term." The reply should be valuable even if they ignore the Tally mention.',
-  'email': 'Write a short professional email (1-2 paragraphs + brief sign-off). Slightly more formal than a DM but still conversational. Include a clear but soft CTA — either try the free health check or book a quick call. Sign off as "Andrew" from TallyConnect.',
+  'email': 'Write a short professional email (1-2 paragraphs + brief sign-off). Slightly more formal than a DM but still conversational. Include a clear but soft CTA — either try the free health check or book a quick call. Sign off as "The Tally Team".',
 };
 
 const OUTREACH_SOURCE_CONTEXT = {

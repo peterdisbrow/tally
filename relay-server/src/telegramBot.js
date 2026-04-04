@@ -616,7 +616,7 @@ class TallyBot {
   /**
    * @param {object} opts
    * @param {string} opts.botToken     - Telegram bot token
-   * @param {string} opts.adminChatId  - Andrew's Telegram chat ID
+   * @param {string} opts.adminChatId  - Admin contact Telegram chat ID
    * @param {object} opts.db           - better-sqlite3 instance
    * @param {object} opts.relay        - { churches }
    * @param {object} [opts.onCallRotation]  - OnCallRotation instance (optional)
@@ -1640,7 +1640,7 @@ class TallyBot {
       }
       const saved = this.chatEngine.saveMessage({
         churchId: targetChurch.churchId,
-        senderName: 'Andrew',
+        senderName: 'Tally Support',
         senderRole: 'admin',
         source: 'telegram',
         message,

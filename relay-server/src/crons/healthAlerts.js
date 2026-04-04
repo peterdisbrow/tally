@@ -1,7 +1,7 @@
 /**
  * healthAlerts.js — Proactive health monitoring
  * Runs daily, detects churches trending toward problems,
- * and alerts the admin (Andrew) before churches contact support.
+ * and alerts the admin team before churches contact support.
  *
  * "Reach out to a church before they reach out to you."
  */
@@ -373,9 +373,9 @@ class HealthAlertMonitor {
    */
   async sendAdminSummary(alerts) {
     const botToken = process.env.ALERT_BOT_TOKEN;
-    const andrewChatId = process.env.ANDREW_TELEGRAM_CHAT_ID;
+    const adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
 
-    if (!botToken || !andrewChatId || !this.alertEngine) return;
+    if (!botToken || !adminChatId || !this.alertEngine) return;
 
     const grouped = {
       [SEVERITY.CRITICAL]: [],
@@ -416,7 +416,7 @@ class HealthAlertMonitor {
     const text = lines.join('\n');
 
     try {
-      await this.alertEngine.sendTelegramMessage(andrewChatId, botToken, text);
+      await this.alertEngine.sendTelegramMessage(adminChatId, botToken, text);
     } catch (e) {
       console.error('[HealthAlerts] Telegram send error:', e.message);
     }

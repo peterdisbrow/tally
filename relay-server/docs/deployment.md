@@ -57,7 +57,7 @@ Create a `.env` file (or configure secrets in your hosting provider). Every vari
 | `TALLY_BOT_TOKEN` | | Telegram bot token from @BotFather |
 | `TALLY_BOT_WEBHOOK_URL` | | Full webhook URL (e.g. `https://relay.example.com/api/telegram-webhook`) |
 | `TALLY_BOT_WEBHOOK_SECRET` | | Optional secret token for webhook verification |
-| `ANDREW_TELEGRAM_CHAT_ID` | | Chat ID for admin-level bot commands |
+| `ADMIN_TELEGRAM_CHAT_ID` | | Chat ID for admin-level bot commands |
 
 ### Stripe Billing
 

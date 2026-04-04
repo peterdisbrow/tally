@@ -42,7 +42,7 @@ module.exports = function setupOfflineDetection(ctx) {
 
     const allChurches = db.prepare('SELECT * FROM churches').all();
     const botToken = process.env.ALERT_BOT_TOKEN;
-    const andrewChatId = process.env.ANDREW_TELEGRAM_CHAT_ID;
+    const adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
 
     for (const row of allChurches) {
       const church = churches.get(row.churchId);
@@ -67,20 +67,20 @@ module.exports = function setupOfflineDetection(ctx) {
 
       if (offlineHours >= 24) {
         // Critical: offline for 24+ hours
-        if (!church._criticalOfflineAlertSent && botToken && andrewChatId) {
+        if (!church._criticalOfflineAlertSent && botToken && adminChatId) {
           church._criticalOfflineAlertSent = true;
           const lastSeen = new Date(church.lastHeartbeat).toLocaleString();
           const msg = `🔴 *CRITICAL: ${row.name}* has been offline for 24+ hours\nLast seen: ${lastSeen}\n\nThis church's booth computer may need attention.`;
-          alertEngine.sendTelegramMessage(andrewChatId, botToken, msg).catch(() => {});
+          alertEngine.sendTelegramMessage(adminChatId, botToken, msg).catch(() => {});
           log(`[OfflineDetection] 🔴 CRITICAL: ${row.name} offline 24h+`);
         }
       } else if (offlineHours >= 2 && !isNightTime) {
         // Warning: offline 2+ hours outside of nighttime
-        if (!church._offlineAlertSent && botToken && andrewChatId) {
+        if (!church._offlineAlertSent && botToken && adminChatId) {
           church._offlineAlertSent = true;
           const lastSeen = new Date(church.lastHeartbeat).toLocaleString();
           const msg = `⚠️ *${row.name}* booth computer offline for 2h+\nLast seen: ${lastSeen}\nNot during service hours — may need attention.`;
-          alertEngine.sendTelegramMessage(andrewChatId, botToken, msg).catch(() => {});
+          alertEngine.sendTelegramMessage(adminChatId, botToken, msg).catch(() => {});
           log(`[OfflineDetection] ⚠️ ${row.name} offline 2h+ (not in service window)`);
         }
       }

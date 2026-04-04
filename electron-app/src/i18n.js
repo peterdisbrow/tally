@@ -53,7 +53,7 @@ function getLocale() { return _locale; }
  * Supports simple {{placeholder}} interpolation.
  *
  * @param {string} key   — e.g. 'signIn.submitButton'
- * @param {object} [vars] — e.g. { name: 'Andrew' }
+ * @param {object} [vars] — e.g. { name: 'Tally Team' }
  * @returns {string}
  */
 function t(key, vars) {

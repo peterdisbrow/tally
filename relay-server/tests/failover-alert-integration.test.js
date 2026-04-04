@@ -205,10 +205,10 @@ describe('AlertEngine.sendAlert — DB logging for failover events', () => {
     expect(row.severity).toBe('CRITICAL');
   });
 
-  it('logs failover_executed as EMERGENCY and notifies Andrew', async () => {
+  it('logs failover_executed as EMERGENCY and notifies the admin contact', async () => {
     const ae = new AlertEngine(db, alwaysInWindow(), {
       defaultBotToken: 'bot:token',
-      andrewChatId: 'andrew-chat-id',
+      adminChatId: 'admin-chat-id',
     });
     vi.spyOn(ae, 'sendTelegramMessage').mockResolvedValue(undefined);
     vi.spyOn(ae, 'sendSlackAlert').mockResolvedValue(undefined);
@@ -218,10 +218,10 @@ describe('AlertEngine.sendAlert — DB logging for failover events', () => {
 
     expect(result.severity).toBe('EMERGENCY');
 
-    // EMERGENCY → Andrew gets notified too
+    // EMERGENCY → admin contact gets notified too
     const calls = ae.sendTelegramMessage.mock.calls;
-    const andrewCall = calls.find(c => c[0] === 'andrew-chat-id');
-    expect(andrewCall).toBeTruthy();
+    const adminCall = calls.find(c => c[0] === 'admin-chat-id');
+    expect(adminCall).toBeTruthy();
   });
 
   it('INFO alerts from failover are logged only, not sent to Telegram', async () => {

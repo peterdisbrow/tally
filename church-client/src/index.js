@@ -2,7 +2,7 @@
 /**
  * Tally — Client Agent
  * Runs on the church's production computer.
- * Bridges local ATEM/OBS/ProPresenter → Andrew's relay server.
+ * Bridges local ATEM/OBS/ProPresenter → the Tally relay server.
  *
  * Usage:
  *   npx tally-connect --token YOUR_TOKEN --relay wss://relay.atemschool.com

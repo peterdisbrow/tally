@@ -177,7 +177,7 @@ Manually triggers status checks. **Requires admin auth.**
 ```json
 {
   "token": "<jwt>",
-  "user": { "id": 1, "email": "admin@example.com", "name": "Andrew", "role": "super_admin" }
+  "user": { "id": 1, "email": "admin@example.com", "name": "Tally Admin", "role": "super_admin" }
 }
 ```
 

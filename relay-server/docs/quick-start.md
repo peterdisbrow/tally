@@ -154,7 +154,7 @@ Tally starts automatically when your computer boots — no action needed on Sund
 ### Tray icon is grey on Sunday morning
 1. Click the tray icon → **Start Monitoring**
 2. If that doesn't work, check your internet connection
-3. Still grey? Email support@tallyconnect.app or contact Andrew directly
+3. Still grey? Email support@tallyconnect.app or use your production support number
 
 ### Token expired or invalid
 - Your token was emailed when you signed up; retrieve a fresh one from the portal Settings tab
@@ -171,4 +171,4 @@ Tally starts automatically when your computer boots — no action needed on Sund
 
 - **Email:** support@tallyconnect.app
 - **Documentation:** tallyconnect.app/docs
-- **Production emergencies:** Contact Andrew directly — your account includes a support number
+- **Production emergencies:** Use your production support number

@@ -650,13 +650,13 @@ describe('HealthAlertMonitor — sendAdminSummary', () => {
 
     // Set env vars for Telegram
     process.env.ALERT_BOT_TOKEN = 'test-bot-token';
-    process.env.ANDREW_TELEGRAM_CHAT_ID = '12345';
+    process.env.ADMIN_TELEGRAM_CHAT_ID = '12345';
   });
 
   afterEach(() => {
     db?.close();
     delete process.env.ALERT_BOT_TOKEN;
-    delete process.env.ANDREW_TELEGRAM_CHAT_ID;
+    delete process.env.ADMIN_TELEGRAM_CHAT_ID;
   });
 
   it('sends formatted Telegram message grouped by severity', async () => {

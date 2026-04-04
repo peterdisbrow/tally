@@ -100,7 +100,7 @@ module.exports = function setupHealthRoutes(app, ctx) {
 
   // ─── GET /health and /api/health — detailed operational health ───────────────
   //
-  // Returns everything Andrew needs to know on Sunday morning without logging
+  // Returns everything the admin team needs to know on Sunday morning without logging
   // in to the dashboard:
   //   • server uptime & memory
   //   • database connectivity + read latency

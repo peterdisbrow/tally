@@ -141,7 +141,7 @@ describe('Alert deduplication', () => {
 
     it('EMERGENCY severity alerts bypass dedup', async () => {
       const church = makeChurch();
-      engine.andrewChatId = null; // suppress escalation for simplicity
+      engine.adminChatId = null; // suppress escalation for simplicity
       const r1 = await engine.sendAlert(church, 'multiple_systems_down', {});
       const r2 = await engine.sendAlert(church, 'multiple_systems_down', {});
       expect(r1.action).toBe('notified');

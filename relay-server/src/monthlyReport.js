@@ -1,7 +1,7 @@
 /**
  * Monthly Health Report
  * On the 1st of each month at 9 AM, generate and send a health report
- * for each church to their TDs + Andrew's ADMIN_CHAT_ID.
+ * for each church to their TDs + the admin contact chat ID.
  *
  */
 
@@ -10,12 +10,12 @@ class MonthlyReport {
    * @param {object} opts
    * @param {import('better-sqlite3').Database} opts.db
    * @param {string} [opts.defaultBotToken] - Telegram bot token
-   * @param {string} [opts.andrewChatId] - Andrew's Telegram chat ID
+   * @param {string} [opts.adminChatId] - Admin contact Telegram chat ID
    */
-  constructor({ db, defaultBotToken, andrewChatId } = {}) {
+  constructor({ db, defaultBotToken, adminChatId } = {}) {
     this.db = db || null;
     this.defaultBotToken = defaultBotToken || process.env.ALERT_BOT_TOKEN;
-    this.andrewChatId = andrewChatId || process.env.ANDREW_TELEGRAM_CHAT_ID;
+    this.adminChatId = adminChatId || process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this.tallyBot = null;
     this.lifecycleEmails = null;
     this._timer = null;
@@ -166,7 +166,7 @@ class MonthlyReport {
 
     if (botToken) {
       const targets = new Set(tds.map(td => String(td.telegram_chat_id)).filter(Boolean));
-      if (this.andrewChatId) targets.add(String(this.andrewChatId));
+      if (this.adminChatId) targets.add(String(this.adminChatId));
 
       for (const chatId of targets) {
         try {

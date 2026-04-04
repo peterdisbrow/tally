@@ -946,12 +946,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        Hit reply and let me know how it's going &mdash; I read every response personally.
+        Hit reply and let us know how it's going &mdash; every response goes straight to our team.
       </p>
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
-        &mdash; Andrew Disbrow<br>
-        Founder, Tally
+        &mdash; The Tally Team
       </p>
     `);
 
@@ -965,10 +964,9 @@ A few things you might not have tried yet:
 - Post-service timeline — see exactly what happened during the service
 - Weekly reports — share uptime stats with leadership
 
-Hit reply and let me know how it's going — I read every response personally.
+Hit reply and let us know how it's going — every response goes straight to our team.
 
-— Andrew Disbrow
-Founder, Tally
+— The Tally Team
 
 Tally — ${this.appUrl.replace('https://', '')}`;
 
@@ -1474,7 +1472,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Open Your Portal', portalUrl)}
 
       <p style="font-size: 14px; color: #666;">
-        Glad to have you back! &mdash; Andrew
+        Glad to have you back! &mdash; The Tally Team
       </p>
     `);
 
@@ -1542,17 +1540,17 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        And if things went great, I'd genuinely love to know that too. Reply and tell me &mdash; I read every response.
+        And if things went great, we'd genuinely love to know that too. Reply and tell us &mdash; every response goes straight to our team.
       </p>
 
       ${this._cta('Reactivate Your Account', portalUrl)}
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally
+        &mdash; The Tally Team
       </p>
     `);
 
-    const text = `We miss you at Tally\n\nIt's been about two weeks since ${church.name} cancelled. If anything went sideways on Sunday without Tally, your settings are still saved — reactivation takes seconds.\n\nReactivate: ${portalUrl}\n\n— Andrew Disbrow, Founder`;
+    const text = `We miss you at Tally\n\nIt's been about two weeks since ${church.name} cancelled. If anything went sideways on Sunday without Tally, your settings are still saved — reactivation takes seconds.\n\nReactivate: ${portalUrl}\n\n— The Tally Team`;
 
     return { html, text };
   }
@@ -1629,7 +1627,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Leave a Quick Review →', portalUrl)}
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally
+        &mdash; The Tally Team
       </p>
     `);
 
@@ -1644,8 +1642,7 @@ Leave a review: ${portalUrl}
 
 You can also post on Google, Capterra, or G2.
 
-— Andrew Disbrow
-Founder, Tally
+— The Tally Team
 
 Tally — ${this.appUrl.replace('https://', '')}`;
 
@@ -2160,8 +2157,8 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">We'd love your honest feedback</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        Hi &mdash; it's Andrew from Tally. Since <strong>${church.name}</strong> cancelled a few days ago,
-        I wanted to personally ask: <strong>what could we have done better?</strong>
+        Hi &mdash; it's the Tally team. Since <strong>${church.name}</strong> cancelled a few days ago,
+        we wanted to ask: <strong>what could we have done better?</strong>
       </p>
 
       <div style="margin: 24px 0; padding: 20px; background: #f8fafc; border-radius: 10px; border: 1px solid #e2e8f0;">
@@ -2176,8 +2173,8 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        Just hit reply and let me know. Even one sentence helps &mdash; I read every response personally
-        and use it to make Tally better for everyone.
+        Just hit reply and let us know. Even one sentence helps &mdash; every response goes straight to our team
+        and helps us make Tally better for everyone.
       </p>
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
@@ -2186,11 +2183,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally
+        &mdash; The Tally Team
       </p>
     `);
 
-    const text = `We'd love your honest feedback\n\n${church.name} cancelled a few days ago. What could we have done better?\n\n- Pricing?\n- Features?\n- Reliability?\n- Fit?\n- Something else?\n\nJust reply to this email — I read every response.\n\n— Andrew Disbrow\nFounder, Tally`;
+    const text = `We'd love your honest feedback\n\n${church.name} cancelled a few days ago. What could we have done better?\n\n- Pricing?\n- Features?\n- Reliability?\n- Fit?\n- Something else?\n\nJust reply to this email — every response goes straight to our team.\n\n— The Tally Team`;
     return { html, text };
   }
 
@@ -2290,11 +2287,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Start Your Free Trial', signupUrl)}
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally
+        &mdash; The Tally Team
       </p>
     `);
 
-    const text = `Every Sunday, something breaks in the booth\n\nHey ${name} — every church production team knows this: the stream drops mid-sermon, nobody catches it for 4 minutes, and the online audience is gone. We built Tally to fix that — automatically.\n\n- Auto-recovers dropped streams before anyone notices\n- Pre-service health checks 30 min before service\n- Real-time alerts via Telegram\n- Weekly reports for leadership\n\n30-day free trial, no credit card: ${signupUrl}\n\n— Andrew Disbrow`;
+    const text = `Every Sunday, something breaks in the booth\n\nHey ${name} — every church production team knows this: the stream drops mid-sermon, nobody catches it for 4 minutes, and the online audience is gone. We built Tally to fix that — automatically.\n\n- Auto-recovers dropped streams before anyone notices\n- Pre-service health checks 30 min before service\n- Real-time alerts via Telegram\n- Weekly reports for leadership\n\n30-day free trial, no credit card: ${signupUrl}\n\n— The Tally Team`;
     return { html, text };
   }
 
@@ -2363,7 +2360,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('Start Your Free Trial', signupUrl)}
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew
+        &mdash; The Tally Team
       </p>
     `);
 
@@ -2401,11 +2398,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally
+        &mdash; The Tally Team
       </p>
     `);
 
-    const text = `Ready to try Tally?\n\n30 days free, no credit card, 10-minute setup.\n\nStart your trial: ${signupUrl}\n\nThis is the last email in this series. Visit tallyconnect.app/signup anytime.\n\n— Andrew Disbrow`;
+    const text = `Ready to try Tally?\n\n30 days free, no credit card, 10-minute setup.\n\nStart your trial: ${signupUrl}\n\nThis is the last email in this series. Visit tallyconnect.app/signup anytime.\n\n— The Tally Team`;
     return { html, text };
   }
 
@@ -2572,7 +2569,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
   // ═══════════════════════════════════════════════════════════════════════════
 
   // ─── GAP 1: EARLY WIN-BACK (Day 7-14 post-cancel) ─────────────────────────
-  // Personal from Andrew, no feature list, empathy + reactivate link.
+  // Team-signed, no feature list, empathy + reactivate link.
 
   async _checkEarlyWinBack() {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -2612,7 +2609,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     const html = this._wrap(`
       <h1 style="font-size: 22px; color: #111; margin: 0 0 8px;">How'd Sunday go?</h1>
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        It's Andrew from Tally. <strong>${church.name}</strong> cancelled about a week ago,
+        It's the Tally team. <strong>${church.name}</strong> cancelled about a week ago,
         which means you've had at least one Sunday without monitoring by now.
       </p>
 
@@ -2629,11 +2626,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally
+        &mdash; The Tally Team
       </p>
     `);
 
-    const text = `How'd Sunday go?\n\nIt's Andrew from Tally. ${church.name} cancelled about a week ago, which means you've had at least one Sunday without monitoring.\n\nIf anything went sideways, your settings are still saved and you can reactivate in seconds: ${portalUrl}\n\nOr just reply and tell me how it went.\n\n— Andrew Disbrow, Founder`;
+    const text = `How'd Sunday go?\n\nIt's the Tally team. ${church.name} cancelled about a week ago, which means you've had at least one Sunday without monitoring.\n\nIf anything went sideways, your settings are still saved and you can reactivate in seconds: ${portalUrl}\n\nOr just reply and tell us how it went.\n\n— The Tally Team`;
     return { html, text };
   }
 
@@ -2688,18 +2685,18 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </div>
 
       <p style="font-size: 15px; color: #333; line-height: 1.6;">
-        <strong>Reply to this email</strong> with your setup question and I'll personally walk you through it.
+        <strong>Reply to this email</strong> with your setup question and our team will help you through it.
         Or download the app again and try the setup assistant fresh:
       </p>
 
       ${this._cta('Download Tally', downloadUrl)}
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally
+        &mdash; The Tally Team
       </p>
     `);
 
-    const text = `Your setup isn't complete yet\n\nYour trial at ${church.name} is almost over and we haven't seen your booth computer connect yet.\n\nCommon blockers:\n1. App downloaded but didn't run — look in Applications and double-click Tally\n2. Registration code not accepted — reply and we'll resend it\n3. Firewall blocking the connection — Tally needs outbound port 443\n\nReply to this email with your question — I'll personally help. Or try again: ${downloadUrl}\n\n— Andrew Disbrow, Founder`;
+    const text = `Your setup isn't complete yet\n\nYour trial at ${church.name} is almost over and we haven't seen your booth computer connect yet.\n\nCommon blockers:\n1. App downloaded but didn't run — look in Applications and double-click Tally\n2. Registration code not accepted — reply and we'll resend it\n3. Firewall blocking the connection — Tally needs outbound port 443\n\nReply to this email with your question — our team will help. Or try again: ${downloadUrl}\n\n— The Tally Team`;
     return { html, text };
   }
 
@@ -3125,15 +3122,15 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </div>
 
       <p style="font-size: 14px; color: #666; line-height: 1.6;">
-        Or just reply to this email with your score and any comments &mdash; I read every response personally.
+        Or just reply to this email with your score and any comments &mdash; every response goes straight to our team.
       </p>
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally
+        &mdash; The Tally Team
       </p>
     `);
 
-    const text = `Quick question — how likely are you to recommend Tally?\n\n${church.name} has been running Tally for about 60 days. How likely are you to recommend us to another church production team?\n\nScore 1-10: just reply with your number and any comments.\n\n— Andrew Disbrow, Founder`;
+    const text = `Quick question — how likely are you to recommend Tally?\n\n${church.name} has been running Tally for about 60 days. How likely are you to recommend us to another church production team?\n\nScore 1-10: just reply with your number and any comments.\n\n— The Tally Team`;
     return { html, text };
   }
 
@@ -3201,11 +3198,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       ${this._cta('View Your Year in the Portal', portalUrl)}
 
       <p style="font-size: 14px; color: #666;">
-        Grateful for you. &mdash; Andrew Disbrow<br>Founder, Tally
+        Grateful for you. &mdash; The Tally Team
       </p>
     `);
 
-    const text = `One year with Tally!\n\n${church.name} just hit one year on ${tierName}. Thank you for your trust.\n\n${yearStats.sessions > 0 ? `Year in numbers: ${yearStats.sessions} services monitored, ${yearStats.autoFixed} auto-resolved.\n\n` : ''}Know another church dealing with stream issues? Send them to tallyconnect.app/signup and mention your church name for a referral credit.\n\nView your year: ${portalUrl}\n\n— Andrew Disbrow, Founder`;
+    const text = `One year with Tally!\n\n${church.name} just hit one year on ${tierName}. Thank you for your trust.\n\n${yearStats.sessions > 0 ? `Year in numbers: ${yearStats.sessions} services monitored, ${yearStats.autoFixed} auto-resolved.\n\n` : ''}Know another church dealing with stream issues? Send them to tallyconnect.app/signup and mention your church name for a referral credit.\n\nView your year: ${portalUrl}\n\n— The Tally Team`;
     return { html, text };
   }
 
@@ -3276,11 +3273,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       </p>
 
       <p style="font-size: 14px; color: #666;">
-        &mdash; Andrew Disbrow<br>Founder, Tally
+        &mdash; The Tally Team
       </p>
     `);
 
-    const text = `Know another church production team we could help?\n\n${church.name} has run ${sessionCount} services with Tally — thank you. If you know another TD dealing with stream drops, send them to ${signupUrl}.\n\nHow referrals work:\n1. Share tallyconnect.app/signup\n2. Ask them to mention "${church.name}" when signing up\n3. When they subscribe, you both get one month free\n\n— Andrew Disbrow, Founder`;
+    const text = `Know another church production team we could help?\n\n${church.name} has run ${sessionCount} services with Tally — thank you. If you know another TD dealing with stream drops, send them to ${signupUrl}.\n\nHow referrals work:\n1. Share tallyconnect.app/signup\n2. Ask them to mention "${church.name}" when signing up\n3. When they subscribe, you both get one month free\n\n— The Tally Team`;
     return { html, text };
   }
 

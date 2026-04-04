@@ -1,7 +1,7 @@
 /**
  * Guest TD Mode
  *
- * Allows Andrew to issue 24-hour guest tokens for visiting or temporary TDs.
+ * Allows an admin to issue 24-hour guest tokens for visiting or temporary TDs.
  * Guest TDs get the same alert access as regular TDs, scoped to their church only.
  *
  * SQLite table: guest_tokens

@@ -237,7 +237,7 @@ class AlertEngine {
   constructor(db, scheduleEngine, options = {}) {
     this.db = db;
     this.scheduleEngine = scheduleEngine;
-    this.andrewChatId = options.andrewChatId || process.env.ANDREW_TELEGRAM_CHAT_ID;
+    this.adminChatId = options.adminChatId || process.env.ADMIN_TELEGRAM_CHAT_ID || process.env.ANDREW_TELEGRAM_CHAT_ID;
     this.defaultBotToken = options.defaultBotToken || process.env.ALERT_BOT_TOKEN;
     this.activeAlerts = new Map(); // alertId → { church, alertType, context, severity, sentAt, escalationTimer }
     // Optional: OnCallRotation instance injected after construction
@@ -532,9 +532,9 @@ class AlertEngine {
       await this.sendTelegramMessage(tdChatId, botToken, msg);
     }
 
-    // EMERGENCY → also notify Andrew immediately
-    if (severity === 'EMERGENCY' && this.andrewChatId) {
-      await this.sendTelegramMessage(this.andrewChatId, botToken, `[ESCALATED] ${msg}`);
+    // EMERGENCY → also notify the admin contact immediately
+    if (severity === 'EMERGENCY' && this.adminChatId) {
+      await this.sendTelegramMessage(this.adminChatId, botToken, `[ESCALATED] ${msg}`);
     }
 
     // Send Slack alert if configured
@@ -551,10 +551,10 @@ class AlertEngine {
       const timer = setTimeout(async () => {
         const alert = this.activeAlerts.get(alertId);
         if (alert && !alert.acknowledged) {
-          console.log(`  ↳ No ack after 5min — escalating to Andrew`);
+          console.log('  ↳ No ack after 5min — escalating to admin contact');
           this.db.prepare('UPDATE alerts SET escalated = 1 WHERE id = ?').run(alertId);
-          if (this.andrewChatId) {
-            await this.sendTelegramMessage(this.andrewChatId, botToken,
+          if (this.adminChatId) {
+            await this.sendTelegramMessage(this.adminChatId, botToken,
               `🚨 ESCALATED (no TD response in 5 min)\n\n${msg}`);
           }
           // Also send escalation email as backup

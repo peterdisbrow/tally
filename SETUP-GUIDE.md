@@ -9,7 +9,7 @@
 Tally Connect connects your production booth to Tally's remote monitoring system. Once it's running:
 
 - Your TD gets a phone alert the moment something goes wrong during service
-- Andrew can see your system status and control it remotely if needed
+- Your support team can see your system status and help if needed
 - Problems get caught before the congregation notices
 
 Setup takes about 15 minutes. You'll need your connection token (sent by email when you signed up).
@@ -115,7 +115,7 @@ After setup, check the status bar at the top of the Tally app:
 | ⚫ Grey | Not connected (check your network) |
 | 🔴 Red | Connected but something is wrong |
 
-Andrew's dashboard will show your church as online within 60 seconds of Tally connecting.
+The Tally dashboard will show your church as online within 60 seconds of Tally connecting.
 
 ---
 
@@ -162,7 +162,7 @@ To receive alerts on your phone, you need a Telegram account.
 
 1. Search for **@ATEMSchoolTallyBot** on Telegram
 2. Send `/start`
-3. Send `/register [your 6-character code]` — Andrew will provide this code when your account is active
+3. Send `/register [your 6-character code]` — use the code from your welcome email or your church administrator
 4. You're set. Alerts will arrive as Telegram messages.
 
 **What you'll receive:**
@@ -170,7 +170,7 @@ To receive alerts on your phone, you need a Telegram account.
 - 🔴 Critical: service-impacting issue (stream stopped, ATEM disconnected)
 - ✅ Recovery: issue was auto-fixed or resolved
 
-If you don't respond to a Critical alert within 90 seconds, it escalates to Andrew automatically.
+If you don't respond to a Critical alert within 90 seconds, it escalates to your support contact automatically.
 
 ---
 
@@ -211,7 +211,7 @@ Tally is designed to run continuously in the background. A few things to know:
 **If the icon is grey on Sunday morning:**
 1. Click the tray icon → **Start Monitoring**
 2. If that doesn't work, check your internet connection
-3. If still grey, text or call Andrew
+3. If still grey, email support@tallyconnect.app or use your production support number
 
 **If you get an unexpected alert:**
 - Read it — most include the fix
@@ -240,7 +240,7 @@ Tally is designed to run continuously in the background. A few things to know:
 - This is the most common real alert
 - In OBS: click **Start Streaming** again
 - If OBS crashed: relaunch it, then start streaming
-- Text Andrew if you can't recover in 2 minutes
+- Contact support if you can't recover in 2 minutes
 
 ### Token expired or invalid
 - Contact support@tallyconnect.app for a new token
@@ -257,12 +257,12 @@ Tally updates automatically in the background. When an update is ready, you'll s
 ## Getting Help
 
 - **Email:** support@tallyconnect.app
-- **Phone (production emergencies):** Contact Andrew directly — your account includes a support number
+- **Phone (production emergencies):** Use your production support number
 - **Documentation:** tallyconnect.app/docs
 
 ---
 
-## For Andrew's Reference — Church Onboarding Checklist
+## Internal Reference — Church Onboarding Checklist
 
 When activating a new church:
 
@@ -272,7 +272,7 @@ When activating a new church:
 - [ ] Register TD in Telegram bot, send 6-char code
 - [ ] Set church service schedule (for watchdog windows)
 - [ ] Test pre-service check via Telegram: `@ATEMSchoolTallyBot status`
-- [ ] Confirm alerts route correctly (TD → Andrew 90s escalation)
+- [ ] Confirm alerts route correctly (TD → support escalation after 90s)
 - [ ] Note TD contact info in relay database
 
 ---
