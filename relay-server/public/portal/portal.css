@@ -1072,11 +1072,22 @@ body.advanced-mode .advanced-only[style*="display:none"] { display: none !import
   background: rgba(255,255,255,0.04);
   border: 1px solid var(--border);
 }
-.equip-simple-name {
+.equip-simple-info {
   flex: 1;
+  min-width: 0;
+}
+.equip-simple-name {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-primary);
+}
+.equip-simple-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .equip-simple-status {
   display: flex;
