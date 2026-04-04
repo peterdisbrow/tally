@@ -1099,7 +1099,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var _rundownCard = document.getElementById('rundown-card');
         var _actFeedCard = document.getElementById('activity-feed-card');
         var _pfCard = document.getElementById('pf-card');
-        if (_gcCard) _gcCard.style.display = hasEverConnected ? 'none' : 'block';
+        // Show Get Connected card when desktop app is not currently connected
+        if (_gcCard) _gcCard.style.display = (d.connected) ? 'none' : 'block';
         if (_eqCard) _eqCard.style.display = hasEverConnected ? '' : 'none';
         if (_pscCard) _pscCard.style.display = hasEverConnected ? '' : 'none';
         if (_rundownCard) _rundownCard.style.display = hasEverConnected ? '' : 'none';
@@ -1359,7 +1360,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         if (Array.isArray(status.smartPlugs)) {
           status.smartPlugs.forEach(function(plug) {
             if (!plug) return;
-            var spSt = plug.connected ? (plug.powerOn ? 'connected' : 'offline') : 'disconnected';
+            var spSt = plug.connected ? 'connected' : 'disconnected';
             var spLabel = plug.name || ('Smart Plug ' + plug.ip);
             var spDetail = [];
             if (plug.powerOn) spDetail.push('ON');
@@ -1400,7 +1401,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           else if (st === 'muted') { badgeCls = 'badge-yellow'; label = 'Muted'; }
           else if (st === 'disconnected') { badgeCls = 'badge-gray'; label = 'Disconnected'; }
           else if (st === 'off-air') { badgeCls = 'badge-gray'; label = 'Off Air'; }
-          else if (st === 'offline') { badgeCls = 'badge-gray'; label = 'Offline'; }
+          else if (st === 'offline') { badgeCls = 'badge-gray'; label = 'Disconnected'; }
           var verHtml = '—';
           if (ver) {
             verHtml = ver.outdated
@@ -2716,6 +2717,9 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var data = await api('GET', '/api/church/session/active' + roomParam());
         if (!data || !data.active) {
           card.style.display = 'none';
+          // Also hide live session cards when no session is active
+          var _viewersCard = document.getElementById('live-viewers-card');
+          if (_viewersCard) _viewersCard.style.display = 'none';
           return;
         }
 
@@ -3086,14 +3090,10 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       const completed = steps.filter(s => s.done).length;
       const allDone = completed >= steps.length;
 
-      // Show celebration banner when all steps complete
+      // Auto-hide when all steps are complete — don't show a completed checklist
       if (allDone) {
-        container.style.display = 'block';
-        container.style.animation = 'none';
-        container.style.borderColor = '#00E676';
-        itemsEl.innerHTML = '<div style="text-align:center;padding:16px 0"><div style="font-size:28px;margin-bottom:8px;animation:onboardCheckPop 0.5s ease-out">&#9733;</div><div style="font-size:15px;font-weight:700;color:#00E676">' + pt('onboarding.complete') + '</div><div style="font-size:12px;color:#8B9DAF;margin-top:4px">' + pt('onboarding.complete.sub') + '</div></div>';
+        container.style.display = 'none';
         if (resumeEl) resumeEl.style.display = 'none';
-        setTimeout(function() { container.style.display = 'none'; }, 5000);
         return;
       }
 
@@ -3517,7 +3517,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
             expiryDiv.style.display = 'none';
           }
         } else {
-          status.textContent = 'Not connected';
+          status.textContent = 'Disconnected';
           status.style.color = '#6B7280';
           btn.textContent = 'Connect Facebook';
           btn.onclick = portalFbConnect;
@@ -3575,7 +3575,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
       } else {
         ytBadge.className = 'conn-badge conn-badge-off';
-        ytBadge.textContent = 'Not connected';
+        ytBadge.textContent = 'Disconnected';
         ytDetails.style.display = 'none';
         ytChannel.textContent = '';
         ytBtn.textContent = 'Connect YouTube';
@@ -3628,7 +3628,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         }
       } else {
         fbBadge.className = 'conn-badge conn-badge-off';
-        fbBadge.textContent = 'Not connected';
+        fbBadge.textContent = 'Disconnected';
         fbDetails.style.display = 'none';
         fbPage.textContent = '';
         fbBtn.textContent = 'Connect Facebook';
@@ -8664,9 +8664,16 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // Also handle offline state: observe the stat-status-text for "Offline"
+  // AND sync simple-mode status elements → advanced-mode duplicates
   var _statEl = document.getElementById('stat-status-text');
+  var _statDotEl = document.getElementById('stat-status-dot');
+  var _statElAdv = document.getElementById('stat-status-text-adv');
+  var _statDotElAdv = document.getElementById('stat-status-dot-adv');
   if (_statEl) {
     new MutationObserver(function() {
+      // Sync text + color to advanced duplicate
+      if (_statElAdv) { _statElAdv.textContent = _statEl.textContent; _statElAdv.style.color = _statEl.style.color; }
+      if (_statDotEl && _statDotElAdv) { _statDotElAdv.style.background = _statDotEl.style.background; }
       if (_statEl.textContent.trim() === 'Offline') {
         updateReadinessHero(null, true);
         updateNeedsAttention(null);
@@ -8674,6 +8681,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (list) list.innerHTML = '<div class="equip-empty-state" style="color:var(--text-muted)">Desktop app is offline</div>';
       }
     }).observe(_statEl, { childList: true, characterData: true, subtree: true });
+  }
+  // Also observe dot background changes
+  if (_statDotEl && _statDotElAdv) {
+    new MutationObserver(function() {
+      _statDotElAdv.style.background = _statDotEl.style.background;
+    }).observe(_statDotEl, { attributes: true, attributeFilter: ['style'] });
   }
 
   // ── Wire new actions in delegated handler ─────────────────────────
