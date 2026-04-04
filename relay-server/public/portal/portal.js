@@ -1165,7 +1165,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           'custom-rtmp':'Custom RTMP', 'rtmp-generic':'RTMP Encoder',
         };
         const encoderLabel = encNames[enc.type] || (enc.type
-          ? ('Encoder (' + enc.type + ')')
+          ? 'Stream Encoder'
           : ((status.obs && (status.obs.connected || status.obs.app)) ? 'OBS Studio' : 'Streaming Encoder'));
         const encoderStatus = encoderConnected
           ? (encoderLive ? 'streaming' : 'connected')
@@ -1260,13 +1260,19 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var isRecording = !!(status.atem && status.atem.recording) || !!(status.obs && status.obs.recording) || !!(status.vmix && status.vmix.recording);
 
         var atemVerDisplay = verInfo(atemVer, 'atem_protocol') || (atemConnected && status.atem && status.atem.model ? {text: status.atem.model, outdated: false} : null);
-        const rows = [
-          ['ATEM Switcher', atemConnected ? 'connected' : 'disconnected', atemVerDisplay, atemDetail || null],
-          [encoderLabel, encoderStatus, verInfo(encVer, encVerType), encoderDetail || null],
-          ['Stream', (encoderLive || obsStreaming) ? 'live' : 'off-air', null, streamDetail || null],
-          ['Recording', isRecording ? 'recording' : 'off-air', null, null],
-          [audioLabel, audioStatus, verInfo(mixerVer, mixerVerType), null],
-        ];
+        const rows = [];
+        // Only show devices that are actually present / configured
+        if (status.atem) {
+          rows.push(['ATEM Switcher', atemConnected ? 'connected' : 'disconnected', atemVerDisplay, atemDetail || null]);
+        }
+        if (enc.type || enc.connected || (status.obs && (status.obs.connected || status.obs.app))) {
+          rows.push([encoderLabel, encoderStatus, verInfo(encVer, encVerType), encoderDetail || null]);
+          rows.push(['Stream', (encoderLive || obsStreaming) ? 'live' : 'off-air', null, streamDetail || null]);
+          rows.push(['Recording', isRecording ? 'recording' : 'stopped', null, null]);
+        }
+        if (mixerConnected || audioViaAtem || (status.audio && status.audio.silenceDetected)) {
+          rows.push([audioLabel, audioStatus, verInfo(mixerVer, mixerVerType), null]);
+        }
         // Dynamic device rows — only show if the device exists in status
         const hd = status.hyperdeck || status.hyperDeck;
         if (hd) {
@@ -1306,15 +1312,11 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           (Array.isArray(cams) ? cams : [cams]).forEach(function(cam, i) {
             if (!cam) return;
             const camSt = cam.connected ? 'connected' : 'disconnected';
-            const camLabel = cam.name || ('PTZ Camera ' + (i + 1));
+            const camLabel = cam.name || ('Camera ' + (i + 1));
             rows.push([camLabel, camSt, null, cam.lastSeen || null]);
           });
         }
-        if (status.mixer) {
-          const mxSt = status.mixer.connected ? 'connected' : 'disconnected';
-          const mxName = status.mixer.name || 'Audio Mixer';
-          rows.push([mxName, mxSt, verInfo(mixerVer, mixerVerType), status.mixer.lastSeen || null]);
-        }
+        // Mixer is already represented by the Audio row above — skip duplicate
         // vMix — show as its own row when not already shown as the encoder
         if (status.vmix && status.vmix.connected && enc.type !== 'vmix') {
           const vmSt = status.vmix.streaming ? 'streaming' : (status.vmix.recording ? 'recording' : 'connected');
@@ -1401,6 +1403,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           else if (st === 'muted') { badgeCls = 'badge-yellow'; label = 'Muted'; }
           else if (st === 'disconnected') { badgeCls = 'badge-gray'; label = 'Disconnected'; }
           else if (st === 'off-air') { badgeCls = 'badge-gray'; label = 'Off Air'; }
+          else if (st === 'stopped') { badgeCls = 'badge-gray'; label = 'Stopped'; }
           else if (st === 'offline') { badgeCls = 'badge-gray'; label = 'Disconnected'; }
           var verHtml = '—';
           if (ver) {
@@ -3258,6 +3261,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         document.getElementById('equipment-form').style.display = '';
         _equipmentLoaded = true;
         portalUpdateOAuthStatus();
+        try { loadEquipmentRoles(); } catch (e) { console.error('Roles card error', e); }
       } catch (e) {
         document.getElementById('equipment-loading').textContent = 'Failed to load equipment config.';
         toast('Failed to load equipment: ' + e.message, true);
@@ -3274,6 +3278,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         _populateEquipmentForm(d.equipment || {}, d.updatedAt);
         document.getElementById('equipment-loading').style.display = 'none';
         document.getElementById('equipment-form').style.display = '';
+        try { loadEquipmentRoles(); } catch (e) { console.error('Roles card error', e); }
       } catch (e) {
         document.getElementById('equipment-loading').textContent = 'Failed to load equipment.';
         toast('Failed to load equipment: ' + e.message, true);
@@ -8420,8 +8425,10 @@ document.addEventListener('DOMContentLoaded', function() {
     'Audio': 'Sound',
     'HyperDeck': 'Video Recorder',
     'ProPresenter': 'Presentation Slides',
+    'Resolume Arena': 'Resolume Arena',
     'Resolume': 'Visual Effects',
     'VideoHub': 'Video Router',
+    'PTZ Camera': 'Camera',
     'PTZ': 'Camera',
     'Companion': 'Button Control',
     'Encoder': 'Stream Encoder',
@@ -8438,6 +8445,7 @@ document.addEventListener('DOMContentLoaded', function() {
     'Video Recorder': '💾',
     'Presentation Slides': '📊',
     'Visual Effects': '✨',
+    'Resolume Arena': '✨',
     'Video Router': '🔀',
     'Camera': '📷',
     'Button Control': '🎛',
@@ -8464,7 +8472,8 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'streaming': return 'Live';
       case 'live': return 'Live';
       case 'recording': return 'Recording';
-      case 'off-air': return 'Standby';
+      case 'off-air': return 'Off Air';
+      case 'stopped': return 'Stopped';
       case 'muted': return 'Muted';
       case 'warning': return 'Needs Attention';
       case 'ok': return 'Ready';
@@ -8478,7 +8487,7 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'streaming': case 'live': case 'recording': return 'ready';
       case 'muted': case 'warning': return 'warning';
       case 'disconnected': return 'off';
-      case 'off-air': return 'off';
+      case 'off-air': case 'stopped': return 'off';
       default: return 'off';
     }
   }
@@ -8644,7 +8653,8 @@ document.addEventListener('DOMContentLoaded', function() {
       else if (statusText.indexOf('connected') >= 0 || statusText.indexOf('ok') >= 0 || statusText.indexOf('ready') >= 0) st = 'connected';
       else if (statusText.indexOf('muted') >= 0) st = 'muted';
       else if (statusText.indexOf('warning') >= 0 || statusText.indexOf('silence') >= 0) st = 'warning';
-      else if (statusText.indexOf('off-air') >= 0 || statusText.indexOf('standby') >= 0) st = 'off-air';
+      else if (statusText.indexOf('off air') >= 0 || statusText.indexOf('off-air') >= 0 || statusText.indexOf('standby') >= 0) st = 'off-air';
+      else if (statusText.indexOf('stopped') >= 0) st = 'stopped';
 
       var version = tds[2] ? tds[2].textContent.trim() : null;
       var detail = tds[3] ? tds[3].textContent.trim() : null;
