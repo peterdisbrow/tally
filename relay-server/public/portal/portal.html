@@ -706,9 +706,9 @@
       <div class="card" id="rooms-card">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
           <div class="card-title" style="margin:0" data-i18n="rooms.title">Rooms</div>
-          <button class="btn-primary" id="btn-add-room" data-action="addRoom" style="font-size:12px;padding:6px 14px">+ Add Room</button>
+          <button class="btn-primary advanced-only" id="btn-add-room" data-action="addRoom" style="font-size:12px;padding:6px 14px">+ Add Room</button>
         </div>
-        <p style="color:#8B9DAF;font-size:13px;margin-bottom:12px" data-i18n="rooms.desc">Rooms are physical spaces (Main Sanctuary, Youth Room, etc). Assign each Tally desktop to a room from the app's Equipment tab.</p>
+        <p class="advanced-only" style="color:#8B9DAF;font-size:13px;margin-bottom:12px" data-i18n="rooms.desc">Rooms are physical spaces (Main Sanctuary, Youth Room, etc). Assign each Tally desktop to a room from the app's Equipment tab.</p>
         <div id="rooms-list" style="color:#556270;font-size:13px">Loading…</div>
       </div>
       </div><!-- /tab-rooms -->
@@ -716,8 +716,19 @@
       <div id="equipment-loading" style="text-align:center;padding:40px;color:#556270">Loading equipment config…</div>
       <div id="equipment-form" style="display:none">
 
+        <!-- Simple mode: equipment summary -->
+        <div class="card simple-only" id="eq-simple-summary" style="margin-bottom:16px">
+          <div class="card-title" style="margin-bottom:12px">Equipment Summary</div>
+          <div id="eq-simple-summary-list" class="eq-summary-list">
+            <div style="color:#556270;font-size:13px">Loading summary…</div>
+          </div>
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06)">
+            <div style="font-size:12px;color:#556270">Switch to <strong style="color:#8B9DAF">Advanced</strong> mode to edit equipment configuration.</div>
+          </div>
+        </div>
+
         <!-- Equipment intro card -->
-        <div class="card" style="margin-bottom:16px;border-color:#0d3320;background:#0a1a10">
+        <div class="card advanced-only" style="margin-bottom:16px;border-color:#0d3320;background:#0a1a10">
           <div style="display:flex;align-items:flex-start;gap:12px">
             <div style="font-size:22px;flex-shrink:0">&#128268;</div>
             <div>
@@ -736,7 +747,7 @@
         </div>
 
         <!-- Video Switcher -->
-        <div class="card" style="margin-bottom:16px">
+        <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">Video Switcher (ATEM)</div>
           <div class="field">
             <label><span class="tip" data-tip="Find this in your ATEM's network settings (Software Control &rsaquo; Settings &rsaquo; Network) or check your router's device list for a device named 'ATEM'.">ATEM IP Address</span></label>
@@ -745,7 +756,7 @@
         </div>
 
         <!-- OBS Studio -->
-        <div class="card" style="margin-bottom:16px">
+        <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">OBS Studio</div>
           <div class="field">
             <label><span class="tip" data-tip="In OBS: Tools &rsaquo; WebSocket Server Settings. Enable the server, then copy the Server Port (default 4455). Format: ws://localhost:4455 if OBS runs on the same computer as Tally.">WebSocket URL</span></label>
@@ -758,7 +769,7 @@
         </div>
 
         <!-- Audio Mixer -->
-        <div class="card" style="margin-bottom:16px">
+        <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">Audio Mixer</div>
           <div style="display:flex;gap:12px;flex-wrap:wrap">
             <div class="field" style="flex:1;min-width:140px">
@@ -789,7 +800,7 @@
         </div>
 
         <!-- Encoder / Streaming -->
-        <div class="card" style="margin-bottom:16px">
+        <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">Encoder / Streaming</div>
           <div style="display:flex;gap:12px;flex-wrap:wrap">
             <div class="field" style="flex:1;min-width:140px">
@@ -822,7 +833,7 @@
         </div>
 
         <!-- Stream Platforms (OAuth) -->
-        <div class="card" style="margin-bottom:16px">
+        <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">Stream Platforms</div>
           <p style="font-size:13px;color:#8B9DAF;margin:0 0 12px">Connect your streaming platforms for viewer count monitoring and stream health checks.</p>
           <div id="portal-oauth-fb-row" style="display:flex;align-items:center;gap:10px;padding:10px;background:#060D08;border-radius:8px;">
@@ -843,14 +854,14 @@
         </div>
 
         <!-- PTZ Cameras -->
-        <div class="card" style="margin-bottom:16px">
+        <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">PTZ Cameras</div>
           <div id="eq-ptz-list"></div>
           <button class="btn-secondary" id="btn-add-ptz" data-action="addPtzRow" style="margin-top:8px;font-size:12px">+ Add Camera</button>
         </div>
 
         <!-- Companion -->
-        <div class="card" style="margin-bottom:16px">
+        <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">Bitfocus Companion</div>
           <div class="field">
             <label>Companion URL</label>
@@ -859,7 +870,7 @@
         </div>
 
         <!-- Presentation Software -->
-        <div class="card" style="margin-bottom:16px">
+        <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">Presentation Software</div>
           <div style="display:flex;gap:12px;flex-wrap:wrap">
             <div class="field" style="flex:1;min-width:140px">
@@ -894,21 +905,21 @@
         </div>
 
         <!-- HyperDecks -->
-        <div class="card" style="margin-bottom:16px">
+        <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">HyperDecks</div>
           <div id="eq-hyperdeck-list"></div>
           <button class="btn-secondary" id="btn-add-hyperdeck" data-action="addHyperdeckRow" style="margin-top:8px;font-size:12px">+ Add HyperDeck</button>
         </div>
 
         <!-- VideoHubs -->
-        <div class="card" style="margin-bottom:16px">
+        <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">VideoHubs</div>
           <div id="eq-videohub-list"></div>
           <button class="btn-secondary" id="btn-add-videohub" data-action="addVideohubRow" style="margin-top:8px;font-size:12px">+ Add VideoHub</button>
         </div>
 
         <!-- Per-Room Ingest Stream Keys -->
-        <div class="card" style="margin-bottom:16px">
+        <div class="card advanced-only" style="margin-bottom:16px">
           <div class="card-title">Room Stream Keys</div>
           <p style="font-size:12px;color:#8B9DAF;margin-bottom:12px">Each room has its own RTMP ingest key. Use the correct key to send a test stream to a specific room. Keep keys private.</p>
           <div id="eq-room-stream-keys" style="display:flex;flex-direction:column;gap:10px">
@@ -917,7 +928,7 @@
         </div>
 
         <!-- Equipment Roles Card -->
-        <div class="card" id="equipment-roles-card" style="display:none;margin-top:16px">
+        <div class="card advanced-only" id="equipment-roles-card" style="display:none;margin-top:16px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
             <div class="card-title" style="margin:0">&#9881; Equipment Roles <span id="roles-room-label" style="font-size:12px;color:#00E676;font-weight:normal;margin-left:8px"></span></div>
             <div style="display:flex;align-items:center;gap:8px">
@@ -934,7 +945,7 @@
         </div>
 
         <!-- Save -->
-        <div style="display:flex;align-items:center;gap:12px;margin-top:20px;margin-bottom:40px">
+        <div class="advanced-only-flex" style="align-items:center;gap:12px;margin-top:20px;margin-bottom:40px">
           <button class="btn-primary" id="btn-save-equipment" data-action="saveEquipment">Save Equipment Config</button>
           <span id="equipment-save-status" style="font-size:13px;color:#556270"></span>
         </div>

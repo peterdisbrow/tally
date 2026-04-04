@@ -3285,6 +3285,54 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       renderEquipmentList('videohub', eq.videoHubs || []);
       var status = document.getElementById('equipment-save-status');
       if (status) status.textContent = updatedAt ? 'Last saved: ' + new Date(updatedAt).toLocaleString() : '';
+      _updateEquipmentSimpleSummary(eq);
+    }
+
+    function _updateEquipmentSimpleSummary(eq) {
+      var list = document.getElementById('eq-simple-summary-list');
+      if (!list) return;
+      var items = [];
+      if (eq.atemIp) items.push({ name: 'Video Switcher', detail: 'ATEM', icon: SVG.tv });
+      if (eq.obsUrl) items.push({ name: 'OBS Studio', detail: 'Recording / Streaming', icon: SVG.clapperboard });
+      var mx = eq.mixer || {};
+      if (mx.type) {
+        var mxNames = { behringer: 'Behringer X32 / M32', allenheath: 'Allen & Heath dLive / SQ', avantis: 'Allen & Heath Avantis', yamaha: 'Yamaha TF / CL / QL' };
+        items.push({ name: 'Audio Mixer', detail: mxNames[mx.type] || mx.type, icon: SVG.mixer });
+      }
+      if (eq.audioViaAtem) items.push({ name: 'Audio via ATEM', detail: 'Using ATEM audio mix', icon: SVG.speaker });
+      if (eq.encoderType) {
+        var encNames = { boxcast: 'BoxCast', aja: 'AJA HELO', teradek: 'Teradek', epiphan: 'Epiphan', liveu: 'LiveU', vmix: 'vMix', obs: 'OBS', other: 'Other' };
+        items.push({ name: 'Encoder', detail: encNames[eq.encoderType] || eq.encoderType, icon: SVG.satellite });
+      }
+      var ptz = eq.ptz || [];
+      if (ptz.length) items.push({ name: 'PTZ Camera' + (ptz.length > 1 ? 's' : ''), detail: ptz.map(function(c) { return c.name || 'Unnamed'; }).join(', '), icon: SVG.camera });
+      if (eq.companionUrl) items.push({ name: 'Companion', detail: 'Bitfocus Companion', icon: SVG.shuffle });
+      var pp = eq.proPresenter || {};
+      if (pp.host) items.push({ name: 'ProPresenter', detail: 'Presentation software', icon: SVG.monitor });
+      var vmix = eq.vmix || {};
+      if (vmix.host) items.push({ name: 'vMix', detail: 'Production software', icon: SVG.monitor });
+      var res = eq.resolume || {};
+      if (res.host) items.push({ name: 'Resolume', detail: 'Media server', icon: SVG.clapperboard });
+      var hd = eq.hyperdecks || [];
+      if (hd.length) items.push({ name: 'HyperDeck' + (hd.length > 1 ? 's' : ''), detail: hd.length + ' unit' + (hd.length > 1 ? 's' : ''), icon: SVG.record });
+      var vh = eq.videoHubs || [];
+      if (vh.length) items.push({ name: 'VideoHub' + (vh.length > 1 ? 's' : ''), detail: vh.length + ' unit' + (vh.length > 1 ? 's' : ''), icon: SVG.shuffle });
+
+      if (!items.length) {
+        list.innerHTML = '<div style="text-align:center;padding:16px;color:#556270">No equipment configured yet. Switch to <strong style="color:#8B9DAF">Advanced</strong> mode to set up your equipment.</div>';
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        html += '<div class="eq-summary-row">'
+          + '<div class="eq-summary-icon">' + it.icon + '</div>'
+          + '<div class="eq-summary-info"><div class="eq-summary-name">' + escapeHtml(it.name) + '</div>'
+          + '<div class="eq-summary-detail">' + escapeHtml(it.detail) + '</div></div>'
+          + '<div class="eq-summary-status configured">' + SVG.checkCircle + ' Configured</div>'
+          + '</div>';
+      }
+      list.innerHTML = html;
     }
 
     async function loadEquipment() {
@@ -4279,16 +4327,17 @@ const CHURCH_ID = document.body.dataset.churchId || '';
           container.innerHTML = '<div style="text-align:center;padding:16px;color:#556270">No rooms yet. Add a room to get started.</div>';
           return;
         }
-        var html = '<div class="table-wrap"><table><thead><tr><th>Room</th><th>Assigned Desktop</th><th>Status</th><th></th></tr></thead><tbody>';
+        var html = '<div class="table-wrap"><table><thead><tr><th>Room</th><th class="advanced-only">Assigned Desktop</th><th>Status</th><th class="advanced-only"></th></tr></thead><tbody>';
         for (var r of rooms) {
           var assigned = r.assignedDesktops && r.assignedDesktops.length > 0
             ? r.assignedDesktops.map(function(d) { return escapeHtml(d.name); }).join(', ')
             : '<span style="color:#556270">Unassigned</span>';
+          var hasDesktop = r.assignedDesktops && r.assignedDesktops.length > 0;
           html += '<tr>';
           html += '<td style="font-weight:600">' + escapeHtml(r.name) + (r.description ? '<br><span style="font-size:11px;color:#6B7280">' + escapeHtml(r.description) + '</span>' : '') + '</td>';
-          html += '<td>' + assigned + '</td>';
-          html += '<td>' + (r.assignedDesktops && r.assignedDesktops.length > 0 ? '<span style="color:#00E676">' + SVG.dotGreen + '</span>' : '<span style="color:#556270">\u2014</span>') + '</td>';
-          html += '<td style="text-align:right"><button class="btn-small btn-secondary" data-action="editRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '" data-room-desc="' + escapeHtml(r.description || '') + '">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" data-action="deleteRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '">Delete</button></td>';
+          html += '<td class="advanced-only">' + assigned + '</td>';
+          html += '<td>' + (hasDesktop ? '<span style="color:#00E676">' + SVG.dotGreen + ' Connected</span>' : '<span style="color:#556270">' + SVG.dotRed + ' No Desktop</span>') + '</td>';
+          html += '<td class="advanced-only" style="text-align:right"><button class="btn-small btn-secondary" data-action="editRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '" data-room-desc="' + escapeHtml(r.description || '') + '">Edit</button> <button class="btn-small btn-secondary" style="color:var(--danger);border-color:var(--danger)" data-action="deleteRoom" data-room-id="' + escapeHtml(r.id) + '" data-room-name="' + escapeHtml(r.name) + '">Delete</button></td>';
           html += '</tr>';
         }
         html += '</tbody></table></div>';

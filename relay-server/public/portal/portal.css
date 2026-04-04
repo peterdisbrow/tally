@@ -950,6 +950,28 @@ body.advanced-mode .simple-only { display: none; }
 body.advanced-mode .advanced-only { display: block; }
 /* Preserve display:none on cards that use it for conditional visibility */
 body.advanced-mode .advanced-only[style*="display:none"] { display: none !important; }
+/* Table-cell variants for thead/tbody columns */
+th.advanced-only, td.advanced-only { display: none; }
+body.advanced-mode th.advanced-only, body.advanced-mode td.advanced-only { display: table-cell; }
+/* Flex variants */
+.advanced-only-flex { display: none; }
+body.advanced-mode .advanced-only-flex { display: flex; }
+
+/* ─── EQUIPMENT SIMPLE SUMMARY (Rooms & Equipment tab) ───────── */
+.eq-summary-list { display:flex; flex-direction:column; gap:6px; }
+.eq-summary-row {
+  display:flex; align-items:center; gap:10px;
+  padding:10px 14px; background:rgba(255,255,255,0.02);
+  border:1px solid rgba(255,255,255,0.06); border-radius:8px;
+}
+.eq-summary-icon { flex:0 0 28px; color:#8B9DAF; display:flex; align-items:center; justify-content:center; }
+.eq-summary-icon svg { width:18px; height:18px; }
+.eq-summary-info { flex:1; min-width:0; }
+.eq-summary-name { font-size:13px; font-weight:600; color:#F0F2F4; }
+.eq-summary-detail { font-size:11px; color:#6B7280; margin-top:1px; }
+.eq-summary-status { font-size:12px; font-weight:500; white-space:nowrap; }
+.eq-summary-status.configured { color:#00E676; }
+.eq-summary-status.not-configured { color:#556270; }
 
 /* ─── READINESS HERO ──────────────────────────────────────────── */
 .readiness-hero {
