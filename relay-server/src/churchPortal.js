@@ -841,7 +841,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
       tds,
       connected: isConnected,
       status: statusObj,
-      instanceStatus: runtime?.instanceStatus || {},
+      instanceStatus: resolvedInstance
+        ? { [resolvedInstance]: runtime?.instanceStatus?.[resolvedInstance] || {} }
+        : (runtime?.instanceStatus || {}),
       instances: runtime?.sockets ? Array.from(runtime.sockets.keys()) : [],
       roomInstanceMap: runtime?.roomInstanceMap || {},
       lastSeen: runtime?.lastSeen || null,
