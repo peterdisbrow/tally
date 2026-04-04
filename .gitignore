@@ -12,4 +12,6 @@ electron-app/dist-mock-lab/
 output/
 */coverage/
 package-lock.json
+!relay-server/package-lock.json
+!relay-server/admin/package-lock.json
 problem-finder-lab/
