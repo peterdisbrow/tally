@@ -7745,63 +7745,78 @@ document.addEventListener('DOMContentLoaded', function() {
     _aiTriageEventsOffset = 0;
     document.getElementById('ai-triage-error-banner').style.display = 'none';
 
-    var results = await Promise.allSettled([
-      api('GET', '/api/church/ai-triage/stats?days=7'),
-      api('GET', '/api/church/ai-triage/settings'),
-      api('GET', '/api/church/ai-triage/context'),
-      api('GET', '/api/church/ai-triage/windows'),
-    ]);
+    // Immediately render empty/default states so page looks clean even if API fails
+    renderAiTriageStats({});
+    renderAiTriageSettings({});
+    renderAiTriageContext({});
+    renderAiTriageSeverityChart({});
+    renderAiTriageWindows({});
+    renderAiTriageDailyChart({});
 
-    var labels = ['stats', 'settings', 'context', 'windows'];
-    var failures = [];
-    var values = results.map(function(r, i) {
-      if (r.status === 'fulfilled') return r.value;
-      failures.push(labels[i]);
-      console.error('[AI Triage] Failed to load ' + labels[i] + ':', r.reason);
-      return {};
-    });
+    try {
+      var results = await Promise.allSettled([
+        api('GET', '/api/church/ai-triage/stats?days=7'),
+        api('GET', '/api/church/ai-triage/settings'),
+        api('GET', '/api/church/ai-triage/context'),
+        api('GET', '/api/church/ai-triage/windows'),
+      ]);
 
-    var statsRes = values[0];
-    var settingsRes = values[1];
-    var contextRes = values[2];
-    var windowsRes = values[3];
+      var labels = ['stats', 'settings', 'context', 'windows'];
+      var failures = [];
+      var values = results.map(function(r, i) {
+        if (r.status === 'fulfilled') return r.value;
+        failures.push(labels[i]);
+        console.error('[AI Triage] Failed to load ' + labels[i] + ':', r.reason);
+        return {};
+      });
 
-    _aiTriageSettings = settingsRes;
-    renderAiTriageStats(statsRes);
-    renderAiTriageContext(contextRes);
-    renderAiTriageSettings(settingsRes);
-    renderAiTriageSeverityChart(statsRes);
-    renderAiTriageWindows(windowsRes);
-    renderAiTriageDailyChart(statsRes);
+      var statsRes = values[0];
+      var settingsRes = values[1];
+      var contextRes = values[2];
+      var windowsRes = values[3];
 
-    if (failures.length) {
-      var banner = document.getElementById('ai-triage-error-banner');
-      document.getElementById('ai-triage-error-message').textContent =
-        'Failed to load: ' + failures.join(', ') + '. Some sections may show incomplete data.';
-      banner.style.display = 'flex';
+      _aiTriageSettings = settingsRes;
+      renderAiTriageStats(statsRes);
+      renderAiTriageContext(contextRes);
+      renderAiTriageSettings(settingsRes);
+      renderAiTriageSeverityChart(statsRes);
+      renderAiTriageWindows(windowsRes);
+      renderAiTriageDailyChart(statsRes);
+
+      if (failures.length) {
+        var banner = document.getElementById('ai-triage-error-banner');
+        document.getElementById('ai-triage-error-message').textContent =
+          'Failed to load: ' + failures.join(', ') + '. Some sections may show incomplete data.';
+        banner.style.display = 'flex';
+      }
+    } catch (err) {
+      console.error('[AI Triage] Page load error:', err);
     }
 
     try {
       await refreshAiTriageEvents();
     } catch (err) {
       console.error('[AI Triage] Events load error:', err);
+      document.getElementById('ai-triage-events-tbody').innerHTML =
+        '<tr><td colspan="5" style="color:#556270;text-align:center;padding:20px">No triage events yet. Events will appear here as your system is monitored.</td></tr>';
     }
   }
 
   function renderAiTriageStats(stats) {
     if (!stats) stats = {};
     var el = function(id) { return document.getElementById(id); };
-    el('ai-triage-stat-total').textContent = stats.total_events || 0;
+    var hasData = !!(stats.total_events);
+    el('ai-triage-stat-total').textContent = hasData ? stats.total_events : '0';
     var critCount = 0;
     (stats.severity_distribution || []).forEach(function(s) {
       if (s.triage_severity === 'critical') critCount = s.count;
     });
-    el('ai-triage-stat-critical').textContent = critCount;
-    el('ai-triage-stat-resolution').textContent = (stats.resolution_rate || 0) + '%';
+    el('ai-triage-stat-critical').textContent = hasData ? critCount : '0';
+    el('ai-triage-stat-resolution').textContent = hasData ? (stats.resolution_rate || 0) + '%' : '0%';
 
     var onboarding = document.getElementById('ai-triage-onboarding');
     if (onboarding) {
-      onboarding.style.display = (!stats.total_events) ? 'block' : 'none';
+      onboarding.style.display = hasData ? 'none' : 'block';
     }
   }
 
