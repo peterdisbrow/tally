@@ -149,11 +149,11 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="actions"
+        name="control"
         options={{
-          title: 'Commands',
+          title: 'Control',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="flash-outline" size={size} color={color} />
+            <Ionicons name="game-controller-outline" size={size} color={color} />
           ),
         }}
       />
@@ -172,15 +172,6 @@ export default function TabLayout() {
           title: 'Checks',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="clipboard-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="chat"
-        options={{
-          title: 'Engineer',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="chatbubble-ellipses-outline" size={size} color={color} />
           ),
         }}
       />
