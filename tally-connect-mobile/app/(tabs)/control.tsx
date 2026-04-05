@@ -47,12 +47,12 @@ export default function ControlScreen() {
   const listRef = useRef<FlatList>(null);
   const isAtBottom = useRef(true);
 
-  // Controls panel collapse
-  const [controlsExpanded, setControlsExpanded] = useState(true);
+  // Chat panel collapse
+  const [chatExpanded, setChatExpanded] = useState(false);
 
-  const toggleControls = () => {
+  const toggleChat = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setControlsExpanded((v) => !v);
+    setChatExpanded((v) => !v);
   };
 
   // Queue flush on reconnect
@@ -308,341 +308,364 @@ export default function ControlScreen() {
         </View>
       )}
 
-      {/* Collapsible Controls Panel */}
+      {/* Controls Panel — always visible, prominent */}
       <View style={{
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
         backgroundColor: colors.surface,
       }}>
-        {/* Collapse toggle header */}
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.sm,
+          paddingHorizontal: spacing.lg,
+          paddingTop: spacing.sm,
+          paddingBottom: spacing.xs,
+        }}>
+          <Ionicons name="game-controller-outline" size={16} color={colors.accent} />
+          <Text style={{ fontSize: fontSize.sm, fontWeight: '700', color: colors.text }}>Controls</Text>
+          {isStreaming && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: spacing.xs }}>
+              <PulseDot color={colors.critical} size={6} />
+              <Text style={{ fontSize: fontSize.xs, color: colors.critical, fontWeight: '600' }}>LIVE</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.md }}>
+          {/* Row 1: Camera tally + ProPresenter */}
+          {(hasAtem || hasProPresenter) && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
+              {hasAtem && (
+                <FlatList
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  data={tallyInputs}
+                  keyExtractor={(item) => String(item.number)}
+                  style={{ flexShrink: 1 }}
+                  renderItem={({ item }) => (
+                    <TallyIndicator
+                      inputNumber={item.number}
+                      inputName={item.name}
+                      isProgram={item.isProgram}
+                      isPreview={item.isPreview}
+                      onPress={() => sendCommand('atem.setProgram', { input: item.number })}
+                      compact
+                    />
+                  )}
+                />
+              )}
+              {hasProPresenter && (
+                <View style={{ flexDirection: 'row', gap: spacing.xs }}>
+                  <CompactButton
+                    icon="chevron-back"
+                    colors={colors}
+                    onPress={() => sendCommand('propresenter.previousSlide')}
+                    pending={pending === 'propresenter.previousSlide'}
+                    accessibilityLabel="Previous slide"
+                  />
+                  <CompactButton
+                    icon="chevron-forward"
+                    colors={colors}
+                    onPress={() => sendCommand('propresenter.nextSlide')}
+                    pending={pending === 'propresenter.nextSlide'}
+                    accessibilityLabel="Next slide"
+                  />
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Row 2: Stream, Recording, Stream Protection */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
+            {/* Stream start/stop */}
+            {!isStreaming ? (
+              <CompactButton
+                icon="play"
+                label="Stream"
+                color={colors.online}
+                colors={colors}
+                onPress={() => {
+                  const cmd = status?.obs?.connected ? 'obs.startStream' : 'atem.startStream';
+                  sendCommand(cmd, {}, false, 'Start Stream');
+                }}
+                pending={pending === 'obs.startStream' || pending === 'atem.startStream'}
+              />
+            ) : (
+              <CompactButton
+                icon="stop"
+                label="Stream"
+                color={colors.critical}
+                colors={colors}
+                onPress={() => {
+                  const cmd = status?.obs?.streaming ? 'obs.stopStream'
+                    : status?.atem?.streaming ? 'atem.stopStream'
+                    : status?.encoder?.streaming ? 'encoder.stopStream'
+                    : 'obs.stopStream';
+                  sendCommand(cmd, {}, true, 'Stop Stream');
+                }}
+                pending={pending === 'obs.stopStream' || pending === 'atem.stopStream' || pending === 'encoder.stopStream'}
+                destructive
+              />
+            )}
+
+            {/* Recording start/stop */}
+            {!isRecording ? (
+              <CompactButton
+                icon="radio-button-on"
+                label="Rec"
+                color={colors.critical}
+                colors={colors}
+                onPress={() => sendCommand('obs.startRecording', {}, false, 'Start Recording')}
+                pending={pending === 'obs.startRecording'}
+              />
+            ) : (
+              <CompactButton
+                icon="square"
+                label="Rec"
+                colors={colors}
+                onPress={() => sendCommand('obs.stopRecording', {}, true, 'Stop Recording')}
+                pending={pending === 'obs.stopRecording'}
+                destructive
+              />
+            )}
+
+            {/* Stream Protection toggle */}
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: colors.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+              borderRadius: borderRadius.sm,
+              paddingHorizontal: spacing.sm,
+              paddingVertical: 4,
+              gap: spacing.xs,
+              borderWidth: 1,
+              borderColor: spEnabled ? `${colors.online}40` : colors.border,
+            }}>
+              <Ionicons
+                name="shield-checkmark"
+                size={14}
+                color={spEnabled ? colors.online : colors.textMuted}
+              />
+              <Text style={{ fontSize: fontSize.xs, color: spEnabled ? colors.online : colors.textMuted, fontWeight: '600' }}>
+                SP
+              </Text>
+              <Switch
+                value={spEnabled}
+                onValueChange={(val) => sendCommand(val ? 'streamProtection.enable' : 'streamProtection.disable')}
+                trackColor={{ false: colors.border, true: colors.accent }}
+                thumbColor="#ffffff"
+                style={{ transform: [{ scaleX: 0.7 }, { scaleY: 0.7 }] }}
+                accessibilityLabel="Stream protection"
+                accessibilityRole="switch"
+              />
+            </View>
+
+            {/* ATEM Cut/Auto */}
+            {hasAtem && (
+              <>
+                <CompactButton
+                  icon="cut-outline"
+                  label="CUT"
+                  color={colors.critical}
+                  colors={colors}
+                  onPress={() => sendCommand('atem.cut', {}, false, 'ATEM Cut')}
+                  pending={pending === 'atem.cut'}
+                />
+                <CompactButton
+                  icon="swap-horizontal-outline"
+                  label="AUTO"
+                  color={colors.warning}
+                  colors={colors}
+                  onPress={() => sendCommand('atem.auto', {}, false, 'ATEM Auto')}
+                  pending={pending === 'atem.auto'}
+                />
+              </>
+            )}
+          </View>
+        </View>
+      </View>
+
+      {/* Collapsible Chat Section */}
+      <View style={{ flex: chatExpanded ? 1 : undefined }}>
+        {/* Chat header — tap to expand/collapse */}
         <Pressable
-          onPress={toggleControls}
+          onPress={toggleChat}
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            justifyContent: 'space-between',
             paddingHorizontal: spacing.lg,
             paddingVertical: spacing.sm,
+            borderBottomWidth: chatExpanded ? 1 : 0,
+            borderBottomColor: colors.border,
+            backgroundColor: colors.surface,
           }}
-          accessibilityLabel={controlsExpanded ? 'Collapse controls' : 'Expand controls'}
+          accessibilityLabel={chatExpanded ? 'Collapse chat' : 'Expand chat'}
           accessibilityRole="button"
         >
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
-            <Ionicons name="game-controller-outline" size={16} color={colors.accent} />
-            <Text style={{ fontSize: fontSize.sm, fontWeight: '700', color: colors.text }}>Controls</Text>
-            {isStreaming && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: spacing.xs }}>
-                <PulseDot color={colors.critical} size={6} />
-                <Text style={{ fontSize: fontSize.xs, color: colors.critical, fontWeight: '600' }}>LIVE</Text>
-              </View>
+          <View style={{
+            width: 28,
+            height: 28,
+            borderRadius: 14,
+            backgroundColor: colors.isDark ? 'rgba(0, 230, 118, 0.2)' : 'rgba(0, 230, 118, 0.12)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            marginRight: spacing.sm,
+            borderWidth: 1,
+            borderColor: colors.isDark ? 'rgba(0, 230, 118, 0.3)' : 'rgba(0, 230, 118, 0.2)',
+          }}>
+            <Ionicons name="hardware-chip-outline" size={14} color={colors.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: fontSize.sm, fontWeight: '700', color: colors.text }}>Tally Engineer</Text>
+            {!chatExpanded && messages.length > 0 && (
+              <Text numberOfLines={1} style={{ fontSize: 10, color: colors.textSecondary, marginTop: 1 }}>
+                {messages[messages.length - 1]?.message}
+              </Text>
+            )}
+            {!chatExpanded && messages.length === 0 && (
+              <Text style={{ fontSize: 10, color: colors.textSecondary, marginTop: 1 }}>
+                Tap to chat
+              </Text>
             )}
           </View>
+          {messages.length > 0 && !chatExpanded && (
+            <View style={{
+              backgroundColor: colors.accent,
+              borderRadius: 10,
+              minWidth: 20,
+              height: 20,
+              justifyContent: 'center',
+              alignItems: 'center',
+              paddingHorizontal: 6,
+              marginRight: spacing.sm,
+            }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff' }}>{messages.length}</Text>
+            </View>
+          )}
           <Ionicons
-            name={controlsExpanded ? 'chevron-up' : 'chevron-down'}
+            name={chatExpanded ? 'chevron-down' : 'chevron-up'}
             size={18}
             color={colors.textMuted}
           />
         </Pressable>
 
-        {controlsExpanded && (
-          <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.md }}>
-            {/* Row 1: Camera tally + ProPresenter */}
-            {(hasAtem || hasProPresenter) && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
-                {hasAtem && (
-                  <FlatList
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    data={tallyInputs}
-                    keyExtractor={(item) => String(item.number)}
-                    style={{ flexShrink: 1 }}
-                    renderItem={({ item }) => (
-                      <TallyIndicator
-                        inputNumber={item.number}
-                        inputName={item.name}
-                        isProgram={item.isProgram}
-                        isPreview={item.isPreview}
-                        onPress={() => sendCommand('atem.setProgram', { input: item.number })}
-                        compact
-                      />
-                    )}
-                  />
-                )}
-                {hasProPresenter && (
-                  <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                    <CompactButton
-                      icon="chevron-back"
-                      colors={colors}
-                      onPress={() => sendCommand('propresenter.previousSlide')}
-                      pending={pending === 'propresenter.previousSlide'}
-                      accessibilityLabel="Previous slide"
-                    />
-                    <CompactButton
-                      icon="chevron-forward"
-                      colors={colors}
-                      onPress={() => sendCommand('propresenter.nextSlide')}
-                      pending={pending === 'propresenter.nextSlide'}
-                      accessibilityLabel="Next slide"
-                    />
-                  </View>
-                )}
-              </View>
-            )}
+        {chatExpanded && (
+          <>
+            <FlatList
+              ref={listRef}
+              data={messages}
+              keyExtractor={(item, idx) => item.id || `${idx}`}
+              renderItem={renderMessage}
+              contentContainerStyle={{ padding: spacing.lg, flexGrow: 1, justifyContent: 'flex-end' }}
+              onScroll={handleScroll}
+              scrollEventThrottle={100}
+              onContentSizeChange={handleContentSizeChange}
+              style={{ flex: 1 }}
+              ListEmptyComponent={
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
+                  <Ionicons name="chatbubbles-outline" size={32} color={colors.textMuted} style={{ marginBottom: spacing.sm }} />
+                  <Text style={{ fontSize: fontSize.md, fontWeight: '700', color: colors.text, marginBottom: spacing.xs }}>Tally Engineer</Text>
+                  <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', lineHeight: 20 }}>
+                    Ask questions, send commands,{'\n'}or get diagnostics.
+                  </Text>
+                </View>
+              }
+            />
 
-            {/* Row 2: Stream, Recording, Stream Protection */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
-              {/* Stream start/stop */}
-              {!isStreaming ? (
-                <CompactButton
-                  icon="play"
-                  label="Stream"
-                  color={colors.online}
-                  colors={colors}
-                  onPress={() => {
-                    const cmd = status?.obs?.connected ? 'obs.startStream' : 'atem.startStream';
-                    sendCommand(cmd, {}, false, 'Start Stream');
-                  }}
-                  pending={pending === 'obs.startStream' || pending === 'atem.startStream'}
-                />
-              ) : (
-                <CompactButton
-                  icon="stop"
-                  label="Stream"
-                  color={colors.critical}
-                  colors={colors}
-                  onPress={() => {
-                    const cmd = status?.obs?.streaming ? 'obs.stopStream'
-                      : status?.atem?.streaming ? 'atem.stopStream'
-                      : status?.encoder?.streaming ? 'encoder.stopStream'
-                      : 'obs.stopStream';
-                    sendCommand(cmd, {}, true, 'Stop Stream');
-                  }}
-                  pending={pending === 'obs.stopStream' || pending === 'atem.stopStream' || pending === 'encoder.stopStream'}
-                  destructive
-                />
-              )}
-
-              {/* Recording start/stop */}
-              {!isRecording ? (
-                <CompactButton
-                  icon="radio-button-on"
-                  label="Rec"
-                  color={colors.critical}
-                  colors={colors}
-                  onPress={() => sendCommand('obs.startRecording', {}, false, 'Start Recording')}
-                  pending={pending === 'obs.startRecording'}
-                />
-              ) : (
-                <CompactButton
-                  icon="square"
-                  label="Rec"
-                  colors={colors}
-                  onPress={() => sendCommand('obs.stopRecording', {}, true, 'Stop Recording')}
-                  pending={pending === 'obs.stopRecording'}
-                  destructive
-                />
-              )}
-
-              {/* Stream Protection toggle */}
+            {/* Send error banner */}
+            {sendError && (
               <View style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                backgroundColor: colors.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                borderRadius: borderRadius.sm,
-                paddingHorizontal: spacing.sm,
-                paddingVertical: 4,
-                gap: spacing.xs,
-                borderWidth: 1,
-                borderColor: spEnabled ? `${colors.online}40` : colors.border,
+                justifyContent: 'space-between',
+                paddingHorizontal: spacing.lg,
+                paddingVertical: spacing.sm,
+                backgroundColor: colors.isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(220, 38, 38, 0.08)',
+                borderTopWidth: 1,
+                borderTopColor: colors.critical,
+                gap: spacing.sm,
               }}>
-                <Ionicons
-                  name="shield-checkmark"
-                  size={14}
-                  color={spEnabled ? colors.online : colors.textMuted}
-                />
-                <Text style={{ fontSize: fontSize.xs, color: spEnabled ? colors.online : colors.textMuted, fontWeight: '600' }}>
-                  SP
-                </Text>
-                <Switch
-                  value={spEnabled}
-                  onValueChange={(val) => sendCommand(val ? 'streamProtection.enable' : 'streamProtection.disable')}
-                  trackColor={{ false: colors.border, true: colors.accent }}
-                  thumbColor="#ffffff"
-                  style={{ transform: [{ scaleX: 0.7 }, { scaleY: 0.7 }] }}
-                  accessibilityLabel="Stream protection"
-                  accessibilityRole="switch"
-                />
+                <Text style={{ fontSize: fontSize.sm, color: colors.critical, flex: 1 }}>{sendError}</Text>
+                <Pressable
+                  onPress={() => { setSendError(null); handleSend(); }}
+                  accessibilityLabel="Retry sending message"
+                  accessibilityRole="button"
+                  style={{ paddingHorizontal: spacing.sm, paddingVertical: 2 }}
+                >
+                  <Text style={{ fontSize: fontSize.sm, color: colors.critical, fontWeight: '700' }}>Retry</Text>
+                </Pressable>
+                <Pressable onPress={() => setSendError(null)} accessibilityLabel="Dismiss error" accessibilityRole="button">
+                  <Ionicons name="close-circle" size={18} color={colors.critical} />
+                </Pressable>
               </View>
+            )}
 
-              {/* ATEM Cut/Auto */}
-              {hasAtem && (
-                <>
-                  <CompactButton
-                    icon="cut-outline"
-                    label="CUT"
-                    color={colors.critical}
-                    colors={colors}
-                    onPress={() => sendCommand('atem.cut', {}, false, 'ATEM Cut')}
-                    pending={pending === 'atem.cut'}
-                  />
-                  <CompactButton
-                    icon="swap-horizontal-outline"
-                    label="AUTO"
-                    color={colors.warning}
-                    colors={colors}
-                    onPress={() => sendCommand('atem.auto', {}, false, 'ATEM Auto')}
-                    pending={pending === 'atem.auto'}
-                  />
-                </>
-              )}
-            </View>
-          </View>
-        )}
-      </View>
-
-      {/* Chat Section — fills remaining space */}
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: spacing.lg,
-        paddingVertical: spacing.sm,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-        backgroundColor: colors.surface,
-      }}>
-        <View style={{
-          width: 32,
-          height: 32,
-          borderRadius: 16,
-          backgroundColor: colors.isDark ? 'rgba(0, 230, 118, 0.2)' : 'rgba(0, 230, 118, 0.12)',
-          justifyContent: 'center',
-          alignItems: 'center',
-          marginRight: spacing.sm,
-          borderWidth: 1,
-          borderColor: colors.isDark ? 'rgba(0, 230, 118, 0.3)' : 'rgba(0, 230, 118, 0.2)',
-        }}>
-          <Ionicons name="hardware-chip-outline" size={16} color={colors.accent} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: fontSize.sm, fontWeight: '700', color: colors.text }}>Tally Engineer</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: 1 }}>
-            <PulseDot color={colors.online} size={5} />
-            <Text style={{ fontSize: 10, color: colors.textSecondary }}>Monitoring your stream</Text>
-          </View>
-        </View>
-      </View>
-
-      <FlatList
-        ref={listRef}
-        data={messages}
-        keyExtractor={(item, idx) => item.id || `${idx}`}
-        renderItem={renderMessage}
-        contentContainerStyle={{ padding: spacing.lg, flexGrow: 1, justifyContent: 'flex-end' }}
-        onScroll={handleScroll}
-        scrollEventThrottle={100}
-        onContentSizeChange={handleContentSizeChange}
-        ListEmptyComponent={
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 }}>
-            <Ionicons name="chatbubbles-outline" size={40} color={colors.textMuted} style={{ marginBottom: spacing.sm }} />
-            <Text style={{ fontSize: fontSize.lg, fontWeight: '700', color: colors.text, marginBottom: spacing.xs }}>Tally Engineer</Text>
-            <Text style={{ fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', lineHeight: 20 }}>
-              Ask questions, send commands, or get diagnostics.{'\n'}
-              Try "What's the stream status?" or "Switch to camera 2"
-            </Text>
-          </View>
-        }
-      />
-
-      {/* Send error banner */}
-      {sendError && (
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          paddingHorizontal: spacing.lg,
-          paddingVertical: spacing.sm,
-          backgroundColor: colors.isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(220, 38, 38, 0.08)',
-          borderTopWidth: 1,
-          borderTopColor: colors.critical,
-          gap: spacing.sm,
-        }}>
-          <Text style={{ fontSize: fontSize.sm, color: colors.critical, flex: 1 }}>{sendError}</Text>
-          <Pressable
-            onPress={() => { setSendError(null); handleSend(); }}
-            accessibilityLabel="Retry sending message"
-            accessibilityRole="button"
-            style={{ paddingHorizontal: spacing.sm, paddingVertical: 2 }}
-          >
-            <Text style={{ fontSize: fontSize.sm, color: colors.critical, fontWeight: '700' }}>Retry</Text>
-          </Pressable>
-          <Pressable onPress={() => setSendError(null)} accessibilityLabel="Dismiss error" accessibilityRole="button">
-            <Ionicons name="close-circle" size={18} color={colors.critical} />
-          </Pressable>
-        </View>
-      )}
-
-      {/* Chat input bar */}
-      <View style={{
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        paddingHorizontal: spacing.lg,
-        paddingVertical: spacing.md,
-        borderTopWidth: 1,
-        borderTopColor: colors.border,
-        backgroundColor: colors.surface,
-      }}>
-        <TextInput
-          style={{
-            flex: 1,
-            backgroundColor: colors.inputBg,
-            borderRadius: borderRadius.lg,
-            paddingHorizontal: spacing.lg,
-            paddingVertical: spacing.md,
-            fontSize: fontSize.md,
-            color: colors.text,
-            maxHeight: 100,
-            borderWidth: 1,
-            borderColor: colors.border,
-          }}
-          placeholder="Type a message..."
-          placeholderTextColor={colors.textMuted}
-          value={text}
-          onChangeText={setText}
-          multiline
-          maxLength={1000}
-          returnKeyType="default"
-        />
-        <Pressable
-          style={[
-            {
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              backgroundColor: colors.accent,
-              justifyContent: 'center',
-              alignItems: 'center',
-              marginLeft: spacing.sm,
-              shadowColor: colors.accent,
-              shadowOpacity: 0.4,
-              shadowRadius: 8,
-              shadowOffset: { width: 0, height: 2 },
-            },
-            (!text.trim() || isSending) && {
+            {/* Chat input bar */}
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'flex-end',
+              paddingHorizontal: spacing.lg,
+              paddingVertical: spacing.md,
+              borderTopWidth: 1,
+              borderTopColor: colors.border,
               backgroundColor: colors.surface,
-              shadowOpacity: 0,
-            },
-          ]}
-          onPress={handleSend}
-          disabled={!text.trim() || isSending}
-          accessibilityLabel="Send message"
-          accessibilityRole="button"
-        >
-          <Ionicons
-            name="send"
-            size={20}
-            color={text.trim() && !isSending ? '#ffffff' : colors.textMuted}
-          />
-        </Pressable>
+            }}>
+              <TextInput
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.inputBg,
+                  borderRadius: borderRadius.lg,
+                  paddingHorizontal: spacing.lg,
+                  paddingVertical: spacing.md,
+                  fontSize: fontSize.md,
+                  color: colors.text,
+                  maxHeight: 100,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                }}
+                placeholder="Type a message..."
+                placeholderTextColor={colors.textMuted}
+                value={text}
+                onChangeText={setText}
+                multiline
+                maxLength={1000}
+                returnKeyType="default"
+              />
+              <Pressable
+                style={[
+                  {
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: colors.accent,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginLeft: spacing.sm,
+                    shadowColor: colors.accent,
+                    shadowOpacity: 0.4,
+                    shadowRadius: 8,
+                    shadowOffset: { width: 0, height: 2 },
+                  },
+                  (!text.trim() || isSending) && {
+                    backgroundColor: colors.surface,
+                    shadowOpacity: 0,
+                  },
+                ]}
+                onPress={handleSend}
+                disabled={!text.trim() || isSending}
+                accessibilityLabel="Send message"
+                accessibilityRole="button"
+              >
+                <Ionicons
+                  name="send"
+                  size={20}
+                  color={text.trim() && !isSending ? '#ffffff' : colors.textMuted}
+                />
+              </Pressable>
+            </View>
+          </>
+        )}
       </View>
     </KeyboardAvoidingView>
   );

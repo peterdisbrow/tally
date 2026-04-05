@@ -16,7 +16,9 @@ export function useNetworkStatus(): boolean | null {
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
-      const connected = state.isConnected ?? false;
+      // Treat null (initial/pending) as connected to avoid false-positive
+      // "no internet" banner on launch or during brief network transitions.
+      const connected = state.isConnected !== false;
       setIsConnected(connected);
 
       if (!connected) {
