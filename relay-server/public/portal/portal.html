@@ -918,14 +918,6 @@
           <button class="btn-secondary" id="btn-add-videohub" data-action="addVideohubRow" style="margin-top:8px;font-size:12px">+ Add VideoHub</button>
         </div>
 
-        <!-- Per-Room Ingest Stream Keys -->
-        <div class="card advanced-only" style="margin-bottom:16px">
-          <div class="card-title">Room Stream Keys</div>
-          <p style="font-size:12px;color:#8B9DAF;margin-bottom:12px">Each room has its own RTMP ingest key. Use the correct key to send a test stream to a specific room. Keep keys private.</p>
-          <div id="eq-room-stream-keys" style="display:flex;flex-direction:column;gap:10px">
-            <span style="color:#556270;font-size:13px">Loading rooms…</span>
-          </div>
-        </div>
 
         <!-- Equipment Roles Card -->
         <div class="card advanced-only" id="equipment-roles-card" style="display:none;margin-top:16px">
@@ -1593,15 +1585,14 @@
     <div class="page" id="page-support">
       <div class="page-header">
         <div class="page-title" data-i18n="page.support">Help &amp; Support</div>
-        <div class="page-sub" data-i18n="support.page_sub">Run diagnostics, open tickets, and track platform status</div>
+        <div class="page-sub" data-i18n="support.page_sub">Downloads, stream keys, diagnostics, and support tickets</div>
       </div>
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-title" data-i18n="support.sla.title">Support SLA</div>
-        <p id="support-response-time" style="color:#556270;font-size:13px;margin-top:8px"></p>
-        <p style="color:#8B9DAF;font-size:13px;line-height:1.6;margin-top:8px">
-          Direct support: <a href="mailto:support@tallyconnect.app" style="color:#00E676">support@tallyconnect.app</a>
-        </p>
+
+      <!-- ── GETTING STARTED ─────────────────────────────────────────── -->
+      <div style="margin-bottom:8px">
+        <div style="font-size:14px;font-weight:600;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.5px">Getting Started</div>
       </div>
+
       <div class="card" style="margin-bottom:16px">
         <div class="card-title">Download Tally Desktop</div>
         <p style="color:#8B9DAF;font-size:13px;line-height:1.6;margin-top:8px">Get the latest version of the Tally desktop app for your technical director's booth computer.</p>
@@ -1610,6 +1601,7 @@
           <a href="https://github.com/peterdisbrow/tally/releases/latest/download/Tally-x64.dmg" class="btn-secondary" style="display:inline-block;text-decoration:none;padding:8px 16px;font-size:13px">Download for Mac (Intel)</a>
         </div>
       </div>
+
       <!-- Companion Setup Guide -->
       <div class="card" id="companion-setup-guide" style="margin-bottom:16px;display:none">
         <div class="card-title">Companion Integration Guide</div>
@@ -1641,6 +1633,33 @@
             <li><strong>Auto-watch</strong> common variables for ATEM, OBS, HyperDeck, ProPresenter, and more</li>
           </ul>
         </details>
+      </div>
+
+      <div id="migration-wizard" style="margin-bottom:16px">
+        <div id="migrate-step-1">
+          <div class="card">
+            <div class="card-title" style="margin-bottom:16px" data-i18n="migrate.question">Switching from another platform?</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px" id="migrate-source-grid"></div>
+          </div>
+        </div>
+        <div id="migrate-step-2" style="display:none"></div>
+      </div>
+
+      <!-- ── ROOM STREAM KEYS ────────────────────────────────────────── -->
+      <div style="margin-top:32px;margin-bottom:8px;padding-top:24px;border-top:1px solid #0d3320">
+        <div style="font-size:14px;font-weight:600;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.5px">Room Stream Keys</div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <p style="font-size:12px;color:#8B9DAF;margin-bottom:12px">Each room has its own RTMP ingest key. Use the correct key to send a test stream to a specific room. Keep keys private.</p>
+        <div id="eq-room-stream-keys" style="display:flex;flex-direction:column;gap:10px">
+          <span style="color:#556270;font-size:13px">Loading rooms…</span>
+        </div>
+      </div>
+
+      <!-- ── DIAGNOSTICS & TROUBLESHOOTING ───────────────────────────── -->
+      <div style="margin-top:32px;margin-bottom:8px;padding-top:24px;border-top:1px solid #0d3320">
+        <div style="font-size:14px;font-weight:600;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.5px">Diagnostics &amp; Troubleshooting</div>
       </div>
 
       <div class="card" style="margin-bottom:16px">
@@ -1676,6 +1695,7 @@
         </div>
         <div id="support-triage-result" style="margin-top:12px;color:#8B9DAF;font-size:13px;line-height:1.6"></div>
       </div>
+
       <div class="card" style="margin-bottom:16px">
         <div class="card-title" data-i18n="support.platform.title">Platform Status</div>
         <div id="support-status-components" style="display:flex;flex-direction:column;gap:8px;color:#8B9DAF;font-size:13px"></div>
@@ -1683,6 +1703,20 @@
           <a href="/status" target="_blank" style="color:#00E676" data-i18n="support.platform.link">Open full status page</a>
         </div>
       </div>
+
+      <!-- ── CONTACT SUPPORT ─────────────────────────────────────────── -->
+      <div style="margin-top:32px;margin-bottom:8px;padding-top:24px;border-top:1px solid #0d3320">
+        <div style="font-size:14px;font-weight:600;color:#8B9DAF;text-transform:uppercase;letter-spacing:0.5px">Contact Support</div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-title" data-i18n="support.sla.title">Support SLA</div>
+        <p id="support-response-time" style="color:#556270;font-size:13px;margin-top:8px"></p>
+        <p style="color:#8B9DAF;font-size:13px;line-height:1.6;margin-top:8px">
+          Direct support: <a href="mailto:support@tallyconnect.app" style="color:#00E676">support@tallyconnect.app</a>
+        </p>
+      </div>
+
       <div class="card">
         <div class="card-title" data-i18n="support.tickets.title">Support Tickets</div>
         <div class="table-wrap">
@@ -1693,22 +1727,6 @@
           </tbody>
         </table>
         </div>
-      </div>
-
-      <div style="margin-top:32px;padding-top:24px;border-top:1px solid #0d3320">
-        <div class="card-title" style="margin-bottom:16px">Migration Assistant</div>
-      </div>
-      <div id="migration-wizard">
-        <!-- Step 1: pick source system -->
-        <div id="migrate-step-1">
-          <div class="card">
-            <div class="card-title" style="margin-bottom:16px" data-i18n="migrate.question">What are you switching from?</div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px" id="migrate-source-grid"></div>
-          </div>
-        </div>
-
-        <!-- Step 2: comparison + setup guidance (populated by JS) -->
-        <div id="migrate-step-2" style="display:none"></div>
       </div>
     </div>
 

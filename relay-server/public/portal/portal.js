@@ -1008,7 +1008,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
       if (id === 'automation') loadMacros();
       if (id === 'analytics') loadAnalytics();
       if (id === 'billing') { loadBilling(); loadReferralsPage(); }
-      if (id === 'support') { loadSupportInfo(); initMigrationWizard(); }
+      if (id === 'support') { loadSupportInfo(); initMigrationWizard(); loadRoomStreamKeys(); }
       if (id === 'reports') loadReports();
       if (id === 'connections') loadConnections();
       if (id === 'ai-triage') loadAiTriagePage();
@@ -3927,7 +3927,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
     }
     loadProfile();
 
-    /** Load per-room stream keys into the equipment page */
+    /** Load per-room stream keys into the Help & Support page */
     async function loadRoomStreamKeys() {
       var container = document.getElementById('eq-room-stream-keys');
       if (!container) return;
