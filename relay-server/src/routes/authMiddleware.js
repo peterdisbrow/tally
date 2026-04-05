@@ -186,7 +186,7 @@ module.exports = function createAuthMiddleware(ctx) {
           const payload = jwt.verify(auth.slice(7), JWT_SECRET);
           if (payload.type !== 'church_app') throw new Error('wrong token type');
           const church = await queryClient.queryOne(
-            'SELECT * FROM churches WHERE churchId = ?',
+            'SELECT *, churchId AS "churchId" FROM churches WHERE churchId = ?',
             [payload.churchId],
           );
           if (!church) return res.status(404).json({ error: 'Church not found' });

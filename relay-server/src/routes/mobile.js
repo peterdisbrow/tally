@@ -31,7 +31,7 @@ module.exports = function setupMobileRoutes(app, ctx) {
       return res.status(400).json({ error: 'email and password required' });
     }
 
-    const church = await qOne('SELECT * FROM churches WHERE portal_email = ?', [cleanEmail]);
+    const church = await qOne('SELECT *, churchId AS "churchId" FROM churches WHERE portal_email = ?', [cleanEmail]);
     if (!church || !church.portal_password_hash || !verifyPassword(password, church.portal_password_hash)) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
