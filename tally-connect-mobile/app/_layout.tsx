@@ -11,7 +11,6 @@ import { useUpdateCheck } from '../src/hooks/useUpdateCheck';
 import { ThemeProvider, useThemeColors } from '../src/theme/ThemeContext';
 import { initSentry } from '../src/lib/sentry';
 import { ErrorBoundary } from '../src/components/ErrorBoundary';
-import { NetworkBanner } from '../src/components/NetworkBanner';
 
 initSentry();
 
@@ -23,7 +22,9 @@ function RootNavigator() {
   useNotifications();
   useTallySocket();
   useUpdateCheck();
-  const isConnected = useNetworkStatus();
+  // Keep hook active for WS reconnect side-effect; banner removed (ConnectionBanner
+  // in (tabs)/_layout.tsx already handles connectivity UX without false positives).
+  useNetworkStatus();
 
   useEffect(() => {
     useChatStore.getState().clearMessages();
@@ -39,7 +40,6 @@ function RootNavigator() {
   return (
     <>
       <StatusBar style={colors.statusBarStyle} />
-      <NetworkBanner isConnected={isConnected} />
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: colors.bg },
