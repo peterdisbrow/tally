@@ -39,6 +39,14 @@ function createMobileWebSocketHandler({
   const hasQueryClient = queryClient
     && typeof queryClient.queryOne === 'function';
 
+  function normalizeChurchRow(row) {
+    if (!row) return null;
+    if (row.churchid !== undefined && row.churchId === undefined) {
+      row.churchId = row.churchid;
+    }
+    return row;
+  }
+
   async function resolveChurch(churchId) {
     const runtimeChurch = churches?.get(churchId);
     if (runtimeChurch?.name) {
@@ -46,11 +54,11 @@ function createMobileWebSocketHandler({
     }
 
     if (hasQueryClient) {
-      return queryClient.queryOne('SELECT churchId, name FROM churches WHERE churchId = ?', [churchId]);
+      return normalizeChurchRow(await queryClient.queryOne('SELECT * FROM churches WHERE churchId = ?', [churchId]));
     }
 
     if (db && typeof db.prepare === 'function') {
-      return db.prepare('SELECT churchId, name FROM churches WHERE churchId = ?').get(churchId);
+      return normalizeChurchRow(db.prepare('SELECT * FROM churches WHERE churchId = ?').get(churchId) || null);
     }
 
     return runtimeChurch || null;

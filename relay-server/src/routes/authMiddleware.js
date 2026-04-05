@@ -13,6 +13,16 @@ module.exports = function createAuthMiddleware(ctx) {
   const hasQueryClient = queryClient
     && typeof queryClient.queryOne === 'function';
 
+  // Postgres returns unquoted identifiers in lowercase; normalise the church row
+  // so downstream code can always access .churchId regardless of DB casing.
+  function normalizeChurchRow(row) {
+    if (!row) return null;
+    if (row.churchid !== undefined && row.churchId === undefined) {
+      row.churchId = row.churchid;
+    }
+    return row;
+  }
+
   const ADMIN_ROLES = ['super_admin', 'admin', 'engineer', 'sales'];
 
   const ROLE_PERMISSIONS = {
@@ -185,10 +195,10 @@ module.exports = function createAuthMiddleware(ctx) {
         try {
           const payload = jwt.verify(auth.slice(7), JWT_SECRET);
           if (payload.type !== 'church_app') throw new Error('wrong token type');
-          const church = await queryClient.queryOne(
-            'SELECT *, churchId AS "churchId" FROM churches WHERE churchId = ?',
+          const church = normalizeChurchRow(await queryClient.queryOne(
+            'SELECT * FROM churches WHERE churchId = ?',
             [payload.churchId],
-          );
+          ));
           if (!church) return res.status(404).json({ error: 'Church not found' });
           req.church = church;
           req.churchReadonly = !!payload.readonly;
@@ -206,7 +216,7 @@ module.exports = function createAuthMiddleware(ctx) {
     try {
       const payload = jwt.verify(auth.slice(7), JWT_SECRET);
       if (payload.type !== 'church_app') throw new Error('wrong token type');
-      const church = db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
+      const church = normalizeChurchRow(db.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId) || null);
       if (!church) return res.status(404).json({ error: 'Church not found' });
       req.church = church;
       req.churchReadonly = !!payload.readonly;

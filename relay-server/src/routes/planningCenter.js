@@ -29,7 +29,7 @@
  * @param {object} ctx - Shared server context
  */
 module.exports = function setupPlanningCenterRoutes(app, ctx) {
-  const { db, churches, requireAdmin, requireFeature, planningCenter, safeErrorMessage } = ctx;
+  const { db, churches, requireAdmin, requireChurchOrAdmin, requireFeature, planningCenter, safeErrorMessage } = ctx;
 
   const PCO_REDIRECT_URI = process.env.PCO_REDIRECT_URI || 'https://relay.tallyconnect.com/api/admin/pco/callback';
 
@@ -133,7 +133,7 @@ module.exports = function setupPlanningCenterRoutes(app, ctx) {
    * Get current Planning Center connection status.
    */
   app.get('/api/churches/:churchId/planning-center',
-    requireAdmin, requireFeature('planning_center'),
+    requireChurchOrAdmin, requireFeature('planning_center'),
     (req, res) => {
       const church = churches.get(req.params.churchId);
       if (!church) return res.status(404).json({ error: 'Church not found' });
@@ -262,7 +262,7 @@ module.exports = function setupPlanningCenterRoutes(app, ctx) {
    * Get the next upcoming service plan with full details.
    */
   app.get('/api/churches/:churchId/planning-center/next-service',
-    requireAdmin, requireFeature('planning_center'),
+    requireChurchOrAdmin, requireFeature('planning_center'),
     (req, res) => {
       const church = churches.get(req.params.churchId);
       if (!church) return res.status(404).json({ error: 'Church not found' });
