@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, FlatList, Pressable, Alert, Switch, ScrollView,
-  KeyboardAvoidingView, Platform, LayoutAnimation, UIManager,
+  View, Text, TextInput, FlatList, Pressable, ScrollView,
+  KeyboardAvoidingView, Platform, LayoutAnimation, UIManager, Alert,
   NativeSyntheticEvent, NativeScrollEvent,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -37,9 +37,9 @@ export default function ControlScreen() {
   const [commandQueue, setCommandQueue] = useState<QueuedCommand[]>([]);
   const prevConnected = useRef(wsConnected);
 
-  // Section collapse state
+  // Section collapse state — both start expanded
   const [commandsExpanded, setCommandsExpanded] = useState(true);
-  const [chatExpanded, setChatExpanded] = useState(false);
+  const [chatExpanded, setChatExpanded] = useState(true);
 
   const toggleCommands = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -211,10 +211,32 @@ export default function ControlScreen() {
   const isRecording = status?.obs?.recording;
 
   const sp = (status as any)?.streamProtection;
-  const spEnabled = sp?.enabled ?? false;
+  // Server-confirmed state; we use optimistic local state (spOptimistic) for
+  // instant visual feedback while the command round-trips.
+  const spEnabledServer = sp?.enabled ?? false;
+  const [spOptimistic, setSpOptimistic] = useState<boolean | null>(null);
+  const spEnabled = spOptimistic !== null ? spOptimistic : spEnabledServer;
+
+  // Sync optimistic state back to server truth once we get a status update
+  useEffect(() => {
+    setSpOptimistic(null);
+  }, [spEnabledServer]);
 
   const hasAtem = atem?.connected;
   const hasProPresenter = status?.propresenter?.connected;
+
+  // --- Stream Protection toggle ---
+  const handleSpToggle = async () => {
+    const next = !spEnabled;
+    setSpOptimistic(next); // optimistic update
+    const cmd = next ? 'streamProtection.enable' : 'streamProtection.disable';
+    const label = next ? 'Enable Stream Protection' : 'Disable Stream Protection';
+    try {
+      await executeCommand(cmd, {}, false, label);
+    } catch {
+      setSpOptimistic(null); // revert on failure
+    }
+  };
 
   // --- No room state ---
 
@@ -321,25 +343,25 @@ export default function ControlScreen() {
           { borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
           commandsExpanded ? { flex: 1 } : {},
         ]}>
-          {/* Collapsible header */}
+          {/* Section header */}
           <Pressable
             onPress={toggleCommands}
             style={{
               flexDirection: 'row',
               alignItems: 'center',
               paddingHorizontal: spacing.lg,
-              paddingVertical: spacing.sm,
+              paddingVertical: spacing.md,
               gap: spacing.sm,
             }}
             accessibilityLabel={commandsExpanded ? 'Collapse commands' : 'Expand commands'}
             accessibilityRole="button"
           >
             <Ionicons name="game-controller-outline" size={16} color={colors.accent} />
-            <Text style={{ flex: 1, fontSize: fontSize.sm, fontWeight: '700', color: colors.text }}>Commands</Text>
+            <Text style={{ flex: 1, fontSize: fontSize.md, fontWeight: '700', color: colors.text }}>Commands</Text>
             {isStreaming && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                 <PulseDot color={colors.critical} size={6} />
-                <Text style={{ fontSize: fontSize.xs, color: colors.critical, fontWeight: '600' }}>LIVE</Text>
+                <Text style={{ fontSize: fontSize.xs, color: colors.critical, fontWeight: '700' }}>LIVE</Text>
               </View>
             )}
             <Ionicons
@@ -352,173 +374,155 @@ export default function ControlScreen() {
           {commandsExpanded && (
             <ScrollView
               style={{ flex: 1 }}
-              contentContainerStyle={{ paddingHorizontal: spacing.md, paddingBottom: spacing.md }}
+              contentContainerStyle={{ paddingHorizontal: spacing.md, paddingBottom: spacing.lg, gap: spacing.sm }}
               showsVerticalScrollIndicator={false}
             >
-              {/* Row 1: Camera tally + ProPresenter */}
-              {(hasAtem || hasProPresenter) && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
-                  {hasAtem && (
-                    <FlatList
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      data={tallyInputs}
-                      keyExtractor={(item) => String(item.number)}
-                      style={{ flexShrink: 1 }}
-                      renderItem={({ item }) => (
-                        <TallyIndicator
-                          inputNumber={item.number}
-                          inputName={item.name}
-                          isProgram={item.isProgram}
-                          isPreview={item.isPreview}
-                          onPress={() => sendCommand('atem.setProgram', { input: item.number })}
-                          compact
-                        />
-                      )}
-                    />
-                  )}
-                  {hasProPresenter && (
-                    <View style={{ flexDirection: 'row', gap: spacing.xs }}>
-                      <CompactButton
-                        icon="chevron-back"
-                        colors={colors}
-                        onPress={() => sendCommand('propresenter.previousSlide')}
-                        pending={pending === 'propresenter.previousSlide'}
-                        accessibilityLabel="Previous slide"
+              {/* Camera tally row */}
+              {hasAtem && tallyInputs.length > 0 && (
+                <View style={{ marginBottom: spacing.xs }}>
+                  <Text style={{ fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600', marginBottom: spacing.xs, letterSpacing: 0.5 }}>
+                    CAMERA SELECT
+                  </Text>
+                  <FlatList
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    data={tallyInputs}
+                    keyExtractor={(item) => String(item.number)}
+                    renderItem={({ item }) => (
+                      <TallyIndicator
+                        inputNumber={item.number}
+                        inputName={item.name}
+                        isProgram={item.isProgram}
+                        isPreview={item.isPreview}
+                        onPress={() => sendCommand('atem.setProgram', { input: item.number })}
+                        compact
                       />
-                      <CompactButton
-                        icon="chevron-forward"
-                        colors={colors}
-                        onPress={() => sendCommand('propresenter.nextSlide')}
-                        pending={pending === 'propresenter.nextSlide'}
-                        accessibilityLabel="Next slide"
-                      />
-                    </View>
-                  )}
+                    )}
+                  />
                 </View>
               )}
 
-              {/* Row 2: Stream, Recording, Stream Protection, ATEM */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' }}>
-                {/* Stream start/stop */}
-                {!isStreaming ? (
-                  <CompactButton
-                    icon="play"
-                    label="Stream"
-                    color={colors.online}
-                    colors={colors}
-                    onPress={() => {
+              {/* Stream + Recording row */}
+              <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                {/* Stream */}
+                <BigButton
+                  icon={isStreaming ? 'stop-circle' : 'radio'}
+                  label={isStreaming ? 'Stop Stream' : 'Start Stream'}
+                  sublabel={isStreaming ? 'Tap to end broadcast' : 'Tap to go live'}
+                  color={isStreaming ? colors.critical : colors.online}
+                  colors={colors}
+                  onPress={() => {
+                    if (!isStreaming) {
                       const cmd = status?.obs?.connected ? 'obs.startStream' : 'atem.startStream';
                       sendCommand(cmd, {}, false, 'Start Stream');
-                    }}
-                    pending={pending === 'obs.startStream' || pending === 'atem.startStream'}
-                  />
-                ) : (
-                  <CompactButton
-                    icon="stop"
-                    label="Stream"
-                    color={colors.critical}
-                    colors={colors}
-                    onPress={() => {
+                    } else {
                       const cmd = status?.obs?.streaming ? 'obs.stopStream'
                         : status?.atem?.streaming ? 'atem.stopStream'
                         : status?.encoder?.streaming ? 'encoder.stopStream'
                         : 'obs.stopStream';
                       sendCommand(cmd, {}, true, 'Stop Stream');
-                    }}
-                    pending={pending === 'obs.stopStream' || pending === 'atem.stopStream' || pending === 'encoder.stopStream'}
-                    destructive
-                  />
-                )}
+                    }
+                  }}
+                  pending={
+                    pending === 'obs.startStream' || pending === 'atem.startStream' ||
+                    pending === 'obs.stopStream' || pending === 'atem.stopStream' || pending === 'encoder.stopStream'
+                  }
+                  destructive={!!isStreaming}
+                  active={!!isStreaming}
+                />
 
-                {/* Recording start/stop */}
-                {!isRecording ? (
-                  <CompactButton
-                    icon="radio-button-on"
-                    label="Rec"
+                {/* Recording */}
+                <BigButton
+                  icon={isRecording ? 'stop-circle' : 'radio-button-on'}
+                  label={isRecording ? 'Stop Recording' : 'Start Recording'}
+                  sublabel={isRecording ? 'Tap to stop' : 'Tap to record'}
+                  color={colors.critical}
+                  colors={colors}
+                  onPress={() => {
+                    if (!isRecording) {
+                      sendCommand('obs.startRecording', {}, false, 'Start Recording');
+                    } else {
+                      sendCommand('obs.stopRecording', {}, true, 'Stop Recording');
+                    }
+                  }}
+                  pending={pending === 'obs.startRecording' || pending === 'obs.stopRecording'}
+                  destructive={!!isRecording}
+                  active={!!isRecording}
+                />
+              </View>
+
+              {/* Stream Protection */}
+              <BigButton
+                icon={spEnabled ? 'shield-checkmark' : 'shield-outline'}
+                label={spEnabled ? 'Stream Protection: ON' : 'Stream Protection: OFF'}
+                sublabel={spEnabled ? 'Tap to disable protection' : 'Tap to enable protection'}
+                color={spEnabled ? colors.online : colors.textMuted}
+                colors={colors}
+                onPress={handleSpToggle}
+                pending={pending === 'streamProtection.enable' || pending === 'streamProtection.disable'}
+                active={spEnabled}
+                fullWidth
+              />
+
+              {/* ATEM Cut + Auto */}
+              {hasAtem && (
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <BigButton
+                    icon="cut-outline"
+                    label="CUT"
+                    sublabel="Hard cut"
                     color={colors.critical}
                     colors={colors}
-                    onPress={() => sendCommand('obs.startRecording', {}, false, 'Start Recording')}
-                    pending={pending === 'obs.startRecording'}
+                    onPress={() => sendCommand('atem.cut', {}, false, 'ATEM Cut')}
+                    pending={pending === 'atem.cut'}
                   />
-                ) : (
-                  <CompactButton
-                    icon="square"
-                    label="Rec"
+                  <BigButton
+                    icon="swap-horizontal-outline"
+                    label="AUTO"
+                    sublabel="Auto transition"
+                    color={colors.warning}
                     colors={colors}
-                    onPress={() => sendCommand('obs.stopRecording', {}, true, 'Stop Recording')}
-                    pending={pending === 'obs.stopRecording'}
-                    destructive
-                  />
-                )}
-
-                {/* Stream Protection toggle */}
-                <View style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: colors.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                  borderRadius: borderRadius.sm,
-                  paddingHorizontal: spacing.sm,
-                  paddingVertical: 4,
-                  gap: spacing.xs,
-                  borderWidth: 1,
-                  borderColor: spEnabled ? `${colors.online}40` : colors.border,
-                }}>
-                  <Ionicons
-                    name="shield-checkmark"
-                    size={14}
-                    color={spEnabled ? colors.online : colors.textMuted}
-                  />
-                  <Text style={{ fontSize: fontSize.xs, color: spEnabled ? colors.online : colors.textMuted, fontWeight: '600' }}>
-                    SP
-                  </Text>
-                  <Switch
-                    value={spEnabled}
-                    onValueChange={(val) => sendCommand(val ? 'streamProtection.enable' : 'streamProtection.disable')}
-                    trackColor={{ false: colors.border, true: colors.accent }}
-                    thumbColor="#ffffff"
-                    style={{ transform: [{ scaleX: 0.7 }, { scaleY: 0.7 }] }}
-                    accessibilityLabel="Stream protection"
-                    accessibilityRole="switch"
+                    onPress={() => sendCommand('atem.auto', {}, false, 'ATEM Auto')}
+                    pending={pending === 'atem.auto'}
                   />
                 </View>
+              )}
 
-                {/* ATEM Cut/Auto */}
-                {hasAtem && (
-                  <>
-                    <CompactButton
-                      icon="cut-outline"
-                      label="CUT"
-                      color={colors.critical}
-                      colors={colors}
-                      onPress={() => sendCommand('atem.cut', {}, false, 'ATEM Cut')}
-                      pending={pending === 'atem.cut'}
-                    />
-                    <CompactButton
-                      icon="swap-horizontal-outline"
-                      label="AUTO"
-                      color={colors.warning}
-                      colors={colors}
-                      onPress={() => sendCommand('atem.auto', {}, false, 'ATEM Auto')}
-                      pending={pending === 'atem.auto'}
-                    />
-                  </>
-                )}
-              </View>
+              {/* ProPresenter */}
+              {hasProPresenter && (
+                <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+                  <BigButton
+                    icon="chevron-back-circle-outline"
+                    label="Prev Slide"
+                    sublabel="ProPresenter"
+                    colors={colors}
+                    onPress={() => sendCommand('propresenter.previousSlide')}
+                    pending={pending === 'propresenter.previousSlide'}
+                  />
+                  <BigButton
+                    icon="chevron-forward-circle-outline"
+                    label="Next Slide"
+                    sublabel="ProPresenter"
+                    colors={colors}
+                    onPress={() => sendCommand('propresenter.nextSlide')}
+                    pending={pending === 'propresenter.nextSlide'}
+                  />
+                </View>
+              )}
             </ScrollView>
           )}
         </View>
 
         {/* ── Engineer Chat section ── */}
         <View style={chatExpanded ? { flex: 1 } : {}}>
-          {/* Collapsible header */}
+          {/* Section header */}
           <Pressable
             onPress={toggleChat}
             style={{
               flexDirection: 'row',
               alignItems: 'center',
               paddingHorizontal: spacing.lg,
-              paddingVertical: spacing.sm,
+              paddingVertical: spacing.md,
               borderBottomWidth: chatExpanded ? 1 : 0,
               borderBottomColor: colors.border,
               backgroundColor: colors.surface,
@@ -540,7 +544,7 @@ export default function ControlScreen() {
               <Ionicons name="hardware-chip-outline" size={14} color={colors.accent} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: fontSize.sm, fontWeight: '700', color: colors.text }}>Tally Engineer</Text>
+              <Text style={{ fontSize: fontSize.md, fontWeight: '700', color: colors.text }}>Tally Engineer</Text>
               {!chatExpanded && messages.length > 0 && (
                 <Text numberOfLines={1} style={{ fontSize: 10, color: colors.textSecondary, marginTop: 1 }}>
                   {messages[messages.length - 1]?.message}
@@ -696,57 +700,91 @@ export default function ControlScreen() {
   );
 }
 
-// --- Compact icon button for toolbar rows ---
+// --- Big action button for live control ---
 
-interface CompactButtonProps {
+interface BigButtonProps {
   icon: string;
-  label?: string;
+  label: string;
+  sublabel?: string;
   color?: string;
   onPress: () => void;
   pending?: boolean;
   disabled?: boolean;
   destructive?: boolean;
+  active?: boolean;
+  fullWidth?: boolean;
   colors: any;
-  accessibilityLabel?: string;
 }
 
-function CompactButton({ icon, label, color, onPress, pending, disabled, destructive, colors, accessibilityLabel }: CompactButtonProps) {
+function BigButton({ icon, label, sublabel, color, onPress, pending, disabled, destructive, active, fullWidth, colors }: BigButtonProps) {
   const btnColor = color || colors.text;
   const bgColor = destructive
-    ? 'rgba(239, 68, 68, 0.15)'
-    : colors.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)';
-  const bdrColor = destructive
-    ? 'rgba(239, 68, 68, 0.3)'
+    ? 'rgba(239, 68, 68, 0.12)'
+    : active
+    ? `${btnColor}14`
+    : colors.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)';
+  const borderColor = active
+    ? `${btnColor}60`
+    : destructive
+    ? 'rgba(239, 68, 68, 0.25)'
     : colors.border;
 
   return (
     <Pressable
-      style={[
+      style={({ pressed }) => [
         {
+          flex: fullWidth ? undefined : 1,
           flexDirection: 'row',
           alignItems: 'center',
-          gap: 4,
+          gap: spacing.sm,
           backgroundColor: bgColor,
-          borderRadius: borderRadius.sm,
-          paddingHorizontal: spacing.sm,
-          paddingVertical: 6,
+          borderRadius: borderRadius.md,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.md,
           borderWidth: 1,
-          borderColor: bdrColor,
+          borderColor,
+          minHeight: 60,
         },
-        disabled && { opacity: 0.4 },
+        pressed && { opacity: 0.75 },
+        disabled && { opacity: 0.35 },
         pending && { borderColor: colors.accent },
       ]}
       onPress={onPress}
       disabled={disabled || pending}
-      accessibilityLabel={accessibilityLabel || label || icon}
+      accessibilityLabel={label}
       accessibilityRole="button"
-      hitSlop={4}
     >
-      <Ionicons name={icon as any} size={16} color={disabled ? colors.textMuted : btnColor} />
-      {label && (
-        <Text style={{ fontSize: fontSize.xs, color: disabled ? colors.textMuted : btnColor, fontWeight: '600' }}>
-          {pending ? '...' : label}
+      <View style={{
+        width: 36,
+        height: 36,
+        borderRadius: 10,
+        backgroundColor: active || destructive ? `${btnColor}20` : colors.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+        justifyContent: 'center',
+        alignItems: 'center',
+      }}>
+        <Ionicons
+          name={(pending ? 'ellipsis-horizontal' : icon) as any}
+          size={20}
+          color={disabled ? colors.textMuted : btnColor}
+        />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: fontSize.sm, fontWeight: '700', color: disabled ? colors.textMuted : colors.text }} numberOfLines={1}>
+          {pending ? 'Sending...' : label}
         </Text>
+        {sublabel && !pending && (
+          <Text style={{ fontSize: fontSize.xs, color: colors.textMuted, marginTop: 1 }} numberOfLines={1}>
+            {sublabel}
+          </Text>
+        )}
+      </View>
+      {active && !pending && (
+        <View style={{
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: btnColor,
+        }} />
       )}
     </Pressable>
   );
