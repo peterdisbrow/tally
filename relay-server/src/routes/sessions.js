@@ -239,6 +239,25 @@ module.exports = function setupSessionRoutes(app, ctx) {
     res.json({ session, timeline });
   });
 
+  // ─── SESSION TYPE OVERRIDE ───────────────────────────────────────────────────
+
+  app.put('/api/churches/:churchId/sessions/:sessionId/type', requireAdmin, async (req, res) => {
+    const { churchId, sessionId } = req.params;
+    const church = churches.get(churchId);
+    if (!church) return res.status(404).json({ error: 'Church not found' });
+
+    const { type } = req.body;
+    if (type !== 'service' && type !== 'test') {
+      return res.status(400).json({ error: 'type must be "service" or "test"' });
+    }
+
+    const session = await qOne('SELECT * FROM service_sessions WHERE id = ? AND church_id = ?', [sessionId, churchId]);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    await qRun('UPDATE service_sessions SET session_type = ? WHERE id = ?', [type, sessionId]);
+    res.json({ updated: true, session_type: type });
+  });
+
   app.get('/api/churches/:churchId/sessions/:sessionId/debrief', requireAdmin, async (req, res) => {
     const { churchId, sessionId } = req.params;
     const church = churches.get(churchId);

@@ -382,7 +382,7 @@ async function getDashboardStats(dbOrClient, churchId, churches, now) {
         COALESCE(SUM(duration_minutes), 0) AS totalDurationMin,
         COALESCE(SUM(stream_runtime_minutes), 0) AS totalStreamMin
       FROM service_sessions
-      WHERE church_id = ? AND started_at >= ?
+      WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')
     `, [churchId, thisWeekStartISO]);
     if (row) {
       thisWeekSessions = row;
@@ -399,7 +399,7 @@ async function getDashboardStats(dbOrClient, churchId, churches, now) {
     const row = await qOne(`
       SELECT COALESCE(SUM(alert_count), 0) AS alerts
       FROM service_sessions
-      WHERE church_id = ? AND started_at >= ? AND started_at < ?
+      WHERE church_id = ? AND started_at >= ? AND started_at < ? AND (session_type IS NULL OR session_type != 'test')
     `, [churchId, lastWeekStartISO, thisWeekStartISO]);
     if (row) lastWeekAlerts = row.alerts;
   } catch { /* table may not exist */ }
@@ -2963,6 +2963,21 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     } catch { res.json([]); }
   });
 
+  // ── PUT /api/church/sessions/:sessionId/type ─────────────────────────────────
+  // Override session type classification (test ↔ service).
+  app.put('/api/church/sessions/:sessionId/type', authMiddleware, async (req, res) => {
+    try {
+      const { type } = req.body;
+      if (type !== 'service' && type !== 'test') {
+        return res.status(400).json({ error: 'type must be "service" or "test"' });
+      }
+      const session = await qOne('SELECT * FROM service_sessions WHERE id = ? AND church_id = ?', [req.params.sessionId, req.church.churchId]);
+      if (!session) return res.status(404).json({ error: 'Session not found' });
+      await qRun('UPDATE service_sessions SET session_type = ? WHERE id = ?', [type, req.params.sessionId]);
+      res.json({ updated: true, session_type: type });
+    } catch (e) { res.status(500).json({ error: 'Failed to update session type' }); }
+  });
+
   // ── GET /api/church/service-reports ───────────────────────────────────────────
   // Returns recent post-service AI reports.
   app.get('/api/church/service-reports', authMiddleware, async (req, res) => {
@@ -2975,7 +2990,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           `SELECT id, church_id, session_id, created_at, duration_minutes, uptime_pct,
                   grade, alert_count, auto_recovered_count, failover_count, peak_viewers,
                   stream_runtime_minutes, recommendations, ai_summary
-           FROM post_service_reports WHERE church_id = ? AND instance_name = ? ORDER BY created_at DESC LIMIT ?`,
+           FROM post_service_reports WHERE church_id = ? AND instance_name = ?
+                  AND NOT EXISTS (SELECT 1 FROM service_sessions WHERE id = post_service_reports.session_id AND session_type = 'test')
+                  ORDER BY created_at DESC LIMIT ?`,
           [req.church.churchId, instanceName, limit]
         );
         if (!reports.length && !roomId) {
@@ -2983,7 +3000,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             `SELECT id, church_id, session_id, created_at, duration_minutes, uptime_pct,
                     grade, alert_count, auto_recovered_count, failover_count, peak_viewers,
                     stream_runtime_minutes, recommendations, ai_summary
-             FROM post_service_reports WHERE church_id = ? ORDER BY created_at DESC LIMIT ?`,
+             FROM post_service_reports WHERE church_id = ?
+                    AND NOT EXISTS (SELECT 1 FROM service_sessions WHERE id = post_service_reports.session_id AND session_type = 'test')
+                    ORDER BY created_at DESC LIMIT ?`,
             [req.church.churchId, limit]
           );
         }
@@ -2992,7 +3011,9 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
           `SELECT id, church_id, session_id, created_at, duration_minutes, uptime_pct,
                   grade, alert_count, auto_recovered_count, failover_count, peak_viewers,
                   stream_runtime_minutes, recommendations, ai_summary
-           FROM post_service_reports WHERE church_id = ? ORDER BY created_at DESC LIMIT ?`,
+           FROM post_service_reports WHERE church_id = ?
+                  AND NOT EXISTS (SELECT 1 FROM service_sessions WHERE id = post_service_reports.session_id AND session_type = 'test')
+                  ORDER BY created_at DESC LIMIT ?`,
           [req.church.churchId, limit]
         );
       }
@@ -3779,13 +3800,13 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
 
       let sessionCount = 0, cleanCount = 0;
       try {
-        const sc = await qOne('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ?', [churchId]);
+        const sc = await qOne('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND (session_type IS NULL OR session_type != \'test\')', [churchId]);
         sessionCount = sc?.cnt || 0;
       } catch { return false; }
       if (sessionCount < 4) return false;
 
       try {
-        const cc = await qOne("SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND grade LIKE '%Clean%'", [churchId]);
+        const cc = await qOne("SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND grade LIKE '%Clean%' AND (session_type IS NULL OR session_type != 'test')", [churchId]);
         cleanCount = cc?.cnt || 0;
       } catch { return false; }
       if (cleanCount < 2) return false;
@@ -4040,7 +4061,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             SUM(CASE WHEN stream_ran = 1 THEN 1 ELSE 0 END) AS stream_ran_count,
             COALESCE(SUM(stream_runtime_minutes), 0) AS total_stream_minutes
           FROM service_sessions
-          WHERE church_id = ? AND started_at >= ?${roomFilter}
+          WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')${roomFilter}
         `, sessParams) || {};
       } catch { /* table may not exist yet */ }
 
@@ -4073,7 +4094,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             strftime('%Y-W%W', started_at) AS week_key,
             MAX(peak_viewers)              AS peak
           FROM service_sessions
-          WHERE church_id = ? AND started_at >= ?${roomFilter} AND peak_viewers IS NOT NULL
+          WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')${roomFilter} AND peak_viewers IS NOT NULL
           GROUP BY week_key
           ORDER BY week_key ASC
         `, sessParams)).map(r => ({
@@ -4090,7 +4111,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
             strftime('%Y-W%W', started_at) AS week_key,
             COUNT(*)                        AS count
           FROM service_sessions
-          WHERE church_id = ? AND started_at >= ?${roomFilter}
+          WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')${roomFilter}
           GROUP BY week_key
           ORDER BY week_key ASC
         `, sessParams)).map(r => ({
@@ -4189,7 +4210,7 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
                  alert_count, auto_recovered_count, escalated_count, audio_silence_count,
                  peak_viewers, td_name, grade
           FROM service_sessions
-          WHERE church_id = ? AND started_at >= ?${roomFilter}
+          WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')${roomFilter}
           ORDER BY started_at DESC
         `, params);
       } catch { /* table may not exist */ }
@@ -4726,7 +4747,7 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
               SUM(CASE WHEN stream_ran = 1 THEN 1 ELSE 0 END) AS stream_ran_count,
               COALESCE(SUM(stream_runtime_minutes), 0) AS total_stream_minutes
             FROM service_sessions
-            WHERE church_id = ? AND started_at >= ?
+            WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')
           `, [churchId, since]) || {};
         } catch {}
 
@@ -4876,7 +4897,7 @@ For suggestedRule, if an AutoPilot rule could prevent this in the future, includ
           sessions = await qAll(`
             SELECT id, started_at, ended_at, duration_minutes, alert_count, auto_recovered_count, instance_name, grade
             FROM service_sessions
-            WHERE church_id = ? AND started_at >= ?
+            WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')
             ORDER BY started_at DESC
           `, [churchId, since]);
         } catch {}

@@ -219,7 +219,7 @@ function _computeUptime(db, churchId, since, until, instanceName) {
     const sessions = db.prepare(
       `SELECT duration_minutes, alert_count, auto_recovered_count
        FROM service_sessions
-       WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL${instanceClause}`
+       WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')${instanceClause}`
     ).all(...params);
 
     if (!sessions.length) return null; // No sessions = no data
@@ -298,7 +298,7 @@ function _computeAlertRate(db, churchId, since, until, instanceName) {
     const sessions = db.prepare(
       `SELECT SUM(duration_minutes) as total
        FROM service_sessions
-       WHERE church_id = ? AND started_at >= ?${sessionUntilClause} AND ended_at IS NOT NULL${sessInstClause}`
+       WHERE church_id = ? AND started_at >= ?${sessionUntilClause} AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')${sessInstClause}`
     ).get(...sessionParams);
 
     const totalHours = (sessions?.total || 0) / 60;
@@ -330,7 +330,7 @@ function _computeRecoveryRate(db, churchId, since, until, instanceName) {
     const sessions = db.prepare(
       `SELECT SUM(alert_count) as total_alerts, SUM(auto_recovered_count) as total_recovered
        FROM service_sessions
-       WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL${instClause}`
+       WHERE church_id = ? AND started_at >= ?${untilClause} AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')${instClause}`
     ).get(...params);
 
     const row = sessions;
@@ -410,7 +410,7 @@ function _computeStreamStability(db, churchId, since, until, instanceName) {
     const sessions = db.prepare(
       `SELECT SUM(duration_minutes) as total, SUM(stream_runtime_minutes) as stream_total
        FROM service_sessions
-       WHERE church_id = ? AND started_at >= ?${sessionUntilClause} AND ended_at IS NOT NULL${sessInstClause}`
+       WHERE church_id = ? AND started_at >= ?${sessionUntilClause} AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')${sessInstClause}`
     ).get(...sessionParams);
 
     const streamHours = (sessions?.stream_total || 0) / 60;
@@ -463,12 +463,12 @@ function _computeTrendFromDb(db, churchId) {
 
     const thisWeekSessions = db.prepare(
       `SELECT COUNT(*) as cnt, SUM(alert_count) as alerts, SUM(duration_minutes) as duration
-       FROM service_sessions WHERE church_id = ? AND started_at >= ? AND ended_at IS NOT NULL`
+       FROM service_sessions WHERE church_id = ? AND started_at >= ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')`
     ).get(churchId, thisWeekSince);
 
     const lastWeekSessions = db.prepare(
       `SELECT COUNT(*) as cnt, SUM(alert_count) as alerts, SUM(duration_minutes) as duration
-       FROM service_sessions WHERE church_id = ? AND started_at >= ? AND started_at < ? AND ended_at IS NOT NULL`
+       FROM service_sessions WHERE church_id = ? AND started_at >= ? AND started_at < ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')`
     ).get(churchId, lastWeekSince, lastWeekUntil);
 
     if (!thisWeekSessions?.cnt || !lastWeekSessions?.cnt) return 'stable';

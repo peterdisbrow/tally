@@ -291,7 +291,7 @@ class HealthAlertMonitor {
       // Check if there are any recent sessions
       const recentSessions = this.db.prepare(
         `SELECT COUNT(*) as cnt FROM service_sessions
-         WHERE church_id = ? AND started_at >= ?`
+         WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')`
       ).get(churchId, twoWeeksAgo);
 
       if (recentSessions.cnt > 0) return null; // Still active
@@ -299,7 +299,7 @@ class HealthAlertMonitor {
       // Check if church was previously active (had sessions in the 4 weeks before that)
       const olderSessions = this.db.prepare(
         `SELECT COUNT(*) as cnt FROM service_sessions
-         WHERE church_id = ? AND started_at >= ? AND started_at < ?`
+         WHERE church_id = ? AND started_at >= ? AND started_at < ? AND (session_type IS NULL OR session_type != 'test')`
       ).get(churchId, sixWeeksAgo, twoWeeksAgo);
 
       if (olderSessions.cnt === 0) return null; // Never active or brand new — not churn
@@ -341,7 +341,7 @@ class HealthAlertMonitor {
       // Count sessions in last 3 weeks
       const sessions = this.db.prepare(
         `SELECT COUNT(*) as cnt FROM service_sessions
-         WHERE church_id = ? AND started_at >= ?`
+         WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != 'test')`
       ).get(churchId, threeWeeksAgo);
 
       // Expected sessions = schedule entries * 3 weeks

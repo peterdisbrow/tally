@@ -135,7 +135,7 @@ function detectDrift(db, churchId, currentSession) {
   try {
     const prevSession = db.prepare(`
       SELECT started_at, ended_at FROM service_sessions
-      WHERE church_id = ? AND id != ? AND ended_at IS NOT NULL
+      WHERE church_id = ? AND id != ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')
       ORDER BY started_at DESC LIMIT 1
     `).get(churchId, currentSession.sessionId || '');
 
@@ -180,7 +180,7 @@ function getServiceTimingStats(db, churchId, weeks = 4) {
     sessions = db.prepare(`
       SELECT started_at, ended_at, duration_minutes
       FROM service_sessions
-      WHERE church_id = ? AND started_at >= ? AND ended_at IS NOT NULL
+      WHERE church_id = ? AND started_at >= ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')
       ORDER BY started_at ASC
     `).all(churchId, cutoff);
   } catch (e) {

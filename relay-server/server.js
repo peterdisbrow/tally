@@ -1374,7 +1374,7 @@ scheduleEngine.addWindowOpenCallback(async (churchId) => {
   try {
     const onCallTd = await onCallRotation.getOnCallTD(churchId);
     for (const instanceName of getConnectedSessionInstances(churchId)) {
-      await sessionRecap.startSession(churchId, onCallTd?.name || null, instanceName);
+      await sessionRecap.startSession(churchId, onCallTd?.name || null, instanceName, { scheduled: true });
     }
   } catch (e) {
     console.error(`[SessionRecap] onWindowOpen error for ${churchId}:`, e.message);
@@ -2040,7 +2040,7 @@ scheduleEngine.addWindowOpenCallback(async (churchId) => {
     const onCallTd = await onCallRotation.getOnCallTD(churchId);
     const briefing = await churchMemory.getPreServiceBriefing(churchId);
     const lastSession = await queryClient.queryOne(
-      'SELECT * FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL ORDER BY ended_at DESC LIMIT 1',
+      'SELECT * FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != \'test\') ORDER BY ended_at DESC LIMIT 1',
       [churchId],
     );
     const preCheck = preServiceCheck ? await preServiceCheck.getLatestResult(churchId) : null;
@@ -3655,7 +3655,7 @@ async function handleChatCommandMessage(churchId, rawMessage, attachment, roomId
   // ─── "What happened last week?" handler ──────────────────────────────────
   if (/^(what happened|last (week|service|sunday)|previous (session|service)|recap|how did (last|this) week go|session history)/i.test(lowerMsg)) {
     const sessions = await queryClient.query(
-      'SELECT * FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL ORDER BY started_at DESC LIMIT 4',
+      'SELECT * FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != \'test\') ORDER BY started_at DESC LIMIT 4',
       [churchId],
     );
 

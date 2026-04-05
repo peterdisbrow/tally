@@ -1015,7 +1015,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     let totalSessions = 0;
     try {
       totalSessions = await this._count(
-        'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?',
+        'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != \'test\')',
         [churchId, sinceIso],
       );
     } catch {
@@ -1834,11 +1834,11 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       let sessionCount = 0, cleanCount = 0;
       try {
         sessionCount = await this._count(
-          'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ?',
+          'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND (session_type IS NULL OR session_type != \'test\')',
           [church.churchId],
         );
         cleanCount = await this._count(
-          "SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND grade LIKE '%Clean%'",
+          "SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND grade LIKE '%Clean%' AND (session_type IS NULL OR session_type != 'test')",
           [church.churchId],
         );
       } catch { continue; }
@@ -3284,7 +3284,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     let yearStats = null;
     try {
       const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
-      const sessions = await this._count('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?', [church.churchId, yearAgo]);
+      const sessions = await this._count('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != \'test\')', [church.churchId, yearAgo]);
       const autoFixed = await this._count("SELECT COUNT(*) as cnt FROM service_events WHERE church_id = ? AND auto_resolved = 1 AND timestamp >= ?", [church.churchId, yearAgo]);
       yearStats = { sessions, autoFixed };
     } catch { /* tables may not exist */ }
@@ -3485,7 +3485,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
     let yearStats = { sessions: 0, autoFixed: 0 };
     try {
       const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
-      const sessions = await this._count('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?', [church.churchId, yearAgo]);
+      const sessions = await this._count('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != \'test\')', [church.churchId, yearAgo]);
       const autoFixed = await this._count("SELECT COUNT(*) as cnt FROM service_events WHERE church_id = ? AND auto_resolved = 1 AND timestamp >= ?", [church.churchId, yearAgo]);
       yearStats = { sessions, autoFixed };
     } catch { /* tables may not exist */ }
@@ -3512,7 +3512,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       // Need 4+ sessions
       let sessionCount = 0;
       try {
-        sessionCount = await this._count('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ?', [church.churchId]);
+        sessionCount = await this._count('SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND (session_type IS NULL OR session_type != \'test\')', [church.churchId]);
       } catch { continue; }
       if (sessionCount < 4) continue;
 
@@ -3586,7 +3586,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       let lastSessionAt = null;
       try {
         const row = await this._selectOne(
-          'SELECT MAX(started_at) as last_at FROM service_sessions WHERE church_id = ?',
+          'SELECT MAX(started_at) as last_at FROM service_sessions WHERE church_id = ? AND (session_type IS NULL OR session_type != \'test\')',
           [church.churchId],
         );
         lastSessionAt = row?.last_at;

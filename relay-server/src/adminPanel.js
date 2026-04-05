@@ -760,7 +760,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     try {
       // Use the average of churches that had heartbeats in the 24-48h window
       const prevOnlineCount = (await qOne(
-        "SELECT COUNT(DISTINCT church_id) AS cnt FROM service_sessions WHERE datetime(started_at) > datetime('now','-48 hours') AND datetime(started_at) <= datetime('now','-24 hours')"
+        "SELECT COUNT(DISTINCT church_id) AS cnt FROM service_sessions WHERE datetime(started_at) > datetime('now','-48 hours') AND datetime(started_at) <= datetime('now','-24 hours') AND (session_type IS NULL OR session_type != 'test')"
       ))?.cnt;
       if (prevOnlineCount !== undefined) prevOnline = prevOnlineCount;
     } catch { /* table may not exist */ }
@@ -1638,7 +1638,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     const summary = {};
     const counts = [
       { key: 'alerts', sql: 'SELECT COUNT(*) AS cnt FROM alerts WHERE church_id = ?' },
-      { key: 'sessions', sql: 'SELECT COUNT(*) AS cnt FROM service_sessions WHERE church_id = ?' },
+      { key: 'sessions', sql: "SELECT COUNT(*) AS cnt FROM service_sessions WHERE church_id = ? AND (session_type IS NULL OR session_type != 'test')" },
       { key: 'tickets', sql: 'SELECT COUNT(*) AS cnt FROM support_tickets WHERE church_id = ?' },
       { key: 'messages', sql: 'SELECT COUNT(*) AS cnt FROM chat_messages WHERE churchId = ?' },
       { key: 'rooms', sql: 'SELECT COUNT(*) AS cnt FROM rooms WHERE campus_id = ?' },
@@ -1810,7 +1810,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
     try {
       recentSessions = await qAll(
         `SELECT id, started_at, ended_at, duration_minutes, alert_count, grade
-         FROM service_sessions WHERE church_id = ?
+         FROM service_sessions WHERE church_id = ? AND (session_type IS NULL OR session_type != 'test')
          ORDER BY started_at DESC LIMIT 5`
       , [churchId]);
       recentSessions = recentSessions.map(row => ({
@@ -2130,7 +2130,7 @@ function setupAdminPanel(app, db, churches, resellerSystem, opts = {}) {
       let lastSession = null;
       try {
         const ls = await qOne(
-          'SELECT started_at FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 1'
+          "SELECT started_at FROM service_sessions WHERE church_id = ? AND (session_type IS NULL OR session_type != 'test') ORDER BY started_at DESC LIMIT 1"
         , [row.churchId]);
         lastSession = ls?.started_at || null;
       } catch { /* table may not exist */ }
