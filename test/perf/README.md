@@ -59,3 +59,52 @@ REQUESTS=80 \
 CONCURRENCY=12 \
 node test/perf/node-smoke.js
 ```
+
+## WebSocket load harness
+
+`test/perf/ws-load.js` simulates many church clients connecting to `/church`, sending periodic `status_update` traffic, and optionally adds controller clients that observe fan-out and status lag.
+
+The recommended input is a token file with one JWT per church:
+
+```json
+[
+  { "churchId": "church-1", "token": "eyJ...", "name": "First Church" },
+  { "churchId": "church-2", "token": "eyJ...", "name": "Second Church" }
+]
+```
+
+You can also use a pipe-delimited text file with `churchId|token|name` per line.
+
+### 1000-church run
+
+```bash
+ulimit -n 8192
+
+BASE_WS=wss://api.tallyconnect.app \
+CHURCH_TOKENS_FILE=/path/to/church-tokens.json \
+CHURCH_COUNT=1000 \
+INSTANCES_PER_CHURCH=1 \
+CONTROLLER_CLIENTS=5 \
+STATUS_INTERVAL_MS=10000 \
+WARMUP_MS=5000 \
+DURATION_MS=60000 \
+CONNECT_BATCH_SIZE=25 \
+CONNECT_BATCH_INTERVAL_MS=250 \
+ADMIN_API_KEY='your-controller-api-key' \
+node test/perf/ws-load.js
+```
+
+Useful knobs:
+
+- `CHURCH_COUNT` selects how many churches from the token file to activate.
+- `INSTANCES_PER_CHURCH` creates multiple `/church` sockets for the same church, which is useful for multi-room churches.
+- `CONTROLLER_CLIENTS` adds controller sockets so you can measure relay fan-out.
+- `STATUS_INTERVAL_MS` controls how often each church client sends `status_update`.
+- `DRY_RUN=1` parses the token file and prints the connection plan without opening sockets.
+
+Baseline expectations:
+
+- Church connection failure rate should stay below `1%`.
+- Controller connection failure rate should stay below `1%`.
+- Status send failure rate should stay below `1%`.
+- Controller-observed status lag p95 should stay under `1000ms` for a healthy relay.

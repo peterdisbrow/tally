@@ -7,7 +7,12 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { createDeltaTracker, diffStatus } = require('../src/deltaUpdates');
+const {
+  createDeltaTracker,
+  diffStatus,
+  cloneStatus,
+  applyStatusDelta,
+} = require('../src/deltaUpdates');
 
 describe('diffStatus', () => {
   it('returns curr as-is when prev is null (first update)', () => {
@@ -88,7 +93,8 @@ describe('createDeltaTracker', () => {
     const status = { online: true };
     const result = tracker.computeDelta('church_a', null, status);
     expect(result.isFull).toBe(true);
-    expect(result.delta).toBe(status);
+    expect(result.delta).toEqual(status);
+    expect(result.delta).not.toBe(status);
   });
 
   it('subsequent update with no changes returns delta=null', () => {
@@ -185,5 +191,68 @@ describe('createDeltaTracker', () => {
     tracker.computeDelta('church_a', null, { online: true });
     const r = tracker.computeDelta('church_a', null, { online: true });
     expect(r.isFull).toBe(false); // same key, not first update
+  });
+
+  it('stores a cloned snapshot so later mutations do not leak back in', () => {
+    const tracker = createDeltaTracker();
+    const status = { obs: { streaming: false } };
+    const first = tracker.computeDelta('church_a', null, status);
+
+    status.obs.streaming = true;
+    expect(first.delta.obs.streaming).toBe(false);
+
+    const result = tracker.computeDelta('church_a', null, { obs: { streaming: false } });
+    expect(result.delta).toBeNull();
+  });
+});
+
+describe('cloneStatus', () => {
+  it('deep clones nested objects and arrays', () => {
+    const original = { obs: { scenes: ['a', 'b'] } };
+    const cloned = cloneStatus(original);
+
+    cloned.obs.scenes.push('c');
+    expect(original.obs.scenes).toEqual(['a', 'b']);
+  });
+});
+
+describe('applyStatusDelta', () => {
+  it('merges top-level replacements onto the previous status', () => {
+    const previous = {
+      obs: { connected: true, streaming: false },
+      system: { roomId: 'room-1' },
+    };
+
+    const next = applyStatusDelta(previous, {
+      obs: { connected: true, streaming: true },
+    });
+
+    expect(next).toEqual({
+      obs: { connected: true, streaming: true },
+      system: { roomId: 'room-1' },
+    });
+    expect(next).not.toBe(previous);
+  });
+
+  it('removes keys when the delta sets them to null', () => {
+    const next = applyStatusDelta(
+      { obs: { connected: true }, cpu: { percent: 20 } },
+      { cpu: null }
+    );
+
+    expect(next).toEqual({ obs: { connected: true } });
+  });
+
+  it('returns a cloned previous snapshot for heartbeat-only deltas', () => {
+    const previous = { obs: { connected: true } };
+    const next = applyStatusDelta(previous, {});
+
+    expect(next).toEqual(previous);
+    expect(next).not.toBe(previous);
+  });
+
+  it('builds a fresh object when previous status is missing', () => {
+    const next = applyStatusDelta(null, { obs: { connected: true } });
+    expect(next).toEqual({ obs: { connected: true } });
   });
 });

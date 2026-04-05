@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { applyStatusDelta, cloneStatus, diffStatus } = require('./deltaUpdates');
 
 /**
  * WebSocket routing factory for the Tally relay server.
@@ -79,6 +80,7 @@ function createWebSocketHandlers({
   broadcastToSSE    = () => {},
   broadcastToPortal = () => {},  // (churchId, data) => void
   streamOAuth       = null,      // StreamPlatformOAuth instance for CDN verification
+  deltaTracker      = null,
 
   // ─── WebSocket-level ping intervals (keepalive through reverse proxies) ───
   // Interval in ms between WS-level pings. Set to 0 to disable.
@@ -163,6 +165,13 @@ function createWebSocketHandlers({
     return false;
   }
 
+  function stripRuntimeStatusMeta(status) {
+    if (!status || typeof status !== 'object') return {};
+    const next = { ...status };
+    delete next._updatedAt;
+    return next;
+  }
+
   // ─── handleChurchConnection ───────────────────────────────────────────────
   /**
    * Called when a WebSocket at /church connects.
@@ -204,6 +213,9 @@ function createWebSocketHandlers({
     // Assign a unique connection ID so replaced clients can identify themselves
     const connectionId = crypto.randomUUID();
     ws._tallyConnectionId = connectionId;
+    ws._churchId = church.churchId;
+    ws._churchName = church.name;
+    ws._churchInstance = instance;
 
     ensureSockets(church);
 
@@ -329,6 +341,7 @@ function createWebSocketHandlers({
       if (church.instanceStatus) {
         delete church.instanceStatus[instance];
       }
+      deltaTracker?.clearSnapshot?.(church.churchId, instance);
 
       console.log(`[WS] Church ${church.churchId} instance="${instance}" disconnected (${church.sockets.size} instance(s) remaining)`);
 
@@ -395,6 +408,7 @@ function createWebSocketHandlers({
         broadcastToControllers(disconnectEvent);
         broadcastToSSE(disconnectEvent);
         broadcastToPortal(church.churchId, { type: 'disconnected', status: church.status });
+        deltaTracker?.clearChurch?.(church.churchId);
         onChurchDisconnected(church);
       }
     });
@@ -417,21 +431,35 @@ function createWebSocketHandlers({
         church.lastHeartbeat = Date.now();
         if (!church.instanceStatus) church.instanceStatus = {};
         if (!church.roomInstanceMap) church.roomInstanceMap = {};
+        const incomingStatus = msg.status && typeof msg.status === 'object' ? msg.status : {};
+        const incomingIsDelta = !!msg.isDelta;
 
         // Store status per-instance so multi-room churches don't clobber each other
         let senderInstance = null;
+        let previousInstanceStatus = stripRuntimeStatusMeta(church.status || {});
+        let effectiveStatus = null;
         for (const [inst, sock] of church.sockets.entries()) {
           if (sock === senderWs) {
             senderInstance = inst;
-            church.instanceStatus[inst] = { ...msg.status, _updatedAt: Date.now() };
+            previousInstanceStatus = stripRuntimeStatusMeta(church.instanceStatus[inst]);
+            effectiveStatus = incomingIsDelta
+              ? applyStatusDelta(previousInstanceStatus, incomingStatus)
+              : cloneStatus(incomingStatus);
+            church.instanceStatus[inst] = { ...effectiveStatus, _updatedAt: Date.now() };
             // Build roomId → instance mapping from the system.roomId the Electron app reports
             // Validate the room actually belongs to this church (I1)
-            const roomId = msg.status?.system?.roomId;
+            const roomId = effectiveStatus?.system?.roomId;
             if (roomId && validateRoomId(roomId, church.churchId)) {
               church.roomInstanceMap[roomId] = inst;
             }
             break;
           }
+        }
+
+        if (!effectiveStatus) {
+          effectiveStatus = incomingIsDelta
+            ? applyStatusDelta(previousInstanceStatus, incomingStatus)
+            : cloneStatus(incomingStatus);
         }
 
         // Rebuild church.status from the "primary" instance for backward compat
@@ -447,16 +475,28 @@ function createWebSocketHandlers({
           const primaryKey = instanceKeys.sort()[0];
           church.status = { ...church.instanceStatus[primaryKey] };
         } else {
-          church.status = { ...msg.status };
+          church.status = { ...effectiveStatus };
         }
 
         church._offlineAlertSent = false;
+        const statusDeltaResult = deltaTracker?.computeDelta
+          ? deltaTracker.computeDelta(church.churchId, senderInstance, effectiveStatus)
+          : {
+              delta: diffStatus(previousInstanceStatus, effectiveStatus),
+              isFull: !previousInstanceStatus || Object.keys(previousInstanceStatus).length === 0,
+            };
+
+        if (!statusDeltaResult.delta) {
+          break;
+        }
 
         const statusEvent = {
           type:          'status_update',
           churchId:      church.churchId,
           name:          church.name,
           status:        church.status,
+          statusDelta:   statusDeltaResult.delta,
+          statusMode:    statusDeltaResult.isFull ? 'full' : 'delta',
           instance:      senderInstance,
           instanceStatus: church.instanceStatus,
           roomInstanceMap: church.roomInstanceMap,
@@ -472,8 +512,16 @@ function createWebSocketHandlers({
           instanceStatus: church.instanceStatus,
           roomInstanceMap: church.roomInstanceMap,
           lastSeen: church.lastSeen,
+          statusDelta: statusDeltaResult.delta,
+          statusMode: statusDeltaResult.isFull ? 'full' : 'delta',
         });
-        onStatusUpdate(church, msg, statusEvent);
+        onStatusUpdate(church, {
+          ...msg,
+          status: effectiveStatus,
+          statusDelta: statusDeltaResult.delta,
+          statusMode: statusDeltaResult.isFull ? 'full' : 'delta',
+          isFull: statusDeltaResult.isFull,
+        }, statusEvent);
         break;
       }
 

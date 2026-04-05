@@ -442,6 +442,124 @@ describe('WebSocket routing — real integration tests against createWebSocketHa
       await closeWs(ctrl);
     });
 
+    it('does not rebroadcast a full status_update when nothing changed', async () => {
+      const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl); // church_list
+
+      const token = signToken('church-1');
+      const churchWs = await connect(`${server.url}/church?token=${token}`);
+      await nextMessage(churchWs); // connected
+      await nextMessage(ctrl); // church_connected
+
+      send(churchWs, { type: 'status_update', status: { obs: { connected: true, streaming: false } } });
+      await nextMessage(ctrl); // initial status_update
+
+      const church = server.churches.get('church-1');
+      const firstHeartbeat = church.lastHeartbeat;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      send(churchWs, { type: 'status_update', status: { obs: { connected: true, streaming: false } } });
+
+      await expect(nextMessage(ctrl, 150)).rejects.toThrow('nextMessage timeout');
+      expect(church.lastHeartbeat).toBeGreaterThan(firstHeartbeat);
+      expect(church.status.obs?.connected).toBe(true);
+
+      await closeWs(churchWs);
+      await closeWs(ctrl);
+    });
+
+    it('rehydrates inbound delta status updates before broadcasting and hooks', async () => {
+      const hookCalls = [];
+      const serverWithHooks = await buildTestServer({
+        onStatusUpdate: (church, msg, statusEvent) => hookCalls.push({
+          church: church.churchId,
+          msg,
+          statusEvent,
+        }),
+      });
+      serverWithHooks.churches.set('church-1', makeChurchEntry('church-1', 'First Baptist'));
+
+      const ctrl = await connect(`${serverWithHooks.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl); // church_list
+
+      const churchWs = await connect(`${serverWithHooks.url}/church?token=${signToken('church-1')}`);
+      await nextMessage(churchWs); // connected
+      await nextMessage(ctrl); // church_connected
+
+      send(churchWs, {
+        type: 'status_update',
+        status: {
+          obs: { connected: true, streaming: false },
+          cpu: { percent: 20 },
+        },
+      });
+      await nextMessage(ctrl); // initial full snapshot
+
+      send(churchWs, {
+        type: 'status_update',
+        isDelta: true,
+        status: {
+          obs: { connected: true, streaming: true },
+          cpu: null,
+        },
+      });
+
+      const deltaEvent = await nextMessage(ctrl);
+      expect(deltaEvent.type).toBe('status_update');
+      expect(deltaEvent.statusMode).toBe('delta');
+      expect(deltaEvent.status.obs).toEqual({ connected: true, streaming: true });
+      expect(deltaEvent.status.cpu).toBeUndefined();
+      expect(deltaEvent.statusDelta).toEqual({
+        obs: { connected: true, streaming: true },
+        cpu: null,
+      });
+
+      expect(hookCalls).toHaveLength(2);
+      expect(hookCalls[1].church).toBe('church-1');
+      expect(hookCalls[1].msg.status).toEqual({
+        obs: { connected: true, streaming: true },
+      });
+      expect(hookCalls[1].msg.statusMode).toBe('delta');
+      expect(hookCalls[1].msg.isFull).toBe(false);
+
+      await serverWithHooks.close();
+    });
+
+    it('treats heartbeat-only delta updates as local heartbeats and skips fanout', async () => {
+      const hookCalls = [];
+      const serverWithHooks = await buildTestServer({
+        onStatusUpdate: (church, msg) => hookCalls.push({ church: church.churchId, msg }),
+      });
+      serverWithHooks.churches.set('church-1', makeChurchEntry('church-1', 'First Baptist'));
+
+      const ctrl = await connect(`${serverWithHooks.url}/controller?apikey=${ADMIN_API_KEY}`);
+      await nextMessage(ctrl); // church_list
+
+      const churchWs = await connect(`${serverWithHooks.url}/church?token=${signToken('church-1')}`);
+      await nextMessage(churchWs); // connected
+      await nextMessage(ctrl); // church_connected
+
+      send(churchWs, {
+        type: 'status_update',
+        status: { obs: { connected: true, streaming: false } },
+      });
+      await nextMessage(ctrl); // initial full snapshot
+      expect(hookCalls).toHaveLength(1);
+
+      send(churchWs, {
+        type: 'status_update',
+        isDelta: true,
+        heartbeatOnly: true,
+        status: {},
+      });
+
+      await expect(nextMessage(ctrl, 150)).rejects.toThrow('nextMessage timeout');
+      expect(hookCalls).toHaveLength(1);
+      expect(serverWithHooks.churches.get('church-1').status.obs?.connected).toBe(true);
+
+      await serverWithHooks.close();
+    });
+
     it('forwards alert to all controllers', async () => {
       const ctrl = await connect(`${server.url}/controller?apikey=${ADMIN_API_KEY}`);
       await nextMessage(ctrl);

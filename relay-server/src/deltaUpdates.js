@@ -16,6 +16,29 @@
  *   deltaTracker.clearSnapshot(churchId, instanceName);
  */
 
+function cloneStatus(value) {
+  if (value == null) return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function applyStatusDelta(previous, delta) {
+  const next = previous && typeof previous === 'object'
+    ? cloneStatus(previous)
+    : {};
+
+  if (!delta || typeof delta !== 'object') return next;
+
+  for (const [key, value] of Object.entries(delta)) {
+    if (value === null) {
+      delete next[key];
+    } else {
+      next[key] = cloneStatus(value);
+    }
+  }
+
+  return next;
+}
+
 /**
  * Shallow-diff two plain objects (one level deep per top-level key).
  * Returns an object containing only the keys whose values changed,
@@ -98,20 +121,21 @@ function createDeltaTracker() {
   function computeDelta(churchId, instanceName, newStatus) {
     const key = _key(churchId, instanceName);
     const prev = snapshots.get(key) || null;
+    const snapshot = cloneStatus(newStatus);
 
     // Track update count for periodic full snapshots
     const count = (updateCounts.get(key) || 0) + 1;
     updateCounts.set(key, count);
 
     // Always store the full snapshot
-    snapshots.set(key, newStatus);
+    snapshots.set(key, snapshot);
 
     // Send full snapshot on first update or every FULL_SNAPSHOT_INTERVAL
     if (!prev || count % FULL_SNAPSHOT_INTERVAL === 0) {
-      return { delta: newStatus, isFull: true };
+      return { delta: snapshot, isFull: true };
     }
 
-    const delta = diffStatus(prev, newStatus);
+    const delta = diffStatus(prev, snapshot);
     return { delta, isFull: false };
   }
 
@@ -147,4 +171,4 @@ function createDeltaTracker() {
   };
 }
 
-module.exports = { createDeltaTracker, diffStatus };
+module.exports = { createDeltaTracker, diffStatus, cloneStatus, applyStatusDelta };

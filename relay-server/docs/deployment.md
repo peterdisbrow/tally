@@ -12,9 +12,10 @@ This guide covers deploying the relay server via Railway (recommended), Docker, 
 4. [Docker Deployment](#docker-deployment)
 5. [Bare Node.js / VPS](#bare-nodejs--vps)
 6. [Database Setup (SQLite)](#database-setup-sqlite)
-7. [Redis Setup (Optional — Rate Limiting)](#redis-setup-optional--rate-limiting)
-8. [First-Run Checklist](#first-run-checklist)
-9. [Upgrading](#upgrading)
+7. [Redis Setup (Optional — Rate Limiting & Coordination)](#redis-setup-optional--rate-limiting--coordination)
+8. [Load Testing](#load-testing)
+9. [First-Run Checklist](#first-run-checklist)
+10. [Upgrading](#upgrading)
 
 ---
 
@@ -85,17 +86,28 @@ Create a `.env` file (or configure secrets in your hosting provider). Every vari
 | `SENTRY_DSN` | Sentry error tracking DSN |
 | `LOG_FORMAT` | Set to `json` for structured (production) logging |
 
-### Rate Limiting (Redis / Upstash)
+### Rate Limiting & Runtime Coordination (Redis / Upstash)
 
 | Variable | Description |
 |----------|-------------|
+| `REDIS_URL` | Raw Redis socket URL used for distributed rate limiting and runtime coordination |
+| `UPSTASH_REDIS_URL` | Upstash raw Redis socket URL (`rediss://...`) |
+| `REDIS_HOST` / `REDIS_PORT` | Host/port alternative to `REDIS_URL` |
+| `REDIS_USERNAME` / `REDIS_PASSWORD` | Socket Redis auth overrides |
+| `REDIS_TLS` | Set to `true` when using TLS with host/port config |
 | `UPSTASH_REDIS_REST_URL` | Upstash Redis REST endpoint |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST token |
 | `KV_REST_API_URL` | Alternative: Vercel KV REST URL |
 | `KV_REST_API_TOKEN` | Alternative: Vercel KV REST token |
-| `RATE_LIMIT_KEY_PREFIX` | Prefix for rate-limit Redis keys (default: `rl`) |
+| `RATE_LIMIT_KEY_PREFIX` | Prefix for rate-limit Redis keys (default: `tally:rl`) |
+| `TALLY_INSTANCE_ID` | Optional stable instance name for presence and coordination logs |
+| `RUNTIME_COORDINATION_PREFIX` | Prefix for presence/pubsub keys (default: `tally:runtime`) |
+| `RUNTIME_COORDINATION_CHANNEL` | Pub/sub channel for runtime events |
+| `RUNTIME_PRESENCE_TTL_MS` | TTL for presence heartbeats (default: `45000`) |
 
-Without Redis, rate limiting falls back to in-process memory (not suitable for multi-instance deployments).
+Raw Redis socket config is preferred. It powers both distributed rate limiting and the relay's runtime coordination foundation (church/controller presence plus pub/sub event fanout for future multi-instance work). Upstash/Vercel REST config is still supported, but only for rate limiting.
+
+Without Redis, rate limiting falls back to in-process memory and runtime coordination becomes a no-op. That is fine for single-instance development, but not suitable for multi-instance production.
 
 ### Database Backup
 
@@ -148,6 +160,18 @@ JWT_SECRET=<strong-random-secret>
 APP_URL=https://<your-project>.up.railway.app
 NODE_ENV=production
 LOG_FORMAT=json
+```
+
+For a production-ready multi-instance baseline, also add either a raw Redis socket URL:
+
+```
+REDIS_URL=redis://default:<password>@<host>:6379
+```
+
+or Upstash raw Redis socket credentials:
+
+```
+UPSTASH_REDIS_URL=rediss://default:<password>@<host>.upstash.io:6379
 ```
 
 ### 4. Configure the Stripe webhook
@@ -312,23 +336,78 @@ npm run restore:db
 
 ---
 
-## Redis Setup (Optional — Rate Limiting)
+## Redis Setup (Optional — Rate Limiting & Coordination)
 
-Without Redis, rate limiting is in-process only (resets on restart, not shared across instances).
+Without Redis, rate limiting is in-process only (resets on restart, not shared across instances) and runtime coordination is disabled.
 
-### Upstash (recommended for Railway)
+### Upstash or managed Redis socket (recommended for Railway)
 
-1. Create a free Redis database at [upstash.com](https://upstash.com)
-2. Copy the **REST URL** and **REST Token**
+1. Create a Redis database at [upstash.com](https://upstash.com) or your preferred managed Redis provider
+2. Copy the **raw Redis URL** (`redis://` or `rediss://`) when available
 3. Set in Railway Variables:
    ```
-   UPSTASH_REDIS_REST_URL=https://...upstash.io
-   UPSTASH_REDIS_REST_TOKEN=...
+   REDIS_URL=redis://default:<password>@<host>:6379
    ```
+
+If you are using Upstash specifically, `UPSTASH_REDIS_URL` is also supported for the raw socket URL.
+
+### Upstash / Vercel REST fallback
+
+If you only have REST credentials available, the relay can still use Redis for rate limiting:
+
+```
+UPSTASH_REDIS_REST_URL=https://...upstash.io
+UPSTASH_REDIS_REST_TOKEN=...
+```
+
+This fallback does **not** power runtime presence/pubsub. For multi-instance coordination, use a raw Redis socket URL instead.
 
 ### Self-hosted Redis
 
-The current rate limiter uses the Upstash REST API format. To use a standard Redis instance, you would need to adapt `src/rateLimit.js` to use `ioredis`.
+Use either:
+
+```
+REDIS_URL=redis://user:pass@host:6379
+```
+
+or:
+
+```
+REDIS_HOST=host
+REDIS_PORT=6379
+REDIS_USERNAME=user
+REDIS_PASSWORD=pass
+REDIS_TLS=true
+```
+
+You can optionally set:
+
+```
+TALLY_INSTANCE_ID=relay-a
+RUNTIME_COORDINATION_PREFIX=tally:runtime
+RUNTIME_COORDINATION_CHANNEL=tally:runtime:events
+RUNTIME_PRESENCE_TTL_MS=45000
+```
+
+These values control how the relay writes presence keys and publishes coordination events across instances.
+
+---
+
+## Load Testing
+
+Use the WebSocket load harness before launch or before increasing your expected church count:
+
+```bash
+cd church-av
+CHURCH_TOKENS_FILE=/path/to/tokens.json \
+CHURCH_COUNT=1000 \
+INSTANCES_PER_CHURCH=1 \
+CONTROLLER_CLIENTS=5 \
+BASE_WS=wss://api.tallyconnect.app \
+node test/perf/ws-load.js
+```
+
+The harness simulates church WebSocket clients, periodic `status_update` traffic, and controller listeners. Use `DRY_RUN=1` first to validate token parsing and the client plan without opening sockets.
 
 ---
 
@@ -339,6 +418,7 @@ The current rate limiter uses the Upstash REST API format. To use a standard Red
 - [ ] `NODE_ENV=production` set
 - [ ] `LOG_FORMAT=json` set for structured logging
 - [ ] Database directory writable (`./data/`)
+- [ ] Redis socket URL configured before enabling multi-instance relay
 - [ ] `GET /api/health` returns HTTP 200
 - [ ] Stripe webhook configured (if billing enabled)
 - [ ] Telegram webhook configured (if bot enabled)
@@ -360,4 +440,4 @@ pm2 restart tally-relay   # if using PM2
 # or redeploy on Railway / rebuild Docker image
 ```
 
-Schema migrations are applied automatically on startup via `better-sqlite3` (inline `ALTER TABLE` guards in the database init code). No separate migration runner is needed.
+Schema initialization and compatibility guards run automatically on startup for both SQLite and Postgres-backed deployments. No separate migration runner is currently required.

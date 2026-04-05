@@ -3,6 +3,9 @@ const LOCAL_CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
 const LOCAL_STALE_WINDOW_MS = 15 * 60 * 1000;
 let cleanupTimerStarted = false;
 let redisWarned = false;
+let redisSocketClient = null;
+
+const { hasRedisSocketConfig, createRedisSocketClient } = require('./sharedRedis');
 
 function startLocalCleanup() {
   if (cleanupTimerStarted) return;
@@ -28,6 +31,18 @@ function hasRedisRateLimitConfig() {
   const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   return !!(url && token);
+}
+
+async function getRedisSocketClient() {
+  if (!hasRedisSocketConfig()) return null;
+  if (!redisSocketClient) {
+    redisSocketClient = createRedisSocketClient({
+      env: process.env,
+      connectionName: `tally-rate-limit:${process.pid}`,
+    });
+    await redisSocketClient.connect();
+  }
+  return redisSocketClient;
 }
 
 function getRedisRateLimitConfig() {
@@ -83,6 +98,28 @@ async function incrementWithRedis(scopedKey, windowMs) {
   };
 }
 
+async function incrementWithRedisSocket(scopedKey, windowMs) {
+  const client = await getRedisSocketClient();
+  if (!client) throw new Error('redis-socket-config-missing');
+
+  const redisKey = `${process.env.RATE_LIMIT_KEY_PREFIX || 'tally:rl'}:${scopedKey}`;
+  const count = Number(await client.incr(redisKey));
+  if (!Number.isFinite(count)) throw new Error('redis-socket-incr-invalid');
+
+  if (count === 1) {
+    await client.pexpire(redisKey, windowMs);
+  }
+
+  let ttlMs = Number(await client.pttl(redisKey));
+  if (!Number.isFinite(ttlMs) || ttlMs < 0) ttlMs = windowMs;
+
+  return {
+    count,
+    retryAfterSec: Math.max(1, Math.ceil(ttlMs / 1000)),
+    store: 'redis-socket',
+  };
+}
+
 function incrementWithLocalStore(scopedKey, windowMs) {
   startLocalCleanup();
   const now = Date.now();
@@ -109,7 +146,18 @@ async function consumeRateLimit({
   const scopedKey = `${scope}:${String(key || 'unknown')}`;
 
   let state;
-  if (hasRedisRateLimitConfig()) {
+  if (hasRedisSocketConfig()) {
+    try {
+      state = await incrementWithRedisSocket(scopedKey, windowMs);
+    } catch (error) {
+      if (!redisWarned) {
+        redisWarned = true;
+        console.warn(`[rateLimit] Redis socket backend unavailable, falling back: ${error.message}`);
+      }
+    }
+  }
+
+  if (!state && hasRedisRateLimitConfig()) {
     try {
       state = await incrementWithRedis(scopedKey, windowMs);
     } catch (error) {
@@ -167,16 +215,19 @@ function createRateLimit({
  */
 function logRateLimitStatus() {
   const isProduction = process.env.NODE_ENV === 'production';
-  if (hasRedisRateLimitConfig()) {
-    console.log('[rateLimit] ✓ Redis/Upstash backend configured');
+  if (hasRedisSocketConfig()) {
+    console.log('[rateLimit] ✓ Redis socket backend configured');
+  } else if (hasRedisRateLimitConfig()) {
+    console.log('[rateLimit] ✓ Upstash REST backend configured');
   } else if (isProduction) {
     console.warn('='.repeat(80));
     console.warn('[rateLimit] WARNING — PRODUCTION WITHOUT REDIS');
     console.warn('[rateLimit] Rate limits are using an in-memory store which is NOT distributed.');
     console.warn('[rateLimit] Each server instance maintains its own counters, so rate limits');
     console.warn('[rateLimit] will not be enforced correctly across multiple instances.');
-    console.warn('[rateLimit] Set UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for');
-    console.warn('[rateLimit] production-safe distributed rate limiting.');
+    console.warn('[rateLimit] Set REDIS_URL / UPSTASH_REDIS_URL for the preferred socket backend');
+    console.warn('[rateLimit] or UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for REST-only');
+    console.warn('[rateLimit] distributed rate limiting.');
     console.warn('='.repeat(80));
   } else {
     console.log('[rateLimit] Using in-memory store (dev mode — no Redis configured)');
@@ -188,4 +239,14 @@ module.exports = {
   createRateLimit,
   resolveClientIp,
   logRateLimitStatus,
+  async closeRedisRateLimitClient() {
+    if (!redisSocketClient) return;
+    const client = redisSocketClient;
+    redisSocketClient = null;
+    try {
+      await client.quit();
+    } catch {
+      client.disconnect();
+    }
+  },
 };

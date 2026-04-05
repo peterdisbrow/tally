@@ -33,6 +33,7 @@ const { getSystemHealth } = require('./systemHealth');
 const { collectDiagnosticBundle } = require('./diagnosticBundle');
 const { SwitcherManager } = require('./switcherManager');
 const { StreamProtectionManager } = require('./streamProtection');
+const { createStatusDeltaTracker } = require('./statusDelta');
 
 // ExternalPortType enum → human-readable label (used for audio source detection)
 const PORT_TYPE_NAMES = { 1: 'SDI', 2: 'HDMI', 4: 'Component', 8: 'Composite',
@@ -55,6 +56,7 @@ program
   .option('-n, --name <name>', 'Label for this system (e.g., "Main Sanctuary")')
   .option('-c, --companion <url>', 'Companion HTTP API URL')
   .option('--preview-source <name>', 'OBS source name for preview screenshots', '')
+  .option('--relay-status-mode <mode>', 'How status updates are sent to the relay (delta or full)', 'delta')
   .option('--config <path>', 'Path to config file', path.join(os.homedir(), '.church-av', 'config.json'))
   .option('--room-id <id>', 'Room ID to bind this instance to')
   .option('--room-name <name>', 'Room display name (auto-resolved if --room-id is set)')
@@ -195,6 +197,9 @@ function loadConfig() {
   if (opts.name) config.name = opts.name;
   if (opts.companion !== undefined) config.companionUrl = opts.companion;
   if (opts.previewSource) config.previewSource = opts.previewSource;
+  if (opts.relayStatusMode || process.env.TALLY_RELAY_STATUS_MODE) {
+    config.relayStatusMode = String(opts.relayStatusMode || process.env.TALLY_RELAY_STATUS_MODE).trim().toLowerCase();
+  }
   if (opts.watchdog !== undefined) config.watchdog = opts.watchdog;
   if (opts.roomId) config.roomId = opts.roomId;
   if (opts.roomName) config.roomName = opts.roomName;
@@ -209,6 +214,7 @@ function loadConfig() {
   if (!config.vmix) config.vmix = null; // null = not configured
   if (config.vmix) console.log(`🎬 vMix config: ${config.vmix.host}:${config.vmix.port || 8088}`);
   if (!config.mixer) config.mixer = null; // null = not configured
+  if (!config.relayStatusMode) config.relayStatusMode = 'delta';
 
   // Backward compatibility: older Electron setup flows may persist flat
   // encoder fields instead of config.encoder object.
@@ -322,6 +328,8 @@ class ChurchAVAgent {
     this._identityCache = new Map();
     this.reconnectDelay = 5000;
     this._consecutiveRelayFailures = 0;
+    this._relayStatusMode = String(config.relayStatusMode || 'delta').toLowerCase() === 'full' ? 'full' : 'delta';
+    this._statusDeltaTracker = createStatusDeltaTracker(Number(config.relayStatusFullSnapshotInterval) || 30);
     this.atemReconnectDelay = 2000;
     this.atemReconnecting = false;
     this._previewTimer = null;
@@ -886,6 +894,7 @@ class ChurchAVAgent {
         this._relayConnecting = false;
         this.reconnectDelay = 5000;
         this._consecutiveRelayFailures = 0;
+        this._statusDeltaTracker.reset();
         this.sendStatus();
         doResolve();
 
@@ -2503,7 +2512,36 @@ class ChurchAVAgent {
     if (fullStatus.hyperdeck)   fullStatus.hyperdeck.configured   = !!cfg.hyperdecks?.some(d => d.host);
     if (fullStatus.resolume)    fullStatus.resolume.configured    = !!cfg.resolume?.host;
     if (fullStatus.ptz)         fullStatus.ptz.configured         = !!cfg.ptz?.some(c => c.ip);
-    this.sendToRelay({ type: 'status_update', status: fullStatus });
+    if (this.relay?.readyState !== WebSocket.OPEN) {
+      setTimeout(() => {
+        this._statusDebounce = false;
+      }, 100);
+      return;
+    }
+
+    if (this._relayStatusMode === 'delta') {
+      const { delta, isFull } = this._statusDeltaTracker.compute(fullStatus);
+      if (delta) {
+        this.sendToRelay({
+          type: 'status_update',
+          status: delta,
+          isDelta: !isFull,
+          isFull,
+          statusMode: 'delta',
+        });
+      } else {
+        this.sendToRelay({
+          type: 'status_update',
+          status: {},
+          isDelta: true,
+          isFull: false,
+          heartbeatOnly: true,
+          statusMode: 'delta',
+        });
+      }
+    } else {
+      this.sendToRelay({ type: 'status_update', status: fullStatus, isFull: true, statusMode: 'full' });
+    }
     setTimeout(() => {
       this._statusDebounce = false;
     }, 100);
