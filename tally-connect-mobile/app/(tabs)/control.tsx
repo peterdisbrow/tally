@@ -2,13 +2,17 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, FlatList, Pressable, ScrollView,
   KeyboardAvoidingView, Platform, LayoutAnimation, UIManager, Alert,
-  NativeSyntheticEvent, NativeScrollEvent,
+  NativeSyntheticEvent, NativeScrollEvent, Image, ActionSheetIOS,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
 import { useCommandResultStore } from '../../src/stores/commandResultStore';
 import { useChatStore } from '../../src/stores/chatStore';
+import type { ChatAttachment } from '../../src/stores/chatStore';
 import { tallySocket } from '../../src/ws/TallySocket';
 import { useThemeColors } from '../../src/theme/ThemeContext';
 import { spacing, borderRadius, fontSize } from '../../src/theme/spacing';
@@ -58,6 +62,8 @@ export default function ControlScreen() {
   const messages = messagesByRoom[activeRoomId ?? '__no_room__'] ?? [];
   const [text, setText] = useState('');
   const [sendError, setSendError] = useState<string | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<ChatAttachment | null>(null);
+  const [pendingAttachmentUri, setPendingAttachmentUri] = useState<string | null>(null);
   const listRef = useRef<FlatList>(null);
   const isAtBottom = useRef(true);
 
@@ -181,14 +187,74 @@ export default function ControlScreen() {
 
   const handleSend = async () => {
     const trimmed = text.trim();
-    if (!trimmed || isSending) return;
+    if (!trimmed && !pendingAttachment || isSending) return;
     setSendError(null);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const success = await sendMessage(trimmed, activeRoomId || undefined);
+    const success = await sendMessage(trimmed, activeRoomId || undefined, pendingAttachment || undefined);
     if (success) {
       setText('');
+      setPendingAttachment(null);
+      setPendingAttachmentUri(null);
     } else {
       setSendError('Failed to send message. Please try again.');
+    }
+  };
+
+  const handleAttachmentPress = () => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Photo Library', 'Camera', 'Document'],
+          cancelButtonIndex: 0,
+        },
+        (idx) => {
+          if (idx === 1) pickImage('library');
+          else if (idx === 2) pickImage('camera');
+          else if (idx === 3) pickDocument();
+        },
+      );
+    } else {
+      Alert.alert('Attach File', 'Choose a source', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Photo Library', onPress: () => pickImage('library') },
+        { text: 'Camera', onPress: () => pickImage('camera') },
+        { text: 'Document', onPress: () => pickDocument() },
+      ]);
+    }
+  };
+
+  const pickImage = async (source: 'library' | 'camera') => {
+    const request = source === 'camera'
+      ? ImagePicker.requestCameraPermissionsAsync
+      : ImagePicker.requestMediaLibraryPermissionsAsync;
+    const { status } = await request();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Please allow access in Settings to attach files.');
+      return;
+    }
+    const result = source === 'camera'
+      ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.7, mediaTypes: ['images'] })
+      : await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.7, mediaTypes: ['images'] });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    if (!asset.base64) { Alert.alert('Error', 'Could not read image data.'); return; }
+    const mimeType = asset.mimeType || 'image/jpeg';
+    const ext = mimeType.split('/')[1] || 'jpg';
+    const fileName = asset.fileName || `photo.${ext}`;
+    setPendingAttachment({ data: asset.base64, mimeType, fileName });
+    setPendingAttachmentUri(asset.uri);
+  };
+
+  const pickDocument = async () => {
+    const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, type: '*/*' });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    try {
+      const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+      setPendingAttachment({ data: base64, mimeType: asset.mimeType || 'application/octet-stream', fileName: asset.name });
+      setPendingAttachmentUri(null);
+    } catch {
+      Alert.alert('Error', 'Could not read the selected file.');
     }
   };
 
@@ -258,6 +324,16 @@ export default function ControlScreen() {
 
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isUser = item.senderRole === 'td';
+    // Detect attachment placeholder: "📎 filename.ext" possibly with leading text
+    const attachMatch = item.message.match(/📎\s+(.+)$/);
+    const attachFileName = attachMatch?.[1]?.trim() ?? null;
+    const textBeforeAttach = attachMatch
+      ? item.message.replace(/📎\s+.+$/, '').trim()
+      : item.message;
+    const isImageAttach = attachFileName
+      ? /\.(jpg|jpeg|png|gif|webp|heic)$/i.test(attachFileName)
+      : false;
+
     return (
       <View style={[
         { marginBottom: spacing.md },
@@ -290,12 +366,31 @@ export default function ControlScreen() {
               {item.senderName || 'Tally Engineer'}
             </Text>
           )}
-          <Text style={[
-            { fontSize: fontSize.md, lineHeight: 22 },
-            isUser ? { color: '#ffffff' } : { color: colors.text },
-          ]}>
-            {item.message}
-          </Text>
+          {textBeforeAttach.length > 0 && (
+            <Text style={[
+              { fontSize: fontSize.md, lineHeight: 22 },
+              isUser ? { color: '#ffffff' } : { color: colors.text },
+            ]}>
+              {textBeforeAttach}
+            </Text>
+          )}
+          {attachFileName && !isImageAttach && (
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: spacing.xs,
+              marginTop: textBeforeAttach ? spacing.xs : 0,
+              backgroundColor: isUser ? 'rgba(0,0,0,0.15)' : colors.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)',
+              borderRadius: borderRadius.sm,
+              paddingHorizontal: spacing.sm,
+              paddingVertical: spacing.xs,
+            }}>
+              <Ionicons name="document-outline" size={14} color={isUser ? '#fff' : colors.textSecondary} />
+              <Text style={{ fontSize: fontSize.xs, color: isUser ? '#fff' : colors.textSecondary }} numberOfLines={1}>
+                {attachFileName}
+              </Text>
+            </View>
+          )}
           <Text style={[
             { fontSize: 10, marginTop: 4, alignSelf: 'flex-end' as const },
             isUser ? { color: 'rgba(255,255,255,0.5)' } : { color: colors.textMuted },
@@ -628,6 +723,38 @@ export default function ControlScreen() {
                 </View>
               )}
 
+              {/* Pending attachment preview */}
+              {pendingAttachment && (
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: spacing.lg,
+                  paddingVertical: spacing.sm,
+                  backgroundColor: colors.isDark ? 'rgba(0,230,118,0.08)' : 'rgba(0,230,118,0.06)',
+                  borderTopWidth: 1,
+                  borderTopColor: colors.isDark ? 'rgba(0,230,118,0.2)' : 'rgba(0,230,118,0.15)',
+                  gap: spacing.sm,
+                }}>
+                  {pendingAttachmentUri ? (
+                    <Image source={{ uri: pendingAttachmentUri }} style={{ width: 44, height: 44, borderRadius: borderRadius.sm }} />
+                  ) : (
+                    <View style={{
+                      width: 44, height: 44, borderRadius: borderRadius.sm,
+                      backgroundColor: colors.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                      justifyContent: 'center', alignItems: 'center',
+                    }}>
+                      <Ionicons name="document-outline" size={22} color={colors.accent} />
+                    </View>
+                  )}
+                  <Text style={{ flex: 1, fontSize: fontSize.sm, color: colors.text }} numberOfLines={1}>
+                    {pendingAttachment.fileName}
+                  </Text>
+                  <Pressable onPress={() => { setPendingAttachment(null); setPendingAttachmentUri(null); }} hitSlop={8}>
+                    <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+                  </Pressable>
+                </View>
+              )}
+
               {/* Chat input bar */}
               <View style={{
                 flexDirection: 'row',
@@ -638,6 +765,30 @@ export default function ControlScreen() {
                 borderTopColor: colors.border,
                 backgroundColor: colors.surface,
               }}>
+                <Pressable
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 18,
+                    backgroundColor: pendingAttachment
+                      ? colors.isDark ? 'rgba(0,230,118,0.2)' : 'rgba(0,230,118,0.15)'
+                      : colors.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: spacing.sm,
+                    borderWidth: 1,
+                    borderColor: pendingAttachment ? colors.accent : colors.border,
+                  }}
+                  onPress={handleAttachmentPress}
+                  accessibilityLabel="Attach file"
+                  accessibilityRole="button"
+                >
+                  <Ionicons
+                    name="attach"
+                    size={18}
+                    color={pendingAttachment ? colors.accent : colors.textMuted}
+                  />
+                </Pressable>
                 <TextInput
                   style={{
                     flex: 1,
@@ -651,7 +802,7 @@ export default function ControlScreen() {
                     borderWidth: 1,
                     borderColor: colors.border,
                   }}
-                  placeholder="Type a message..."
+                  placeholder={pendingAttachment ? 'Add a caption...' : 'Type a message...'}
                   placeholderTextColor={colors.textMuted}
                   value={text}
                   onChangeText={setText}
@@ -674,20 +825,20 @@ export default function ControlScreen() {
                       shadowRadius: 8,
                       shadowOffset: { width: 0, height: 2 },
                     },
-                    (!text.trim() || isSending) && {
+                    (!text.trim() && !pendingAttachment || isSending) && {
                       backgroundColor: colors.surface,
                       shadowOpacity: 0,
                     },
                   ]}
                   onPress={handleSend}
-                  disabled={!text.trim() || isSending}
+                  disabled={(!text.trim() && !pendingAttachment) || isSending}
                   accessibilityLabel="Send message"
                   accessibilityRole="button"
                 >
                   <Ionicons
                     name="send"
                     size={20}
-                    color={text.trim() && !isSending ? '#ffffff' : colors.textMuted}
+                    color={(text.trim() || pendingAttachment) && !isSending ? '#ffffff' : colors.textMuted}
                   />
                 </Pressable>
               </View>
