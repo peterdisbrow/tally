@@ -292,13 +292,26 @@ class LifecycleEmails {
   /**
    * Send an email via Resend, logging to email_sends for dedup.
    * Returns { sent, id?, reason? }
+   *
+   * @param {boolean} [urgent] — bypasses per-church 5-minute throttle (use for
+   *   externally-triggered emails like payment-failed or trial-expired)
    */
-  async sendEmail({ churchId, emailType, to, subject, html, text }) {
+  async sendEmail({ churchId, emailType, to, subject, html, text, urgent = false }) {
     await this.ready;
 
     // Check if already sent
     if (this._hasSent(churchId, emailType)) {
       return { sent: false, reason: 'already-sent' };
+    }
+
+    // Per-church 5-minute throttle — prevents burst when runCheck() qualifies
+    // multiple email types simultaneously. Bypassed for urgent externally-triggered emails.
+    if (!urgent) {
+      const throttled = this._isThrottled(churchId);
+      if (throttled) {
+        console.log(`[LifecycleEmails] Throttled (${emailType}) for church ${churchId} — last email sent ${throttled}s ago`);
+        return { sent: false, reason: 'throttled' };
+      }
     }
 
     if (!to) {
@@ -455,6 +468,24 @@ class LifecycleEmails {
       'SELECT 1 FROM email_sends WHERE church_id = ? AND email_type = ?'
     ).get(churchId, emailType);
     return !!row;
+  }
+
+  /**
+   * Returns seconds since last send if within 5-minute throttle window, else false.
+   */
+  _isThrottled(churchId) {
+    const THROTTLE_MS = 5 * 60 * 1000;
+    const now = Date.now();
+    const recent = this._cache.emailSends
+      .filter((row) => (row.church_id || row.churchId) === churchId && row.sent_at)
+      .map((row) => new Date(row.sent_at).getTime())
+      .filter((t) => !isNaN(t))
+      .reduce((max, t) => Math.max(max, t), 0);
+
+    if (!recent) return false;
+    const elapsed = now - recent;
+    if (elapsed < THROTTLE_MS) return Math.floor(elapsed / 1000);
+    return false;
   }
 
   _recordSend(churchId, emailType, recipient, sentAt, resendId, subject) {
@@ -912,6 +943,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       subject: 'Your Tally trial has ended',
       html,
       text,
+      urgent: true,
     });
   }
 
@@ -928,6 +960,7 @@ Tally — ${this.appUrl.replace('https://', '')}`;
       subject: 'Action needed: payment failed for Tally',
       html,
       text,
+      urgent: true,
     });
   }
 
