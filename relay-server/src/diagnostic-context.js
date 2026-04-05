@@ -170,7 +170,7 @@ async function buildDiagnosticContext(churchId, db, churches, signalFailover) {
   // ── 3. Current/recent service session ───────────────────────────────────
   try {
     const session = await qOne(
-      `SELECT * FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 1`
+      `SELECT * FROM service_sessions WHERE church_id = ? AND (session_type IS NULL OR session_type != 'test') ORDER BY started_at DESC LIMIT 1`
     , [churchId]);
 
     if (session) {

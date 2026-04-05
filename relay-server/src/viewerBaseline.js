@@ -111,7 +111,7 @@ class ViewerBaseline {
     const sessions = this.db.prepare(`
       SELECT id, started_at, peak_viewers
       FROM service_sessions
-      WHERE church_id = ? AND started_at > ?
+      WHERE church_id = ? AND started_at > ? AND (session_type IS NULL OR session_type != 'test')
       ORDER BY started_at DESC
     `).all(churchId, cutoff);
 
@@ -242,7 +242,7 @@ class ViewerBaseline {
     const sessions = await client.query(
       `SELECT id, started_at, peak_viewers
        FROM service_sessions
-       WHERE church_id = ? AND started_at > ?
+       WHERE church_id = ? AND started_at > ? AND (session_type IS NULL OR session_type != 'test')
        ORDER BY started_at DESC`,
       [churchId, cutoff]
     );

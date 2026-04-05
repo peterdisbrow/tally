@@ -475,7 +475,7 @@ class ChurchMemory {
       }
 
       const recentSessions = this.db.prepare(
-        'SELECT id FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 5'
+        "SELECT id FROM service_sessions WHERE church_id = ? AND (session_type IS NULL OR session_type != 'test') ORDER BY started_at DESC LIMIT 5"
       ).all(churchId).map((row) => row.id);
 
       if (recentSessions.length >= 3) {
@@ -546,7 +546,7 @@ class ChurchMemory {
       }
 
       const recentSessions = (await client.query(
-        'SELECT id FROM service_sessions WHERE church_id = ? ORDER BY started_at DESC LIMIT 5',
+        "SELECT id FROM service_sessions WHERE church_id = ? AND (session_type IS NULL OR session_type != 'test') ORDER BY started_at DESC LIMIT 5",
         [churchId]
       )).map((row) => row.id);
 

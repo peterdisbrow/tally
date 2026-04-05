@@ -137,6 +137,9 @@ class SessionRecap {
     // Migration: add room_id for room-based filtering
     try { this.db.prepare('SELECT room_id FROM service_sessions LIMIT 1').get(); }
     catch { try { this.db.exec('ALTER TABLE service_sessions ADD COLUMN room_id TEXT'); } catch { /* already exists */ } }
+    // Migration: add session_type for test/service classification
+    try { this.db.prepare('SELECT session_type FROM service_sessions LIMIT 1').get(); }
+    catch { try { this.db.exec('ALTER TABLE service_sessions ADD COLUMN session_type TEXT'); } catch { /* already exists */ } }
   }
 
   async _ensureTable() {
@@ -177,6 +180,16 @@ class SessionRecap {
     } catch {
       try {
         await client.exec('ALTER TABLE service_sessions ADD COLUMN room_id TEXT');
+      } catch (error) {
+        if (!isDuplicateColumnError(error)) throw error;
+      }
+    }
+
+    try {
+      await client.queryOne('SELECT session_type FROM service_sessions LIMIT 1');
+    } catch {
+      try {
+        await client.exec('ALTER TABLE service_sessions ADD COLUMN session_type TEXT');
       } catch (error) {
         if (!isDuplicateColumnError(error)) throw error;
       }
@@ -311,12 +324,12 @@ class SessionRecap {
    * @param {string} churchId
    * @param {string|null} tdName  Name of the on-call TD
    */
-  startSession(churchId, tdName, instanceName) {
-    if (this.db) return this._startSessionSync(churchId, tdName, instanceName);
-    return this._startSessionAsync(churchId, tdName, instanceName);
+  startSession(churchId, tdName, instanceName, { scheduled = false } = {}) {
+    if (this.db) return this._startSessionSync(churchId, tdName, instanceName, { scheduled });
+    return this._startSessionAsync(churchId, tdName, instanceName, { scheduled });
   }
 
-  _startSessionSync(churchId, tdName, instanceName) {
+  _startSessionSync(churchId, tdName, instanceName, { scheduled = false } = {}) {
     const sessionKey = this._compositeKey(churchId, instanceName);
     if (this.activeSessions.has(sessionKey)) {
       console.warn(`[SessionRecap] Session already active for ${sessionKey} — ending it first`);
@@ -346,6 +359,7 @@ class SessionRecap {
       tdName: tdName || null,
       instanceName: instanceName || null,
       roomId,
+      scheduledSession: scheduled,
       alertTypes: {},         // alertType → count
       alertCount: 0,
       autoRecovered: 0,
@@ -361,7 +375,7 @@ class SessionRecap {
     console.log(`[SessionRecap] Session started — church ${churchId} (TD: ${tdName || 'unknown'})`);
   }
 
-  async _startSessionAsync(churchId, tdName, instanceName) {
+  async _startSessionAsync(churchId, tdName, instanceName, { scheduled = false } = {}) {
     await this.ready;
     const sessionKey = this._compositeKey(churchId, instanceName);
     if (this.activeSessions.has(sessionKey)) {
@@ -393,6 +407,7 @@ class SessionRecap {
       tdName: tdName || null,
       instanceName: instanceName || null,
       roomId,
+      scheduledSession: scheduled,
       alertTypes: {},
       alertCount: 0,
       autoRecovered: 0,
@@ -423,16 +438,23 @@ class SessionRecap {
 
     const grade = this.gradeSession(session);
 
+    // Auto-classify session type: scheduled windows are always 'service',
+    // ad-hoc sessions use stream time threshold (< 5 min = test)
+    const sessionType = session.scheduledSession
+      ? 'service'
+      : (session.streamTotalMinutes >= 5 ? 'service' : 'test');
+
     await this._run(`
       UPDATE service_sessions SET
         ended_at = ?,
         duration_minutes = ?,
         stream_runtime_minutes = ?,
-        grade = ?
+        grade = ?,
+        session_type = ?
       WHERE id = ?
-    `, [endedAt.toISOString(), durationMinutes, session.streamTotalMinutes, grade, session.sessionId]);
+    `, [endedAt.toISOString(), durationMinutes, session.streamTotalMinutes, grade, sessionType, session.sessionId]);
 
-    const finalSession = { ...session, durationMinutes, endedAt, grade };
+    const finalSession = { ...session, durationMinutes, endedAt, grade, sessionType };
 
     // Send recap via Telegram
     let church = null;
@@ -463,7 +485,7 @@ class SessionRecap {
     try {
       if (this.lifecycleEmails && church) {
         const sessionCount = await this._one(
-          'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL',
+          "SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')",
           [churchId]
         );
         if (sessionCount?.cnt === 1) {
@@ -1345,7 +1367,7 @@ Church profile:
           AVG(duration_minutes) as avg_duration,
           COUNT(*) as session_count
         FROM service_sessions
-        WHERE church_id = ? AND ended_at IS NOT NULL
+        WHERE church_id = ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')
       `).get(churchId);
 
       if (!avgRow || avgRow.session_count < 2) {

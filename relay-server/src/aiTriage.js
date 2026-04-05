@@ -467,7 +467,7 @@ class AITriageEngine {
       client.query('SELECT * FROM ai_triage_events').catch(() => []),
       client.query('SELECT * FROM ai_resolutions').catch(() => []),
       client.query('SELECT * FROM churches').catch(() => []),
-      client.query('SELECT * FROM service_sessions').catch(() => []),
+      client.query("SELECT * FROM service_sessions WHERE (session_type IS NULL OR session_type != 'test')").catch(() => []),
     ]).then(([settingsRows, eventRows, resolutionRows, churchRows, sessionRows]) => {
       this._settingsCache.clear();
       this._eventCache = [];
@@ -706,7 +706,7 @@ class AITriageEngine {
       const sessions = this.db
         ? this.db.prepare(`
             SELECT started_at, ended_at FROM service_sessions
-            WHERE church_id = ? AND started_at IS NOT NULL
+            WHERE church_id = ? AND started_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test')
             ORDER BY started_at DESC LIMIT 20
           `).all(churchId)
         : this._sessionCache

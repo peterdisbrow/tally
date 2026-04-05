@@ -5421,28 +5421,48 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         const sessions = await api('GET', '/api/church/sessions' + roomParam());
         const tbody = document.getElementById('sessions-tbody');
         if (!sessions.length) {
-          tbody.innerHTML = '<tr><td colspan="4" style="color:#556270;text-align:center;padding:20px">No sessions recorded yet.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5" style="color:#556270;text-align:center;padding:20px">No sessions recorded yet.</td></tr>';
         } else {
           tbody.innerHTML = sessions.map(s => {
             const start = new Date(s.started_at);
             const end = s.ended_at ? new Date(s.ended_at) : null;
             const dur = end ? Math.round((end - start) / 60000) + 'm' : 'Active';
-            return `<tr>
+            const isTest = s.session_type === 'test';
+            const rowStyle = isTest ? 'opacity:0.5' : '';
+            const typeLabel = isTest
+              ? '<span style="color:#FF5252;font-size:11px;font-weight:600">Test stream (under 5 min)</span>'
+              : '';
+            const overrideBtn = s.ended_at && s.session_type
+              ? '<button onclick="toggleSessionType(\'' + s.id + '\',\'' + s.session_type + '\')" style="background:none;border:1px solid rgba(255,255,255,0.15);color:#8B9DAF;font-size:10px;padding:2px 6px;border-radius:4px;cursor:pointer;margin-left:6px" title="Reclassify session">' + (isTest ? 'Mark as service' : 'Mark as test') + '</button>'
+              : '';
+            return `<tr style="${rowStyle}">
               <td>${start.toLocaleDateString()} <span style="color:#556270">${start.toLocaleTimeString()}</span></td>
               <td>${dur}</td>
               <td>${s.peak_viewers || '—'}</td>
               <td><span class="badge ${s.ended_at ? 'badge-gray' : 'badge-green'}">${s.ended_at ? 'Ended' : 'Live'}</span></td>
+              <td>${typeLabel}${overrideBtn}</td>
             </tr>`;
           }).join('');
-          document.getElementById('stat-sessions').textContent = sessions.length;
+          var serviceCount = sessions.filter(function(s) { return s.session_type !== 'test'; }).length;
+          document.getElementById('stat-sessions').textContent = serviceCount;
         }
       } catch(e) {
         var tbody = document.getElementById('sessions-tbody');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="4" style="color:#556270;text-align:center;padding:20px">No sessions recorded yet.</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="color:#556270;text-align:center;padding:20px">No sessions recorded yet.</td></tr>';
       }
       // Also load AI reports
       loadServiceReports();
     }
+
+    window.toggleSessionType = async function(sessionId, currentType) {
+      var newType = currentType === 'test' ? 'service' : 'test';
+      try {
+        await api('PUT', '/api/church/sessions/' + sessionId + '/type', { type: newType });
+        loadSessions();
+      } catch (e) {
+        console.error('Failed to update session type:', e);
+      }
+    };
 
     async function loadServiceReports() {
       var el = document.getElementById('service-reports-body');

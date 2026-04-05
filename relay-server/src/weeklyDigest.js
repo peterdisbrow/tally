@@ -384,12 +384,12 @@ class WeeklyDigest {
       let sessions;
       if (instanceName) {
         sessions = this.db.prepare(
-          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL) ORDER BY started_at ASC'
-        ).all(churchId, weekAgo.toISOString(), instanceName);
+          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL) AND (session_type IS NULL OR session_type != ?) ORDER BY started_at ASC'
+        ).all(churchId, weekAgo.toISOString(), instanceName, 'test');
       } else {
         sessions = this.db.prepare(
-          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? ORDER BY started_at ASC'
-        ).all(churchId, weekAgo.toISOString());
+          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != ?) ORDER BY started_at ASC'
+        ).all(churchId, weekAgo.toISOString(), 'test');
       }
 
       if (!sessions.length) return null;
@@ -414,13 +414,13 @@ class WeeklyDigest {
       let sessions;
       if (instanceName) {
         sessions = await this._all(
-          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL) ORDER BY started_at ASC',
-          [churchId, weekAgo.toISOString(), instanceName]
+          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL) AND (session_type IS NULL OR session_type != ?) ORDER BY started_at ASC',
+          [churchId, weekAgo.toISOString(), instanceName, 'test']
         );
       } else {
         sessions = await this._all(
-          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? ORDER BY started_at ASC',
-          [churchId, weekAgo.toISOString()]
+          'SELECT * FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != ?) ORDER BY started_at ASC',
+          [churchId, weekAgo.toISOString(), 'test']
         );
       }
 
@@ -555,8 +555,8 @@ class WeeklyDigest {
           if (fullChurch && fullChurch.leadership_emails) {
             const leaderEmails = fullChurch.leadership_emails.split(',').map(e => e.trim()).filter(e => e && e.includes('@'));
             const sessionCountRow = await this._one(
-              'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ?',
-              [church.churchId, weekAgo.toISOString()]
+              'SELECT COUNT(*) as cnt FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != ?)',
+              [church.churchId, weekAgo.toISOString(), 'test']
             );
             const sessionCount = sessionCountRow?.cnt || 0;
             // Top alert type
@@ -643,13 +643,13 @@ class WeeklyDigest {
     try {
       if (instanceName) {
         sessions = await this._all(
-          'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL)',
-          [churchId, weekAgo.toISOString(), instanceName]
+          'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (instance_name = ? OR instance_name IS NULL) AND (session_type IS NULL OR session_type != ?)',
+          [churchId, weekAgo.toISOString(), instanceName, 'test']
         );
       } else {
         sessions = await this._all(
-          'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ?',
-          [churchId, weekAgo.toISOString()]
+          'SELECT grade, duration_minutes FROM service_sessions WHERE church_id = ? AND started_at >= ? AND (session_type IS NULL OR session_type != ?)',
+          [churchId, weekAgo.toISOString(), 'test']
         );
       }
     } catch {}

@@ -880,7 +880,7 @@ class PreServiceRundown {
 
     try {
       const recentSessions = await this._all(
-        'SELECT grade, alert_count, auto_recovered_count FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL ORDER BY ended_at DESC LIMIT 8',
+        "SELECT grade, alert_count, auto_recovered_count FROM service_sessions WHERE church_id = ? AND ended_at IS NOT NULL AND (session_type IS NULL OR session_type != 'test') ORDER BY ended_at DESC LIMIT 8",
         [churchId],
       );
 
