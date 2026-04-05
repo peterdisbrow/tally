@@ -951,48 +951,50 @@ export default function DashboardScreen() {
         );
       })()}
 
-      {/* Mini Dashboard */}
-      <View style={styles.metricRow}>
-        <MetricCard
-          label="DEVICES"
-          value={summary.totalDevices > 0 ? `${summary.onlineDevices} / ${summary.totalDevices}` : '--'}
-          unit={summary.totalDevices > 0 ? 'online' : ''}
-          valueColor={
-            summary.totalDevices === 0 ? colors.textMuted
-              : summary.onlineDevices === summary.totalDevices ? colors.online
-                : colors.warning
-          }
-          colors={colors}
-        />
-        <MetricCard
-          label="STREAM"
-          value={bitrate != null ? (bitrate / 1000).toFixed(1) : '--'}
-          unit={bitrate != null ? 'Mbps' : ''}
-          valueColor={
-            bitrate == null ? colors.textMuted
-              : bitrate >= 4000 ? colors.online
-                : bitrate >= 2000 ? colors.warning
-                  : colors.critical
-          }
-          colors={colors}
-        />
-        <MetricCard
-          label="UPTIME"
-          value={(() => {
-            const dur = session?.duration;
-            if (dur == null || !session?.active) return '--';
-            const h = Math.floor(dur / 3600);
-            const m = Math.floor((dur % 3600) / 60);
-            return `${h}:${m.toString().padStart(2, '0')}`;
-          })()}
-          unit={session?.active && session?.duration != null ? 'hrs' : ''}
-          valueColor={session?.active ? colors.online : colors.textMuted}
-          colors={colors}
-        />
-      </View>
+      {/* Mini Dashboard — only shown when we have actual data */}
+      {(summary.totalDevices > 0 || bitrate != null || session?.active) && (
+        <View style={styles.metricRow}>
+          <MetricCard
+            label="DEVICES"
+            value={summary.totalDevices > 0 ? `${summary.onlineDevices} / ${summary.totalDevices}` : '--'}
+            unit={summary.totalDevices > 0 ? 'online' : ''}
+            valueColor={
+              summary.totalDevices === 0 ? colors.textMuted
+                : summary.onlineDevices === summary.totalDevices ? colors.online
+                  : colors.warning
+            }
+            colors={colors}
+          />
+          <MetricCard
+            label="STREAM"
+            value={bitrate != null ? (bitrate / 1000).toFixed(1) : '--'}
+            unit={bitrate != null ? 'Mbps' : ''}
+            valueColor={
+              bitrate == null ? colors.textMuted
+                : bitrate >= 4000 ? colors.online
+                  : bitrate >= 2000 ? colors.warning
+                    : colors.critical
+            }
+            colors={colors}
+          />
+          <MetricCard
+            label="UPTIME"
+            value={(() => {
+              const dur = session?.duration;
+              if (dur == null || !session?.active) return '--';
+              const h = Math.floor(dur / 3600);
+              const m = Math.floor((dur % 3600) / 60);
+              return `${h}:${m.toString().padStart(2, '0')}`;
+            })()}
+            unit={session?.active && session?.duration != null ? 'hrs' : ''}
+            valueColor={session?.active ? colors.online : colors.textMuted}
+            colors={colors}
+          />
+        </View>
+      )}
 
-      {/* Alert Bar */}
-      <AlertBar alerts={alerts} colors={colors} />
+      {/* Alert Bar — only shown when there are alerts */}
+      {alerts.length > 0 && <AlertBar alerts={alerts} colors={colors} />}
 
       {/* Session + Viewers Row */}
       {(session?.active || summary.totalViewers > 0) && (
