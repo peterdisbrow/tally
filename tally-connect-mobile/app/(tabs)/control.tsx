@@ -6,9 +6,22 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+// Lazy-load native file modules with try/catch. These packages require a native
+// binary that includes them — without a new EAS build the requireNativeModule()
+// call inside each package throws at import time and crashes the tab. Lazy
+// loading means the tab loads normally; the attachment feature is disabled until
+// the user installs a build that includes the native modules.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+let ImagePicker: typeof import('expo-image-picker') | null = null;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+let DocumentPicker: typeof import('expo-document-picker') | null = null;
+// Use expo-file-system/legacy: v55 moved readAsStringAsync/EncodingType there
+// and the main package stubs now throw a deprecation error at runtime.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+let LegacyFileSystem: typeof import('expo-file-system/legacy') | null = null;
+try { ImagePicker = require('expo-image-picker'); } catch { /* native module unavailable */ }
+try { DocumentPicker = require('expo-document-picker'); } catch { /* native module unavailable */ }
+try { LegacyFileSystem = require('expo-file-system/legacy'); } catch { /* native module unavailable */ }
 import { useStatusStore, useActiveRoomStatus } from '../../src/stores/statusStore';
 import { useCommandResultStore } from '../../src/stores/commandResultStore';
 import { useChatStore } from '../../src/stores/chatStore';
@@ -224,6 +237,10 @@ export default function ControlScreen() {
   };
 
   const pickImage = async (source: 'library' | 'camera') => {
+    if (!ImagePicker) {
+      Alert.alert('App Update Required', 'Please install the latest version of the app to use file attachments.');
+      return;
+    }
     const request = source === 'camera'
       ? ImagePicker.requestCameraPermissionsAsync
       : ImagePicker.requestMediaLibraryPermissionsAsync;
@@ -246,11 +263,15 @@ export default function ControlScreen() {
   };
 
   const pickDocument = async () => {
+    if (!DocumentPicker || !LegacyFileSystem) {
+      Alert.alert('App Update Required', 'Please install the latest version of the app to use file attachments.');
+      return;
+    }
     const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, type: '*/*' });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
     try {
-      const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+      const base64 = await LegacyFileSystem.readAsStringAsync(asset.uri, { encoding: LegacyFileSystem.EncodingType.Base64 });
       setPendingAttachment({ data: base64, mimeType: asset.mimeType || 'application/octet-stream', fileName: asset.name });
       setPendingAttachmentUri(null);
     } catch {
