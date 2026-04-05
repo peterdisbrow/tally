@@ -23,13 +23,19 @@ function roomKey(roomId: string | null | undefined): string {
   return roomId || NO_ROOM;
 }
 
+export interface ChatAttachment {
+  data: string;       // base64
+  mimeType: string;
+  fileName: string;
+}
+
 interface ChatState {
   messagesByRoom: Record<string, ChatMessage[]>;
   isLoading: boolean;
   isSending: boolean;
 
   fetchMessages: () => Promise<void>;
-  sendMessage: (text: string, roomId?: string) => Promise<boolean>;
+  sendMessage: (text: string, roomId?: string, attachment?: ChatAttachment) => Promise<boolean>;
   addMessage: (msg: ChatMessage) => void;
   /** Clear messages for the current active room only. */
   clearMessages: () => void;
@@ -80,12 +86,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  sendMessage: async (text, roomId) => {
+  sendMessage: async (text, roomId, attachment) => {
     set({ isSending: true });
     try {
       const saved = await api<Record<string, unknown>>('/api/church/chat', {
         method: 'POST',
-        body: { message: text, roomId: roomId || null },
+        body: { message: text, roomId: roomId || null, ...(attachment ? { attachment } : {}) },
       });
       const msg = normalizeMessage(saved);
       const key = roomKey(msg.roomId ?? roomId);
