@@ -2178,6 +2178,29 @@
         </div>
       </div>
 
+      <!-- Planning Center -->
+      <div class="card" id="conn-pco-card" style="margin-bottom:16px;display:none">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="28" height="28" rx="6" fill="#25252B"/><path d="M14 6C9.582 6 6 9.582 6 14s3.582 8 8 8 8-3.582 8-8-3.582-8-8-8zm0 2.4a2.8 2.8 0 1 1 0 5.6 2.8 2.8 0 0 1 0-5.6zm0 11.36a6.16 6.16 0 0 1-4.8-2.304c.024-1.592 3.2-2.464 4.8-2.464 1.592 0 4.776.872 4.8 2.464A6.16 6.16 0 0 1 14 19.76z" fill="#4BC0C8"/></svg>
+          <div>
+            <div style="font-weight:600;font-size:15px;color:#F0F2F4">Planning Center</div>
+            <div id="conn-pco-org" style="font-size:12px;color:#6B7280;margin-top:2px"></div>
+          </div>
+          <div style="flex:1"></div>
+          <span id="conn-pco-badge" class="conn-badge conn-badge-off">Not connected</span>
+        </div>
+        <div id="conn-pco-details" style="display:none;margin-bottom:12px">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:#8B9DAF">
+            <div>Organization: <span id="conn-pco-org-name" style="color:#F0F2F4;font-weight:500"></span></div>
+            <div>Last synced: <span id="conn-pco-last-synced" style="color:#F0F2F4;font-weight:500"></span></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-primary" id="btn-conn-pco" data-action="connPcoConnect" style="font-size:13px;padding:8px 18px;">Connect Planning Center</button>
+          <span id="conn-pco-status-msg" style="font-size:12px;color:#6B7280"></span>
+        </div>
+      </div>
+
       <div class="card" style="border-color:#0d332033">
         <div style="font-size:13px;color:#6B7280;line-height:1.6">
           <strong style="color:#8B9DAF">How it works:</strong> Connecting a streaming platform lets Tally monitor your live stream health, track viewer counts, and detect issues in real time. Stream keys are managed automatically &mdash; you just need to authorize access once.

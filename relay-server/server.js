@@ -2118,6 +2118,7 @@ setupChurchPortal(app, db, churches, JWT_SECRET, requireAdmin, {
   preServiceRundown,
   viewerBaseline,
   streamOAuth,
+  planningCenter,
   queryClient,
   onRoomCreated(churchId, roomId) {
     if (!roomRegistry.has(churchId)) roomRegistry.set(churchId, new Set());

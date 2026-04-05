@@ -3649,6 +3649,7 @@ const CHURCH_ID = document.body.dataset.churchId || '';
         var d = await api('GET', '/api/church/oauth/status');
         updateConnectionsUI(d);
       } catch (e) { /* relay may not support oauth yet */ }
+      loadPcoStatus();
     }
 
     function updateConnectionsUI(d) {
@@ -3754,6 +3755,86 @@ const CHURCH_ID = document.body.dataset.churchId || '';
 
       // Also sync the equipment page's legacy FB OAuth status
       portalUpdateOAuthStatus();
+    }
+
+    // ── Planning Center status ──
+    async function loadPcoStatus() {
+      var card = document.getElementById('conn-pco-card');
+      try {
+        var d = await api('GET', '/api/church/pco/status');
+        if (card) card.style.display = '';
+        updatePcoUI(d);
+      } catch (e) {
+        // Feature not available or not enabled — hide the card
+        if (card) card.style.display = 'none';
+      }
+    }
+
+    function updatePcoUI(d) {
+      var badge = document.getElementById('conn-pco-badge');
+      var details = document.getElementById('conn-pco-details');
+      var org = document.getElementById('conn-pco-org');
+      var orgName = document.getElementById('conn-pco-org-name');
+      var lastSynced = document.getElementById('conn-pco-last-synced');
+      var btn = document.getElementById('btn-conn-pco');
+      var msg = document.getElementById('conn-pco-status-msg');
+      if (msg) msg.textContent = '';
+
+      if (d && d.connected) {
+        badge.className = 'conn-badge conn-badge-on';
+        badge.textContent = 'Connected';
+        details.style.display = 'block';
+        org.textContent = d.orgName || '';
+        orgName.textContent = d.orgName || '\u2014';
+        lastSynced.textContent = d.lastSynced ? new Date(d.lastSynced).toLocaleDateString() : 'Never';
+        btn.textContent = 'Disconnect';
+        btn.className = 'btn-secondary';
+        btn.setAttribute('data-action', 'connPcoDisconnect');
+      } else {
+        badge.className = 'conn-badge conn-badge-off';
+        badge.textContent = 'Disconnected';
+        details.style.display = 'none';
+        org.textContent = '';
+        btn.textContent = 'Connect Planning Center';
+        btn.className = 'btn-primary';
+        btn.setAttribute('data-action', 'connPcoConnect');
+      }
+    }
+
+    async function connPcoConnect() {
+      var btn = document.getElementById('btn-conn-pco');
+      var msg = document.getElementById('conn-pco-status-msg');
+      if (btn) { btn.disabled = true; btn.textContent = 'Connecting\u2026'; }
+      if (msg) { msg.textContent = 'Opening Planning Center\u2026'; msg.style.color = '#eab308'; }
+
+      try {
+        var d = await api('GET', '/api/church/pco/auth-url');
+        var popup = window.open(d.authUrl, 'pco_oauth', 'width=600,height=700,scrollbars=yes');
+
+        // Poll for popup close, then reload status
+        var pollTimer = setInterval(function() {
+          try {
+            if (!popup || popup.closed) {
+              clearInterval(pollTimer);
+              if (btn) { btn.disabled = false; }
+              if (msg) { msg.textContent = ''; }
+              loadPcoStatus();
+            }
+          } catch (e) { /* cross-origin — keep polling */ }
+        }, 1000);
+      } catch (e) {
+        if (msg) { msg.textContent = e.message || 'Failed to start'; msg.style.color = '#FF5252'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Connect Planning Center'; }
+      }
+    }
+
+    async function connPcoDisconnect() {
+      if (!confirm('Disconnect Planning Center? Service plans will no longer sync.')) return;
+      try {
+        await api('POST', '/api/church/pco/disconnect');
+        loadPcoStatus();
+        toast('Planning Center disconnected');
+      } catch (e) { toast('Failed: ' + e.message, true); }
     }
 
     async function connYtConnect() {
@@ -7275,6 +7356,8 @@ const CHURCH_ID = document.body.dataset.churchId || '';
                 var txt3 = document.getElementById('stat-status-text');
                 if (dot3 && txt3) { dot3.style.background = '#556270'; txt3.textContent = 'Offline'; }
               }
+            } else if (data.type === 'pco:connected' || data.type === 'pco:disconnected') {
+              loadPcoStatus();
             } else if (data.type === 'stream_protection_status') {
               updateStreamProtectionUI(data.streamProtection);
             } else if (data.type === 'viewer_update') {
@@ -7448,6 +7531,12 @@ document.addEventListener('DOMContentLoaded', function() {
         break;
       case 'connFbSelectPage':
         if (typeof connFbSelectPage === 'function') connFbSelectPage();
+        break;
+      case 'connPcoConnect':
+        if (typeof connPcoConnect === 'function') connPcoConnect();
+        break;
+      case 'connPcoDisconnect':
+        if (typeof connPcoDisconnect === 'function') connPcoDisconnect();
         break;
 
       // Profile

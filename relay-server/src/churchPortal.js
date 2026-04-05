@@ -602,7 +602,7 @@ function _escapeHtml(str) {
 
 // ─── Route setup ───────────────────────────────────────────────────────────────
 
-function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine, preServiceRundown, viewerBaseline, streamOAuth, queryClient, onRoomCreated = () => {}, onRoomDeleted = () => {}, onRoomRestored = () => {} } = {}) {
+function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing, lifecycleEmails, preServiceCheck, sessionRecap, weeklyDigest, rundownEngine, scheduler, aiRateLimiter, guestTdMode, signalFailover, broadcastToPortal, aiTriageEngine, preServiceRundown, viewerBaseline, streamOAuth, planningCenter, queryClient, onRoomCreated = () => {}, onRoomDeleted = () => {}, onRoomRestored = () => {} } = {}) {
   const portalQuery = queryClient || (
     db && typeof db.query === 'function'
       && typeof db.run === 'function'
@@ -1566,6 +1566,34 @@ function setupChurchPortal(app, db, churches, jwtSecret, requireAdmin, { billing
     app.get('/api/church/oauth/status', authMiddleware, async (req, res) => {
       try {
         res.json(await streamOAuth.getStatus(req.church.churchId));
+      } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+    });
+  }
+
+  // ── Planning Center OAuth (portal-initiated) ──────────────────────────────────
+  if (planningCenter) {
+    // Get PCO connection status
+    app.get('/api/church/pco/status', authMiddleware, (req, res) => {
+      try {
+        const status = planningCenter.getStatus(req.church.churchId);
+        res.json(status || { connected: false });
+      } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+    });
+
+    // Get PCO OAuth authorization URL (opens popup)
+    app.get('/api/church/pco/auth-url', adminMiddleware, (req, res) => {
+      try {
+        const PCO_REDIRECT_URI = process.env.PCO_REDIRECT_URI || 'https://relay.tallyconnect.com/api/admin/pco/callback';
+        const { authUrl, state } = planningCenter.generateOAuthUrl(req.church.churchId, PCO_REDIRECT_URI);
+        res.json({ authUrl, state });
+      } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
+    });
+
+    // Disconnect PCO
+    app.post('/api/church/pco/disconnect', adminMiddleware, async (req, res) => {
+      try {
+        const result = await planningCenter.disconnect(req.church.churchId);
+        res.json(result || { success: true });
       } catch (e) { res.status(500).json({ error: safeErrorMessage(e) }); }
     });
   }
