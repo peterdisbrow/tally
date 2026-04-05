@@ -23,6 +23,7 @@ const deviceState = {
   ptz:           [],  // [{ ip, name, protocol, port, username, password, profileToken }]
   videohub:      [],  // [{ ip, name }]
   'smart-plug':  [],  // [{ ip, name }]
+  tricaster:     [],  // [{ host, port, role, name }]
 };
 
 const expandedDevices = new Set();

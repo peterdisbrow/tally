@@ -129,6 +129,29 @@ const DEVICE_REGISTRY = {
     testType: 'propresenter',
   },
 
+  tricaster: {
+    id: 'tricaster',
+    name: 'TriCaster',
+    icon: '\u{1F3AC}',
+    category: 'core',
+    description: 'NewTek/Vizrt video switcher (HTTP API)',
+    multi: true,
+    maxInstances: 2,
+    fields: [
+      { key: 'host', label: 'IP Address', type: 'text', placeholder: '192.168.1.10' },
+      { key: 'port', label: 'Port', type: 'number', placeholder: '80', style: 'width:92px' },
+      { key: 'role', label: 'Role', type: 'select', options: [
+        { value: 'primary', label: 'Primary (Broadcast)' },
+        { value: 'backup', label: 'Backup' },
+        { value: 'imag', label: 'IMAG' },
+        { value: 'broadcast', label: 'Broadcast' },
+        { value: 'recording', label: 'Recording' },
+      ]},
+      { key: 'name', label: 'Label', type: 'text', placeholder: 'e.g. Main TriCaster', style: 'flex:1' },
+    ],
+    testType: 'tricaster',
+  },
+
   vmix: {
     id: 'vmix',
     name: 'vMix',
@@ -272,7 +295,7 @@ const SCAN_TO_DEVICE = {
   propresenter: 'propresenter',
   vmix: 'vmix',
   resolume: 'resolume',
-  tricaster: 'encoder',
+  tricaster: 'tricaster',
   birddog: 'encoder',
   videohub: 'videohub',
   mixers: 'mixer',

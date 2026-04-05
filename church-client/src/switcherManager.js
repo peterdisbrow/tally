@@ -12,6 +12,7 @@
 const { AtemSwitcher } = require('./switchers/atemSwitcher');
 const { ObsSwitcher } = require('./switchers/obsSwitcher');
 const { VmixSwitcher } = require('./switchers/vmixSwitcher');
+const { TriCasterSwitcher } = require('./switchers/tricasterSwitcher');
 
 class SwitcherManager {
   constructor(agent) {
@@ -197,6 +198,24 @@ class SwitcherManager {
       status.vmix.edition = s.edition || status.vmix.edition;
       status.vmix.version = s.version || status.vmix.version;
     }
+
+    // ── TriCaster legacy ─────────────────────────────────────────────────
+    const tcSwitch = this.getFirstByType('tricaster');
+    if (tcSwitch && status.tricaster) {
+      const s = tcSwitch.getStatus();
+      status.tricaster.connected = s.connected;
+      status.tricaster.host = s.host || status.tricaster.host;
+      status.tricaster.productName = s.productName;
+      status.tricaster.productVersion = s.productVersion;
+      status.tricaster.sessionName = s.sessionName;
+      status.tricaster.programInput = s.programInput;
+      status.tricaster.previewInput = s.previewInput;
+      status.tricaster.inTransition = s.inTransition;
+      status.tricaster.recording = s.recording;
+      status.tricaster.streaming = s.streaming;
+      status.tricaster.inputLabels = s.inputLabels;
+      status.tricaster.tallyMap = s.tallyMap;
+    }
   }
 
   // ─── Private ────────────────────────────────────────────────────────────
@@ -256,6 +275,15 @@ class SwitcherManager {
         break;
       case 'vmix':
         sw = new VmixSwitcher({
+          id: entry.id,
+          role: entry.role,
+          name: entry.name,
+          host: entry.host,
+          port: entry.port,
+        });
+        break;
+      case 'tricaster':
+        sw = new TriCasterSwitcher({
           id: entry.id,
           role: entry.role,
           name: entry.name,
