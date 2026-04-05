@@ -48,6 +48,25 @@ function safeErrorMessage(err, fallback = 'Internal server error') {
   return err?.message || fallback;
 }
 
+function friendlyInputName(input) {
+  if (input == null) return '';
+  const n = Number(input);
+  if (n >= 1 && n <= 40) return `Cam ${n}`;
+  if (n >= 1000 && n < 2000) return 'Color Bars';
+  if (n === 2001) return 'Color 1';
+  if (n === 2002) return 'Color 2';
+  if (n === 3010) return 'MP1';
+  if (n === 3011) return 'MP1 Key';
+  if (n === 3020) return 'MP2';
+  if (n === 3021) return 'MP2 Key';
+  if (n === 6000) return 'Super Source';
+  if (n === 7001) return 'Clean Feed 1';
+  if (n === 7002) return 'Clean Feed 2';
+  if (n === 10010) return 'ME 1 PGM';
+  if (n === 10011) return 'ME 1 PVW';
+  return `${n}`;
+}
+
 /**
  * Resolve the room instance for this request.
  *
@@ -233,11 +252,22 @@ function requirePortalAuth(db, jwtSecret, queryClient = null) {
       }
       // Mobile app tokens (from /api/church/mobile/login)
       if (payload.type === 'church_app') {
-        const church = client.queryOne
-          ? await client.queryOne('SELECT * FROM churches WHERE churchId = ?', [payload.churchId])
-          : client.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
+        // Primary lookup by churchId from JWT. If churchId is null (tokens issued
+        // during the Postgres cutover bug window had churchId omitted), fall back
+        // to the name field which is also signed in the JWT and is unique.
+        let church = null;
+        if (payload.churchId) {
+          church = client.queryOne
+            ? await client.queryOne('SELECT *, churchId AS "churchId" FROM churches WHERE churchId = ?', [payload.churchId])
+            : client.prepare('SELECT * FROM churches WHERE churchId = ?').get(payload.churchId);
+        }
+        if (!church && payload.name) {
+          church = client.queryOne
+            ? await client.queryOne('SELECT *, churchId AS "churchId" FROM churches WHERE name = ?', [payload.name])
+            : client.prepare('SELECT * FROM churches WHERE name = ?').get(payload.name);
+        }
         if (!church) throw new Error('church not found');
-        req.church = church;
+        req.church = normalizeChurchRow(church);
         return next();
       }
       throw new Error('wrong type');
