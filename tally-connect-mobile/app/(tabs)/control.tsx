@@ -413,19 +413,19 @@ export default function ControlScreen() {
                   colors={colors}
                   onPress={() => {
                     if (!isStreaming) {
-                      const cmd = status?.obs?.connected ? 'obs.startStream' : 'atem.startStream';
+                      const cmd = status?.obs?.connected ? 'obs.startStream' : 'atem.startStreaming';
                       sendCommand(cmd, {}, false, 'Start Stream');
                     } else {
                       const cmd = status?.obs?.streaming ? 'obs.stopStream'
-                        : status?.atem?.streaming ? 'atem.stopStream'
+                        : status?.atem?.streaming ? 'atem.stopStreaming'
                         : status?.encoder?.streaming ? 'encoder.stopStream'
                         : 'obs.stopStream';
                       sendCommand(cmd, {}, true, 'Stop Stream');
                     }
                   }}
                   pending={
-                    pending === 'obs.startStream' || pending === 'atem.startStream' ||
-                    pending === 'obs.stopStream' || pending === 'atem.stopStream' || pending === 'encoder.stopStream'
+                    pending === 'obs.startStream' || pending === 'atem.startStreaming' ||
+                    pending === 'obs.stopStream' || pending === 'atem.stopStreaming' || pending === 'encoder.stopStream'
                   }
                   destructive={!!isStreaming}
                   active={!!isStreaming}
@@ -496,16 +496,16 @@ export default function ControlScreen() {
                     label="Prev Slide"
                     sublabel="ProPresenter"
                     colors={colors}
-                    onPress={() => sendCommand('propresenter.previousSlide')}
-                    pending={pending === 'propresenter.previousSlide'}
+                    onPress={() => sendCommand('propresenter.previous')}
+                    pending={pending === 'propresenter.previous'}
                   />
                   <BigButton
                     icon="chevron-forward-circle-outline"
                     label="Next Slide"
                     sublabel="ProPresenter"
                     colors={colors}
-                    onPress={() => sendCommand('propresenter.nextSlide')}
-                    pending={pending === 'propresenter.nextSlide'}
+                    onPress={() => sendCommand('propresenter.next')}
+                    pending={pending === 'propresenter.next'}
                   />
                 </View>
               )}
